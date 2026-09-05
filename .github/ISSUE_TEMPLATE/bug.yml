@@ -1,0 +1,34 @@
+name: Bug
+description: Quelque chose ne fait pas ce qu'il dit.
+title: "fix(portée): "
+labels: ["type/bug"]
+body:
+  - type: textarea
+    id: symptome
+    attributes:
+      label: Symptôme
+      description: Ce qui se passe, tel quel — la sortie, pas une paraphrase.
+    validations:
+      required: true
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Attendu
+    validations:
+      required: true
+  - type: textarea
+    id: reproduire
+    attributes:
+      label: Reproduire
+      value: |
+        1. 
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "opencloud version"
+  - type: textarea
+    id: journaux
+    attributes:
+      label: Journaux
+      render: text
