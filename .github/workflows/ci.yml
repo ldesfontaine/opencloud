@@ -1,0 +1,84 @@
+# Les actions sont épinglées par SHA de commit : un tag est un pointeur mobile.
+# Plumber (.plumber.yaml) vérifie cette politique à chaque exécution.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: format
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: gosec
+        run: go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
+
+      - name: shellcheck
+        run: |
+          files=$(find internal/scripts -name '*.sh' 2>/dev/null)
+          if [ -n "$files" ]; then shellcheck $files; else echo "aucun script"; fi
+
+      - name: secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build
+        run: CGO_ENABLED=0 go build -trimpath -o bin/opencloud ./cmd/opencloud
+
+  plumber:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: politique CI/CD
+        uses: getplumber/plumber@c85c712bca3c9f547a88c66bb2541db179a1a79e # v0.4.52
+        with:
+          version: v0.4.52
+          verify-attestation: "true"
+          config-file: .plumber.yaml
+          min-points: "100"
+          fail-warnings: "true"
+          soft-fail: "false"
+          upload-sarif: "false"
+          upload-artifacts: "false"
+          pbom: ""
+          pbom-cyclonedx: ""
+          sarif: ""
