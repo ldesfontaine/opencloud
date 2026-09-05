@@ -28,6 +28,8 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 |---|---|
 | **Go, interface rendue côté serveur (HTML + HTMX), un seul binaire** dans `/opt`, unité systemd. **Pas de conteneur** | `13-pile-technique.md`, `10-cycle-de-vie.md` |
 | **Développement en local, tests dans la CI GitHub** (tests, sécurité, bonnes pratiques) | `12-methode.md` |
+| **Installation par paquet `.deb`** : un binaire qui embarque tout, unité durcie, `/etc/opencloud`, `/var/lib/opencloud` préservés par dpkg. Pas de `curl \| sh` | `20-installation-et-mise-a-jour.md` |
+| **Mise à jour en place** — `apt install` ou `opencloud self-update` : somme et attestation vérifiées, pas de saut de version mineure, ancien binaire gardé, **sauvegarde de la base avant migration sinon pas de migration**, jamais automatique, jamais par la file | `20-installation-et-mise-a-jour.md` |
 | **Architecture en composants** sous `internal/`, interfaces + constructeurs, aucune globale ; `web` ne lance rien, `runner` ne compose aucune commande | `16-architecture.md` |
 | **Identifiants en anglais, commentaires courts en français, tout ce que voit l'opérateur en français** ; **lisible par un humain avant d'être court** — pas d'astuce, le nommage fait le travail ; refus ≠ erreur ; exécution sans shell ; écriture atomique ; fixtures figées | `17-conventions-code.md` |
 | **Ordre du dev** : squelette → une action locale suivie en direct → SSH + enrôlement → publier → certifier → services → sauvegardes → observer | `16-architecture.md` |
@@ -136,6 +138,5 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | **Le flux des requêtes et l'adressage IP** — à comprendre avant de choisir | `06-reseau-et-certificats.md` |
 | **Outil de sauvegarde** et cohérence des bases | `07-donnees-et-sauvegardes.md` |
 | **Rétention en durée**, sauvegardes comme observation | `07`, `09` |
-| **Forme de la mise à jour d'openCloud** — au dev | `10-cycle-de-vie.md` |
 | **Déploiement d'applications** — le modèle est posé | `03-modele.md` |
 | **Trois alertes avant les applications** — remonter certificat en échec, sauvegarde en échec et disque qui monte au rang de « certifier ». **L'ordre de marche reste** ; la proposition est notée | `19-cas-d-usage.md` §7 |

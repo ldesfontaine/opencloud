@@ -27,7 +27,7 @@ Quatre choses rendent ce choix tenable :
 
 | | Quoi | Décidé |
 |---|---|---|
-| **1** | **openCloud lui-même** | Jamais par la file d'actions. Forme à fixer au dev — le modèle de mise à jour signée de SysWarden est noté (`annexes/lecture-syswarden.md`). |
+| **1** | **openCloud lui-même** | `apt install` de la version suivante ou `opencloud self-update` : somme et attestation vérifiées, pas de saut de version mineure, ancien binaire gardé, sauvegarde de la base avant migration. Jamais par la file, jamais en silence (`20-installation-et-mise-a-jour.md`). |
 | **2** | **Les services déployés** | **Jamais seuls.** Redéployer est une action ; revenir en arrière ne ramène pas les données. |
 | **3** | **Le système des machines** | **Sécurité en automatique** (`unattended-upgrades`). Si un redémarrage est requis, l'interface le signale et l'opérateur clique. |
 
@@ -43,14 +43,17 @@ son compte :
 
 ## L'installation d'openCloud
 
-- **Un binaire dans `/opt`, une unité systemd durcie.** Pas de conteneur : il
-  serait isolé de tout ce qu'openCloud doit toucher — `/srv`, systemd, le
-  Traefik de l'hôte.
-- Sur **Debian ou Ubuntu**.
+Un paquet `.deb`, un binaire qui embarque tout, une unité durcie, l'état dans
+`/var/lib/opencloud`. Mise à jour en place par `apt install` ou
+`opencloud self-update`, avec sauvegarde de la base avant migration. Le détail
+est dans `20-installation-et-mise-a-jour.md`.
+
+- Sur **Debian ou Ubuntu**. Pas de conteneur : isolé de tout ce qu'openCloud
+  doit toucher — `/srv`, systemd, le Traefik de l'hôte.
 - La machine openCloud est **enrôlée comme les autres**, avec transport local
   (`05-execution.md`).
-- Réinstallation ailleurs après perte : restaurer `/var/lib/opencloud`, vérifier
-  que la nouvelle machine joint chacune, retirer l'ancienne.
+- Réinstallation ailleurs après perte : restaurer `/var/lib/opencloud`,
+  vérifier que la nouvelle machine joint chacune, retirer l'ancienne.
 
 ## L'amorçage
 

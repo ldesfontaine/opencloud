@@ -25,14 +25,23 @@ façon. Il ne réconcilie rien : la machine fait foi.
 
 ## Déployer
 
-*Pas encore de code.* Le déploiement prévu :
+*Pas encore de release.* Le déploiement prévu, sur Debian ou Ubuntu :
 
-1. Poser le binaire dans `/opt/opencloud/` et son unité systemd sur une
-   machine de l'infrastructure — c'est **la machine openCloud**.
-2. Ouvrir l'interface, changer le mot de passe.
-3. Pour chaque machine à gérer, jouer la commande d'enrôlement générée par
+```bash
+sudo apt install ./opencloud_<version>_amd64.deb
+```
+
+Un seul binaire qui embarque l'interface, les migrations et les scripts ;
+le paquet pose l'unité systemd, `/etc/opencloud/config.toml` et
+`/var/lib/opencloud`. Puis :
+
+1. Ouvrir l'interface, changer le mot de passe.
+2. Pour chaque machine à gérer, jouer la commande d'enrôlement générée par
    l'interface. Elle crée l'utilisateur `opencloud`, pose sa clé, et affiche
    l'empreinte de la machine.
+
+Mise à jour : `apt install` de la version suivante, ou `sudo opencloud
+self-update` — en place, sans réinstaller (`docs/projet/20-installation-et-mise-a-jour.md`).
 
 ## Utiliser
 

@@ -63,6 +63,7 @@ pour ne rejouer que ce qui n'a pas abouti (`05-execution.md`).
 | # | Ce qu'on livre | Composants | Ça marche quand… |
 |---|---|---|---|
 | 1 | Le squelette | `config`, `store`, `auth`, `web`, `cli` | On se connecte, on change le mot de passe, la page est vide. |
+| 1 bis | **Installable** | `make release` (`nfpm`), unité, `config.toml`, `self-update` | `apt install ./opencloud.deb` sur une Debian neuve : l'interface répond ; `apt install` de la version suivante met à jour sans rien perdre (`20-installation-et-mise-a-jour.md`). |
 | 2 | **Une action en local, suivie en direct** | `validate`, `scripts`, `catalog`, `transport/local`, `runner` | *Diagnostiquer* s'exécute par `systemd-run` sur la machine de dev, la sortie défile dans le navigateur, le journal passe à `appliquée`. Coupure au milieu → reprise propre. **C'est le cœur ; tout le reste sont des actions.** |
 | 3 | Une deuxième machine | `enroll`, `transport/ssh` | La commande générée enrôle une machine ; *Tester l'accès* répond. |
 | 4 | Publier | actions *socle*, *proxy*, *hôte virtuel* | Un conteneur témoin répond en HTTP par son nom. |

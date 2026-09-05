@@ -53,6 +53,7 @@ vocabulaire est dans `03-modele.md`.
 | `16-architecture.md` | **Les composants du binaire**, leurs frontières, le flux d'une action, la suite logique du dev | vous ouvrez un package |
 | `17-conventions-code.md` | Dépôt, langue, erreurs, exécution, web, tests, CI | vous écrivez du code |
 | `18-reprise-code-your-cloud.md` | Fichier par fichier, ce qu'on copie, adapte ou porte de la V1, dans l'ordre des étapes | vous commencez une étape |
+| `20-installation-et-mise-a-jour.md` | Paquet `.deb`, un binaire qui embarque tout, mise à jour en place avec sauvegarde avant migration | vous installez ou mettez à jour |
 | `19-cas-d-usage.md` | **Le terrain contre le registre** : personnes, moments, ce qui fait fuir, et chaque décision confirmée, à compléter ou contredite | vous doutez d'une décision |
 | `annexes/lecture-syswarden.md` | Ce que le code de SysWarden apprend : journal de transaction, écriture atomique, config validée | vous écrivez le runner |
 | `annexes/lecture-sudoers.md` | Listes blanches sudoers : ce qui tient, ce qui ne tient pas, pourquoi un lanceur | vous écrivez l'enrôlement |
