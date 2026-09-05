@@ -85,7 +85,8 @@ func (r *Runner) DepositScript(ctx context.Context, action Action) error {
 
 ## Le build
 
-Go ≥ 1.24. `CGO_ENABLED=0`, `-trimpath`, version par `ldflags` depuis le tag.
+Go ≥ 1.26. Les outils (`staticcheck`, `govulncheck`, `gosec`) sont
+épinglés par version dans le Makefile et la CI — jamais `@latest`. `CGO_ENABLED=0`, `-trimpath`, version par `ldflags` depuis le tag.
 SQLite `modernc.org/sqlite`. Un binaire, reproductible.
 
 ## Les composants
