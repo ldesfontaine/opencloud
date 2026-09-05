@@ -77,3 +77,29 @@ affiche.
 n'est pas déclaré en écriture *(Headscale #1274)*. L'unité openCloud déclare
 `StateDirectory=opencloud` et `ReadWritePaths=` explicites — durcie, mais
 capable d'écrire là où elle doit.
+
+## Désinstaller
+
+Deux gestes, deux résultats, dits avant :
+
+| Geste | Ce qui part | Ce qui reste |
+|---|---|---|
+| `sudo apt remove opencloud` | Le binaire, l'unité, l'utilisateur système | `/etc/opencloud`, `/var/lib/opencloud` — base, clés, jetons. Réinstaller retrouve tout |
+| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud` | Rien d'openCloud sur cette machine |
+
+**Ce qu'aucun des deux ne touche, jamais** : `/srv` — les services et leurs
+données —, Traefik, CrowdSec, Docker, le collecteur. Ils appartiennent à la
+machine, pas à openCloud ; ils continuent de tourner exactement comme avant.
+C'est le principe « il n'est pas indispensable » (`01-perimetre.md`), vérifié
+au moment où on l'enlève.
+
+**Les machines gérées ne sont pas touchées** par la désinstallation de la
+machine openCloud : un paquet ne parle pas au réseau. Ce qu'openCloud y a posé
+— l'utilisateur `opencloud`, sa clé, sa règle `sudo`, le lanceur — se retire
+**par l'action *Retirer une machine***, une par une, **avant** de désinstaller
+openCloud lui-même. L'interface le rappelle : « N machines encore enrôlées ».
+
+*Retirer une machine* écrit d'abord son marqueur « retrait en cours », prend un
+recensement du disque, retire dans l'ordre inverse de la pose, reprend un
+recensement, et montre la différence — rien ne disparaît en silence, rien
+d'oublié (`15-catalogue-actions.md`).
