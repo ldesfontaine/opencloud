@@ -192,6 +192,11 @@ func (s *Store) backupDatabase(ctx context.Context, nextVersion int) (string, er
 	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, temporaryPath); err != nil {
 		return "", fmt.Errorf("vacuum into backup: %w", err)
 	}
+	// VACUUM INTO crée le fichier avec le umask du processus, pas avec le mode
+	// de la base : une sauvegarde contient tout ce que la base contient.
+	if err := s.root.Chmod(temporaryName, databaseFileMode); err != nil {
+		return "", fmt.Errorf("protect backup file: %w", err)
+	}
 	if err := fsx.SyncFile(s.root, temporaryName); err != nil {
 		return "", err
 	}

@@ -145,6 +145,26 @@ func TestOpen_PendingMigrationOnExistingDatabase_BacksUpFirst(t *testing.T) {
 	}
 }
 
+func TestOpen_Backup_IsAsPrivateAsTheDatabase(t *testing.T) {
+	root := openTestRoot(t)
+	first := openTestStore(t, root, firstMigration)
+	first.Close()
+
+	openTestStore(t, root, twoMigrations)
+
+	backups := listBackups(t, root)
+	if len(backups) != 1 {
+		t.Fatalf("sauvegardes = %v, attendu une seule", backups)
+	}
+	info, err := root.Stat(backupDirName + "/" + backups[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != databaseFileMode {
+		t.Fatalf("mode de la sauvegarde = %o, attendu %o", info.Mode().Perm(), databaseFileMode)
+	}
+}
+
 // Copie la sauvegarde dans un répertoire d'état neuf pour l'ouvrir comme une base.
 func backupRootAsState(t *testing.T, backupRoot *os.Root, backupName string) *os.Root {
 	t.Helper()
