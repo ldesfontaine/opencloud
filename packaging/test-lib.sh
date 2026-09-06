@@ -1,0 +1,85 @@
+#!/bin/bash
+# Ce que les tests de bout en bout partagent : les étapes, l'échec qui montre
+# le journal, la session HTTP avec son jeton CSRF, le lancement et l'attente
+# d'une action. Sourcé par test-action.sh et test-enroll.sh, jamais joué seul.
+# Attend BASE, VERSION, WORK_DIR et COOKIES posés par l'appelant.
+
+step() { printf '\n== %s\n' "$*"; }
+
+fail() {
+    printf 'ÉCHEC : %s\n' "$*" >&2
+    journalctl -u opencloud --no-pager 2>/dev/null | tail -n 40 >&2 || true
+    journalctl -u 'oc-action-*' --no-pager 2>/dev/null | tail -n 40 >&2 || true
+    exit 1
+}
+
+wait_for_health() {
+    for _ in $(seq 1 30); do
+        if curl -fsS "$BASE/healthz" 2>/dev/null | grep -q "\"version\":\"$VERSION\""; then
+            return 0
+        fi
+        sleep 1
+    done
+    fail "l'interface ne répond pas en version $VERSION"
+}
+
+# Le jeton CSRF de la page demandée, avec la session du bocal de cookies.
+csrf_of() {
+    curl -fsS -c "$COOKIES" -b "$COOKIES" "$BASE$1" \
+        | sed -n 's/.*name="_csrf" value="\([^"]*\)".*/\1/p' | head -n 1
+}
+
+get_page() {
+    curl -fsS -c "$COOKIES" -b "$COOKIES" "$BASE$1"
+}
+
+# POST d'un formulaire ; imprime le code HTTP et l'URL de redirection.
+post_form() {
+    local path=$1
+    shift
+    curl -sS -c "$COOKIES" -b "$COOKIES" -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+        -X POST "$BASE$path" "$@"
+}
+
+# Se connecte avec le compte par défaut et pose le mot de passe de test : en
+# production, le mot de passe par défaut n'est pas admis et chaque page renvoie
+# vers /password tant qu'il n'est pas changé.
+login_and_set_password() {
+    local token reply
+    token=$(csrf_of /login)
+    [ -n "$token" ] || fail "pas de jeton CSRF sur la page de connexion"
+    reply=$(post_form /login --data-urlencode "_csrf=$token" --data-urlencode "username=admin" --data-urlencode "password=opencloud")
+    case "$reply" in 303*) ;; *) fail "la connexion a échoué : $reply" ;; esac
+    curl -sS -o /dev/null -w '%{redirect_url}\n' -c "$COOKIES" -b "$COOKIES" "$BASE/machines/local" \
+        | grep -q '/password$' || fail "le mot de passe par défaut n'a pas forcé le changement"
+    token=$(csrf_of /password)
+    reply=$(post_form /password --data-urlencode "_csrf=$token" --data-urlencode "current_password=opencloud" \
+        --data-urlencode "new_password=$PASSWORD" --data-urlencode "confirm_password=$PASSWORD")
+    case "$reply" in 303*) ;; *) fail "le changement de mot de passe a échoué : $reply" ;; esac
+}
+
+# Lance Diagnostiquer sur une machine et imprime l'identifiant de l'action.
+launch_diagnostiquer() {
+    local machine=$1 token reply
+    token=$(csrf_of "/machines/$machine/actions/diagnostiquer")
+    [ -n "$token" ] || fail "pas de jeton CSRF sur l'écran « avant » de $machine"
+    reply=$(post_form "/machines/$machine/actions/diagnostiquer" --data-urlencode "_csrf=$token")
+    case "$reply" in
+        "303 $BASE/actions/"*) printf '%s\n' "${reply#303 "$BASE"/actions/}" ;;
+        *) fail "le lancement n'a pas redirigé vers l'action : $reply" ;;
+    esac
+}
+
+# Attend qu'une action soit conclue et imprime sa page.
+wait_for_conclusion() {
+    local id=$1 page
+    for _ in $(seq 1 90); do
+        page=$(get_page "/actions/$id")
+        if printf '%s' "$page" | grep -q -e 'Appliquée' -e 'Échouée' -e 'Refusée'; then
+            printf '%s' "$page"
+            return 0
+        fi
+        sleep 1
+    done
+    fail "l'action $id n'a pas conclu en 90 s"
+}

@@ -205,9 +205,9 @@ func TestConfirm_SansAucuneCleReleveeLeRefusDitQueLaMachineNeRepondPas(t *testin
 
 func TestConfirm_UneAdresseOuUnPortHorsFormeEstUnRefusNomme(t *testing.T) {
 	cases := map[string]store.Machine{
-		"nom d'hôte":      {ID: "temoin", Address: "temoin.exemple.com", Port: 22, Account: "opencloud"},
-		"port nul":        {ID: "temoin", Address: "192.168.1.10", Port: 0, Account: "opencloud"},
-		"port trop grand": {ID: "temoin", Address: "192.168.1.10", Port: 70000, Account: "opencloud"},
+		"adresse hors forme": {ID: "temoin", Address: "temoin exemple", Port: 22, Account: "opencloud"},
+		"port nul":           {ID: "temoin", Address: "192.168.1.10", Port: 0, Account: "opencloud"},
+		"port trop grand":    {ID: "temoin", Address: "192.168.1.10", Port: 70000, Account: "opencloud"},
 	}
 	for name, machine := range cases {
 		harness := newConfirmHarness(t)
@@ -319,5 +319,19 @@ func TestFingerprint_CeQuiNestPasUneCleEstUneErreur(t *testing.T) {
 		if _, err := Fingerprint(line); err == nil {
 			t.Errorf("%q accepté comme clé d'hôte", line)
 		}
+	}
+}
+
+func TestConfirm_UnNomDHoteEstJointCommeUneAdresse(t *testing.T) {
+	harness := newConfirmHarness(t)
+	harness.machine.Address = "temoin.exemple.com"
+
+	err := Confirm(context.Background(), harness.deps, harness.machine, temoinEd25519Sum)
+
+	if err != nil {
+		t.Fatalf("un nom d'hôte, comme l'interface l'accepte, doit passer : %v", err)
+	}
+	if len(harness.scans) != 1 {
+		t.Fatalf("les clés doivent être relevées une fois, relevées %d fois", len(harness.scans))
 	}
 }

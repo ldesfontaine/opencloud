@@ -100,3 +100,42 @@ func (m machineProbes) For(ctx context.Context, machine store.Machine) (probe.Pr
 	}
 	return client, nil
 }
+
+// machineDeclaration : ce que l'interface écrit d'une machine, servi par le
+// store sous les noms que web attend.
+type machineDeclaration struct {
+	store *store.Store
+}
+
+func (d machineDeclaration) Insert(ctx context.Context, machine store.Machine) error {
+	return d.store.InsertMachine(ctx, machine)
+}
+
+func (d machineDeclaration) UpdateAccess(ctx context.Context, id string, address string, port int) error {
+	return d.store.UpdateMachineAccess(ctx, id, address, port)
+}
+
+// machineHealth : la sonde tout de suite, et le dernier constat lu en base,
+// sous la forme que web attend.
+type machineHealth struct {
+	checker *probe.Checker
+	store   *store.Store
+}
+
+func (h machineHealth) Now(ctx context.Context, machineID string) error {
+	return h.checker.Now(ctx, machineID)
+}
+
+func (h machineHealth) Health(ctx context.Context, machineID string) (web.MachineHealth, error) {
+	machine, err := h.store.Machine(ctx, machineID)
+	if err != nil {
+		return web.MachineHealth{}, err
+	}
+	return web.MachineHealth{ProbedAt: machine.ProbedAt, ProbeState: machine.ProbeState, ProbeNote: machine.ProbeNote}, nil
+}
+
+var (
+	_ web.MachineDeclaration = machineDeclaration{}
+	_ web.Enroller           = machineAccess{}
+	_ web.Prober             = machineHealth{}
+)

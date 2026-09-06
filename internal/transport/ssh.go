@@ -273,7 +273,10 @@ func (s *SSH) run(ctx context.Context, remoteCommand string, input io.Reader) (c
 	case ctx.Err() != nil:
 		return commandResult{}, ctx.Err()
 	case errors.As(err, &exitError):
-		if exitError.ExitCode() == sshUnreachableExitCode {
+		// 255 : ssh n'a pas joint la machine. -1 : ssh a été tué par un signal —
+		// à l'arrêt d'openCloud, systemd tue tout le cgroup, ssh compris. Dans
+		// les deux cas on ne sait rien de ce qui s'est passé là-bas.
+		if code := exitError.ExitCode(); code == sshUnreachableExitCode || code == -1 {
 			return commandResult{}, fmt.Errorf("%w: %s", ErrUnreachable, text)
 		}
 		return commandResult{exitCode: exitError.ExitCode(), output: text}, nil

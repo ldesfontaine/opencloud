@@ -33,6 +33,11 @@ func messageDepositFailed(err error) string {
 	return fmt.Sprintf("le dépôt des fichiers de l'action a échoué : %v", err)
 }
 
+// Rien n'est parti : la machine n'a jamais répondu pendant toute la fenêtre.
+func messageDepositAbandoned(err error) string {
+	return fmt.Sprintf("dépôt abandonné, machine injoignable jusqu'au délai maximum plus la marge ; rien n'est parti : %v", err)
+}
+
 func messageLaunchFailed(err error) string {
 	return fmt.Sprintf("le lancement de l'unité a échoué : %v", err)
 }

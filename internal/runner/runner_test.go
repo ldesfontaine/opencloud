@@ -75,13 +75,15 @@ type putFile struct {
 
 // Le faux transport : lignes émises, issue choisie, injoignable N fois.
 type fakeTransport struct {
-	lines           []transport.Line
-	outcome         transport.Outcome
-	launchErr       error
-	followErr       error
-	unreachableLeft int
-	followDelay     time.Duration
-	gate            chan struct{}
+	lines     []transport.Line
+	outcome   transport.Outcome
+	launchErr error
+	// Le dépôt échoue « injoignable » autant de fois, puis passe.
+	putUnreachableLeft int
+	followErr          error
+	unreachableLeft    int
+	followDelay        time.Duration
+	gate               chan struct{}
 
 	mu           sync.Mutex
 	puts         []putFile
@@ -105,6 +107,10 @@ func newFakeTransport() *fakeTransport {
 func (t *fakeTransport) Put(_ context.Context, actionID, name string, content []byte, mode fs.FileMode) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.putUnreachableLeft > 0 {
+		t.putUnreachableLeft--
+		return transport.ErrUnreachable
+	}
 	t.lastActionID = actionID
 	t.puts = append(t.puts, putFile{name: name, content: content, mode: mode})
 	return nil

@@ -17,7 +17,7 @@ export SOURCE_DATE_EPOCH
 NFPM_VERSION = v2.47.0
 DIST ?= dist
 
-.PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test clean
+.PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test temoin-up temoin-down clean
 
 # La cible est fixée : le paquet déclare amd64, les binaires doivent l'être aussi.
 # Le lanceur n'a pas de version : il ne se met à jour qu'avec le paquet.
@@ -98,6 +98,23 @@ package-test:
 	docker exec opencloud-package-test /packaging/test-install.sh /dist/test-old/opencloud_0.0.1_amd64.deb /dist/test-new/opencloud_0.0.2_amd64.deb \
 		&& docker exec opencloud-package-test /packaging/test-action.sh /dist/test-new/opencloud_0.0.2_amd64.deb; \
 	status=$$?; docker rm -f opencloud-package-test >/dev/null; exit $$status
+
+# Le témoin : une machine Debian jetable avec systemd et sshd, à enrôler depuis
+# l'interface pour développer l'enrôlement à distance. Son sshd est publié sur
+# 127.0.0.1:2222 ; la commande d'enrôlement se joue dedans par
+# « docker exec -i opencloud-temoin bash -c '<commande>' ».
+TEMOIN_PORT ?= 2222
+
+temoin-up:
+	docker build -q -t opencloud-package-test packaging/test-image >/dev/null
+	docker rm -f opencloud-temoin >/dev/null 2>&1 || true
+	docker run -d --name opencloud-temoin --privileged --cgroupns=host \
+		-v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
+		-p 127.0.0.1:$(TEMOIN_PORT):22 opencloud-package-test >/dev/null
+	@echo "témoin prêt : SSH sur 127.0.0.1:$(TEMOIN_PORT), commande à jouer par « docker exec -i opencloud-temoin bash -c '…' »"
+
+temoin-down:
+	docker rm -f opencloud-temoin >/dev/null 2>&1 || true
 
 # Télécharge le binaire Plumber épinglé, vérifie son empreinte (et son
 # attestation de provenance si gh le sait), puis joue la politique
