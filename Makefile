@@ -19,9 +19,11 @@ DIST ?= dist
 
 .PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test clean
 
-# La cible est fixée : le paquet déclare amd64, le binaire doit l'être aussi.
+# La cible est fixée : le paquet déclare amd64, les binaires doivent l'être aussi.
+# Le lanceur n'a pas de version : il ne se met à jour qu'avec le paquet.
 build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags '-s -w' -o bin/oc-launch ./cmd/oc-launch
 
 # Lance le binaire depuis le dépôt : rien n'est installé sur la machine,
 # l'état vit dans dev/state, que le binaire crée lui-même.
@@ -116,4 +118,4 @@ ci: fmtcheck vet lint test vuln sec shellcheck plumber build
 
 # Jette ce que le dépôt produit ; garde l'outil plumber (35 Mo) et dev/.
 clean:
-	rm -rf dist/ bin/opencloud
+	rm -rf dist/ bin/opencloud bin/oc-launch
