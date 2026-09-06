@@ -15,6 +15,8 @@ description: |
   observer, sans que les machines dépendent de lui pour fonctionner.
 depends:
   - adduser
+  # ssh vers localhost : la machine openCloud est enrôlée comme les autres.
+  - openssh-client
 contents:
   - src: bin/opencloud
     dst: /opt/opencloud/bin/opencloud

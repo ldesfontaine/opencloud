@@ -1,0 +1,25 @@
+#!/bin/sh
+# Faux ssh des tests : il enregistre son vecteur, son environnement et son
+# entrée standard à côté de lui, puis rejoue la sortie et le code que le test a
+# posés. Le test le copie dans son dossier temporaire, d'où le dirname de $0.
+# L'environnement est relevé avant toute chose : c'est lui qu'un test vérifie.
+set -u
+directory=$(dirname -- "$0")
+env > "$directory/env"
+
+: > "$directory/args"
+for argument in "$@"; do
+	printf '%s\n' "$argument" >> "$directory/args"
+done
+cat > "$directory/stdin"
+
+if [ -f "$directory/stdout" ]; then
+	cat -- "$directory/stdout"
+fi
+if [ -f "$directory/stderr" ]; then
+	cat -- "$directory/stderr" >&2
+fi
+if [ -f "$directory/exit-code" ]; then
+	exit "$(cat -- "$directory/exit-code")"
+fi
+exit 0
