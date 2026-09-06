@@ -79,6 +79,13 @@ Deux précisions posées maintenant :
 - **Aucune politique de mot de passe n'est imposée sans porte de sortie.** Sur
   un réseau de confiance, l'opérateur peut la lever ; l'écran dit ce qu'il
   perd. Une règle sans échappatoire fait fuir plus qu'elle ne protège.
+  Concrètement : **douze caractères au moins** pour un nouveau mot de passe
+  (OWASP ASVS 2.1.1, compte d'administration) ; `min_password_length = 0` dans
+  la configuration lève la règle, et l'écran le dit.
+- **Le jeton GitHub de `self-update`** (`github_token`, tant que le dépôt est
+  privé) vit dans `config.toml`, lisible par le service qui n'en a pas
+  l'usage. Accepté parce que le jeton est en lecture seule, à portée minimale,
+  et temporaire ; le sortir de portée du service est une réserve ouverte.
 
 ## Le durcissement des machines
 

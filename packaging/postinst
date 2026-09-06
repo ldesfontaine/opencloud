@@ -1,0 +1,79 @@
+#!/bin/sh
+# Après la pose des fichiers par dpkg : l'utilisateur système, les droits,
+# l'unité. $1 vaut "configure" ; $2 est la version précédente, vide à la
+# première installation. Même logique que dh_installsystemd : l'activation
+# se fait même sans systemd en marche (image en construction), le démarrage
+# seulement s'il tourne, et un service qui ne démarre pas ne bloque pas dpkg
+# — `opencloud status` le dira.
+set -e
+
+USER_NAME=opencloud
+STATE_DIR=/var/lib/opencloud
+CONFIG_FILE=/etc/opencloud/config.toml
+BIN_DIR=/opt/opencloud/bin
+UNIT=opencloud.service
+
+# deb-systemd-invoke respecte policy-rc.d (conteneurs, images en construction)
+# et ne touche pas à une unité désactivée ; systemctl reste la voie de secours.
+invoke_unit() {
+    if command -v deb-systemd-invoke >/dev/null 2>&1; then
+        deb-systemd-invoke "$1" "$UNIT" >/dev/null || true
+    else
+        systemctl "$1" "$UNIT" || true
+    fi
+}
+
+# deb-systemd-helper lève le masque posé par apt remove, puis active l'unité —
+# sauf si l'opérateur l'avait désactivée lui-même : il garde ce choix.
+enable_unit() {
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper unmask "$UNIT" >/dev/null || true
+        if deb-systemd-helper --quiet was-enabled "$UNIT"; then
+            deb-systemd-helper enable "$UNIT" >/dev/null || true
+        else
+            deb-systemd-helper update-state "$UNIT" >/dev/null || true
+        fi
+    elif [ -d /run/systemd/system ]; then
+        systemctl enable "$UNIT" || true
+    fi
+}
+
+case "$1" in
+    configure)
+        mkdir -p "$STATE_DIR"
+        if ! getent passwd "$USER_NAME" >/dev/null; then
+            adduser --system --group --home "$STATE_DIR" --no-create-home \
+                --shell /usr/sbin/nologin --gecos "openCloud" "$USER_NAME"
+        fi
+        chown "$USER_NAME:$USER_NAME" "$STATE_DIR"
+        chmod 0700 "$STATE_DIR"
+
+        # Lisible par le service, modifiable par root seul : il contient un
+        # jeton. dpkg ne recrée pas un conffile que l'opérateur a supprimé.
+        if [ -e "$CONFIG_FILE" ]; then
+            chown "root:$USER_NAME" "$CONFIG_FILE"
+            chmod 0640 "$CONFIG_FILE"
+        fi
+
+        # À la mise à jour par le paquet, un .prev laissé par self-update
+        # désignerait une version quelconque : le retour arrière est alors
+        # l'installation de l'ancien .deb.
+        if [ -n "$2" ]; then
+            rm -f "$BIN_DIR/opencloud.prev"
+        fi
+
+        enable_unit
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            # Première installation : start. Mise à jour ou réinstallation
+            # après apt remove : restart, qui démarre aussi une unité arrêtée.
+            if [ -z "$2" ]; then
+                invoke_unit start
+            else
+                invoke_unit restart
+            fi
+        fi
+        ;;
+esac
+
+exit 0

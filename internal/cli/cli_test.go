@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 func TestRun_Version_PrintsVersion(t *testing.T) {
@@ -95,6 +97,30 @@ func waitFor(t *testing.T, what string, condition func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("délai dépassé : %s", what)
+}
+
+func TestSelfUpdate_DevelopmentBuild_IsRefusedWithoutTouchingTheNetwork(t *testing.T) {
+	var out bytes.Buffer
+	configPath := writeTestConfig(t, "127.0.0.1:1")
+
+	err := Run(context.Background(), []string{"self-update", "--config", configPath}, "dev", &out, &out)
+
+	var refused refusal.Refusal
+	if !errors.As(err, &refused) || !strings.Contains(refused.Cause, "n'est pas une release") {
+		t.Fatalf("attendu un refus nommant la version de développement, reçu %v", err)
+	}
+}
+
+func TestUsage_ListsEveryCommand(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run(context.Background(), nil, "dev", &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"serve", "status", "self-update", "version"} {
+		if !strings.Contains(out.String(), command) {
+			t.Fatalf("l'usage doit lister %q :\n%s", command, out.String())
+		}
+	}
 }
 
 func TestServeAndStatus_EndToEnd(t *testing.T) {

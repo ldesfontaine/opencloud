@@ -5,12 +5,15 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
+
+const testMinPasswordLength = 12
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
@@ -27,7 +30,7 @@ func newTestService(t *testing.T) *Service {
 	}
 	t.Cleanup(func() { testStore.Close() })
 
-	service := New(testStore, logger)
+	service := New(testStore, logger, PasswordPolicy{MinLength: testMinPasswordLength})
 	if err := service.EnsureDefaultAccount(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +101,7 @@ func TestEnsureDefaultAccount_ChangedPassword_IsLeftAlone(t *testing.T) {
 	service := newTestService(t)
 	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
 	account, _ := service.Authenticate(ctx, session.Token)
-	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled"); err != nil {
+	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled-for-good"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,11 +234,11 @@ func TestChangePassword_SameAsCurrent_IsRefused(t *testing.T) {
 	service := newTestService(t)
 	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
 	account, _ := service.Authenticate(ctx, session.Token)
-	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled"); err != nil {
+	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled-for-good"); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := service.ChangePassword(ctx, account.ID, "settled", "settled")
+	_, err := service.ChangePassword(ctx, account.ID, "settled-for-good", "settled-for-good")
 
 	if !errors.Is(err, ErrPasswordUnchanged) {
 		t.Fatalf("attendu ErrPasswordUnchanged, reçu %v", err)
@@ -254,8 +257,9 @@ func TestChangePassword_Refusals(t *testing.T) {
 		next    string
 		want    error
 	}{
-		{"mauvais mot de passe actuel", "wrong", "whatever", ErrInvalidCredentials},
+		{"mauvais mot de passe actuel", "wrong", "whatever-long-enough", ErrInvalidCredentials},
 		{"nouveau vide", DefaultPassword, "", ErrPasswordEmpty},
+		{"nouveau trop long", DefaultPassword, strings.Repeat("x", maxPasswordBytes+1), ErrPasswordTooLong},
 		{"nouveau = défaut", DefaultPassword, DefaultPassword, ErrPasswordIsDefault},
 	}
 	for _, current := range cases {
@@ -265,5 +269,54 @@ func TestChangePassword_Refusals(t *testing.T) {
 				t.Fatalf("attendu %v, reçu %v", current.want, err)
 			}
 		})
+	}
+}
+
+func TestChangePassword_TooShort_IsRefusedWithTheMinimum(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	account, _ := service.Authenticate(ctx, session.Token)
+
+	_, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "onze-carac.")
+
+	var tooShort *PasswordTooShortError
+	if !errors.As(err, &tooShort) || tooShort.MinLength != testMinPasswordLength {
+		t.Fatalf("attendu PasswordTooShortError{%d}, reçu %v", testMinPasswordLength, err)
+	}
+	// Douze caractères, pas douze octets : les accents comptent pour un.
+	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "éèàùçôîâêû-1"); err != nil {
+		t.Fatalf("douze caractères accentués doivent passer : %v", err)
+	}
+}
+
+func TestChangePassword_NoMinimum_AcceptsShortPassword(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+	service.policy = PasswordPolicy{MinLength: 0}
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	account, _ := service.Authenticate(ctx, session.Token)
+
+	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "abc"); err != nil {
+		t.Fatalf("sans minimum, un mot de passe court passe : %v", err)
+	}
+}
+
+func TestLogin_MalformedOrHugeInput_IsRefusedBeforeAnyWork(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+
+	attempts := [][2]string{
+		{"Admin Root", DefaultPassword},
+		{strings.Repeat("a", 65), DefaultPassword},
+		{DefaultUsername, strings.Repeat("p", maxPasswordBytes+1)},
+	}
+	for _, attempt := range attempts {
+		if _, err := service.Login(ctx, attempt[0], attempt[1]); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("%q : attendu ErrInvalidCredentials, reçu %v", attempt[0], err)
+		}
+	}
+	if len(service.throttle.failures) != 0 || len(service.throttle.attempts) != 0 {
+		t.Fatal("une entrée hors forme ne doit pas être comptée par le frein")
 	}
 }

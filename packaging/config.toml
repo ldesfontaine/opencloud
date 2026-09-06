@@ -1,0 +1,23 @@
+# Configuration d'openCloud. Ce fichier appartient à l'opérateur : une mise à
+# jour du paquet ne l'écrase pas (dpkg garde le vôtre et pose la version neuve
+# à côté, en config.toml.dpkg-dist, si elle diffère).
+
+# Adresse d'écoute de l'interface. 127.0.0.1 : seule cette machine y accède.
+# Pour l'ouvrir, mettre l'adresse du réseau de confiance ou passer par le proxy.
+# L'unité n'a aucune capacité : un port sous 1024 demande un drop-in systemd
+# (AmbientCapabilities=CAP_NET_BIND_SERVICE), ou le proxy devant.
+listen = "127.0.0.1:8080"
+
+# Répertoire d'état : base, sauvegardes, clés. Créé par le paquet, gardé par
+# `apt remove`, retiré par `apt purge`. Le déplacer le sort du périmètre de
+# `apt purge`, qui ne connaît que /var/lib/opencloud.
+state_dir = "/var/lib/opencloud"
+
+# Longueur minimale d'un nouveau mot de passe, en caractères (12 : l'OWASP pour
+# un compte d'administration). 0 lève la règle, sur un réseau de confiance.
+min_password_length = 12
+
+# Jeton GitHub en lecture seule pour `opencloud self-update`, nécessaire tant
+# que le dépôt des releases est privé. Vide sinon. Ce fichier est lisible par
+# le service : ne mettre ici qu'un jeton à portée minimale (contenu, lecture).
+github_token = ""

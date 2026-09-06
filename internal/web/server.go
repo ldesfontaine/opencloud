@@ -86,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 	// Origin du navigateur (OWASP : « Fetch Metadata »). Le jeton signé reste
 	// la première.
 	crossOrigin := http.NewCrossOriginProtection()
-	return secureHeaders(crossOrigin.Handler(mux))
+	return secureHeaders(limitRequestBody(crossOrigin.Handler(mux)))
 }
 
 // secureHeaders : aucun script ni style externe, jamais dans un cadre, pas de

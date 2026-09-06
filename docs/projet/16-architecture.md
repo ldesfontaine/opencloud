@@ -22,7 +22,7 @@ interface, un constructeur `New(deps)`, aucune variable globale.
 | **`coldbackup`** | Récupération froide par `rsync` depuis la machine openCloud ; date affichée. | `transport` |
 | **`auth`** | Session, identifiant et mot de passe, changement forcé à la première connexion. Modèle prêt pour plusieurs comptes. | `store` |
 | **`web`** | Serveur HTTP, `html/template` (échappement automatique), HTMX pour les fragments, **SSE** pour le direct des actions. Handlers minces : valider, appeler un composant, rendre. | tout |
-| **`cli`** | `opencloud serve`, `opencloud enroll-command <machine>`, `opencloud status`, `opencloud version`. Rien de plus. | `config`, `web` |
+| **`cli`** | `opencloud serve`, `opencloud enroll-command <machine>`, `opencloud status`, `opencloud self-update`, `opencloud version`. Rien de plus. | `config`, `web`, `selfupdate` |
 
 ## Ce qui n'est pas dans le binaire
 

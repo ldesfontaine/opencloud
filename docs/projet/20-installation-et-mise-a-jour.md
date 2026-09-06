@@ -18,13 +18,37 @@ sudo apt install ./opencloud_0.1.0_amd64.deb
 
 | Le paquet pose | Où |
 |---|---|
-| Le binaire | `/opt/opencloud/bin/opencloud` — **le nom ne change jamais** entre versions |
-| La configuration | `/etc/opencloud/config.toml` — *conffile* : dpkg ne l'écrase pas à la mise à jour |
-| L'état | `/var/lib/opencloud/` — `StateDirectory=` de l'unité, préservé par dpkg |
-| L'utilisateur système et l'unité durcie | `opencloud`, `opencloud.service` |
+| Le binaire | `/opt/opencloud/bin/opencloud` — **le nom ne change jamais** entre versions —, et le lien `/usr/bin/opencloud` pour la ligne de commande |
+| La configuration | `/etc/opencloud/config.toml` — *conffile* : dpkg ne l'écrase pas à la mise à jour ; `root:opencloud`, `0640`, elle porte un jeton |
+| L'état | `/var/lib/opencloud/` — `StateDirectory=` de l'unité, `opencloud:opencloud`, `0700`, préservé par dpkg |
+| L'utilisateur système et l'unité durcie | `opencloud`, sans shell ; `opencloud.service` (`packaging/opencloud.service`) |
 
-Produit par `nfpm` depuis `make release`, avec la somme SHA-256 publiée dans
-la release GitHub et l'attestation de provenance. Pas de `curl | sh`.
+Produit par `nfpm` depuis `make release` (`packaging/nfpm.yaml`), par un build
+reproductible : deux builds du même commit donnent les mêmes sommes, et la CI
+le vérifie. Un tag `vX.Y.Z` déclenche le workflow `release`, qui publie dans
+la release GitHub :
+
+| Fichier | Rôle |
+|---|---|
+| `opencloud_X.Y.Z_amd64.deb` | le paquet, pour `apt install` |
+| `opencloud_X.Y.Z_linux_amd64` | le binaire nu, ce que `self-update` télécharge |
+| `SHA256SUMS` | les sommes des deux |
+| l'attestation de provenance | signée par Sigstore, gardée par GitHub ; elle prouve que chaque fichier a été construit par ce workflow, sur ce dépôt, pour ce tag |
+
+Avant d'installer à la main, vérifier depuis un poste qui a `gh` :
+
+```bash
+gh attestation verify opencloud_0.1.0_amd64.deb --repo ldesfontaine/opencloud
+sha256sum --ignore-missing -c SHA256SUMS
+```
+
+Pas de `curl | sh`.
+
+**Entre l'installation et la première connexion**, le compte est `admin` /
+`opencloud` et le premier arrivé le prend. Le paquet écoute donc sur
+`127.0.0.1:8080` seulement : ouvrir l'interface depuis la machine (ou par un
+tunnel SSH), changer le mot de passe, et **seulement ensuite** élargir
+`listen` ou poser le proxy devant.
 
 Un dépôt apt signé viendra si la cadence de publication le justifie ; tant
 qu'il n'existe pas, un `.deb` téléchargé et vérifié suffit.
@@ -39,21 +63,40 @@ refait tout ça à la main, mal — c'est là que Coolify et Cloudron ont cassé
 | Chemin | Geste |
 |---|---|
 | Par le paquet | `sudo apt install ./opencloud_0.2.0_amd64.deb` |
-| Par le binaire | `sudo opencloud self-update` — ou le bouton « mettre à jour » de l'interface, qui l'appelle |
+| Par le binaire | `sudo opencloud self-update` — ou, plus tard, le bouton « mettre à jour » de l'interface, qui l'appellera |
+
+`self-update` prend `--check` (dire ce qui est disponible sans rien toucher)
+et `--version vX.Y.Z` (une release précise ; sinon la dernière). Il dit chaque
+étape sur une ligne, et affiche la commande de retour arrière. Un refus —
+saut de version, somme fausse, attestation absente ou invalide — se lit tel
+quel et sort avec le code `2`. Tant que le dépôt des releases est privé, la
+clé `github_token` de la configuration porte un jeton GitHub en lecture ; elle
+devient inutile le jour où le dépôt passe en public.
 
 Dans les deux cas, ce qui se passe, **dans cet ordre** :
 
 1. **Télécharger** la release, **vérifier** la somme SHA-256 et l'attestation.
-   Refus si l'une manque.
+   Refus si l'une manque. L'attestation est vérifiée avec `sigstore-go`, la
+   bibliothèque de `gh` : la seule dépendance lourde du binaire, assumée
+   plutôt qu'une vérification cryptographique réécrite à la main. Deux
+   instances Sigstore peuvent avoir signé — celle de GitHub tant que le dépôt
+   est privé, l'instance publique ensuite — et le binaire reconnaît l'une et
+   l'autre.
 2. **Refuser un saut de version mineure** : `0.1 → 0.3` est refusé, le chemin
    est séquentiel *(Headscale)*.
-3. **Garder l'ancien binaire** à côté : `opencloud.prev`.
-4. **Remplacer par écriture atomique** — fichier temporaire puis `rename`,
-   jamais d'écrasement du fichier en cours d'exécution *(`text file busy`)*.
+3. **Garder l'ancien binaire** à côté : `opencloud.prev`, un lien dur vers
+   l'ancien fichier — rien n'est copié.
+4. **Remplacer par écriture atomique** — fichier `opencloud.new` puis
+   `rename`, jamais d'écrasement du fichier en cours d'exécution *(`text file
+   busy`)*. Le `.new` sert aussi de verrou : deux `self-update` en même temps,
+   le second refuse. Une mise à jour **par le paquet** retire le `.prev` : le
+   retour arrière est alors l'ancien `.deb`, pas un binaire d'avant.
 5. **Redémarrer l'unité.**
 6. **Au démarrage, sauvegarder la base**, puis appliquer les migrations
    embarquées, numérotées, jamais rejouées. **Si la sauvegarde échoue, la
-   migration n'a pas lieu** et l'ancienne version reste servie *(Cloudron)*.
+   migration n'a pas lieu** : le service s'arrête en le disant, la base est
+   intacte, et le retour arrière est la commande affichée par `self-update`
+   *(Cloudron a migré sans sauvegarde ; on ne migre pas du tout)*.
 
 Retour arrière : remettre `opencloud.prev` et la sauvegarde de base prise
 avant migration. Ça se fait à la main, en deux commandes que l'interface
@@ -69,7 +112,9 @@ affiche.
   lancé deux mises à jour en parallèle et perdu la clé de chiffrement.
 - **Pas de migration pendant qu'un autre processus peut redémarrer le
   service** : `apt-daily-upgrade` a coupé une migration Cloudron au milieu.
-  L'unité pose un verrou de migration, et le dit s'il reste.
+  Aujourd'hui, chaque migration est une transaction : coupée, elle n'a pas eu
+  lieu. Le verrou de migration, qui dirait qu'une autre instance migre, est
+  **à venir**.
 
 ## Piège connu à ne pas reproduire
 
@@ -84,8 +129,13 @@ Deux gestes, deux résultats, dits avant :
 
 | Geste | Ce qui part | Ce qui reste |
 |---|---|---|
-| `sudo apt remove opencloud` | Le binaire, l'unité, l'utilisateur système | `/etc/opencloud`, `/var/lib/opencloud` — base, clés, jetons. Réinstaller retrouve tout |
-| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud` | Rien d'openCloud sur cette machine |
+| `sudo apt remove opencloud` | Le binaire, son `.prev`, l'unité | `/etc/opencloud`, `/var/lib/opencloud` — base, clés, jetons — et **l'utilisateur système**, qui possède ces fichiers : le retirer les rendrait orphelins. Réinstaller retrouve tout |
+| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine — sauf un `state_dir` que l'opérateur aurait déplacé : `purge` ne connaît que `/var/lib/opencloud`, et ne devine pas |
+
+Ces deux gestes, la mise à jour et la réinstallation sont **joués en CI** à
+chaque changement, sur le runner (`packaging/test-install.sh`), et en local
+dans un conteneur Debian avec systemd (`make package-test`) — jamais sur le
+poste de travail.
 
 **Ce qu'aucun des deux ne touche, jamais** : `/srv` — les services et leurs
 données —, Traefik, CrowdSec, Docker, le collecteur. Ils appartiennent à la

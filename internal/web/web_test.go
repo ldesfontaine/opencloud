@@ -31,7 +31,7 @@ func newTestServer(t *testing.T) *Server {
 	}
 	t.Cleanup(func() { testStore.Close() })
 
-	authService := auth.New(testStore, logger)
+	authService := auth.New(testStore, logger, auth.PasswordPolicy{MinLength: 12})
 	if err := authService.EnsureDefaultAccount(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestChangePassword_ThenInfrastructureIsVisible(t *testing.T) {
 	visitor := newBrowser(t)
 	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
 
-	expectRedirect(t, visitor.changePassword(auth.DefaultPassword, "brand-new", "brand-new"), "/")
+	expectRedirect(t, visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password"), "/")
 
 	response := visitor.get("/")
 	if response.Code != http.StatusOK {
@@ -260,10 +260,51 @@ func TestChangePassword_Mismatch_IsRefused(t *testing.T) {
 	}
 }
 
+func TestChangePassword_TooShort_IsRefusedAndNamesTheKey(t *testing.T) {
+	visitor := newBrowser(t)
+	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+
+	response := visitor.changePassword(auth.DefaultPassword, "abc", "abc")
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("code = %d", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "au moins 12 caractères") || !strings.Contains(body, "min_password_length") {
+		t.Fatalf("le refus doit dire la règle et la clé qui la lève :\n%s", body)
+	}
+}
+
+func TestPasswordPage_SaysTheMinimumLength(t *testing.T) {
+	visitor := newBrowser(t)
+	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+
+	response := visitor.get("/password")
+
+	if !strings.Contains(response.Body.String(), "Au moins 12 caractères") {
+		t.Fatal("la page doit dire la règle avant qu'on la casse")
+	}
+}
+
+func TestPostLogin_HugeBody_Is413(t *testing.T) {
+	visitor := newBrowser(t)
+	csrfToken := visitor.csrfFrom(visitor.get("/login"))
+	form := url.Values{csrfFieldName: {csrfToken}, "username": {"admin"}, "password": {strings.Repeat("p", maxFormBytes)}}
+
+	response := visitor.post("/login", form)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("code = %d, attendu 413", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), messageFormTooLarge) {
+		t.Fatal("le refus doit dire pourquoi")
+	}
+}
+
 func TestLogout_ClosesSession(t *testing.T) {
 	visitor := newBrowser(t)
 	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
-	visitor.changePassword(auth.DefaultPassword, "brand-new", "brand-new")
+	visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password")
 	csrfToken := visitor.csrfFrom(visitor.get("/"))
 
 	expectRedirect(t, visitor.post("/logout", url.Values{csrfFieldName: {csrfToken}}), "/login")

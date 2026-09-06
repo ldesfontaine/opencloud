@@ -34,10 +34,17 @@ type page struct {
 	CSRFToken string
 	Error     string
 	Notice    string
+	// Longueur minimale d'un nouveau mot de passe ; 0 quand la règle est levée.
+	MinPasswordLength int
 }
 
 func (s *Server) newPage(account *store.Account, csrfToken string) page {
-	return page{Version: s.version, Account: account, CSRFToken: csrfToken}
+	return page{
+		Version:           s.version,
+		Account:           account,
+		CSRFToken:         csrfToken,
+		MinPasswordLength: s.auth.PasswordPolicy().MinLength,
+	}
 }
 
 func (p page) withError(message string) page {

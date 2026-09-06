@@ -25,23 +25,28 @@ façon. Il ne réconcilie rien : la machine fait foi.
 
 ## Déployer
 
-*Pas encore de release.* Le déploiement prévu, sur Debian ou Ubuntu :
+Sur Debian ou Ubuntu, depuis la page des releases GitHub :
 
 ```bash
+gh attestation verify opencloud_<version>_amd64.deb --repo ldesfontaine/opencloud
 sudo apt install ./opencloud_<version>_amd64.deb
 ```
 
 Un seul binaire qui embarque l'interface, les migrations et les scripts ;
-le paquet pose l'unité systemd, `/etc/opencloud/config.toml` et
-`/var/lib/opencloud`. Puis :
+le paquet pose l'unité systemd durcie, `/etc/opencloud/config.toml` et
+`/var/lib/opencloud`, et démarre le service sur `127.0.0.1:8080`. Puis :
 
-1. Ouvrir l'interface, changer le mot de passe.
+1. Ouvrir l'interface depuis la machine, changer le mot de passe, et
+   seulement ensuite élargir `listen` dans la configuration.
 2. Pour chaque machine à gérer, jouer la commande d'enrôlement générée par
    l'interface. Elle crée l'utilisateur `opencloud`, pose sa clé, et affiche
    l'empreinte de la machine.
 
 Mise à jour : `apt install` de la version suivante, ou `sudo opencloud
-self-update` — en place, sans réinstaller (`docs/projet/20-installation-et-mise-a-jour.md`).
+self-update` — en place, sans réinstaller : somme et attestation vérifiées,
+ancien binaire gardé en `.prev`, pas de saut de version mineure
+(`docs/projet/20-installation-et-mise-a-jour.md`). `apt remove` garde l'état,
+`apt purge` l'enlève ; ni l'un ni l'autre ne touche `/srv`.
 
 ## Utiliser
 
@@ -71,9 +76,10 @@ allow_default_password = true   # jamais en production
 ```
 
 Puis ouvrir `http://localhost:8080` et se connecter avec `admin` /
-`opencloud`. `make ci` joue les mêmes vérifications que la CI. Tester le
-paquet `.deb` ou l'unité systemd se fait dans un conteneur ou une VM, jamais
-sur la machine de développement.
+`opencloud`. `make ci` joue les mêmes vérifications que la CI. Le paquet
+`.deb` et l'unité systemd se testent dans un conteneur Debian jetable,
+`make package-test`, jamais sur la machine de développement ; `make release`
+produit le paquet dans `dist/`.
 
 ## Documentation
 

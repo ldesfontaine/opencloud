@@ -49,9 +49,7 @@ jobs:
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
 
       - name: shellcheck
-        run: |
-          files=$(find internal/scripts -name '*.sh' 2>/dev/null)
-          if [ -n "$files" ]; then shellcheck $files; else echo "aucun script"; fi
+        run: make shellcheck
 
       - name: secrets
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
@@ -60,6 +58,31 @@ jobs:
 
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -o bin/opencloud ./cmd/opencloud
+
+  # Le paquet .deb, sur le runner lui-même — une vraie machine Ubuntu avec
+  # systemd : build reproductible, installation, mise à jour, remove, purge.
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build reproductible
+        run: make reproducible VERSION=0.0.2 DIST=dist/new
+
+      - name: version précédente du paquet
+        run: make release VERSION=0.0.1 DIST=dist/old
+
+      - name: installation, mise à jour, remove, purge
+        run: sudo packaging/test-install.sh dist/old/opencloud_0.0.1_amd64.deb dist/new/opencloud_0.0.2_amd64.deb
 
   plumber:
     runs-on: ubuntu-24.04

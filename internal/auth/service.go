@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/validate"
 )
 
 const (
@@ -23,6 +25,14 @@ const (
 
 	// Une session dure une journée puis demande de se reconnecter.
 	sessionLifetime = 24 * time.Hour
+
+	// Un mot de passe plus long que ça n'est pas tapé par un humain : on ne
+	// le hache pas. L'OWASP demande d'accepter au moins 64 caractères.
+	maxPasswordBytes = 256
+
+	// Chaque vérification argon2id réserve 19 Mio : on n'en mène que
+	// quelques-unes à la fois, les autres attendent leur tour.
+	maxConcurrentPasswordChecks = 4
 )
 
 var (
@@ -38,7 +48,25 @@ var (
 	ErrPasswordEmpty     = errors.New("password is empty")
 	ErrPasswordIsDefault = errors.New("password is the default one")
 	ErrPasswordUnchanged = errors.New("password is unchanged")
+	ErrPasswordTooLong   = errors.New("password is too long")
 )
+
+// PasswordTooShortError : le nouveau mot de passe est sous la longueur
+// minimale. Il porte la valeur pour que le refus la dise.
+type PasswordTooShortError struct {
+	MinLength int
+}
+
+func (e *PasswordTooShortError) Error() string {
+	return fmt.Sprintf("password is shorter than %d characters", e.MinLength)
+}
+
+// PasswordPolicy est ce que la configuration impose aux nouveaux mots de
+// passe. MinLength à 0 lève la règle (08-securite-et-secrets.md : aucune
+// politique sans porte de sortie).
+type PasswordPolicy struct {
+	MinLength int
+}
 
 // Store est ce que auth attend de la base. Le vrai est *store.Store.
 type Store interface {
@@ -63,14 +91,28 @@ type Session struct {
 }
 
 type Service struct {
-	store    Store
-	logger   *slog.Logger
-	throttle *loginThrottle
-	now      func() time.Time
+	store     Store
+	logger    *slog.Logger
+	policy    PasswordPolicy
+	throttle  *loginThrottle
+	hashSlots chan struct{}
+	now       func() time.Time
 }
 
-func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, throttle: newLoginThrottle(), now: time.Now}
+func New(store Store, logger *slog.Logger, policy PasswordPolicy) *Service {
+	return &Service{
+		store:     store,
+		logger:    logger,
+		policy:    policy,
+		throttle:  newLoginThrottle(),
+		hashSlots: make(chan struct{}, maxConcurrentPasswordChecks),
+		now:       time.Now,
+	}
+}
+
+// PasswordPolicy rend la règle en vigueur, pour que l'écran la dise.
+func (s *Service) PasswordPolicy() PasswordPolicy {
+	return s.policy
 }
 
 // EnsureDefaultAccount crée le compte par défaut si la base n'en a aucun, et
@@ -131,12 +173,27 @@ func (s *Service) refreshDefaultAccountObligation(ctx context.Context, mustChang
 	return s.store.SetMustChangePassword(ctx, account.ID, mustChange)
 }
 
-// Login vérifie les identifiants et ouvre une session.
+// Login vérifie les identifiants et ouvre une session. Ce qui ne peut pas
+// être un identifiant ou un mot de passe est refusé avant de coûter quoi que
+// ce soit — ni frein, ni requête, ni empreinte.
 func (s *Service) Login(ctx context.Context, username, password string) (Session, error) {
+	if err := validate.Username(username); err != nil {
+		return Session{}, ErrInvalidCredentials
+	}
+	if len(password) > maxPasswordBytes {
+		return Session{}, ErrInvalidCredentials
+	}
+
 	now := s.now()
-	if s.throttle.isBlocked(username, now) {
+	if !s.throttle.allow(username, now) {
 		return Session{}, ErrTooManyAttempts
 	}
+
+	release, err := s.acquireHashSlot(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	defer release()
 
 	matches, err := s.verifyLogin(ctx, username, password)
 	if err != nil {
@@ -214,6 +271,13 @@ func (s *Service) ChangePassword(ctx context.Context, accountID int64, currentPa
 		return Session{}, err
 	}
 
+	// Une seule place pour les deux empreintes : vérifier l'ancien, hacher le nouveau.
+	release, err := s.acquireHashSlot(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	defer release()
+
 	matches, err := VerifyPassword(currentPassword, account.PasswordHash)
 	if err != nil {
 		return Session{}, fmt.Errorf("verify password of %s: %w", account.Username, err)
@@ -221,7 +285,7 @@ func (s *Service) ChangePassword(ctx context.Context, accountID int64, currentPa
 	if !matches {
 		return Session{}, ErrInvalidCredentials
 	}
-	if err := checkNewPassword(newPassword, currentPassword); err != nil {
+	if err := s.checkNewPassword(newPassword, currentPassword); err != nil {
 		return Session{}, err
 	}
 
@@ -239,9 +303,10 @@ func (s *Service) ChangePassword(ctx context.Context, accountID int64, currentPa
 	return s.openSession(ctx, accountID)
 }
 
-// Pas de politique de mot de passe imposée (08-securite-et-secrets.md) ; on
-// refuse seulement ce qui n'est pas un changement.
-func checkNewPassword(newPassword, currentPassword string) error {
+// La seule règle imposée est la longueur minimale de la configuration
+// (OWASP ASVS 2.1.1 : douze caractères pour un compte d'administration), en
+// caractères, pas en octets. Le reste refuse ce qui n'est pas un changement.
+func (s *Service) checkNewPassword(newPassword, currentPassword string) error {
 	if newPassword == "" {
 		return ErrPasswordEmpty
 	}
@@ -251,7 +316,24 @@ func checkNewPassword(newPassword, currentPassword string) error {
 	if newPassword == currentPassword {
 		return ErrPasswordUnchanged
 	}
+	if utf8.RuneCountInString(newPassword) < s.policy.MinLength {
+		return &PasswordTooShortError{MinLength: s.policy.MinLength}
+	}
+	if len(newPassword) > maxPasswordBytes {
+		return ErrPasswordTooLong
+	}
 	return nil
+}
+
+// acquireHashSlot attend une place pour hacher ; release la rend. L'attente
+// s'arrête avec le contexte de la requête.
+func (s *Service) acquireHashSlot(ctx context.Context) (release func(), err error) {
+	select {
+	case s.hashSlots <- struct{}{}:
+		return func() { <-s.hashSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (s *Service) openSession(ctx context.Context, accountID int64) (Session, error) {

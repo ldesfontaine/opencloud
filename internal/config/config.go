@@ -34,13 +34,30 @@ type Config struct {
 	// Développement seulement : garde admin / opencloud sans obliger le
 	// changement à la première connexion. Faux par défaut, donc en production.
 	AllowDefaultPassword bool `toml:"allow_default_password"`
+	// Longueur minimale d'un nouveau mot de passe, en caractères. 12 par
+	// défaut (OWASP, compte d'administration) ; 0 lève la règle, pour un
+	// réseau de confiance (08-securite-et-secrets.md).
+	MinPasswordLength int `toml:"min_password_length"`
+	// Jeton GitHub en lecture seule pour self-update, nécessaire tant que le
+	// dépôt des releases est privé. Vide sinon.
+	GitHubToken string `toml:"github_token"`
 }
+
+// Bornes de min_password_length : au-delà, plus personne ne se connecte.
+const (
+	DefaultMinPasswordLength = 12
+	maxMinPasswordLength     = 64
+)
+
+// Un jeton GitHub tient sur une ligne, en ASCII imprimable.
+const maxGitHubTokenLength = 255
 
 // Ce qui a une valeur par défaut. state_dir n'en a pas : dire où vit l'état
 // est le rôle du fichier, pas du code.
 func defaults() Config {
 	return Config{
-		Listen: "127.0.0.1:8080",
+		Listen:            "127.0.0.1:8080",
+		MinPasswordLength: DefaultMinPasswordLength,
 	}
 }
 
@@ -145,6 +162,24 @@ func (cfg Config) validate() error {
 	}
 	if err := validateStateDir(cfg.StateDir); err != nil {
 		return fmt.Errorf("clé « state_dir » : %w", err)
+	}
+	if cfg.MinPasswordLength < 0 || cfg.MinPasswordLength > maxMinPasswordLength {
+		return fmt.Errorf("clé « min_password_length » : attendu entre 0 et %d, reçu %d", maxMinPasswordLength, cfg.MinPasswordLength)
+	}
+	if err := validateGitHubToken(cfg.GitHubToken); err != nil {
+		return fmt.Errorf("clé « github_token » : %w", err)
+	}
+	return nil
+}
+
+func validateGitHubToken(token string) error {
+	if len(token) > maxGitHubTokenLength {
+		return fmt.Errorf("plus de %d caractères", maxGitHubTokenLength)
+	}
+	for _, character := range token {
+		if character <= ' ' || character > '~' {
+			return errors.New("attendu un jeton sur une ligne, sans espace")
+		}
 	}
 	return nil
 }

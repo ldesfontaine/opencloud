@@ -1,0 +1,56 @@
+# Unité d'openCloud, posée par le paquet .deb. Durcie : le service ne voit le
+# système qu'en lecture, sauf son répertoire d'état. Piège connu (Headscale
+# #1274) : ProtectSystem=strict verrouille SQLite si l'état n'est pas déclaré
+# en écriture — d'où StateDirectory= et ReadWritePaths= explicites.
+[Unit]
+Description=openCloud
+Documentation=https://github.com/ldesfontaine/opencloud
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=opencloud
+Group=opencloud
+ExecStart=/opt/opencloud/bin/opencloud serve --config /etc/opencloud/config.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+
+# L'état : créé et possédé par l'utilisateur du service, en 0700.
+StateDirectory=opencloud
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/opencloud
+
+# Durcissement. Le service n'a besoin d'aucun privilège : il écoute un port
+# haut, écrit dans son état, parle à systemd par sd_notify.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
