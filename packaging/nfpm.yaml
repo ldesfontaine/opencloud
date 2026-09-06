@@ -34,6 +34,7 @@ contents:
     file_info:
       mode: 0640
 scripts:
+  preinstall: packaging/preinst
   postinstall: packaging/postinst
   preremove: packaging/prerm
   postremove: packaging/postrm

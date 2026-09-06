@@ -62,9 +62,20 @@ case "$1" in
             rm -f "$BIN_DIR/opencloud.prev"
         fi
 
+        # Le .lock est le verrou de self-update, le .new son fichier d'écriture :
+        # orphelins, laissés par une mise à jour interrompue, ils bloqueraient
+        # toutes les suivantes. dpkg vient de poser le binaire : ces fichiers ne
+        # veulent plus rien dire.
+        rm -f "$BIN_DIR/opencloud.new" "$BIN_DIR/opencloud.lock"
+
         enable_unit
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload || true
+            # Le compteur de StartLimitBurst ne distingue pas un redémarrage
+            # automatique d'un démarrage voulu, et il survit à la mise à jour.
+            # Le binaire qu'on vient de poser mérite son budget entier ; sans
+            # ça, une unité arrêtée après des échecs refuserait de repartir.
+            systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
             # Première installation : start. Mise à jour ou réinstallation
             # après apt remove : restart, qui démarre aussi une unité arrêtée.
             if [ -z "$2" ]; then

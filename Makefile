@@ -63,7 +63,7 @@ sec:
 	go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
 
 shellcheck:
-	@files="$$(find internal/scripts -name '*.sh' 2>/dev/null) packaging/postinst packaging/prerm packaging/postrm packaging/*.sh"; \
+	@files="$$(find internal/scripts -name '*.sh' 2>/dev/null) packaging/preinst packaging/postinst packaging/prerm packaging/postrm packaging/*.sh"; \
 	shellcheck $$files
 
 # Une release : le binaire nu, le paquet .deb et leurs sommes, dans dist/.

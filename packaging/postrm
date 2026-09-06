@@ -16,7 +16,7 @@ UNIT=opencloud.service
 case "$1" in
     remove)
         # Ce que self-update a laissé n'appartient pas à dpkg.
-        rm -f "$BIN_DIR/opencloud.prev" "$BIN_DIR/opencloud.new"
+        rm -f "$BIN_DIR/opencloud.prev" "$BIN_DIR/opencloud.new" "$BIN_DIR/opencloud.lock"
         rmdir "$BIN_DIR" 2>/dev/null || true
         rmdir /opt/opencloud 2>/dev/null || true
         if [ -d /run/systemd/system ]; then
@@ -25,7 +25,7 @@ case "$1" in
             if command -v deb-systemd-helper >/dev/null 2>&1; then
                 deb-systemd-helper mask "$UNIT" >/dev/null 2>&1 || true
             fi
-            systemctl daemon-reload
+            systemctl daemon-reload >/dev/null || true
         fi
         ;;
     purge)
@@ -35,7 +35,7 @@ case "$1" in
                 deb-systemd-helper purge "$UNIT" >/dev/null 2>&1 || true
                 deb-systemd-helper unmask "$UNIT" >/dev/null 2>&1 || true
             fi
-            systemctl daemon-reload
+            systemctl daemon-reload >/dev/null || true
         fi
         if getent passwd "$USER_NAME" >/dev/null; then
             deluser --system "$USER_NAME" >/dev/null 2>&1 || true

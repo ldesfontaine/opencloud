@@ -1,0 +1,56 @@
+#!/bin/sh
+# Avant que dpkg pose les fichiers, une seule chose : refuser de rétrograder le
+# binaire. self-update remplace /opt/opencloud/bin/opencloud sans rien dire à
+# dpkg, dont la base reste en arrière ; poser un ancien .deb passe alors pour
+# une réinstallation anodine et remettrait un vieux binaire sur un schéma déjà
+# migré, en silence. Doctrine : jamais de retour en arrière silencieux, le refus
+# est nommé et donne son remède (docs/projet/20-installation-et-mise-a-jour.md).
+#
+# $1 : install, upgrade ou abort-upgrade ; $2 : la version que dpkg croit
+# installée ; $3 : la version du paquet posé (dpkg >= 1.18.5). C'est le binaire
+# en place, pas $2, qui dit la vérité.
+set -e
+
+BINARY=/opt/opencloud/bin/opencloud
+
+# La version que déclare le binaire en place. Vide s'il n'y en a pas, s'il ne
+# répond pas, ou si ce n'est pas une version publiée X.Y.Z : un build de
+# développement ne se compare à rien.
+installed_binary_version() {
+    [ -x "$BINARY" ] || return 0
+    version=$(timeout 5 "$BINARY" version 2>/dev/null | awk 'NR == 1 { print $2 }') || return 0
+    printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || return 0
+    printf '%s' "$version"
+}
+
+refuse_downgrade() {
+    in_place=$1
+    from_package=$2
+    printf '%s\n' \
+        "openCloud refuse de rétrograder." \
+        "  cause  : le binaire en place est en $in_place, ce paquet est en $from_package." \
+        "           self-update avance le binaire sans le dire à dpkg : la base a pu" \
+        "           être migrée par $in_place, et un binaire plus ancien ne la relit pas." \
+        "  remède : installer le paquet $in_place ou plus récent." \
+        "           Si la rétrogradation est bien ce que vous voulez, remettre d'abord" \
+        "           la sauvegarde d'avant migration (/var/lib/opencloud/backups), puis :" \
+        "           sudo env OPENCLOUD_ALLOW_DOWNGRADE=1 apt install ./opencloud_${from_package}_amd64.deb" >&2
+    exit 2
+}
+
+case "$1" in
+    install|upgrade)
+        package_version=${3:-}
+        # Une première installation ne compare rien ; un dpkg trop ancien pour
+        # passer la nouvelle version non plus.
+        if [ -z "$package_version" ] || [ -n "${OPENCLOUD_ALLOW_DOWNGRADE:-}" ]; then
+            exit 0
+        fi
+        in_place_version=$(installed_binary_version)
+        if [ -n "$in_place_version" ] && dpkg --compare-versions "$package_version" lt "$in_place_version"; then
+            refuse_downgrade "$in_place_version" "$package_version"
+        fi
+        ;;
+esac
+
+exit 0

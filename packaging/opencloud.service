@@ -8,6 +8,19 @@ Documentation=https://github.com/ldesfontaine/opencloud
 After=network-online.target
 Wants=network-online.target
 
+# Redémarrages bornés. Sans ces deux clés, les défauts de systemd (5 démarrages
+# en 10 s) ne sont jamais atteints à RestartSec=5s : le service repart sans fin,
+# et chaque démarrage recopie la base entière dans backups/ avant de retenter la
+# migration qui vient d'échouer — /var/lib se remplit et emporte les autres
+# services. openCloud n'est pas indispensable : au cinquième échec il s'arrête,
+# et l'opérateur lit « failed » dans systemctl status.
+# 120 s couvre cinq tentatives à RestartSec=5s (25 s) avec de la marge pour la
+# sauvegarde de chacune. Pas plus : systemd compte aussi les démarrages voulus —
+# apt, needrestart, l'opérateur —, et une fenêtre large ferait renoncer l'unité
+# sur une journée normale. Poser le paquet rend son budget à l'unité (postinst).
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
 [Service]
 Type=notify
 NotifyAccess=main
@@ -16,6 +29,11 @@ Group=opencloud
 ExecStart=/opt/opencloud/bin/opencloud serve --config /etc/opencloud/config.toml
 Restart=on-failure
 RestartSec=5s
+# Le démarrage sauvegarde la base puis joue les migrations avant d'écouter.
+# Ce délai est la référence des deux délais de self-update, qui le citent :
+# selfupdate.UnitStartTimeout (internal/selfupdate/restart.go). Un test Go
+# vérifie que les deux ne dérivent pas l'un de l'autre.
+TimeoutStartSec=120s
 TimeoutStopSec=30s
 UMask=0077
 
