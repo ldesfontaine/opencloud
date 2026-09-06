@@ -166,7 +166,6 @@ func (s *Service) refreshDefaultAccountObligation(ctx context.Context, mustChang
 		return fmt.Errorf("verify password of %s: %w", DefaultUsername, err)
 	}
 	if !stillDefault {
-		// Un mot de passe déjà changé n'a rien à changer.
 		return nil
 	}
 	if account.MustChangePassword == mustChange {

@@ -13,14 +13,10 @@ import (
 // Un gabarit complet par page : la mise en page plus le contenu de la page.
 type pageTemplates map[string]*template.Template
 
-// Les pages servies, chacune un gabarit sous templates/<nom>.html.
-func pageNames() []string {
-	return []string{"login", "password", "infrastructure"}
-}
-
+// parsePageTemplates lit chaque page servie, un gabarit sous templates/<nom>.html.
 func parsePageTemplates(files fs.FS) (pageTemplates, error) {
 	templates := pageTemplates{}
-	for _, name := range pageNames() {
+	for _, name := range []string{"login", "password", "infrastructure"} {
 		parsed, err := template.ParseFS(files, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", name, err)

@@ -58,8 +58,8 @@ func Open(ctx context.Context, root *os.Root, migrations fs.FS, logger *slog.Log
 
 func openDatabase(root *os.Root) (*sql.DB, error) {
 	// SQLite veut un chemin, pas un descripteur : c'est le seul accès à l'état
-	// qui sort de l'os.Root. Le chemin est le dossier du root plus un nom
-	// constant, jamais une valeur de l'opérateur.
+	// qui sort de l'os.Root. Le dossier est celui du root (state_dir, validé),
+	// le nom de fichier une constante.
 	databasePath := filepath.Join(root.Name(), DatabaseFileName)
 
 	// WAL : lecteurs et écrivain ne se bloquent pas. busy_timeout : une écriture

@@ -13,11 +13,14 @@ type Notifier struct {
 	socketPath string
 }
 
-// NewNotifier lit NOTIFY_SOCKET une fois et le retire de l'environnement :
-// un processus lancé plus tard par le service ne doit pas pouvoir parler à
-// systemd en son nom.
+// NewNotifier lit NOTIFY_SOCKET et le retire de l'environnement, comme le
+// recommande sd_notify(3) : ce que le service lancera plus tard n'héritera
+// pas du socket (NotifyAccess=main dans l'unité est le vrai rempart ; ceci
+// est la ceinture). À appeler une seule fois : un second appel ne verrait
+// plus le socket.
 func NewNotifier() *Notifier {
 	socketPath := os.Getenv("NOTIFY_SOCKET")
+	// L'échec de Unsetenv ne change rien : le socket est déjà lu.
 	_ = os.Unsetenv("NOTIFY_SOCKET")
 	return &Notifier{socketPath: socketPath}
 }

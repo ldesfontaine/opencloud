@@ -39,7 +39,7 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		return err
 	}
 	logger := slog.New(slog.NewJSONHandler(errOut, nil))
-	// Lu tout de suite : rien de ce que serve lancera ne doit hériter du socket.
+	// Lu tout de suite, une seule fois (voir systemd.NewNotifier).
 	notifier := systemd.NewNotifier()
 
 	cfg, err := loadConfig(configPath, logger)
