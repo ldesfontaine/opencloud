@@ -10,12 +10,14 @@
 
 ## Les versions
 
-Semver, et on reste longtemps en `0.x` : un projet à peine né n'est pas une
-V1. Le **mineur** avance quand un jalon est livré (`v0.1.0` → `v0.2.0`), le
-**correctif** pour les petites corrections entre deux (`v0.1.1`, `v0.1.2`).
-Trois jalons prévus — `v0.1.0` exister, `v0.2.0` publier et certifier,
-`v0.3.0` déployer, sauvegarder, observer. Rien au-delà tant que ça ne tourne
-pas chez quelqu'un.
+Semver, et on reste longtemps en `0.x`. Les **`0.0.x`** sont les premières
+briques, avant que l'outil serve à quelque chose : `v0.0.1` on se connecte,
+`v0.0.2` il s'installe et se met à jour, `v0.0.3` une action en local,
+`v0.0.4` une machine par SSH. **`v0.1.0` est la première base fonctionnelle**
+— publier et certifier. Ensuite le **mineur** avance par jalon livré
+(`v0.2.0` déployer, `v0.3.0` sauvegarder et observer) et le **correctif** pour
+les petites corrections entre deux (`v0.1.1`, `v0.1.2`). Rien au-delà tant que
+ça ne tourne pas chez quelqu'un.
 
 ## Les outils de your-cloud
 
