@@ -2,6 +2,8 @@
 # Avant que dpkg retire les fichiers. À la mise à jour, le service continue
 # de tourner pendant le remplacement du binaire — c'est postinst qui le
 # relance — pour ne pas couper plus longtemps que nécessaire.
+# Comme dh_installsystemd, l'arrêt ne peut pas faire échouer le retrait : un
+# service qui refuse de s'arrêter laisserait sinon le paquet à demi retiré.
 set -e
 
 UNIT=opencloud.service
@@ -10,9 +12,9 @@ case "$1" in
     remove|deconfigure)
         if [ -d /run/systemd/system ]; then
             if command -v deb-systemd-invoke >/dev/null 2>&1; then
-                deb-systemd-invoke stop "$UNIT"
+                deb-systemd-invoke stop "$UNIT" >/dev/null || true
             else
-                systemctl stop "$UNIT"
+                systemctl stop "$UNIT" >/dev/null || true
             fi
         fi
         ;;

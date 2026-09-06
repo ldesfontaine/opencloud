@@ -15,8 +15,10 @@ import (
 )
 
 // Après le redémarrage, le temps laissé au service pour répondre en nouvelle
-// version : sauvegarde et migrations comprises.
-const serviceStartTimeout = 60 * time.Second
+// version : sauvegarde et migrations comprises. systemctl a déjà attendu
+// READY=1 ; on ne déclare pas l'échec avant systemd, d'où le budget de
+// TimeoutStartSec de l'unité, repris tel quel.
+const serviceStartTimeout = selfupdate.UnitStartTimeout
 
 // runSelfUpdate : à lancer avec sudo, jamais par l'unité. Il lit la
 // configuration pour le jeton GitHub et l'adresse d'écoute, remplace le

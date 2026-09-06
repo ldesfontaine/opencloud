@@ -11,10 +11,20 @@ import (
 )
 
 const (
-	unitName       = "opencloud.service"
-	restartTimeout = 90 * time.Second
+	unitName = "opencloud.service"
+	// systemctl restart attend la fin du job : lui laisser plus que le délai de
+	// systemd, sinon self-update le tue à l'instant où systemd allait conclure,
+	// et personne ne dit ce qui s'est passé.
+	restartGrace   = 30 * time.Second
+	restartTimeout = UnitStartTimeout + restartGrace
 	maxOutputBytes = 2000
 )
+
+// UnitStartTimeout reprend TimeoutStartSec de packaging/opencloud.service : le
+// temps que systemd laisse au service pour sauvegarder, migrer et répondre
+// READY=1. C'est la seule référence des délais de self-update, et
+// restart_test.go vérifie qu'elle ne dérive pas de l'unité.
+const UnitStartTimeout = 120 * time.Second
 
 // ErrNoSystemd : pas de systemd sur cette machine — le service se relance à la main.
 var ErrNoSystemd = errors.New("systemd is not running")

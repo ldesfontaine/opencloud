@@ -77,7 +77,7 @@ devient inutile le jour où le dépôt passe en public.
 côté du binaire, posé avant le premier appel réseau et retiré une fois l'unité
 redémarrée. Deux `self-update` lancés en même temps : le second refuse sans
 rien télécharger. Un verrou resté après une coupure se retire à la main — le
-refus dit lequel.
+refus dit lequel — ou part avec la prochaine pose du paquet.
 
 Dans les deux cas, ce qui se passe, **dans cet ordre** :
 
@@ -105,6 +105,20 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
    dernières sauvegardes de migration sont gardées — le journal dit combien et
    lesquelles sont retirées : une sauvegarde par migration, sur une boucle de
    redémarrage, remplit le disque.
+
+**Le binaire en place fait foi, pas la base dpkg.** `self-update` n'annonce rien
+à dpkg : `dpkg-query` reste sur la version posée par le dernier paquet. Poser un
+`.deb` plus ancien que le binaire déjà là est donc un retour en arrière que dpkg
+ne voit pas ; le paquet le refuse en le nommant, et donne le geste qui le lève
+(`sudo env OPENCLOUD_ALLOW_DOWNGRADE=1 apt install ./opencloud_X.Y.Z_amd64.deb`,
+après avoir remis la sauvegarde d'avant migration). Rien ne recule en silence sur
+un schéma déjà migré.
+
+**L'unité renonce au bout de cinq échecs de démarrage** au lieu de repartir sans
+fin : chaque démarrage sauvegarde la base avant de migrer, et une migration qui
+échoue toujours remplirait `/var/lib` — openCloud emporterait les autres services
+de la machine, ce que « il n'est pas indispensable » interdit. L'opérateur lit
+alors `failed` dans `systemctl status opencloud`.
 
 Retour arrière : remettre `opencloud.prev` et la sauvegarde de base prise
 avant migration. Ça se fait à la main, en deux commandes que l'interface
