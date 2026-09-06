@@ -31,9 +31,6 @@ type Config struct {
 	// défaut (OWASP, compte d'administration) ; 0 lève la règle, pour un
 	// réseau de confiance (08-securite-et-secrets.md).
 	MinPasswordLength int `toml:"min_password_length"`
-	// Jeton GitHub en lecture seule pour self-update, nécessaire tant que le
-	// dépôt des releases est privé. Vide sinon.
-	GitHubToken string `toml:"github_token"`
 }
 
 // Bornes de min_password_length : au-delà, plus personne ne se connecte.
@@ -41,9 +38,6 @@ const (
 	DefaultMinPasswordLength = 12
 	maxMinPasswordLength     = 64
 )
-
-// Un jeton GitHub tient sur une ligne, en ASCII imprimable.
-const maxGitHubTokenLength = 255
 
 // Ce qui a une valeur par défaut. state_dir n'en a pas : dire où vit l'état
 // est le rôle du fichier, pas du code.
@@ -54,14 +48,26 @@ func defaults() Config {
 	}
 }
 
-// Warning nomme une clé lue mais inconnue. Le programme démarre quand même :
+// Warning nomme une clé lue mais ignorée. Le programme démarre quand même :
 // une faute de frappe ne doit pas empêcher de réparer l'infrastructure.
+// Remedy porte le geste quand la clé a été retirée, et rien sinon.
 type Warning struct {
-	Key string
+	Key    string
+	Remedy string
 }
 
 func (w Warning) String() string {
-	return fmt.Sprintf("clé inconnue ignorée : %s", w.Key)
+	if w.Remedy == "" {
+		return fmt.Sprintf("clé inconnue ignorée : %s", w.Key)
+	}
+	return fmt.Sprintf("clé retirée ignorée : %s — %s", w.Key, w.Remedy)
+}
+
+// Les clés qui ont existé et n'existent plus : une configuration qui les
+// porte encore mérite le geste, pas un avertissement anonyme.
+var retiredKeys = map[string]string{
+	// #nosec G101 -- un nom de clé et le geste qui la remplace, pas un secret
+	"github_token": "déplacer la valeur dans /etc/opencloud/github-token, 0600 root:root, et retirer la clé",
 }
 
 // Load lit, décode et valide le fichier. Les avertissements sont rendus même
@@ -131,7 +137,8 @@ func collectUnknownKeys(err error) []Warning {
 
 	var warnings []Warning
 	for _, missing := range strict.Errors {
-		warnings = append(warnings, Warning{Key: strings.Join(missing.Key(), ".")})
+		key := strings.Join(missing.Key(), ".")
+		warnings = append(warnings, Warning{Key: key, Remedy: retiredKeys[key]})
 	}
 	return warnings
 }
@@ -160,21 +167,6 @@ func (cfg Config) validate() error {
 	}
 	if cfg.MinPasswordLength < 0 || cfg.MinPasswordLength > maxMinPasswordLength {
 		return fmt.Errorf("clé « min_password_length » : attendu entre 0 et %d, reçu %d", maxMinPasswordLength, cfg.MinPasswordLength)
-	}
-	if err := validateGitHubToken(cfg.GitHubToken); err != nil {
-		return fmt.Errorf("clé « github_token » : %w", err)
-	}
-	return nil
-}
-
-func validateGitHubToken(token string) error {
-	if len(token) > maxGitHubTokenLength {
-		return fmt.Errorf("plus de %d caractères", maxGitHubTokenLength)
-	}
-	for _, character := range token {
-		if character <= ' ' || character > '~' {
-			return errors.New("attendu un jeton sur une ligne, sans espace")
-		}
 	}
 	return nil
 }

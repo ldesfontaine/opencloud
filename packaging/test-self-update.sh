@@ -11,6 +11,7 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractiv
 PREVIOUS_TAG=$1
 NEW_TAG=$2
 REPOSITORY=ldesfontaine/opencloud
+TOKEN_FILE=/etc/opencloud/github-token
 WORK_DIR=$(mktemp -d)
 
 fail() {
@@ -35,12 +36,21 @@ gh release download "$PREVIOUS_TAG" --repo "$REPOSITORY" --pattern '*.deb' --dir
 apt-get install -y "$WORK_DIR"/opencloud_*_amd64.deb
 wait_for_version "${PREVIOUS_TAG#v}"
 
-printf '\n== jeton de lecture dans la configuration (dépôt privé)\n'
-# La clé peut manquer si la release précédente est antérieure à son ajout. Un
-# jeton GitHub ne contient que lettres, chiffres et soulignés : sûr pour sed.
-grep -q '^github_token' /etc/opencloud/config.toml || echo 'github_token = ""' >> /etc/opencloud/config.toml
-sed -i "s|^github_token = .*|github_token = \"$GH_TOKEN\"|" /etc/opencloud/config.toml
-grep -q "^github_token = \"$GH_TOKEN\"" /etc/opencloud/config.toml || fail "le jeton n'a pas été écrit dans la configuration"
+printf '\n== jeton de lecture dans %s (dépôt privé)\n' "$TOKEN_FILE"
+# Hors de portée du service : self-update tourne en root et refuse ce fichier
+# s'il est plus ouvert que 0600 ou s'il appartient à quelqu'un d'autre.
+install -o root -g root -m 0600 /dev/null "$TOKEN_FILE"
+printf '%s\n' "$GH_TOKEN" > "$TOKEN_FILE"
+[ "$(stat -c '%U:%G %a' "$TOKEN_FILE")" = "root:root 600" ] \
+    || fail "$TOKEN_FILE : $(stat -c '%U:%G %a' "$TOKEN_FILE"), attendu root:root 600"
+
+# C'est le binaire de la release précédente qui se met à jour : tant qu'elle
+# lit encore le jeton dans sa configuration, il faut l'y écrire aussi. La
+# ligne s'éteint d'elle-même quand la précédente n'a plus la clé. Un jeton
+# GitHub ne contient que lettres, chiffres et soulignés : sûr pour sed.
+if grep -q '^github_token' /etc/opencloud/config.toml; then
+    sed -i "s|^github_token = .*|github_token = \"$GH_TOKEN\"|" /etc/opencloud/config.toml
+fi
 
 printf '\n== opencloud self-update --check\n'
 opencloud self-update --check

@@ -19,7 +19,7 @@ sudo apt install ./opencloud_0.1.0_amd64.deb
 | Le paquet pose | Où |
 |---|---|
 | Le binaire | `/opt/opencloud/bin/opencloud` — **le nom ne change jamais** entre versions —, et le lien `/usr/bin/opencloud` pour la ligne de commande |
-| La configuration | `/etc/opencloud/config.toml` — *conffile* : dpkg ne l'écrase pas à la mise à jour ; `root:opencloud`, `0640`, elle porte un jeton |
+| La configuration | `/etc/opencloud/config.toml` — *conffile* : dpkg ne l'écrase pas à la mise à jour ; `root:opencloud`, `0640`, aucun secret |
 | L'état | `/var/lib/opencloud/` — `StateDirectory=` de l'unité, `opencloud:opencloud`, `0700`, préservé par dpkg |
 | L'utilisateur système et l'unité durcie | `opencloud`, sans shell ; `opencloud.service` (`packaging/opencloud.service`) |
 | Le lanceur | `/opt/opencloud/bin/oc-launch` — copié en `/usr/local/sbin/oc-launch` par l'amorçage (`15-catalogue-actions.md` §1) |
@@ -77,9 +77,14 @@ refait tout ça à la main, mal — c'est là que Coolify et Cloudron ont cassé
 et `--version vX.Y.Z` (une release précise ; sinon la dernière). Il dit chaque
 étape sur une ligne, et affiche la commande de retour arrière. Un refus —
 saut de version, somme fausse, attestation absente ou invalide — se lit tel
-quel et sort avec le code `2`. Tant que le dépôt des releases est privé, la
-clé `github_token` de la configuration porte un jeton GitHub en lecture ; elle
-devient inutile le jour où le dépôt passe en public.
+quel et sort avec le code `2`. Tant que le dépôt des releases est privé, le
+fichier `/etc/opencloud/github-token` — `root:root`, `0600`, posé à la main —
+porte un jeton GitHub en lecture, sur sa première ligne. `self-update` tourne
+en root et le lit seul ; le service, lui, ne le voit pas. Absent, il n'y a pas
+de jeton ; plus ouvert que `0600` ou possédé par un autre que root, le fichier
+est refusé sans être lu — le refus donne `chmod 0600` ou `chown root:root`.
+`apt purge` l'emporte avec `/etc/opencloud`. Le fichier devient inutile le jour
+où le dépôt passe en public.
 
 `self-update` **prend un verrou avant tout** : le fichier `opencloud.lock`, à
 côté du binaire, posé avant le premier appel réseau et retiré une fois l'unité

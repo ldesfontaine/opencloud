@@ -17,7 +17,6 @@ state_dir = "/var/lib/opencloud"
 # un compte d'administration). 0 lève la règle, sur un réseau de confiance.
 min_password_length = 12
 
-# Jeton GitHub en lecture seule pour `opencloud self-update`, nécessaire tant
-# que le dépôt des releases est privé. Vide sinon. Ce fichier est lisible par
-# le service : ne mettre ici qu'un jeton à portée minimale (contenu, lecture).
-github_token = ""
+# Le jeton GitHub de `opencloud self-update` n'est pas ici : ce fichier est
+# lisible par le service, qui n'en a pas l'usage. Il vit dans
+# /etc/opencloud/github-token, en 0600 root:root, lu par self-update seul.

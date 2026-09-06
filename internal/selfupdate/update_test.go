@@ -557,7 +557,7 @@ func TestRun_WithoutSystemd_SaysSoAndStillSucceeds(t *testing.T) {
 	}
 }
 
-func TestRun_PrivateRepositoryWithoutToken_IsRefusedNamingTheKey(t *testing.T) {
+func TestRun_PrivateRepositoryWithoutToken_IsRefusedNamingTheTokenFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -572,7 +572,7 @@ func TestRun_PrivateRepositoryWithoutToken_IsRefusedNamingTheKey(t *testing.T) {
 
 	_, err := updater.Run(context.Background(), Options{CurrentVersion: "0.0.2", ExecutablePath: filepath.Join(t.TempDir(), "opencloud")})
 
-	expectRefusal(t, err, "github_token")
+	expectRefusal(t, err, TokenPath, "0600 root:root")
 }
 
 func TestDownloadAsset_URLOutsideTheRepository_IsRefused(t *testing.T) {
