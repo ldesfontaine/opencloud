@@ -22,6 +22,13 @@ sudo apt install ./opencloud_0.1.0_amd64.deb
 | La configuration | `/etc/opencloud/config.toml` — *conffile* : dpkg ne l'écrase pas à la mise à jour ; `root:opencloud`, `0640`, elle porte un jeton |
 | L'état | `/var/lib/opencloud/` — `StateDirectory=` de l'unité, `opencloud:opencloud`, `0700`, préservé par dpkg |
 | L'utilisateur système et l'unité durcie | `opencloud`, sans shell ; `opencloud.service` (`packaging/opencloud.service`) |
+| Le lanceur | `/opt/opencloud/bin/oc-launch` — copié en `/usr/local/sbin/oc-launch` par l'amorçage (`15-catalogue-actions.md` §1) |
+
+Puis, une fois, `sudo opencloud enroll-local` : la machine openCloud s'enrôle
+sur elle-même par SSH vers `localhost` — compte avec un shell, clé, règle
+`sudo` vers le lanceur, drop-in `sshd` — comme n'importe quelle machine
+(`05-execution.md`). Sans ce geste, l'interface tourne mais aucune action ne
+part : la fiche de la machine le dit.
 
 Produit par `nfpm` depuis `make release` (`packaging/nfpm.yaml`), par un build
 reproductible : deux builds du même commit donnent les mêmes sommes, et la CI

@@ -10,9 +10,13 @@
 - **Une action est un script shell versionné** dans openCloud, jamais une
   commande libre composée à la volée. **Ansible n'entre que si le catalogue
   révèle trop de répétition** — et alors il remplace, il ne s'ajoute pas.
-- **La machine openCloud sur elle-même** : même script, transport différent.
-  Si la cible est la machine locale, l'exécuteur lance sans SSH. Les scripts
-  sont écrits pour accepter les deux transports ; SSH vers soi-même en repli.
+- **La machine openCloud sur elle-même** : même script, **même transport** —
+  SSH vers `localhost`, comme n'importe quelle machine. L'unité systemd
+  d'openCloud est fermée (`NoNewPrivileges`, aucune capacité) : le service ne
+  peut pas faire `sudo` sur sa propre machine, et on ne la rouvre pas pour ça.
+  Un seul transport, un seul chemin à éprouver. La machine openCloud s'enrôle
+  par `sudo opencloud enroll-local`, joué une fois sur elle (tranché le
+  6 septembre 2026, ticket #20).
 - **Les remontées passent par un collecteur standard**, pas par du code maison
   (voir `02-roles.md`).
 

@@ -68,7 +68,8 @@ et `sudoers` ne valide jamais le contenu d'un fichier. Le fermer exigerait des
 scripts root-owned sur chaque machine, donc un binaire à mettre à jour partout
 à chaque version — écarté pour l'instant (`annexes/lecture-sudoers.md`).
 
-Transport local (la machine openCloud sur elle-même) : même vecteur, sans `ssh`.
+La machine openCloud sur elle-même : même vecteur, par `ssh` vers `localhost`
+(`05-execution.md`).
 
 ### Les règles, toutes reprises de your-cloud et de SysWarden
 

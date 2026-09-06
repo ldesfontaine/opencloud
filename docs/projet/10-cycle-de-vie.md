@@ -50,8 +50,9 @@ est dans `20-installation-et-mise-a-jour.md`.
 
 - Sur **Debian ou Ubuntu**. Pas de conteneur : isolé de tout ce qu'openCloud
   doit toucher — `/srv`, systemd, le Traefik de l'hôte.
-- La machine openCloud est **enrôlée comme les autres**, avec transport local
-  (`05-execution.md`).
+- La machine openCloud est **enrôlée comme les autres**, par SSH vers
+  `localhost` ; l'amorçage est `sudo opencloud enroll-local`, joué une fois
+  sur elle (`05-execution.md`).
 - Réinstallation ailleurs après perte : restaurer `/var/lib/opencloud`,
   vérifier que la nouvelle machine joint chacune, retirer l'ancienne.
 
