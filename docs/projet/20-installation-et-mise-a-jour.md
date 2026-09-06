@@ -25,8 +25,9 @@ sudo apt install ./opencloud_0.1.0_amd64.deb
 | Le lanceur | `/opt/opencloud/bin/oc-launch` — copié en `/usr/local/sbin/oc-launch` par l'amorçage (`15-catalogue-actions.md` §1) |
 
 Puis, une fois, `sudo opencloud enroll-local` : la machine openCloud s'enrôle
-sur elle-même par SSH vers `localhost` — compte avec un shell, clé, règle
-`sudo` vers le lanceur, drop-in `sshd` — comme n'importe quelle machine
+sur elle-même par SSH vers `localhost` — compte avec un shell et le groupe
+`systemd-journal`, clé, règle `sudo` vers le lanceur, drop-in `sshd` — comme
+n'importe quelle machine
 (`05-execution.md`). Sans ce geste, l'interface tourne mais aucune action ne
 part : la fiche de la machine le dit.
 
