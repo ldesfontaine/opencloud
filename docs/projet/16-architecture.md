@@ -12,7 +12,7 @@ interface, un constructeur `New(deps)`, aucune variable globale.
 | **`catalog`** | Le catalogue : pour chaque action, nom, portée, schéma de paramètres, script embarqué, délai maximum, réversibilité, interruption. **Valide les paramètres** (`validate`), **rend les fichiers** (gabarits `text/template`). | `scripts`, `validate` |
 | **`scripts`** | `embed.FS` : un `run.sh` par action, `Makefile.common`, gabarits Traefik / compose / unités. Vérifiés par `shellcheck` en CI. | — |
 | **`validate`** | Les types et bornes du §4 du catalogue : domaine, port, slug, compte, slot, digest, adresse. Un seul endroit. | — |
-| **`transport`** | Interface : `Put(fichier, mode)`, `Run(vecteur)`, `Follow(unité) → flux`, `Read(fichier)`. Deux mises en œuvre : **`local`** et **`ssh`** (client borné option par option). | — |
+| **`transport`** | Interface : `Put(fichier, mode)`, `Run(vecteur)`, `Follow(unité) → flux`, `Read(fichier)`. Une seule mise en œuvre : **`ssh`** (client borné option par option), y compris vers `localhost` pour la machine openCloud (`05-execution.md`). | — |
 | **`runner`** | **Une file par machine.** Prépare (journal `préparée`, dépôt de `run.sh` + `params.env` + `files/`), lance (`systemd-run`), suit (journald → flux), conclut (`appliquée` / `échouée` / `refusée`). **Reprise au démarrage** de toute action `préparée` ou `en cours`. Décompose une action de portée infrastructure en lot. | `store`, `catalog`, `transport` |
 | **`enroll`** | Génère la commande d'enrôlement (compte, clé, sudo, sshd, option NAT WireGuard), tient la paire de clés par machine et le `known_hosts` dédié. | `store`, `validate` |
 | **`dns`** | Client Cloudflare : écrire et effacer un TXT `_acme-challenge`, et — sur demande — poser un A/CNAME. Les **deux seules écritures** faites ailleurs que sur une machine. Un jeton par zone, et la rotation d'un jeton. | `config` |
@@ -22,7 +22,7 @@ interface, un constructeur `New(deps)`, aucune variable globale.
 | **`coldbackup`** | Récupération froide par `rsync` depuis la machine openCloud ; date affichée. | `transport` |
 | **`auth`** | Session, identifiant et mot de passe, changement forcé à la première connexion. Modèle prêt pour plusieurs comptes. | `store` |
 | **`web`** | Serveur HTTP, `html/template` (échappement automatique), HTMX pour les fragments, **SSE** pour le direct des actions. Handlers minces : valider, appeler un composant, rendre. | tout |
-| **`cli`** | `opencloud serve`, `opencloud enroll-command <machine>`, `opencloud status`, `opencloud self-update`, `opencloud version`. Rien de plus. | `config`, `web`, `selfupdate` |
+| **`cli`** | `opencloud serve`, `opencloud enroll-local` (amorçage de la machine openCloud, en root), `opencloud enroll-command <machine>`, `opencloud status`, `opencloud self-update`, `opencloud version`. Rien de plus. | `config`, `web`, `selfupdate` |
 
 ## Ce qui n'est pas dans le binaire
 
@@ -64,8 +64,8 @@ pour ne rejouer que ce qui n'a pas abouti (`05-execution.md`).
 |---|---|---|---|
 | 1 | Le squelette | `config`, `store`, `auth`, `web`, `cli` | On se connecte, on change le mot de passe, la page est vide. |
 | 1 bis | **Installable** | `make release` (`nfpm`), unité, `config.toml`, `self-update` | `apt install ./opencloud.deb` sur une Debian neuve : l'interface répond ; `apt install` de la version suivante met à jour sans rien perdre (`20-installation-et-mise-a-jour.md`). |
-| 2 | **Une action en local, suivie en direct** | `validate`, `scripts`, `catalog`, `transport/local`, `runner` | *Diagnostiquer* s'exécute par `systemd-run` sur la machine de dev, la sortie défile dans le navigateur, le journal passe à `appliquée`. Coupure au milieu → reprise propre. **C'est le cœur ; tout le reste sont des actions.** |
-| 3 | Une deuxième machine | `enroll`, `transport/ssh` | La commande générée enrôle une machine ; *Tester l'accès* répond. |
+| 2 | **Une action sur la machine openCloud, suivie en direct** | `validate`, `scripts`, `catalog`, `transport/ssh`, `enroll` (amorçage local), `runner` | `sudo opencloud enroll-local` enrôle la machine openCloud sur elle-même ; *Diagnostiquer* s'exécute par `systemd-run` via SSH vers `localhost`, la sortie défile dans le navigateur, le journal passe à `appliquée`. Coupure au milieu → reprise propre. Éprouvé dans le conteneur Debian avec systemd et `sshd`, jamais sur le poste de développement. **C'est le cœur ; tout le reste sont des actions.** |
+| 3 | Une deuxième machine | `enroll` (commande générée, machine distante) | La commande générée enrôle une machine ; *Tester l'accès* répond. |
 | 4 | Publier | actions *socle*, *proxy*, *hôte virtuel* | Un conteneur témoin répond en HTTP par son nom. |
 | 5 | Certifier | `dns`, `acme`, page certificats | Le même nom répond en HTTPS, la date d'expiration s'affiche. |
 | 6 | Services | actions *déclarer*, *déployer*, *mettre à jour*, `Makefile.common` | Un service posé par formulaire tourne ; `update` le met à jour. |
