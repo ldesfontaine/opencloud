@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/runner"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/systemd"
 	"github.com/ldesfontaine/opencloud/internal/web"
@@ -64,7 +66,22 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		return fmt.Errorf("créer le compte par défaut : %w", err)
 	}
 
-	server, err := web.New(web.Dependencies{Auth: authService}, version, logger)
+	// Le runner s'arrête avant la base : une action en cours reste « running »
+	// et la reprise la retrouvera au prochain démarrage.
+	machines := machineAccess{root: root}
+	actionRunner := runner.New(database, catalog.Service{}, machines, logger)
+	defer actionRunner.Close()
+	if err := actionRunner.Resume(ctx); err != nil {
+		return fmt.Errorf("reprendre les actions en cours : %w", err)
+	}
+
+	server, err := web.New(web.Dependencies{
+		Auth:      authService,
+		Machines:  database,
+		Enrolment: machines,
+		Actions:   actionRunner,
+		Catalog:   catalog.Service{},
+	}, version, logger)
 	if err != nil {
 		return fmt.Errorf("préparer l'interface : %w", err)
 	}

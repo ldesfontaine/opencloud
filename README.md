@@ -38,7 +38,10 @@ le paquet pose l'unité systemd durcie, `/etc/opencloud/config.toml` et
 
 1. Ouvrir l'interface depuis la machine, changer le mot de passe, et
    seulement ensuite élargir `listen` dans la configuration.
-2. Pour chaque machine à gérer, jouer la commande d'enrôlement générée par
+2. Jouer `sudo opencloud enroll-local` une fois : la machine openCloud
+   s'enrôle sur elle-même, par SSH vers `localhost` comme toute machine.
+   Sans ce geste, l'interface tourne mais aucune action ne part.
+3. Pour chaque autre machine, jouer la commande d'enrôlement générée par
    l'interface. Elle crée l'utilisateur `opencloud`, pose sa clé, et affiche
    l'empreinte de la machine.
 
