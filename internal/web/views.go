@@ -6,14 +6,20 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/catalog"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
 // Combien d'actions passées la fiche d'une machine montre.
 const machineHistoryLimit = 20
 
+// Assez d'actions récentes pour voir qu'une action tourne sur la machine, pas
+// assez pour relire tout son historique à chaque affichage de l'Infrastructure.
+const machineRecentLimit = 5
+
 type infrastructureView struct {
 	Machines []machineRow
+	CanEnrol bool
 }
 
 type machineRow struct {
@@ -22,6 +28,7 @@ type machineRow struct {
 	Address        string
 	Enrolled       bool
 	EnrolmentLabel string
+	Status         machineStatus
 	LastAction     *actionRow
 }
 
@@ -42,8 +49,21 @@ type machineView struct {
 	Account        string
 	Enrolled       bool
 	EnrolmentLabel string
-	Available      []availableAction
-	History        []actionRow
+	Status         machineStatus
+	// La commande à coller sur la machine, vide dès qu'elle est enrôlée et
+	// pour la machine openCloud, qui s'amorce par enroll-local.
+	Command         string
+	CanProbe        bool
+	CanChangeAccess bool
+	Refusal         *refusalView
+	Available       []availableAction
+	History         []actionRow
+}
+
+// machineFormView : déclarer une machine, premier temps de l'enrôlement.
+type machineFormView struct {
+	Values  map[string]string
+	Refusal *refusalView
 }
 
 type availableAction struct {
@@ -67,6 +87,10 @@ type preparedFile struct {
 type refusalView struct {
 	Cause  string
 	Remedy string
+}
+
+func newRefusalView(refused refusal.Refusal) refusalView {
+	return refusalView{Cause: refused.Cause, Remedy: refused.Remedy}
 }
 
 type actionFormView struct {

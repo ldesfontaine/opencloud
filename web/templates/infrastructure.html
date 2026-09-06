@@ -2,15 +2,17 @@
 {{define "content"}}
 <h1>Infrastructure</h1>
 {{if .Data.Machines}}
+{{if .Data.CanEnrol}}<p><a class="button" href="/machines/new">Enrôler une machine</a></p>{{end}}
 <table class="grid">
   <thead>
-    <tr><th>Machine</th><th>Adresse</th><th>Enrôlement</th><th>Dernière action</th></tr>
+    <tr><th>Machine</th><th>Adresse</th><th>Statut</th><th>Enrôlement</th><th>Dernière action</th></tr>
   </thead>
   <tbody>
     {{range .Data.Machines}}
     <tr>
       <td><a href="/machines/{{.ID}}">{{.Name}}</a></td>
       <td class="mono">{{.Address}}</td>
+      <td><span class="badge {{.Status.State}}">{{.Status.Label}}</span></td>
       <td>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</td>
       <td>
         {{with .LastAction}}
@@ -26,7 +28,7 @@
 {{else}}
 <section class="card empty">
   <p>Aucune machine pour l'instant.</p>
-  <p class="muted">L'enrôlement d'une machine viendra avec une prochaine version.</p>
+  {{if .Data.CanEnrol}}<p><a class="button" href="/machines/new">Enrôler une machine</a></p>{{end}}
 </section>
 {{end}}
 {{end}}

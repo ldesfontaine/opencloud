@@ -16,7 +16,7 @@ type pageTemplates map[string]*template.Template
 // parsePageTemplates lit chaque page servie, un gabarit sous templates/<nom>.html.
 func parsePageTemplates(files fs.FS) (pageTemplates, error) {
 	templates := pageTemplates{}
-	for _, name := range []string{"login", "password", "infrastructure", "machine", "action-form", "action"} {
+	for _, name := range []string{"login", "password", "infrastructure", "machine", "machine-new", "action-form", "action"} {
 		parsed, err := template.ParseFS(files, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", name, err)

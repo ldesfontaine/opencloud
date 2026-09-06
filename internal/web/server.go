@@ -32,16 +32,52 @@ type Machines interface {
 	Machine(ctx context.Context, id string) (store.Machine, error)
 }
 
+// MachineDeclaration est l'écriture : déclarer une machine, changer son
+// adresse et son port. Séparée de la lecture, parce que les pages d'action ne
+// demandent que la lecture.
+type MachineDeclaration interface {
+	Insert(ctx context.Context, machine store.Machine) error
+	UpdateAccess(ctx context.Context, id string, address string, port int) error
+}
+
 // EnrolmentStatus dit si la machine a un accès posé, et depuis quand.
 type EnrolmentStatus struct {
 	Enrolled bool
 	Since    time.Time
 }
 
-// Enrolment est ce que web attend de enroll. Tant que la dépendance est nulle,
+// Enrolment est ce que web lit de enroll. Tant que la dépendance est nulle,
 // aucune machine n'est enrôlée et l'interface le dit.
 type Enrolment interface {
 	Status(ctx context.Context, machineID string) (EnrolmentStatus, error)
+}
+
+// Enroller est l'enrôlement en deux temps : Prepare engendre la clé et rend
+// la commande à coller sur la machine, Confirm relève la clé d'hôte et refuse
+// si l'empreinte saisie ne correspond pas. Sans elle, l'interface montre
+// l'état d'enrôlement et n'enrôle rien.
+type Enroller interface {
+	// Prepare est rejouable : la clé n'est engendrée qu'une fois, la fiche
+	// réaffiche la même commande tant que l'empreinte n'est pas confirmée.
+	Prepare(ctx context.Context, machine store.Machine) (string, error)
+	Confirm(ctx context.Context, machine store.Machine, fingerprint string) error
+	UpdateAccess(ctx context.Context, machine store.Machine, fingerprint string) error
+}
+
+// MachineHealth est ce que la dernière exécution de « Tester l'accès » a
+// constaté. ProbeState vaut "", "reachable", "ssh-failed" ou
+// "launcher-failed" ; ProbedAt nul veut dire jamais sondée.
+type MachineHealth struct {
+	ProbedAt   time.Time
+	ProbeState string
+	ProbeNote  string
+}
+
+// Prober est ce que web attend de probe : lancer « Tester l'accès » tout de
+// suite, et relire ce que la dernière exécution a constaté.
+type Prober interface {
+	Now(ctx context.Context, machineID string) error
+	Health(ctx context.Context, machineID string) (MachineHealth, error)
 }
 
 // Actions est ce que web attend du runner : déposer, suivre en direct, et
@@ -64,19 +100,25 @@ type Catalog interface {
 // Dependencies : tout ce que l'interface consomme. Seul Auth est exigé ; sans
 // les autres, l'interface se comporte comme avant les actions.
 type Dependencies struct {
-	Auth      Authenticator
-	Machines  Machines
-	Enrolment Enrolment
-	Actions   Actions
-	Catalog   Catalog
+	Auth        Authenticator
+	Machines    Machines
+	Declaration MachineDeclaration
+	Enrolment   Enrolment
+	Enroller    Enroller
+	Actions     Actions
+	Catalog     Catalog
+	Prober      Prober
 }
 
 type Server struct {
-	auth      Authenticator
-	machines  Machines
-	enrolment Enrolment
-	actions   Actions
-	catalog   Catalog
+	auth        Authenticator
+	machines    Machines
+	declaration MachineDeclaration
+	enrolment   Enrolment
+	enroller    Enroller
+	actions     Actions
+	catalog     Catalog
+	prober      Prober
 
 	logger    *slog.Logger
 	version   string
@@ -102,16 +144,19 @@ func New(deps Dependencies, version string, logger *slog.Logger) (*Server, error
 	}
 
 	return &Server{
-		auth:      deps.Auth,
-		machines:  deps.Machines,
-		enrolment: deps.Enrolment,
-		actions:   deps.Actions,
-		catalog:   deps.Catalog,
-		logger:    logger,
-		version:   version,
-		templates: templates,
-		static:    http.StripPrefix("/static/", http.FileServerFS(staticFiles)),
-		csrf:      csrf,
+		auth:        deps.Auth,
+		machines:    deps.Machines,
+		declaration: deps.Declaration,
+		enrolment:   deps.Enrolment,
+		enroller:    deps.Enroller,
+		actions:     deps.Actions,
+		catalog:     deps.Catalog,
+		prober:      deps.Prober,
+		logger:      logger,
+		version:     version,
+		templates:   templates,
+		static:      http.StripPrefix("/static/", http.FileServerFS(staticFiles)),
+		csrf:        csrf,
 	}, nil
 }
 
@@ -131,9 +176,14 @@ func (s *Server) routes() []route {
 		{"GET /login", http.HandlerFunc(s.showLogin)},
 		{"POST /login", http.HandlerFunc(s.submitLogin)},
 		{"POST /logout", http.HandlerFunc(s.submitLogout)},
+		{"POST /machines", s.requireAccount(s.submitMachine)},
+		{"GET /machines/new", s.requireAccount(s.showMachineForm)},
 		{"GET /machines/{id}", s.requireAccount(s.showMachine)},
+		{"POST /machines/{id}/access", s.requireAccount(s.submitAccess)},
 		{"GET /machines/{id}/actions/{kind}", s.requireAccount(s.showActionForm)},
 		{"POST /machines/{id}/actions/{kind}", s.requireAccount(s.submitAction)},
+		{"POST /machines/{id}/confirm", s.requireAccount(s.submitFingerprint)},
+		{"POST /machines/{id}/probe", s.requireAccount(s.submitProbe)},
 		{"GET /password", s.requireAccount(s.showPasswordChange)},
 		{"POST /password", s.requireAccount(s.submitPasswordChange)},
 		{"GET /static/", s.static},
@@ -166,6 +216,12 @@ func (s *Server) Handler() http.Handler {
 // catalogue sont branchés ; sans eux, l'interface est celle du squelette.
 func (s *Server) actionsReady() bool {
 	return s.machines != nil && s.actions != nil && s.catalog != nil
+}
+
+// Déclarer une machine demande l'écriture du store et l'enrôlement : sans
+// l'un des deux, les pages d'enrôlement n'existent pas.
+func (s *Server) enrolmentReady() bool {
+	return s.machines != nil && s.declaration != nil && s.enroller != nil
 }
 
 // secureHeaders : aucun script ni style externe, jamais dans un cadre, pas de

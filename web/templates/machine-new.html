@@ -1,0 +1,32 @@
+{{define "title"}}Enrôler une machine{{end}}
+{{define "content"}}
+{{with .Data}}
+<h1>Enrôler une machine</h1>
+<p class="muted">L'enrôlement se fait en deux temps : openCloud engendre une clé pour cette
+machine et rend une commande à jouer dessus ; la commande affiche l'empreinte de sa clé
+d'hôte, qui se saisit ensuite sur sa fiche. Aucun mot de passe ne traverse le navigateur.</p>
+
+{{if .Refusal}}
+<section class="notice error">
+  <p><strong>Refus : {{.Refusal.Cause}}</strong></p>
+  <p>→ {{.Refusal.Remedy}}</p>
+</section>
+{{end}}
+
+<section class="card">
+  <form method="post" action="/machines">
+    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+    <label for="name">Nom</label>
+    <input id="name" name="name" type="text" value="{{index .Values "name"}}" required autofocus>
+    <p class="muted">L'identifiant de la machine est dérivé du nom : « Serveur Web 1 » donne « serveur-web-1 ».</p>
+    <label for="address">Adresse</label>
+    <input id="address" name="address" type="text" value="{{index .Values "address"}}"
+           placeholder="192.0.2.10 ou machine.exemple.fr" required>
+    <label for="port">Port SSH</label>
+    <input id="port" name="port" type="text" value="{{index .Values "port"}}" required>
+    <p class="muted">Le compte posé sur la machine est <span class="mono">opencloud</span> ; il n'est pas modifiable.</p>
+    <button type="submit">Déclarer la machine</button>
+  </form>
+</section>
+{{end}}
+{{end}}

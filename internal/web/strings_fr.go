@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/validate"
 )
 
 // Tout ce que l'opérateur lit venant du code, en français. Les gabarits
@@ -56,7 +58,78 @@ const (
 	messageMachineUnknown       = "Cette machine n'existe pas."
 	messageActionUnknown        = "Cette action n'existe pas."
 	messageConfirmationRequired = "Cette action est irréversible ou coupe un service : cochez la confirmation avant de la lancer."
+	messageFingerprintMalformed = "L'empreinte s'écrit « SHA256: » suivi de 43 caractères, telle que la commande l'a affichée sur la machine."
 )
+
+// Le statut à quatre états (02-roles.md). Aucun de ces libellés ne dit « en
+// ligne » : ils disent ce qui a été constaté, et quand.
+const (
+	labelNotEnrolled         = "non enrôlée"
+	labelActionRunning       = "action en cours"
+	labelNeverProbed         = "jamais sondée"
+	labelSSHFailedSince      = "SSH en échec depuis le "
+	labelLauncherFailedSince = "lanceur en échec depuis le "
+)
+
+func labelReachableSince(age time.Duration) string {
+	minutes := int(age.Minutes())
+	if minutes < 1 {
+		return "joignable, vue à l'instant"
+	}
+	return fmt.Sprintf("joignable, vue il y a %d min", minutes)
+}
+
+func labelLastReport(probedAt time.Time) string {
+	return "dernière remontée le " + formatMoment(probedAt)
+}
+
+// L'échec porte la note du sondage quand il en a laissé une : elle dit ce que
+// la machine a répondu.
+func labelProbeFailed(prefix string, health MachineHealth) string {
+	label := prefix + formatMoment(health.ProbedAt)
+	if health.ProbeNote != "" {
+		return label + " — " + health.ProbeNote
+	}
+	return label
+}
+
+// Les refus de la déclaration d'une machine : la cause, puis le geste qui la
+// lève (17-conventions-code.md, « un refus n'est pas une erreur »).
+func refusalNameWithoutIdentifier(name string) refusalView {
+	return refusalView{
+		Cause: fmt.Sprintf("le nom « %s » ne donne aucun identifiant utilisable", name),
+		Remedy: fmt.Sprintf("donner un nom qui commence par une lettre et tient en %d caractères une fois "+
+			"réduit aux minuscules, aux chiffres et aux tirets, par exemple « web-1 »", validate.MaxSlugLength),
+	}
+}
+
+func refusalIdentifierReserved(id string) refusalView {
+	return refusalView{
+		Cause:  fmt.Sprintf("l'identifiant « %s » est celui de la machine openCloud", id),
+		Remedy: "donner un autre nom à cette machine",
+	}
+}
+
+func refusalIdentifierTaken(id string) refusalView {
+	return refusalView{
+		Cause:  fmt.Sprintf("une machine porte déjà l'identifiant « %s »", id),
+		Remedy: "donner un autre nom, ou ouvrir la fiche de la machine déjà déclarée",
+	}
+}
+
+func refusalAddressUnknown(address string) refusalView {
+	return refusalView{
+		Cause:  fmt.Sprintf("« %s » n'est ni une adresse IP ni un nom d'hôte", address),
+		Remedy: "saisir une adresse IPv4 ou IPv6, ou un nom d'hôte en minuscules",
+	}
+}
+
+func refusalPortOutOfRange(port string) refusalView {
+	return refusalView{
+		Cause:  fmt.Sprintf("« %s » n'est pas un port", port),
+		Remedy: fmt.Sprintf("saisir un port entre %d et %d ; SSH écoute sur %d par défaut", minSSHPort, maxSSHPort, defaultSSHPort),
+	}
+}
 
 func actionStateLabel(state store.ActionState) string {
 	switch state {
