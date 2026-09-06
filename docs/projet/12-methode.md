@@ -25,6 +25,10 @@
 - Deux travaux en parallèle — un poste, une session dans le cloud — ne se
   gênent pas : chacun sa branche, le conflit se règle dans la PR, pas sur
   `main`.
+- **Tant que le dépôt est privé sur un plan gratuit, GitHub n'applique pas
+  cette règle** : pas de protection de branche, pas de ruleset. C'est une
+  discipline — et une commande qui vérifie la CI avant de fusionner. La
+  protection s'active le jour du plan Pro ou du passage en public.
 
 ## Les versions
 
