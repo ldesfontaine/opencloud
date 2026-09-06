@@ -84,6 +84,13 @@ jobs:
       - name: installation, mise à jour, remove, purge
         run: sudo packaging/test-install.sh dist/old/opencloud_0.0.1_amd64.deb dist/new/opencloud_0.0.2_amd64.deb
 
+      # Le runner est une vraie machine Ubuntu : sshd et sudo y sont, et la
+      # machine openCloud s'y enrôle sur elle-même par SSH vers localhost.
+      - name: amorçage, Diagnostiquer par l'interface, reprise
+        run: |
+          sudo apt-get install -y -qq openssh-server > /dev/null
+          sudo packaging/test-action.sh dist/new/opencloud_0.0.2_amd64.deb
+
   plumber:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

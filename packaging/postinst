@@ -80,6 +80,8 @@ case "$1" in
             # après apt remove : restart, qui démarre aussi une unité arrêtée.
             if [ -z "$2" ]; then
                 invoke_unit start
+                # Sans ce geste, l'interface tourne mais aucune action ne part.
+                echo "openCloud écoute selon /etc/opencloud/config.toml. Pour lancer des actions sur cette machine : sudo opencloud enroll-local"
             else
                 invoke_unit restart
             fi

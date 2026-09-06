@@ -27,6 +27,9 @@ const (
 	sudoersName       = "opencloud"
 	sshdDropInDir     = "etc/ssh/sshd_config.d"
 	sshdDropInName    = "opencloud.conf"
+	// sshd -t exige ce dossier ; le service le crée en démarrant, mais sur une
+	// machine où sshd n'a jamais tourné (socket activé, Ubuntu) il manque.
+	sshdRuntimeDir    = "run/sshd"
 	hostKeyDir        = "etc/ssh"
 	sudoPath          = "usr/bin/sudo"
 	visudoPath        = "usr/sbin/visudo"

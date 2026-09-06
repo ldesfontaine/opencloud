@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -506,5 +507,34 @@ func TestEnrollLocal_SansLeGroupeDuJournalLeCompteNeVerraitRien(t *testing.T) {
 	}
 	if harness.commands.played("/usr/sbin/visudo") {
 		t.Fatal("rien ne doit être posé après le refus")
+	}
+}
+
+func TestEnrollLocal_LeDossierMachinesEtSonParentAppartiennentAuCompte(t *testing.T) {
+	harness := newHarness(t)
+	var owned []string
+	harness.deps.Chown = func(name string, uid, gid int) error {
+		if uid == 997 && strings.HasPrefix(name, harness.stateDir) {
+			owned = append(owned, strings.TrimPrefix(name, harness.stateDir+"/"))
+		}
+		return nil
+	}
+
+	harness.run(t)
+
+	for _, expected := range []string{"machines", "machines/local"} {
+		if !slices.Contains(owned, expected) {
+			t.Errorf("%s n'a pas été donné au compte opencloud ; donnés : %v", expected, owned)
+		}
+	}
+}
+
+func TestEnrollLocal_PoseLeDossierDeSeparationDePrivilegesAvantSshdT(t *testing.T) {
+	harness := newHarness(t)
+
+	harness.run(t)
+
+	if _, err := os.Stat(filepath.Join(harness.systemRoot, "run/sshd")); err != nil {
+		t.Fatal("sshd -t exige /run/sshd, absent tant que sshd n'a jamais démarré : l'amorçage doit le créer")
 	}
 }

@@ -190,6 +190,9 @@ func (e *enrollment) configureSSHD(ctx context.Context) error {
 	if err := writeSystemFile(directory, sshdDropInName, []byte(sshdDropInContent), 0o644); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(e.systemPath(sshdRuntimeDir), 0o755); err != nil { // #nosec G301 -- /run/sshd, le mode que pose sshd lui-même
+		return fmt.Errorf("créer /%s : %w", sshdRuntimeDir, err)
+	}
 	check, err := e.deps.Commands.Run(ctx, commandPath(sshdPath), "-t")
 	if err != nil {
 		return err
@@ -249,15 +252,22 @@ func (e *enrollment) installKey(_ context.Context) error {
 	return e.ensureKnownHosts()
 }
 
+// ensureMachineDir crée machines/ et machines/local et les donne tous deux
+// au compte : l'amorçage tourne en root, et un parent resté à root
+// empêcherait le service de traverser jusqu'à sa clé.
 func (e *enrollment) ensureMachineDir() error {
-	directory := MachineDir(LocalMachineID)
-	if err := e.deps.Root.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("créer %s : %w", directory, err)
+	for _, directory := range []string{machinesDirName, MachineDir(LocalMachineID)} {
+		if err := e.deps.Root.MkdirAll(directory, 0o700); err != nil {
+			return fmt.Errorf("créer %s : %w", directory, err)
+		}
+		if err := e.deps.Root.Chmod(directory, 0o700); err != nil {
+			return fmt.Errorf("fermer %s : %w", directory, err)
+		}
+		if err := e.ownState(directory); err != nil {
+			return err
+		}
 	}
-	if err := e.deps.Root.Chmod(directory, 0o700); err != nil {
-		return fmt.Errorf("fermer %s : %w", directory, err)
-	}
-	return e.ownState(directory)
+	return nil
 }
 
 func (e *enrollment) ensureIdentity() error {
