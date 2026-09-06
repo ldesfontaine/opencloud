@@ -1,7 +1,15 @@
 {{define "title"}}{{.Data.Name}}{{end}}
 {{define "content"}}
 {{with .Data}}
-<h1>{{.Name}}</h1>
+<h1>{{.Name}} <span class="badge {{.Status.State}}">{{.Status.Label}}</span></h1>
+
+{{if .Refusal}}
+<section class="notice error">
+  <p><strong>Refus : {{.Refusal.Cause}}</strong></p>
+  <p>→ {{.Refusal.Remedy}}</p>
+</section>
+{{end}}
+
 <section class="card">
   <dl class="facts">
     <dt>Adresse</dt><dd class="mono">{{.Address}}:{{.Port}}</dd>
@@ -9,7 +17,50 @@
     <dt>Enrôlement</dt>
     <dd>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</dd>
   </dl>
+  {{if .CanProbe}}
+  <form method="post" action="/machines/{{.ID}}/probe">
+    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+    <button type="submit">Tester l'accès</button>
+  </form>
+  {{end}}
 </section>
+
+{{if .Command}}
+<section class="card">
+  <h2>La commande à jouer</h2>
+  <p>À coller sur la machine, en root. Elle crée le compte, pose sa règle <span class="mono">sudo</span>,
+  le drop-in <span class="mono">sshd</span> et la clé, puis affiche l'empreinte de la clé d'hôte.</p>
+  <textarea class="command" readonly rows="6" aria-label="Commande à coller sur la machine">{{.Command}}</textarea>
+
+  <h2>Confirmer l'empreinte</h2>
+  <p class="muted">openCloud relève la clé d'hôte et refuse si elle ne correspond pas à
+  l'empreinte affichée par la commande.</p>
+  <form method="post" action="/machines/{{.ID}}/confirm">
+    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+    <label for="fingerprint">Empreinte affichée par la commande</label>
+    <input id="fingerprint" name="fingerprint" type="text" placeholder="SHA256:…" required>
+    <button type="submit">Confirmer l'empreinte</button>
+  </form>
+</section>
+{{end}}
+
+{{if .CanChangeAccess}}
+<section class="card">
+  <h2>Changer l'accès</h2>
+  <p class="muted">Changer l'adresse, le port ou l'empreinte est une action nommée :
+  openCloud relève à nouveau la clé d'hôte et réécrit le <span class="mono">known_hosts</span>.</p>
+  <form method="post" action="/machines/{{.ID}}/access">
+    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+    <label for="access-address">Adresse</label>
+    <input id="access-address" name="address" type="text" value="{{.Address}}" required>
+    <label for="access-port">Port SSH</label>
+    <input id="access-port" name="port" type="text" value="{{.Port}}" required>
+    <label for="access-fingerprint">Empreinte de la clé d'hôte</label>
+    <input id="access-fingerprint" name="fingerprint" type="text" placeholder="SHA256:…" required>
+    <button type="submit">Changer l'accès</button>
+  </form>
+</section>
+{{end}}
 
 <h2>Actions disponibles</h2>
 {{if .Available}}

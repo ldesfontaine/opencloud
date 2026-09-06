@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -10,7 +11,7 @@ import (
 
 func (s *Server) showInfrastructure(w http.ResponseWriter, r *http.Request, account store.Account) {
 	csrfToken := s.csrfFormToken(w, r)
-	view := infrastructureView{}
+	view := infrastructureView{CanEnrol: s.enrolmentReady()}
 	if s.actionsReady() {
 		rows, err := s.machineRows(r)
 		if err != nil {
@@ -30,8 +31,9 @@ func (s *Server) machineRows(r *http.Request) ([]machineRow, error) {
 
 	var rows []machineRow
 	for _, machine := range machines {
-		row := newMachineRow(machine, s.enrolmentStatus(r.Context(), machine.ID))
-		recent, err := s.actions.ActionsForMachine(r.Context(), machine.ID, 1)
+		status := s.enrolmentStatus(r.Context(), machine.ID)
+		row := newMachineRow(machine, status)
+		recent, err := s.actions.ActionsForMachine(r.Context(), machine.ID, machineRecentLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -39,6 +41,7 @@ func (s *Server) machineRows(r *http.Request) ([]machineRow, error) {
 			last := s.newActionRow(recent[0])
 			row.LastAction = &last
 		}
+		row.Status = newMachineStatus(status.Enrolled, s.machineHealth(r.Context(), machine.ID), recent, time.Now())
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -60,25 +63,48 @@ func (s *Server) showMachine(w http.ResponseWriter, r *http.Request, account sto
 		return
 	}
 
+	view, err := s.newMachineView(r, machine)
+	if err != nil {
+		s.serverError(w, "build machine view", err)
+		return
+	}
+	s.render(w, http.StatusOK, "machine", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+}
+
+// newMachineView rassemble ce que la fiche montre : le statut, l'historique,
+// et les gestes d'enrôlement quand ils sont branchés.
+func (s *Server) newMachineView(r *http.Request, machine store.Machine) (machineView, error) {
 	history, err := s.actions.ActionsForMachine(r.Context(), machine.ID, machineHistoryLimit)
 	if err != nil {
-		s.serverError(w, "list machine actions", err)
-		return
+		return machineView{}, err
 	}
 
 	status := s.enrolmentStatus(r.Context(), machine.ID)
 	view := machineView{
-		ID:             machine.ID,
-		Name:           machine.Name,
-		Address:        machine.Address,
-		Port:           machine.Port,
-		Account:        machine.Account,
-		Enrolled:       status.Enrolled,
-		EnrolmentLabel: enrolmentLabel(machine, status),
-		Available:      s.machineScopedActions(),
-		History:        s.newActionRows(history),
+		ID:              machine.ID,
+		Name:            machine.Name,
+		Address:         machine.Address,
+		Port:            machine.Port,
+		Account:         machine.Account,
+		Enrolled:        status.Enrolled,
+		EnrolmentLabel:  enrolmentLabel(machine, status),
+		Status:          newMachineStatus(status.Enrolled, s.machineHealth(r.Context(), machine.ID), history, time.Now()),
+		CanProbe:        s.prober != nil && status.Enrolled,
+		CanChangeAccess: s.enrolmentReady() && status.Enrolled,
+		Available:       s.machineScopedActions(),
+		History:         s.newActionRows(history),
 	}
-	s.render(w, http.StatusOK, "machine", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+
+	// La machine openCloud s'amorce par enroll-local : pas de commande à
+	// coller, la fiche dit déjà le geste.
+	if !status.Enrolled && s.enroller != nil && machine.ID != store.LocalMachineID {
+		command, err := s.enroller.Prepare(r.Context(), machine)
+		if err != nil {
+			return machineView{}, err
+		}
+		view.Command = command
+	}
+	return view, nil
 }
 
 // Les actions qu'on lance depuis la fiche d'une machine : celles dont la

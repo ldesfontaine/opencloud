@@ -9,6 +9,10 @@
   --danger: #b91c1c;
   --danger-bg: #fee2e2;
   --notice-bg: #e0ecff;
+  --ok: #166534;
+  --ok-bg: #dcfce7;
+  --stale: #92400e;
+  --stale-bg: #fef3c7;
 }
 
 * { box-sizing: border-box; }
@@ -117,6 +121,23 @@ footer {
 .warn { color: var(--danger); }
 .badge { padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--notice-bg); font-size: 0.85rem; }
 .badge.failed, .badge.refused { background: var(--danger-bg); color: var(--danger); }
+
+/* Le statut d'une machine : un badge par état, et jamais « en ligne ». */
+.badge.reachable { background: var(--ok-bg); color: var(--ok); }
+.badge.ssh-failed, .badge.launcher-failed, .badge.not-enrolled { background: var(--danger-bg); color: var(--danger); }
+.badge.stale, .badge.never-probed { background: var(--stale-bg); color: var(--stale); }
+
+/* La commande d'enrôlement : lisible et sélectionnable d'un geste. */
+textarea.command {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+}
+
+a.button { display: inline-block; padding: 0.55rem 1.1rem; border-radius: 4px; background: var(--accent); color: #fff; text-decoration: none; }
 .actions { list-style: none; padding: 0; }
 .actions li { padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
 .output { background: var(--ink); color: #f3f4f6; padding: 1rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }

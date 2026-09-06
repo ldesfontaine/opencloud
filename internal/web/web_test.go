@@ -135,7 +135,10 @@ func TestRoutes_AreFrozen(t *testing.T) {
 	want := []string{
 		"GET /{$}", "GET /actions/{id}", "GET /actions/{id}/stream",
 		"GET /healthz", "GET /login", "POST /login", "POST /logout",
-		"GET /machines/{id}", "GET /machines/{id}/actions/{kind}", "POST /machines/{id}/actions/{kind}",
+		"POST /machines", "GET /machines/new", "GET /machines/{id}",
+		"POST /machines/{id}/access",
+		"GET /machines/{id}/actions/{kind}", "POST /machines/{id}/actions/{kind}",
+		"POST /machines/{id}/confirm", "POST /machines/{id}/probe",
 		"GET /password", "POST /password", "GET /static/",
 	}
 	got := newTestServer(t).Routes()
