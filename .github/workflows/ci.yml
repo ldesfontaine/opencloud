@@ -91,6 +91,30 @@ jobs:
           sudo apt-get install -y -qq openssh-server > /dev/null
           sudo packaging/test-action.sh dist/new/opencloud_0.0.2_amd64.deb
 
+  # Le même paquet, mais dans le conteneur Debian 12 avec systemd : le job
+  # ci-dessus ne prouve qu'Ubuntu, et le critère est « sur une Debian neuve ».
+  # `make package-test` est la cible jouée en local, inchangée : elle construit
+  # les deux versions, joue test-install.sh puis test-action.sh, et remonte le
+  # code de sortie du conteneur.
+  package-debian:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Le conteneur porte systemd, pas de démon Docker : privilégié et cgroups
+      # de l'hôte lui suffisent, rien n'est imbriqué.
+      - name: installation, mise à jour et Diagnostiquer sur Debian 12
+        run: make package-test
+
   plumber:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
