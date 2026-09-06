@@ -89,6 +89,10 @@ func (u *Updater) Run(ctx context.Context, options Options) (Result, error) {
 	}
 
 	previousPath, err := replaceExecutable(options.ExecutablePath, content)
+	if errors.Is(err, ErrReplacedButNotSynced) {
+		u.say("avertissement     : %v", err)
+		err = nil
+	}
 	if errors.Is(err, fs.ErrPermission) {
 		return Result{}, refusal.Refusal{
 			Cause:  fmt.Sprintf("droits insuffisants pour remplacer %s", options.ExecutablePath),
@@ -206,7 +210,7 @@ func (u *Updater) downloadAndVerify(ctx context.Context, release Release) ([]byt
 		}
 	}
 
-	u.say("téléchargement    : %s (%d Mo)", binaryName, binaryAsset.Size>>20)
+	u.say("téléchargement    : %s (%d Mio)", binaryName, binaryAsset.Size>>20)
 	content, digest, err := u.client.DownloadAsset(ctx, binaryAsset, maxBinaryBytes)
 	if err != nil {
 		return nil, describeGitHubError(err)
@@ -241,7 +245,12 @@ func (u *Updater) verifyProvenance(ctx context.Context, version Version, binaryN
 	if err != nil {
 		return fmt.Errorf("décrire le signataire attendu : %w", err)
 	}
-	if err := u.verifier.Verify(ctx, bundles, digest, identity); err != nil {
+	err = u.verifier.Verify(ctx, bundles, digest, identity)
+	if errors.Is(err, ErrTrustRootUnavailable) {
+		// Pas pu vérifier n'est pas invalide : une erreur, à réessayer.
+		return fmt.Errorf("impossible de vérifier l'attestation : %w", err)
+	}
+	if err != nil {
 		return refusal.Refusal{
 			Cause:  fmt.Sprintf("l'attestation de provenance de %s n'est pas valide : %v", binaryName, err),
 			Remedy: "ne pas installer ; vérifier la release sur GitHub avant d'aller plus loin",

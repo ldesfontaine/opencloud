@@ -89,11 +89,14 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
 4. **Remplacer par écriture atomique** — fichier `opencloud.new` puis
    `rename`, jamais d'écrasement du fichier en cours d'exécution *(`text file
    busy`)*. Le `.new` sert aussi de verrou : deux `self-update` en même temps,
-   le second refuse.
+   le second refuse. Une mise à jour **par le paquet** retire le `.prev` : le
+   retour arrière est alors l'ancien `.deb`, pas un binaire d'avant.
 5. **Redémarrer l'unité.**
 6. **Au démarrage, sauvegarder la base**, puis appliquer les migrations
    embarquées, numérotées, jamais rejouées. **Si la sauvegarde échoue, la
-   migration n'a pas lieu** et l'ancienne version reste servie *(Cloudron)*.
+   migration n'a pas lieu** : le service s'arrête en le disant, la base est
+   intacte, et le retour arrière est la commande affichée par `self-update`
+   *(Cloudron a migré sans sauvegarde ; on ne migre pas du tout)*.
 
 Retour arrière : remettre `opencloud.prev` et la sauvegarde de base prise
 avant migration. Ça se fait à la main, en deux commandes que l'interface
@@ -109,7 +112,9 @@ affiche.
   lancé deux mises à jour en parallèle et perdu la clé de chiffrement.
 - **Pas de migration pendant qu'un autre processus peut redémarrer le
   service** : `apt-daily-upgrade` a coupé une migration Cloudron au milieu.
-  L'unité pose un verrou de migration, et le dit s'il reste.
+  Aujourd'hui, chaque migration est une transaction : coupée, elle n'a pas eu
+  lieu. Le verrou de migration, qui dirait qu'une autre instance migre, est
+  **à venir**.
 
 ## Piège connu à ne pas reproduire
 
@@ -125,7 +130,7 @@ Deux gestes, deux résultats, dits avant :
 | Geste | Ce qui part | Ce qui reste |
 |---|---|---|
 | `sudo apt remove opencloud` | Le binaire, son `.prev`, l'unité | `/etc/opencloud`, `/var/lib/opencloud` — base, clés, jetons — et **l'utilisateur système**, qui possède ces fichiers : le retirer les rendrait orphelins. Réinstaller retrouve tout |
-| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine |
+| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine — sauf un `state_dir` que l'opérateur aurait déplacé : `purge` ne connaît que `/var/lib/opencloud`, et ne devine pas |
 
 Ces deux gestes, la mise à jour et la réinstallation sont **joués en CI** à
 chaque changement, sur le runner (`packaging/test-install.sh`), et en local

@@ -16,9 +16,14 @@ const (
 	executableMode = 0o755
 )
 
-// ErrUpdateInProgress : un .new existe déjà — une autre mise à jour est en
-// cours, ou une précédente a été interrompue.
-var ErrUpdateInProgress = errors.New("an update is already in progress")
+var (
+	// ErrUpdateInProgress : un .new existe déjà — une autre mise à jour est en
+	// cours, ou une précédente a été interrompue.
+	ErrUpdateInProgress = errors.New("an update is already in progress")
+	// ErrReplacedButNotSynced : le nouveau binaire est en place, mais le fsync
+	// du dossier a échoué — le rename pourrait se perdre à une coupure.
+	ErrReplacedButNotSynced = errors.New("binary replaced but directory not synced")
+)
 
 // replaceExecutable met content à la place du binaire sans jamais écraser le
 // fichier en cours d'exécution (« text file busy ») : écrit à côté, garde
@@ -74,12 +79,14 @@ func replaceExecutable(executablePath string, content []byte) (previousPath stri
 		return "", fmt.Errorf("rename %s to %s: %w", pendingName, name, err)
 	}
 	renamed = true
+	previousPath = filepath.Join(directory, previousName)
 
-	// fsync du dossier, sinon le rename peut se perdre à la coupure.
+	// fsync du dossier, sinon le rename peut se perdre à la coupure. Le
+	// remplacement est fait quoi qu'il arrive : l'appelant doit le savoir.
 	if err := fsx.SyncDirectory(root, "."); err != nil {
-		return "", err
+		return previousPath, fmt.Errorf("%w: %w", ErrReplacedButNotSynced, err)
 	}
-	return filepath.Join(directory, previousName), nil
+	return previousPath, nil
 }
 
 func writeExecutable(file *os.File, content []byte) error {

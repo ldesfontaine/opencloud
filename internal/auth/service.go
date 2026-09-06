@@ -193,8 +193,9 @@ func (s *Service) Login(ctx context.Context, username, password string) (Session
 	if err != nil {
 		return Session{}, err
 	}
+	defer release()
+
 	matches, err := s.verifyLogin(ctx, username, password)
-	release()
 	if err != nil {
 		return Session{}, err
 	}

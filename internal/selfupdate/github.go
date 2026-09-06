@@ -197,7 +197,7 @@ type attestationsJSON struct {
 // somme. Aucun n'est une réponse possible : c'est à l'appelant de refuser.
 func (c *Client) FetchAttestations(ctx context.Context, digest [sha256.Size]byte) ([][]byte, error) {
 	subject := "sha256:" + hex.EncodeToString(digest[:])
-	body, err := c.getJSON(ctx, c.repositoryURL("/attestations/"+subject+"?per_page=30"))
+	body, err := c.getJSONBounded(ctx, c.repositoryURL("/attestations/"+subject+"?per_page=10"), maxAttestationBytes)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -256,6 +256,10 @@ func (c *Client) repositoryURL(path string) string {
 
 // getJSON fait un GET sur l'API, borné en temps et en taille.
 func (c *Client) getJSON(ctx context.Context, rawURL string) ([]byte, error) {
+	return c.getJSONBounded(ctx, rawURL, maxAPIResponseBytes)
+}
+
+func (c *Client) getJSONBounded(ctx context.Context, rawURL string, maxBytes int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 	response, err := c.get(ctx, rawURL, "application/vnd.github+json")
@@ -263,7 +267,7 @@ func (c *Client) getJSON(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer response.Body.Close()
-	return readBounded(response.Body, maxAPIResponseBytes)
+	return readBounded(response.Body, maxBytes)
 }
 
 // get envoie la requête avec les en-têtes que GitHub attend. Sur une

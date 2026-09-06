@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/tuf"
 	"github.com/sigstore/sigstore-go/pkg/verify"
+	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 )
 
 // L'attestation de provenance (SLSA, signée par Sigstore) que le workflow
@@ -48,10 +51,20 @@ const (
 	// figurent dans le certificat.
 	actionsIssuer       = "https://token.actions.githubusercontent.com"
 	releaseWorkflowPath = ".github/workflows/release.yml"
+
+	// Bornes de la récupération TUF : par requête, et deux reprises au plus.
+	trustRootRequestTimeout = 30 * time.Second
+	trustRootRetryInterval  = 2 * time.Second
+	trustRootRetryCount     = 2
 )
 
-// ErrUnknownSigstoreInstance : le certificat ne vient d'aucune des deux instances.
-var ErrUnknownSigstoreInstance = errors.New("unknown sigstore instance")
+var (
+	// ErrUnknownSigstoreInstance : le certificat ne vient d'aucune des deux instances.
+	ErrUnknownSigstoreInstance = errors.New("unknown sigstore instance")
+	// ErrTrustRootUnavailable : la racine de confiance n'a pas pu être obtenue —
+	// on n'a pas pu vérifier, ce qui n'est pas la même chose qu'invalide.
+	ErrTrustRootUnavailable = errors.New("trust root unavailable")
+)
 
 type sigstoreInstance int
 
@@ -89,9 +102,9 @@ func (sigstoreVerifier) Verify(ctx context.Context, bundles [][]byte, digest [sh
 
 		trusted, known := roots[instance]
 		if !known {
-			trusted, err = fetchTrustedRoot(ctx, instance)
+			trusted, err = fetchTrustedRoot(instance)
 			if err != nil {
-				return err
+				return fmt.Errorf("%w: %w", ErrTrustRootUnavailable, err)
 			}
 			roots[instance] = trusted
 		}
@@ -134,8 +147,15 @@ func parseBundle(raw []byte) (*bundle.Bundle, sigstoreInstance, error) {
 
 // fetchTrustedRoot obtient la racine de confiance courante par TUF, sans cache
 // disque : self-update est rare, et root n'a rien à laisser dans l'état.
-func fetchTrustedRoot(ctx context.Context, instance sigstoreInstance) (*root.TrustedRoot, error) {
-	options := tuf.DefaultOptions().WithContext(ctx).WithDisableLocalCache()
+// Le fetcher par défaut de go-tuf n'a ni délai ni contexte (l'option Context
+// de sigstore-go n'est pas lue) : on lui donne un client HTTP borné.
+func fetchTrustedRoot(instance sigstoreInstance) (*root.TrustedRoot, error) {
+	boundedFetcher := fetcher.NewDefaultFetcher()
+	boundedFetcher.SetHTTPClient(&http.Client{Timeout: trustRootRequestTimeout})
+	boundedFetcher.SetRetry(trustRootRetryInterval, trustRootRetryCount)
+	boundedFetcher.SetHTTPUserAgent("opencloud self-update")
+
+	options := tuf.DefaultOptions().WithDisableLocalCache().WithFetcher(boundedFetcher)
 	if instance == githubInstance {
 		options = options.WithRoot(githubTUFRoot).WithRepositoryBaseURL(githubTUFMirror)
 	}

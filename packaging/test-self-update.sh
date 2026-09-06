@@ -36,7 +36,11 @@ apt-get install -y "$WORK_DIR"/opencloud_*_amd64.deb
 wait_for_version "${PREVIOUS_TAG#v}"
 
 printf '\n== jeton de lecture dans la configuration (dépôt privé)\n'
+# La clé peut manquer si la release précédente est antérieure à son ajout. Un
+# jeton GitHub ne contient que lettres, chiffres et soulignés : sûr pour sed.
+grep -q '^github_token' /etc/opencloud/config.toml || echo 'github_token = ""' >> /etc/opencloud/config.toml
 sed -i "s|^github_token = .*|github_token = \"$GH_TOKEN\"|" /etc/opencloud/config.toml
+grep -q "^github_token = \"$GH_TOKEN\"" /etc/opencloud/config.toml || fail "le jeton n'a pas été écrit dans la configuration"
 
 printf '\n== opencloud self-update --check\n'
 opencloud self-update --check

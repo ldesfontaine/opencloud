@@ -2,7 +2,7 @@
 #
 # VERSION : le tag sans son v (0.0.2) pour une release ; git describe sinon
 # (0.0.1-3-gabc-dirty), que self-update refuse comme version de développement.
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
+VERSION ?= $(shell described=$$(git describe --tags --always --dirty 2>/dev/null); echo "$${described:-dev}" | sed 's/^v//')
 LDFLAGS  = -s -w -X main.version=$(VERSION)
 
 # Build reproductible : -trimpath, pas de cgo, pas d'empreinte VCS — elle
@@ -15,10 +15,11 @@ export SOURCE_DATE_EPOCH
 NFPM_VERSION = v2.47.0
 DIST ?= dist
 
-.PHONY: build run test vet fmt lint vuln sec shellcheck plumber ci release reproducible package-test clean
+.PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test clean
 
+# La cible est fixée : le paquet déclare amd64, le binaire doit l'être aussi.
 build:
-	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
 
 # Lance le binaire depuis le dépôt avec dev/config.toml (hors git) : rien
 # n'est installé sur la machine, l'état vit dans dev/state.
@@ -33,6 +34,9 @@ vet:
 
 fmt:
 	gofmt -l -w .
+
+fmtcheck:
+	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then echo "$$unformatted"; exit 1; fi
 
 lint:
 	go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
@@ -56,11 +60,11 @@ release: build
 	cd $(DIST) && sha256sum opencloud_$(VERSION)_linux_amd64 opencloud_$(VERSION)_amd64.deb > SHA256SUMS
 
 # Deux builds du même commit, cache Go vidé entre les deux : mêmes sommes.
-reproducible:
-	$(MAKE) release DIST=$(DIST)/first
+# Le premier, dans DIST, est celui qu'on publie ; le second ne sert qu'à comparer.
+reproducible: release
 	go clean -cache
-	$(MAKE) release DIST=$(DIST)/second
-	cd $(DIST)/first && sha256sum -c ../second/SHA256SUMS
+	$(MAKE) release DIST=$(DIST)-check
+	cd $(DIST) && sha256sum -c $(CURDIR)/$(DIST)-check/SHA256SUMS
 
 # Le test du paquet, dans un conteneur Debian avec systemd — jamais sur le
 # poste de travail. Construit deux versions et joue packaging/test-install.sh.
@@ -93,7 +97,7 @@ $(PLUMBER_BIN):
 plumber: $(PLUMBER_BIN)
 	GITHUB_TOKEN=$$(gh auth token) $(PLUMBER_BIN) analyze --config .plumber.yaml --min-points 100 --fail-warnings
 
-ci: vet lint test vuln sec shellcheck plumber build
+ci: fmtcheck vet lint test vuln sec shellcheck plumber build
 
 clean:
 	rm -rf bin/ dist/

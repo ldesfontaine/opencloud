@@ -2,9 +2,11 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/validate"
 )
 
 func (s *Server) showLogin(w http.ResponseWriter, r *http.Request) {
@@ -25,12 +27,12 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 	password := r.PostFormValue("password")
 	session, err := s.auth.Login(r.Context(), username, password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		s.logger.Warn("login refused", "username", username)
+		s.logger.Warn("login refused", "username", loggableUsername(username))
 		s.render(w, http.StatusUnauthorized, "login", s.newPage(nil, s.csrfFormToken(w, r)).withError(messageInvalidLogin))
 		return
 	}
 	if errors.Is(err, auth.ErrTooManyAttempts) {
-		s.logger.Warn("login throttled", "username", username)
+		s.logger.Warn("login throttled", "username", loggableUsername(username))
 		s.render(w, http.StatusTooManyRequests, "login", s.newPage(nil, s.csrfFormToken(w, r)).withError(messageTooManyAttempts))
 		return
 	}
@@ -43,6 +45,15 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, session.Token, session.ExpiresAt)
 	s.rotateCSRF(w)
 	redirect(w, r, "/")
+}
+
+// loggableUsername : un identifiant hors forme n'entre pas dans le journal
+// tel quel — il peut peser 16 Kio et venir de n'importe qui.
+func loggableUsername(username string) string {
+	if err := validate.Username(username); err != nil {
+		return fmt.Sprintf("<invalide, %d octets>", len(username))
+	}
+	return username
 }
 
 // submitLogout ne passe pas par requireAccount : une session déjà périmée

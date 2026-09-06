@@ -82,6 +82,10 @@ Deux précisions posées maintenant :
   Concrètement : **douze caractères au moins** pour un nouveau mot de passe
   (OWASP ASVS 2.1.1, compte d'administration) ; `min_password_length = 0` dans
   la configuration lève la règle, et l'écran le dit.
+- **Le jeton GitHub de `self-update`** (`github_token`, tant que le dépôt est
+  privé) vit dans `config.toml`, lisible par le service qui n'en a pas
+  l'usage. Accepté parce que le jeton est en lecture seule, à portée minimale,
+  et temporaire ; le sortir de portée du service est une réserve ouverte.
 
 ## Le durcissement des machines
 
