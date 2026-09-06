@@ -1,0 +1,32 @@
+{{define "layout"}}<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{template "title" .}} · openCloud</title>
+  <meta name="htmx-config" content='{"includeIndicatorCSS": false}'>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body hx-boost:inherited="true">
+  <header class="topbar">
+    <a class="brand" href="/">openCloud</a>
+    {{if .Account}}
+    <nav>
+      <a href="/">Infrastructure</a>
+      <a href="/password">Mot de passe</a>
+      <form method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+        <button type="submit" class="link">Se déconnecter ({{.Account.Username}})</button>
+      </form>
+    </nav>
+    {{end}}
+  </header>
+  <main>
+    {{if .Error}}<p class="notice error">{{.Error}}</p>{{end}}
+    {{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+    {{template "content" .}}
+  </main>
+  <footer>openCloud {{.Version}}</footer>
+</body>
+</html>{{end}}

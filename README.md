@@ -54,6 +54,27 @@ Un service est un dossier avec un `compose.yaml` et un `Makefile` aux cibles
 standard (`up`, `down`, `update`, `backup`…). openCloud appelle ces cibles ;
 à la main, on appelle les mêmes.
 
+## Développer
+
+```bash
+make run
+```
+
+Construit le binaire et le lance avec `dev/config.toml`, un fichier hors git
+à créer une fois. Rien n'est installé sur la machine : l'état vit dans
+`dev/state`.
+
+```toml
+listen = "127.0.0.1:8080"
+state_dir = "state"             # relatif au fichier de configuration
+allow_default_password = true   # jamais en production
+```
+
+Puis ouvrir `http://localhost:8080` et se connecter avec `admin` /
+`opencloud`. `make ci` joue les mêmes vérifications que la CI. Tester le
+paquet `.deb` ou l'unité systemd se fait dans un conteneur ou une VM, jamais
+sur la machine de développement.
+
 ## Documentation
 
 Le cadrage complet est dans [`docs/projet/`](docs/projet/README.md).

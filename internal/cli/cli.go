@@ -1,8 +1,9 @@
-// Package cli aiguille les commandes du binaire : serve, enroll-command,
-// status, version. Il ne contient aucune logique métier.
+// Package cli aiguille les commandes du binaire : serve, status, version.
+// Il ne contient aucune logique métier.
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,13 +12,18 @@ import (
 // ErrUnknownCommand : la commande demandée n'existe pas.
 var ErrUnknownCommand = errors.New("commande inconnue")
 
-// Run exécute la commande nommée par args[0] et écrit sa sortie dans out.
-func Run(args []string, version string, out io.Writer) error {
+// Run exécute la commande nommée par args[0]. out reçoit ce que l'opérateur
+// lit, errOut le journal. ctx s'annule sur SIGINT ou SIGTERM.
+func Run(ctx context.Context, args []string, version string, out, errOut io.Writer) error {
 	if len(args) == 0 {
 		return usage(out)
 	}
 
 	switch args[0] {
+	case "serve":
+		return runServe(ctx, args[1:], version, errOut)
+	case "status":
+		return runStatus(ctx, args[1:], out, errOut)
 	case "version":
 		fmt.Fprintln(out, "opencloud", version)
 		return nil
@@ -29,7 +35,9 @@ func Run(args []string, version string, out io.Writer) error {
 }
 
 func usage(out io.Writer) error {
-	fmt.Fprintln(out, "usage : opencloud <commande>")
+	fmt.Fprintln(out, "usage : opencloud <commande> [--config chemin]")
+	fmt.Fprintln(out, "  serve     démarre l'interface")
+	fmt.Fprintln(out, "  status    vérifie la configuration, l'état et le service")
 	fmt.Fprintln(out, "  version   affiche la version")
 	return nil
 }

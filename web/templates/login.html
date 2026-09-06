@@ -1,0 +1,14 @@
+{{define "title"}}Connexion{{end}}
+{{define "content"}}
+<section class="card narrow">
+  <h1>Connexion</h1>
+  <form method="post" action="/login">
+    <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+    <label for="username">Identifiant</label>
+    <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+    <label for="password">Mot de passe</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Se connecter</button>
+  </form>
+</section>
+{{end}}

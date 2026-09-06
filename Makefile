@@ -2,10 +2,15 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  = -s -w -X main.version=$(VERSION)
 
-.PHONY: build test vet fmt lint vuln sec shellcheck plumber ci clean
+.PHONY: build run test vet fmt lint vuln sec shellcheck plumber ci clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
+
+# Lance le binaire depuis le dépôt avec dev/config.toml (hors git) : rien
+# n'est installé sur la machine, l'état vit dans dev/state.
+run: build
+	bin/opencloud serve --config dev/config.toml
 
 test:
 	go test ./...
