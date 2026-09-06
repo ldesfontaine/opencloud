@@ -65,15 +65,9 @@ standard (`up`, `down`, `update`, `backup`…). openCloud appelle ces cibles ;
 make run
 ```
 
-Construit le binaire et le lance avec `dev/config.toml`, un fichier hors git
-à créer une fois. Rien n'est installé sur la machine : l'état vit dans
-`dev/state`.
-
-```toml
-listen = "127.0.0.1:8080"
-state_dir = "state"             # relatif au fichier de configuration
-allow_default_password = true   # jamais en production
-```
+Construit le binaire et le lance. Au premier lancement, `dev/config.toml`
+est créé avec les valeurs par défaut ; il est à vous ensuite, hors git. Rien
+n'est installé sur la machine : l'état vit dans `dev/state`.
 
 Puis ouvrir `http://localhost:8080` et se connecter avec `admin` /
 `opencloud`. `make ci` joue les mêmes vérifications que la CI. Le paquet
