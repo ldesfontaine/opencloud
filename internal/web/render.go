@@ -16,7 +16,7 @@ type pageTemplates map[string]*template.Template
 // parsePageTemplates lit chaque page servie, un gabarit sous templates/<nom>.html.
 func parsePageTemplates(files fs.FS) (pageTemplates, error) {
 	templates := pageTemplates{}
-	for _, name := range []string{"login", "password", "infrastructure"} {
+	for _, name := range []string{"login", "password", "infrastructure", "machine", "action-form", "action"} {
 		parsed, err := template.ParseFS(files, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", name, err)
@@ -34,6 +34,8 @@ type page struct {
 	Error     string
 	// Longueur minimale d'un nouveau mot de passe ; 0 quand la règle est levée.
 	MinPasswordLength int
+	// Ce que la page rend en propre : une vue par gabarit.
+	Data any
 }
 
 func (s *Server) newPage(account *store.Account, csrfToken string) page {
@@ -43,6 +45,11 @@ func (s *Server) newPage(account *store.Account, csrfToken string) page {
 		CSRFToken:         csrfToken,
 		MinPasswordLength: s.auth.PasswordPolicy().MinLength,
 	}
+}
+
+func (p page) withData(data any) page {
+	p.Data = data
+	return p
 }
 
 func (p page) withError(message string) page {

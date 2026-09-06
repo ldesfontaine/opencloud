@@ -1,0 +1,47 @@
+{{define "title"}}{{.Data.Name}}{{end}}
+{{define "content"}}
+{{with .Data}}
+<h1>{{.Name}}</h1>
+<section class="card">
+  <dl class="facts">
+    <dt>Adresse</dt><dd class="mono">{{.Address}}:{{.Port}}</dd>
+    <dt>Compte</dt><dd class="mono">{{.Account}}</dd>
+    <dt>Enrôlement</dt>
+    <dd>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</dd>
+  </dl>
+</section>
+
+<h2>Actions disponibles</h2>
+{{if .Available}}
+<ul class="actions">
+  {{range .Available}}
+  <li>
+    <a href="/machines/{{$.Data.ID}}/actions/{{.Kind}}">{{.Label}}</a>
+    <span class="muted">{{.Summary}}</span>
+  </li>
+  {{end}}
+</ul>
+{{else}}
+<p class="muted">Aucune action de portée machine dans le catalogue.</p>
+{{end}}
+
+<h2>Historique</h2>
+{{if .History}}
+<table class="grid">
+  <thead><tr><th>Action</th><th>État</th><th>Lancée</th><th>Résultat</th></tr></thead>
+  <tbody>
+    {{range .History}}
+    <tr>
+      <td><a href="/actions/{{.ID}}">{{.Label}}</a></td>
+      <td><span class="badge {{.State}}">{{.StateLabel}}</span></td>
+      <td class="muted">{{.CreatedAt}}</td>
+      <td>{{if .Result}}résultat : {{.Result}}{{else}}<span class="muted">—</span>{{end}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="muted">Aucune action n'a encore été lancée sur cette machine.</p>
+{{end}}
+{{end}}
+{{end}}

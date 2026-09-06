@@ -3,8 +3,11 @@ package web
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/catalog"
+	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
 // Tout ce que l'opérateur lit venant du code, en français. Les gabarits
@@ -46,4 +49,93 @@ func messageForPasswordRefusal(err error) (string, bool) {
 		return "Le nouveau mot de passe est trop long.", true
 	}
 	return "", false
+}
+
+// Les libellés des actions et des machines, tels que l'opérateur les lit.
+const (
+	messageMachineUnknown       = "Cette machine n'existe pas."
+	messageActionUnknown        = "Cette action n'existe pas."
+	messageConfirmationRequired = "Cette action est irréversible ou coupe un service : cochez la confirmation avant de la lancer."
+)
+
+func actionStateLabel(state store.ActionState) string {
+	switch state {
+	case store.StatePrepared:
+		return "Préparée"
+	case store.StateRunning:
+		return "En cours"
+	case store.StateApplied:
+		return "Appliquée"
+	case store.StateFailed:
+		return "Échouée"
+	case store.StateRefused:
+		return "Refusée"
+	}
+	return string(state)
+}
+
+func scopeLabel(scope catalog.Scope) string {
+	switch scope {
+	case catalog.ScopeInfrastructure:
+		return "l'infrastructure"
+	case catalog.ScopeMachine:
+		return "la machine"
+	case catalog.ScopeEnvironment:
+		return "un environnement"
+	case catalog.ScopeService:
+		return "un service"
+	case catalog.ScopeDomain:
+		return "un domaine"
+	}
+	return string(scope)
+}
+
+func placeLabel(place catalog.Place) string {
+	switch place {
+	case catalog.PlaceTarget:
+		return "sur la machine cible"
+	case catalog.PlaceOpenCloud:
+		return "sur la machine openCloud"
+	case catalog.PlaceThirdParty:
+		return "chez un tiers (DNS)"
+	}
+	return string(place)
+}
+
+func reversibilityLabel(reversible bool) string {
+	if reversible {
+		return "réversible"
+	}
+	return "irréversible"
+}
+
+func interruptionLabel(interrupts bool) string {
+	if interrupts {
+		return "oui, elle coupe un service en marche"
+	}
+	return "non"
+}
+
+func exitCodeLabel(code int) string {
+	switch code {
+	case catalog.ExitDone:
+		return "0 — fait"
+	case catalog.ExitFailed:
+		return "1 — échoué"
+	case catalog.ExitRefused:
+		return "2 — refusé"
+	}
+	return strconv.Itoa(code)
+}
+
+// Le geste qui lève un défaut d'enrôlement dépend de la machine : openCloud
+// s'enrôle sur elle-même, les autres reçoivent une commande générée.
+func enrolmentLabel(machine store.Machine, status EnrolmentStatus) string {
+	if status.Enrolled {
+		return "enrôlée depuis le " + formatMoment(status.Since)
+	}
+	if machine.ID == store.LocalMachineID {
+		return "non enrôlée : jouer « sudo opencloud enroll-local » sur la machine"
+	}
+	return "non enrôlée : aucune action ne peut partir vers cette machine"
 }

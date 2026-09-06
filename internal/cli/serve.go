@@ -64,7 +64,7 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		return fmt.Errorf("créer le compte par défaut : %w", err)
 	}
 
-	server, err := web.New(authService, version, logger)
+	server, err := web.New(web.Dependencies{Auth: authService}, version, logger)
 	if err != nil {
 		return fmt.Errorf("préparer l'interface : %w", err)
 	}

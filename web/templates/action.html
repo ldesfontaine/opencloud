@@ -1,0 +1,28 @@
+{{define "title"}}{{.Data.Label}}{{end}}
+{{define "content"}}
+{{with .Data}}
+<h1>{{.Label}} <span id="action-state" class="badge {{.State}}">{{.StateLabel}}</span></h1>
+<p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · <span class="mono">{{.ID}}</span></p>
+
+<section class="card">
+  <dl class="facts">
+    {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+    <dt>Déposée</dt><dd>{{.CreatedAt}}</dd>
+    {{if .LaunchedAt}}<dt>Lancée</dt><dd>{{.LaunchedAt}}</dd>{{end}}
+    {{if .FinishedAt}}<dt>Terminée</dt><dd>{{.FinishedAt}}</dd>{{end}}
+    {{if .ExitCode}}<dt>Code de retour</dt><dd class="mono">{{.ExitCode}}</dd>{{end}}
+  </dl>
+</section>
+
+{{if .Result}}<p class="notice">résultat : {{.Result}}</p>{{end}}
+{{if .Note}}<p class="notice error">{{.Note}}</p>{{end}}
+
+<h2>Sortie</h2>
+<pre id="action-output" class="output" data-stream="{{.StreamPath}}" data-live="{{if .Running}}oui{{else}}non{{end}}">
+{{- range .Lines}}{{.Text}}
+{{end -}}
+</pre>
+{{if .Running}}<p class="muted" id="action-live">La sortie s'affiche au fil de l'eau.</p>{{end}}
+{{end}}
+{{end}}
+{{define "scripts"}}{{if .Data.Running}}<script src="/static/actions.js" defer></script>{{end}}{{end}}

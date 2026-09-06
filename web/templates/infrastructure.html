@@ -1,8 +1,32 @@
 {{define "title"}}Infrastructure{{end}}
 {{define "content"}}
 <h1>Infrastructure</h1>
+{{if .Data.Machines}}
+<table class="grid">
+  <thead>
+    <tr><th>Machine</th><th>Adresse</th><th>Enrôlement</th><th>Dernière action</th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Machines}}
+    <tr>
+      <td><a href="/machines/{{.ID}}">{{.Name}}</a></td>
+      <td class="mono">{{.Address}}</td>
+      <td>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</td>
+      <td>
+        {{with .LastAction}}
+        <a href="/actions/{{.ID}}">{{.Label}}</a>
+        <span class="badge {{.State}}">{{.StateLabel}}</span>
+        <span class="muted">{{.CreatedAt}}</span>
+        {{else}}<span class="muted">aucune</span>{{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
 <section class="card empty">
   <p>Aucune machine pour l'instant.</p>
   <p class="muted">L'enrôlement d'une machine viendra avec une prochaine version.</p>
 </section>
+{{end}}
 {{end}}

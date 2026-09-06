@@ -16,7 +16,8 @@ import (
 	"github.com/ldesfontaine/opencloud/migrations"
 )
 
-func newTestServer(t *testing.T) *Server {
+// newTestAuth monte auth sur une base temporaire, avec le compte par défaut.
+func newTestAuth(t *testing.T) *auth.Service {
 	t.Helper()
 	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {
@@ -35,7 +36,17 @@ func newTestServer(t *testing.T) *Server {
 	if err := authService.EnsureDefaultAccount(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(authService, "test", logger)
+	return authService
+}
+
+func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	return newServerWith(t, Dependencies{Auth: newTestAuth(t)})
+}
+
+func newServerWith(t *testing.T, deps Dependencies) *Server {
+	t.Helper()
+	server, err := New(deps, "test", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +61,11 @@ type browser struct {
 }
 
 func newBrowser(t *testing.T) *browser {
-	return &browser{t: t, handler: newTestServer(t).Handler(), cookies: map[string]*http.Cookie{}}
+	return newBrowserOf(t, newTestServer(t))
+}
+
+func newBrowserOf(t *testing.T, server *Server) *browser {
+	return &browser{t: t, handler: server.Handler(), cookies: map[string]*http.Cookie{}}
 }
 
 func (b *browser) do(request *http.Request) *httptest.ResponseRecorder {
@@ -118,7 +133,9 @@ func expectRedirect(t *testing.T, response *httptest.ResponseRecorder, location 
 
 func TestRoutes_AreFrozen(t *testing.T) {
 	want := []string{
-		"GET /{$}", "GET /healthz", "GET /login", "POST /login", "POST /logout",
+		"GET /{$}", "GET /actions/{id}", "GET /actions/{id}/stream",
+		"GET /healthz", "GET /login", "POST /login", "POST /logout",
+		"GET /machines/{id}", "GET /machines/{id}/actions/{kind}", "POST /machines/{id}/actions/{kind}",
 		"GET /password", "POST /password", "GET /static/",
 	}
 	got := newTestServer(t).Routes()
