@@ -53,6 +53,31 @@ func TestParse_AllowDefaultPassword_IsFalseUnlessSaid(t *testing.T) {
 	}
 }
 
+func TestParse_MinPasswordLength_DefaultsToTwelveAndCanBeLifted(t *testing.T) {
+	cfg, _, err := Parse([]byte("state_dir = \"state\"\n"))
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if cfg.MinPasswordLength != DefaultMinPasswordLength {
+		t.Fatalf("min_password_length = %d, attendu %d", cfg.MinPasswordLength, DefaultMinPasswordLength)
+	}
+
+	cfg, _, err = Parse([]byte("state_dir = \"state\"\nmin_password_length = 0\n"))
+	if err != nil {
+		t.Fatalf("lever la règle doit être permis : %v", err)
+	}
+	if cfg.MinPasswordLength != 0 {
+		t.Fatalf("min_password_length = %d, attendu 0", cfg.MinPasswordLength)
+	}
+
+	for _, content := range []string{"min_password_length = -1\n", "min_password_length = 65\n"} {
+		_, _, err := Parse([]byte("state_dir = \"state\"\n" + content))
+		if err == nil || !strings.Contains(err.Error(), "min_password_length") {
+			t.Fatalf("%q doit être refusé en nommant la clé, reçu %v", content, err)
+		}
+	}
+}
+
 func TestParse_UnknownKey_IsAWarningThatNamesIt(t *testing.T) {
 	content := []byte("state_dir = \"state\"\nlisten = \"127.0.0.1:1\"\nlisten_addr = \"x\"\n[web]\ncolour = \"blue\"\n")
 

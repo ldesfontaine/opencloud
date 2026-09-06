@@ -54,7 +54,7 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	}
 	defer database.Close()
 
-	authService := auth.New(database, logger)
+	authService := auth.New(database, logger, auth.PasswordPolicy{MinLength: cfg.MinPasswordLength})
 	if err := authService.EnsureDefaultAccount(ctx, cfg.AllowDefaultPassword); err != nil {
 		return fmt.Errorf("créer le compte par défaut : %w", err)
 	}

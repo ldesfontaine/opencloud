@@ -12,6 +12,9 @@ func (s *Server) showPasswordChange(w http.ResponseWriter, r *http.Request, acco
 }
 
 func (s *Server) submitPasswordChange(w http.ResponseWriter, r *http.Request, account store.Account) {
+	if !s.readForm(w, r) {
+		return
+	}
 	if err := s.verifyCSRF(r); err != nil {
 		s.render(w, http.StatusForbidden, "password", s.newPage(&account, s.rotateCSRF(w)).withError(messageFormExpired))
 		return

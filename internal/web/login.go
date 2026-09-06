@@ -13,6 +13,9 @@ func (s *Server) showLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.readForm(w, r) {
+		return
+	}
 	if err := s.verifyCSRF(r); err != nil {
 		s.render(w, http.StatusForbidden, "login", s.newPage(nil, s.rotateCSRF(w)).withError(messageFormExpired))
 		return
@@ -45,6 +48,9 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 // submitLogout ne passe pas par requireAccount : une session déjà périmée
 // doit pouvoir se déconnecter proprement.
 func (s *Server) submitLogout(w http.ResponseWriter, r *http.Request) {
+	if !s.readForm(w, r) {
+		return
+	}
 	if err := s.verifyCSRF(r); err != nil {
 		http.Error(w, messageFormExpired, http.StatusForbidden)
 		return
