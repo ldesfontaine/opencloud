@@ -6,8 +6,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/catalog"
+	"github.com/ldesfontaine/opencloud/internal/runner"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	assets "github.com/ldesfontaine/opencloud/web"
 )
@@ -23,8 +26,58 @@ type Authenticator interface {
 	PasswordPolicy() auth.PasswordPolicy
 }
 
+// Machines est la lecture des machines. Le vrai est *store.Store.
+type Machines interface {
+	Machines(ctx context.Context) ([]store.Machine, error)
+	Machine(ctx context.Context, id string) (store.Machine, error)
+}
+
+// EnrolmentStatus dit si la machine a un accès posé, et depuis quand.
+type EnrolmentStatus struct {
+	Enrolled bool
+	Since    time.Time
+}
+
+// Enrolment est ce que web attend de enroll. Tant que la dépendance est nulle,
+// aucune machine n'est enrôlée et l'interface le dit.
+type Enrolment interface {
+	Status(ctx context.Context, machineID string) (EnrolmentStatus, error)
+}
+
+// Actions est ce que web attend du runner : déposer, suivre en direct, et
+// relire le journal. web ne lance rien lui-même.
+type Actions interface {
+	Enqueue(ctx context.Context, machineID string, kind catalog.Kind, params map[string]string) (store.Action, error)
+	Subscribe(actionID string) (<-chan runner.Event, func())
+	Action(ctx context.Context, id string) (store.Action, error)
+	ActionsForMachine(ctx context.Context, machineID string, limit int) ([]store.Action, error)
+	Lines(ctx context.Context, actionID string, afterSeq int64) ([]store.ActionLine, error)
+}
+
+// Catalog est ce que web attend du catalogue pour l'écran « avant ».
+type Catalog interface {
+	Definitions() []catalog.Definition
+	Lookup(kind catalog.Kind) (catalog.Definition, bool)
+	Prepare(kind catalog.Kind, params map[string]string) (catalog.Prepared, error)
+}
+
+// Dependencies : tout ce que l'interface consomme. Seul Auth est exigé ; sans
+// les autres, l'interface se comporte comme avant les actions.
+type Dependencies struct {
+	Auth      Authenticator
+	Machines  Machines
+	Enrolment Enrolment
+	Actions   Actions
+	Catalog   Catalog
+}
+
 type Server struct {
 	auth      Authenticator
+	machines  Machines
+	enrolment Enrolment
+	actions   Actions
+	catalog   Catalog
+
 	logger    *slog.Logger
 	version   string
 	templates pageTemplates
@@ -32,7 +85,7 @@ type Server struct {
 	csrf      csrfSigner
 }
 
-func New(authService Authenticator, version string, logger *slog.Logger) (*Server, error) {
+func New(deps Dependencies, version string, logger *slog.Logger) (*Server, error) {
 	templates, err := parsePageTemplates(assets.Templates)
 	if err != nil {
 		return nil, err
@@ -49,7 +102,11 @@ func New(authService Authenticator, version string, logger *slog.Logger) (*Serve
 	}
 
 	return &Server{
-		auth:      authService,
+		auth:      deps.Auth,
+		machines:  deps.Machines,
+		enrolment: deps.Enrolment,
+		actions:   deps.Actions,
+		catalog:   deps.Catalog,
 		logger:    logger,
 		version:   version,
 		templates: templates,
@@ -68,10 +125,15 @@ type route struct {
 func (s *Server) routes() []route {
 	return []route{
 		{"GET /{$}", s.requireAccount(s.showInfrastructure)},
+		{"GET /actions/{id}", s.requireAccount(s.showAction)},
+		{"GET /actions/{id}/stream", s.requireAccount(s.streamAction)},
 		{"GET /healthz", http.HandlerFunc(s.showHealth)},
 		{"GET /login", http.HandlerFunc(s.showLogin)},
 		{"POST /login", http.HandlerFunc(s.submitLogin)},
 		{"POST /logout", http.HandlerFunc(s.submitLogout)},
+		{"GET /machines/{id}", s.requireAccount(s.showMachine)},
+		{"GET /machines/{id}/actions/{kind}", s.requireAccount(s.showActionForm)},
+		{"POST /machines/{id}/actions/{kind}", s.requireAccount(s.submitAction)},
 		{"GET /password", s.requireAccount(s.showPasswordChange)},
 		{"POST /password", s.requireAccount(s.submitPasswordChange)},
 		{"GET /static/", s.static},
@@ -98,6 +160,12 @@ func (s *Server) Handler() http.Handler {
 	// la première.
 	crossOrigin := http.NewCrossOriginProtection()
 	return secureHeaders(limitRequestBody(crossOrigin.Handler(mux)))
+}
+
+// Les pages des machines et des actions n'existent que lorsque le runner et le
+// catalogue sont branchés ; sans eux, l'interface est celle du squelette.
+func (s *Server) actionsReady() bool {
+	return s.machines != nil && s.actions != nil && s.catalog != nil
 }
 
 // secureHeaders : aucun script ni style externe, jamais dans un cadre, pas de
