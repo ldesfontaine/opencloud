@@ -59,6 +59,18 @@ func (u *Updater) Run(ctx context.Context, options Options) (Result, error) {
 	}
 	u.say("version installée : %s", current)
 
+	// Le verrou est pris avant le premier appel réseau et tenu jusqu'après le
+	// redémarrage : sinon un second self-update lancé pendant le
+	// téléchargement remplace le .prev par le binaire déjà mis à jour.
+	// --check ne modifie rien : il n'a pas à verrouiller.
+	if !options.CheckOnly {
+		lock, err := lockUpdate(options.ExecutablePath)
+		if err != nil {
+			return Result{}, describeLockError(err, options.ExecutablePath)
+		}
+		defer lock.release()
+	}
+
 	release, err := u.chooseRelease(ctx, options.RequestedVersion)
 	if err != nil {
 		return Result{}, err
@@ -94,16 +106,10 @@ func (u *Updater) Run(ctx context.Context, options Options) (Result, error) {
 		err = nil
 	}
 	if errors.Is(err, fs.ErrPermission) {
-		return Result{}, refusal.Refusal{
-			Cause:  fmt.Sprintf("droits insuffisants pour remplacer %s", options.ExecutablePath),
-			Remedy: "relancer avec sudo",
-		}
+		return Result{}, refuseMissingPrivileges(options.ExecutablePath)
 	}
 	if errors.Is(err, ErrUpdateInProgress) {
-		return Result{}, refusal.Refusal{
-			Cause:  fmt.Sprintf("une mise à jour est déjà en cours, ou a été interrompue : %v", err),
-			Remedy: "attendre qu'elle finisse, ou retirer le fichier .new si plus rien ne tourne",
-		}
+		return Result{}, refuseUpdateInProgress(options.ExecutablePath + pendingSuffix)
 	}
 	if err != nil {
 		return Result{}, fmt.Errorf("remplacer le binaire : %w", err)
@@ -117,6 +123,32 @@ func (u *Updater) Run(ctx context.Context, options Options) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Updated: true, Version: release.Version, PreviousPath: previousPath, Restarted: restarted}, nil
+}
+
+func describeLockError(err error, executablePath string) error {
+	if errors.Is(err, ErrUpdateInProgress) {
+		return refuseUpdateInProgress(executablePath + lockSuffix)
+	}
+	// Le verrou se pose dans le dossier du binaire : sans sudo, il n'y a rien
+	// à télécharger, autant le dire tout de suite.
+	if errors.Is(err, fs.ErrPermission) {
+		return refuseMissingPrivileges(executablePath)
+	}
+	return fmt.Errorf("poser le verrou de mise à jour : %w", err)
+}
+
+func refuseUpdateInProgress(lockPath string) refusal.Refusal {
+	return refusal.Refusal{
+		Cause:  "une mise à jour est déjà en cours, ou une précédente a été interrompue",
+		Remedy: fmt.Sprintf("attendre qu'elle finisse, ou retirer %s si plus rien ne tourne", lockPath),
+	}
+}
+
+func refuseMissingPrivileges(executablePath string) refusal.Refusal {
+	return refusal.Refusal{
+		Cause:  fmt.Sprintf("droits insuffisants pour remplacer %s", executablePath),
+		Remedy: "relancer avec sudo",
+	}
 }
 
 func (u *Updater) chooseRelease(ctx context.Context, requested string) (Release, error) {
@@ -140,6 +172,12 @@ func (u *Updater) chooseRelease(ctx context.Context, requested string) (Release,
 		return Release{}, refusal.Refusal{
 			Cause:  fmt.Sprintf("la release %s n'existe pas", wanted.Tag()),
 			Remedy: "vérifier le tag sur GitHub, ou laisser self-update choisir la dernière",
+		}
+	}
+	if errors.Is(err, ErrNotPublished) {
+		return Release{}, refusal.Refusal{
+			Cause:  fmt.Sprintf("la release %s est un brouillon ou une préversion", wanted.Tag()),
+			Remedy: "demander une release publiée, ou laisser self-update choisir la dernière",
 		}
 	}
 	return release, describeGitHubError(err)

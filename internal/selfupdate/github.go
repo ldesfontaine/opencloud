@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -38,6 +39,11 @@ var (
 	ErrNotFound = errors.New("not found on github")
 	// ErrUnauthorized : GitHub refuse — dépôt privé sans jeton, ou jeton invalide.
 	ErrUnauthorized = errors.New("github refused the request: token required or invalid")
+	// ErrNotPublished : la release existe, mais en brouillon ou en préversion.
+	ErrNotPublished = errors.New("release is a draft or a prerelease")
+	// ErrURLOutsideRepository : la réponse de l'API renvoie ailleurs que sur
+	// l'API de ce dépôt.
+	ErrURLOutsideRepository = errors.New("url outside this repository api")
 )
 
 // Client parle à l'API GitHub : releases, fichiers, attestations. Le jeton
@@ -103,7 +109,7 @@ func (c *Client) LatestRelease(ctx context.Context) (Release, error) {
 	return c.fetchRelease(ctx, "/releases/latest")
 }
 
-// ReleaseByTag rend la release d'un tag, vX.Y.Z.
+// ReleaseByTag rend la release d'un tag, vX.Y.Z, si elle est publiée.
 func (c *Client) ReleaseByTag(ctx context.Context, tag string) (Release, error) {
 	return c.fetchRelease(ctx, "/releases/tags/"+url.PathEscape(tag))
 }
@@ -117,6 +123,11 @@ func (c *Client) fetchRelease(ctx context.Context, path string) (Release, error)
 	var raw releaseJSON
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return Release{}, fmt.Errorf("decode release: %w", err)
+	}
+	// Un tag demandé à la main atteint aussi les brouillons et les
+	// préversions ; elles ne s'installent pas plus que par la liste.
+	if raw.Draft || raw.Prerelease {
+		return Release{}, ErrNotPublished
 	}
 	return releaseFromJSON(raw)
 }
@@ -165,6 +176,9 @@ func releaseFromJSON(raw releaseJSON) (Release, error) {
 // somme SHA-256.
 func (c *Client) DownloadAsset(ctx context.Context, asset Asset, maxBytes int64) ([]byte, [sha256.Size]byte, error) {
 	var digest [sha256.Size]byte
+	if err := c.requireRepositoryURL(asset.URL); err != nil {
+		return nil, digest, fmt.Errorf("download %s: %w", asset.Name, err)
+	}
 	if asset.Size > maxBytes {
 		return nil, digest, fmt.Errorf("%s weighs %d bytes, more than the %d allowed", asset.Name, asset.Size, maxBytes)
 	}
@@ -231,6 +245,10 @@ func (c *Client) FetchAttestations(ctx context.Context, digest [sha256.Size]byte
 // fetchDetachedBundle lit un bundle depuis son adresse signée, sans jeton :
 // l'hébergeur refuserait deux authentifications.
 func (c *Client) fetchDetachedBundle(ctx context.Context, rawURL string) ([]byte, error) {
+	if err := c.requireRepositoryURL(rawURL); err != nil {
+		return nil, fmt.Errorf("fetch bundle: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -252,6 +270,16 @@ func (c *Client) fetchDetachedBundle(ctx context.Context, rawURL string) ([]byte
 
 func (c *Client) repositoryURL(path string) string {
 	return c.baseURL + "/repos/" + c.repository + path
+}
+
+// requireRepositoryURL : les adresses que l'API rend sont suivies telles
+// quelles, redirections comprises. On n'ouvre que celles de ce dépôt, sur
+// cette API — une réponse trafiquée n'enverra pas ailleurs.
+func (c *Client) requireRepositoryURL(rawURL string) error {
+	if !strings.HasPrefix(rawURL, c.repositoryURL("/")) {
+		return fmt.Errorf("%w: %s", ErrURLOutsideRepository, rawURL)
+	}
+	return nil
 }
 
 // getJSON fait un GET sur l'API, borné en temps et en taille.
