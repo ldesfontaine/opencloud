@@ -13,11 +13,10 @@ import (
 // Un gabarit complet par page : la mise en page plus le contenu de la page.
 type pageTemplates map[string]*template.Template
 
-var pageNames = []string{"login", "password", "infrastructure"}
-
+// parsePageTemplates lit chaque page servie, un gabarit sous templates/<nom>.html.
 func parsePageTemplates(files fs.FS) (pageTemplates, error) {
 	templates := pageTemplates{}
-	for _, name := range pageNames {
+	for _, name := range []string{"login", "password", "infrastructure"} {
 		parsed, err := template.ParseFS(files, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", name, err)
@@ -33,7 +32,6 @@ type page struct {
 	Account   *store.Account
 	CSRFToken string
 	Error     string
-	Notice    string
 	// Longueur minimale d'un nouveau mot de passe ; 0 quand la règle est levée.
 	MinPasswordLength int
 }

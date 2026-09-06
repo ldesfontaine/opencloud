@@ -1,19 +1,30 @@
-// Package web sert l'interface : gabarits HTML, fragments HTMX, SSE.
-// Les handlers sont minces ; web ne lance rien, il dépose dans runner.
 package web
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	assets "github.com/ldesfontaine/opencloud/web"
 )
 
+// Authenticator est ce que web attend de auth : connexion, session, mot de
+// passe. Le vrai est *auth.Service ; l'interface vit ici, côté consommateur,
+// et ne dit que ce que web utilise.
+type Authenticator interface {
+	Login(ctx context.Context, username, password string) (auth.Session, error)
+	Logout(ctx context.Context, token string) error
+	Authenticate(ctx context.Context, token string) (store.Account, error)
+	ChangePassword(ctx context.Context, accountID int64, currentPassword, newPassword string) (auth.Session, error)
+	PasswordPolicy() auth.PasswordPolicy
+}
+
 type Server struct {
-	auth      *auth.Service
+	auth      Authenticator
 	logger    *slog.Logger
 	version   string
 	templates pageTemplates
@@ -21,7 +32,7 @@ type Server struct {
 	csrf      csrfSigner
 }
 
-func New(authService *auth.Service, version string, logger *slog.Logger) (*Server, error) {
+func New(authService Authenticator, version string, logger *slog.Logger) (*Server, error) {
 	templates, err := parsePageTemplates(assets.Templates)
 	if err != nil {
 		return nil, err

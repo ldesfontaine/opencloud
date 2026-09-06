@@ -25,26 +25,25 @@ func messagePasswordTooShort(minLength int) string {
 		"Sur un réseau de confiance, la clé « min_password_length » de la configuration abaisse ce minimum.", minLength)
 }
 
-// Chaque refus de auth au changement de mot de passe, et sa phrase.
-var passwordRefusalMessages = map[error]string{
-	auth.ErrInvalidCredentials: messageInvalidLogin,
-	auth.ErrPasswordEmpty:      "Le nouveau mot de passe est vide.",
-	auth.ErrPasswordIsDefault:  "Le nouveau mot de passe ne peut pas être celui par défaut.",
-	auth.ErrPasswordUnchanged:  "Le nouveau mot de passe est identique à l'actuel.",
-	auth.ErrPasswordTooLong:    "Le nouveau mot de passe est trop long.",
-}
-
-// messageForPasswordRefusal traduit un refus de auth ; une erreur qui n'est
-// pas un refus rend false et reste une erreur.
+// messageForPasswordRefusal traduit chaque refus de auth au changement de mot
+// de passe ; une erreur qui n'est pas un refus rend false et reste une erreur.
 func messageForPasswordRefusal(err error) (string, bool) {
 	var tooShort *auth.PasswordTooShortError
 	if errors.As(err, &tooShort) {
 		return messagePasswordTooShort(tooShort.MinLength), true
 	}
-	for refusal, message := range passwordRefusalMessages {
-		if errors.Is(err, refusal) {
-			return message, true
-		}
+
+	switch {
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		return messageInvalidLogin, true
+	case errors.Is(err, auth.ErrPasswordEmpty):
+		return "Le nouveau mot de passe est vide.", true
+	case errors.Is(err, auth.ErrPasswordIsDefault):
+		return "Le nouveau mot de passe ne peut pas être celui par défaut.", true
+	case errors.Is(err, auth.ErrPasswordUnchanged):
+		return "Le nouveau mot de passe est identique à l'actuel.", true
+	case errors.Is(err, auth.ErrPasswordTooLong):
+		return "Le nouveau mot de passe est trop long.", true
 	}
 	return "", false
 }

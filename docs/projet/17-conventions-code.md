@@ -65,8 +65,9 @@ s'explique seul et les commentaires deviennent rares.
 
 - Pas de commentaire par méthode ou par type par principe. Une fonction
   exportée n'a un commentaire que si son nom ne suffit pas.
-- Un `doc.go` par package : trois lignes sur ce que le package fait et ne fait
-  pas.
+- Un `doc.go` par package, **et le commentaire de package ne vit que là** —
+  jamais en tête d'un autre fichier, même quand le package en a un principal.
+  Trois lignes sur ce que le package fait et ne fait pas.
 - On commente les **pièges et les décisions non évidentes** :
   `// fsync du dossier, sinon le rename peut se perdre à la coupure.`
 - Un `// TODO(lucas): raison` porte toujours sa raison.
@@ -91,8 +92,13 @@ SQLite `modernc.org/sqlite`. Un binaire, reproductible.
 
 ## Les composants
 
-- Une **interface** par composant, définie dans son package, consommée par les
-  autres. Les tests des autres composants utilisent un faux qui l'implémente.
+- Un composant expose un **type concret** ; celui qui le consomme déclare
+  **chez lui l'interface** de ce qu'il en attend, et rien de plus
+  (`web.Authenticator`, `auth.Store`). Un composant qui a plusieurs mises en
+  œuvre (`transport` : local, ssh) définit la sienne.
+- Les tests d'un consommateur passent par le vrai composant quand il est
+  rapide et local (SQLite temporaire) ; un faux seulement pour ce qui est lent
+  ou externe — SSH, DNS, GitHub.
 - Un **constructeur** `New(deps…)` avec les dépendances explicites. **Aucune
   variable globale**, aucun `init()`.
 - `context.Context` en premier argument de tout ce qui attend ou écrit.

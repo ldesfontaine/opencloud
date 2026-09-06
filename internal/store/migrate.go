@@ -178,6 +178,8 @@ func (s *Store) backupDatabase(ctx context.Context, nextVersion int) (string, er
 	stamp := time.Now().UTC().Format("20060102-150405")
 	backupName := fmt.Sprintf("%s/opencloud-%s-before-%03d.db", backupDirName, stamp, nextVersion)
 	temporaryName := backupName + ".tmp"
+	// VACUUM INTO veut un chemin, comme l'ouverture de la base : même sortie
+	// de l'os.Root, même raison, même nom constant.
 	temporaryPath := filepath.Join(s.root.Name(), temporaryName)
 
 	renamed := false

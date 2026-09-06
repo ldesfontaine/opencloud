@@ -24,7 +24,6 @@
   </header>
   <main>
     {{if .Error}}<p class="notice error">{{.Error}}</p>{{end}}
-    {{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
     {{template "content" .}}
   </main>
   <footer>openCloud {{.Version}}</footer>

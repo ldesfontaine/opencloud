@@ -92,7 +92,7 @@ func TestOpen_MissingDatabase_CreatesItAndAppliesMigrationsOnce(t *testing.T) {
 	if backups := listBackups(t, root); len(backups) != 0 {
 		t.Fatalf("une base neuve ne se sauvegarde pas, trouvé %v", backups)
 	}
-	info, err := root.Stat(databaseFileName)
+	info, err := root.Stat(DatabaseFileName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func backupRootAsState(t *testing.T, backupRoot *os.Root, backupName string) *os
 		t.Fatal(err)
 	}
 	stateRoot := openTestRoot(t)
-	if err := stateRoot.WriteFile(databaseFileName, content, databaseFileMode); err != nil {
+	if err := stateRoot.WriteFile(DatabaseFileName, content, databaseFileMode); err != nil {
 		t.Fatal(err)
 	}
 	return stateRoot

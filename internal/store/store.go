@@ -1,7 +1,3 @@
-// Package store tient l'état d'openCloud dans SQLite : comptes, sessions, et
-// plus tard machines, services, domaines, actions. Les requêtes vivent ici et
-// nulle part ailleurs. Open crée la base si elle manque, la sauvegarde avant
-// toute migration, puis applique les migrations en attente.
 package store
 
 import (
@@ -23,7 +19,6 @@ import (
 const DatabaseFileName = "opencloud.db"
 
 const (
-	databaseFileName = DatabaseFileName
 	backupDirName    = "backups"
 	databaseFileMode = 0o600
 	backupDirMode    = 0o700
@@ -43,7 +38,7 @@ type Store struct {
 // migrations contient les fichiers NNN_sujet.sql ; en production c'est
 // migrations.Files, les tests passent le leur.
 func Open(ctx context.Context, root *os.Root, migrations fs.FS, logger *slog.Logger) (*Store, error) {
-	databaseExisted, err := fileExists(root, databaseFileName)
+	databaseExisted, err := fileExists(root, DatabaseFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +57,10 @@ func Open(ctx context.Context, root *os.Root, migrations fs.FS, logger *slog.Log
 }
 
 func openDatabase(root *os.Root) (*sql.DB, error) {
-	databasePath := filepath.Join(root.Name(), databaseFileName)
+	// SQLite veut un chemin, pas un descripteur : c'est le seul accès à l'état
+	// qui sort de l'os.Root. Le dossier est celui du root (state_dir, validé),
+	// le nom de fichier une constante.
+	databasePath := filepath.Join(root.Name(), DatabaseFileName)
 
 	// WAL : lecteurs et écrivain ne se bloquent pas. busy_timeout : une écriture
 	// concurrente attend au lieu d'échouer. foreign_keys : SQLite ne l'active
@@ -90,7 +88,7 @@ func checkDatabase(db *sql.DB, root *os.Root) error {
 		return fmt.Errorf("ping database: %w", err)
 	}
 	// Un fichier de base ne se lit pas par un tiers, même si le dossier le laissait.
-	if err := root.Chmod(databaseFileName, databaseFileMode); err != nil {
+	if err := root.Chmod(DatabaseFileName, databaseFileMode); err != nil {
 		return fmt.Errorf("protect database file: %w", err)
 	}
 	return nil
