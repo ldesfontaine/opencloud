@@ -16,8 +16,9 @@
   `fix/<nom-court>` pour un correctif, `docs/…`, `ci/…`, `chore/…` — le même
   préfixe que le commit. Le nom dit la chose, en minuscules, avec des tirets :
   `feat/enroll-ssh`, `fix/mot-de-passe-minimum`.
-- **Une pull request vers `main`**, qui cite son ticket (`Closes #3`). La CI
-  doit être verte ; on relit avant de fusionner.
+- **Une pull request vers `main`**, qui cite son ticket par `Closes #3` — le
+  mot-clé anglais, GitHub ne lit pas « Ferme ». La CI doit être verte ; on
+  relit avant de fusionner.
 - **Fusion par `merge`**, jamais par `squash` : les commits par fonctionnalité
   de la branche restent lisibles dans l'historique.
 - **Rebase sur `main` avant la PR** si la branche a vieilli, plutôt que des
