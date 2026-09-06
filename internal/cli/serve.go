@@ -24,8 +24,11 @@ const (
 	stateDirMode      = 0o700
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 30 * time.Second
-	idleTimeout       = 2 * time.Minute
-	shutdownTimeout   = 10 * time.Second
+	// Une page se sert en moins de ça ; le flux en direct (SSE), plus tard,
+	// repoussera sa propre échéance par http.ResponseController.
+	writeTimeout    = 30 * time.Second
+	idleTimeout     = 2 * time.Minute
+	shutdownTimeout = 10 * time.Second
 )
 
 // runServe démarre tout dans l'ordre : configuration, base, compte par défaut,
@@ -36,6 +39,8 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		return err
 	}
 	logger := slog.New(slog.NewJSONHandler(errOut, nil))
+	// Lu tout de suite : rien de ce que serve lancera ne doit hériter du socket.
+	notifier := systemd.NewNotifier()
 
 	cfg, err := loadConfig(configPath, logger)
 	if err != nil {
@@ -68,7 +73,7 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	if err != nil {
 		return fmt.Errorf("écouter sur %s : %w", cfg.Listen, err)
 	}
-	return serveUntilStopped(ctx, listener, server.Handler(), logger)
+	return serveUntilStopped(ctx, listener, server.Handler(), notifier, logger)
 }
 
 func parseConfigFlag(command string, args []string, errOut io.Writer) (string, error) {
@@ -87,7 +92,7 @@ func loadConfig(path string, logger *slog.Logger) (config.Config, error) {
 		return config.Config{}, err
 	}
 	for _, warning := range warnings {
-		logger.Warn(warning.String(), "config", path)
+		logger.Warn("unknown config key ignored", "key", warning.Key, "config", path)
 	}
 	return cfg, nil
 }
@@ -105,11 +110,12 @@ func openStateDir(dir string) (*os.Root, error) {
 	return root, nil
 }
 
-func serveUntilStopped(ctx context.Context, listener net.Listener, handler http.Handler, logger *slog.Logger) error {
+func serveUntilStopped(ctx context.Context, listener net.Listener, handler http.Handler, notifier *systemd.Notifier, logger *slog.Logger) error {
 	httpServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
 
@@ -119,7 +125,7 @@ func serveUntilStopped(ctx context.Context, listener net.Listener, handler http.
 	}()
 
 	logger.Info("listening", "address", listener.Addr().String())
-	if err := systemd.NotifyReady(); err != nil {
+	if err := notifier.Ready(); err != nil {
 		logger.Warn("systemd not notified", "error", err)
 	}
 
@@ -130,7 +136,7 @@ func serveUntilStopped(ctx context.Context, listener net.Listener, handler http.
 	}
 
 	logger.Info("stopping")
-	if err := systemd.NotifyStopping(); err != nil {
+	if err := notifier.Stopping(); err != nil {
 		logger.Warn("systemd not notified", "error", err)
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)

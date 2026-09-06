@@ -1,5 +1,3 @@
-// Package auth tient la session et l'opérateur : mot de passe, changement forcé
-// à la première connexion. Le modèle est prêt pour plusieurs comptes.
 package auth
 
 import (
@@ -167,7 +165,11 @@ func (s *Service) refreshDefaultAccountObligation(ctx context.Context, mustChang
 	if err != nil {
 		return fmt.Errorf("verify password of %s: %w", DefaultUsername, err)
 	}
-	if !stillDefault || account.MustChangePassword == mustChange {
+	if !stillDefault {
+		// Un mot de passe déjà changé n'a rien à changer.
+		return nil
+	}
+	if account.MustChangePassword == mustChange {
 		return nil
 	}
 	return s.store.SetMustChangePassword(ctx, account.ID, mustChange)

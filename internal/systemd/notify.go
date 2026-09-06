@@ -1,6 +1,3 @@
-// Package systemd prévient systemd de l'état du service par sd_notify, pour
-// une unité Type=notify. Sans NOTIFY_SOCKET, chaque appel est un non-événement :
-// le binaire se lance aussi à la main.
 package systemd
 
 import (
@@ -9,23 +6,38 @@ import (
 	"os"
 )
 
-// NotifyReady dit à systemd que le service écoute. À appeler une fois le port ouvert.
-func NotifyReady() error {
-	return notify("READY=1")
+// Notifier parle à systemd par le socket que NOTIFY_SOCKET désigne. Sans
+// lui, chaque appel est un non-événement : le binaire se lance aussi à la
+// main.
+type Notifier struct {
+	socketPath string
 }
 
-// NotifyStopping dit à systemd que l'arrêt a commencé.
-func NotifyStopping() error {
-	return notify("STOPPING=1")
-}
-
-func notify(state string) error {
+// NewNotifier lit NOTIFY_SOCKET une fois et le retire de l'environnement :
+// un processus lancé plus tard par le service ne doit pas pouvoir parler à
+// systemd en son nom.
+func NewNotifier() *Notifier {
 	socketPath := os.Getenv("NOTIFY_SOCKET")
-	if socketPath == "" {
+	_ = os.Unsetenv("NOTIFY_SOCKET")
+	return &Notifier{socketPath: socketPath}
+}
+
+// Ready dit à systemd que le service écoute. À appeler une fois le port ouvert.
+func (n *Notifier) Ready() error {
+	return n.notify("READY=1")
+}
+
+// Stopping dit à systemd que l'arrêt a commencé.
+func (n *Notifier) Stopping() error {
+	return n.notify("STOPPING=1")
+}
+
+func (n *Notifier) notify(state string) error {
+	if n.socketPath == "" {
 		return nil
 	}
 
-	address := &net.UnixAddr{Name: socketPath, Net: "unixgram"}
+	address := &net.UnixAddr{Name: n.socketPath, Net: "unixgram"}
 	connection, err := net.DialUnix("unixgram", nil, address)
 	if err != nil {
 		return fmt.Errorf("dial notify socket: %w", err)

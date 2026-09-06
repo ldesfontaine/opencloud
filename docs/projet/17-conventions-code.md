@@ -65,8 +65,9 @@ s'explique seul et les commentaires deviennent rares.
 
 - Pas de commentaire par méthode ou par type par principe. Une fonction
   exportée n'a un commentaire que si son nom ne suffit pas.
-- Un `doc.go` par package : trois lignes sur ce que le package fait et ne fait
-  pas.
+- Un `doc.go` par package, **et le commentaire de package ne vit que là** —
+  jamais en tête d'un autre fichier, même quand le package en a un principal.
+  Trois lignes sur ce que le package fait et ne fait pas.
 - On commente les **pièges et les décisions non évidentes** :
   `// fsync du dossier, sinon le rename peut se perdre à la coupure.`
 - Un `// TODO(lucas): raison` porte toujours sa raison.
