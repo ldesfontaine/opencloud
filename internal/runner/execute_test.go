@@ -262,3 +262,46 @@ func TestQueue_TwoActionsOnTheSameMachine_NeverRunAtTheSameTime(t *testing.T) {
 		t.Fatalf("suivis simultanés = %d, attendu 1", machineTransport.mostActive)
 	}
 }
+
+func TestExecute_UnreachableDuringDeposit_RetriesThenLaunches(t *testing.T) {
+	database := newTestStore(t)
+	machineTransport := newFakeTransport()
+	// Un ssh tué pendant le dépôt, comme à l'arrêt d'openCloud, puis la machine répond.
+	machineTransport.putUnreachableLeft = 2
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: machineTransport})
+
+	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concluded := waitForConclusion(t, database, action.ID)
+	if concluded.State != store.StateApplied {
+		t.Fatalf("état = %s, note = %q : un dépôt interrompu se rejoue, il ne conclut pas", concluded.State, concluded.Note)
+	}
+	if launches, _ := machineTransport.counts(); launches != 1 {
+		t.Fatalf("lancements = %d, attendu 1", launches)
+	}
+}
+
+func TestExecute_UnreachablePastTheDeadline_FailsSayingNothingLeft(t *testing.T) {
+	database := newTestStore(t)
+	machineTransport := newFakeTransport()
+	machineTransport.putUnreachableLeft = 1000
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: machineTransport})
+	// L'échéance est déjà passée : le premier « injoignable » suffit.
+	runner.followGrace = -2 * time.Hour
+
+	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	concluded := waitForConclusion(t, database, action.ID)
+	if concluded.State != store.StateFailed || !strings.Contains(concluded.Note, "rien n'est parti") {
+		t.Fatalf("état = %s, note = %q", concluded.State, concluded.Note)
+	}
+	if launches, _ := machineTransport.counts(); launches != 0 {
+		t.Fatalf("lancements = %d, attendu 0", launches)
+	}
+}

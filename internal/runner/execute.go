@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path"
 	"strconv"
 	"time"
@@ -33,36 +34,72 @@ func (r *Runner) execute(ctx context.Context, machine store.Machine, current job
 		return
 	}
 
-	if current.deposit && !r.depositAndLaunch(ctx, machineTransport, &action, current.prepared) {
+	if current.deposit && !r.depositAndLaunchWithRetries(ctx, machineTransport, &action, current.prepared) {
 		return
 	}
 	r.follow(ctx, machineTransport, action)
 }
 
+// depositAndLaunchWithRetries insiste tant que la machine est injoignable —
+// une coupure d'openCloud tue aussi le ssh du dépôt, et une machine qui ne
+// répond pas maintenant répondra peut-être dans une minute. Rien n'est conclu
+// tant que rien n'est parti ; au-delà de l'échéance, on le dit.
+func (r *Runner) depositAndLaunchWithRetries(ctx context.Context, machineTransport transport.Transport, action *store.Action, prepared catalog.Prepared) bool {
+	deadline := r.abandonDeadline(*action)
+	for attempt := 0; ; attempt++ {
+		err := r.depositAndLaunch(ctx, machineTransport, action, prepared)
+		if ctx.Err() != nil {
+			return false
+		}
+		if err == nil {
+			return true
+		}
+		if !errors.Is(err, transport.ErrUnreachable) {
+			r.conclude(ctx, *action, store.StateFailed, nil, "", err.Error())
+			return false
+		}
+		if !time.Now().Before(deadline) {
+			r.conclude(ctx, *action, store.StateFailed, nil, "", messageDepositAbandoned(err))
+			return false
+		}
+		r.logger.Warn("machine unreachable while depositing", "action_id", action.ID, "error", err)
+		select {
+		case <-time.After(r.retryDelay(attempt)):
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 // depositAndLaunch pose les fichiers puis lance l'unité. ErrAlreadyLaunched
 // n'est pas une erreur : l'action est déjà partie, il n'y a qu'à la suivre.
-func (r *Runner) depositAndLaunch(ctx context.Context, machineTransport transport.Transport, action *store.Action, prepared catalog.Prepared) bool {
+// Une machine injoignable remonte telle quelle, l'appelant réessaie ; le reste
+// est un message pour le journal.
+func (r *Runner) depositAndLaunch(ctx context.Context, machineTransport transport.Transport, action *store.Action, prepared catalog.Prepared) error {
 	if err := r.deposit(ctx, machineTransport, action.ID, prepared); err != nil {
-		r.concludeUnlessStopping(ctx, *action, store.StateFailed, "", messageDepositFailed(err))
-		return false
+		if errors.Is(err, transport.ErrUnreachable) {
+			return err
+		}
+		return errors.New(messageDepositFailed(err))
 	}
 
 	err := machineTransport.Launch(ctx, action.ID)
 	if err != nil && !errors.Is(err, transport.ErrAlreadyLaunched) {
-		r.concludeUnlessStopping(ctx, *action, store.StateFailed, "", messageLaunchFailed(err))
-		return false
+		if errors.Is(err, transport.ErrUnreachable) {
+			return err
+		}
+		return errors.New(messageLaunchFailed(err))
 	}
 
 	launchedAt := time.Now().UTC()
 	if err := r.store.MarkRunning(ctx, action.ID, launchedAt); err != nil {
 		// La ligne reste « prepared » : la reprise la retrouvera.
-		r.logger.Error("mark action running", "action_id", action.ID, "error", err)
-		return false
+		return fmt.Errorf("mark action running: %w", err)
 	}
 	action.State = store.StateRunning
 	action.LaunchedAt = launchedAt
 	r.logger.Info("action launched", "action_id", action.ID, "unit", action.UnitName)
-	return true
+	return nil
 }
 
 func (r *Runner) deposit(ctx context.Context, machineTransport transport.Transport, actionID string, prepared catalog.Prepared) error {

@@ -91,6 +91,12 @@ jobs:
           sudo apt-get install -y -qq openssh-server > /dev/null
           sudo packaging/test-action.sh dist/new/opencloud_0.0.2_amd64.deb
 
+      # Le témoin, un conteneur Debian avec sshd, est enrôlé depuis l'interface
+      # par la commande générée, puis Diagnostiquer tourne dessus par SSH. Le
+      # runner a Docker ; le job Debian, lui, n'a pas de démon dedans.
+      - name: enrôlement d'une machine distante, le témoin
+        run: sudo packaging/test-enroll.sh dist/new/opencloud_0.0.2_amd64.deb
+
   # Le même paquet, mais dans le conteneur Debian 12 avec systemd : le job
   # ci-dessus ne prouve qu'Ubuntu, et le critère est « sur une Debian neuve ».
   # `make package-test` est la cible jouée en local, inchangée : elle construit

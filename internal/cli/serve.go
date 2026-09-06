@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/runner"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/systemd"
@@ -31,6 +32,10 @@ const (
 	writeTimeout    = 30 * time.Second
 	idleTimeout     = 2 * time.Minute
 	shutdownTimeout = 10 * time.Second
+
+	// « Tester l'accès », en silence : assez souvent pour qu'un statut ne
+	// mente pas longtemps, assez rarement pour ne pas peser sur les machines.
+	probeInterval = 5 * time.Minute
 )
 
 // runServe démarre tout dans l'ordre : configuration, base, compte par défaut,
@@ -75,12 +80,21 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		return fmt.Errorf("reprendre les actions en cours : %w", err)
 	}
 
+	// La sonde tourne tant que le service tourne ; elle s'arrête avec lui.
+	probeCtx, stopProbes := context.WithCancel(ctx)
+	defer stopProbes()
+	checker := probe.New(database, machineProbes{access: machines}, probeInterval, logger)
+	go checker.Run(probeCtx)
+
 	server, err := web.New(web.Dependencies{
-		Auth:      authService,
-		Machines:  database,
-		Enrolment: machines,
-		Actions:   actionRunner,
-		Catalog:   catalog.Service{},
+		Auth:        authService,
+		Machines:    database,
+		Declaration: machineDeclaration{store: database},
+		Enrolment:   machines,
+		Enroller:    machines,
+		Actions:     actionRunner,
+		Catalog:     catalog.Service{},
+		Prober:      machineHealth{checker: checker, store: database},
 	}, version, logger)
 	if err != nil {
 		return fmt.Errorf("préparer l'interface : %w", err)

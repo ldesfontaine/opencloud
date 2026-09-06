@@ -336,3 +336,14 @@ func TestSortie_EstBorneeEnTaille(t *testing.T) {
 		t.Errorf("la troncature n'est pas dite : %d octets", len(err.Error()))
 	}
 }
+
+func TestPut_UnSshTueParUnSignalEstInjoignable(t *testing.T) {
+	fake := newFakeSSH(t)
+	fake.write(t, "kill-self", "TERM")
+
+	err := fake.client().Put(context.Background(), "abc123", "run.sh", []byte("#!/bin/bash\n"), 0o755)
+
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("un ssh tué en plein dépôt se lit « on ne sait rien pour l'instant », obtenu %v", err)
+	}
+}

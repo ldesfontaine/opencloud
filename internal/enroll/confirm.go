@@ -124,10 +124,12 @@ func writeVerifiedKnownHosts(ctx context.Context, deps ConfirmDeps, machine stor
 // checkEndpoint : l'adresse et le port entrent dans un vecteur de commande.
 // Ils sont bornés ici, avant, et jamais supposés.
 func checkEndpoint(machine store.Machine) error {
-	if _, err := validate.Address(machine.Address); err != nil {
+	// Une adresse IP ou un nom d'hôte, comme l'interface l'accepte : les deux
+	// formes sont étroites, et c'est l'empreinte qui prouve la machine.
+	if _, err := validate.Address(machine.Address); err != nil && validate.Domain(machine.Address) != nil {
 		return refusal.Refusal{
-			Cause:  fmt.Sprintf("l'adresse « %s » de cette machine n'est pas une adresse IP", machine.Address),
-			Remedy: "corriger l'adresse de la machine : openCloud joint les machines par adresse, jamais par nom",
+			Cause:  fmt.Sprintf("l'adresse « %s » de cette machine n'est ni une adresse IP ni un nom d'hôte", machine.Address),
+			Remedy: "corriger l'adresse de la machine depuis sa fiche",
 		}
 	}
 	if machine.Port < minSSHPort || machine.Port > maxSSHPort {

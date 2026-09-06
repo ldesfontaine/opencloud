@@ -73,7 +73,10 @@ est créé avec les valeurs par défaut ; il est à vous ensuite, hors git. Rien
 n'est installé sur la machine : l'état vit dans `dev/state`.
 
 Puis ouvrir `http://localhost:8080` et se connecter avec `admin` /
-`opencloud`. `make ci` joue les mêmes vérifications que la CI. Le paquet
+`opencloud`. Pour développer l'enrôlement, `make temoin-up` lance une Debian
+jetable avec `sshd` sur `127.0.0.1:2222` : la déclarer dans l'interface, puis
+jouer la commande générée par `docker exec -i opencloud-temoin bash -c '…'`.
+`make temoin-down` la retire. `make ci` joue les mêmes vérifications que la CI. Le paquet
 `.deb` et l'unité systemd se testent dans un conteneur Debian jetable,
 `make package-test`, jamais sur la machine de développement ; `make release`
 produit le paquet dans `dist/`.
