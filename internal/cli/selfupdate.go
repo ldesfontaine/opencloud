@@ -21,8 +21,9 @@ import (
 const serviceStartTimeout = selfupdate.UnitStartTimeout
 
 // runSelfUpdate : à lancer avec sudo, jamais par l'unité. Il lit la
-// configuration pour le jeton GitHub et l'adresse d'écoute, remplace le
-// binaire qui l'exécute, puis attend que le service réponde.
+// configuration pour l'adresse d'écoute, le jeton GitHub dans son fichier
+// réservé à root, remplace le binaire qui l'exécute, puis attend que le
+// service réponde.
 func runSelfUpdate(ctx context.Context, args []string, version string, out, errOut io.Writer) error {
 	flags := flag.NewFlagSet("self-update", flag.ContinueOnError)
 	flags.SetOutput(errOut)
@@ -41,8 +42,12 @@ func runSelfUpdate(ctx context.Context, args []string, version string, out, errO
 	if err != nil {
 		return err
 	}
+	token, err := selfupdate.ReadToken(selfupdate.TokenPath)
+	if err != nil {
+		return err
+	}
 
-	client := selfupdate.NewClient(cfg.GitHubToken, "opencloud/"+version)
+	client := selfupdate.NewClient(token, "opencloud/"+version)
 	result, err := selfupdate.New(client, out).Run(ctx, selfupdate.Options{
 		CurrentVersion:   version,
 		ExecutablePath:   executable,

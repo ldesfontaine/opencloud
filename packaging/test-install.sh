@@ -12,6 +12,7 @@ OLD_VERSION=$(dpkg-deb -f "$OLD_DEB" Version)
 NEW_VERSION=$(dpkg-deb -f "$NEW_DEB" Version)
 HEALTH_URL=http://127.0.0.1:8080/healthz
 SRV_MARKER=/srv/workspace/prod/demo/marker
+TOKEN_FILE=/etc/opencloud/github-token
 BIN_PATH=/opt/opencloud/bin/opencloud
 # Le .deb déballé, les journaux d'apt et les faux systemd. Dans /var/tmp, pas
 # /tmp : le test démarre pendant que la machine finit de démarrer, et
@@ -93,6 +94,9 @@ opencloud status | grep -q "répond, version $OLD_VERSION" || fail "opencloud st
 step "l'opérateur touche sa configuration et son état"
 echo "# note de l'opérateur" >> /etc/opencloud/config.toml
 install -o opencloud -g opencloud -m 0600 /dev/null /var/lib/opencloud/key-marker
+# Le jeton de self-update ne vient pas du paquet : l'opérateur le pose lui-même
+# à côté de la configuration, hors de portée du service.
+install -o root -g root -m 0600 /dev/null "$TOKEN_FILE"
 
 step "mise à jour vers $NEW_VERSION"
 apt-get install -y "$NEW_DEB"
@@ -198,6 +202,7 @@ systemctl is-active --quiet opencloud.service && fail "l'unité tourne encore"
 [ ! -e /opt/opencloud/bin/oc-launch ] || fail "le lanceur est encore posé"
 [ ! -e /usr/bin/opencloud ] || fail "le lien /usr/bin/opencloud est encore posé"
 [ -f /etc/opencloud/config.toml ] || fail "apt remove a retiré la configuration"
+[ -f "$TOKEN_FILE" ] || fail "apt remove a retiré le jeton de self-update, que réinstaller doit retrouver"
 [ -f /var/lib/opencloud/opencloud.db ] || fail "apt remove a retiré la base"
 [ -f /var/lib/opencloud/key-marker ] || fail "apt remove a retiré l'état"
 getent passwd opencloud >/dev/null || fail "apt remove a retiré l'utilisateur, l'état en devient orphelin"
@@ -211,6 +216,7 @@ grep -q "note de l'opérateur" /etc/opencloud/config.toml || fail "la configurat
 
 step "apt purge : plus rien d'openCloud"
 apt-get purge -y opencloud
+[ ! -e "$TOKEN_FILE" ] || fail "apt purge a laissé le jeton de self-update"
 [ ! -e /etc/opencloud ] || fail "apt purge a laissé /etc/opencloud"
 [ ! -e /var/lib/opencloud ] || fail "apt purge a laissé /var/lib/opencloud"
 [ ! -e /opt/opencloud ] || fail "apt purge a laissé /opt/opencloud"

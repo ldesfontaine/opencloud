@@ -78,23 +78,23 @@ func TestParse_MinPasswordLength_DefaultsToTwelveAndCanBeLifted(t *testing.T) {
 	}
 }
 
-func TestParse_GitHubToken_IsReadAndBounded(t *testing.T) {
-	cfg, _, err := Parse([]byte("state_dir = \"state\"\ngithub_token = \"github_pat_abc\"\n"))
+func TestParse_RetiredGitHubToken_IsAWarningThatGivesTheGesture(t *testing.T) {
+	_, warnings, err := Parse([]byte("state_dir = \"state\"\ngithub_token = \"github_pat_abc\"\n"))
 	if err != nil {
-		t.Fatalf("erreur inattendue : %v", err)
+		t.Fatalf("une clé retirée ne doit pas empêcher de démarrer : %v", err)
 	}
-	if cfg.GitHubToken != "github_pat_abc" {
-		t.Fatalf("github_token = %q", cfg.GitHubToken)
+	if len(warnings) != 1 || warnings[0].Key != "github_token" {
+		t.Fatalf("avertissements = %v, attendu github_token nommé", warnings)
 	}
 
-	for name, content := range map[string]string{
-		"espace":    "github_token = \"ab cd\"\n",
-		"trop long": "github_token = \"" + strings.Repeat("a", 256) + "\"\n",
-	} {
-		_, _, err := Parse([]byte("state_dir = \"state\"\n" + content))
-		if err == nil || !strings.Contains(err.Error(), "github_token") {
-			t.Fatalf("%s : doit être refusé en nommant la clé, reçu %v", name, err)
+	message := warnings[0].String()
+	for _, expected := range []string{"github_token", "/etc/opencloud/github-token", "0600 root:root"} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("le message doit dire %q : %q", expected, message)
 		}
+	}
+	if strings.Contains(message, "github_pat_abc") {
+		t.Fatalf("l'avertissement recopie la valeur : %q", message)
 	}
 }
 

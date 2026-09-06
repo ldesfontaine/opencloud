@@ -109,7 +109,11 @@ func loadConfig(path string, logger *slog.Logger) (config.Config, error) {
 		return config.Config{}, err
 	}
 	for _, warning := range warnings {
-		logger.Warn("unknown config key ignored", "key", warning.Key, "config", path)
+		if warning.Remedy == "" {
+			logger.Warn("unknown config key ignored", "key", warning.Key, "config", path)
+			continue
+		}
+		logger.Warn("retired config key ignored", "key", warning.Key, "remedy", warning.Remedy, "config", path)
 	}
 	return cfg, nil
 }

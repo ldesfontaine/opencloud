@@ -317,7 +317,7 @@ func describeGitHubError(err error) error {
 	if errors.Is(err, ErrUnauthorized) {
 		return refusal.Refusal{
 			Cause:  "GitHub refuse l'accès aux releases",
-			Remedy: "tant que le dépôt est privé, renseigner github_token dans la configuration avec un jeton en lecture",
+			Remedy: "tant que le dépôt est privé, poser un jeton en lecture dans " + TokenPath + ", en 0600 root:root",
 		}
 	}
 	return err

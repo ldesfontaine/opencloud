@@ -29,6 +29,8 @@ case "$1" in
         fi
         ;;
     purge)
+        # Le dossier entier : la configuration, et le fichier github-token que
+        # l'opérateur a posé à côté — un secret ne survit pas à la purge.
         rm -rf "$CONFIG_DIR" "$STATE_DIR"
         if [ -d /run/systemd/system ]; then
             if command -v deb-systemd-helper >/dev/null 2>&1; then
