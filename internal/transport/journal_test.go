@@ -212,3 +212,33 @@ func TestFollow_UnContexteExpireRendSonErreur(t *testing.T) {
 		t.Fatalf("attendu context.Canceled, obtenu %v", err)
 	}
 }
+
+func TestFollow_UnSshTueAvantLaFinDeLUniteNeConclutPas(t *testing.T) {
+	fake := newFakeSSH(t)
+	// Le journal s'arrête sur une ligne du script, sans le constat de systemd,
+	// et ssh meurt d'un signal : c'est ce qui arrive à l'arrêt d'openCloud.
+	fake.write(t, "stdout", firstLineOf(readFixture(t, "exit-2.jsonl"))+"\n")
+	fake.write(t, "kill-self", "TERM")
+
+	_, err := fake.client().Follow(context.Background(), "abc123", "", nil)
+
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("un suivi interrompu se lit « on ne sait rien pour l'instant », obtenu %v", err)
+	}
+}
+
+func TestFollow_UnFluxQuiFinitSansConstatNeConclutPas(t *testing.T) {
+	fake := newFakeSSH(t)
+	fake.replies(t, 0, "")
+
+	_, err := fake.client().Follow(context.Background(), "abc123", "", nil)
+
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("attendu ErrUnreachable, obtenu %v", err)
+	}
+}
+
+func firstLineOf(text string) string {
+	line, _, _ := strings.Cut(text, "\n")
+	return line
+}
