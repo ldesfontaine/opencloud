@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
 
@@ -177,6 +179,54 @@ func backupRootAsState(t *testing.T, backupRoot *os.Root, backupName string) *os
 		t.Fatal(err)
 	}
 	return stateRoot
+}
+
+func TestOpen_OneMigrationAfterAnother_KeepsOnlyTheLastBackups(t *testing.T) {
+	root := openTestRoot(t)
+	files := fstest.MapFS{"001_accounts.sql": firstMigration["001_accounts.sql"]}
+	openTestStore(t, root, files).Close()
+
+	// Une sauvegarde par migration : cinq migrations, cinq sauvegardes prises.
+	const lastVersion = 6
+	for version := 2; version <= lastVersion; version++ {
+		files[fmt.Sprintf("%03d_notes.sql", version)] = &fstest.MapFile{
+			Data: []byte(fmt.Sprintf("CREATE TABLE notes_%d (id INTEGER PRIMARY KEY);", version)),
+		}
+		openTestStore(t, root, files).Close()
+	}
+
+	backups := listBackups(t, root)
+	if len(backups) != keptMigrationBackups {
+		t.Fatalf("sauvegardes = %v, attendu les %d dernières", backups, keptMigrationBackups)
+	}
+	// fs.ReadDir trie par nom, et le nom commence par l'horodatage.
+	for index, backup := range backups {
+		want := fmt.Sprintf("-before-%03d.db", lastVersion-keptMigrationBackups+1+index)
+		if !strings.HasSuffix(backup, want) {
+			t.Fatalf("sauvegarde %s, attendu une qui finit par %s", backup, want)
+		}
+	}
+}
+
+func TestOpen_SchemaNewerThanTheBinary_RefusesToStart(t *testing.T) {
+	root := openTestRoot(t)
+	openTestStore(t, root, twoMigrations).Close()
+
+	// Le binaire remis en arrière ne connaît que la première migration.
+	_, err := Open(context.Background(), root, firstMigration, quietLogger())
+
+	var refused refusal.Refusal
+	if !errors.As(err, &refused) {
+		t.Fatalf("attendu un refus, reçu %v", err)
+	}
+	for _, word := range []string{"002_notes.sql", "plus récente", "before-002.db"} {
+		if !strings.Contains(refused.Error(), word) {
+			t.Fatalf("le refus doit dire %q :\n%s", word, refused.Error())
+		}
+	}
+	if backups := listBackups(t, root); len(backups) != 0 {
+		t.Fatalf("un refus ne sauvegarde ni ne migre rien, trouvé %v", backups)
+	}
 }
 
 func TestOpen_BackupFails_MigrationDoesNotHappen(t *testing.T) {

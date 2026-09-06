@@ -101,11 +101,17 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
    embarquées, numérotées, jamais rejouées. **Si la sauvegarde échoue, la
    migration n'a pas lieu** : le service s'arrête en le disant, la base est
    intacte, et le retour arrière est la commande affichée par `self-update`
-   *(Cloudron a migré sans sauvegarde ; on ne migre pas du tout)*.
+   *(Cloudron a migré sans sauvegarde ; on ne migre pas du tout)*. Seules les
+   dernières sauvegardes de migration sont gardées — le journal dit combien et
+   lesquelles sont retirées : une sauvegarde par migration, sur une boucle de
+   redémarrage, remplit le disque.
 
 Retour arrière : remettre `opencloud.prev` et la sauvegarde de base prise
 avant migration. Ça se fait à la main, en deux commandes que l'interface
-affiche.
+affiche. **Remettre le binaire sans sa sauvegarde ne suffit pas** : une base
+qui porte une migration que le binaire ne connaît pas ne s'ouvre pas, le
+service refuse de démarrer et dit quelle sauvegarde restaurer — sinon l'ancien
+code tournerait en silence sur un schéma plus neuf que lui.
 
 ## Ce qu'on ne fait pas
 

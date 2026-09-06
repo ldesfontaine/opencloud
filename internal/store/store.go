@@ -20,8 +20,15 @@ const DatabaseFileName = "opencloud.db"
 
 const (
 	backupDirName    = "backups"
+	backupNamePrefix = "opencloud-"
+	backupNameSuffix = ".db"
 	databaseFileMode = 0o600
 	backupDirMode    = 0o700
+
+	// Ce qu'on garde de sauvegardes avant migration. Une par migration en
+	// attente, et rien ne les retirait : sur une boucle de redémarrage, le
+	// disque se remplissait.
+	keptMigrationBackups = 3
 )
 
 // ErrNotFound : la ligne demandée n'existe pas.
