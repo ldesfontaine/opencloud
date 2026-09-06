@@ -76,7 +76,7 @@ jobs:
           cache: true
 
       - name: build reproductible
-        run: make reproducible VERSION=0.0.2 DIST=check
+        run: make reproducible VERSION=0.0.2 DIST=dist/check
 
       - name: deux versions du paquet
         run: |

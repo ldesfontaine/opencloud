@@ -5,7 +5,9 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 LDFLAGS  = -s -w -X main.version=$(VERSION)
 
-# Build reproductible : -trimpath, pas de cgo, et la date du commit pour les
+# Build reproductible : -trimpath, pas de cgo, pas d'empreinte VCS — elle
+# gravait l'état « modifié » de l'arbre de travail dans le binaire, deux
+# builds du même commit différaient —, et la date du commit pour les
 # horodatages du paquet (nfpm lit SOURCE_DATE_EPOCH).
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --format=%ct 2>/dev/null || echo 0)
 export SOURCE_DATE_EPOCH
@@ -16,7 +18,7 @@ DIST ?= dist
 .PHONY: build run test vet fmt lint vuln sec shellcheck plumber ci release reproducible package-test clean
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
+	CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
 
 # Lance le binaire depuis le dépôt avec dev/config.toml (hors git) : rien
 # n'est installé sur la machine, l'état vit dans dev/state.

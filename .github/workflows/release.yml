@@ -39,7 +39,7 @@ jobs:
       - name: build reproductible
         env:
           TAG: ${{ github.ref_name }}
-        run: make reproducible VERSION="${TAG#v}" DIST=check
+        run: make reproducible VERSION="${TAG#v}" DIST=dist/check
 
       - name: paquet
         env:
