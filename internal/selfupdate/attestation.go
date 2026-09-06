@@ -52,7 +52,9 @@ const (
 	actionsIssuer       = "https://token.actions.githubusercontent.com"
 	releaseWorkflowPath = ".github/workflows/release.yml"
 
-	// Bornes de la récupération TUF : par requête, et deux reprises au plus.
+	// Bornes de la récupération TUF : sur l'ensemble, par requête, et deux
+	// reprises au plus.
+	trustRootTimeout        = 2 * time.Minute
 	trustRootRequestTimeout = 30 * time.Second
 	trustRootRetryInterval  = 2 * time.Second
 	trustRootRetryCount     = 2
@@ -91,6 +93,12 @@ type attestationVerifier interface {
 type sigstoreVerifier struct{}
 
 func (sigstoreVerifier) Verify(ctx context.Context, bundles [][]byte, digest [sha256.Size]byte, identity verify.CertificateIdentity) error {
+	// errors.Join d'un lot vide rend nil : sans ce refus, aucune attestation
+	// se lirait comme une attestation valide.
+	if len(bundles) == 0 {
+		return errors.New("no attestation to verify")
+	}
+
 	roots := map[sigstoreInstance]*root.TrustedRoot{}
 	var refusals []error
 	for index, raw := range bundles {
@@ -102,7 +110,7 @@ func (sigstoreVerifier) Verify(ctx context.Context, bundles [][]byte, digest [sh
 
 		trusted, known := roots[instance]
 		if !known {
-			trusted, err = fetchTrustedRoot(instance)
+			trusted, err = fetchTrustedRoot(ctx, instance)
 			if err != nil {
 				return fmt.Errorf("%w: %w", ErrTrustRootUnavailable, err)
 			}
@@ -148,10 +156,15 @@ func parseBundle(raw []byte) (*bundle.Bundle, sigstoreInstance, error) {
 // fetchTrustedRoot obtient la racine de confiance courante par TUF, sans cache
 // disque : self-update est rare, et root n'a rien à laisser dans l'état.
 // Le fetcher par défaut de go-tuf n'a ni délai ni contexte (l'option Context
-// de sigstore-go n'est pas lue) : on lui donne un client HTTP borné.
-func fetchTrustedRoot(instance sigstoreInstance) (*root.TrustedRoot, error) {
+// de sigstore-go n'est pas lue) : on lui donne un client HTTP borné, qui porte
+// le contexte, et un délai sur l'ensemble — une dizaine de requêtes avec
+// reprises, sinon, ne s'arrête à rien.
+func fetchTrustedRoot(ctx context.Context, instance sigstoreInstance) (*root.TrustedRoot, error) {
+	ctx, cancel := context.WithTimeout(ctx, trustRootTimeout)
+	defer cancel()
+
 	boundedFetcher := fetcher.NewDefaultFetcher()
-	boundedFetcher.SetHTTPClient(&http.Client{Timeout: trustRootRequestTimeout})
+	boundedFetcher.SetHTTPClient(contextClient{ctx: ctx, client: &http.Client{Timeout: trustRootRequestTimeout}})
 	boundedFetcher.SetRetry(trustRootRetryInterval, trustRootRetryCount)
 	boundedFetcher.SetHTTPUserAgent("opencloud self-update")
 
@@ -173,6 +186,19 @@ func fetchTrustedRoot(instance sigstoreInstance) (*root.TrustedRoot, error) {
 		return nil, fmt.Errorf("parse trusted root from %s: %w", options.RepositoryBaseURL, err)
 	}
 	return trusted, nil
+}
+
+// contextClient porte le contexte jusqu'aux requêtes du fetcher TUF, qui les
+// construit sans : c'est le seul endroit où un contexte se garde dans une
+// structure, faute d'être passé en argument.
+type contextClient struct {
+	ctx    context.Context
+	client *http.Client
+}
+
+func (c contextClient) Do(request *http.Request) (*http.Response, error) {
+	// #nosec G704 -- bounded: adresses construites par go-tuf sous la racine du miroir, githubTUFMirror ou celle de sigstore-go
+	return c.client.Do(request.WithContext(c.ctx))
 }
 
 // verifyAttestation vérifie un bundle contre une racine de confiance : la

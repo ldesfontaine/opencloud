@@ -16,14 +16,9 @@ const (
 	executableMode = 0o755
 )
 
-var (
-	// ErrUpdateInProgress : un .new existe déjà — une autre mise à jour est en
-	// cours, ou une précédente a été interrompue.
-	ErrUpdateInProgress = errors.New("an update is already in progress")
-	// ErrReplacedButNotSynced : le nouveau binaire est en place, mais le fsync
-	// du dossier a échoué — le rename pourrait se perdre à une coupure.
-	ErrReplacedButNotSynced = errors.New("binary replaced but directory not synced")
-)
+// ErrReplacedButNotSynced : le nouveau binaire est en place, mais le fsync du
+// dossier a échoué — le rename pourrait se perdre à une coupure.
+var ErrReplacedButNotSynced = errors.New("binary replaced but directory not synced")
 
 // replaceExecutable met content à la place du binaire sans jamais écraser le
 // fichier en cours d'exécution (« text file busy ») : écrit à côté, garde
@@ -40,7 +35,7 @@ func replaceExecutable(executablePath string, content []byte) (previousPath stri
 	pendingName := name + pendingSuffix
 	previousName := name + previousSuffix
 
-	// O_EXCL : le .new sert aussi de verrou contre deux mises à jour à la fois.
+	// O_EXCL : un .new resté là vient d'une mise à jour tuée, pas d'un rename.
 	pending, err := root.OpenFile(pendingName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, executableMode)
 	if errors.Is(err, fs.ErrExist) {
 		return "", fmt.Errorf("%w: %s", ErrUpdateInProgress, filepath.Join(directory, pendingName))

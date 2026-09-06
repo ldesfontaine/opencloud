@@ -1,8 +1,12 @@
 package selfupdate
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -110,6 +114,38 @@ func TestVerifyAttestation_GitHubBundle_PassesAgainstGitHubRoot(t *testing.T) {
 	}
 	if err := verifyAttestation(parsed, loadTrustedRoot(t, "sigstore-trusted-root.json"), instance, plumberDigest(t), identity); err == nil {
 		t.Fatal("la racine de l'autre instance doit la refuser")
+	}
+}
+
+func TestVerify_NoBundle_IsRefusedByTheVerifierItself(t *testing.T) {
+	identity, err := releaseWorkflowIdentity(Repository, Version{Major: 0, Minor: 0, Patch: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// errors.Join d'un lot vide rendrait nil : aucune attestation se lirait
+	// comme une attestation valide.
+	if err := (sigstoreVerifier{}).Verify(context.Background(), nil, plumberDigest(t), identity); err == nil {
+		t.Fatal("un lot vide d'attestations doit être refusé")
+	}
+}
+
+func TestContextClient_CanceledContext_StopsTheRequestBeforeItLeaves(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("un contexte annulé ne doit plus laisser partir de requête")
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = contextClient{ctx: ctx, client: server.Client()}.Do(request)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("attendu l'annulation du contexte, reçu %v", err)
 	}
 }
 

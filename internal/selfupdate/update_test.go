@@ -29,11 +29,15 @@ type fakeGitHub struct {
 	releases     map[string]fakeRelease
 	attestations map[string][]string
 	requests     []*http.Request
+	// beforeAsset, s'il est posé avant le premier appel, s'exécute au début de
+	// chaque téléchargement de fichier.
+	beforeAsset func(name string)
 }
 
 type fakeRelease struct {
-	tag    string
-	assets map[string][]byte
+	tag        string
+	assets     map[string][]byte
+	prerelease bool
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
@@ -67,6 +71,15 @@ func (f *fakeGitHub) addRelease(tag string, binary []byte) {
 	f.releases[tag] = fakeRelease{tag: tag, assets: map[string][]byte{name: binary, checksumsAssetName: []byte(sums)}}
 }
 
+// addPrerelease publie une préversion : elle existe sur GitHub, elle ne
+// s'installe pas.
+func (f *fakeGitHub) addPrerelease(tag string, binary []byte) {
+	f.addRelease(tag, binary)
+	release := f.releases[tag]
+	release.prerelease = true
+	f.releases[tag] = release
+}
+
 func (f *fakeGitHub) attest(binary []byte, bundle string) {
 	sum := sha256.Sum256(binary)
 	key := "sha256:" + hex.EncodeToString(sum[:])
@@ -82,13 +95,16 @@ func (f *fakeGitHub) releaseJSON(release fakeRelease) map[string]any {
 			"size": len(content),
 		})
 	}
-	return map[string]any{"tag_name": release.tag, "draft": false, "prerelease": false, "assets": assets}
+	return map[string]any{"tag_name": release.tag, "draft": false, "prerelease": release.prerelease, "assets": assets}
 }
 
 func (f *fakeGitHub) serveLatest(w http.ResponseWriter, r *http.Request) {
 	var latest fakeRelease
 	found := false
 	for _, release := range f.releases {
+		if release.prerelease {
+			continue
+		}
 		version, _ := ParseVersion(release.tag)
 		latestVersion, _ := ParseVersion(latest.tag)
 		if !found || version.Compare(latestVersion) > 0 {
@@ -121,6 +137,9 @@ func (f *fakeGitHub) serveList(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (f *fakeGitHub) serveAsset(w http.ResponseWriter, r *http.Request) {
+	if f.beforeAsset != nil {
+		f.beforeAsset(r.PathValue("name"))
+	}
 	release, found := f.releases[r.PathValue("tag")]
 	if !found {
 		http.NotFound(w, r)
@@ -192,9 +211,14 @@ func newTestUpdater(t *testing.T, fake *fakeGitHub, installed []byte) *testUpdat
 	if err := os.WriteFile(executable, installed, executableMode); err != nil {
 		t.Fatal(err)
 	}
+	return newTestUpdaterOn(t, fake.server.URL, executable)
+}
 
+// newTestUpdaterOn : un self-update de plus sur un binaire déjà installé.
+func newTestUpdaterOn(t *testing.T, baseURL, executable string) *testUpdater {
+	t.Helper()
 	client := NewClient("", "test")
-	client.baseURL = fake.server.URL
+	client.baseURL = baseURL
 	test := &testUpdater{out: &bytes.Buffer{}, verifier: &fakeVerifier{}, restart: &fakeRestart{}, executable: executable}
 	test.updater = New(client, test.out)
 	test.updater.verifier = test.verifier
@@ -417,6 +441,105 @@ func TestRun_PendingFile_IsRefusedAsUpdateInProgress(t *testing.T) {
 	}
 }
 
+func TestRun_ConcurrentUpdates_SecondIsRefusedAndPreviousStaysTheOldBinary(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.addRelease("v0.0.3", []byte("new binary"))
+	fake.attest([]byte("new binary"), `{"pretend":"bundle"}`)
+	first := newTestUpdater(t, fake, []byte("old binary"))
+
+	// Le premier reste dans le téléchargement le temps que le second essaie.
+	downloading := make(chan struct{})
+	secondFinished := make(chan struct{})
+	releaseFirst := sync.OnceFunc(func() { close(secondFinished) })
+	t.Cleanup(releaseFirst)
+	var reached sync.Once
+	fake.beforeAsset = func(name string) {
+		if name == checksumsAssetName {
+			return
+		}
+		reached.Do(func() {
+			close(downloading)
+			<-secondFinished
+		})
+	}
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := first.run(t, "0.0.2", "", false)
+		firstResult <- err
+	}()
+	<-downloading
+
+	// Le second parle à un GitHub qui refuse de répondre : le verrou doit
+	// l'arrêter avant le premier appel.
+	silent := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Errorf("le second self-update ne doit rien demander, reçu %s", r.URL.Path)
+	}))
+	t.Cleanup(silent.Close)
+	second := newTestUpdaterOn(t, silent.URL, first.executable)
+
+	_, err := second.run(t, "0.0.2", "", false)
+
+	expectRefusal(t, err, "déjà en cours", first.executable+lockSuffix)
+	releaseFirst()
+	if err := <-firstResult; err != nil {
+		t.Fatalf("le premier doit aboutir : %v\n%s", err, first.out.String())
+	}
+	if got := readFile(t, first.executable); got != "new binary" {
+		t.Fatalf("binaire en place = %q", got)
+	}
+	if got := readFile(t, first.executable+previousSuffix); got != "old binary" {
+		t.Fatalf(".prev = %q : le retour arrière doit ramener l'ancien binaire", got)
+	}
+	if _, err := os.Stat(first.executable + lockSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("le verrou doit être rendu une fois la mise à jour finie")
+	}
+}
+
+func TestRun_CheckOnly_DoesNotTakeTheLock(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.addRelease("v0.0.3", []byte("new binary"))
+	test := newTestUpdater(t, fake, []byte("old binary"))
+
+	if _, err := test.run(t, "0.0.2", "", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(test.executable + lockSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("--check ne modifie rien, il n'a pas à verrouiller")
+	}
+}
+
+func TestRun_LeftoverLock_IsRefusedBeforeAnyRequest(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.addRelease("v0.0.3", []byte("new binary"))
+	test := newTestUpdater(t, fake, []byte("old binary"))
+	if err := os.WriteFile(test.executable+lockSuffix, nil, lockFileMode); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := test.run(t, "0.0.2", "", false)
+
+	expectRefusal(t, err, "déjà en cours", "retirer")
+	if len(fake.requests) != 0 {
+		t.Fatal("un verrou pris arrête avant le premier appel à GitHub")
+	}
+}
+
+func TestRun_RequestedPrerelease_IsRefused(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.addRelease("v0.0.2", []byte("current"))
+	fake.addPrerelease("v0.0.3", []byte("not for you"))
+	test := newTestUpdater(t, fake, []byte("current"))
+
+	_, err := test.run(t, "0.0.2", "v0.0.3", false)
+
+	expectRefusal(t, err, "préversion")
+	if readFile(t, test.executable) != "current" {
+		t.Fatal("un refus ne touche à rien")
+	}
+}
+
 func TestRun_WithoutSystemd_SaysSoAndStillSucceeds(t *testing.T) {
 	fake := newFakeGitHub(t)
 	fake.addRelease("v0.0.3", []byte("new binary"))
@@ -450,6 +573,43 @@ func TestRun_PrivateRepositoryWithoutToken_IsRefusedNamingTheKey(t *testing.T) {
 	_, err := updater.Run(context.Background(), Options{CurrentVersion: "0.0.2", ExecutablePath: filepath.Join(t.TempDir(), "opencloud")})
 
 	expectRefusal(t, err, "github_token")
+}
+
+func TestDownloadAsset_URLOutsideTheRepository_IsRefused(t *testing.T) {
+	fake := newFakeGitHub(t)
+	client := NewClient("", "test")
+	client.baseURL = fake.server.URL
+
+	elsewhere := Asset{Name: "opencloud_0.0.3_linux_amd64", URL: "https://example.invalid/binary", Size: 10}
+	if _, _, err := client.DownloadAsset(context.Background(), elsewhere, maxBinaryBytes); !errors.Is(err, ErrURLOutsideRepository) {
+		t.Fatalf("une autre adresse doit être refusée, reçu %v", err)
+	}
+	otherRepository := Asset{Name: "opencloud_0.0.3_linux_amd64", URL: fake.server.URL + "/repos/someone/else/releases/assets/1", Size: 10}
+	if _, _, err := client.DownloadAsset(context.Background(), otherRepository, maxBinaryBytes); !errors.Is(err, ErrURLOutsideRepository) {
+		t.Fatalf("un autre dépôt doit être refusé, reçu %v", err)
+	}
+	if len(fake.requests) != 0 {
+		t.Fatal("rien ne doit partir vers une adresse hors de l'API du dépôt")
+	}
+}
+
+func TestFetchAttestations_BundleURLOutsideTheRepository_IsRefused(t *testing.T) {
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("un bundle hors de l'API du dépôt ne doit pas être téléchargé")
+	}))
+	t.Cleanup(elsewhere.Close)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"attestations": []map[string]any{{"bundle_url": elsewhere.URL + "/bundle.json"}}})
+	}))
+	t.Cleanup(api.Close)
+	client := NewClient("", "test")
+	client.baseURL = api.URL
+
+	_, err := client.FetchAttestations(context.Background(), sha256.Sum256([]byte("new binary")))
+
+	if !errors.Is(err, ErrURLOutsideRepository) {
+		t.Fatalf("attendu un refus de l'adresse, reçu %v", err)
+	}
 }
 
 func TestClient_SendsTokenAndAPIHeaders(t *testing.T) {

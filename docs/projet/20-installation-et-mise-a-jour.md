@@ -73,6 +73,12 @@ quel et sort avec le code `2`. Tant que le dépôt des releases est privé, la
 clé `github_token` de la configuration porte un jeton GitHub en lecture ; elle
 devient inutile le jour où le dépôt passe en public.
 
+`self-update` **prend un verrou avant tout** : le fichier `opencloud.lock`, à
+côté du binaire, posé avant le premier appel réseau et retiré une fois l'unité
+redémarrée. Deux `self-update` lancés en même temps : le second refuse sans
+rien télécharger. Un verrou resté après une coupure se retire à la main — le
+refus dit lequel.
+
 Dans les deux cas, ce qui se passe, **dans cet ordre** :
 
 1. **Télécharger** la release, **vérifier** la somme SHA-256 et l'attestation.
@@ -88,9 +94,8 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
    l'ancien fichier — rien n'est copié.
 4. **Remplacer par écriture atomique** — fichier `opencloud.new` puis
    `rename`, jamais d'écrasement du fichier en cours d'exécution *(`text file
-   busy`)*. Le `.new` sert aussi de verrou : deux `self-update` en même temps,
-   le second refuse. Une mise à jour **par le paquet** retire le `.prev` : le
-   retour arrière est alors l'ancien `.deb`, pas un binaire d'avant.
+   busy`)*. Une mise à jour **par le paquet** retire le `.prev` : le retour
+   arrière est alors l'ancien `.deb`, pas un binaire d'avant.
 5. **Redémarrer l'unité.**
 6. **Au démarrage, sauvegarder la base**, puis appliquer les migrations
    embarquées, numérotées, jamais rejouées. **Si la sauvegarde échoue, la
