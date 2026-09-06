@@ -243,6 +243,11 @@ func TestOpen_BackupFails_MigrationDoesNotHappen(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "backup before migration") {
 		t.Fatalf("attendu un échec de sauvegarde, reçu %v", err)
 	}
+	// La sauvegarde a échoué sous le verrou, qui reste : sans le retirer, rien
+	// ne se rouvre (TestOpen_BackupFails_KeepsTheLock).
+	if err := root.Remove(MigrationLockFileName); err != nil {
+		t.Fatal(err)
+	}
 	check := openTestStore(t, root, firstMigration)
 	if got := appliedMigrations(t, check); len(got) != 1 {
 		t.Fatalf("la migration ne devait pas passer, appliquées = %v", got)

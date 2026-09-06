@@ -114,6 +114,21 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
    lesquelles sont retirées : une sauvegarde par migration, sur une boucle de
    redémarrage, remplit le disque.
 
+**La migration prend son propre verrou** : le fichier `migration.lock` dans le
+répertoire d'état, posé juste avant la sauvegarde, retiré après la dernière
+migration appliquée — et seulement s'il y a des migrations en attente. Il porte
+le pid et la date de qui l'a posé. Une seconde instance, ou un redémarrage par
+`apt-daily-upgrade` au milieu, trouve le verrou et **refuse de démarrer** : ni
+sauvegarde, ni migration.
+
+Un verrou resté est donc une migration interrompue ou échouée. Il n'est jamais
+retiré tout seul, c'est voulu : le refus le nomme au démarrage et dans
+`opencloud status`, avec la date, le processus et le chemin. Le geste :
+vérifier qu'aucun autre openCloud ne tourne (`systemctl status opencloud`,
+`pgrep opencloud`), puis retirer le fichier. La base n'a rien perdu — chaque
+migration est une transaction — et le démarrage suivant reprend la migration
+en attente.
+
 **Le binaire en place fait foi, pas la base dpkg.** `self-update` n'annonce rien
 à dpkg : `dpkg-query` reste sur la version posée par le dernier paquet. Poser un
 `.deb` plus ancien que le binaire déjà là est donc un retour en arrière que dpkg
@@ -145,9 +160,8 @@ code tournerait en silence sur un schéma plus neuf que lui.
   lancé deux mises à jour en parallèle et perdu la clé de chiffrement.
 - **Pas de migration pendant qu'un autre processus peut redémarrer le
   service** : `apt-daily-upgrade` a coupé une migration Cloudron au milieu.
-  Aujourd'hui, chaque migration est une transaction : coupée, elle n'a pas eu
-  lieu. Le verrou de migration, qui dirait qu'une autre instance migre, est
-  **à venir**.
+  Chaque migration est une transaction — coupée, elle n'a pas eu lieu — et le
+  verrou de migration dit qu'une autre instance migre (plus haut).
 
 ## Piège connu à ne pas reproduire
 
