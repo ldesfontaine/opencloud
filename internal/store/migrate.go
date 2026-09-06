@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/fsx"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Une migration embarquée : son numéro, son nom de fichier, son SQL.
@@ -37,10 +38,13 @@ func (s *Store) migrate(ctx context.Context, files fs.FS, databaseExisted bool) 
 	if err != nil {
 		return err
 	}
+	if err := refuseUnknownSchema(available, applied); err != nil {
+		return err
+	}
 
 	var pending []migration
 	for _, candidate := range available {
-		if !applied[candidate.version] {
+		if _, done := applied[candidate.version]; !done {
 			pending = append(pending, candidate)
 		}
 	}
@@ -53,7 +57,12 @@ func (s *Store) migrate(ctx context.Context, files fs.FS, databaseExisted bool) 
 		if err != nil {
 			return fmt.Errorf("backup before migration %s: %w", pending[0].name, err)
 		}
-		s.logger.Info("database backed up before migration", "backup", backupName)
+		removed, err := s.purgeOldBackups()
+		if err != nil {
+			return err
+		}
+		s.logger.Info("database backed up before migration",
+			"backup", backupName, "kept", keptMigrationBackups, "removed", removed)
 	}
 
 	for _, candidate := range pending {
@@ -123,22 +132,60 @@ func parseMigrationVersion(name string) (int, error) {
 	return version, nil
 }
 
-func (s *Store) appliedVersions(ctx context.Context) (map[int]bool, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
+// appliedVersions rend les migrations déjà notées, numéro vers nom de fichier.
+func (s *Store) appliedVersions(ctx context.Context) (map[int]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT version, name FROM schema_migrations`)
 	if err != nil {
 		return nil, fmt.Errorf("list applied migrations: %w", err)
 	}
 	defer rows.Close()
 
-	applied := map[int]bool{}
+	applied := map[int]string{}
 	for rows.Next() {
 		var version int
-		if err := rows.Scan(&version); err != nil {
+		var name string
+		if err := rows.Scan(&version, &name); err != nil {
 			return nil, fmt.Errorf("scan applied migration: %w", err)
 		}
-		applied[version] = true
+		applied[version] = name
 	}
 	return applied, rows.Err()
+}
+
+// refuseUnknownSchema arrête le démarrage quand la base porte une migration
+// que ce binaire ne connaît pas : elle a été migrée par une version plus
+// récente. Un .prev remis sans restaurer la sauvegarde tournerait alors sur un
+// schéma plus neuf que son code, en silence.
+func refuseUnknownSchema(available []migration, applied map[int]string) error {
+	known := map[int]bool{}
+	highestKnown := 0
+	for _, candidate := range available {
+		known[candidate.version] = true
+		if candidate.version > highestKnown {
+			highestKnown = candidate.version
+		}
+	}
+
+	// La plus basse des inconnues : c'est celle dont la sauvegarde porte le nom.
+	firstUnknown := 0
+	for version := range applied {
+		if known[version] {
+			continue
+		}
+		if firstUnknown == 0 || version < firstUnknown {
+			firstUnknown = version
+		}
+	}
+	if firstUnknown == 0 {
+		return nil
+	}
+
+	return refusal.Refusal{
+		Cause: fmt.Sprintf("la base a déjà la migration %s, que ce binaire ne connaît pas (il s'arrête à la %03d) : elle a été migrée par une version plus récente d'openCloud",
+			applied[firstUnknown], highestKnown),
+		Remedy: fmt.Sprintf("restaurer la sauvegarde %s/%s prise avant cette migration, ou remettre le binaire plus récent",
+			backupDirName, migrationBackupName("<horodatage>", firstUnknown)),
+	}
 }
 
 // applyMigration joue le SQL et note la version dans la même transaction :
@@ -176,7 +223,7 @@ func (s *Store) backupDatabase(ctx context.Context, nextVersion int) (string, er
 	}
 
 	stamp := time.Now().UTC().Format("20060102-150405")
-	backupName := fmt.Sprintf("%s/opencloud-%s-before-%03d.db", backupDirName, stamp, nextVersion)
+	backupName := backupDirName + "/" + migrationBackupName(stamp, nextVersion)
 	temporaryName := backupName + ".tmp"
 	// VACUUM INTO veut un chemin, comme l'ouverture de la base : même sortie
 	// de l'os.Root, même raison, même nom constant.
@@ -211,4 +258,48 @@ func (s *Store) backupDatabase(ctx context.Context, nextVersion int) (string, er
 		return "", err
 	}
 	return backupName, nil
+}
+
+// migrationBackupName : l'horodatage d'abord, donc l'ordre alphabétique des
+// noms est l'ordre du temps ; la version ensuite, celle qui allait être
+// appliquée.
+func migrationBackupName(stamp string, nextVersion int) string {
+	return fmt.Sprintf("%s%s-before-%03d%s", backupNamePrefix, stamp, nextVersion, backupNameSuffix)
+}
+
+// purgeOldBackups ne garde que les keptMigrationBackups plus récentes, et ne
+// tourne qu'après une sauvegarde réussie : on ne retire jamais l'avant-dernière
+// avant d'avoir la dernière.
+func (s *Store) purgeOldBackups() (int, error) {
+	entries, err := fs.ReadDir(s.root.FS(), backupDirName)
+	if err != nil {
+		return 0, fmt.Errorf("list backups: %w", err)
+	}
+
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !isMigrationBackup(entry.Name()) {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	if len(names) <= keptMigrationBackups {
+		return 0, nil
+	}
+
+	sort.Strings(names)
+	removed := 0
+	for _, name := range names[:len(names)-keptMigrationBackups] {
+		if err := s.root.Remove(backupDirName + "/" + name); err != nil {
+			return removed, fmt.Errorf("remove old backup %s: %w", name, err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// Ce qui reste dans backups/ sans être une sauvegarde de migration — un .tmp
+// laissé par une coupure — ne compte pas et ne se purge pas ici.
+func isMigrationBackup(name string) bool {
+	return strings.HasPrefix(name, backupNamePrefix) && strings.HasSuffix(name, backupNameSuffix)
 }
