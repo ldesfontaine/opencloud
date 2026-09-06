@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -76,11 +75,15 @@ func (s *SSH) Follow(ctx context.Context, actionID, afterCursor string, emit fun
 	if ctx.Err() != nil {
 		return Outcome{}, ctx.Err()
 	}
-	var exitError *exec.ExitError
-	if errors.As(waitErr, &exitError) && exitError.ExitCode() == sshUnreachableExitCode {
-		return Outcome{}, fmt.Errorf("%w: %s", ErrUnreachable, strings.TrimSpace(stderr.String()))
+	// Le flux s'est arrêté avant que systemd ne conclue : ssh n'a pas joint la
+	// machine, ou il a été tué — à l'arrêt d'openCloud, systemd tue tout le
+	// cgroup, ssh compris, avant que le runner n'annule quoi que ce soit. Dans
+	// tous les cas on ne sait rien pour l'instant : l'unité, elle, continue.
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" && waitErr != nil {
+		detail = waitErr.Error()
 	}
-	return Outcome{}, readErr
+	return Outcome{}, fmt.Errorf("%w: le suivi s'est interrompu avant la fin de l'unité (%s ; %v)", ErrUnreachable, detail, readErr)
 }
 
 func followCommand(actionID, afterCursor string) (string, error) {

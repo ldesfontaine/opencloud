@@ -19,6 +19,10 @@ fi
 if [ -f "$directory/stderr" ]; then
 	cat -- "$directory/stderr" >&2
 fi
+if [ -f "$directory/kill-self" ]; then
+	# Mourir d'un signal, comme un ssh emporté avec le cgroup du service.
+	kill -s "$(cat -- "$directory/kill-self")" $$
+fi
 if [ -f "$directory/exit-code" ]; then
 	exit "$(cat -- "$directory/exit-code")"
 fi
