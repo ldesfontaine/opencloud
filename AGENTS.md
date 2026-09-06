@@ -20,6 +20,9 @@
 - Ne jamais committer ni pousser sans demande. Pas de trailer d'IA.
 - Commits courts, `type(portée): sujet` en français, sans corps ; **un commit
   par fonctionnalité** (`docs/projet/17-conventions-code.md`).
+- **Jamais sur `main`** : une branche par ticket (`feat/<nom>`, `fix/<nom>`),
+  une pull request qui cite le ticket, CI verte, fusion par `merge`
+  (`docs/projet/12-methode.md`).
 
 ## Sous-agents
 

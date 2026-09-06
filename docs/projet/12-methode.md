@@ -8,6 +8,24 @@
    jour la CI ne suffit pas.
 3. **Dépôt git vide, interface minimale**, une fonctionnalité à la fois.
 
+## Les branches
+
+`main` est toujours verte et installable. Rien ne s'y pousse directement.
+
+- **Une branche par ticket** : `feat/<nom-court>` pour une fonctionnalité,
+  `fix/<nom-court>` pour un correctif, `docs/…`, `ci/…`, `chore/…` — le même
+  préfixe que le commit. Le nom dit la chose, en minuscules, avec des tirets :
+  `feat/enroll-ssh`, `fix/mot-de-passe-minimum`.
+- **Une pull request vers `main`**, qui cite son ticket (`Closes #3`). La CI
+  doit être verte ; on relit avant de fusionner.
+- **Fusion par `merge`**, jamais par `squash` : les commits par fonctionnalité
+  de la branche restent lisibles dans l'historique.
+- **Rebase sur `main` avant la PR** si la branche a vieilli, plutôt que des
+  commits de fusion dans la branche.
+- Deux travaux en parallèle — un poste, une session dans le cloud — ne se
+  gênent pas : chacun sa branche, le conflit se règle dans la PR, pas sur
+  `main`.
+
 ## Les versions
 
 Semver, et on reste longtemps en `0.x`. Les **`0.0.x`** sont les premières
