@@ -5,17 +5,35 @@ la revue, puis s'écrit ici.
 
 ## Le dépôt
 
+La disposition standard d'un programme Go (« Organizing a Go module »,
+go.dev) : un point d'entrée sous `cmd/`, tout le reste sous `internal/`, que
+le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
+
 ```
-cmd/opencloud/main.go        # le seul main
+cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant (16-architecture.md)
 internal/scripts/            # run.sh, Makefile.common, gabarits — embarqués
-web/templates/               # html/template
-web/static/                  # HTMX, CSS
+web/templates/, web/static/  # gabarits et fichiers statiques, embarqués
 migrations/                  # SQL numéroté, embarqué
+packaging/                   # paquet .deb : nfpm, unité systemd, scripts dpkg
 docs/projet/                 # ce cadrage
+.github/                     # CI, release, gabarits de tickets
 ```
 
-Pas de `pkg/`. Pas de package `util`. Un package = un concept.
+`web/` et `migrations/` sont à la racine parce qu'un `embed` ne remonte pas
+au-dessus de son dossier, et qu'un humain les cherche là.
+
+**Un package naît avec son ticket.** Pas de package vide qui promet : la
+carte des composants vit dans `16-architecture.md`, à un seul endroit. Pas de
+package `util`. Un package = un concept.
+
+Trois dossiers hors git, pour trois raisons :
+
+| Dossier | Qui le crée | Contenu | `make clean` |
+|---|---|---|---|
+| `bin/` | `make build` | le binaire de dev, refait à chaque build, et l'outil plumber | jette le binaire, garde l'outil |
+| `dist/` | `make release` | ce qu'une release publie : binaire versionné, `.deb`, `SHA256SUMS` | jette tout |
+| `dev/` | `make run` la première fois, puis toi | `config.toml` et `state/` : ton `/etc` et ton `/var/lib` locaux | n'y touche jamais |
 
 ## La langue
 

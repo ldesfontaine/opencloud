@@ -1,4 +1,6 @@
 # Cibles de développement. La CI joue les mêmes (.github/workflows/ci.yml).
+# bin/ : le binaire de dev et les outils. dist/ : ce qu'une release publie.
+# dev/ : ta configuration et ton état locaux, à toi, jamais régénérés.
 #
 # VERSION : le tag sans son v (0.0.2) pour une release ; git describe sinon
 # (0.0.1-3-gabc-dirty), que self-update refuse comme version de développement.
@@ -21,10 +23,23 @@ DIST ?= dist
 build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
 
-# Lance le binaire depuis le dépôt avec dev/config.toml (hors git) : rien
-# n'est installé sur la machine, l'état vit dans dev/state.
-run: build
+# Lance le binaire depuis le dépôt : rien n'est installé sur la machine,
+# l'état vit dans dev/state, que le binaire crée lui-même.
+run: build dev/config.toml
 	bin/opencloud serve --config dev/config.toml
+
+# La configuration de dev naît au premier `make run` avec les valeurs par
+# défaut, puis elle t'appartient : Make ne la récrit jamais tant qu'elle existe.
+# Hors git, jamais touchée par `clean`.
+dev/config.toml:
+	mkdir -p dev
+	printf '%s\n' \
+		'# Configuration de développement, hors git. state_dir est relatif à ce fichier.' \
+		'listen = "127.0.0.1:8080"' \
+		'state_dir = "state"' \
+		'' \
+		'# Garde admin / opencloud sans obliger le changement. Jamais en production.' \
+		'allow_default_password = true' > $@
 
 test:
 	go test ./...
@@ -99,5 +114,6 @@ plumber: $(PLUMBER_BIN)
 
 ci: fmtcheck vet lint test vuln sec shellcheck plumber build
 
+# Jette ce que le dépôt produit ; garde l'outil plumber (35 Mo) et dev/.
 clean:
-	rm -rf bin/ dist/
+	rm -rf dist/ bin/opencloud
