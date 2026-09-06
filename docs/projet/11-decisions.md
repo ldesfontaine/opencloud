@@ -43,7 +43,7 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | **Le lot dit, par machine, `réussi` / `échoué` / `non tenté`** — le troisième dit ce qu'il reste à rejouer | `05-execution.md`, `16` |
 | **L'action ne vit pas dans la connexion** : déposée, `systemd-run`, relue via journald ; écrit au fil de l'eau | `05-execution.md` |
 | **Journal de transaction par action** (préparée → appliquée / échouée), relu au démarrage | `05-execution.md` |
-| **Machine openCloud sur elle-même : même script, transport local** ; SSH vers soi en repli | `05-execution.md` |
+| **Machine openCloud sur elle-même : même script**, quel que soit le transport — le transport est **à trancher** (partie 2, ticket #20) | `05-execution.md` |
 | Toute action porte **portée, lieu, réversibilité, interruption**, montrés avant — **plus le diff des fichiers qui vont être posés et le résultat de la validation à blanc** (`make config`, `sshd -t`, `visudo -c`) | `05-execution.md`, `15` §1 |
 | **Idempotence testée** : chaque `run.sh` rejoué deux fois sort `inchangé`, vérifié en CI | `15` §1, `17-conventions-code.md` |
 | **Aucune valeur saisie ne passe par une ligne de commande** : `params.env` lu par systemd, fichiers rendus par Go, vecteur de lancement fixe | `15-catalogue-actions.md` |
@@ -115,6 +115,8 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | Ce que font les machines quand **l'API CrowdSec est injoignable** | `02-roles.md` |
 | **Fenêtre de maintenance** par environnement : utile ou non | `10-cycle-de-vie.md` |
 | **Sauvegarde du stockage ACME** : restaurer plutôt que réémettre — à écrire | `06-reseau-et-certificats.md` |
+| **Le transport vers la machine openCloud elle-même** : l'unité posée par le paquet est fermée (`NoNewPrivileges`, aucune capacité), le service ne peut pas faire `sudo oc-launch` sur sa propre machine. Soit **SSH vers `localhost`**, la machine enrôlée comme les autres, un seul transport, l'unité reste fermée — recommandé le 6 septembre 2026 ; soit rouvrir l'unité. **Bloque le ticket #3** (ticket #20) | `05-execution.md`, `20-installation-et-mise-a-jour.md` |
+| **Le saut de `0.x` à `1.0.0` dans `self-update`** : accepté aujourd'hui comme « majeure suivante en X.0 », en sautant les mineures entre les deux. Garder, et s'engager à ce que la 1.0 migre depuis la dernière 0.x ; ou retirer. Relevé à la revue de la PR #30 | `20-installation-et-mise-a-jour.md`, `internal/selfupdate/version.go` |
 
 ## 3. Écarté et reporté
 
