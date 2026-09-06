@@ -256,6 +256,55 @@ func TestLaunch_MachineInjoignableNestPasUnEchecDeLAction(t *testing.T) {
 	}
 }
 
+func TestInstallLauncher_DeposeParStdinPuisFaitPoserParSudo(t *testing.T) {
+	fake := newFakeSSH(t)
+	binary := []byte("\x7fELF le lanceur")
+
+	if err := fake.client().InstallLauncher(context.Background(), binary); err != nil {
+		t.Fatalf("InstallLauncher : %v", err)
+	}
+
+	if got := fake.read(t, "stdin"); got != string(binary) {
+		t.Errorf("le lanceur est passé autrement que par stdin : %q", got)
+	}
+	expected := "umask 077 && cat > /var/lib/opencloud/oc-launch.new.tmp && " +
+		"mv -f -- /var/lib/opencloud/oc-launch.new.tmp /var/lib/opencloud/oc-launch.new && " +
+		"sudo -n /usr/bin/install -o root -g root -m 0755 " +
+		"/var/lib/opencloud/oc-launch.new /usr/local/sbin/oc-launch && " +
+		"rm -f -- /var/lib/opencloud/oc-launch.new"
+	if got := fake.remoteCommand(t); got != expected {
+		t.Errorf("commande distante :\n%s\nattendue :\n%s", got, expected)
+	}
+}
+
+func TestInstallLauncher_SudoQuiDemandeUnMotDePasseEstUnRefusNomme(t *testing.T) {
+	fake := newFakeSSH(t)
+	fake.replies(t, 1, "sudo: a password is required")
+
+	err := fake.client().InstallLauncher(context.Background(), []byte("le lanceur"))
+
+	if !errors.Is(err, ErrLaunchRefused) {
+		t.Fatalf("attendu ErrLaunchRefused, obtenu %v", err)
+	}
+	var refused refusal.Refusal
+	if !errors.As(err, &refused) {
+		t.Fatalf("refus non nommé : %v", err)
+	}
+	if !strings.Contains(refused.Cause, "mot de passe") {
+		t.Errorf("cause : %q", refused.Cause)
+	}
+}
+
+func TestInstallLauncher_MachineInjoignableEstDiteTelleQuelle(t *testing.T) {
+	fake := newFakeSSH(t)
+	fake.replies(t, 255, "")
+
+	err := fake.client().InstallLauncher(context.Background(), []byte("le lanceur"))
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("attendu ErrUnreachable, obtenu %v", err)
+	}
+}
+
 func TestCheckLauncher_AppelleLeLanceurSansArgument(t *testing.T) {
 	fake := newFakeSSH(t)
 	fake.replies(t, 2, "usage: oc-launch <id>")

@@ -8,24 +8,25 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
-	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-// La règle sudo : le compte opencloud n'a droit qu'au lanceur, et son
-// environnement ne le suit pas (annexes/lecture-sudoers.md).
-const sudoersContent = "Defaults:opencloud env_reset, !setenv, !log_input, !log_stdin\n" +
-	"opencloud ALL=(root) NOPASSWD: /usr/local/sbin/oc-launch\n"
+// La règle sudo : le compte opencloud n'a droit qu'au lanceur et à la commande
+// exacte qui pose le lanceur, sans joker ; son environnement ne le suit pas
+// (annexes/lecture-sudoers.md). Le script Enrôler porte le même texte pour une
+// machine distante, et un test compare les deux.
+const sudoersContent = `Defaults:opencloud env_reset, !setenv, !log_input, !log_stdin
+opencloud ALL=(root) NOPASSWD: /usr/local/sbin/oc-launch
+opencloud ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 0755 /var/lib/opencloud/oc-launch.new /usr/local/sbin/oc-launch
+`
 
 // Le drop-in sshd. « Match all » referme le bloc : le drop-in est inclus en
 // tête de sshd_config, et sans lui tout ce qui suit l'Include ne vaudrait plus
 // que pour le compte opencloud — sshd -t le refuserait.
-const sshdDropInContent = `# Posé par « opencloud enroll-local ». Le compte de service ne fait que
-# lancer oc-launch : il n'a besoin de rien d'autre.
+const sshdDropInContent = `# Posé par l'enrôlement d'openCloud. Le compte de service ne fait que lancer
+# oc-launch : il n'a besoin de rien d'autre.
 Match User opencloud
     AuthenticationMethods publickey
     PasswordAuthentication no
@@ -205,7 +206,7 @@ func (e *enrollment) configureSSHD(ctx context.Context) error {
 		}
 		return refusal.Refusal{
 			Cause:  "sshd refuse sa configuration une fois le drop-in d'openCloud posé : " + check.Output,
-			Remedy: "corriger /etc/ssh/sshd_config, puis rejouer l'amorçage — le drop-in a été retiré",
+			Remedy: "corriger /etc/ssh/sshd_config, puis rejouer l'amorçage — la configuration de sshd a été remise telle qu'elle était",
 		}
 	}
 	e.steps.done("drop-in sshd /%s/%s posé", sshdDropInDir, sshdDropInName)
@@ -409,7 +410,7 @@ func (e *enrollment) verifyRealPath(ctx context.Context) error {
 	endpoint.Binary = e.deps.SSHBinary
 	client := e.deps.Transport(endpoint)
 
-	if err := e.probe(ctx, client); err != nil {
+	if err := probeWithRetries(ctx, client, localAddress, e.deps.ProbeWait); err != nil {
 		return err
 	}
 
@@ -417,60 +418,23 @@ func (e *enrollment) verifyRealPath(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if strings.Contains(reply.Output, "a password is required") {
-		return refusal.Refusal{
-			Cause:  "sudo demande un mot de passe au compte opencloud : la règle sudo n'a pas pris",
-			Remedy: "vérifier /etc/sudoers.d/opencloud et l'ordre des règles de /etc/sudoers, puis rejouer l'amorçage",
-		}
-	}
-	if reply.ExitCode != catalog.ExitRefused {
-		return refusal.Refusal{
-			Cause: fmt.Sprintf("le lanceur appelé sans identifiant répond %d au lieu de %d : %s",
-				reply.ExitCode, catalog.ExitRefused, reply.Output),
-			Remedy: "vérifier /usr/local/sbin/oc-launch et la règle sudo, puis rejouer l'amorçage",
-		}
+	if err := checkLauncherReply(reply); err != nil {
+		return err
 	}
 	e.steps.note("vérifié par SSH vers %s : le lanceur répond derrière sudo", localAddress)
 	return nil
 }
 
-func (e *enrollment) probe(ctx context.Context, client LocalTransport) error {
-	var last error
-	for attempt := 1; attempt <= probeAttempts; attempt++ {
-		last = client.Probe(ctx)
-		if last == nil {
-			return nil
-		}
-		if attempt == probeAttempts {
-			break
-		}
-		// Le rechargement de sshd ferme le port un instant.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(e.deps.ProbeWait):
-		}
-	}
-	return refusal.Refusal{
-		Cause:  fmt.Sprintf("la machine ne répond pas en SSH sur %s après %d essais : %v", localAddress, probeAttempts, last),
-		Remedy: "vérifier que ssh.service écoute et que le compte opencloud accepte sa clé, puis rejouer l'amorçage",
-	}
-}
-
 func (e *enrollment) markEnrolled(_ context.Context) error {
-	name := path.Join(MachineDir(LocalMachineID), enrolledFileName)
-	if _, found, err := readRootFile(e.deps.Root, name); err != nil {
+	written, err := writeEnrolledMarker(e.deps.Root, LocalMachineID, e.deps.Now())
+	if err != nil {
 		return err
-	} else if found {
+	}
+	if !written {
 		e.steps.unchanged("marqueur d'enrôlement")
 		return nil
 	}
-
-	date := e.deps.Now().UTC().Format(time.RFC3339) + "\n"
-	if err := fsx.WriteFile(e.deps.Root, name, []byte(date), 0o644); err != nil {
-		return fmt.Errorf("écrire %s : %w", name, err)
-	}
-	if err := e.ownState(name); err != nil {
+	if err := e.ownState(path.Join(MachineDir(LocalMachineID), enrolledFileName)); err != nil {
 		return err
 	}
 	e.steps.done("marqueur d'enrôlement écrit")

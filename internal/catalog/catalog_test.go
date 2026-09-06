@@ -13,8 +13,8 @@ import (
 // qu'on veut — une action nouvelle se relit ici avant d'être visible.
 func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	definitions := Definitions()
-	if len(definitions) != 1 {
-		t.Fatalf("le catalogue tient %d actions, la fixture en fige 1 : mettre la fixture à jour", len(definitions))
+	if len(definitions) != 2 {
+		t.Fatalf("le catalogue tient %d actions, la fixture en fige 2 : mettre la fixture à jour", len(definitions))
 	}
 
 	diagnostiquer := definitions[0]
@@ -45,15 +45,41 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	if diagnostiquer.NeedsConfirmation() {
 		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
 	}
+
+	enroler := definitions[1]
+	if enroler.Kind != KindEnroler {
+		t.Errorf("Kind = %q", enroler.Kind)
+	}
+	if enroler.Label != "Enrôler" {
+		t.Errorf("Label = %q", enroler.Label)
+	}
+	if enroler.Scope != ScopeMachine {
+		t.Errorf("Scope = %q, attendu %q", enroler.Scope, ScopeMachine)
+	}
+	if enroler.Place != PlaceTarget {
+		t.Errorf("Place = %q, attendu %q", enroler.Place, PlaceTarget)
+	}
+	if !enroler.Reversible || enroler.Interrupts {
+		t.Error("Enrôler est réversible et n'interrompt aucun service")
+	}
+	if enroler.Timeout != 5*time.Minute {
+		t.Errorf("Timeout = %s, attendu 5m", enroler.Timeout)
+	}
+	if len(enroler.Params) != 1 {
+		t.Fatalf("Params = %v, attendu la seule clé publique", enroler.Params)
+	}
+	publicKey := enroler.Params[0]
+	if publicKey.Name != "public_key" || publicKey.Type != ParamPublicKey || !publicKey.Required {
+		t.Errorf("paramètre = %+v", publicKey)
+	}
 }
 
 func TestLookup_FindsWhatTheCatalogHoldsAndNothingElse(t *testing.T) {
 	if _, found := Lookup(KindDiagnostiquer); !found {
 		t.Error("Diagnostiquer doit être trouvée")
 	}
-	// Enroler existe dans les types, sans définition pour l'instant.
-	if _, found := Lookup(KindEnroler); found {
-		t.Error("Enroler n'a pas encore de définition")
+	if _, found := Lookup(KindEnroler); !found {
+		t.Error("Enroler doit être trouvée")
 	}
 	if _, found := Lookup(Kind("inconnue")); found {
 		t.Error("une action inconnue ne doit pas être trouvée")

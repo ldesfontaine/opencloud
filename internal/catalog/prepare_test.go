@@ -11,6 +11,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
+// La clé publique d'une paire jetée après coup : elle ne sert qu'à figer la
+// forme de ce que l'action Enrôler emporte.
+const examplePublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIHpTGTicxb0BKIIYvrttVb6FXVlzylA31bLB7qqcdax opencloud@temoin"
+
 func TestPrepare_Diagnostiquer_DepositsTheScriptAndItsDigest(t *testing.T) {
 	prepared, err := Prepare(KindDiagnostiquer, nil)
 	if err != nil {
@@ -39,12 +43,36 @@ func TestPrepare_Diagnostiquer_DepositsTheScriptAndItsDigest(t *testing.T) {
 }
 
 func TestPrepare_UnknownKind_IsAnErrorNotARefusal(t *testing.T) {
-	// Enroler n'a pas encore de définition, et l'opérateur ne choisit que dans
-	// le catalogue : c'est une faute de code, pas un refus à lui montrer.
-	for _, kind := range []Kind{KindEnroler, Kind("inconnue")} {
-		if _, err := Prepare(kind, nil); !errors.Is(err, ErrUnknownKind) {
-			t.Errorf("Prepare(%q) = %v, attendu ErrUnknownKind", kind, err)
-		}
+	// L'opérateur ne choisit que dans le catalogue : une action absente est
+	// une faute de code, pas un refus à lui montrer.
+	if _, err := Prepare(Kind("inconnue"), nil); !errors.Is(err, ErrUnknownKind) {
+		t.Errorf("Prepare(\"inconnue\") = %v, attendu ErrUnknownKind", err)
+	}
+}
+
+func TestPrepare_Enroler_CarriesThePublicKeyAndNothingElse(t *testing.T) {
+	prepared, err := Prepare(KindEnroler, map[string]string{"public_key": examplePublicKey})
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+
+	if got, want := string(prepared.ParamsEnv), "OC_PUBLIC_KEY=\""+examplePublicKey+"\"\n"; got != want {
+		t.Errorf("ParamsEnv = %q, attendu %q", got, want)
+	}
+	if !bytes.Contains(prepared.Script, []byte("OC_PUBLIC_KEY")) {
+		t.Error("le script d'enrôlement doit lire OC_PUBLIC_KEY")
+	}
+}
+
+func TestPrepare_Enroler_WithoutThePublicKey_IsARefusal(t *testing.T) {
+	_, err := Prepare(KindEnroler, nil)
+
+	var refused refusal.Refusal
+	if !errors.As(err, &refused) {
+		t.Fatalf("attendu un refus, reçu %v", err)
+	}
+	if !strings.Contains(refused.Cause, "clé publique") {
+		t.Errorf("le refus doit nommer le paramètre : %q", refused.Cause)
 	}
 }
 
