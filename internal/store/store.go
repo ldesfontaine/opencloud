@@ -45,6 +45,12 @@ type Store struct {
 // migrations contient les fichiers NNN_sujet.sql ; en production c'est
 // migrations.Files, les tests passent le leur.
 func Open(ctx context.Context, root *os.Root, migrations fs.FS, logger *slog.Logger) (*Store, error) {
+	// Un verrou resté là arrête tout avant la base : on ne démarre pas, on ne
+	// sauvegarde pas, on ne migre pas.
+	if err := refuseIfMigrationLocked(root); err != nil {
+		return nil, err
+	}
+
 	databaseExisted, err := fileExists(root, DatabaseFileName)
 	if err != nil {
 		return nil, err

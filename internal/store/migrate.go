@@ -24,7 +24,8 @@ type migration struct {
 
 // migrate applique, dans l'ordre, les migrations que la base n'a pas encore.
 // Si la base existait déjà, elle est sauvegardée d'abord ; un échec de la
-// sauvegarde empêche la migration (20-installation-et-mise-a-jour.md).
+// sauvegarde empêche la migration (20-installation-et-mise-a-jour.md). Le
+// verrou de migration encadre la sauvegarde et les migrations.
 func (s *Store) migrate(ctx context.Context, files fs.FS, databaseExisted bool) error {
 	if err := s.createMigrationsTable(ctx); err != nil {
 		return err
@@ -52,6 +53,13 @@ func (s *Store) migrate(ctx context.Context, files fs.FS, databaseExisted bool) 
 		return nil
 	}
 
+	// Pris juste avant la sauvegarde, rendu après la dernière migration : entre
+	// les deux, un autre démarrage refuse au lieu de migrer en parallèle.
+	lock, err := acquireMigrationLock(s.root)
+	if err != nil {
+		return err
+	}
+
 	if databaseExisted {
 		backupName, err := s.backupDatabase(ctx, pending[0].version)
 		if err != nil {
@@ -71,7 +79,7 @@ func (s *Store) migrate(ctx context.Context, files fs.FS, databaseExisted bool) 
 		}
 		s.logger.Info("migration applied", "migration", candidate.name)
 	}
-	return nil
+	return lock.release()
 }
 
 func (s *Store) createMigrationsTable(ctx context.Context) error {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -40,6 +41,17 @@ func runStatus(ctx context.Context, args []string, out, errOut io.Writer) error 
 	}
 	fmt.Fprintf(out, "écoute        : %s\n", cfg.Listen)
 	fmt.Fprintf(out, "état          : %s (%s)\n", cfg.StateDir, describeStateDir(cfg.StateDir))
+
+	// Un verrou de migration se dit avant tout le reste : le service ne
+	// démarrera pas tant qu'il est là.
+	if err := store.CheckMigrationLock(cfg.StateDir); err != nil {
+		var refused refusal.Refusal
+		if errors.As(err, &refused) {
+			fmt.Fprintf(out, "migration     : %s\n", refused.Cause)
+			fmt.Fprintf(out, "                → %s\n", refused.Remedy)
+		}
+		return err
+	}
 
 	version, err := probeService(ctx, cfg.Listen)
 	if err != nil {
