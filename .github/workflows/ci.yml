@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read # gitleaks lit les commits de la PR
 
 concurrency:
   group: ci-${{ github.ref }}
