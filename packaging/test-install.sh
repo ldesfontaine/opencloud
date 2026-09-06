@@ -45,6 +45,16 @@ expect_owner_mode() {
     [ "$actual" = "$expected" ] || fail "$path : $actual, attendu $expected"
 }
 
+# Le lanceur refuse un identifiant valide dont l'action n'a pas été déposée :
+# il nomme la cause et sort 2, sans rien lancer. Joué directement — le test est
+# déjà root, sudoers n'a rien à voir ici.
+expect_launcher_refuses_a_missing_action() {
+    local output status=0
+    output=$(/opt/opencloud/bin/oc-launch explode 2>&1) || status=$?
+    [ "$status" -eq 2 ] || fail "oc-launch explode sort $status, attendu 2"
+    printf '%s' "$output" | grep -q "refus" || fail "oc-launch explode ne dit pas pourquoi : $output"
+}
+
 expect_active() {
     systemctl is-active --quiet opencloud.service || fail "l'unité n'est pas active"
     systemctl is-enabled --quiet opencloud.service || fail "l'unité n'est pas activée au démarrage"
@@ -71,6 +81,8 @@ wait_for_version "$OLD_VERSION"
 expect_owner_mode /var/lib/opencloud "opencloud:opencloud 700"
 expect_owner_mode /etc/opencloud/config.toml "root:opencloud 640"
 expect_owner_mode /opt/opencloud/bin/opencloud "root:root 755"
+expect_owner_mode /opt/opencloud/bin/oc-launch "root:root 755"
+expect_launcher_refuses_a_missing_action
 [ -L /usr/bin/opencloud ] || fail "/usr/bin/opencloud n'est pas un lien vers le binaire"
 [ -f /var/lib/opencloud/opencloud.db ] || fail "la base n'a pas été créée au premier démarrage"
 expect_owner_mode /var/lib/opencloud/opencloud.db "opencloud:opencloud 600"
@@ -183,6 +195,7 @@ systemctl is-active --quiet opencloud.service && fail "l'unité tourne encore"
 [ ! -e "$BIN_PATH.lock" ] || fail "apt remove a laissé le verrou de self-update"
 [ ! -e /usr/lib/systemd/system/opencloud.service ] || fail "l'unité est encore posée"
 [ ! -e /opt/opencloud/bin/opencloud ] || fail "le binaire est encore posé"
+[ ! -e /opt/opencloud/bin/oc-launch ] || fail "le lanceur est encore posé"
 [ ! -e /usr/bin/opencloud ] || fail "le lien /usr/bin/opencloud est encore posé"
 [ -f /etc/opencloud/config.toml ] || fail "apt remove a retiré la configuration"
 [ -f /var/lib/opencloud/opencloud.db ] || fail "apt remove a retiré la base"

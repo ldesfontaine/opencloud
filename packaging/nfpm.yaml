@@ -23,6 +23,12 @@ contents:
   - src: /opt/opencloud/bin/opencloud
     dst: /usr/bin/opencloud
     type: symlink
+  # Le lanceur voyage avec le paquet ; l'amorçage le copie en
+  # /usr/local/sbin/oc-launch, le seul chemin que sudoers autorise.
+  - src: bin/oc-launch
+    dst: /opt/opencloud/bin/oc-launch
+    file_info:
+      mode: 0755
   - src: packaging/opencloud.service
     dst: /usr/lib/systemd/system/opencloud.service
     file_info:

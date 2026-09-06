@@ -1,0 +1,6 @@
+// Le lanceur root-owned : la seule commande que sudoers autorise au compte
+// opencloud. Il reçoit un identifiant d'action, revalide ce que sudoers ne
+// sait pas valider, puis exécute systemd-run lui-même, sans shell et avec un
+// environnement fixe. Il n'est pas setuid : c'est sudo qui élève
+// (15-catalogue-actions.md §1).
+package main
