@@ -1,0 +1,39 @@
+# Le paquet Debian d'openCloud, construit par `make release` avec nfpm épinglé.
+# VERSION vient du tag (0.0.2), sans son v.
+name: opencloud
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: admin
+priority: optional
+maintainer: Lucas Desfontaine <95000450+ldesfontaine@users.noreply.github.com>
+homepage: https://github.com/ldesfontaine/opencloud
+license: Apache-2.0
+description: |
+  Administre les machines Linux d'une infrastructure
+  Un outil web auto-hébergé pour publier, certifier, sauvegarder et
+  observer, sans que les machines dépendent de lui pour fonctionner.
+depends:
+  - adduser
+contents:
+  - src: bin/opencloud
+    dst: /opt/opencloud/bin/opencloud
+    file_info:
+      mode: 0755
+  - src: /opt/opencloud/bin/opencloud
+    dst: /usr/bin/opencloud
+    type: symlink
+  - src: packaging/opencloud.service
+    dst: /usr/lib/systemd/system/opencloud.service
+    file_info:
+      mode: 0644
+  # conffile : dpkg ne l'écrase pas à la mise à jour ; postinst pose root:opencloud 0640.
+  - src: packaging/config.toml
+    dst: /etc/opencloud/config.toml
+    type: config|noreplace
+    file_info:
+      mode: 0640
+scripts:
+  postinstall: packaging/postinst
+  preremove: packaging/prerm
+  postremove: packaging/postrm

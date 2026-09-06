@@ -1,0 +1,49 @@
+#!/bin/sh
+# Après le retrait des fichiers par dpkg. Deux gestes, deux résultats
+# (20-installation-et-mise-a-jour.md) :
+#   remove : le binaire et l'unité sont partis ; l'état, la configuration et
+#            l'utilisateur système restent — réinstaller retrouve tout ;
+#   purge  : plus rien d'openCloud sur cette machine.
+# Ni l'un ni l'autre ne touche /srv, Traefik, CrowdSec ou Docker.
+set -e
+
+USER_NAME=opencloud
+STATE_DIR=/var/lib/opencloud
+CONFIG_DIR=/etc/opencloud
+BIN_DIR=/opt/opencloud/bin
+UNIT=opencloud.service
+
+case "$1" in
+    remove)
+        # Ce que self-update a laissé n'appartient pas à dpkg.
+        rm -f "$BIN_DIR/opencloud.prev" "$BIN_DIR/opencloud.new"
+        rmdir "$BIN_DIR" 2>/dev/null || true
+        rmdir /opt/opencloud 2>/dev/null || true
+        if [ -d /run/systemd/system ]; then
+            # Le masque évite un lien d'activation pendant vers une unité
+            # absente ; postinst le lèvera à la réinstallation.
+            if command -v deb-systemd-helper >/dev/null 2>&1; then
+                deb-systemd-helper mask "$UNIT" >/dev/null 2>&1 || true
+            fi
+            systemctl daemon-reload
+        fi
+        ;;
+    purge)
+        rm -rf "$CONFIG_DIR" "$STATE_DIR"
+        if [ -d /run/systemd/system ]; then
+            if command -v deb-systemd-helper >/dev/null 2>&1; then
+                deb-systemd-helper purge "$UNIT" >/dev/null 2>&1 || true
+                deb-systemd-helper unmask "$UNIT" >/dev/null 2>&1 || true
+            fi
+            systemctl daemon-reload
+        fi
+        if getent passwd "$USER_NAME" >/dev/null; then
+            deluser --system "$USER_NAME" >/dev/null 2>&1 || true
+        fi
+        if getent group "$USER_NAME" >/dev/null; then
+            delgroup --system --only-if-empty "$USER_NAME" >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0

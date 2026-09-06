@@ -1,4 +1,5 @@
-// Package cli aiguille les commandes du binaire : serve, status, version.
+// Package cli aiguille les commandes du binaire : serve, status, self-update,
+// version.
 // Il ne contient aucune logique métier.
 package cli
 
@@ -24,6 +25,8 @@ func Run(ctx context.Context, args []string, version string, out, errOut io.Writ
 		return runServe(ctx, args[1:], version, errOut)
 	case "status":
 		return runStatus(ctx, args[1:], out, errOut)
+	case "self-update":
+		return runSelfUpdate(ctx, args[1:], version, out, errOut)
 	case "version":
 		fmt.Fprintln(out, "opencloud", version)
 		return nil
@@ -38,6 +41,7 @@ func usage(out io.Writer) error {
 	fmt.Fprintln(out, "usage : opencloud <commande> [--config chemin]")
 	fmt.Fprintln(out, "  serve     démarre l'interface")
 	fmt.Fprintln(out, "  status    vérifie la configuration, l'état et le service")
+	fmt.Fprintln(out, "  self-update  installe la release suivante en place (sudo) ; --check, --version vX.Y.Z")
 	fmt.Fprintln(out, "  version   affiche la version")
 	return nil
 }

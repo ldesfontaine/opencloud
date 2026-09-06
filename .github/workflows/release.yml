@@ -1,0 +1,89 @@
+# Une release naît d'un tag vX.Y.Z : tests, build reproductible, paquet .deb,
+# sommes, attestation de provenance, release GitHub — puis la mise à jour en
+# place depuis la release précédente, jouée pour de vrai. Actions épinglées
+# par SHA ; aucun cache restauré (politique Plumber pour une release).
+name: release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # créer la release et y déposer les fichiers
+      id-token: write # signer l'attestation (Sigstore)
+      attestations: write # la déposer sur GitHub
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: tests
+        run: go vet ./... && go test ./...
+
+      - name: build reproductible
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make reproducible VERSION="${TAG#v}" DIST=check
+
+      - name: paquet
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make release VERSION="${TAG#v}"
+
+      - name: attestation de provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/opencloud_*_linux_amd64
+            dist/opencloud_*_amd64.deb
+
+      - name: release GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "openCloud ${TAG#v}" \
+            --notes-file packaging/release-notes.md \
+            dist/opencloud_*_linux_amd64 dist/opencloud_*_amd64.deb dist/SHA256SUMS
+
+  # Sur le runner, une vraie machine Ubuntu avec systemd : installer la
+  # release précédente, puis `opencloud self-update` vers celle-ci.
+  self-update:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: mise à jour en place depuis la release précédente
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          previous=$(gh release list --repo ldesfontaine/opencloud --exclude-drafts --exclude-pre-releases \
+            --json tagName --jq '.[].tagName' | grep -v "^${TAG}$" | sort -V | tail -n 1)
+          if [ -z "$previous" ]; then
+            echo "première release : pas de mise à jour à jouer"
+            exit 0
+          fi
+          sudo --preserve-env=GH_TOKEN packaging/test-self-update.sh "$previous" "$TAG"

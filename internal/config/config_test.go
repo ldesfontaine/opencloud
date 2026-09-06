@@ -78,6 +78,26 @@ func TestParse_MinPasswordLength_DefaultsToTwelveAndCanBeLifted(t *testing.T) {
 	}
 }
 
+func TestParse_GitHubToken_IsReadAndBounded(t *testing.T) {
+	cfg, _, err := Parse([]byte("state_dir = \"state\"\ngithub_token = \"github_pat_abc\"\n"))
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if cfg.GitHubToken != "github_pat_abc" {
+		t.Fatalf("github_token = %q", cfg.GitHubToken)
+	}
+
+	for name, content := range map[string]string{
+		"espace":    "github_token = \"ab cd\"\n",
+		"trop long": "github_token = \"" + strings.Repeat("a", 256) + "\"\n",
+	} {
+		_, _, err := Parse([]byte("state_dir = \"state\"\n" + content))
+		if err == nil || !strings.Contains(err.Error(), "github_token") {
+			t.Fatalf("%s : doit être refusé en nommant la clé, reçu %v", name, err)
+		}
+	}
+}
+
 func TestParse_UnknownKey_IsAWarningThatNamesIt(t *testing.T) {
 	content := []byte("state_dir = \"state\"\nlisten = \"127.0.0.1:1\"\nlisten_addr = \"x\"\n[web]\ncolour = \"blue\"\n")
 

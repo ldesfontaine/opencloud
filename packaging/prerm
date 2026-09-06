@@ -1,0 +1,21 @@
+#!/bin/sh
+# Avant que dpkg retire les fichiers. À la mise à jour, le service continue
+# de tourner pendant le remplacement du binaire — c'est postinst qui le
+# relance — pour ne pas couper plus longtemps que nécessaire.
+set -e
+
+UNIT=opencloud.service
+
+case "$1" in
+    remove|deconfigure)
+        if [ -d /run/systemd/system ]; then
+            if command -v deb-systemd-invoke >/dev/null 2>&1; then
+                deb-systemd-invoke stop "$UNIT"
+            else
+                systemctl stop "$UNIT"
+            fi
+        fi
+        ;;
+esac
+
+exit 0
