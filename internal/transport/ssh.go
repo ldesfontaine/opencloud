@@ -27,6 +27,9 @@ const (
 
 	connectTimeoutSeconds   = 10
 	serverAliveIntervalSecs = 15
+
+	// La commande que sudoers autorise pour poser le lanceur, à arguments fixes.
+	installPath = "/usr/bin/install"
 )
 
 // ErrRefusedName : l'identifiant d'action, le nom de fichier ou le curseur ne
@@ -91,6 +94,33 @@ func (s *SSH) Launch(ctx context.Context, actionID string) error {
 	return launchFailure(result)
 }
 
+// StagedLauncherPath : là où le compte opencloud dépose le lanceur avant que
+// sudo le pose en root. La règle sudoers nomme ce chemin exactement.
+const StagedLauncherPath = "/var/lib/opencloud/oc-launch.new"
+
+// InstallLauncher dépose le lanceur par stdin puis le fait poser par sudo,
+// avec la règle à arguments fixes que l'enrôlement a écrite. Le même chemin
+// sert à le mettre à jour à chaque version.
+func (s *SSH) InstallLauncher(ctx context.Context, binary []byte) error {
+	temporary := StagedLauncherPath + ".tmp"
+	remote := fmt.Sprintf("umask 077 && cat > %s && mv -f -- %s %s && "+
+		"sudo -n %s -o root -g root -m 0755 %s %s && rm -f -- %s",
+		temporary, temporary, StagedLauncherPath,
+		installPath, StagedLauncherPath, actiondir.LauncherPath, StagedLauncherPath)
+
+	result, err := s.run(ctx, remote, bytes.NewReader(binary))
+	if err != nil {
+		return err
+	}
+	if result.exitCode == 0 {
+		return nil
+	}
+	if refused := sudoRefusal(result.output); refused != nil {
+		return refused
+	}
+	return fmt.Errorf("%w: code %d: %s", ErrLaunchRefused, result.exitCode, result.output)
+}
+
 // LauncherReply est ce que le lanceur a répondu, sans interprétation :
 // l'amorçage attend un code 2 du lanceur appelé sans argument.
 type LauncherReply struct {
@@ -119,24 +149,33 @@ func (s *SSH) Probe(ctx context.Context) error {
 	return nil
 }
 
-// launchFailure nomme ce que le lanceur, sudo ou systemd-run ont refusé. Un
-// secret ne fabrique pas un terminal : les deux refus de sudo sont distincts.
+// launchFailure nomme ce que le lanceur, sudo ou systemd-run ont refusé.
 func launchFailure(result commandResult) error {
-	switch {
-	case strings.Contains(result.output, "already exists"):
+	if strings.Contains(result.output, "already exists") {
 		return fmt.Errorf("%w: %s", ErrAlreadyLaunched, result.output)
-	case strings.Contains(result.output, "a password is required"):
+	}
+	if refused := sudoRefusal(result.output); refused != nil {
+		return refused
+	}
+	return fmt.Errorf("%w: code %d: %s", ErrLaunchRefused, result.exitCode, result.output)
+}
+
+// sudoRefusal : un secret ne fabrique pas un terminal, les deux refus de sudo
+// sont donc distincts. Rend nil quand la sortie ne vient pas de sudo.
+func sudoRefusal(output string) error {
+	switch {
+	case strings.Contains(output, "a password is required"):
 		return errors.Join(ErrLaunchRefused, refusal.Refusal{
 			Cause:  "sudo demande un mot de passe au compte opencloud sur cette machine",
 			Remedy: "rejouer l'enrôlement : la règle sudoers NOPASSWD vers /usr/local/sbin/oc-launch manque ou a été retirée",
 		})
-	case strings.Contains(result.output, "a terminal is required"):
+	case strings.Contains(output, "a terminal is required"):
 		return errors.Join(ErrLaunchRefused, refusal.Refusal{
 			Cause:  "sudo exige un terminal pour le compte opencloud sur cette machine",
 			Remedy: "retirer requiretty de sudoers pour ce compte : openCloud n'ouvre jamais de terminal",
 		})
 	}
-	return fmt.Errorf("%w: code %d: %s", ErrLaunchRefused, result.exitCode, result.output)
+	return nil
 }
 
 // remotePath dérive le chemin du fichier sur la machine et refuse tout nom qui

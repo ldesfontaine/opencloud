@@ -63,6 +63,14 @@ l'utilisateur openCloud, pose sa clé et sa règle `sudo`, affiche l'empreinte d
 la machine que l'opérateur saisit dans l'interface. Aucun mot de passe ne
 traverse le navigateur.
 
+**Deux temps, et le second n'est pas décoratif.** L'empreinte saisie est
+comparée aux clés d'hôte relevées par `ssh-keyscan` : `known_hosts` n'est écrit
+que si l'une correspond, jamais appris à la connexion. Une empreinte qui ne
+correspond à rien est un refus qui le dit — quelqu'un se fait passer pour la
+machine, ou l'empreinte est mal copiée. Le lanceur est déposé **ensuite**, par
+SSH, parce qu'il ne tient pas dans une commande à coller
+(`15-catalogue-actions.md` §3).
+
 Avec l'option « derrière NAT », elle crée aussi la clé WireGuard et monte le
 lien vers la machine openCloud au démarrage. Un seul geste, y compris pour une
 machine sans adresse publique.

@@ -22,9 +22,9 @@ sudo -n /usr/local/sbin/oc-launch <id>
 ```
 
 **`oc-launch` est un petit binaire root-owned, non modifiable**, posé à
-l'enrôlement, et **la seule chose que `sudoers` autorise** à l'utilisateur
-`opencloud`. Il revalide `<id>` (`^[0-9a-z-]{1,40}$`), lit le délai maximum dans
-le dossier de l'action, puis exécute lui-même, par `execve` et sans shell :
+l'enrôlement. Il revalide `<id>` (`^[0-9a-z-]{1,40}$`), lit le délai maximum
+dans le dossier de l'action, puis exécute lui-même, par `execve` et sans
+shell :
 
 ```
 /usr/bin/systemd-run --unit=oc-action-<id> \
@@ -50,6 +50,7 @@ identifiant, rien d'autre.
 | Ouvre le dossier de l'action avec `O_NOFOLLOW`, refuse les liens symboliques, exige un fichier régulier appartenant à `opencloud` et non modifiable par les autres | Ferme les tours de passe-passe par lien vers un fichier root |
 | Posé à l'enrôlement ; *Diagnostiquer* vérifie propriétaire, mode et empreinte | Un lanceur modifié se voit |
 | Ligne `sudoers` : `opencloud ALL=(root) NOPASSWD: /usr/local/sbin/oc-launch` ; sur `sudo` ≥ 1.9.10, la forme regex `^/usr/local/sbin/oc-launch [0-9a-z-]{1,40}$` | Debian 12 et Ubuntu 24.04 ont la regex ; Ubuntu 22.04 non — le lanceur valide de toute façon |
+| **Deux lignes `sudoers`, pas une** : la seconde est `install -o root -g root -m 0755 /var/lib/opencloud/oc-launch.new /usr/local/sbin/oc-launch`, à arguments fixes | C'est elle qui pose le lanceur sur une machine distante, et qui le met à jour ensuite. Aucun joker : `install` n'y écrit qu'à ce chemin-là, depuis ce fichier-là |
 
 Ce qu'il ne ferme pas, une fois pour toutes : le compte `opencloud` écrit
 `run.sh`. Qui détient sa clé peut faire exécuter son script en root. Ce trou ne
@@ -181,12 +182,19 @@ Toutes s'exécutent sur la machine cible sauf mention.
 
 ## 3. Séquences éprouvées, reprises de your-cloud
 
-**Enrôler** — l'ordre est une propriété de sécurité : poser le programme
-→ créer le compte (`useradd --system`, `passwd --lock`) → règle `sudo` en
-drop-in puis **`visudo -c -f`** → drop-in `sshd_config.d` (`PermitTTY no`,
+**Enrôler** — l'ordre est une propriété de sécurité : créer le compte
+(`useradd --system`, `passwd --lock`) → règle `sudo` en drop-in puis
+**`visudo -c -f`** → drop-in `sshd_config.d` (`PermitTTY no`,
 `X11Forwarding no`, `AllowAgentForwarding no`, `AllowTcpForwarding no`,
 `PermitTunnel no`) puis **`sshd -t`** avant `reload` → clé **en dernier** →
 relire après coup, trois essais, le rechargement ferme le port un instant.
+
+**Le lanceur ne voyage pas dans la commande** — il fait plusieurs mébioctets.
+Sur la machine openCloud, `enroll-local` le prend dans le paquet. Sur une
+machine distante, il vient **ensuite, par SSH**, une fois le compte en place et
+l'empreinte confirmée : déposé sous `/var/lib/opencloud/oc-launch.new`, puis
+posé par `sudo` avec une règle à arguments fixes, sans joker. La même règle le
+met à jour à chaque version.
 
 **Enrôler ne touche ni au proxy ni aux certificats des autres machines.** Rien
 dans la séquence ne sort de la machine enrôlée.

@@ -6,6 +6,10 @@ import "time"
 // RuntimeMaxSec la tue passé ce délai même si openCloud est éteint.
 const diagnostiquerTimeout = 5 * time.Minute
 
+// Enrôler crée un compte, pose trois fichiers et recharge sshd : rien de long,
+// et un rechargement qui n'aboutit pas ne doit pas tenir la machine.
+const enrolerTimeout = 5 * time.Minute
+
 // Definitions rend le catalogue dans un ordre stable. Chaque appel construit
 // sa tranche : rien de partagé, donc rien de modifiable par un appelant.
 func Definitions() []Definition {
@@ -19,6 +23,25 @@ func Definitions() []Definition {
 			Reversible: true,
 			Interrupts: false,
 			Timeout:    diagnostiquerTimeout,
+		},
+		{
+			Kind:  KindEnroler,
+			Label: "Enrôler",
+			Summary: "Crée le compte de service, sa règle sudo et son drop-in sshd, pose la clé d'openCloud " +
+				"et affiche l'empreinte d'hôte à saisir. Jouée par l'opérateur sur la machine, en root.",
+			Scope:      ScopeMachine,
+			Place:      PlaceTarget,
+			Reversible: true,
+			Interrupts: false,
+			Timeout:    enrolerTimeout,
+			Params: []ParamSpec{
+				{
+					Name:     "public_key",
+					Label:    "clé publique d'openCloud pour cette machine",
+					Type:     ParamPublicKey,
+					Required: true,
+				},
+			},
 		},
 	}
 }

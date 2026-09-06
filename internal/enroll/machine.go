@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/transport"
 )
 
@@ -59,6 +60,24 @@ func LocalEndpoint(root *os.Root) transport.Endpoint {
 		KnownHostsFile: KnownHostsFile(root, LocalMachineID),
 		Binary:         sshBinary,
 	}
+}
+
+// writeEnrolledMarker pose la date d'enrôlement d'une machine et dit si elle
+// l'a écrite : un marqueur déjà là garde sa date, c'est celle du premier
+// enrôlement.
+func writeEnrolledMarker(root *os.Root, id string, at time.Time) (bool, error) {
+	name := path.Join(MachineDir(id), enrolledFileName)
+	if _, found, err := readRootFile(root, name); err != nil {
+		return false, err
+	} else if found {
+		return false, nil
+	}
+
+	date := at.UTC().Format(time.RFC3339) + "\n"
+	if err := fsx.WriteFile(root, name, []byte(date), 0o644); err != nil {
+		return false, fmt.Errorf("écrire %s : %w", name, err)
+	}
+	return true, nil
 }
 
 // Status dit si une machine est enrôlée, depuis quand, et avec quelle clé

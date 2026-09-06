@@ -1,5 +1,6 @@
-// Package enroll amorce la machine openCloud sur elle-même : lanceur, compte,
-// sudoers, sshd, clé, puis vérification par le chemin réel — SSH vers
-// localhost. Il tient aussi la paire de clés et le known_hosts d'une machine.
-// Il ne génère pas la commande d'enrôlement d'une machine distante.
+// Package enroll pose l'accès d'openCloud à une machine : lanceur, compte,
+// sudoers, sshd, clé, puis vérification par le chemin réel. La machine
+// openCloud s'amorce ici même, en Go ; une machine distante par une commande
+// collée dessus, puis une empreinte confirmée. Il tient la paire de clés et le
+// known_hosts de chaque machine. Il ne lance aucune action.
 package enroll
