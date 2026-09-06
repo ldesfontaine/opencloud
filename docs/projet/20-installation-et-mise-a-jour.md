@@ -166,9 +166,10 @@ Deux gestes, deux résultats, dits avant :
 | `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine — sauf un `state_dir` que l'opérateur aurait déplacé : `purge` ne connaît que `/var/lib/opencloud`, et ne devine pas |
 
 Ces deux gestes, la mise à jour et la réinstallation sont **joués en CI** à
-chaque changement, sur le runner (`packaging/test-install.sh`), et en local
-dans un conteneur Debian avec systemd (`make package-test`) — jamais sur le
-poste de travail.
+chaque changement, sur deux systèmes : sur le runner Ubuntu
+(`packaging/test-install.sh`, puis `packaging/test-action.sh`) et dans un
+conteneur Debian 12 avec systemd (`make package-test`, la même cible qu'en
+local) — jamais sur le poste de travail.
 
 **Ce qu'aucun des deux ne touche, jamais** : `/srv` — les services et leurs
 données —, Traefik, CrowdSec, Docker, le collecteur. Ils appartiennent à la

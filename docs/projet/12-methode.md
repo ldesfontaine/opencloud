@@ -4,8 +4,9 @@
    suite.
 2. **On teste dans la CI GitHub**, basique, avec les bonnes pratiques :
    compilation, `go vet`, tests, `govulncheck`, `gosec`, scan des dépendances
-   et des secrets, permissions minimales du workflow. Une VM seulement si un
-   jour la CI ne suffit pas.
+   et des secrets, permissions minimales du workflow. Le paquet est joué sur
+   deux systèmes : Ubuntu sur le runner, Debian 12 dans un conteneur avec
+   systemd. Une VM seulement si un jour la CI ne suffit pas.
 3. **Dépôt git vide, interface minimale**, une fonctionnalité à la fois.
 
 ## Les branches
