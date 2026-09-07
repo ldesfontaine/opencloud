@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -19,6 +20,8 @@ func (s *Server) showInfrastructure(w http.ResponseWriter, r *http.Request, acco
 			return
 		}
 		view.Machines = rows
+		view.Counters = newMachineCounters(rows)
+		view.Subtitle = labelInfrastructureSubtitle(len(rows))
 	}
 	s.render(w, http.StatusOK, "infrastructure", s.newPage(&account, csrfToken).withData(view))
 }
@@ -45,6 +48,31 @@ func (s *Server) machineRows(r *http.Request) ([]machineRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// Les quatre compteurs de l'Infrastructure, dans l'ordre où ils se lisent :
+// ce qui va, ce qui bouge, ce qui casse, ce qui attend. Une machine dont le
+// dernier sondage a vieilli n'est comptée nulle part : on ne sait pas.
+func newMachineCounters(rows []machineRow) []machineCounter {
+	counts := map[string]int{}
+	for _, row := range rows {
+		switch row.Status.State {
+		case statusReachable:
+			counts[counterReachable]++
+		case statusRunning:
+			counts[counterRunning]++
+		case statusSSHFailed, statusLauncherFailed:
+			counts[counterFailed]++
+		case statusNotEnrolled:
+			counts[counterNotEnrolled]++
+		}
+	}
+	return []machineCounter{
+		{Kind: counterReachable, Count: counts[counterReachable], Label: labelCounterReachable},
+		{Kind: counterRunning, Count: counts[counterRunning], Label: labelCounterRunning},
+		{Kind: counterFailed, Count: counts[counterFailed], Label: labelCounterFailed},
+		{Kind: counterNotEnrolled, Count: counts[counterNotEnrolled], Label: labelCounterNotEnrolled},
+	}
 }
 
 func (s *Server) showMachine(w http.ResponseWriter, r *http.Request, account store.Account) {
@@ -95,6 +123,12 @@ func (s *Server) newMachineView(r *http.Request, machine store.Machine) (machine
 		History:         s.newActionRows(history),
 	}
 
+	running, err := s.newRunningAction(r.Context(), history)
+	if err != nil {
+		return machineView{}, err
+	}
+	view.Running = running
+
 	// La machine openCloud s'amorce par enroll-local : pas de commande à
 	// coller, la fiche dit déjà le geste.
 	if !status.Enrolled && s.enroller != nil && machine.ID != store.LocalMachineID {
@@ -107,12 +141,46 @@ func (s *Server) newMachineView(r *http.Request, machine store.Machine) (machine
 	return view, nil
 }
 
+// newRunningAction rend l'action qui tourne, avec ses dernières lignes, et
+// nil quand rien ne tourne sur la machine.
+func (s *Server) newRunningAction(ctx context.Context, history []store.Action) (*runningAction, error) {
+	for _, action := range history {
+		if concluded(action.State) {
+			continue
+		}
+		lines, err := s.actions.Lines(ctx, action.ID, 0)
+		if err != nil {
+			return nil, err
+		}
+		row := s.newActionRow(action)
+		return &runningAction{
+			ID:         action.ID,
+			Label:      row.Label,
+			State:      row.State,
+			StateLabel: row.StateLabel,
+			CreatedAt:  row.CreatedAt,
+			LaunchedAt: formatMoment(action.LaunchedAt),
+			Lines:      newOutputLines(lastLines(lines, runningLinesShown)),
+		}, nil
+	}
+	return nil, nil
+}
+
+func lastLines(lines []store.ActionLine, count int) []store.ActionLine {
+	if len(lines) <= count {
+		return lines
+	}
+	return lines[len(lines)-count:]
+}
+
 // Les actions qu'on lance depuis la fiche d'une machine : celles dont la
 // portée est la machine elle-même.
 func (s *Server) machineScopedActions() []availableAction {
 	var available []availableAction
 	for _, definition := range s.catalog.Definitions() {
-		if definition.Scope != catalog.ScopeMachine {
+		// Enrôler se joue par la commande collée sur la machine, jamais
+		// depuis sa fiche : le lanceur n'y est pas encore.
+		if definition.Scope != catalog.ScopeMachine || definition.Kind == catalog.KindEnroler {
 			continue
 		}
 		available = append(available, availableAction{

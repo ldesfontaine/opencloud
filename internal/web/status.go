@@ -33,6 +33,9 @@ const freshProbe = 15 * time.Minute
 type machineStatus struct {
 	State string
 	Label string
+	// Ce que la sonde a dit de l'échec, borné par elle : à lire à côté du
+	// badge, jamais dedans — un badge tient sur une ligne.
+	Note string
 }
 
 // newMachineStatus tient le statut à quatre états de 02-roles.md — joignable,
@@ -51,9 +54,9 @@ func newMachineStatus(enrolled bool, health MachineHealth, recent []store.Action
 
 	switch health.ProbeState {
 	case probeSSHFailed:
-		return machineStatus{State: statusSSHFailed, Label: labelProbeFailed(labelSSHFailedSince, health)}
+		return machineStatus{State: statusSSHFailed, Label: labelSSHFailedSince + formatMoment(health.ProbedAt), Note: health.ProbeNote}
 	case probeLauncherFailed:
-		return machineStatus{State: statusLauncherFailed, Label: labelProbeFailed(labelLauncherFailedSince, health)}
+		return machineStatus{State: statusLauncherFailed, Label: labelLauncherFailedSince + formatMoment(health.ProbedAt), Note: health.ProbeNote}
 	case probeReachable:
 		if now.Sub(health.ProbedAt) < freshProbe {
 			return machineStatus{State: statusReachable, Label: labelReachableSince(now.Sub(health.ProbedAt))}
@@ -67,7 +70,7 @@ func newMachineStatus(enrolled bool, health MachineHealth, recent []store.Action
 
 func hasRunningAction(actions []store.Action) bool {
 	for _, action := range actions {
-		if action.State == store.StatePrepared || action.State == store.StateRunning {
+		if !concluded(action.State) {
 			return true
 		}
 	}

@@ -1,34 +1,68 @@
 {{define "title"}}Infrastructure{{end}}
 {{define "content"}}
-<h1>Infrastructure</h1>
+<div class="page-head-row">
+  <div class="page-head">
+    <h1>Infrastructure</h1>
+    {{if .Data.Subtitle}}<p class="muted">{{.Data.Subtitle}}</p>{{end}}
+  </div>
+  {{if .Data.CanEnrol}}<a class="button" href="/machines/new">{{template "icon-plus"}}Enrôler une machine</a>{{end}}
+</div>
+
 {{if .Data.Machines}}
-{{if .Data.CanEnrol}}<p><a class="button" href="/machines/new">Enrôler une machine</a></p>{{end}}
-<table class="grid">
-  <thead>
-    <tr><th>Machine</th><th>Adresse</th><th>Statut</th><th>Enrôlement</th><th>Dernière action</th></tr>
-  </thead>
-  <tbody>
-    {{range .Data.Machines}}
-    <tr>
-      <td><a href="/machines/{{.ID}}">{{.Name}}</a></td>
-      <td class="mono">{{.Address}}</td>
-      <td><span class="badge {{.Status.State}}">{{.Status.Label}}</span></td>
-      <td>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</td>
-      <td>
-        {{with .LastAction}}
-        <a href="/actions/{{.ID}}">{{.Label}}</a>
-        <span class="badge {{.State}}">{{.StateLabel}}</span>
-        <span class="muted">{{.CreatedAt}}</span>
-        {{else}}<span class="muted">aucune</span>{{end}}
-      </td>
-    </tr>
-    {{end}}
-  </tbody>
-</table>
+<div class="counters">
+  {{range .Data.Counters}}
+  <div class="counter {{.Kind}}">
+    <span class="counter-mark">
+      {{if eq .Kind "reachable"}}{{template "icon-check"}}
+      {{else if eq .Kind "running"}}{{template "icon-pulse"}}
+      {{else if eq .Kind "failed"}}{{template "icon-alert"}}
+      {{else}}{{template "icon-plug"}}{{end}}
+    </span>
+    <span class="counter-text">
+      <span class="counter-value">{{.Count}}</span>
+      <span class="counter-label">{{.Label}}</span>
+    </span>
+  </div>
+  {{end}}
+</div>
+
+<section class="card table-card">
+  <div class="card-head">
+    <h2>Machines</h2>
+    <span class="muted">sondées toutes les 5 minutes, en silence</span>
+  </div>
+  <table class="grid">
+    <thead>
+      <tr><th>Machine</th><th>Adresse</th><th>Statut</th><th>Enrôlement</th><th>Dernière action</th></tr>
+    </thead>
+    <tbody>
+      {{range .Data.Machines}}
+      <tr>
+        <td>
+          <div class="machine-name">
+            <span class="machine-mark">{{template "icon-server"}}</span>
+            <a href="/machines/{{.ID}}">{{.Name}}</a>
+          </div>
+        </td>
+        <td class="mono muted">{{.Address}}</td>
+        <td><span class="badge {{.Status.State}}">{{.Status.Label}}</span>{{if .Status.Note}}<span class="status-note">{{.Status.Note}}</span>{{end}}</td>
+        <td>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</td>
+        <td class="tight">
+          {{with .LastAction}}
+          <a href="/actions/{{.ID}}">{{.Label}}</a>
+          <span class="badge {{.State}}">{{.StateLabel}}</span>
+          <span class="muted">{{.CreatedAt}}</span>
+          {{else}}<span class="muted">aucune</span>{{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
 {{else}}
 <section class="card empty">
   <p>Aucune machine pour l'instant.</p>
-  {{if .Data.CanEnrol}}<p><a class="button" href="/machines/new">Enrôler une machine</a></p>{{end}}
+  {{if .Data.CanEnrol}}<a class="button" href="/machines/new">{{template "icon-plus"}}Enrôler une machine</a>{{end}}
 </section>
 {{end}}
 {{end}}

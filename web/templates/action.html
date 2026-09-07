@@ -1,28 +1,41 @@
 {{define "title"}}{{.Data.Label}}{{end}}
 {{define "content"}}
 {{with .Data}}
-<h1>{{.Label}} <span id="action-state" class="badge {{.State}}">{{.StateLabel}}</span></h1>
-<p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · <span class="mono">{{.ID}}</span></p>
+<div class="page-head">
+  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-back"}}{{.Machine.Name}}</a>
+  <div class="page-title">
+    <h1>{{.Label}}</h1>
+    <span id="action-state" class="badge {{.State}}">{{.StateLabel}}</span>
+  </div>
+  <p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · <span class="mono">{{.ID}}</span></p>
+</div>
 
-<section class="card">
-  <dl class="facts">
-    {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
-    <dt>Déposée</dt><dd>{{.CreatedAt}}</dd>
-    {{if .LaunchedAt}}<dt>Lancée</dt><dd>{{.LaunchedAt}}</dd>{{end}}
-    {{if .FinishedAt}}<dt>Terminée</dt><dd>{{.FinishedAt}}</dd>{{end}}
-    {{if .ExitCode}}<dt>Code de retour</dt><dd class="mono">{{.ExitCode}}</dd>{{end}}
-  </dl>
-</section>
+<div class="split wide-first">
+  <div class="column">
+    {{if .Result}}
+    <p class="banner {{.State}}">{{if eq .State "applied"}}{{template "icon-check"}}{{end}}<span>résultat : {{.Result}}</span></p>
+    {{end}}
+    {{if .Note}}<p class="notice error">{{.Note}}</p>{{end}}
 
-{{if .Result}}<p class="notice">résultat : {{.Result}}</p>{{end}}
-{{if .Note}}<p class="notice error">{{.Note}}</p>{{end}}
+    <div class="section-head"><h2>Sortie</h2><span class="muted">journald de la machine, relu par SSH</span></div>
+    <div id="action-output" class="output" data-stream="{{.StreamPath}}" data-live="{{if .Running}}oui{{else}}non{{end}}">
+      {{range .Lines}}<div class="line {{.Class}}">{{.Text}}</div>{{end}}
+      {{if and (not .Lines) (not .Running)}}<div class="line plain">aucune ligne de sortie</div>{{end}}
+      {{if .Running}}<p class="live" id="action-live"><span class="cursor"></span>La sortie s'affiche au fil de l'eau.</p>{{end}}
+    </div>
+  </div>
 
-<h2>Sortie</h2>
-<pre id="action-output" class="output" data-stream="{{.StreamPath}}" data-live="{{if .Running}}oui{{else}}non{{end}}">
-{{- range .Lines}}{{.Text}}
-{{end -}}
-</pre>
-{{if .Running}}<p class="muted" id="action-live">La sortie s'affiche au fil de l'eau.</p>{{end}}
+  <section class="card">
+    <h2>Ce que fait cette action</h2>
+    <dl class="facts single">
+      {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+      <dt>Déposée</dt><dd>{{.CreatedAt}}</dd>
+      {{if .LaunchedAt}}<dt>Lancée</dt><dd>{{.LaunchedAt}}</dd>{{end}}
+      {{if .FinishedAt}}<dt>Terminée</dt><dd>{{.FinishedAt}}</dd>{{end}}
+      {{if .ExitCode}}<dt>Code de retour</dt><dd class="mono">{{.ExitCode}}</dd>{{end}}
+    </dl>
+  </section>
+</div>
 {{end}}
 {{end}}
 {{define "scripts"}}{{if .Data.Running}}<script src="/static/actions.js" defer></script>{{end}}{{end}}

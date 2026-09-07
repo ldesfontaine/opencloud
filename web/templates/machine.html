@@ -1,48 +1,106 @@
 {{define "title"}}{{.Data.Name}}{{end}}
 {{define "content"}}
 {{with .Data}}
-<h1>{{.Name}} <span class="badge {{.Status.State}}">{{.Status.Label}}</span></h1>
-
-{{if .Refusal}}
-<section class="notice error">
-  <p><strong>Refus : {{.Refusal.Cause}}</strong></p>
-  <p>→ {{.Refusal.Remedy}}</p>
-</section>
-{{end}}
-
-<section class="card">
-  <dl class="facts">
-    <dt>Adresse</dt><dd class="mono">{{.Address}}:{{.Port}}</dd>
-    <dt>Compte</dt><dd class="mono">{{.Account}}</dd>
-    <dt>Enrôlement</dt>
-    <dd>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</dd>
-  </dl>
-  {{if .CanProbe}}
-  <form method="post" action="/machines/{{.ID}}/probe">
-    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-    <button type="submit">Tester l'accès</button>
-  </form>
+<div class="page-head">
+  <a class="breadcrumb" href="/">{{template "icon-back"}}Infrastructure</a>
+  <div class="page-head-row">
+    <div class="page-title">
+      <h1>{{.Name}}</h1>
+      <span class="badge {{.Status.State}}">{{.Status.Label}}</span>
+    </div>
+    {{if .Status.Note}}<p class="status-note">{{.Status.Note}}</p>{{end}}
+    {{if .CanProbe}}
+    <form method="post" action="/machines/{{.ID}}/probe">
+      <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+      <button type="submit" class="secondary">{{template "icon-pulse-small"}}Tester l'accès</button>
+    </form>
+    {{end}}
+  </div>
+  {{if .Command}}
+  <p class="muted">Deux temps : la commande sur la machine, puis l'empreinte ici. Rien n'est appris à la connexion.</p>
   {{end}}
-</section>
+</div>
+
+{{if .Refusal}}{{template "refusal" .Refusal}}{{end}}
 
 {{if .Command}}
-<section class="card">
-  <h2>La commande à jouer</h2>
-  <p>À coller sur la machine, en root. Elle crée le compte, pose sa règle <span class="mono">sudo</span>,
-  le drop-in <span class="mono">sshd</span> et la clé, puis affiche l'empreinte de la clé d'hôte.</p>
-  <textarea class="command" readonly rows="6" aria-label="Commande à coller sur la machine">{{.Command}}</textarea>
+<div class="split command">
+  <section class="card">
+    <div class="step-head">
+      <span class="step-number now">1</span>
+      <h2>La commande à jouer</h2>
+    </div>
+    <p class="muted">À coller sur la machine, en root. Elle crée le compte, pose sa règle <span class="mono">sudo</span>,
+    le drop-in <span class="mono">sshd</span> et la clé, puis affiche l'empreinte de la clé d'hôte.</p>
+    <div class="command-block">
+      <textarea class="command" readonly id="enrolment-command" rows="6" aria-label="Commande à coller sur la machine">{{.Command}}</textarea>
+      <button type="button" class="copy" data-copy="enrolment-command">Copier</button>
+    </div>
+    <p class="hint">La commande fait une seule ligne ; « Copier » la prend en entier.</p>
+  </section>
 
-  <h2>Confirmer l'empreinte</h2>
-  <p class="muted">openCloud relève la clé d'hôte et refuse si elle ne correspond pas à
-  l'empreinte affichée par la commande.</p>
-  <form method="post" action="/machines/{{.ID}}/confirm">
-    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-    <label for="fingerprint">Empreinte affichée par la commande</label>
-    <input id="fingerprint" name="fingerprint" type="text" placeholder="SHA256:…" required>
-    <button type="submit">Confirmer l'empreinte</button>
-  </form>
-</section>
+  <section class="card">
+    <div class="step-head">
+      <span class="step-number">2</span>
+      <h2>Confirmer l'empreinte</h2>
+    </div>
+    <p class="muted">openCloud relève la clé d'hôte et refuse si elle ne correspond pas à
+    l'empreinte affichée par la commande.</p>
+    <form method="post" action="/machines/{{.ID}}/confirm">
+      <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+      <label for="fingerprint">Empreinte affichée par la commande</label>
+      <input id="fingerprint" name="fingerprint" class="mono" type="text" placeholder="SHA256:…" required>
+      <button type="submit">{{template "icon-check"}}Confirmer l'empreinte</button>
+    </form>
+  </section>
+</div>
 {{end}}
+
+<div class="split{{if .Running}} even{{end}}">
+  <section class="card">
+    <h2>Accès</h2>
+    <dl class="facts">
+      <dt>Adresse</dt><dd class="mono">{{.Address}}:{{.Port}}</dd>
+      <dt>Compte</dt><dd class="mono">{{.Account}}</dd>
+      <dt>Enrôlement</dt>
+      <dd>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</dd>
+    </dl>
+  </section>
+
+  {{with .Running}}
+  <section class="card">
+    <h2>En cours</h2>
+    <div class="running-action">
+      <div class="running-head">
+        <a href="/actions/{{.ID}}">{{.Label}}</a>
+        <span class="badge {{.State}}">{{.StateLabel}}</span>
+      </div>
+      {{if .Lines}}
+      <div class="output compact">
+        {{range .Lines}}<div class="line {{.Class}}">{{.Text}}</div>{{end}}
+      </div>
+      {{end}}
+      <span class="running-tail">{{if .LaunchedAt}}lancée le {{.LaunchedAt}}{{else}}déposée le {{.CreatedAt}}{{end}} · la sortie s'affiche au fil de l'eau</span>
+    </div>
+  </section>
+  {{end}}
+</div>
+
+<section class="card">
+  <h2>Actions disponibles</h2>
+  {{if .Available}}
+  <div class="cards">
+    {{range .Available}}
+    <a class="action-card" href="/machines/{{$.Data.ID}}/actions/{{.Kind}}">
+      <span class="name">{{.Label}}</span>
+      <span class="summary">{{.Summary}}</span>
+    </a>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted">Aucune action de portée machine dans le catalogue.</p>
+  {{end}}
+</section>
 
 {{if .CanChangeAccess}}
 <section class="card">
@@ -51,48 +109,43 @@
   openCloud relève à nouveau la clé d'hôte et réécrit le <span class="mono">known_hosts</span>.</p>
   <form method="post" action="/machines/{{.ID}}/access">
     <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-    <label for="access-address">Adresse</label>
-    <input id="access-address" name="address" type="text" value="{{.Address}}" required>
-    <label for="access-port">Port SSH</label>
-    <input id="access-port" name="port" type="text" value="{{.Port}}" required>
+    <div class="split even">
+      <div>
+        <label for="access-address">Adresse</label>
+        <input id="access-address" name="address" class="mono" type="text" value="{{.Address}}" required>
+      </div>
+      <div>
+        <label for="access-port">Port SSH</label>
+        <input id="access-port" name="port" class="mono" type="text" value="{{.Port}}" required>
+      </div>
+    </div>
     <label for="access-fingerprint">Empreinte de la clé d'hôte</label>
-    <input id="access-fingerprint" name="fingerprint" type="text" placeholder="SHA256:…" required>
-    <button type="submit">Changer l'accès</button>
+    <input id="access-fingerprint" name="fingerprint" class="mono" type="text" placeholder="SHA256:…" required>
+    <button type="submit" class="secondary">{{template "icon-plug-small"}}Changer l'accès</button>
   </form>
 </section>
 {{end}}
 
-<h2>Actions disponibles</h2>
-{{if .Available}}
-<ul class="actions">
-  {{range .Available}}
-  <li>
-    <a href="/machines/{{$.Data.ID}}/actions/{{.Kind}}">{{.Label}}</a>
-    <span class="muted">{{.Summary}}</span>
-  </li>
+<section class="card table-card">
+  <div class="card-head"><h2>Historique</h2></div>
+  {{if .History}}
+  <table class="grid">
+    <thead><tr><th>Action</th><th>État</th><th>Lancée</th><th>Résultat</th></tr></thead>
+    <tbody>
+      {{range .History}}
+      <tr>
+        <td><a href="/actions/{{.ID}}">{{.Label}}</a></td>
+        <td><span class="badge {{.State}}">{{.StateLabel}}</span></td>
+        <td class="muted">{{.CreatedAt}}</td>
+        <td>{{if .Result}}résultat : {{.Result}}{{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted card-pad">Aucune action n'a encore été lancée sur cette machine.</p>
   {{end}}
-</ul>
-{{else}}
-<p class="muted">Aucune action de portée machine dans le catalogue.</p>
-{{end}}
-
-<h2>Historique</h2>
-{{if .History}}
-<table class="grid">
-  <thead><tr><th>Action</th><th>État</th><th>Lancée</th><th>Résultat</th></tr></thead>
-  <tbody>
-    {{range .History}}
-    <tr>
-      <td><a href="/actions/{{.ID}}">{{.Label}}</a></td>
-      <td><span class="badge {{.State}}">{{.StateLabel}}</span></td>
-      <td class="muted">{{.CreatedAt}}</td>
-      <td>{{if .Result}}résultat : {{.Result}}{{else}}<span class="muted">—</span>{{end}}</td>
-    </tr>
-    {{end}}
-  </tbody>
-</table>
-{{else}}
-<p class="muted">Aucune action n'a encore été lancée sur cette machine.</p>
+</section>
 {{end}}
 {{end}}
-{{end}}
+{{define "scripts"}}{{if .Data.Command}}<script src="/static/copy.js" defer></script>{{end}}{{end}}

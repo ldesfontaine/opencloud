@@ -1,62 +1,64 @@
 {{define "title"}}{{.Data.Label}}{{end}}
 {{define "content"}}
 {{with .Data}}
-<h1>{{.Label}}</h1>
-<p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · {{.Summary}}</p>
+<div class="page-head">
+  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-back"}}{{.Machine.Name}}</a>
+  <div class="page-title"><h1>{{.Label}}</h1></div>
+  <p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · {{.Summary}}</p>
+</div>
 
-{{if .Refusal}}
-<section class="notice error">
-  <p><strong>Refus : {{.Refusal.Cause}}</strong></p>
-  <p>→ {{.Refusal.Remedy}}</p>
-</section>
-{{end}}
+{{if .Refusal}}{{template "refusal" .Refusal}}{{end}}
 
 {{if not .Machine.Enrolled}}
 <p class="notice">{{.Machine.EnrolmentLabel}}</p>
 {{end}}
 
-<section class="card">
-  <h2>Ce que fait cette action</h2>
-  <dl class="facts">
-    {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
-  </dl>
-</section>
-
-<section class="card">
-  <h2>Fichiers déposés sur la machine</h2>
-  {{if .Files}}
-  <table class="grid">
-    <thead><tr><th>Chemin</th><th>Taille</th><th>Mode</th></tr></thead>
-    <tbody>
-      {{range .Files}}
-      <tr><td class="mono">{{.Path}}</td><td>{{.Size}}</td><td class="mono">{{.Mode}}</td></tr>
+<div class="split wide-first">
+  <div class="column">
+    <section class="card">
+      <h2>Fichiers déposés sur la machine</h2>
+      {{if .Files}}
+      <table class="grid">
+        <thead><tr><th>Chemin</th><th>Taille</th><th>Mode</th></tr></thead>
+        <tbody>
+          {{range .Files}}
+          <tr><td class="mono">{{.Path}}</td><td>{{.Size}}</td><td class="mono">{{.Mode}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="muted">Aucun fichier à poser.</p>
       {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p class="muted">Aucun fichier à poser.</p>
-  {{end}}
-  <p class="muted">La comparaison de ces fichiers avec ce qui est déjà sur la machine viendra plus tard.</p>
-</section>
+      <p class="hint">La comparaison de ces fichiers avec ce qui est déjà sur la machine viendra plus tard.</p>
+    </section>
 
-<section class="card">
-  <h2>Lancer</h2>
-  <form method="post" action="/machines/{{.Machine.ID}}/actions/{{.Kind}}">
-    <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-    {{range .Params}}
-    <label for="{{.Name}}">{{.Label}}</label>
-    <input id="{{.Name}}" name="{{.Name}}" type="text" value="{{index $.Data.Values .Name}}"{{if .Required}} required{{end}}>
-    {{else}}
-    <p class="muted">Cette action ne prend aucun paramètre.</p>
-    {{end}}
-    {{if .NeedsConfirmation}}
-    <p class="confirm">
-      <input id="confirm" name="confirm" type="checkbox" value="oui" required>
-      <label for="confirm">Je confirme : cette action est irréversible ou coupe un service en marche.</label>
-    </p>
-    {{end}}
-    <button type="submit">Lancer</button>
-  </form>
-</section>
+    <section class="card">
+      <h2>Lancer</h2>
+      <form method="post" action="/machines/{{.Machine.ID}}/actions/{{.Kind}}">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        {{range .Params}}
+        <label for="{{.Name}}">{{.Label}}</label>
+        <input id="{{.Name}}" name="{{.Name}}" type="text" value="{{index $.Data.Values .Name}}"{{if .Required}} required{{end}}>
+        {{else}}
+        <p class="muted">Cette action ne prend aucun paramètre.</p>
+        {{end}}
+        {{if .NeedsConfirmation}}
+        <p class="confirm">
+          <input id="confirm" name="confirm" type="checkbox" value="oui" required>
+          <label for="confirm">Je confirme : cette action est irréversible ou coupe un service en marche.</label>
+        </p>
+        {{end}}
+        <button type="submit">{{template "icon-play"}}Lancer</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Ce que fait cette action</h2>
+    <dl class="facts single">
+      {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+    </dl>
+  </section>
+</div>
 {{end}}
 {{end}}

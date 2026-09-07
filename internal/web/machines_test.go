@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -608,6 +609,7 @@ func TestMachineStatus_SaysWhatWasSeenAndWhen(t *testing.T) {
 		recent   []store.Action
 		state    string
 		label    string
+		note     string
 	}{
 		{
 			name:   "non enrôlée prime sur tout le reste",
@@ -647,11 +649,12 @@ func TestMachineStatus_SaysWhatWasSeenAndWhen(t *testing.T) {
 			label:    "dernière remontée le " + formatMoment(oneHourAgo),
 		},
 		{
-			name:     "SSH en échec porte sa date et sa note",
+			name:     "SSH en échec porte sa date, la note vit à côté du badge",
 			enrolled: true,
 			health:   MachineHealth{ProbedAt: oneHourAgo, ProbeState: probeSSHFailed, ProbeNote: "connexion refusée"},
 			state:    statusSSHFailed,
-			label:    "SSH en échec depuis le " + formatMoment(oneHourAgo) + " — connexion refusée",
+			label:    "SSH en échec depuis le " + formatMoment(oneHourAgo),
+			note:     "connexion refusée",
 		},
 		{
 			name:     "le lanceur en échec se distingue de SSH",
@@ -672,13 +675,46 @@ func TestMachineStatus_SaysWhatWasSeenAndWhen(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			status := newMachineStatus(testCase.enrolled, testCase.health, testCase.recent, now)
 
-			if status.State != testCase.state || status.Label != testCase.label {
-				t.Fatalf("statut = %+v, attendu %q / %q", status, testCase.state, testCase.label)
+			if status.State != testCase.state || status.Label != testCase.label || status.Note != testCase.note {
+				t.Fatalf("statut = %+v, attendu %q / %q / %q", status, testCase.state, testCase.label, testCase.note)
 			}
 			if strings.Contains(status.Label, "en ligne") {
 				t.Fatal("le statut d'une machine ne dit jamais « en ligne »")
 			}
 		})
+	}
+}
+
+// Les compteurs de l'Infrastructure disent ce qui a été constaté : une machine
+// dont le dernier sondage a vieilli, ou qui n'a jamais été sondée, n'entre dans
+// aucun d'eux.
+func TestMachineCounters_CountEachStateAndLeaveOutWhatIsUnknown(t *testing.T) {
+	rows := []machineRow{
+		{Status: machineStatus{State: statusReachable}},
+		{Status: machineStatus{State: statusReachable}},
+		{Status: machineStatus{State: statusRunning}},
+		{Status: machineStatus{State: statusSSHFailed}},
+		{Status: machineStatus{State: statusLauncherFailed}},
+		{Status: machineStatus{State: statusNotEnrolled}},
+		{Status: machineStatus{State: statusStale}},
+		{Status: machineStatus{State: statusNeverProbed}},
+	}
+
+	counters := newMachineCounters(rows)
+
+	expected := map[string]int{
+		counterReachable:   2,
+		counterRunning:     1,
+		counterFailed:      2,
+		counterNotEnrolled: 1,
+	}
+	if len(counters) != len(expected) {
+		t.Fatalf("%d compteurs, attendu %d", len(counters), len(expected))
+	}
+	for _, counter := range counters {
+		if counter.Count != expected[counter.Kind] {
+			t.Fatalf("compteur %s = %d, attendu %d", counter.Kind, counter.Count, expected[counter.Kind])
+		}
 	}
 }
 
@@ -695,5 +731,16 @@ func TestIdentifierOf_ReducesTheNameToASlug(t *testing.T) {
 		if got := identifierOf(name); got != expected {
 			t.Fatalf("identifierOf(%q) = %q, attendu %q", name, got, expected)
 		}
+	}
+}
+
+func TestMachineScopedActions_LeaveOutEnroler_ItIsPlayedByTheCommand(t *testing.T) {
+	enrol := catalog.Definition{Kind: catalog.KindEnroler, Label: "Enrôler", Scope: catalog.ScopeMachine, Place: catalog.PlaceTarget}
+	server := &Server{catalog: &fakeCatalog{definitions: []catalog.Definition{diagnose, enrol}}}
+
+	available := server.machineScopedActions()
+
+	if len(available) != 1 || available[0].Kind != string(catalog.KindDiagnostiquer) {
+		t.Fatalf("actions disponibles = %+v : Enrôler se joue par la commande collée, pas depuis la fiche", available)
 	}
 }
