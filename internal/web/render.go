@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"unicode"
 
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -31,20 +32,39 @@ type page struct {
 	Version   string
 	Account   *store.Account
 	CSRFToken string
-	Error     string
+	// Le chemin demandé : la barre du haut y souligne l'onglet ouvert.
+	Path string
+	// L'initiale du compte, en majuscule, pour la pastille du menu.
+	AccountInitial string
+	// Ce qui a été refusé : la cause, puis le geste qui la lève.
+	Error *refusalView
 	// Longueur minimale d'un nouveau mot de passe ; 0 quand la règle est levée.
 	MinPasswordLength int
 	// Ce que la page rend en propre : une vue par gabarit.
 	Data any
 }
 
-func (s *Server) newPage(account *store.Account, csrfToken string) page {
+func (s *Server) newPage(r *http.Request, account *store.Account, csrfToken string) page {
 	return page{
 		Version:           s.version,
 		Account:           account,
 		CSRFToken:         csrfToken,
+		Path:              r.URL.Path,
+		AccountInitial:    accountInitial(account),
 		MinPasswordLength: s.auth.PasswordPolicy().MinLength,
 	}
+}
+
+// accountInitial : la première lettre du compte, en majuscule. Vide avant
+// connexion, et vide aussi pour un identifiant qui ne commence par rien.
+func accountInitial(account *store.Account) string {
+	if account == nil {
+		return ""
+	}
+	for _, letter := range account.Username {
+		return string(unicode.ToUpper(letter))
+	}
+	return ""
 }
 
 func (p page) withData(data any) page {
@@ -52,8 +72,8 @@ func (p page) withData(data any) page {
 	return p
 }
 
-func (p page) withError(message string) page {
-	p.Error = message
+func (p page) withError(refused refusalView) page {
+	p.Error = &refused
 	return p
 }
 

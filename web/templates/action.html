@@ -2,7 +2,7 @@
 {{define "content"}}
 {{with .Data}}
 <div class="page-head">
-  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-back"}}{{.Machine.Name}}</a>
+  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-chevron"}}{{.Machine.Name}}</a>
   <div class="page-title">
     <h1>{{.Label}}</h1>
     <span id="action-state" class="badge {{.State}}">{{.StateLabel}}</span>
@@ -13,20 +13,51 @@
 <div class="split wide-first">
   <div class="column">
     {{if .Result}}
-    <p class="banner {{.State}}">{{if eq .State "applied"}}{{template "icon-check"}}{{end}}<span>résultat : {{.Result}}</span></p>
+    <p class="banner {{.State}}">{{if eq .State "applied"}}{{template "icon-check"}}{{else}}{{template "icon-alert"}}{{end}}<span>{{.Result}}</span></p>
     {{end}}
-    {{if .Note}}<p class="notice error">{{.Note}}</p>{{end}}
+    {{if .Note}}{{template "refusal" .Note}}{{end}}
 
-    <div class="section-head"><h2>Sortie</h2><span class="muted">journald de la machine, relu par SSH</span></div>
+    {{if .Report}}
+    {{with .Report}}
+    {{if .Warnings}}
+    <section class="notice warn">
+      {{template "icon-alert"}}
+      <div class="notice-text">
+        <p class="cause">À signaler</p>
+        <ul class="warnings">{{range .Warnings}}<li>{{.}}</li>{{end}}</ul>
+      </div>
+    </section>
+    {{end}}
+    {{range .Sections}}
+    <section class="card report">
+      <h2>{{template "icon" .Icon}}{{.Title}}</h2>
+      <dl class="facts">
+        {{range .Facts}}
+        <dt>{{.Label}}</dt>
+        <dd class="value {{.Value.Tone}}{{if .Value.Mono}} mono{{end}}"{{if .Value.Title}} title="{{.Value.Title}}"{{end}}>{{if .Value.Mark}}{{template "icon" .Value.Mark}}{{end}}<span>{{.Value.Text}}</span></dd>
+        {{end}}
+      </dl>
+    </section>
+    {{end}}
+    {{end}}
+    <details class="raw">
+      <summary>{{template "icon-terminal"}}Sortie brute</summary>
+      <div class="output">
+        {{range .Lines}}<div class="line {{.Class}}">{{.Text}}</div>{{end}}
+      </div>
+    </details>
+    {{else}}
+    <div class="section-head"><h2>{{template "icon-terminal"}}Sortie</h2><span class="muted">journald de la machine, relu par SSH</span></div>
     <div id="action-output" class="output" data-stream="{{.StreamPath}}" data-live="{{if .Running}}oui{{else}}non{{end}}">
       {{range .Lines}}<div class="line {{.Class}}">{{.Text}}</div>{{end}}
       {{if and (not .Lines) (not .Running)}}<div class="line plain">aucune ligne de sortie</div>{{end}}
       {{if .Running}}<p class="live" id="action-live"><span class="cursor"></span>La sortie s'affiche au fil de l'eau.</p>{{end}}
     </div>
+    {{end}}
   </div>
 
   <section class="card">
-    <h2>Ce que fait cette action</h2>
+    <h2>{{template "icon-info"}}Ce que fait cette action</h2>
     <dl class="facts single">
       {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
       <dt>Déposée</dt><dd>{{.CreatedAt}}</dd>

@@ -160,7 +160,7 @@ func TestPostLogin_WithoutCSRF_IsForbidden(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("code = %d, attendu 403", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), messageFormExpired) {
+	if !strings.Contains(response.Body.String(), messageFormExpired.Cause) {
 		t.Fatal("le refus doit expliquer quoi faire")
 	}
 }
@@ -208,7 +208,7 @@ func TestPostLogin_TooManyFailures_Is429WithMessage(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("code = %d, attendu 429", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), messageTooManyAttempts) {
+	if !strings.Contains(response.Body.String(), messageTooManyAttempts.Cause) {
 		t.Fatal("le message doit dire d'attendre")
 	}
 }
@@ -231,7 +231,7 @@ func TestPostLogin_WrongPassword_ShowsMessage(t *testing.T) {
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("code = %d, attendu 401", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), messageInvalidLogin) {
+	if !strings.Contains(response.Body.String(), messageInvalidLogin.Cause) {
 		t.Fatal("le message d'erreur doit s'afficher")
 	}
 }
@@ -246,7 +246,7 @@ func TestLogin_DefaultPassword_ForcesChangeBeforeAnythingElse(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("code = %d", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), "doit être changé") {
+	if !strings.Contains(response.Body.String(), messageDefaultPassword.Cause) {
 		t.Fatal("la page doit dire pourquoi on est là")
 	}
 }
@@ -275,7 +275,7 @@ func TestChangePassword_Mismatch_IsRefused(t *testing.T) {
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("code = %d", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), messageConfirmationDiffers) {
+	if !strings.Contains(response.Body.String(), messageConfirmationDiffers.Cause) {
 		t.Fatal("le refus doit être affiché")
 	}
 }
@@ -385,5 +385,78 @@ func TestPages_CarrySecurityHeaders(t *testing.T) {
 
 	if response.Header().Get("Content-Security-Policy") == "" || response.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("en-têtes = %v", response.Header())
+	}
+}
+
+// La barre du haut ne porte plus qu'un onglet ; « Mot de passe » et « Se
+// déconnecter » sont passés dans le menu du compte.
+func TestTopbar_SignedIn_CarriesTheAccountMenu(t *testing.T) {
+	visitor := newBrowser(t)
+	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+	visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password")
+
+	body := visitor.get("/").Body.String()
+
+	for _, expected := range []string{`<details class="account" id="account-menu">`,
+		`<span class="avatar">A</span>`, "Compte", `href="/password"`,
+		`action="/logout"`, "Se déconnecter", `<script src="/static/menu.js" defer>`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("la barre du haut ne porte pas %q :\n%s", expected, body)
+		}
+	}
+	if strings.Contains(body, `<a href="/password">Mot de passe</a>`) {
+		t.Fatal("« Mot de passe » a quitté la navigation")
+	}
+}
+
+func TestTopbar_TheOpenTab_IsUnderlined(t *testing.T) {
+	visitor := newBrowser(t)
+	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+	visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password")
+
+	if !strings.Contains(visitor.get("/").Body.String(), `<a href="/" class="current">Infrastructure</a>`) {
+		t.Fatal("l'onglet ouvert se voit sur l'Infrastructure")
+	}
+	if strings.Contains(visitor.get("/password").Body.String(), `class="current"`) {
+		t.Fatal("hors de l'Infrastructure, aucun onglet n'est souligné")
+	}
+}
+
+// Avant connexion, ni onglet ni menu : la page de connexion ne montre que
+// son formulaire.
+func TestTopbar_Anonymous_HasNoMenu(t *testing.T) {
+	body := newBrowser(t).get("/login").Body.String()
+
+	if strings.Contains(body, "account-menu") || strings.Contains(body, "Se déconnecter") {
+		t.Fatalf("aucun menu avant connexion :\n%s", body)
+	}
+}
+
+// Les icônes que Go nomme et celles que le gabarit dessine sont le même jeu :
+// un nom sans dessin ne se verrait qu'à l'écran.
+func TestIcons_EveryNameFromGo_IsDrawnByTheTemplate(t *testing.T) {
+	server := newTestServer(t)
+	names := []string{iconActivity, iconAlert, iconCheck, iconClock, iconInfo, iconKey,
+		iconRefresh, iconServer, iconShield, iconTerminal, iconX}
+
+	for _, name := range names {
+		var drawn strings.Builder
+		if err := server.templates["login"].ExecuteTemplate(&drawn, "icon", name); err != nil {
+			t.Fatalf("icône %q : %v", name, err)
+		}
+		if !strings.Contains(drawn.String(), `<svg class="icon"`) {
+			t.Fatalf("icône %q : aucun dessin", name)
+		}
+	}
+}
+
+// Un refus se lit toujours pareil : la cause, puis le geste qui la lève.
+func TestRefusal_LooksTheSameEverywhere(t *testing.T) {
+	body := newBrowser(t).login("admin", "wrong").Body.String()
+
+	for _, expected := range []string{`<section class="notice error">`, `<p class="cause">`, `<p class="remedy">`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("le refus ne prend pas la forme commune (%s) :\n%s", expected, body)
+		}
 	}
 }

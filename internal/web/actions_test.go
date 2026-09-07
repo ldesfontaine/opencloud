@@ -340,7 +340,7 @@ func TestPostAction_Interrupting_WithoutConfirmation_Is400(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, attendu 400", response.Code)
 	}
-	if !strings.Contains(response.Body.String(), messageConfirmationRequired) {
+	if !strings.Contains(response.Body.String(), messageConfirmationRequired.Cause) {
 		t.Fatalf("le refus doit être nommé :\n%s", response.Body.String())
 	}
 	if len(actions.calls) != 0 {
@@ -566,4 +566,86 @@ func readUntil(t *testing.T, reader *bufio.Reader, expected string) string {
 	}
 	t.Fatalf("%q n'est jamais arrivé dans le flux :\n%s", expected, read.String())
 	return ""
+}
+
+// La page d'une action Diagnostiquer conclue montre un rapport, pas un
+// journal : la sortie brute reste là, repliée dessous.
+func TestAction_ConcludedDiagnostiquer_ShowsAReportAndFoldsTheRawOutput(t *testing.T) {
+	actions := newFakeActions()
+	code := 0
+	actions.actions["diagnostiquer-1"] = store.Action{
+		ID: "diagnostiquer-1", MachineID: store.LocalMachineID,
+		Kind: string(catalog.KindDiagnostiquer), State: store.StateApplied,
+		Result: "inchangé", ExitCode: &code, CreatedAt: time.Now().UTC(),
+	}
+	actions.lines["diagnostiquer-1"] = storedLines(enrolledDiagnosticOutput)
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		actions, defaultCatalog(), nil)
+
+	body := signedIn(t, server).get("/actions/diagnostiquer-1").Body.String()
+
+	for _, expected := range []string{"Identité", "Horloge synchronisée", "oui",
+		"Unités en échec", "aucune", "Port 80", "tenu", "Propriétaire du lanceur"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("le rapport ne montre pas %q :\n%s", expected, body)
+		}
+	}
+	if !strings.Contains(body, "port publié sur toutes les interfaces") {
+		t.Fatal("les avertissements se lisent en tête du rapport")
+	}
+	if !strings.Contains(body, "<summary>") || !strings.Contains(body, "Sortie brute") {
+		t.Fatalf("la sortie brute reste disponible, repliée :\n%s", body)
+	}
+	if !strings.Contains(body, "info: horloge_synchronisee=yes") {
+		t.Fatal("la sortie brute garde les lignes telles que le script les a écrites")
+	}
+}
+
+// Une action qui tourne n'a pas de rapport : le journal arrive au fil de
+// l'eau, le rapport se construit à la fin.
+func TestAction_RunningDiagnostiquer_KeepsTheLiveJournal(t *testing.T) {
+	actions := newFakeActions()
+	actions.actions["diagnostiquer-1"] = store.Action{
+		ID: "diagnostiquer-1", MachineID: store.LocalMachineID,
+		Kind: string(catalog.KindDiagnostiquer), State: store.StateRunning, CreatedAt: time.Now().UTC(),
+	}
+	actions.lines["diagnostiquer-1"] = storedLines(enrolledDiagnosticOutput)
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		actions, defaultCatalog(), nil)
+
+	body := signedIn(t, server).get("/actions/diagnostiquer-1").Body.String()
+
+	if strings.Contains(body, "Sortie brute") {
+		t.Fatalf("pas de rapport tant que l'action tourne :\n%s", body)
+	}
+	if !strings.Contains(body, `id="action-output"`) {
+		t.Fatal("le direct garde sa sortie")
+	}
+}
+
+// L'écran « avant » dit ce que l'action va lire, en plus des quatre attributs.
+func TestActionForm_Diagnostiquer_SaysWhatWillBeRead(t *testing.T) {
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		newFakeActions(), defaultCatalog(), nil)
+
+	body := signedIn(t, server).get("/machines/local/actions/diagnostiquer").Body.String()
+
+	for _, expected := range []string{"de la machine sans rien changer",
+		"Ce qui va être lu", "les unités systemd en échec", "les ports 80 et 443", "le lanceur"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("l'écran « avant » ne dit pas %q :\n%s", expected, body)
+		}
+	}
+}
+
+// La carte de l'action, sur la fiche machine, dit la même ligne.
+func TestMachine_TheDiagnoseCard_SaysWhatTheActionDoes(t *testing.T) {
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		newFakeActions(), defaultCatalog(), nil)
+
+	body := signedIn(t, server).get("/machines/local").Body.String()
+
+	if !strings.Contains(body, "de la machine sans rien changer") {
+		t.Fatalf("la carte Diagnostiquer dit ce que l'action fait :\n%s", body)
+	}
 }

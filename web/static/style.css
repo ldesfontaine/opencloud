@@ -107,8 +107,26 @@ a:hover { text-decoration: underline; }
 h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 h1 { font-size: 28px; font-weight: 800; }
 h2 { font-size: 17px; font-weight: 700; }
+/* Un titre de carte porte son icône devant : elle fait partie du titre. */
+h1, h2 { display: flex; align-items: center; gap: 10px; }
 
 p { margin: 0; }
+
+/* Les icônes : un seul jeu, deux tailles — 16 px au fil du texte, 20 px dans
+   une pastille. Le gabarit ne pose aucune dimension, le CSS les tient. */
+.icon { width: 16px; height: 16px; flex: none; }
+.brand-mark .icon, .counter-mark .icon, .machine-mark .icon { width: 20px; height: 20px; }
+
+/* Lu par les lecteurs d'écran, pas par l'œil : ce qu'une icône seule dit. */
+.reader-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 .mono { font-family: var(--mono); font-size: 13px; }
 .muted { color: var(--muted); }
@@ -133,8 +151,6 @@ p { margin: 0; }
 }
 
 .topbar-left { display: flex; align-items: center; gap: 28px; }
-.topbar-right { display: flex; align-items: center; gap: 12px; font-size: 14px; white-space: nowrap; }
-.topbar-right form { margin: 0; }
 
 .brand {
   display: flex;
@@ -168,21 +184,94 @@ nav a {
   white-space: nowrap;
 }
 nav a:hover { background: var(--subtle); color: var(--ink); text-decoration: none; }
+nav a.current { background: var(--subtle); color: var(--ink); font-weight: 600; }
 
-/* Se déconnecter est un POST : un bouton déguisé en lien discret. */
-.signout {
+/* Mon compte : un <details> tient le menu, sans script et sans style inline.
+   La pastille porte l'initiale, le chevron dit qu'il y a quelque chose
+   dessous. */
+.account { position: relative; }
+
+.account summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px 0 6px;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+.account summary::-webkit-details-marker { display: none; }
+.account summary:hover { background: var(--subtle); }
+.account summary .icon { color: var(--muted); }
+.account[open] summary .icon { transform: rotate(180deg); }
+
+.avatar {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 800;
+  flex: none;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 240px;
+  padding: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.menu-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.menu-head span { display: flex; flex-direction: column; }
+.menu-who { color: var(--ink); font-weight: 700; font-size: 14px; }
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: inherit;
   font-size: 14px;
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
 }
-.signout:hover { color: var(--ink); }
+.menu-item:hover { background: var(--subtle); color: var(--ink); text-decoration: none; filter: none; }
+.menu-item .icon { color: var(--muted); }
+.menu form { margin: 0; }
 
 main {
   display: flex;
@@ -212,6 +301,7 @@ footer {
 .page-head p { max-width: 78ch; }
 .page-actions { display: flex; gap: 10px; }
 
+/* Le fil d'Ariane remonte : le chevron du menu, tourné vers la gauche. */
 .breadcrumb {
   display: inline-flex;
   align-items: center;
@@ -220,6 +310,7 @@ footer {
   font-size: 13px;
 }
 .breadcrumb:hover { color: var(--ink); }
+.breadcrumb .icon { width: 14px; height: 14px; transform: rotate(90deg); }
 
 /* Deux colonnes qui se replient sur un écran étroit. */
 .split { display: grid; gap: 24px; align-items: start; }
@@ -461,17 +552,64 @@ input.mono { font-family: var(--mono); font-size: 13px; }
 .confirm label { display: inline; font-weight: 400; margin: 0; font-size: 14px; }
 .confirm input { accent-color: var(--accent); margin-top: 4px; }
 
-/* Notes et refus : la même boîte, deux tons. */
+/* Refus, erreurs et avertissements : une seule forme — l'icône, la cause en
+   gras, puis le geste qui la lève. Trois tons, rien d'autre à lire. */
 .notice {
-  padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
   border-radius: 12px;
   background: var(--accent-note);
   color: var(--ink);
   font-size: 14px;
 }
+.notice > .icon { margin-top: 2px; color: var(--accent); }
 .notice.error { background: var(--danger-bg); color: var(--danger); }
-.notice p + p { margin-top: 4px; }
-.notice .remedy { display: flex; align-items: baseline; gap: 8px; }
+.notice.error > .icon { color: var(--danger); }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.warn > .icon { color: var(--warn); }
+
+.notice-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.notice .cause { font-weight: 700; }
+.notice .remedy { display: flex; align-items: baseline; gap: 8px; opacity: 0.9; }
+.notice .warnings { margin: 2px 0 0; padding-left: 18px; }
+.notice .warnings li { margin-top: 2px; }
+
+/* L'enrôlement dans un tableau : une clé, verte ou grise, et sa phrase en
+   title. La colonne dit un état, pas une phrase. */
+.mark { display: inline-flex; color: var(--muted); }
+.mark.ok { color: var(--ok); }
+
+/* Ce qu'une action va lire, avant de la lancer : une ligne, une icône. */
+.items { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.items li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.items .icon { color: var(--muted); }
+
+/* Le rapport d'une action conclue : une carte par étape, une grille dedans. */
+.card.report { padding: 20px 24px; }
+.card.report > h2 { margin-bottom: 14px; }
+.report .facts { grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 10px 24px; align-items: baseline; }
+.report .facts dd.value { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.report .facts dd.value span { overflow: hidden; text-overflow: ellipsis; }
+.report .value.ok { color: var(--ok); font-weight: 600; }
+.report .value.warn { color: var(--warn); font-weight: 600; }
+.report .value.danger { color: var(--danger); font-weight: 600; }
+.report .value.accent { color: var(--accent); font-weight: 600; }
+
+/* La sortie brute reste là, repliée sous le rapport. */
+details.raw > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+details.raw > summary::-webkit-details-marker { display: none; }
+details.raw > summary:hover { color: var(--ink); }
+details.raw[open] > summary { margin-bottom: 10px; }
 
 /* Le bandeau d'un résultat obtenu, en tête de la sortie : vert quand l'action
    est appliquée, rouge quand elle a échoué ou a été refusée. */

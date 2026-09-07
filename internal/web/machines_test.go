@@ -744,3 +744,33 @@ func TestMachineScopedActions_LeaveOutEnroler_ItIsPlayedByTheCommand(t *testing.
 		t.Fatalf("actions disponibles = %+v : Enrôler se joue par la commande collée, pas depuis la fiche", available)
 	}
 }
+
+// Dans le tableau, l'enrôlement est une clé et son title ; la phrase entière
+// reste sur la fiche de la machine.
+func TestInfrastructure_TheEnrolmentColumn_IsAMarkWithItsSentence(t *testing.T) {
+	since := time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
+	server := newEnrolServer(t, enrolFakes{
+		machines:  &fakeMachines{machines: []store.Machine{remoteMachine}},
+		enrolment: enrolledSince(since),
+		enroller:  &fakeEnroller{},
+	})
+
+	body := signedIn(t, server).get("/").Body.String()
+
+	if !strings.Contains(body, `<span class="mark ok" title="enrôlée depuis le `+formatMoment(since)+`">`) {
+		t.Fatalf("la colonne porte une clé verte et sa phrase en title :\n%s", body)
+	}
+}
+
+func TestInfrastructure_NotEnrolled_TheMarkStaysGreyAndSaysTheGesture(t *testing.T) {
+	server := newEnrolServer(t, enrolFakes{
+		machines: &fakeMachines{machines: []store.Machine{remoteMachine}},
+		enroller: &fakeEnroller{},
+	})
+
+	body := signedIn(t, server).get("/").Body.String()
+
+	if !strings.Contains(body, `<span class="mark" title="non enrôlée : jouer la commande`) {
+		t.Fatalf("la clé reste grise et dit le geste :\n%s", body)
+	}
+}

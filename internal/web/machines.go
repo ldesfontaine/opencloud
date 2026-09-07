@@ -19,7 +19,7 @@ func (s *Server) showMachineForm(w http.ResponseWriter, r *http.Request, account
 	}
 
 	view := machineFormView{Values: map[string]string{portFieldName: strconv.Itoa(defaultSSHPort)}}
-	s.render(w, http.StatusOK, "machine-new", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+	s.render(w, http.StatusOK, "machine-new", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
 // submitMachine déclare la machine puis engendre sa clé et la commande à
@@ -33,7 +33,7 @@ func (s *Server) submitMachine(w http.ResponseWriter, r *http.Request, account s
 		return
 	}
 	if err := s.verifyCSRF(r); err != nil {
-		page := s.newPage(&account, s.rotateCSRF(w)).withData(submittedMachineForm(r, nil)).withError(messageFormExpired)
+		page := s.newPage(r, &account, s.rotateCSRF(w)).withData(submittedMachineForm(r, nil)).withError(messageFormExpired)
 		s.render(w, http.StatusForbidden, "machine-new", page)
 		return
 	}
@@ -51,7 +51,7 @@ func (s *Server) submitMachine(w http.ResponseWriter, r *http.Request, account s
 		}
 	}
 	if refused != nil {
-		page := s.newPage(&account, s.csrfFormToken(w, r)).withData(submittedMachineForm(r, refused))
+		page := s.newPage(r, &account, s.csrfFormToken(w, r)).withData(submittedMachineForm(r, refused))
 		s.render(w, http.StatusUnprocessableEntity, "machine-new", page)
 		return
 	}
@@ -236,18 +236,18 @@ func (s *Server) showMachineRefusal(w http.ResponseWriter, r *http.Request, acco
 		return
 	}
 	view.Refusal = &refused
-	s.render(w, http.StatusUnprocessableEntity, "machine", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+	s.render(w, http.StatusUnprocessableEntity, "machine", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
 // showMachineMessage réaffiche la fiche avec un message : formulaire périmé,
 // empreinte hors forme. Le jeton est renouvelé, le formulaire reste jouable.
-func (s *Server) showMachineMessage(w http.ResponseWriter, r *http.Request, account store.Account, machine store.Machine, status int, message string) {
+func (s *Server) showMachineMessage(w http.ResponseWriter, r *http.Request, account store.Account, machine store.Machine, status int, message refusalView) {
 	view, err := s.newMachineView(r, machine)
 	if err != nil {
 		s.serverError(w, "build machine view", err)
 		return
 	}
-	s.render(w, status, "machine", s.newPage(&account, s.rotateCSRF(w)).withData(view).withError(message))
+	s.render(w, status, "machine", s.newPage(r, &account, s.rotateCSRF(w)).withData(view).withError(message))
 }
 
 // submittedMachineForm rend le formulaire tel qu'il a été saisi : un refus ne

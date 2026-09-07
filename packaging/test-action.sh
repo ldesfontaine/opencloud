@@ -28,7 +28,7 @@ step "connexion, changement du mot de passe par défaut"
 login_and_set_password
 
 step "avant l'amorçage : la machine se dit non enrôlée, une action est refusée"
-get_page /machines/local | grep -q "non enrôlée" || fail "la fiche ne dit pas « non enrôlée »"
+page_has /machines/local "non enrôlée" || fail "la fiche ne dit pas « non enrôlée »"
 id=$(launch_diagnostiquer local)
 page=$(wait_for_conclusion "$id")
 printf '%s' "$page" | grep -q 'Refusée' || fail "une action vers une machine non enrôlée doit être refusée"
@@ -61,7 +61,7 @@ set -e
 [ "$code" -ne 0 ] || fail "sudo laisse le compte opencloud lancer autre chose que le lanceur"
 
 step "la fiche de la machine dit enrôlée"
-get_page /machines/local | grep -q "enrôlée depuis" \
+page_has /machines/local "enrôlée depuis" \
     || fail "la fiche ne dit pas « enrôlée depuis » : $(get_page /machines/local | grep -o 'enrôlée[^<]*' | head -n 1)"
 
 step "Diagnostiquer, suivie jusqu'à sa conclusion"
@@ -93,6 +93,6 @@ page=$(wait_for_conclusion "$id")
 printf '%s' "$page" | grep -q 'Appliquée' || fail "l'action lancée avant la coupure n'est pas « Appliquée » après la reprise"
 
 step "l'historique de la machine montre les actions"
-get_page /machines/local | grep -q "$id" || fail "la fiche de la machine ne liste pas la dernière action"
+page_has /machines/local "$id" || fail "la fiche de la machine ne liste pas la dernière action"
 
 printf '\nTout tient : amorçage, refus, lancement, suivi, journal, direct, reprise.\n'
