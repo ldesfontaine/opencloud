@@ -47,13 +47,14 @@ type machineCounter struct {
 }
 
 type machineRow struct {
-	ID             string
-	Name           string
-	Address        string
-	Enrolled       bool
-	EnrolmentLabel string
-	Status         machineStatus
-	LastAction     *actionRow
+	ID       string
+	Name     string
+	Address  string
+	Enrolled bool
+	// L'enrôlement dit en deux temps : le constat, puis le geste qui le lève.
+	Enrolment  refusalView
+	Status     machineStatus
+	LastAction *actionRow
 }
 
 type actionRow struct {
@@ -66,14 +67,14 @@ type actionRow struct {
 }
 
 type machineView struct {
-	ID             string
-	Name           string
-	Address        string
-	Port           int
-	Account        string
-	Enrolled       bool
-	EnrolmentLabel string
-	Status         machineStatus
+	ID        string
+	Name      string
+	Address   string
+	Port      int
+	Account   string
+	Enrolled  bool
+	Enrolment refusalView
+	Status    machineStatus
 	// La commande à coller sur la machine, vide dès qu'elle est enrôlée et
 	// pour la machine openCloud, qui s'amorce par enroll-local.
 	Command         string
@@ -122,6 +123,9 @@ type preparedFile struct {
 	Mode string
 }
 
+// refusalView : ce qui a été refusé, en deux temps — la cause, puis le geste
+// qui la lève. Un refus du domaine, un message de formulaire et un
+// avertissement prennent tous cette forme.
 type refusalView struct {
 	Cause  string
 	Remedy string
@@ -131,12 +135,24 @@ func newRefusalView(refused refusal.Refusal) refusalView {
 	return refusalView{Cause: refused.Cause, Remedy: refused.Remedy}
 }
 
+// Sentence rend les deux temps en une phrase, pour un title ou une cellule de
+// tableau où la carte ne tient pas.
+func (r refusalView) Sentence() string {
+	if r.Remedy == "" {
+		return r.Cause
+	}
+	return r.Cause + " : " + r.Remedy
+}
+
 type actionFormView struct {
-	Machine           machineRow
-	Kind              string
-	Label             string
-	Summary           string
-	Attributes        []attribute
+	Machine    machineRow
+	Kind       string
+	Label      string
+	Summary    string
+	Attributes []attribute
+	// Ce que l'action va lire ou poser, dit avant qu'on la lance ; vide pour
+	// une action que l'interface ne sait pas encore décrire.
+	Items             []describedItem
 	Params            []catalog.ParamSpec
 	Values            map[string]string
 	Files             []preparedFile
@@ -153,12 +169,17 @@ type actionView struct {
 	StateLabel string
 	Attributes []attribute
 	Result     string
-	Note       string
+	// Ce que le runner a noté quand l'action n'est pas allée au bout ; nil
+	// quand elle est passée.
+	Note       *refusalView
 	ExitCode   string
 	CreatedAt  string
 	LaunchedAt string
 	FinishedAt string
 	Lines      []outputLine
+	// La sortie relue en rapport, nil quand l'action tourne encore ou quand
+	// son espèce n'a pas de lecture.
+	Report     *report
 	Running    bool
 	StreamPath string
 }
@@ -200,6 +221,21 @@ func outputLineClass(text string) string {
 	return linePlain
 }
 
+// newActionNote relit la note du runner. Un refus y est écrit par
+// refusal.Refusal.Error() : « refus : <cause> », puis « → <remède> » à la
+// ligne. Une note d'une autre forme n'a pas de remède, et se lit seule.
+func newActionNote(note string) *refusalView {
+	if note == "" {
+		return nil
+	}
+	cause, remedy, found := strings.Cut(note, "\n→ ")
+	shown := refusalView{Cause: strings.TrimPrefix(cause, "refus : ")}
+	if found {
+		shown.Remedy = remedy
+	}
+	return &shown
+}
+
 // Les quatre attributs que l'écran montre avant d'exécuter (05-execution.md).
 func attributesOf(definition catalog.Definition) []attribute {
 	return []attribute{
@@ -226,11 +262,11 @@ func (s *Server) enrolmentStatus(ctx context.Context, machineID string) Enrolmen
 
 func newMachineRow(machine store.Machine, status EnrolmentStatus) machineRow {
 	return machineRow{
-		ID:             machine.ID,
-		Name:           machine.Name,
-		Address:        machine.Address,
-		Enrolled:       status.Enrolled,
-		EnrolmentLabel: enrolmentLabel(machine, status),
+		ID:        machine.ID,
+		Name:      machine.Name,
+		Address:   machine.Address,
+		Enrolled:  status.Enrolled,
+		Enrolment: enrolmentNotice(machine, status),
 	}
 }
 

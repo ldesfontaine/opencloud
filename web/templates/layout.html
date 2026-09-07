@@ -7,6 +7,7 @@
   <meta name="htmx-config" content='{"includeIndicatorCSS": false}'>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
+  {{if .Account}}<script src="/static/menu.js" defer></script>{{end}}
   {{block "scripts" .}}{{end}}
 </head>
 <body hx-boost:inherited="true">
@@ -15,49 +16,100 @@
       <a class="brand" href="/"><span class="brand-mark">{{template "icon-cloud"}}</span>openCloud</a>
       {{if .Account}}
       <nav>
-        <a href="/">Infrastructure</a>
-        <a href="/password">Mot de passe</a>
+        <a href="/"{{if eq .Path "/"}} class="current"{{end}}>Infrastructure</a>
       </nav>
       {{end}}
     </div>
     {{if .Account}}
-    <div class="topbar-right">
-      <span class="muted">{{.Account.Username}}</span>
-      <form method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
-        <button type="submit" class="signout">{{template "icon-logout"}}Se déconnecter</button>
-      </form>
-    </div>
+    <details class="account" id="account-menu">
+      <summary>
+        <span class="avatar">{{.AccountInitial}}</span>
+        <span class="account-name">{{.Account.Username}}</span>
+        {{template "icon-chevron"}}
+      </summary>
+      <div class="menu">
+        <p class="menu-head">{{template "icon-user"}}<span>Compte<span class="menu-who">{{.Account.Username}}</span></span></p>
+        <a class="menu-item" href="/password">{{template "icon-key"}}Mot de passe</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+          <button type="submit" class="menu-item">{{template "icon-logout"}}Se déconnecter</button>
+        </form>
+      </div>
+    </details>
     {{end}}
   </header>
   <main>
-    {{if .Error}}<p class="notice error">{{.Error}}</p>{{end}}
+    {{if .Error}}{{template "refusal" .Error}}{{end}}
     {{template "content" .}}
   </main>
   <footer>openCloud {{.Version}}</footer>
 </body>
 </html>{{end}}
 
-{{/* Les icônes : des SVG posés dans le gabarit, jamais un emoji, jamais un
-     fichier tiers. Trait de 1.8, 16 à 20 px, invisibles aux lecteurs d'écran. */}}
-{{define "icon-cloud"}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 16a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10.6 1.5A3.5 3.5 0 0 1 17.5 16z"></path></svg>{{end}}
-{{define "icon-logout"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M9 12h10"></path></svg>{{end}}
-{{define "icon-plus"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>{{end}}
-{{define "icon-check"}}<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4L19 7"></path></svg>{{end}}
-{{define "icon-pulse"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>{{end}}
-{{define "icon-pulse-small"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>{{end}}
-{{define "icon-alert"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"></path><path d="M12 9v5"></path><circle cx="12" cy="17" r=".8"></circle></svg>{{end}}
-{{define "icon-plug"}}<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4"></circle><path d="M12 12h9l-2 2m-2-2 2-2"></path></svg>{{end}}
-{{define "icon-plug-small"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="12" r="4"></circle><path d="M12 12h9l-2 2m-2-2 2-2"></path></svg>{{end}}
-{{define "icon-server"}}<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><circle cx="7" cy="7.5" r="1"></circle><circle cx="7" cy="16.5" r="1"></circle></svg>{{end}}
-{{define "icon-play"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 5v14l11-7z"></path></svg>{{end}}
-{{define "icon-back"}}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m6-7-7 7 7 7"></path></svg>{{end}}
-{{define "icon-remedy"}}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-7-7 7 7-7 7"></path></svg>{{end}}
+{{/* Les icônes : un seul jeu, des SVG posés dans le gabarit, jamais un emoji,
+     jamais un fichier tiers. Même grille de 24, même trait de 1.8 ; la taille
+     vient du CSS — 16 px partout, 20 px dans une pastille. Invisibles aux
+     lecteurs d'écran : c'est le texte à côté qui parle. */}}
+{{define "icon-cloud"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 16a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10.6 1.5A3.5 3.5 0 0 1 17.5 16z"></path></svg>{{end}}
+{{define "icon-server"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"></rect><rect x="3" y="13" width="18" height="7" rx="2"></rect><circle cx="7" cy="7.5" r="1"></circle><circle cx="7" cy="16.5" r="1"></circle></svg>{{end}}
+{{define "icon-activity"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>{{end}}
+{{define "icon-alert"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"></path><path d="M12 9v5"></path><circle cx="12" cy="17" r=".8"></circle></svg>{{end}}
+{{define "icon-key"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="3.5"></circle><path d="M10 13 20 3"></path><path d="m16.5 6.5 2.5 2.5"></path><path d="m13.5 9.5 2.5 2.5"></path></svg>{{end}}
+{{define "icon-plus"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>{{end}}
+{{define "icon-check"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l4 4L19 7"></path></svg>{{end}}
+{{define "icon-x"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>{{end}}
+{{define "icon-clock"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>{{end}}
+{{define "icon-terminal"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 7 5 5-5 5"></path><path d="M12 17h8"></path></svg>{{end}}
+{{define "icon-shield"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.2-2.8 7.5-7 9-4.2-1.5-7-4.8-7-9V6z"></path></svg>{{end}}
+{{define "icon-refresh"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"></path><path d="M20 4v4h-4"></path></svg>{{end}}
+{{define "icon-user"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20a8 8 0 0 1 16 0"></path></svg>{{end}}
+{{define "icon-logout"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M9 12h10"></path></svg>{{end}}
+{{define "icon-chevron"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>{{end}}
+{{define "icon-copy"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>{{end}}
+{{define "icon-arrow-right"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-7-7 7 7-7 7"></path></svg>{{end}}
+{{define "icon-info"}}<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="8" r=".8"></circle></svg>{{end}}
 
-{{/* Le refus : la cause, puis le geste qui la lève. */}}
+{{/* Le dessin choisi par son nom : Go nomme l'icône (internal/web/icons.go),
+     le gabarit la pose. Un nom inconnu ne dessine rien. */}}
+{{define "icon"}}
+{{- if eq . "server"}}{{template "icon-server"}}
+{{- else if eq . "activity"}}{{template "icon-activity"}}
+{{- else if eq . "alert"}}{{template "icon-alert"}}
+{{- else if eq . "key"}}{{template "icon-key"}}
+{{- else if eq . "plus"}}{{template "icon-plus"}}
+{{- else if eq . "check"}}{{template "icon-check"}}
+{{- else if eq . "x"}}{{template "icon-x"}}
+{{- else if eq . "clock"}}{{template "icon-clock"}}
+{{- else if eq . "terminal"}}{{template "icon-terminal"}}
+{{- else if eq . "shield"}}{{template "icon-shield"}}
+{{- else if eq . "refresh"}}{{template "icon-refresh"}}
+{{- else if eq . "user"}}{{template "icon-user"}}
+{{- else if eq . "logout"}}{{template "icon-logout"}}
+{{- else if eq . "chevron"}}{{template "icon-chevron"}}
+{{- else if eq . "copy"}}{{template "icon-copy"}}
+{{- else if eq . "arrow-right"}}{{template "icon-arrow-right"}}
+{{- else if eq . "info"}}{{template "icon-info"}}
+{{- end}}
+{{- end}}
+
+{{/* Un refus : la cause en une ligne, puis le geste qui la lève. Un
+     avertissement prend la même forme, en accent. */}}
 {{define "refusal"}}
 <section class="notice error">
-  <p><strong>Refus : {{.Cause}}</strong></p>
-  <p class="remedy">{{template "icon-remedy"}}<span>{{.Remedy}}</span></p>
+  {{template "icon-alert"}}
+  <div class="notice-text">
+    <p class="cause">{{.Cause}}</p>
+    {{if .Remedy}}<p class="remedy">{{template "icon-arrow-right"}}<span>{{.Remedy}}</span></p>{{end}}
+  </div>
+</section>
+{{end}}
+
+{{define "warning"}}
+<section class="notice">
+  {{template "icon-info"}}
+  <div class="notice-text">
+    <p class="cause">{{.Cause}}</p>
+    {{if .Remedy}}<p class="remedy">{{template "icon-arrow-right"}}<span>{{.Remedy}}</span></p>{{end}}
+  </div>
 </section>
 {{end}}

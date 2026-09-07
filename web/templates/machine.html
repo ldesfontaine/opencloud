@@ -2,7 +2,7 @@
 {{define "content"}}
 {{with .Data}}
 <div class="page-head">
-  <a class="breadcrumb" href="/">{{template "icon-back"}}Infrastructure</a>
+  <a class="breadcrumb" href="/">{{template "icon-chevron"}}Infrastructure</a>
   <div class="page-head-row">
     <div class="page-title">
       <h1>{{.Name}}</h1>
@@ -12,13 +12,10 @@
     {{if .CanProbe}}
     <form method="post" action="/machines/{{.ID}}/probe">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-      <button type="submit" class="secondary">{{template "icon-pulse-small"}}Tester l'accès</button>
+      <button type="submit" class="secondary">{{template "icon-activity"}}Tester l'accès</button>
     </form>
     {{end}}
   </div>
-  {{if .Command}}
-  <p class="muted">Deux temps : la commande sur la machine, puis l'empreinte ici. Rien n'est appris à la connexion.</p>
-  {{end}}
 </div>
 
 {{if .Refusal}}{{template "refusal" .Refusal}}{{end}}
@@ -28,24 +25,23 @@
   <section class="card">
     <div class="step-head">
       <span class="step-number now">1</span>
-      <h2>La commande à jouer</h2>
+      <h2>{{template "icon-terminal"}}La commande à jouer</h2>
     </div>
-    <p class="muted">À coller sur la machine, en root. Elle crée le compte, pose sa règle <span class="mono">sudo</span>,
-    le drop-in <span class="mono">sshd</span> et la clé, puis affiche l'empreinte de la clé d'hôte.</p>
+    <p class="muted">À coller sur la machine, en root.</p>
     <div class="command-block">
-      <textarea class="command" readonly id="enrolment-command" rows="6" aria-label="Commande à coller sur la machine">{{.Command}}</textarea>
-      <button type="button" class="copy" data-copy="enrolment-command">Copier</button>
+      <textarea class="command" readonly id="enrolment-command" rows="6"
+                title="Elle crée le compte, pose sa règle sudo, le drop-in sshd et la clé, puis affiche l'empreinte de la clé d'hôte. Une seule ligne : « Copier » la prend en entier."
+                aria-label="Commande à coller sur la machine">{{.Command}}</textarea>
+      <button type="button" class="copy" data-copy="enrolment-command">{{template "icon-copy"}}Copier</button>
     </div>
-    <p class="hint">La commande fait une seule ligne ; « Copier » la prend en entier.</p>
   </section>
 
   <section class="card">
     <div class="step-head">
       <span class="step-number">2</span>
-      <h2>Confirmer l'empreinte</h2>
+      <h2>{{template "icon-shield"}}Confirmer l'empreinte</h2>
     </div>
-    <p class="muted">openCloud relève la clé d'hôte et refuse si elle ne correspond pas à
-    l'empreinte affichée par la commande.</p>
+    <p class="muted" title="openCloud relève la clé d'hôte et refuse si elle ne correspond pas à l'empreinte affichée par la commande.">Rien n'est appris à la connexion : l'empreinte se confirme ici.</p>
     <form method="post" action="/machines/{{.ID}}/confirm">
       <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
       <label for="fingerprint">Empreinte affichée par la commande</label>
@@ -58,18 +54,18 @@
 
 <div class="split{{if .Running}} even{{end}}">
   <section class="card">
-    <h2>Accès</h2>
+    <h2>{{template "icon-key"}}Accès</h2>
     <dl class="facts">
       <dt>Adresse</dt><dd class="mono">{{.Address}}:{{.Port}}</dd>
       <dt>Compte</dt><dd class="mono">{{.Account}}</dd>
       <dt>Enrôlement</dt>
-      <dd>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</dd>
+      <dd>{{if .Enrolled}}{{.Enrolment.Sentence}}{{else}}<span class="warn">{{.Enrolment.Sentence}}</span>{{end}}</dd>
     </dl>
   </section>
 
   {{with .Running}}
   <section class="card">
-    <h2>En cours</h2>
+    <h2>{{template "icon-activity"}}En cours</h2>
     <div class="running-action">
       <div class="running-head">
         <a href="/actions/{{.ID}}">{{.Label}}</a>
@@ -87,7 +83,7 @@
 </div>
 
 <section class="card">
-  <h2>Actions disponibles</h2>
+  <h2>{{template "icon-terminal"}}Actions disponibles</h2>
   {{if .Available}}
   <div class="cards">
     {{range .Available}}
@@ -104,9 +100,8 @@
 
 {{if .CanChangeAccess}}
 <section class="card">
-  <h2>Changer l'accès</h2>
-  <p class="muted">Changer l'adresse, le port ou l'empreinte est une action nommée :
-  openCloud relève à nouveau la clé d'hôte et réécrit le <span class="mono">known_hosts</span>.</p>
+  <h2>{{template "icon-refresh"}}Changer l'accès</h2>
+  <p class="muted" title="openCloud relève à nouveau la clé d'hôte et réécrit le known_hosts de cette machine.">Changer l'adresse, le port ou l'empreinte est une action nommée.</p>
   <form method="post" action="/machines/{{.ID}}/access">
     <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
     <div class="split even">
@@ -121,13 +116,13 @@
     </div>
     <label for="access-fingerprint">Empreinte de la clé d'hôte</label>
     <input id="access-fingerprint" name="fingerprint" class="mono" type="text" placeholder="SHA256:…" required>
-    <button type="submit" class="secondary">{{template "icon-plug-small"}}Changer l'accès</button>
+    <button type="submit" class="secondary">{{template "icon-refresh"}}Changer l'accès</button>
   </form>
 </section>
 {{end}}
 
 <section class="card table-card">
-  <div class="card-head"><h2>Historique</h2></div>
+  <div class="card-head"><h2>{{template "icon-clock"}}Historique</h2></div>
   {{if .History}}
   <table class="grid">
     <thead><tr><th>Action</th><th>État</th><th>Lancée</th><th>Résultat</th></tr></thead>
@@ -137,7 +132,7 @@
         <td><a href="/actions/{{.ID}}">{{.Label}}</a></td>
         <td><span class="badge {{.State}}">{{.StateLabel}}</span></td>
         <td class="muted">{{.CreatedAt}}</td>
-        <td>{{if .Result}}résultat : {{.Result}}{{else}}<span class="muted">—</span>{{end}}</td>
+        <td>{{if .Result}}{{.Result}}{{else}}<span class="muted">—</span>{{end}}</td>
       </tr>
       {{end}}
     </tbody>

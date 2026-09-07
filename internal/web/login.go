@@ -11,7 +11,7 @@ import (
 
 func (s *Server) showLogin(w http.ResponseWriter, r *http.Request) {
 	csrfToken := s.csrfFormToken(w, r)
-	s.render(w, http.StatusOK, "login", s.newPage(nil, csrfToken))
+	s.render(w, http.StatusOK, "login", s.newPage(r, nil, csrfToken))
 }
 
 func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +19,7 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.verifyCSRF(r); err != nil {
-		s.render(w, http.StatusForbidden, "login", s.newPage(nil, s.rotateCSRF(w)).withError(messageFormExpired))
+		s.render(w, http.StatusForbidden, "login", s.newPage(r, nil, s.rotateCSRF(w)).withError(messageFormExpired))
 		return
 	}
 
@@ -28,12 +28,12 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 	session, err := s.auth.Login(r.Context(), username, password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		s.logger.Warn("login refused", "username", loggableUsername(username))
-		s.render(w, http.StatusUnauthorized, "login", s.newPage(nil, s.csrfFormToken(w, r)).withError(messageInvalidLogin))
+		s.render(w, http.StatusUnauthorized, "login", s.newPage(r, nil, s.csrfFormToken(w, r)).withError(messageInvalidLogin))
 		return
 	}
 	if errors.Is(err, auth.ErrTooManyAttempts) {
 		s.logger.Warn("login throttled", "username", loggableUsername(username))
-		s.render(w, http.StatusTooManyRequests, "login", s.newPage(nil, s.csrfFormToken(w, r)).withError(messageTooManyAttempts))
+		s.render(w, http.StatusTooManyRequests, "login", s.newPage(r, nil, s.csrfFormToken(w, r)).withError(messageTooManyAttempts))
 		return
 	}
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *Server) submitLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.verifyCSRF(r); err != nil {
-		http.Error(w, messageFormExpired, http.StatusForbidden)
+		http.Error(w, messageFormExpired.Sentence(), http.StatusForbidden)
 		return
 	}
 

@@ -14,9 +14,9 @@
   <div class="counter {{.Kind}}">
     <span class="counter-mark">
       {{if eq .Kind "reachable"}}{{template "icon-check"}}
-      {{else if eq .Kind "running"}}{{template "icon-pulse"}}
+      {{else if eq .Kind "running"}}{{template "icon-activity"}}
       {{else if eq .Kind "failed"}}{{template "icon-alert"}}
-      {{else}}{{template "icon-plug"}}{{end}}
+      {{else}}{{template "icon-key"}}{{end}}
     </span>
     <span class="counter-text">
       <span class="counter-value">{{.Count}}</span>
@@ -28,7 +28,7 @@
 
 <section class="card table-card">
   <div class="card-head">
-    <h2>Machines</h2>
+    <h2>{{template "icon-server"}}Machines</h2>
     <span class="muted">sondées toutes les 5 minutes, en silence</span>
   </div>
   <table class="grid">
@@ -46,7 +46,11 @@
         </td>
         <td class="mono muted">{{.Address}}</td>
         <td><span class="badge {{.Status.State}}">{{.Status.Label}}</span>{{if .Status.Note}}<span class="status-note">{{.Status.Note}}</span>{{end}}</td>
-        <td>{{if .Enrolled}}{{.EnrolmentLabel}}{{else}}<span class="warn">{{.EnrolmentLabel}}</span>{{end}}</td>
+        <td>
+          <span class="mark{{if .Enrolled}} ok{{end}}" title="{{.Enrolment.Sentence}}">
+            {{template "icon-key"}}<span class="reader-only">{{.Enrolment.Sentence}}</span>
+          </span>
+        </td>
         <td class="tight">
           {{with .LastAction}}
           <a href="/actions/{{.ID}}">{{.Label}}</a>

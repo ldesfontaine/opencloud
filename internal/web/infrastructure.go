@@ -23,7 +23,7 @@ func (s *Server) showInfrastructure(w http.ResponseWriter, r *http.Request, acco
 		view.Counters = newMachineCounters(rows)
 		view.Subtitle = labelInfrastructureSubtitle(len(rows))
 	}
-	s.render(w, http.StatusOK, "infrastructure", s.newPage(&account, csrfToken).withData(view))
+	s.render(w, http.StatusOK, "infrastructure", s.newPage(r, &account, csrfToken).withData(view))
 }
 
 func (s *Server) machineRows(r *http.Request) ([]machineRow, error) {
@@ -96,7 +96,7 @@ func (s *Server) showMachine(w http.ResponseWriter, r *http.Request, account sto
 		s.serverError(w, "build machine view", err)
 		return
 	}
-	s.render(w, http.StatusOK, "machine", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+	s.render(w, http.StatusOK, "machine", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
 // newMachineView rassemble ce que la fiche montre : le statut, l'historique,
@@ -115,7 +115,7 @@ func (s *Server) newMachineView(r *http.Request, machine store.Machine) (machine
 		Port:            machine.Port,
 		Account:         machine.Account,
 		Enrolled:        status.Enrolled,
-		EnrolmentLabel:  enrolmentLabel(machine, status),
+		Enrolment:       enrolmentNotice(machine, status),
 		Status:          newMachineStatus(status.Enrolled, s.machineHealth(r.Context(), machine.ID), history, time.Now()),
 		CanProbe:        s.prober != nil && status.Enrolled,
 		CanChangeAccess: s.enrolmentReady() && status.Enrolled,
@@ -186,7 +186,7 @@ func (s *Server) machineScopedActions() []availableAction {
 		available = append(available, availableAction{
 			Kind:    string(definition.Kind),
 			Label:   definition.Label,
-			Summary: definition.Summary,
+			Summary: summaryOf(definition),
 		})
 	}
 	return available

@@ -2,21 +2,19 @@
 {{define "content"}}
 {{with .Data}}
 <div class="page-head">
-  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-back"}}{{.Machine.Name}}</a>
+  <a class="breadcrumb" href="/machines/{{.Machine.ID}}">{{template "icon-chevron"}}{{.Machine.Name}}</a>
   <div class="page-title"><h1>{{.Label}}</h1></div>
   <p class="muted">Sur <a href="/machines/{{.Machine.ID}}">{{.Machine.Name}}</a> · {{.Summary}}</p>
 </div>
 
 {{if .Refusal}}{{template "refusal" .Refusal}}{{end}}
 
-{{if not .Machine.Enrolled}}
-<p class="notice">{{.Machine.EnrolmentLabel}}</p>
-{{end}}
+{{if not .Machine.Enrolled}}{{template "warning" .Machine.Enrolment}}{{end}}
 
 <div class="split wide-first">
   <div class="column">
     <section class="card">
-      <h2>Fichiers déposés sur la machine</h2>
+      <h2>{{template "icon-copy"}}Fichiers déposés sur la machine</h2>
       {{if .Files}}
       <table class="grid">
         <thead><tr><th>Chemin</th><th>Taille</th><th>Mode</th></tr></thead>
@@ -29,11 +27,11 @@
       {{else}}
       <p class="muted">Aucun fichier à poser.</p>
       {{end}}
-      <p class="hint">La comparaison de ces fichiers avec ce qui est déjà sur la machine viendra plus tard.</p>
+      <p class="hint">La comparaison avec ce qui est sur la machine viendra plus tard.</p>
     </section>
 
     <section class="card">
-      <h2>Lancer</h2>
+      <h2>{{template "icon-terminal"}}Lancer</h2>
       <form method="post" action="/machines/{{.Machine.ID}}/actions/{{.Kind}}">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
         {{range .Params}}
@@ -48,17 +46,28 @@
           <label for="confirm">Je confirme : cette action est irréversible ou coupe un service en marche.</label>
         </p>
         {{end}}
-        <button type="submit">{{template "icon-play"}}Lancer</button>
+        <button type="submit">{{template "icon-terminal"}}Lancer</button>
       </form>
     </section>
   </div>
 
-  <section class="card">
-    <h2>Ce que fait cette action</h2>
-    <dl class="facts single">
-      {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
-    </dl>
-  </section>
+  <div class="column">
+    <section class="card">
+      <h2>{{template "icon-info"}}Ce que fait cette action</h2>
+      <dl class="facts single">
+        {{range .Attributes}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}
+      </dl>
+    </section>
+
+    {{if .Items}}
+    <section class="card">
+      <h2>{{template "icon-check"}}Ce qui va être lu</h2>
+      <ul class="items">
+        {{range .Items}}<li>{{template "icon" .Icon}}<span>{{.Label}}</span></li>{{end}}
+      </ul>
+    </section>
+    {{end}}
+  </div>
 </div>
 {{end}}
 {{end}}

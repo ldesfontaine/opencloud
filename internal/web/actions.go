@@ -22,7 +22,7 @@ func (s *Server) showActionForm(w http.ResponseWriter, r *http.Request, account 
 	}
 
 	view := s.newActionFormView(r, machine, definition, map[string]string{})
-	s.render(w, http.StatusOK, "action-form", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+	s.render(w, http.StatusOK, "action-form", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
 func (s *Server) submitAction(w http.ResponseWriter, r *http.Request, account store.Account) {
@@ -35,7 +35,7 @@ func (s *Server) submitAction(w http.ResponseWriter, r *http.Request, account st
 	}
 	if err := s.verifyCSRF(r); err != nil {
 		view := s.newActionFormView(r, machine, definition, map[string]string{})
-		page := s.newPage(&account, s.rotateCSRF(w)).withData(view).withError(messageFormExpired)
+		page := s.newPage(r, &account, s.rotateCSRF(w)).withData(view).withError(messageFormExpired)
 		s.render(w, http.StatusForbidden, "action-form", page)
 		return
 	}
@@ -45,7 +45,7 @@ func (s *Server) submitAction(w http.ResponseWriter, r *http.Request, account st
 
 	if definition.NeedsConfirmation() && r.PostFormValue(confirmFieldName) == "" {
 		view := s.newActionFormView(r, machine, definition, values)
-		page := s.newPage(&account, csrfToken).withData(view).withError(messageConfirmationRequired)
+		page := s.newPage(r, &account, csrfToken).withData(view).withError(messageConfirmationRequired)
 		s.render(w, http.StatusBadRequest, "action-form", page)
 		return
 	}
@@ -55,7 +55,7 @@ func (s *Server) submitAction(w http.ResponseWriter, r *http.Request, account st
 	if errors.As(err, &refused) {
 		view := s.newActionFormView(r, machine, definition, values)
 		view.Refusal = &refusalView{Cause: refused.Cause, Remedy: refused.Remedy}
-		page := s.newPage(&account, csrfToken).withData(view)
+		page := s.newPage(r, &account, csrfToken).withData(view)
 		s.render(w, http.StatusUnprocessableEntity, "action-form", page)
 		return
 	}
@@ -112,11 +112,14 @@ func (s *Server) newActionFormView(r *http.Request, machine store.Machine, defin
 		Machine:           newMachineRow(machine, s.enrolmentStatus(r.Context(), machine.ID)),
 		Kind:              string(definition.Kind),
 		Label:             definition.Label,
-		Summary:           definition.Summary,
+		Summary:           summaryOf(definition),
 		Attributes:        attributesOf(definition),
 		Params:            definition.Params,
 		Values:            values,
 		NeedsConfirmation: definition.NeedsConfirmation(),
+	}
+	if description, found := describeAction(definition.Kind); found {
+		view.Items = description.Items
 	}
 	if prepared, err := s.catalog.Prepare(definition.Kind, values); err == nil {
 		view.Files = describeFiles(prepared.Files)
@@ -153,7 +156,7 @@ func (s *Server) showAction(w http.ResponseWriter, r *http.Request, account stor
 	}
 
 	view := s.newActionView(r, action, machine, lines)
-	s.render(w, http.StatusOK, "action", s.newPage(&account, s.csrfFormToken(w, r)).withData(view))
+	s.render(w, http.StatusOK, "action", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
 func (s *Server) newActionView(r *http.Request, action store.Action, machine store.Machine, lines []store.ActionLine) actionView {
@@ -165,7 +168,7 @@ func (s *Server) newActionView(r *http.Request, action store.Action, machine sto
 		State:      string(action.State),
 		StateLabel: actionStateLabel(action.State),
 		Result:     action.Result,
-		Note:       action.Note,
+		Note:       newActionNote(action.Note),
 		CreatedAt:  formatMoment(action.CreatedAt),
 		LaunchedAt: formatMoment(action.LaunchedAt),
 		FinishedAt: formatMoment(action.FinishedAt),
@@ -175,6 +178,11 @@ func (s *Server) newActionView(r *http.Request, action store.Action, machine sto
 	if definition, found := s.catalog.Lookup(catalog.Kind(action.Kind)); found {
 		view.Label = definition.Label
 		view.Attributes = attributesOf(definition)
+	}
+	// Le rapport se construit à la fin : une action qui tourne garde son
+	// journal en direct.
+	if !view.Running {
+		view.Report = newReport(catalog.Kind(action.Kind), lines)
 	}
 	if action.ExitCode != nil {
 		view.ExitCode = exitCodeLabel(*action.ExitCode)

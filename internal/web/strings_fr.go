@@ -12,27 +12,60 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/validate"
 )
 
-// Tout ce que l'opérateur lit venant du code, en français. Les gabarits
-// portent leurs propres libellés.
+// Ce que l'opérateur lit en clair, hors d'une page : une seule phrase, sans
+// mise en forme.
 const (
-	messageInvalidLogin        = "Identifiant ou mot de passe incorrect."
-	messageFormExpired         = "Le formulaire a expiré. Rechargez la page et recommencez."
-	messageTooManyAttempts     = "Trop de tentatives. Réessayez dans quelques minutes."
-	messageConfirmationDiffers = "Les deux mots de passe saisis ne correspondent pas."
-	messageServerError         = "Une erreur interne s'est produite. Le journal en dit plus."
-	messageFormTooLarge        = "Le formulaire envoyé est trop volumineux."
-	messageFormUnreadable      = "Le formulaire envoyé est illisible."
+	messageServerError    = "Une erreur interne s'est produite. Le journal en dit plus."
+	messageFormTooLarge   = "Le formulaire envoyé est trop volumineux."
+	messageFormUnreadable = "Le formulaire envoyé est illisible."
+	messageMachineUnknown = "Cette machine n'existe pas."
+	messageActionUnknown  = "Cette action n'existe pas."
+)
+
+// Ce qu'une page refuse prend toujours la même forme : la cause, puis le
+// geste qui la lève. Le gabarit « refusal » les rend à l'identique.
+var (
+	messageInvalidLogin = refusalView{
+		Cause:  "Identifiant ou mot de passe incorrect.",
+		Remedy: "vérifier l'identifiant, puis ressaisir le mot de passe",
+	}
+	messageFormExpired = refusalView{
+		Cause:  "Le formulaire a expiré.",
+		Remedy: "recharger la page et recommencer",
+	}
+	messageTooManyAttempts = refusalView{
+		Cause:  "Trop de tentatives.",
+		Remedy: "réessayer dans quelques minutes",
+	}
+	messageConfirmationDiffers = refusalView{
+		Cause:  "Les deux mots de passe saisis ne correspondent pas.",
+		Remedy: "ressaisir le même mot de passe dans les deux champs",
+	}
+	messageConfirmationRequired = refusalView{
+		Cause:  "Cette action est irréversible ou coupe un service en marche.",
+		Remedy: "cocher la confirmation avant de la lancer",
+	}
+	messageDefaultPassword = refusalView{
+		Cause:  "Le mot de passe par défaut est encore en place.",
+		Remedy: "en choisir un autre avant de continuer",
+	}
+	messageFingerprintMalformed = refusalView{
+		Cause:  "L'empreinte saisie n'a pas la forme d'une empreinte de clé d'hôte.",
+		Remedy: "recopier « SHA256: » suivi de 43 caractères, telle que la commande l'a affichée sur la machine",
+	}
 )
 
 // Le refus nomme la règle et le geste qui la lève, sur un réseau de confiance.
-func messagePasswordTooShort(minLength int) string {
-	return fmt.Sprintf("Le nouveau mot de passe doit faire au moins %d caractères. "+
-		"Sur un réseau de confiance, la clé « min_password_length » de la configuration abaisse ce minimum.", minLength)
+func messagePasswordTooShort(minLength int) refusalView {
+	return refusalView{
+		Cause:  fmt.Sprintf("Le nouveau mot de passe doit faire au moins %d caractères.", minLength),
+		Remedy: "sur un réseau de confiance, la clé « min_password_length » de la configuration abaisse ce minimum",
+	}
 }
 
 // messageForPasswordRefusal traduit chaque refus de auth au changement de mot
 // de passe ; une erreur qui n'est pas un refus rend false et reste une erreur.
-func messageForPasswordRefusal(err error) (string, bool) {
+func messageForPasswordRefusal(err error) (refusalView, bool) {
 	var tooShort *auth.PasswordTooShortError
 	if errors.As(err, &tooShort) {
 		return messagePasswordTooShort(tooShort.MinLength), true
@@ -42,24 +75,22 @@ func messageForPasswordRefusal(err error) (string, bool) {
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		return messageInvalidLogin, true
 	case errors.Is(err, auth.ErrPasswordEmpty):
-		return "Le nouveau mot de passe est vide.", true
+		return refusalView{Cause: "Le nouveau mot de passe est vide.", Remedy: "saisir un mot de passe"}, true
 	case errors.Is(err, auth.ErrPasswordIsDefault):
-		return "Le nouveau mot de passe ne peut pas être celui par défaut.", true
+		return refusalView{
+			Cause:  "Le nouveau mot de passe ne peut pas être celui par défaut.",
+			Remedy: "en choisir un autre",
+		}, true
 	case errors.Is(err, auth.ErrPasswordUnchanged):
-		return "Le nouveau mot de passe est identique à l'actuel.", true
+		return refusalView{
+			Cause:  "Le nouveau mot de passe est identique à l'actuel.",
+			Remedy: "en choisir un autre",
+		}, true
 	case errors.Is(err, auth.ErrPasswordTooLong):
-		return "Le nouveau mot de passe est trop long.", true
+		return refusalView{Cause: "Le nouveau mot de passe est trop long.", Remedy: "en choisir un plus court"}, true
 	}
-	return "", false
+	return refusalView{}, false
 }
-
-// Les libellés des actions et des machines, tels que l'opérateur les lit.
-const (
-	messageMachineUnknown       = "Cette machine n'existe pas."
-	messageActionUnknown        = "Cette action n'existe pas."
-	messageConfirmationRequired = "Cette action est irréversible ou coupe un service : cochez la confirmation avant de la lancer."
-	messageFingerprintMalformed = "L'empreinte s'écrit « SHA256: » suivi de 43 caractères, telle que la commande l'a affichée sur la machine."
-)
 
 // Le statut à quatre états (02-roles.md). Aucun de ces libellés ne dit « en
 // ligne » : ils disent ce qui a été constaté, et quand.
@@ -75,9 +106,14 @@ const (
 // sa couleur à la ligne de sortie.
 const (
 	prefixStep    = "étape:"
+	prefixInfo    = "info:"
 	prefixWarning = "avertissement:"
 	prefixResult  = "résultat:"
 )
+
+// Le titre d'une section de rapport quand un constat arrive avant toute
+// étape : il se voit plutôt que de se perdre.
+const labelLooseFacts = "Constats"
 
 // Les compteurs de l'Infrastructure. « en échec » couvre SSH et le lanceur :
 // dans les deux cas, rien ne peut partir vers la machine.
@@ -224,12 +260,12 @@ func exitCodeLabel(code int) string {
 
 // Le geste qui lève un défaut d'enrôlement dépend de la machine : openCloud
 // s'enrôle sur elle-même, les autres reçoivent une commande générée.
-func enrolmentLabel(machine store.Machine, status EnrolmentStatus) string {
+func enrolmentNotice(machine store.Machine, status EnrolmentStatus) refusalView {
 	if status.Enrolled {
-		return "enrôlée depuis le " + formatMoment(status.Since)
+		return refusalView{Cause: "enrôlée depuis le " + formatMoment(status.Since)}
 	}
 	if machine.ID == store.LocalMachineID {
-		return "non enrôlée : jouer « sudo opencloud enroll-local » sur la machine"
+		return refusalView{Cause: labelNotEnrolled, Remedy: "jouer « sudo opencloud enroll-local » sur la machine"}
 	}
-	return "non enrôlée : aucune action ne peut partir vers cette machine"
+	return refusalView{Cause: labelNotEnrolled, Remedy: "jouer la commande d'enrôlement affichée sur sa fiche"}
 }

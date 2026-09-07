@@ -2,21 +2,20 @@
 {{define "content"}}
 {{with .Data}}
 <div class="page-head">
-  <a class="breadcrumb" href="/">{{template "icon-back"}}Infrastructure</a>
+  <a class="breadcrumb" href="/">{{template "icon-chevron"}}Infrastructure</a>
   <h1>Enrôler une machine</h1>
-  <p class="muted">L'enrôlement se fait en deux temps : openCloud engendre une clé pour cette
-  machine et rend une commande à jouer dessus ; la commande affiche l'empreinte de sa clé
-  d'hôte, qui se saisit ensuite sur sa fiche. Aucun mot de passe ne traverse le navigateur.</p>
+  <p class="muted" title="openCloud engendre une clé pour cette machine et rend une commande à jouer dessus ; la commande affiche l'empreinte de sa clé d'hôte, qui se saisit ensuite sur sa fiche. Aucun mot de passe ne traverse le navigateur.">En deux temps : une commande à jouer sur la machine, puis son empreinte.</p>
 </div>
 
 {{if .Refusal}}{{template "refusal" .Refusal}}{{end}}
 
 <section class="card form-card">
+  <h2>{{template "icon-server"}}La machine à déclarer</h2>
   <form method="post" action="/machines">
     <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
     <label for="name">Nom</label>
     <input id="name" name="name" type="text" value="{{index .Values "name"}}" required autofocus>
-    <p class="hint">L'identifiant de la machine est dérivé du nom : « Serveur Web 1 » donne « serveur-web-1 ».</p>
+    <p class="hint">L'identifiant est dérivé du nom : « Serveur Web 1 » donne « serveur-web-1 ».</p>
     <label for="address">Adresse</label>
     <input id="address" name="address" class="mono" type="text" value="{{index .Values "address"}}"
            placeholder="192.0.2.10 ou machine.exemple.fr" required>

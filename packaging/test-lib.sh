@@ -33,6 +33,15 @@ get_page() {
     curl -fsS -c "$COOKIES" -b "$COOKIES" "$BASE$1"
 }
 
+# La page contient-elle ce texte ? Jamais « curl | grep -q » : grep s'arrête
+# au premier résultat, curl reçoit un SIGPIPE et, sous pipefail, le pipeline
+# échoue alors que le texte était là. On lit la page en entier, puis on cherche.
+page_has() {
+    local page
+    page=$(get_page "$1")
+    printf '%s' "$page" | grep -q -- "$2"
+}
+
 # POST d'un formulaire ; imprime le code HTTP et l'URL de redirection.
 post_form() {
     local path=$1

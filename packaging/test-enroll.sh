@@ -89,7 +89,7 @@ step "l'empreinte saisie : known_hosts écrit, lanceur posé par SSH, machine en
 token=$(csrf_of /machines/temoin)
 reply=$(post_form /machines/temoin/confirm --data-urlencode "_csrf=$token" --data-urlencode "fingerprint=$fingerprint")
 [ "$reply" = "303 $BASE/machines/temoin" ] || fail "la confirmation a échoué : $reply $(get_page /machines/temoin | grep -o 'Refus[^<]*' | head -n 1)"
-get_page /machines/temoin | grep -q "enrôlée depuis" || fail "la fiche ne dit pas « enrôlée depuis »"
+page_has /machines/temoin "enrôlée depuis" || fail "la fiche ne dit pas « enrôlée depuis »"
 [ "$(docker exec "$TEMOIN" stat -c '%U:%G %a' /usr/local/sbin/oc-launch)" = "root:root 755" ] || fail "le lanceur n'est pas posé root:root 0755 sur le témoin"
 docker exec "$TEMOIN" stat -c '%U %a' /var/lib/opencloud/.ssh/authorized_keys | grep -q '^opencloud 600$' || fail "authorized_keys n'est pas opencloud 0600"
 grep -q "^\[127.0.0.1\]:$TEMOIN_PORT " /var/lib/opencloud/machines/temoin/known_hosts || fail "known_hosts ne porte pas la clé du témoin"
@@ -107,7 +107,7 @@ step "tester l'accès : joignable"
 token=$(csrf_of /machines/temoin)
 reply=$(post_form /machines/temoin/probe --data-urlencode "_csrf=$token")
 case "$reply" in 303*) ;; *) fail "tester l'accès a échoué : $reply" ;; esac
-get_page /machines/temoin | grep -q "joignable" || fail "la fiche ne dit pas « joignable »"
+page_has /machines/temoin "joignable" || fail "la fiche ne dit pas « joignable »"
 
 step "le témoin éteint passe « SSH en échec », jamais « en ligne »"
 docker stop "$TEMOIN" > /dev/null
@@ -116,6 +116,6 @@ post_form /machines/temoin/probe --data-urlencode "_csrf=$token" > /dev/null
 page=$(get_page /machines/temoin)
 printf '%s' "$page" | grep -q "SSH en échec" || fail "la fiche ne dit pas « SSH en échec » après l'extinction"
 printf '%s' "$page" | grep -qi "en ligne" && fail "la fiche dit « en ligne » sur une machine éteinte"
-get_page / | grep -q "SSH en échec" || fail "l'Infrastructure ne montre pas l'état du témoin"
+page_has / "SSH en échec" || fail "l'Infrastructure ne montre pas l'état du témoin"
 
 printf '\nTout tient : déclaration, commande, empreinte, lanceur, Diagnostiquer à distance, sonde, extinction.\n'
