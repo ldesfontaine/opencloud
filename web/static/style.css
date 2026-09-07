@@ -1,108 +1,619 @@
-/* Feuille unique, sans cadre : des tableaux, des formulaires, des journaux. */
-:root {
-  --ink: #1f2933;
-  --muted: #6b7280;
-  --line: #d9dee3;
-  --paper: #f7f8fa;
-  --card: #ffffff;
-  --accent: #1d4ed8;
-  --danger: #b91c1c;
-  --danger-bg: #fee2e2;
-  --notice-bg: #e0ecff;
-  --ok: #166534;
-  --ok-bg: #dcfce7;
-  --stale: #92400e;
-  --stale-bg: #fef3c7;
+/* Tableau de bord d'hébergeur : barre du haut, une seule couleur d'accent, et
+   ce qui compte qui saute aux yeux — l'état des machines, ce qui tourne, ce
+   qui a échoué. Aucun style inline nulle part : la CSP l'interdit. */
+
+/* Les deux polices sont embarquées ; rien ne vient d'Internet. */
+@font-face {
+  font-family: "Manrope";
+  src: url("fonts/manrope-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("fonts/jetbrains-mono-latin.woff2") format("woff2");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ------------------------------------------------------------------ tokens */
+
+:root {
+  --accent: #6d4aff;
+  --accent-ink: #ffffff;
+
+  --paper: #f5f6fa;
+  --card: #ffffff;
+  --ink: #151823;
+  --muted: #6a7386;
+  --line: #e3e6ee;
+  --subtle: #f0f2f7;
+
+  --ok: #17995a;
+  --ok-bg: #e3f6ec;
+  --warn: #d68a0c;
+  --warn-bg: #fdf1dc;
+  --danger: #e0434f;
+  --danger-bg: #fde8ea;
+
+  --term: #151823;
+  --term-ink: #e6e9f2;
+  --term-muted: #8b93a7;
+
+  --shadow: 0 1px 2px rgba(21, 24, 35, 0.04), 0 10px 30px rgba(21, 24, 35, 0.06);
+  --button-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+
+  /* L'accent posé sur du fond : un badge, une carte, un anneau de focus. */
+  --accent-badge: color-mix(in oklab, var(--accent) 14%, var(--card));
+  --accent-wash: color-mix(in oklab, var(--accent) 8%, var(--card));
+  --accent-note: color-mix(in oklab, var(--accent) 10%, var(--card));
+  --accent-line: color-mix(in oklab, var(--accent) 30%, var(--line));
+  --accent-ring: color-mix(in oklab, var(--accent) 22%, transparent);
+
+  --sans: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0e1017;
+    --card: #161923;
+    --ink: #eef0f6;
+    --muted: #98a1b3;
+    --line: #272b38;
+    --subtle: #1d212c;
+
+    --ok: #2fc47a;
+    --ok-bg: rgba(47, 196, 122, 0.16);
+    --warn: #f0a63a;
+    --warn-bg: rgba(240, 166, 58, 0.16);
+    --danger: #f0616b;
+    --danger-bg: rgba(240, 97, 107, 0.16);
+
+    --term: #0a0c12;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* --------------------------------------------------------------- le socle */
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: var(--ink);
   background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 28px; font-weight: 800; }
+h2 { font-size: 17px; font-weight: 700; }
+
+p { margin: 0; }
+
+.mono { font-family: var(--mono); font-size: 13px; }
+.muted { color: var(--muted); }
+.warn { color: var(--warn); font-weight: 600; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ------------------------------------------------------------ mise en page */
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.5rem;
+  height: 64px;
+  padding: 0 40px;
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
 
+.topbar-left { display: flex; align-items: center; gap: 28px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; font-size: 14px; white-space: nowrap; }
+.topbar-right form { margin: 0; }
+
 .brand {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--ink);
-  text-decoration: none;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.brand:hover { text-decoration: none; }
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
-nav { display: flex; align-items: center; gap: 1.25rem; }
-nav a { color: var(--ink); text-decoration: none; }
-nav a:hover { text-decoration: underline; }
-nav form { margin: 0; }
+nav { display: flex; align-items: center; gap: 4px; }
 
-main { max-width: 64rem; margin: 2rem auto; padding: 0 1.5rem; }
+nav a {
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+nav a:hover { background: var(--subtle); color: var(--ink); text-decoration: none; }
 
-h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+/* Se déconnecter est un POST : un bouton déguisé en lien discret. */
+.signout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.signout:hover { color: var(--ink); }
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 40px 56px;
+}
+
+footer {
+  padding: 0 40px 32px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* En-tête de page : le titre, ce qu'on y fait, et le geste principal. */
+.page-head { display: flex; flex-direction: column; gap: 6px; }
+.page-head-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.page-title { display: flex; align-items: center; gap: 14px; }
+.page-head p { max-width: 78ch; }
+.page-actions { display: flex; gap: 10px; }
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.breadcrumb:hover { color: var(--ink); }
+
+/* Deux colonnes qui se replient sur un écran étroit. */
+.split { display: grid; gap: 24px; align-items: start; }
+.split.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.split.wide-first { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.split.command { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.column { display: flex; flex-direction: column; gap: 16px; }
+
+@media (max-width: 900px) {
+  main { padding: 24px 20px 40px; }
+  .topbar { padding: 0 20px; }
+  .split.even, .split.wide-first, .split.command { grid-template-columns: minmax(0, 1fr); }
+  .page-head-row { flex-direction: column; align-items: flex-start; }
+}
+
+/* Sur un écran étroit, la barre du haut se replie plutôt que de se tasser. */
+@media (max-width: 900px) {
+  .topbar { height: auto; flex-wrap: wrap; gap: 12px; padding: 12px 20px; }
+  .topbar-left { flex-wrap: wrap; gap: 12px; }
+}
+
+/* ------------------------------------------------------------- composants */
 
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 1.5rem;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: var(--shadow);
 }
 
-.narrow { max-width: 26rem; margin: 3rem auto; }
-.empty { text-align: center; padding: 3rem 1.5rem; }
-.muted { color: var(--muted); }
+/* Un tableau colle aux bords de sa carte : les marges sont dans les cellules,
+   et c'est la carte qui défile quand l'écran est trop étroit. */
+.card.table-card { padding: 24px 4px 8px; overflow-x: auto; }
 
-label { display: block; margin: 0.75rem 0 0.25rem; font-weight: 600; }
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 0 20px;
+}
+.card > h2 { margin-bottom: 16px; }
+
+/* La connexion et le mot de passe : une carte seule, centrée. */
+.narrow { max-width: 26rem; margin: 3rem auto; }
+.form-card { max-width: 32rem; }
+.empty { text-align: center; padding: 40px 24px; display: flex; flex-direction: column; gap: 16px; align-items: center; }
+
+/* Les quatre compteurs : joignables, en cours, en échec, non enrôlées. */
+.counters { display: flex; gap: 16px; flex-wrap: wrap; }
+
+.counter {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 200px;
+  padding: 18px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.counter-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--subtle);
+  color: var(--muted);
+  flex: none;
+}
+
+.counter-value { font-size: 24px; font-weight: 800; line-height: 1.1; color: var(--muted); }
+.counter-label { color: var(--muted); font-size: 13px; }
+.counter-text { display: flex; flex-direction: column; gap: 2px; }
+
+.counter.reachable .counter-mark { background: var(--ok-bg); color: var(--ok); }
+.counter.reachable .counter-value { color: var(--ok); }
+.counter.running .counter-mark { background: var(--accent-badge); color: var(--accent); }
+.counter.running .counter-value { color: var(--accent); }
+.counter.failed .counter-mark { background: var(--danger-bg); color: var(--danger); }
+.counter.failed .counter-value { color: var(--danger); }
+
+/* Boutons et liens qui agissent : même hauteur, même rayon, quatre tons. */
+button, .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: var(--button-shadow);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:hover, .button:hover { text-decoration: none; filter: brightness(1.06); }
+
+.button.secondary, button.secondary {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+.button.quiet, button.quiet {
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+.button.quiet:hover, button.quiet:hover { color: var(--ink); filter: none; }
+
+/* La note d'un échec, à côté du badge : une ligne atténuée, coupée si trop longue. */
+.status-note {
+  display: block;
+  max-width: 34ch;
+  margin: 6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+.page-head .status-note { max-width: none; white-space: normal; }
+
+/* Un badge dit un état ; sa pastille prend la couleur du texte. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--subtle);
+  color: var(--muted);
+}
+.badge::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.badge.reachable, .badge.applied { background: var(--ok-bg); color: var(--ok); }
+.badge.stale { background: var(--warn-bg); color: var(--warn); }
+.badge.ssh-failed, .badge.launcher-failed,
+.badge.failed, .badge.refused { background: var(--danger-bg); color: var(--danger); }
+.badge.running, .badge.prepared { background: var(--accent-badge); color: var(--accent); }
+.badge.running::before, .badge.prepared::before { animation: pulse 1.6s ease-in-out infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Tableaux : les en-têtes s'effacent, les lignes respirent. */
+.grid { width: 100%; border-collapse: collapse; }
+.grid th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 20px 12px;
+}
+.grid td { padding: 16px 20px; border-top: 1px solid var(--line); vertical-align: middle; }
+.grid td.tight { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.machine-name { display: flex; align-items: center; gap: 12px; }
+.machine-name a { color: var(--ink); font-weight: 700; }
+
+.machine-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--subtle);
+  color: var(--muted);
+  flex: none;
+}
+
+/* Une liste de faits : l'étiquette s'efface, la valeur se lit. */
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 32px; margin: 0; }
+.facts.single { grid-template-columns: minmax(0, 1fr); }
+.facts dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.facts dd { margin: 0; }
+
+/* Formulaires : un champ de 42 px, un anneau d'accent au focus. */
+label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
 
 input[type="text"], input[type="password"] {
   width: 100%;
-  padding: 0.5rem 0.6rem;
+  height: 42px;
+  padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
   font: inherit;
 }
+input[type="text"]:focus, input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+input.mono { font-family: var(--mono); font-size: 13px; }
 
-button {
-  margin-top: 1.25rem;
-  padding: 0.55rem 1.1rem;
+/* Dans une carte, le bouton d'un formulaire prend l'air du dernier champ ;
+   ailleurs (la barre du haut, l'en-tête d'une page) il reste aligné. */
+.card form > button { margin-top: 20px; }
+.hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.card-pad { padding: 0 20px 16px; }
+
+.confirm { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
+.confirm label { display: inline; font-weight: 400; margin: 0; font-size: 14px; }
+.confirm input { accent-color: var(--accent); margin-top: 4px; }
+
+/* Notes et refus : la même boîte, deux tons. */
+.notice {
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--accent-note);
+  color: var(--ink);
+  font-size: 14px;
+}
+.notice.error { background: var(--danger-bg); color: var(--danger); }
+.notice p + p { margin-top: 4px; }
+.notice .remedy { display: flex; align-items: baseline; gap: 8px; }
+
+/* Le bandeau d'un résultat obtenu, en tête de la sortie : vert quand l'action
+   est appliquée, rouge quand elle a échoué ou a été refusée. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--subtle);
+  color: var(--ink);
+  font-weight: 600;
+}
+.banner.applied { background: var(--ok-bg); color: var(--ok); }
+.banner.failed, .banner.refused { background: var(--danger-bg); color: var(--danger); }
+
+/* Un titre de section hors carte : « Sortie » et ce qu'elle est. */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+
+/* Les étapes de l'enrôlement, numérotées. */
+.step-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--subtle);
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 13px;
+  flex: none;
+}
+.step-number.now { background: var(--accent); color: var(--accent-ink); }
+
+/* La commande d'enrôlement : un bloc de terminal, sélectionnable d'un geste,
+   avec « Copier » posé dessus. */
+.command-block { position: relative; }
+
+textarea.command {
+  display: block;
+  width: 100%;
+  padding: 16px 100px 16px 18px;
   border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  cursor: pointer;
+  border-radius: 12px;
+  background: var(--term);
+  color: var(--term-ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
 }
+textarea.command:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-button.link {
-  margin: 0;
-  padding: 0;
-  background: none;
+.copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--term-ink);
+  box-shadow: none;
+  font-size: 13px;
+}
+.copy:hover { background: rgba(255, 255, 255, 0.18); filter: none; }
+
+/* Les actions disponibles : une carte par geste, le résumé sous le nom. */
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 900px) { .cards { grid-template-columns: minmax(0, 1fr); } }
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
   color: var(--ink);
 }
-button.link:hover { text-decoration: underline; }
+.action-card:hover { border-color: var(--accent-line); text-decoration: none; }
+.action-card .name { font-weight: 700; }
+.action-card .summary { color: var(--muted); font-size: 13px; }
 
-.notice {
-  padding: 0.6rem 0.9rem;
-  border-radius: 4px;
-  background: var(--notice-bg);
+/* L'action qui tourne, sur la fiche de la machine. */
+.running-action {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent-line);
 }
-.notice.error {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
+.running-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.running-head a { font-weight: 700; }
+.running-tail { color: var(--muted); font-size: 13px; }
 
-footer {
-  margin: 3rem 0 1rem;
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.85rem;
+/* La sortie d'une action : le terminal, une ligne par div, colorée par son
+   préfixe (étape / avertissement / résultat). */
+.output {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: var(--term);
+  color: var(--term-ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.output.compact { padding: 0; background: none; gap: 0; font-size: 13px; }
+
+.line { white-space: pre-wrap; word-break: break-word; }
+.line.step { color: var(--accent); font-weight: 600; }
+.line.warning { color: var(--warn); font-weight: 600; }
+.line.result { color: var(--ok); font-weight: 700; }
+.line.plain { color: var(--term-muted); }
+
+.output.compact .line.plain { color: var(--muted); }
+
+/* Le direct : un curseur qui bat tant que la sortie arrive. */
+.live { display: flex; align-items: center; gap: 10px; margin-top: 10px; color: var(--term-muted); }
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
 /* htmx : la feuille par défaut est désactivée (CSP sans style inline),
@@ -111,35 +622,6 @@ footer {
 .htmx-request .htmx-indicator,
 .htmx-request.htmx-indicator { opacity: 1; transition-delay: 200ms; }
 
-/* Machines et actions : des tableaux, des faits, un journal. */
-.grid { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); }
-.grid th, .grid td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); text-align: left; }
-.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
-.facts dt { font-weight: 600; }
-.facts dd { margin: 0; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.warn { color: var(--danger); }
-.badge { padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--notice-bg); font-size: 0.85rem; }
-.badge.failed, .badge.refused { background: var(--danger-bg); color: var(--danger); }
-
-/* Le statut d'une machine : un badge par état, et jamais « en ligne ». */
-.badge.reachable { background: var(--ok-bg); color: var(--ok); }
-.badge.ssh-failed, .badge.launcher-failed, .badge.not-enrolled { background: var(--danger-bg); color: var(--danger); }
-.badge.stale, .badge.never-probed { background: var(--stale-bg); color: var(--stale); }
-
-/* La commande d'enrôlement : lisible et sélectionnable d'un geste. */
-textarea.command {
-  width: 100%;
-  padding: 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9rem;
+@media (prefers-reduced-motion: reduce) {
+  .badge::before, .cursor { animation: none; }
 }
-
-a.button { display: inline-block; padding: 0.55rem 1.1rem; border-radius: 4px; background: var(--accent); color: #fff; text-decoration: none; }
-.actions { list-style: none; padding: 0; }
-.actions li { padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
-.output { background: var(--ink); color: #f3f4f6; padding: 1rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; }
-.confirm { margin-top: 1rem; }
-.confirm label { display: inline; font-weight: 400; }

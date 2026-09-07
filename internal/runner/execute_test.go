@@ -305,3 +305,22 @@ func TestExecute_UnreachablePastTheDeadline_FailsSayingNothingLeft(t *testing.T)
 		t.Fatalf("lancements = %d, attendu 0", launches)
 	}
 }
+
+func TestEnqueue_Enroler_IsRefused_ItIsPlayedByTheCommand(t *testing.T) {
+	database := newTestStore(t)
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: newFakeTransport()})
+
+	_, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindEnroler, map[string]string{"public_key": "ssh-ed25519 AAAA"})
+
+	var refused refusal.Refusal
+	if !errors.As(err, &refused) || !strings.Contains(refused.Remedy, "commande") {
+		t.Fatalf("err = %v, attendu un refus qui renvoie à la commande d'enrôlement", err)
+	}
+	actions, err := database.ActionsForMachine(context.Background(), store.LocalMachineID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 0 {
+		t.Fatalf("actions journalisées = %d, attendu 0", len(actions))
+	}
+}

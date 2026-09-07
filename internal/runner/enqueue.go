@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/actiondir"
 	"github.com/ldesfontaine/opencloud/internal/catalog"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -28,6 +29,13 @@ func (r *Runner) Enqueue(ctx context.Context, machineID string, kind catalog.Kin
 	machine, err := r.store.Machine(ctx, machineID)
 	if err != nil {
 		return store.Action{}, err
+	}
+
+	if kind == catalog.KindEnroler {
+		return store.Action{}, refusal.Refusal{
+			Cause:  "Enrôler ne passe pas par la file : sur une machine qui n'a pas encore le lanceur, rien ne pourrait la lancer",
+			Remedy: "coller la commande d'enrôlement affichée sur la fiche de la machine, en root",
+		}
 	}
 
 	prepared, err := r.catalog.Prepare(kind, params)

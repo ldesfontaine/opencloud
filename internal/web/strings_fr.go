@@ -71,6 +71,35 @@ const (
 	labelLauncherFailedSince = "lanceur en échec depuis le "
 )
 
+// Les préfixes qu'écrivent les scripts (17-conventions-code.md) : ils donnent
+// sa couleur à la ligne de sortie.
+const (
+	prefixStep    = "étape:"
+	prefixWarning = "avertissement:"
+	prefixResult  = "résultat:"
+)
+
+// Les compteurs de l'Infrastructure. « en échec » couvre SSH et le lanceur :
+// dans les deux cas, rien ne peut partir vers la machine.
+const (
+	labelCounterReachable   = "joignable"
+	labelCounterRunning     = "action en cours"
+	labelCounterFailed      = "en échec"
+	labelCounterNotEnrolled = "non enrôlée"
+)
+
+// Le sous-titre de l'Infrastructure dit ce que la page promet et combien de
+// machines elle couvre ; il est vide tant qu'aucune n'est déclarée.
+func labelInfrastructureSubtitle(machineCount int) string {
+	switch machineCount {
+	case 0:
+		return ""
+	case 1:
+		return "Une machine, une seule source de vérité : elle dit son état et son âge."
+	}
+	return fmt.Sprintf("%d machines, une seule source de vérité : chacune dit son état et son âge.", machineCount)
+}
+
 func labelReachableSince(age time.Duration) string {
 	minutes := int(age.Minutes())
 	if minutes < 1 {
@@ -85,14 +114,6 @@ func labelLastReport(probedAt time.Time) string {
 
 // L'échec porte la note du sondage quand il en a laissé une : elle dit ce que
 // la machine a répondu.
-func labelProbeFailed(prefix string, health MachineHealth) string {
-	label := prefix + formatMoment(health.ProbedAt)
-	if health.ProbeNote != "" {
-		return label + " — " + health.ProbeNote
-	}
-	return label
-}
-
 // Les refus de la déclaration d'une machine : la cause, puis le geste qui la
 // lève (17-conventions-code.md, « un refus n'est pas une erreur »).
 func refusalNameWithoutIdentifier(name string) refusalView {

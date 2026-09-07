@@ -169,7 +169,7 @@ func (s *Server) newActionView(r *http.Request, action store.Action, machine sto
 		CreatedAt:  formatMoment(action.CreatedAt),
 		LaunchedAt: formatMoment(action.LaunchedAt),
 		FinishedAt: formatMoment(action.FinishedAt),
-		Lines:      lines,
+		Lines:      newOutputLines(lines),
 		Running:    !concluded(action.State),
 	}
 	if definition, found := s.catalog.Lookup(catalog.Kind(action.Kind)); found {
