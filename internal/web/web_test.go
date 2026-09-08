@@ -388,47 +388,83 @@ func TestPages_CarrySecurityHeaders(t *testing.T) {
 	}
 }
 
-// La barre du haut ne porte plus qu'un onglet ; « Mot de passe » et « Se
-// déconnecter » sont passés dans le menu du compte.
-func TestTopbar_SignedIn_CarriesTheAccountMenu(t *testing.T) {
+// La barre latérale porte un onglet, l'interrupteur de thème et le menu du
+// compte ; « Mot de passe » et « Se déconnecter » vivent dans le menu.
+func TestSidebar_SignedIn_CarriesTheNavigationAndTheAccountMenu(t *testing.T) {
 	visitor := newBrowser(t)
 	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
 	visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password")
 
 	body := visitor.get("/").Body.String()
 
-	for _, expected := range []string{`<details class="account" id="account-menu">`,
+	for _, expected := range []string{`<aside class="sidebar">`, `id="sidebar-toggle"`,
+		`<button type="button" class="theme-switch" id="theme-switch"`,
+		`<details class="account" id="account-menu">`,
 		`<span class="avatar">A</span>`, "Compte", `href="/password"`,
-		`action="/logout"`, "Se déconnecter", `<script src="/static/menu.js" defer>`} {
+		`action="/logout"`, "Se déconnecter", `<script src="/static/sidebar.js" defer>`} {
 		if !strings.Contains(body, expected) {
-			t.Fatalf("la barre du haut ne porte pas %q :\n%s", expected, body)
+			t.Fatalf("la barre latérale ne porte pas %q :\n%s", expected, body)
 		}
 	}
-	if strings.Contains(body, `<a href="/password">Mot de passe</a>`) {
-		t.Fatal("« Mot de passe » a quitté la navigation")
+	if strings.Contains(body, "topbar") {
+		t.Fatal("la barre du haut a disparu")
 	}
 }
 
-func TestTopbar_TheOpenTab_IsUnderlined(t *testing.T) {
+// Le thème et l'état de la barre sont posés avant le premier rendu : le
+// script se charge dans l'en-tête, sans defer, sur toutes les pages.
+func TestAppearance_IsAppliedBeforeTheFirstPaint(t *testing.T) {
+	visitor := newBrowser(t)
+
+	for _, path := range []string{"/login", "/password"} {
+		if path == "/password" {
+			visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+		}
+		body := visitor.get(path).Body.String()
+		if !strings.Contains(body, `<script src="/static/appearance.js"></script>`) {
+			t.Fatalf("%s doit poser le thème avant le rendu :\n%s", path, body)
+		}
+	}
+}
+
+func TestSidebar_TheOpenTab_IsMarked(t *testing.T) {
 	visitor := newBrowser(t)
 	visitor.login(auth.DefaultUsername, auth.DefaultPassword)
 	visitor.changePassword(auth.DefaultPassword, "brand-new-password", "brand-new-password")
 
-	if !strings.Contains(visitor.get("/").Body.String(), `<a href="/" class="current">Infrastructure</a>`) {
+	if !strings.Contains(visitor.get("/").Body.String(), `class="nav-item current" href="/"`) {
 		t.Fatal("l'onglet ouvert se voit sur l'Infrastructure")
 	}
-	if strings.Contains(visitor.get("/password").Body.String(), `class="current"`) {
-		t.Fatal("hors de l'Infrastructure, aucun onglet n'est souligné")
+	if strings.Contains(visitor.get("/password").Body.String(), `class="nav-item current"`) {
+		t.Fatal("hors de l'Infrastructure, aucun onglet n'est marqué")
+	}
+}
+
+// Les fiches de machines et les actions restent sous Infrastructure :
+// l'opérateur y est arrivé par là.
+func TestSectionForPath_MachinesAndActions_StayUnderInfrastructure(t *testing.T) {
+	underInfrastructure := []string{"/", "/machines/new", "/machines/local",
+		"/machines/local/actions/diagnostiquer", "/actions/42"}
+	for _, path := range underInfrastructure {
+		if got := sectionForPath(path); got != sectionInfrastructure {
+			t.Fatalf("sectionForPath(%q) = %q, attendu %q", path, got, sectionInfrastructure)
+		}
+	}
+
+	for _, path := range []string{"/password", "/login", "/healthz"} {
+		if got := sectionForPath(path); got != "" {
+			t.Fatalf("sectionForPath(%q) = %q, attendu aucune section", path, got)
+		}
 	}
 }
 
 // Avant connexion, ni onglet ni menu : la page de connexion ne montre que
 // son formulaire.
-func TestTopbar_Anonymous_HasNoMenu(t *testing.T) {
+func TestSidebar_Anonymous_HasNoSidebar(t *testing.T) {
 	body := newBrowser(t).get("/login").Body.String()
 
-	if strings.Contains(body, "account-menu") || strings.Contains(body, "Se déconnecter") {
-		t.Fatalf("aucun menu avant connexion :\n%s", body)
+	if strings.Contains(body, "sidebar") || strings.Contains(body, "Se déconnecter") {
+		t.Fatalf("aucune barre avant connexion :\n%s", body)
 	}
 }
 

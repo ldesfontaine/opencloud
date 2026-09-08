@@ -180,8 +180,8 @@ func diagnosticVocabulary() reportVocabulary {
 			"espace_libre_srv":        {Label: "Espace libre sur /srv", Read: srvSpaceValue},
 			"memoire_libre":           {Label: "Mémoire libre"},
 			"unites_en_echec":         {Label: "Unités en échec", Read: failedUnitsValue},
-			"docker":                  {Label: "Docker"},
-			"plugin_compose":          {Label: "Plugin compose"},
+			"docker":                  {Label: "Docker", Read: dockerValue},
+			"plugin_compose":          {Label: "Plugin compose", Read: presenceValue},
 			"port_80":                 {Label: "Port 80", Read: portValue},
 			"port_443":                {Label: "Port 443", Read: portValue},
 			"norme_workspace":         {Label: "/srv/workspace", Read: presenceValue},
@@ -252,6 +252,16 @@ func portValue(raw string) reportValue {
 		return plainValue("libre")
 	}
 	return reportValue{Text: raw, Tone: toneWarn}
+}
+
+// Le script écrit la version de Docker, ou « présent » s'il ne la lit pas, ou
+// « absent ». Sans Docker, rien ne se déploie : c'est un avertissement, pas
+// un échec — la machine peut n'avoir rien à héberger encore.
+func dockerValue(raw string) reportValue {
+	if raw == "absent" {
+		return reportValue{Text: "absent", Tone: toneWarn}
+	}
+	return reportValue{Text: raw, Tone: toneOK, Mark: iconCheck}
 }
 
 func presenceValue(raw string) reportValue {

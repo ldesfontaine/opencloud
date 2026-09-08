@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"strings"
 	"unicode"
 
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -32,8 +33,8 @@ type page struct {
 	Version   string
 	Account   *store.Account
 	CSRFToken string
-	// Le chemin demandé : la barre du haut y souligne l'onglet ouvert.
-	Path string
+	// L'onglet ouvert : la barre latérale marque le sien.
+	Section string
 	// L'initiale du compte, en majuscule, pour la pastille du menu.
 	AccountInitial string
 	// Ce qui a été refusé : la cause, puis le geste qui la lève.
@@ -49,10 +50,23 @@ func (s *Server) newPage(r *http.Request, account *store.Account, csrfToken stri
 		Version:           s.version,
 		Account:           account,
 		CSRFToken:         csrfToken,
-		Path:              r.URL.Path,
+		Section:           sectionForPath(r.URL.Path),
 		AccountInitial:    accountInitial(account),
 		MinPasswordLength: s.auth.PasswordPolicy().MinLength,
 	}
+}
+
+// Les onglets de la barre latérale ; un onglet, une section.
+const sectionInfrastructure = "infrastructure"
+
+// sectionForPath dit quel onglet est ouvert. Une fiche de machine et une
+// action sont sous Infrastructure : l'opérateur y est arrivé par là. Une page
+// hors des onglets — le mot de passe — n'en marque aucun.
+func sectionForPath(path string) string {
+	if path == "/" || strings.HasPrefix(path, "/machines/") || strings.HasPrefix(path, "/actions/") {
+		return sectionInfrastructure
+	}
+	return ""
 }
 
 // accountInitial : la première lettre du compte, en majuscule. Vide avant
