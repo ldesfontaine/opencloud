@@ -4,6 +4,10 @@
 décisions contredites, toutes arbitrées ; les précisions exigées sont écrites
 dans les documents concernés.
 
+**Repris le 8 septembre 2026** : huit questions de la partie 2 tranchées par
+Lucas, une écartée, une reportée à l'étude ; l'interface passe en barre
+latérale.
+
 Trois listes : **acquis**, **à trancher**, **écarté ou reporté**. Chaque ligne
 renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 
@@ -27,9 +31,10 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | Décision | Détail |
 |---|---|
 | **Go, interface rendue côté serveur (HTML + HTMX), un seul binaire** dans `/opt`, unité systemd. **Pas de conteneur** | `13-pile-technique.md`, `10-cycle-de-vie.md` |
+| **Interface : barre latérale repliable à gauche**, thème clair ou sombre au choix, mémorisé par le navigateur, compte et déconnexion en bas de la barre. Violet `#6d4aff`, Manrope, JetBrains Mono pour ce qui vient d'une machine. **Moins de texte, plus de signes** ; un refus dit sa cause puis le geste qui la lève ; une sortie de machine est **interprétée**, la sortie brute repliée dessous | `09-observation-et-interface.md` |
 | **Développement en local, tests dans la CI GitHub** (tests, sécurité, bonnes pratiques) | `12-methode.md` |
 | **Installation par paquet `.deb`** : un binaire qui embarque tout, unité durcie, `/etc/opencloud`, `/var/lib/opencloud` préservés par dpkg. Pas de `curl \| sh` | `20-installation-et-mise-a-jour.md` |
-| **Mise à jour en place** — `apt install` ou `opencloud self-update` : somme et attestation vérifiées, pas de saut de version mineure, ancien binaire gardé, **sauvegarde de la base avant migration sinon pas de migration**, jamais automatique, jamais par la file | `20-installation-et-mise-a-jour.md` |
+| **Mise à jour en place** — `apt install` ou `opencloud self-update` : somme et attestation vérifiées, pas de saut de version mineure, **aucun passage à une 1.0 : on reste en `0.x` tant que Lucas n'a pas décidé la v1**, ancien binaire gardé, **sauvegarde de la base avant migration sinon pas de migration**, jamais automatique, jamais par la file | `20-installation-et-mise-a-jour.md` |
 | **Désinstallation** : `apt remove` garde l'état, `apt purge` l'enlève ; ni l'un ni l'autre ne touche `/srv`, Traefik, Docker ni les machines gérées — celles-ci se retirent une par une par l'action *Retirer une machine*, avant | `20-installation-et-mise-a-jour.md` |
 | **Architecture en composants** sous `internal/`, interfaces + constructeurs, aucune globale ; `web` ne lance rien, `runner` ne compose aucune commande | `16-architecture.md` |
 | **Identifiants en anglais, commentaires courts en français, tout ce que voit l'opérateur en français** ; **lisible par un humain avant d'être court** — pas d'astuce, le nommage fait le travail ; refus ≠ erreur ; exécution sans shell ; écriture atomique ; fixtures figées | `17-conventions-code.md` |
@@ -37,12 +42,15 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | **Code repris de `your-cloud`** fichier par fichier, dans l'ordre des étapes — écriture atomique, quoting `params.env`, vecteur SSH, passage WireGuard, séquences d'enrôlement et de sauvegarde | `18-reprise-code-your-cloud.md` |
 | **Debian et Ubuntu** | `03-modele.md` |
 | **Scripts shell versionnés, lancés par SSH.** Ansible seulement si le catalogue révèle trop de répétition — et alors il remplace | `05-execution.md` |
+| **Poser le socle lit sa liste d'outils dans un fichier versionné du dépôt**, embarqué dans le binaire : ajouter une ligne suffit pour que la prochaine pose l'installe partout. Liste au 8 septembre 2026 : `docker.io`, `docker-compose-plugin`, `screen`, `ncdu`, `at`, `curl`, `htop`, `rsync`, `jq` | `15-catalogue-actions.md` |
 | **Utilisateur `opencloud` par machine, jamais root direct ; son `sudo` n'autorise qu'un lanceur root-owned `oc-launch <id>`** qui revalide l'identifiant et lance `systemd-run` sans shell. Un filet contre l'erreur et les escapes, pas un rempart contre une clé volée — dit tel quel | `08-securite-et-secrets.md`, `15` §1, `annexes/lecture-sudoers.md` |
 | **Pas d'agent maison** : SSH + outils standard déployés comme des services | `02-roles.md` |
 | **Une file par machine**, en série ; action de portée infrastructure décomposée en lot | `05-execution.md` |
 | **Le lot dit, par machine, `réussi` / `échoué` / `non tenté`** — le troisième dit ce qu'il reste à rejouer | `05-execution.md`, `16` |
 | **L'action ne vit pas dans la connexion** : déposée, `systemd-run`, relue via journald ; écrit au fil de l'eau | `05-execution.md` |
 | **Journal de transaction par action** (préparée → appliquée / échouée), relu au démarrage | `05-execution.md` |
+| **Traces sur la machine** : le dossier `/var/lib/opencloud/actions/<id>` (script, paramètres) reste après l'action, **les 30 derniers sont gardés**, les plus anciens purgés au passage de l'action suivante ; la sortie et le code de retour vivent dans journald | `05-execution.md` |
+| **Le catalogue d'actions se valide action par action**, au moment où son jalon la construit — pas de séance de validation à part | `15-catalogue-actions.md` |
 | **Machine openCloud sur elle-même : même script, même transport** — SSH vers `localhost`, l'unité reste fermée ; amorçage par `sudo opencloud enroll-local` (tranché le 6 septembre 2026, ticket #20) | `05-execution.md` |
 | Toute action porte **portée, lieu, réversibilité, interruption**, montrés avant — **plus le diff des fichiers qui vont être posés et le résultat de la validation à blanc** (`make config`, `sshd -t`, `visudo -c`) | `05-execution.md`, `15` §1 |
 | **Idempotence testée** : chaque `run.sh` rejoué deux fois sort `inchangé`, vérifié en CI | `15` §1, `17-conventions-code.md` |
@@ -75,15 +83,17 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | Décision | Détail |
 |---|---|
 | **Traefik sur chaque machine** ; pas de frontal tant que la topologie ne l'impose pas | `06-reseau-et-certificats.md` |
-| **DNS Cloudflare par API, ACME DNS-01** ; **un jeton par zone Cloudflare**, tous sur la machine openCloud, **une seule copie chacun**. **La rotation d'un jeton est une action** du catalogue | `06-reseau-et-certificats.md`, `08`, `15` |
+| **DNS Cloudflare par API, ACME DNS-01** ; **un jeton par zone Cloudflare**, gardé sur la machine openCloud **et copié sur chaque machine qui sert la zone** par *Installer le proxy*. **La rotation d'un jeton est une action** du catalogue, qui le remplace partout | `06-reseau-et-certificats.md`, `08`, `15` |
 | **Deux écritures DNS nommées, pas une de plus** : le TXT du challenge, et — **sur demande, jamais automatique, toujours montrée** — l'enregistrement A/CNAME (action *Créer l'enregistrement DNS*). Le reste du DNS est constaté | `06-reseau-et-certificats.md`, `15` |
 | **Préflight DNS + CAA + budget Let's Encrypt** avant toute demande et tout renouvellement ; le bouton « renouveler » **refuse pendant la fenêtre de blocage** et dit l'heure de déblocage | `06-reseau-et-certificats.md`, `15` §6 |
-| **Le TLS termine sur chaque machine** | `06-reseau-et-certificats.md` |
+| **Le TLS termine sur chaque machine, et chaque machine obtient et renouvelle seule ses certificats** : Traefik local en DNS-01 avec le jeton de zone copié. Le renouvellement ne dépend plus de la machine openCloud. Coût assumé : une machine compromise expose le DNS de sa zone — réduction à l'étude, partie 2 | `06-reseau-et-certificats.md` |
+| **Le stockage ACME de chaque machine est sauvegardé et restauré avant Traefik** : on restaure plutôt que de réémettre, pour ne pas consommer le budget Let's Encrypt après une reconstruction | `06-reseau-et-certificats.md`, `07` |
 | **Enrôlement par une commande générée, jouée sur la machine** ; option « derrière NAT » qui monte WireGuard, **aussi indolore que Tailscale** : une commande, zéro réglage. *Enrôler* **ne touche ni au proxy ni aux certificats des autres machines** et **vérifie après coup** que leurs hôtes virtuels répondent | `10-cycle-de-vie.md`, `15` |
 | **WireGuard**, pas IPsec | `06-reseau-et-certificats.md` |
 | **Journaux centralisés** (Loki + Alloy) pour le trafic par site ; **le WAF lit en local**, il n'en dépend pas | `09-observation-et-interface.md` |
 | **CrowdSec** pour le WAF ; **vérification périodique que le bouncer bloque réellement**, et **liste des bannissements avec un geste « débannir »** | `08-securite-et-secrets.md`, `09`, `15` |
-| **Netdata ou Beszel + Loki/Alloy** — le choix entre les deux collecteurs reste en partie 2 | `09-observation-et-interface.md` |
+| **API CrowdSec injoignable : les machines continuent de servir**, les bannissements en cache s'éteignent à leur expiration, aucune décision nouvelle jusqu'au retour. *Diagnostiquer* le signale | `02-roles.md` |
+| **Beszel + Loki/Alloy** : le hub Beszel tourne sur la machine openCloud avec les autres composants centraux, un agent par machine. Netdata écarté ; on change si Beszel déçoit | `09-observation-et-interface.md` |
 | **Un seul écran qui montre et qui agit** : la vue Machine porte santé et actions ensemble ; les outils tiers restent des détails, pas des interfaces obligatoires | `09-observation-et-interface.md` |
 
 ### Sécurité, sauvegardes, mises à jour
@@ -106,16 +116,8 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 
 | Question | Détail |
 |---|---|
-| **Comment le certificat arrive sur la machine** : obtenu par la machine openCloud puis déposé, ou Traefik local en DNS-01 avec jeton copié | `06-reseau-et-certificats.md` |
-| **Le catalogue d'actions** est écrit ; à valider | `15-catalogue-actions.md` |
-| **Traces d'action sur les machines** (script, sortie, code de retour) : `/var/lib/opencloud/actions/<id>` purgé, ou journald seul — Lucas veut d'abord comprendre l'enjeu | `05-execution.md` |
-| **Outils de base à poser sur chaque machine** — `screen`, `ncdu`, `at` cités ; liste à compléter | `15-catalogue-actions.md` |
-| **Netdata ou Beszel** — l'un des deux, à essayer en local. **Le terrain penche pour Beszel** (`19-cas-d-usage.md` §4, une mention, positive) ; Lucas veut d'abord le connaître | `09-observation-et-interface.md` |
+| **Réduire le pouvoir du jeton copié sur chaque machine** : Lucas garde le jeton de zone par défaut mais veut une meilleure voie si elle existe. Piste connue : déléguer `_acme-challenge` par `CNAME` vers une zone dédiée où chaque machine n'écrit que son enregistrement. **À étudier au jalon v0.1.0, avant de certifier (#6)** | `06-reseau-et-certificats.md` |
 | **Ports bruts (TCP non HTTP)** — hors du périmètre aujourd'hui ; **question rouverte**, à reprendre **plus tard** | `06-reseau-et-certificats.md` |
-| Ce que font les machines quand **l'API CrowdSec est injoignable** | `02-roles.md` |
-| **Fenêtre de maintenance** par environnement : utile ou non | `10-cycle-de-vie.md` |
-| **Sauvegarde du stockage ACME** : restaurer plutôt que réémettre — à écrire | `06-reseau-et-certificats.md` |
-| **Le saut de `0.x` à `1.0.0` dans `self-update`** : accepté aujourd'hui comme « majeure suivante en X.0 », en sautant les mineures entre les deux. Garder, et s'engager à ce que la 1.0 migre depuis la dernière 0.x ; ou retirer. Relevé à la revue de la PR #30 | `20-installation-et-mise-a-jour.md`, `internal/selfupdate/version.go` |
 
 ## 3. Écarté et reporté
 
@@ -131,6 +133,11 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
   antérieure suffit. L'écran de *Mettre à jour* dit que les données ne
   reviennent pas et propose `backup` avant (`15-catalogue-actions.md`).
 - SysWarden comme WAF (lu pour son code seulement : `annexes/lecture-syswarden.md`).
+- **Fenêtre de maintenance par environnement** (8 septembre 2026) : rien ne se
+  lance seul qui puisse couper un service, et un seul opérateur ; l'écran
+  d'avant-exécution suffit.
+- **Une 1.0 atteinte par `self-update`** : la v1 se décidera à part, le jour
+  d'une release voulue comme telle.
 - La méthode de développement et de preuve de `your-cloud`.
 
 ### Reporté

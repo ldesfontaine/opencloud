@@ -102,7 +102,9 @@ Dans les deux cas, ce qui se passe, **dans cet ordre** :
    est privé, l'instance publique ensuite — et le binaire reconnaît l'une et
    l'autre.
 2. **Refuser un saut de version mineure** : `0.1 → 0.3` est refusé, le chemin
-   est séquentiel *(Headscale)*.
+   est séquentiel *(Headscale)*. **Refuser aussi tout changement de majeure** :
+   `0.x → 1.0` n'est pas une mise à jour que `self-update` accepte ; la v1 se
+   décidera à part, avec son propre chemin (tranché le 8 septembre 2026).
 3. **Garder l'ancien binaire** à côté : `opencloud.prev`, un lien dur vers
    l'ancien fichier — rien n'est copié.
 4. **Remplacer par écriture atomique** — fichier `opencloud.new` puis

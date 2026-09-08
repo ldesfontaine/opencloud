@@ -39,7 +39,7 @@ Un quatrième geste, imposé par le terrain : **`.gitignore` forcé sur tout
 | Secret | À quoi il sert | Qui le détient | Ce qu'une fuite permet |
 |---|---|---|---|
 | **Clé SSH d'openCloud** | Agir sur les machines | Machine openCloud | Tout. C'est le contrôle de l'infrastructure entière. |
-| **Jetons DNS (Cloudflare)** | Poser le TXT du challenge, et sur demande un A/CNAME | Machine openCloud — **un par zone**, une seule copie chacun | Détourner **la zone de ce jeton** : rediriger le trafic, émettre des certificats à son nom. Les autres zones tiennent |
+| **Jetons DNS (Cloudflare)** | Poser le TXT du challenge, et sur demande un A/CNAME | Machine openCloud — **un par zone** — et **copié sur chaque machine qui sert la zone**, lisible de Traefik seul (`06-reseau-et-certificats.md`) | Détourner **la zone de ce jeton** : rediriger le trafic, émettre des certificats à son nom. Les autres zones tiennent |
 | **Clé de chiffrement des sauvegardes** | Chiffrer et restaurer | L'opérateur, dans son gestionnaire de mots de passe | Lire toutes les données de tous les services |
 | **Identifiants de l'interface** | Se connecter à openCloud | Machine openCloud | Agir comme l'opérateur |
 | **Accès au stockage froid** | Déposer les sauvegardes | Point de récupération | Lire ou détruire les sauvegardes |

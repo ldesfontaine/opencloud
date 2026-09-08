@@ -72,14 +72,16 @@ topologie qui décide.
   (`*.exemple.com`). C'est ce qui rend le reste cohérent : une machine privée
   peut obtenir son propre certificat.
 - **Chaque machine possède son propre stockage ACME**, et **ce stockage fait
-  partie de la sauvegarde** (voir `07-donnees-et-sauvegardes.md`).
+  partie de la sauvegarde** : une restauration le remet en place **avant** de
+  relancer Traefik, pour ne pas réémettre et consommer le budget Let's Encrypt
+  (voir `07-donnees-et-sauvegardes.md`).
 - **Une minuterie légère par machine** s'occupe du renouvellement.
 - **Pas de certificat externe** pour l'instant : tout est émis par Let's
   Encrypt.
 - **Le TLS termine sur chaque machine.** Pas de frontal qui déchiffre pour les
-  autres. Reste à choisir comment le certificat y arrive : obtenu par la
-  machine openCloud avec le jeton unique puis déposé, ou Traefik local en
-  DNS-01 avec le jeton copié. Ouvert (`11-decisions.md`).
+  autres. **Chaque machine obtient et renouvelle seule ses certificats** :
+  Traefik local en DNS-01, avec le jeton de sa zone copié sur la machine
+  (tranché le 8 septembre 2026 ; le coût est dit plus bas, « Le jeton DNS »).
 - **Deux écritures nommées ailleurs que sur une machine, pas une de plus** : le
   **TXT `_acme-challenge`**, et — **sur demande** — l'**enregistrement A ou
   CNAME** d'un domaine. Tout le reste du DNS est constaté, jamais touché.
@@ -138,31 +140,30 @@ Un **jeton par machine** n'apporterait rien : Cloudflare restreint un jeton à
 une zone, pas à un enregistrement — cinq jetons peuvent donc tous tout faire
 sur le domaine. Le découpage utile n'est pas la machine, **c'est la zone**.
 
-> **Acté : un jeton par zone Cloudflare**, tous sur la machine openCloud,
-> **une seule copie chacun**. C'est elle qui pose le challenge pour chaque
-> machine. Un jeton qui fuit ne livre que sa zone.
+> **Acté : un jeton par zone Cloudflare.** Il est saisi une fois dans
+> openCloud, qui le garde pour l'action *Créer l'enregistrement DNS*, et
+> **copié sur chaque machine qui sert la zone** par *Installer le proxy*, dans
+> un fichier lisible de Traefik seul. Un jeton qui fuit ne livre que sa zone.
+
+**Pourquoi la copie, et ce qu'elle coûte** (tranché le 8 septembre 2026).
+Garder le jeton sur la seule machine openCloud aurait fait dépendre chaque
+renouvellement du pilotage — ce que le projet refuse partout ailleurs — et
+aurait demandé un client ACME dans le binaire et un dépôt de certificats vers
+Traefik. La copie garde la cohérence : Traefik fait tout, sur sa machine, même
+la machine openCloud éteinte. Le prix est dit tel quel : **une machine
+compromise devient une zone compromise**, et la rotation touche toutes les
+machines de la zone.
 
 **La rotation d'un jeton est une action du catalogue.** Un jeton n'est jamais
-réaffiché, donc il ne se remplace pas à la main : l'action pose le nouveau, le
-vérifie, puis retire l'ancien (`15-catalogue-actions.md`).
+réaffiché, donc il ne se remplace pas à la main : l'action pose le nouveau sur
+chaque machine de la zone, le vérifie, puis retire l'ancien
+(`15-catalogue-actions.md`).
 
-Cela crée une dépendance au pilotage pour le renouvellement, ce que le projet
-évite partout ailleurs. L'exception est tenable ici, et seulement ici : **un
-certificat Let's Encrypt se renouvelle 30 jours avant son expiration**. Il
-faudrait que la machine openCloud reste éteinte un mois entier pour que cela
-devienne un problème, et un renouvellement manqué se rattrape — contrairement à
-une sauvegarde manquée.
-
-Si cette marge paraît trop mince un jour, le remède est connu : **copier le
-jeton de la zone sur chaque machine qui en dépend**, au prix de la surface
-d'exposition — une machine compromise devient alors une zone compromise, et la
-rotation est à faire partout.
-
-Une troisième voie existe si le sujet devient sensible : **déléguer
-`_acme-challenge` par `CNAME`** vers une zone dédiée où chaque machine ne peut
-écrire que son propre enregistrement. Un jeton compromis ne permettrait alors
-plus de détourner le domaine. C'est un composant de plus ; ça ne change rien
-aujourd'hui et ça reste ouvert pour demain.
+**Réduire ce pouvoir reste à l'étude**, avant de certifier (`11-decisions.md`,
+partie 2). La piste connue : **déléguer `_acme-challenge` par `CNAME`** vers
+une zone dédiée où chaque machine ne peut écrire que son propre
+enregistrement ; un jeton compromis ne permettrait alors plus de détourner le
+domaine. C'est un composant de plus, à peser le moment venu.
 
 ## Ce que le proxy ne publie pas
 

@@ -7,7 +7,8 @@
   fichiers en cours d'écriture. **Le slot porte le nom réel de la base**, pas
   celui du service : deux bases d'un même moteur ne partagent alors aucun
   préfixe, donc la rétention de l'une n'efface jamais l'autre ;
-- le **stockage ACME** (voir `06-reseau-et-certificats.md`) ;
+- le **stockage ACME**, restauré **avant** Traefik pour ne pas réémettre
+  (voir `06-reseau-et-certificats.md`) ;
 - l'**état d'openCloud** — `/var/lib/opencloud/` sur la machine openCloud, par
   une **règle nommée** en plus de `/srv/data`. **Elle écrit sur une autre
   machine**, et l'interface dit **laquelle** et **quand** (`10-cycle-de-vie.md`) ;

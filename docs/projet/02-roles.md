@@ -141,14 +141,14 @@ réponse précise.
 | Les sauvegardes locales et l'élagage | Le dépôt de **nouvelles** actions |
 | La remontée de métriques, le WAF | La récupération des sauvegardes froides |
 | **Les actions déjà lancées** — elles sont détachées de la connexion SSH (voir `05-execution.md`) | |
-| Le renouvellement ACME — *sous réserve, voir ci-dessous* | |
+| Le renouvellement ACME — Traefik a le jeton de sa zone sur la machine (`06-reseau-et-certificats.md`) | |
 
-**Une exception, assumée** : les jetons DNS — **un par zone Cloudflare** — ne
-vivent que sur la machine openCloud, chacun en une seule copie. Le
-renouvellement des certificats dépend donc d'elle.
-
-La marge de 30 jours du renouvellement ACME rend l'exception tenable — ici, et
-nulle part ailleurs. Le raisonnement complet : `06-reseau-et-certificats.md`.
+**Le WAF quand l'API CrowdSec est injoignable** (tranché le 8 septembre
+2026) : les machines **continuent de servir**. Le composant de blocage garde
+ses décisions en cache et les applique jusqu'à leur expiration ; aucune
+décision nouvelle n'arrive tant que l'API ne répond pas. Un site ne tombe
+jamais à cause du WAF. *Diagnostiquer* signale l'API injoignable, pour que la
+panne ne passe pas en silence.
 
 **La perte de la machine openCloud** ne se répare pas par une bascule
 automatique mais par **réinstallation ailleurs**, puis ré-enrôlement des machines

@@ -62,7 +62,7 @@ vocabulaire est dans `03-modele.md`.
 
 Le cadrage est **fermé** (`11-decisions.md`). Pile : Go, interface rendue côté
 serveur, un binaire. Actions : scripts par SSH, `params.env` lu par systemd.
-Enrôlement par commande. TLS sur chaque machine. CrowdSec, Netdata ou Beszel,
+Enrôlement par commande. TLS sur chaque machine. CrowdSec, Beszel,
 Loki. Le catalogue d'actions (`15-catalogue-actions.md`) et les cibles du
 Makefile d'un service (`03-modele.md`) sont écrits.
 
