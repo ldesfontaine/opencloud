@@ -184,8 +184,17 @@ func (u *Updater) chooseRelease(ctx context.Context, requested string) (Release,
 }
 
 // refuseVersionJump nomme l'étape à installer d'abord : la plus haute release
-// atteignable depuis la version courante.
+// atteignable depuis la version courante. Un changement de majeure, lui, n'a
+// pas d'étape à nommer : aucune release ne le franchit.
 func (u *Updater) refuseVersionJump(ctx context.Context, current, target Version) error {
+	if target.Major != current.Major {
+		return refusal.Refusal{
+			Cause: fmt.Sprintf("passer de %s à %s est un changement de version majeure, pas pris en charge par self-update",
+				current, target),
+			Remedy: "installer le paquet .deb de cette version à la main, en suivant ses notes de version",
+		}
+	}
+
 	cause := fmt.Sprintf("passer de %s à %s saute au moins une version mineure ; le chemin est séquentiel, chaque version migre depuis la précédente", current, target)
 
 	releases, err := u.client.ListReleases(ctx)

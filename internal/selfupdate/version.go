@@ -70,16 +70,15 @@ func (v Version) Compare(other Version) int {
 	return cmp.Compare(v.Patch, other.Patch)
 }
 
-// IsSequentialUpgradeFrom dit si passer de current à v ne saute aucune
-// version mineure : un correctif de la même série, la série suivante, ou la
-// majeure suivante en X.0. Chaque version sait migrer depuis la précédente,
-// pas depuis n'importe laquelle (Headscale).
+// IsSequentialUpgradeFrom dit si passer de current à v reste dans la même
+// majeure et ne saute aucune version mineure : un correctif de la même série,
+// ou la série suivante. Chaque version sait migrer depuis la précédente, pas
+// depuis n'importe laquelle (Headscale). Un changement de majeure ne passe
+// jamais par self-update : on reste en 0.x, la v1 se décide à part
+// (11-decisions.md).
 func (v Version) IsSequentialUpgradeFrom(current Version) bool {
-	if v.Compare(current) <= 0 {
+	if v.Compare(current) <= 0 || v.Major != current.Major {
 		return false
 	}
-	if v.Major == current.Major {
-		return v.Minor == current.Minor || v.Minor == current.Minor+1
-	}
-	return v.Major == current.Major+1 && v.Minor == 0
+	return v.Minor == current.Minor || v.Minor == current.Minor+1
 }

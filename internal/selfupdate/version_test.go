@@ -36,7 +36,7 @@ func TestVersion_Compare_OrdersNumerically(t *testing.T) {
 	}
 }
 
-func TestVersion_IsSequentialUpgradeFrom_RefusesMinorJumpsAndDowngrades(t *testing.T) {
+func TestVersion_IsSequentialUpgradeFrom_RefusesMinorJumpsMajorChangesAndDowngrades(t *testing.T) {
 	cases := []struct {
 		from, to string
 		want     bool
@@ -46,8 +46,8 @@ func TestVersion_IsSequentialUpgradeFrom_RefusesMinorJumpsAndDowngrades(t *testi
 		{"0.1.3", "0.2.0", true},
 		{"0.1.3", "0.2.7", true},
 		{"0.0.4", "0.1.0", true},
-		{"0.9.0", "1.0.0", true},
-		{"0.9.0", "1.0.3", true},
+		{"0.9.0", "1.0.0", false},
+		{"0.9.0", "1.0.3", false},
 		{"0.1.0", "0.3.0", false},
 		{"0.1.0", "0.1.0", false},
 		{"0.2.0", "0.1.9", false},
