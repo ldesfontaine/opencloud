@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -210,6 +212,45 @@ func TestPostLogin_TooManyFailures_Is429WithMessage(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), messageTooManyAttempts.Cause) {
 		t.Fatal("le message doit dire d'attendre")
+	}
+}
+
+func TestPostLogin_TooManyFailuresFromOneAddress_Is429AndSaysTheDelay(t *testing.T) {
+	visitor := newBrowser(t)
+	// Un identifiant différent à chaque fois : seul le frein par adresse
+	// peut arrêter celui-là.
+	for attempt := 0; attempt < 20; attempt++ {
+		visitor.login(fmt.Sprintf("guess-%d", attempt), "wrong")
+	}
+
+	response := visitor.login(auth.DefaultUsername, auth.DefaultPassword)
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("code = %d, attendu 429", response.Code)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "Trop de tentatives depuis cette adresse.") {
+		t.Fatalf("le refus doit nommer l'adresse :\n%s", body)
+	}
+	if !strings.Contains(body, "réessayer dans 5 min") {
+		t.Fatalf("le refus doit dire dans combien de temps réessayer :\n%s", body)
+	}
+}
+
+func TestMinutesToWait_RoundsUpAndNeverSaysZero(t *testing.T) {
+	cases := map[time.Duration]int{
+		-time.Second:                   1,
+		0:                              1,
+		30 * time.Second:               1,
+		time.Minute:                    1,
+		time.Minute + time.Second:      2,
+		3*time.Minute + 12*time.Second: 4,
+		5 * time.Minute:                5,
+	}
+	for retryIn, want := range cases {
+		if got := minutesToWait(retryIn); got != want {
+			t.Fatalf("%s : minutes = %d, attendu %d", retryIn, got, want)
+		}
 	}
 }
 

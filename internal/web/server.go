@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
@@ -19,7 +20,7 @@ import (
 // passe. Le vrai est *auth.Service ; l'interface vit ici, côté consommateur,
 // et ne dit que ce que web utilise.
 type Authenticator interface {
-	Login(ctx context.Context, username, password string) (auth.Session, error)
+	Login(ctx context.Context, username, password string, clientAddress netip.Addr) (auth.Session, error)
 	Logout(ctx context.Context, token string) error
 	Authenticate(ctx context.Context, token string) (store.Account, error)
 	ChangePassword(ctx context.Context, accountID int64, currentPassword, newPassword string) (auth.Session, error)
@@ -108,6 +109,10 @@ type Dependencies struct {
 	Actions     Actions
 	Catalog     Catalog
 	Prober      Prober
+	// TrustedProxies : les proxies derrière lesquels X-Forwarded-For dit
+	// l'adresse d'origine (clé « trusted_proxies »). Vide, l'en-tête est
+	// ignoré et l'adresse est celle de la connexion.
+	TrustedProxies []netip.Prefix
 }
 
 type Server struct {
@@ -119,6 +124,8 @@ type Server struct {
 	actions     Actions
 	catalog     Catalog
 	prober      Prober
+
+	trustedProxies []netip.Prefix
 
 	logger    *slog.Logger
 	version   string
@@ -152,11 +159,14 @@ func New(deps Dependencies, version string, logger *slog.Logger) (*Server, error
 		actions:     deps.Actions,
 		catalog:     deps.Catalog,
 		prober:      deps.Prober,
-		logger:      logger,
-		version:     version,
-		templates:   templates,
-		static:      http.StripPrefix("/static/", http.FileServerFS(staticFiles)),
-		csrf:        csrf,
+
+		trustedProxies: deps.TrustedProxies,
+
+		logger:    logger,
+		version:   version,
+		templates: templates,
+		static:    http.StripPrefix("/static/", http.FileServerFS(staticFiles)),
+		csrf:      csrf,
 	}, nil
 }
 

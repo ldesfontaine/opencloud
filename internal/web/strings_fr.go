@@ -55,6 +55,25 @@ var (
 	}
 )
 
+// Le refus par adresse dit l'attente, sinon l'opérateur ne sait pas s'il doit
+// patienter ou aller réparer quelque chose.
+func messageTooManyAttemptsFromAddress(retryIn time.Duration) refusalView {
+	return refusalView{
+		Cause:  "Trop de tentatives depuis cette adresse.",
+		Remedy: fmt.Sprintf("réessayer dans %d min", minutesToWait(retryIn)),
+	}
+}
+
+// Arrondi à la minute supérieure : « 4 min » se lit, « 3 min 12 s » promet une
+// précision que la fenêtre glissante n'a pas. Jamais moins d'une minute.
+func minutesToWait(retryIn time.Duration) int {
+	minutes := int((retryIn + time.Minute - 1) / time.Minute)
+	if minutes < 1 {
+		return 1
+	}
+	return minutes
+}
+
 // Le refus nomme la règle et le geste qui la lève, sur un réseau de confiance.
 func messagePasswordTooShort(minLength int) refusalView {
 	return refusalView{

@@ -6,6 +6,13 @@
 - **Par défaut** : identifiant et mot de passe, protection au niveau du proxy
   inverse, modifiables depuis l'interface. Un identifiant par défaut est défini
   pour tout déploiement.
+- **Freins de connexion** : 20 échecs par adresse d'origine sur cinq minutes
+  glissantes ferment la porte à cette adresse seule, avant même de vérifier le
+  mot de passe, et le refus dit dans combien de temps réessayer ; les freins par
+  identifiant (5 échecs) et global (100 tentatives) restent derrière. L'adresse
+  est celle de la connexion, sauf derrière un proxy déclaré dans
+  `trusted_proxies` (liste d'adresses ou de CIDR, vide par défaut) — alors
+  `X-Forwarded-For` fait foi ; sans proxy déclaré, l'en-tête est ignoré.
 - **Plus tard** : MFA et identités centralisées, par exemple Authentik. Avec
   une réserve à garder en tête : brancher openCloud sur un service d'identité le
   rend **dépendant de ce service**. Si l'annuaire tombe, l'outil qui sert à

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/validate"
@@ -25,10 +26,19 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
 
 	username := r.PostFormValue("username")
 	password := r.PostFormValue("password")
-	session, err := s.auth.Login(r.Context(), username, password)
+	address := clientAddress(r, s.trustedProxies)
+	session, err := s.auth.Login(r.Context(), username, password, address)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		s.logger.Warn("login refused", "username", loggableUsername(username))
+		s.logger.Warn("login refused", "username", loggableUsername(username), "address", address.String())
 		s.render(w, http.StatusUnauthorized, "login", s.newPage(r, nil, s.csrfFormToken(w, r)).withError(messageInvalidLogin))
+		return
+	}
+	// Le frein par adresse avant le refus de frein général : il est aussi un
+	// ErrTooManyAttempts, et lui seul sait dans combien de temps réessayer.
+	var throttled *auth.TooManyAttemptsFromAddressError
+	if errors.As(err, &throttled) {
+		s.logger.Warn("login throttled by address", "address", address.String(), "retry_in", throttled.RetryIn.Round(time.Second).String())
+		s.render(w, http.StatusTooManyRequests, "login", s.newPage(r, nil, s.csrfFormToken(w, r)).withError(messageTooManyAttemptsFromAddress(throttled.RetryIn)))
 		return
 	}
 	if errors.Is(err, auth.ErrTooManyAttempts) {

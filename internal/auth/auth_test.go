@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -14,6 +16,10 @@ import (
 )
 
 const testMinPasswordLength = 12
+
+// Les tests qui ne portent pas sur le frein par adresse n'en donnent pas :
+// une adresse invalide traverse ce frein sans le nourrir.
+var noAddress netip.Addr
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
@@ -99,7 +105,7 @@ func TestEnsureDefaultAccount_AllowDefault_LiftsAndRestoresObligation(t *testing
 func TestEnsureDefaultAccount_ChangedPassword_IsLeftAlone(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, session.Token)
 	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled-for-good"); err != nil {
 		t.Fatal(err)
@@ -120,21 +126,71 @@ func TestLogin_TooManyFailures_IsThrottledUntilWindowPasses(t *testing.T) {
 	service := newTestService(t)
 
 	for attempt := 0; attempt < maxLoginFailures; attempt++ {
-		if _, err := service.Login(ctx, DefaultUsername, "wrong"); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := service.Login(ctx, DefaultUsername, "wrong", noAddress); !errors.Is(err, ErrInvalidCredentials) {
 			t.Fatalf("tentative %d : attendu ErrInvalidCredentials, reçu %v", attempt, err)
 		}
 	}
 
-	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword); !errors.Is(err, ErrTooManyAttempts) {
+	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress); !errors.Is(err, ErrTooManyAttempts) {
 		t.Fatalf("même le bon mot de passe doit attendre : reçu %v", err)
 	}
-	if _, err := service.Login(ctx, "someone-else", DefaultPassword); !errors.Is(err, ErrInvalidCredentials) {
+	if _, err := service.Login(ctx, "someone-else", DefaultPassword, noAddress); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("un autre identifiant n'est pas bloqué : reçu %v", err)
 	}
 
 	service.now = func() time.Time { return time.Now().Add(loginFailureWindow + time.Second) }
-	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword); err != nil {
+	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress); err != nil {
 		t.Fatalf("la fenêtre passée, la connexion doit marcher : %v", err)
+	}
+}
+
+func TestLogin_TooManyFailuresFromOneAddress_IsRefusedWithADelay(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+	address := netip.MustParseAddr("203.0.113.7")
+
+	// Un identifiant différent à chaque fois : seul le frein par adresse
+	// peut arrêter celui-là.
+	for attempt := 0; attempt < maxFailuresPerAddress; attempt++ {
+		username := fmt.Sprintf("guess-%d", attempt)
+		if _, err := service.Login(ctx, username, "wrong", address); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("tentative %d : attendu ErrInvalidCredentials, reçu %v", attempt, err)
+		}
+	}
+
+	_, err := service.Login(ctx, DefaultUsername, DefaultPassword, address)
+	var throttled *TooManyAttemptsFromAddressError
+	if !errors.As(err, &throttled) {
+		t.Fatalf("la 21e tentative doit être refusée par l'adresse, reçu %v", err)
+	}
+	if throttled.RetryIn <= 0 || throttled.RetryIn > loginFailureWindow {
+		t.Fatalf("délai = %s, attendu entre 0 et %s", throttled.RetryIn, loginFailureWindow)
+	}
+	if !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatal("le refus par adresse reste un refus de frein")
+	}
+	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword, netip.MustParseAddr("198.51.100.2")); err != nil {
+		t.Fatalf("une autre adresse n'est pas freinée : %v", err)
+	}
+}
+
+func TestLogin_SuccessFromAnAddress_ClearsItsFailures(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(t)
+	address := netip.MustParseAddr("203.0.113.7")
+
+	for attempt := 0; attempt < maxFailuresPerAddress-1; attempt++ {
+		if _, err := service.Login(ctx, fmt.Sprintf("guess-%d", attempt), "wrong", address); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("tentative %d : attendu ErrInvalidCredentials, reçu %v", attempt, err)
+		}
+	}
+
+	if _, err := service.Login(ctx, DefaultUsername, DefaultPassword, address); err != nil {
+		t.Fatalf("la connexion doit marcher : %v", err)
+	}
+
+	if failures := len(service.addressThrottle.failures); failures != 0 {
+		t.Fatalf("après une réussite, l'adresse ne compte plus d'échec, reçu %d", failures)
 	}
 }
 
@@ -142,7 +198,7 @@ func TestLogin_DefaultCredentials_OpensSessionThatMustChangePassword(t *testing.
 	ctx := context.Background()
 	service := newTestService(t)
 
-	session, err := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, err := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	if err != nil {
 		t.Fatalf("erreur inattendue : %v", err)
 	}
@@ -164,7 +220,7 @@ func TestLogin_WrongPasswordOrUnknownUser_IsInvalidCredentials(t *testing.T) {
 	service := newTestService(t)
 
 	for _, attempt := range [][2]string{{DefaultUsername, "wrong"}, {"nobody", DefaultPassword}} {
-		_, err := service.Login(ctx, attempt[0], attempt[1])
+		_, err := service.Login(ctx, attempt[0], attempt[1], noAddress)
 		if !errors.Is(err, ErrInvalidCredentials) {
 			t.Fatalf("%v : attendu ErrInvalidCredentials, reçu %v", attempt, err)
 		}
@@ -179,7 +235,7 @@ func TestAuthenticate_UnknownOrExpiredToken_IsSessionExpired(t *testing.T) {
 		t.Fatalf("attendu ErrSessionExpired, reçu %v", err)
 	}
 
-	session, err := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, err := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +248,7 @@ func TestAuthenticate_UnknownOrExpiredToken_IsSessionExpired(t *testing.T) {
 func TestLogout_ClosesSession(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 
 	if err := service.Logout(ctx, session.Token); err != nil {
 		t.Fatal(err)
@@ -206,7 +262,7 @@ func TestLogout_ClosesSession(t *testing.T) {
 func TestChangePassword_LiftsObligationAndClosesOtherSessions(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	first, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	first, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, first.Token)
 
 	fresh, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "new-and-long")
@@ -224,7 +280,7 @@ func TestChangePassword_LiftsObligationAndClosesOtherSessions(t *testing.T) {
 	if updated.MustChangePassword {
 		t.Fatal("l'obligation doit être levée")
 	}
-	if _, err := service.Login(ctx, DefaultUsername, "new-and-long"); err != nil {
+	if _, err := service.Login(ctx, DefaultUsername, "new-and-long", noAddress); err != nil {
 		t.Fatalf("le nouveau mot de passe doit ouvrir une session : %v", err)
 	}
 }
@@ -232,7 +288,7 @@ func TestChangePassword_LiftsObligationAndClosesOtherSessions(t *testing.T) {
 func TestChangePassword_SameAsCurrent_IsRefused(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, session.Token)
 	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "settled-for-good"); err != nil {
 		t.Fatal(err)
@@ -248,7 +304,7 @@ func TestChangePassword_SameAsCurrent_IsRefused(t *testing.T) {
 func TestChangePassword_Refusals(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, session.Token)
 
 	cases := []struct {
@@ -275,7 +331,7 @@ func TestChangePassword_Refusals(t *testing.T) {
 func TestChangePassword_TooShort_IsRefusedWithTheMinimum(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, session.Token)
 
 	_, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "onze-carac.")
@@ -294,7 +350,7 @@ func TestChangePassword_NoMinimum_AcceptsShortPassword(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(t)
 	service.policy = PasswordPolicy{MinLength: 0}
-	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword)
+	session, _ := service.Login(ctx, DefaultUsername, DefaultPassword, noAddress)
 	account, _ := service.Authenticate(ctx, session.Token)
 
 	if _, err := service.ChangePassword(ctx, account.ID, DefaultPassword, "abc"); err != nil {
@@ -312,7 +368,7 @@ func TestLogin_MalformedOrHugeInput_IsRefusedBeforeAnyWork(t *testing.T) {
 		{DefaultUsername, strings.Repeat("p", maxPasswordBytes+1)},
 	}
 	for _, attempt := range attempts {
-		if _, err := service.Login(ctx, attempt[0], attempt[1]); !errors.Is(err, ErrInvalidCredentials) {
+		if _, err := service.Login(ctx, attempt[0], attempt[1], noAddress); !errors.Is(err, ErrInvalidCredentials) {
 			t.Fatalf("%q : attendu ErrInvalidCredentials, reçu %v", attempt[0], err)
 		}
 	}

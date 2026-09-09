@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,6 +75,40 @@ func TestParse_MinPasswordLength_DefaultsToTwelveAndCanBeLifted(t *testing.T) {
 		_, _, err := Parse([]byte("state_dir = \"state\"\n" + content))
 		if err == nil || !strings.Contains(err.Error(), "min_password_length") {
 			t.Fatalf("%q doit être refusé en nommant la clé, reçu %v", content, err)
+		}
+	}
+}
+
+func TestParse_TrustedProxies_AreEmptyUnlessSaidAndAcceptAddressesAndCIDR(t *testing.T) {
+	if len(defaults().TrustedProxies) != 0 {
+		t.Fatal("sans proxy déclaré, X-Forwarded-For doit être ignoré")
+	}
+
+	cfg, _, err := Parse([]byte("state_dir = \"state\"\ntrusted_proxies = [\"10.0.0.0/8\", \"192.0.2.7\"]\n"))
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+
+	prefixes, err := ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if len(prefixes) != 2 {
+		t.Fatalf("préfixes = %v, attendu deux", prefixes)
+	}
+	if !prefixes[0].Contains(netip.MustParseAddr("10.1.2.3")) {
+		t.Fatalf("%s doit contenir 10.1.2.3", prefixes[0])
+	}
+	if !prefixes[1].Contains(netip.MustParseAddr("192.0.2.7")) || prefixes[1].Bits() != 32 {
+		t.Fatalf("une adresse seule doit devenir elle-même, reçu %s", prefixes[1])
+	}
+}
+
+func TestParse_InvalidTrustedProxy_IsARefusalThatNamesTheKey(t *testing.T) {
+	for _, entry := range []string{"pas-une-adresse", "10.0.0.0/64", "10.0.0.0/"} {
+		_, _, err := Parse([]byte("state_dir = \"state\"\ntrusted_proxies = [\"" + entry + "\"]\n"))
+		if err == nil || !strings.Contains(err.Error(), "trusted_proxies") {
+			t.Fatalf("%q doit être refusé en nommant la clé, reçu %v", entry, err)
 		}
 	}
 }
