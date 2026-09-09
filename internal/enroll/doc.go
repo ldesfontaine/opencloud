@@ -1,6 +1,7 @@
-// Package enroll pose l'accès d'openCloud à une machine : lanceur, compte,
-// sudoers, sshd, clé, puis vérification par le chemin réel. La machine
-// openCloud s'amorce ici même, en Go ; une machine distante par une commande
-// collée dessus, puis une empreinte confirmée. Il tient la paire de clés et le
-// known_hosts de chaque machine. Il ne lance aucune action.
+// Package enroll pose l'accès d'openCloud à une machine. La séquence — compte,
+// sudo, sshd, clé — est celle du script de l'action Enrôler : la machine
+// openCloud le joue sur elle-même, en root ; une machine distante le reçoit
+// collé, puis une empreinte confirmée. Autour, il tient la paire de clés et le
+// known_hosts de chaque machine, pose le lanceur et vérifie par le chemin réel.
+// Il ne lance aucune action.
 package enroll

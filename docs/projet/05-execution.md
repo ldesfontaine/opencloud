@@ -16,7 +16,8 @@
   peut pas faire `sudo` sur sa propre machine, et on ne la rouvre pas pour ça.
   Un seul transport, un seul chemin à éprouver. La machine openCloud s'enrôle
   par `sudo opencloud enroll-local`, joué une fois sur elle (tranché le
-  6 septembre 2026, ticket #20).
+  6 septembre 2026, ticket #20) : il joue le script de l'action *Enrôler* en
+  root sur place, le même que sur une machine distante.
 - **Les remontées passent par un collecteur standard**, pas par du code maison
   (voir `02-roles.md`).
 

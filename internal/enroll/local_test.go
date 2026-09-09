@@ -15,33 +15,46 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/transport"
 )
 
-// fakeCommands enregistre ce qui aurait été exécuté et rejoue ce que le test a
-// décidé. Rien de l'amorçage ne s'exécute sur le poste de développement.
-type fakeCommands struct {
-	calls   []string
-	replies map[string]Result
+// Ce que le script écrit quand il a posé la séquence, puis quand il n'a plus
+// rien à poser. L'amorçage relaie ces lignes et retient le constat.
+var (
+	scriptDidWork = []string{
+		"étape: le compte opencloud",
+		"étape: compte opencloud créé",
+		"étape: la règle sudo /etc/sudoers.d/opencloud",
+		"étape: le drop-in sshd /etc/ssh/sshd_config.d/opencloud.conf",
+		"étape: la clé autorisée /var/lib/opencloud/.ssh/authorized_keys",
+		"résultat: fait",
+	}
+	scriptDidNothing = []string{
+		"étape: le compte opencloud — inchangé",
+		"étape: la règle sudo /etc/sudoers.d/opencloud — inchangé",
+		"résultat: inchangé",
+	}
+)
+
+// fakeScripts joue ce que le test a décidé à la place du script : rien de
+// l'amorçage ne s'exécute sur le poste de développement.
+type fakeScripts struct {
+	runs     int
+	played   LocalScript
+	lines    []string
+	exitCode int
+	// before est joué avant les lignes : de quoi observer l'état de la machine
+	// au moment précis où le script tourne.
+	before func()
 }
 
-func (f *fakeCommands) Run(_ context.Context, name string, args ...string) (Result, error) {
-	f.calls = append(f.calls, strings.TrimSpace(name+" "+strings.Join(args, " ")))
-
-	key := name
-	if len(args) > 0 {
-		key = name + " " + args[0]
+func (f *fakeScripts) Run(_ context.Context, script LocalScript, line func(string)) (int, error) {
+	f.runs++
+	f.played = script
+	if f.before != nil {
+		f.before()
 	}
-	if reply, found := f.replies[key]; found {
-		return reply, nil
+	for _, written := range f.lines {
+		line(written)
 	}
-	return Result{}, nil
-}
-
-func (f *fakeCommands) played(prefix string) bool {
-	for _, call := range f.calls {
-		if strings.HasPrefix(call, prefix) {
-			return true
-		}
-	}
-	return false
+	return f.exitCode, nil
 }
 
 type fakeTransport struct {
@@ -63,7 +76,7 @@ type harness struct {
 	deps       Deps
 	systemRoot string
 	stateDir   string
-	commands   *fakeCommands
+	scripts    *fakeScripts
 	sshClient  *fakeTransport
 }
 
@@ -73,19 +86,13 @@ func newHarness(t *testing.T) *harness {
 	systemRoot := t.TempDir()
 	home := filepath.Join(systemRoot, "var/lib/opencloud")
 	for _, directory := range []string{
-		"run/systemd/system", "usr/bin", "usr/sbin", "usr/local/sbin",
-		"etc/sudoers.d", "etc/ssh/sshd_config.d", "opt/opencloud/bin", "var/lib/opencloud/state",
+		"bin", "usr/local/sbin", "opt/opencloud/bin", "var/lib/opencloud/state",
 	} {
 		if err := os.MkdirAll(filepath.Join(systemRoot, directory), 0o755); err != nil {
 			t.Fatalf("préparer la racine de test : %v", err)
 		}
 	}
-	for _, file := range []string{
-		"usr/bin/sudo", "usr/sbin/visudo", "usr/sbin/sshd", "usr/sbin/usermod",
-		"usr/bin/passwd", "usr/bin/systemctl",
-	} {
-		writeTestFile(t, filepath.Join(systemRoot, file), "#!/bin/sh\n", 0o755)
-	}
+	writeTestFile(t, filepath.Join(systemRoot, "bin/bash"), "#!/bin/sh\n", 0o755)
 	writeTestFile(t, filepath.Join(systemRoot, "opt/opencloud/bin/oc-launch"), "le lanceur, version une\n", 0o755)
 	writeTestFile(t, filepath.Join(systemRoot, "etc/ssh/ssh_host_ed25519_key.pub"),
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExempleDeCleDHote root@machine\n", 0o644)
@@ -94,8 +101,6 @@ func newHarness(t *testing.T) *harness {
 	writeTestFile(t, filepath.Join(systemRoot, "etc/passwd"),
 		"root:x:0:0:root:/root:/bin/bash\n"+
 			"opencloud:x:997:997:openCloud:"+home+":/usr/sbin/nologin\n", 0o644)
-	writeTestFile(t, filepath.Join(systemRoot, "etc/group"),
-		"root:x:0:\nsystemd-journal:x:999:\nopencloud:x:997:\n", 0o644)
 
 	stateDir := filepath.Join(home, "state")
 	root, err := os.OpenRoot(stateDir)
@@ -104,11 +109,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { root.Close() })
 
-	commands := &fakeCommands{replies: map[string]Result{
-		// Le paquet crée le compte avec un mot de passe non verrouillé.
-		"/usr/bin/passwd -S":           {Output: "opencloud P 09/06/2026 0 99999 7 -1"},
-		"/usr/bin/systemctl is-active": {Output: "inactive", ExitCode: 3},
-	}}
+	scripts := &fakeScripts{lines: scriptDidWork}
 	sshClient := &fakeTransport{reply: transport.LauncherReply{ExitCode: 2, Output: "usage: oc-launch <id>"}}
 
 	deps := Deps{
@@ -116,14 +117,14 @@ func newHarness(t *testing.T) *harness {
 		SystemRoot: systemRoot,
 		UID:        0,
 		Out:        &strings.Builder{},
-		Commands:   commands,
+		Scripts:    scripts,
 		Transport:  func(transport.Endpoint) LocalTransport { return sshClient },
 		SSHBinary:  "/usr/bin/ssh",
 		Chown:      func(string, int, int) error { return nil }, // le test ne tourne pas en root
 		Now:        func() time.Time { return time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC) },
 		ProbeWait:  time.Millisecond,
 	}
-	return &harness{deps: deps, systemRoot: systemRoot, stateDir: stateDir, commands: commands, sshClient: sshClient}
+	return &harness{deps: deps, systemRoot: systemRoot, stateDir: stateDir, scripts: scripts, sshClient: sshClient}
 }
 
 func writeTestFile(t *testing.T, name, content string, mode os.FileMode) {
@@ -177,18 +178,17 @@ func (h *harness) stateFile(t *testing.T, relative string) string {
 	return string(content)
 }
 
-func TestEnrollLocal_PoseLeLanceurLaRegleSudoLeDropInEtLaCle(t *testing.T) {
+func (h *harness) hasSystemFile(relative string) bool {
+	_, err := os.Stat(filepath.Join(h.systemRoot, relative))
+	return err == nil
+}
+
+func TestEnrollLocal_PoseLaCleLeLanceurEtLesClesDHote(t *testing.T) {
 	harness := newHarness(t)
 	output := harness.run(t)
 
 	if got := harness.systemFile(t, "usr/local/sbin/oc-launch"); got != "le lanceur, version une\n" {
 		t.Errorf("lanceur posé : %q", got)
-	}
-	if got := harness.systemFile(t, "etc/sudoers.d/opencloud"); got != sudoersContent {
-		t.Errorf("règle sudo :\n%s", got)
-	}
-	if got := harness.systemFile(t, "etc/ssh/sshd_config.d/opencloud.conf"); got != sshdDropInContent {
-		t.Errorf("drop-in sshd :\n%s", got)
 	}
 
 	expectedKnownHosts := "127.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExempleDeCleDHote\n" +
@@ -201,14 +201,160 @@ func TestEnrollLocal_PoseLeLanceurLaRegleSudoLeDropInEtLaCle(t *testing.T) {
 	if !strings.HasPrefix(publicKey, "ssh-ed25519 ") || !strings.HasSuffix(publicKey, " opencloud@local\n") {
 		t.Errorf("clé publique : %q", publicKey)
 	}
-	if got := harness.systemFile(t, "var/lib/opencloud/.ssh/authorized_keys"); got != publicKey {
-		t.Errorf("authorized_keys ne porte pas exactement la clé :\n%s", got)
-	}
 	if got := harness.stateFile(t, "machines/local/enrolled"); got != "2026-09-06T10:00:00Z\n" {
 		t.Errorf("marqueur : %q", got)
 	}
 	if !strings.HasSuffix(output, "résultat: fait\n") {
 		t.Errorf("constat final :\n%s", output)
+	}
+}
+
+// La séquence — compte, sudo, sshd, clé — est jouée par le script de l'action
+// Enrôler, celui-là même qu'un opérateur colle sur une machine distante.
+func TestEnrollLocal_JoueLeScriptEnrolerAvecLaCleDansSonEnvironnement(t *testing.T) {
+	harness := newHarness(t)
+	harness.run(t)
+
+	if harness.scripts.runs != 1 {
+		t.Fatalf("%d passage(s) du script, attendu 1", harness.scripts.runs)
+	}
+	played := harness.scripts.played
+	if !strings.HasPrefix(string(played.Content), "#!/bin/bash\n") {
+		t.Errorf("le script joué ne commence pas par le shebang : %.20q", played.Content)
+	}
+	if !strings.Contains(string(played.Content), "OC_PUBLIC_KEY") {
+		t.Error("le script joué n'est pas celui de l'enrôlement")
+	}
+	if played.Timeout <= 0 {
+		t.Error("le script est joué sans délai maximum")
+	}
+
+	publicKey := strings.TrimSpace(harness.stateFile(t, "machines/local/id_ed25519.pub"))
+	expected := []string{"OC_PUBLIC_KEY=" + publicKey}
+	if !slices.Equal(played.Environment, expected) {
+		t.Errorf("environnement %v, attendu %v", played.Environment, expected)
+	}
+}
+
+// L'ordre est une propriété de sécurité : la clé existe avant que le script la
+// pose, et le lanceur arrive après la séquence, comme sur une machine distante.
+func TestEnrollLocal_LOrdreDesEtapesEstUneProprieteDeSecurite(t *testing.T) {
+	harness := newHarness(t)
+	var keyReady, launcherAlreadyThere bool
+	harness.scripts.before = func() {
+		_, err := os.Stat(filepath.Join(harness.stateDir, "machines/local/id_ed25519"))
+		keyReady = err == nil
+		launcherAlreadyThere = harness.hasSystemFile("usr/local/sbin/oc-launch")
+	}
+
+	harness.run(t)
+
+	if !keyReady {
+		t.Error("le script est joué avant que la paire de clés existe")
+	}
+	if launcherAlreadyThere {
+		t.Error("le lanceur est posé avant la séquence : il vient après, une fois le compte en place")
+	}
+}
+
+// Une seule ligne de constat pour toute la séquence : celle du script est
+// retenue, pas relayée.
+func TestEnrollLocal_RelaieLesLignesDuScriptSaufSonConstat(t *testing.T) {
+	harness := newHarness(t)
+	output := harness.run(t)
+
+	for _, line := range scriptDidWork[:len(scriptDidWork)-1] {
+		if !strings.Contains(output, line+"\n") {
+			t.Errorf("le script écrit %q, absent de la sortie :\n%s", line, output)
+		}
+	}
+	if got := strings.Count(output, "résultat:"); got != 1 {
+		t.Errorf("%d lignes de constat, attendu 1 :\n%s", got, output)
+	}
+}
+
+func TestEnrollLocal_RejoueDeuxFoisNeChangeRien(t *testing.T) {
+	harness := newHarness(t)
+	harness.run(t)
+
+	firstKey := harness.stateFile(t, "machines/local/id_ed25519")
+	harness.scripts.lines = scriptDidNothing
+
+	output := harness.run(t)
+
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if strings.HasPrefix(line, "étape:") && !strings.HasSuffix(line, "inchangé") &&
+			!strings.Contains(line, "vérifié par SSH") {
+			t.Errorf("une étape a changé quelque chose au second passage : %q", line)
+		}
+	}
+	if !strings.HasSuffix(output, "résultat: inchangé\n") {
+		t.Errorf("constat final :\n%s", output)
+	}
+	if got := harness.stateFile(t, "machines/local/id_ed25519"); got != firstKey {
+		t.Error("la clé a été remplacée")
+	}
+}
+
+// Un refus du script est celui de l'opérateur : sa cause et son remède
+// traversent tels quels, et rien ne continue derrière.
+func TestEnrollLocal_UnRefusDuScriptEstRenduTelQuel(t *testing.T) {
+	harness := newHarness(t)
+	harness.scripts.exitCode = 2
+	harness.scripts.lines = []string{
+		"étape: la règle sudo /etc/sudoers.d/opencloud",
+		"résultat: refusé — visudo refuse la règle sudo d'openCloud : syntax error",
+		"→ corriger /etc/sudoers, puis rejouer la commande",
+	}
+
+	refused, output := harness.runExpectingRefusal(t)
+
+	if refused.Cause != "visudo refuse la règle sudo d'openCloud : syntax error" {
+		t.Errorf("cause : %q", refused.Cause)
+	}
+	if refused.Remedy != "corriger /etc/sudoers, puis rejouer la commande" {
+		t.Errorf("remède : %q", refused.Remedy)
+	}
+	if harness.hasSystemFile("usr/local/sbin/oc-launch") {
+		t.Error("le lanceur a été posé malgré le refus")
+	}
+	if harness.sshClient.probes != 0 {
+		t.Error("la machine a été sondée malgré le refus")
+	}
+	if !strings.HasSuffix(output, "résultat: refusé\n") {
+		t.Errorf("constat final :\n%s", output)
+	}
+}
+
+func TestEnrollLocal_UnEchecDuScriptArreteLAmorcage(t *testing.T) {
+	harness := newHarness(t)
+	harness.scripts.exitCode = 1
+	harness.scripts.lines = []string{"résultat: échoué — une commande de la séquence a échoué, ligne 120"}
+
+	output := &strings.Builder{}
+	harness.deps.Out = output
+	err := EnrollLocal(context.Background(), harness.deps)
+
+	if err == nil || isRefusal(err) {
+		t.Fatalf("attendu une erreur, obtenu %v", err)
+	}
+	if !strings.Contains(err.Error(), "ligne 120") {
+		t.Errorf("erreur : %v", err)
+	}
+	if !strings.HasSuffix(output.String(), "résultat: échoué\n") {
+		t.Errorf("constat final :\n%s", output)
+	}
+}
+
+// Un script qui rend 0 sans rien conclure n'a pas fini son travail : on ne
+// vérifie pas une machine sur une sortie muette.
+func TestEnrollLocal_UnScriptSansConstatEstUneErreur(t *testing.T) {
+	harness := newHarness(t)
+	harness.scripts.lines = []string{"étape: le compte opencloud"}
+
+	err := EnrollLocal(context.Background(), harness.deps)
+	if err == nil || !strings.Contains(err.Error(), "sans constat") {
+		t.Fatalf("erreur : %v", err)
 	}
 }
 
@@ -228,75 +374,6 @@ func TestEnrollLocal_LaCleEstFermeeEtLeDossierAussi(t *testing.T) {
 			t.Errorf("%s en %04o, attendu %04o", name, info.Mode().Perm(), expected)
 		}
 	}
-
-	info, err := os.Stat(filepath.Join(harness.systemRoot, "etc/sudoers.d/opencloud"))
-	if err != nil {
-		t.Fatalf("lire la règle sudo : %v", err)
-	}
-	if info.Mode().Perm() != 0o440 {
-		t.Errorf("règle sudo en %04o, attendu 0440", info.Mode().Perm())
-	}
-}
-
-func TestEnrollLocal_LOrdreDesEtapesEstUneProprieteDeSecurite(t *testing.T) {
-	harness := newHarness(t)
-	harness.run(t)
-
-	expected := []string{
-		"/usr/sbin/usermod -s /bin/sh opencloud",
-		"/usr/bin/passwd -S opencloud",
-		"/usr/bin/passwd -l opencloud",
-		"/usr/sbin/usermod -aG systemd-journal opencloud",
-		"/usr/sbin/visudo -c -f " + filepath.Join(harness.systemRoot, "etc/sudoers.d/opencloud.tmp"),
-		"/usr/sbin/sshd -t",
-		"/usr/bin/systemctl is-active ssh.service",
-		"/usr/bin/systemctl enable --now ssh.service",
-	}
-	if len(harness.commands.calls) != len(expected) {
-		t.Fatalf("commandes jouées :\n%s", strings.Join(harness.commands.calls, "\n"))
-	}
-	for index, call := range expected {
-		if harness.commands.calls[index] != call {
-			t.Errorf("commande %d : %q, attendue %q", index, harness.commands.calls[index], call)
-		}
-	}
-}
-
-func TestEnrollLocal_RejoueDeuxFoisNeChangeRien(t *testing.T) {
-	harness := newHarness(t)
-	harness.run(t)
-
-	firstKey := harness.stateFile(t, "machines/local/id_ed25519")
-	harness.commands.calls = nil
-	harness.commands.replies["/usr/bin/passwd -S"] = Result{Output: "opencloud L 09/06/2026 0 99999 7 -1"}
-	// Le paquet a mis nologin ; le premier passage a posé /bin/sh.
-	writeTestFile(t, filepath.Join(harness.systemRoot, "etc/passwd"),
-		"root:x:0:0:root:/root:/bin/bash\n"+
-			"opencloud:x:997:997:openCloud:"+filepath.Join(harness.systemRoot, "var/lib/opencloud")+":/bin/sh\n", 0o644)
-	// Et usermod -aG a mis le compte dans le groupe du journal.
-	writeTestFile(t, filepath.Join(harness.systemRoot, "etc/group"),
-		"root:x:0:\nsystemd-journal:x:999:opencloud\nopencloud:x:997:\n", 0o644)
-
-	output := harness.run(t)
-
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		if strings.HasPrefix(line, "étape:") && !strings.HasSuffix(line, "inchangé") &&
-			!strings.Contains(line, "vérifié par SSH") {
-			t.Errorf("une étape a changé quelque chose au second passage : %q", line)
-		}
-	}
-	if !strings.HasSuffix(output, "résultat: inchangé\n") {
-		t.Errorf("constat final :\n%s", output)
-	}
-	if harness.commands.played("/usr/sbin/usermod") || harness.commands.played("/usr/bin/passwd -l") {
-		t.Errorf("le compte a été retouché :\n%s", strings.Join(harness.commands.calls, "\n"))
-	}
-	if harness.commands.played("/usr/bin/systemctl reload") || harness.commands.played("/usr/bin/systemctl enable") {
-		t.Errorf("sshd a été rechargé pour rien :\n%s", strings.Join(harness.commands.calls, "\n"))
-	}
-	if got := harness.stateFile(t, "machines/local/id_ed25519"); got != firstKey {
-		t.Error("la clé a été remplacée")
-	}
 }
 
 func TestEnrollLocal_ChaqueManqueDuPreflightEstUnRefusNomme(t *testing.T) {
@@ -306,11 +383,7 @@ func TestEnrollLocal_ChaqueManqueDuPreflightEstUnRefusNomme(t *testing.T) {
 		expects string
 	}{
 		{"hors root", func(_ *testing.T, h *harness) { h.deps.UID = 1000 }, "root"},
-		{"sans systemd", func(t *testing.T, h *harness) { removeAll(t, h, "run/systemd/system") }, "systemd"},
-		{"sans sudo", func(t *testing.T, h *harness) { removeAll(t, h, "usr/bin/sudo") }, "sudo"},
-		{"sans visudo", func(t *testing.T, h *harness) { removeAll(t, h, "usr/sbin/visudo") }, "visudo"},
-		{"sans sshd", func(t *testing.T, h *harness) { removeAll(t, h, "usr/sbin/sshd") }, "sshd"},
-		{"sans sshd_config.d", func(t *testing.T, h *harness) { removeAll(t, h, "etc/ssh/sshd_config.d") }, "sshd_config.d"},
+		{"sans bash", func(t *testing.T, h *harness) { removeAll(t, h, "bin/bash") }, "bash"},
 		{"sans lanceur", func(t *testing.T, h *harness) { removeAll(t, h, "opt/opencloud/bin/oc-launch") }, "oc-launch"},
 		{"sans compte", func(t *testing.T, h *harness) {
 			writeTestFile(t, filepath.Join(h.systemRoot, "etc/passwd"), "root:x:0:0:root:/root:/bin/bash\n", 0o644)
@@ -331,8 +404,8 @@ func TestEnrollLocal_ChaqueManqueDuPreflightEstUnRefusNomme(t *testing.T) {
 		if strings.Contains(output, "étape:") {
 			t.Errorf("%s : une étape a eu lieu avant le refus :\n%s", testCase.name, output)
 		}
-		if _, err := os.Stat(filepath.Join(harness.systemRoot, "etc/sudoers.d/opencloud")); err == nil {
-			t.Errorf("%s : la règle sudo a été posée malgré le refus", testCase.name)
+		if harness.scripts.runs != 0 {
+			t.Errorf("%s : le script a été joué malgré le refus", testCase.name)
 		}
 	}
 }
@@ -341,48 +414,6 @@ func removeAll(t *testing.T, h *harness, relative string) {
 	t.Helper()
 	if err := os.RemoveAll(filepath.Join(h.systemRoot, relative)); err != nil {
 		t.Fatalf("retirer %s : %v", relative, err)
-	}
-}
-
-func TestEnrollLocal_UneRegleSudoRefuseeParVisudoNestPasPosee(t *testing.T) {
-	harness := newHarness(t)
-	harness.commands.replies["/usr/sbin/visudo -c"] = Result{ExitCode: 1, Output: ">>> syntax error near line 2 <<<"}
-
-	refused, _ := harness.runExpectingRefusal(t)
-	if !strings.Contains(refused.Cause, "visudo") {
-		t.Errorf("cause : %q", refused.Cause)
-	}
-	if _, err := os.Stat(filepath.Join(harness.systemRoot, "etc/sudoers.d/opencloud")); err == nil {
-		t.Error("la règle a été posée alors que visudo l'a refusée")
-	}
-	if _, err := os.Stat(filepath.Join(harness.systemRoot, "etc/sudoers.d/opencloud.tmp")); err == nil {
-		t.Error("le temporaire est resté dans /etc/sudoers.d")
-	}
-}
-
-func TestEnrollLocal_UnDropInQueSshdRefuseEstRetire(t *testing.T) {
-	harness := newHarness(t)
-	harness.commands.replies["/usr/sbin/sshd -t"] = Result{ExitCode: 1, Output: "/etc/ssh/sshd_config line 12: Bad configuration option"}
-
-	refused, _ := harness.runExpectingRefusal(t)
-	if !strings.Contains(refused.Cause, "sshd") {
-		t.Errorf("cause : %q", refused.Cause)
-	}
-	if _, err := os.Stat(filepath.Join(harness.systemRoot, "etc/ssh/sshd_config.d/opencloud.conf")); err == nil {
-		t.Error("le drop-in est resté alors que sshd -t l'a refusé")
-	}
-	if harness.commands.played("/usr/bin/systemctl reload") {
-		t.Error("sshd a été rechargé avec un drop-in refusé")
-	}
-}
-
-func TestEnrollLocal_SshdActifEstRechargeEtNonRedemarre(t *testing.T) {
-	harness := newHarness(t)
-	harness.commands.replies["/usr/bin/systemctl is-active"] = Result{Output: "active"}
-
-	harness.run(t)
-	if !harness.commands.played("/usr/bin/systemctl reload ssh.service") {
-		t.Errorf("commandes :\n%s", strings.Join(harness.commands.calls, "\n"))
 	}
 }
 
@@ -416,19 +447,6 @@ func TestEnrollLocal_LaMachineEstSondeeTroisFoisAvantDAbandonner(t *testing.T) {
 	}
 	if !strings.Contains(refused.Cause, "ne répond pas en SSH") {
 		t.Errorf("cause : %q", refused.Cause)
-	}
-}
-
-func TestEnrollLocal_AuthorizedKeysNeGardeQueLaCleDOpenCloud(t *testing.T) {
-	harness := newHarness(t)
-	writeTestFile(t, filepath.Join(harness.systemRoot, "var/lib/opencloud/.ssh/authorized_keys"),
-		"ssh-rsa AAAAB3NzaC1yc2E cle-d-un-tiers\n", 0o600)
-
-	harness.run(t)
-
-	publicKey := harness.stateFile(t, "machines/local/id_ed25519.pub")
-	if got := harness.systemFile(t, "var/lib/opencloud/.ssh/authorized_keys"); got != publicKey {
-		t.Errorf("authorized_keys :\n%s", got)
 	}
 }
 
@@ -496,20 +514,6 @@ func TestLocalEndpoint_PointeVersLocalhostAvecLesFichiersDeLaMachine(t *testing.
 	}
 }
 
-func TestEnrollLocal_SansLeGroupeDuJournalLeCompteNeVerraitRien(t *testing.T) {
-	harness := newHarness(t)
-	writeTestFile(t, filepath.Join(harness.systemRoot, "etc/group"), "root:x:0:\nopencloud:x:997:\n", 0o644)
-
-	refused, _ := harness.runExpectingRefusal(t)
-
-	if !strings.Contains(refused.Cause, "systemd-journal") {
-		t.Fatalf("le refus doit nommer le groupe : %s", refused.Cause)
-	}
-	if harness.commands.played("/usr/sbin/visudo") {
-		t.Fatal("rien ne doit être posé après le refus")
-	}
-}
-
 func TestEnrollLocal_LeDossierMachinesEtSonParentAppartiennentAuCompte(t *testing.T) {
 	harness := newHarness(t)
 	var owned []string
@@ -526,15 +530,5 @@ func TestEnrollLocal_LeDossierMachinesEtSonParentAppartiennentAuCompte(t *testin
 		if !slices.Contains(owned, expected) {
 			t.Errorf("%s n'a pas été donné au compte opencloud ; donnés : %v", expected, owned)
 		}
-	}
-}
-
-func TestEnrollLocal_PoseLeDossierDeSeparationDePrivilegesAvantSshdT(t *testing.T) {
-	harness := newHarness(t)
-
-	harness.run(t)
-
-	if _, err := os.Stat(filepath.Join(harness.systemRoot, "run/sshd")); err != nil {
-		t.Fatal("sshd -t exige /run/sshd, absent tant que sshd n'a jamais démarré : l'amorçage doit le créer")
 	}
 }

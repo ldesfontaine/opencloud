@@ -8,36 +8,61 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-// La règle sudo : le compte opencloud n'a droit qu'au lanceur et à la commande
-// exacte qui pose le lanceur, sans joker ; son environnement ne le suit pas
-// (annexes/lecture-sudoers.md). Le script Enrôler porte le même texte pour une
-// machine distante, et un test compare les deux.
-const sudoersContent = `Defaults:opencloud env_reset, !setenv, !log_input, !log_stdin
-opencloud ALL=(root) NOPASSWD: /usr/local/sbin/oc-launch
-opencloud ALL=(root) NOPASSWD: /usr/bin/install -o root -g root -m 0755 /var/lib/opencloud/oc-launch.new /usr/local/sbin/oc-launch
-`
+// playEnroler joue le script de l'action Enrôler, en root, sur cette machine.
+// La séquence — compte, sudo, sshd, clé — est écrite une seule fois, dans
+// internal/scripts/enroler/run.sh : c'est le même script qu'un opérateur colle
+// sur une machine distante (15-catalogue-actions.md §3).
+func (e *enrollment) playEnroler(ctx context.Context) error {
+	prepared, err := catalog.Prepare(catalog.KindEnroler, map[string]string{
+		publicKeyParam: strings.TrimSpace(e.publicKey),
+	})
+	if err != nil {
+		return err
+	}
 
-// Le drop-in sshd. « Match all » referme le bloc : le drop-in est inclus en
-// tête de sshd_config, et sans lui tout ce qui suit l'Include ne vaudrait plus
-// que pour le compte opencloud — sshd -t le refuserait.
-const sshdDropInContent = `# Posé par l'enrôlement d'openCloud. Le compte de service ne fait que lancer
-# oc-launch : il n'a besoin de rien d'autre.
-Match User opencloud
-    AuthenticationMethods publickey
-    PasswordAuthentication no
-    PermitTTY no
-    X11Forwarding no
-    AllowAgentForwarding no
-    AllowTcpForwarding no
-    PermitTunnel no
-Match all
-`
+	outcome := &scriptOutcome{out: e.deps.Out}
+	exitCode, err := e.deps.Scripts.Run(ctx, LocalScript{
+		Content:     prepared.Script,
+		Environment: environmentOf(prepared),
+		Timeout:     prepared.Definition.Timeout,
+	}, outcome.read)
+	if err != nil {
+		return err
+	}
+	return e.readOutcome(exitCode, outcome)
+}
 
+// readOutcome traduit le constat du script : ce que l'opérateur lit d'un refus
+// vient du script, mot pour mot.
+func (e *enrollment) readOutcome(exitCode int, outcome *scriptOutcome) error {
+	switch exitCode {
+	case catalog.ExitDone:
+		switch outcome.result {
+		case resultDone:
+			e.steps.markChanged()
+			return nil
+		case resultUnchanged:
+			return nil
+		default:
+			return fmt.Errorf("la séquence d'enrôlement s'est terminée sans constat")
+		}
+	case catalog.ExitRefused:
+		return refusal.Refusal{Cause: outcome.cause(), Remedy: outcome.remedy}
+	default:
+		return fmt.Errorf("la séquence d'enrôlement a échoué : %s", outcome.cause())
+	}
+}
+
+// installLauncher pose le lanceur venu du paquet. Il ne voyage pas dans la
+// commande d'une machine distante — il fait plusieurs mébioctets — et vient
+// donc après la séquence, ici comme là-bas (15-catalogue-actions.md §3).
 func (e *enrollment) installLauncher(_ context.Context) error {
 	packaged, err := os.ReadFile(e.systemPath(packagedLauncher)) // bounded: chemin dérivé de la racine système
 	if err != nil {
@@ -68,189 +93,13 @@ func (e *enrollment) installLauncher(_ context.Context) error {
 	return nil
 }
 
-func (e *enrollment) prepareAccount(ctx context.Context) error {
-	if e.account.Shell == accountShell {
-		e.steps.unchanged("shell du compte %s", AccountName)
-	} else {
-		result, err := e.deps.Commands.Run(ctx, commandPath(usermodPath), "-s", accountShell, AccountName)
-		if err != nil {
-			return err
-		}
-		if result.ExitCode != 0 {
-			return fmt.Errorf("donner %s au compte %s : %s", accountShell, AccountName, result.Output)
-		}
-		e.steps.done("shell du compte %s mis à %s", AccountName, accountShell)
-	}
-
-	status, err := e.deps.Commands.Run(ctx, commandPath(passwdCommandPath), "-S", AccountName)
-	if err != nil {
-		return err
-	}
-	if status.ExitCode != 0 {
-		return fmt.Errorf("lire l'état du mot de passe de %s : %s", AccountName, status.Output)
-	}
-	if passwordLocked(status.Output) {
-		e.steps.unchanged("mot de passe du compte %s verrouillé", AccountName)
-	} else {
-		locked, err := e.deps.Commands.Run(ctx, commandPath(passwdCommandPath), "-l", AccountName)
-		if err != nil {
-			return err
-		}
-		if locked.ExitCode != 0 {
-			return fmt.Errorf("verrouiller le mot de passe de %s : %s", AccountName, locked.Output)
-		}
-		e.steps.done("mot de passe du compte %s verrouillé", AccountName)
-	}
-
-	return e.joinJournalGroup(ctx)
-}
-
-// joinJournalGroup : le suivi d'une action lit journalctl -u oc-action-<id>,
-// une unité système ; sans systemd-journal, le compte ne verrait que le sien.
-func (e *enrollment) joinJournalGroup(ctx context.Context) error {
-	member, err := groupHasMember(e.systemPath(groupPath), journalGroupName, AccountName)
-	if errors.Is(err, errGroupNotFound) {
-		return refusal.Refusal{
-			Cause:  "le groupe " + journalGroupName + " n'existe pas : sans lui, le compte opencloud ne peut pas lire le journal des actions",
-			Remedy: "vérifier que systemd-journald est installé sur cette machine, puis rejouer l'amorçage",
-		}
-	}
-	if err != nil {
-		return err
-	}
-	if member {
-		e.steps.unchanged("compte %s dans le groupe %s", AccountName, journalGroupName)
-		return nil
-	}
-
-	result, err := e.deps.Commands.Run(ctx, commandPath(usermodPath), "-aG", journalGroupName, AccountName)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("ajouter %s au groupe %s : %s", AccountName, journalGroupName, result.Output)
-	}
-	e.steps.done("compte %s ajouté au groupe %s", AccountName, journalGroupName)
-	return nil
-}
-
-func (e *enrollment) writeSudoers(ctx context.Context) error {
-	directory := e.systemPath(sudoersDir)
-	target := filepath.Join(directory, sudoersName)
-
-	current, found, err := readIfExists(target)
-	if err != nil {
-		return err
-	}
-	if found && bytes.Equal(current, []byte(sudoersContent)) {
-		e.steps.unchanged("règle sudo /%s/%s", sudoersDir, sudoersName)
-		return nil
-	}
-
-	// Le nom porte un point : sudo ignore ce fichier tant que visudo ne l'a pas
-	// validé et qu'il n'est pas renommé.
-	temporary := filepath.Join(directory, sudoersName+".tmp")
-	if err := writeCandidate(temporary, []byte(sudoersContent), 0o440); err != nil {
-		return err
-	}
-	defer os.Remove(temporary) // sans effet une fois renommé
-
-	result, err := e.deps.Commands.Run(ctx, commandPath(visudoPath), "-c", "-f", temporary)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		return refusal.Refusal{
-			Cause:  "visudo refuse la règle sudo d'openCloud : " + result.Output,
-			Remedy: "corriger /etc/sudoers ou les autres drop-ins de /etc/sudoers.d, puis rejouer l'amorçage",
-		}
-	}
-	if err := os.Rename(temporary, target); err != nil {
-		return fmt.Errorf("poser %s : %w", target, err)
-	}
-	if err := e.deps.Chown(target, 0, 0); err != nil {
-		return fmt.Errorf("donner %s à root : %w", target, err)
-	}
-	e.steps.done("règle sudo /%s/%s posée", sudoersDir, sudoersName)
-	return nil
-}
-
-func (e *enrollment) configureSSHD(ctx context.Context) error {
-	directory := e.systemPath(sshdDropInDir)
-	target := filepath.Join(directory, sshdDropInName)
-
-	previous, found, err := readIfExists(target)
-	if err != nil {
-		return err
-	}
-	if found && bytes.Equal(previous, []byte(sshdDropInContent)) {
-		e.steps.unchanged("drop-in sshd /%s/%s", sshdDropInDir, sshdDropInName)
-		return nil
-	}
-
-	if err := writeSystemFile(directory, sshdDropInName, []byte(sshdDropInContent), 0o644); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(e.systemPath(sshdRuntimeDir), 0o755); err != nil { // #nosec G301 -- /run/sshd, le mode que pose sshd lui-même
-		return fmt.Errorf("créer /%s : %w", sshdRuntimeDir, err)
-	}
-	check, err := e.deps.Commands.Run(ctx, commandPath(sshdPath), "-t")
-	if err != nil {
-		return err
-	}
-	if check.ExitCode != 0 {
-		// La configuration de sshd est remise telle qu'elle était : un drop-in
-		// invalide empêcherait sshd de redémarrer plus tard, sans prévenir.
-		if restoreErr := restore(directory, sshdDropInName, previous, found); restoreErr != nil {
-			return restoreErr
-		}
-		return refusal.Refusal{
-			Cause:  "sshd refuse sa configuration une fois le drop-in d'openCloud posé : " + check.Output,
-			Remedy: "corriger /etc/ssh/sshd_config, puis rejouer l'amorçage — la configuration de sshd a été remise telle qu'elle était",
-		}
-	}
-	e.steps.done("drop-in sshd /%s/%s posé", sshdDropInDir, sshdDropInName)
-
-	return e.reloadSSHD(ctx)
-}
-
-func (e *enrollment) reloadSSHD(ctx context.Context) error {
-	active, err := e.deps.Commands.Run(ctx, commandPath(systemctlPath), "is-active", sshServiceUnitName)
-	if err != nil {
-		return err
-	}
-
-	arguments := []string{"enable", "--now", sshServiceUnitName}
-	action := "démarré"
-	if active.ExitCode == 0 {
-		arguments = []string{"reload", sshServiceUnitName}
-		action = "rechargé"
-	}
-
-	result, err := e.deps.Commands.Run(ctx, commandPath(systemctlPath), arguments...)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("%s %s : %s", arguments[0], sshServiceUnitName, result.Output)
-	}
-	e.steps.done("%s %s", sshServiceUnitName, action)
-	return nil
-}
-
-// installKey pose la clé en dernier : tant qu'elle n'est pas là, personne ne
-// peut se servir de ce que les étapes précédentes ont ouvert.
-func (e *enrollment) installKey(_ context.Context) error {
+// prepareIdentity tient la paire de clés de la machine openCloud : le script
+// ne peut pas l'engendrer, c'est openCloud qui la garde.
+func (e *enrollment) prepareIdentity(_ context.Context) error {
 	if err := e.ensureMachineDir(); err != nil {
 		return err
 	}
-	if err := e.ensureIdentity(); err != nil {
-		return err
-	}
-	if err := e.ensureAuthorizedKeys(); err != nil {
-		return err
-	}
-	return e.ensureKnownHosts()
+	return e.ensureIdentity()
 }
 
 // ensureMachineDir crée machines/ et machines/local et les donne tous deux
@@ -331,54 +180,10 @@ func (e *enrollment) createPrivateKey(name string, content []byte) error {
 	return e.ownState(name)
 }
 
-// ensureAuthorizedKeys écrit exactement cette clé, puis relit : ce qui compte
-// n'est pas ce qu'on a écrit, c'est ce que sshd lira.
-func (e *enrollment) ensureAuthorizedKeys() error {
-	sshDir := filepath.Join(e.account.Home, ".ssh")
-	if err := os.MkdirAll(sshDir, 0o700); err != nil { // bounded: home lu dans /etc/passwd
-		return fmt.Errorf("créer %s : %w", sshDir, err)
-	}
-	if err := os.Chmod(sshDir, 0o700); err != nil { // #nosec G302 -- un dossier .ssh, pas un fichier : 0700 est le mode qu'exige sshd
-		return fmt.Errorf("fermer %s : %w", sshDir, err)
-	}
-	if err := e.deps.Chown(sshDir, e.account.UID, e.account.GID); err != nil {
-		return fmt.Errorf("donner %s à %s : %w", sshDir, AccountName, err)
-	}
-
-	target := filepath.Join(sshDir, "authorized_keys")
-	current, found, err := readIfExists(target)
-	if err != nil {
-		return err
-	}
-	if found && bytes.Equal(current, []byte(e.publicKey)) {
-		e.steps.unchanged("clé autorisée dans %s", target)
-		return nil
-	}
-
-	if err := writeSystemFile(sshDir, "authorized_keys", []byte(e.publicKey), 0o600); err != nil {
-		return err
-	}
-	if err := e.deps.Chown(target, e.account.UID, e.account.GID); err != nil {
-		return fmt.Errorf("donner %s à %s : %w", target, AccountName, err)
-	}
-
-	written, _, err := readIfExists(target)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(written, []byte(e.publicKey)) {
-		return refusal.Refusal{
-			Cause:  target + " ne porte pas la clé qu'openCloud vient d'y écrire",
-			Remedy: "vérifier qui d'autre écrit ce fichier sur cette machine, puis rejouer l'amorçage",
-		}
-	}
-	e.steps.done("clé autorisée dans %s", target)
-	return nil
-}
-
-// ensureKnownHosts écrit les clés d'hôte de la machine : elles ne sont jamais
-// apprises à la connexion, sinon StrictHostKeyChecking ne prouverait rien.
-func (e *enrollment) ensureKnownHosts() error {
+// writeKnownHosts écrit les clés d'hôte de la machine : elles ne sont jamais
+// apprises à la connexion, sinon StrictHostKeyChecking ne prouverait rien. Le
+// script affiche l'empreinte à un opérateur ; ici, openCloud la lit lui-même.
+func (e *enrollment) writeKnownHosts(_ context.Context) error {
 	content, err := knownHostsContent(e.systemPath(hostKeyDir), localAddress, localSSHPort)
 	if err != nil {
 		return err
@@ -484,25 +289,4 @@ func writeSystemFile(directory, name string, content []byte, mode os.FileMode) e
 		return fmt.Errorf("écrire %s : %w", filepath.Join(directory, name), err)
 	}
 	return root.Chmod(name, mode)
-}
-
-// writeCandidate pose un fichier destiné à être validé avant d'être renommé.
-func writeCandidate(name string, content []byte, mode os.FileMode) error {
-	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("retirer %s : %w", name, err)
-	}
-	if err := os.WriteFile(name, content, mode); err != nil { // bounded: chemin dérivé de la racine système
-		return fmt.Errorf("écrire %s : %w", name, err)
-	}
-	return os.Chmod(name, mode) // bounded: chemin dérivé de la racine système
-}
-
-func restore(directory, name string, previous []byte, found bool) error {
-	if !found {
-		if err := os.Remove(filepath.Join(directory, name)); err != nil {
-			return fmt.Errorf("retirer %s : %w", filepath.Join(directory, name), err)
-		}
-		return nil
-	}
-	return writeSystemFile(directory, name, previous, 0o644)
 }

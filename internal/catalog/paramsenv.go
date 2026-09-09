@@ -9,7 +9,7 @@ import (
 
 // Le préfixe de toute variable d'action : ce que l'opérateur a saisi se
 // distingue de ce que systemd pose lui-même.
-const paramEnvPrefix = "OC_"
+const ParamEnvPrefix = "OC_"
 
 // ErrUnwritableValue : la valeur ne peut pas s'écrire dans un fichier que
 // systemd relira à l'identique. Une faute de code : les types validés ne
@@ -27,7 +27,7 @@ func renderParamsEnv(specs []ParamSpec, values map[string]string) ([]byte, error
 		if err != nil {
 			return nil, fmt.Errorf("render %s: %w", spec.Name, err)
 		}
-		rendered.WriteString(paramEnvPrefix + strings.ToUpper(spec.Name) + "=" + quoted + "\n")
+		rendered.WriteString(ParamEnvPrefix + strings.ToUpper(spec.Name) + "=" + quoted + "\n")
 	}
 	return []byte(rendered.String()), nil
 }

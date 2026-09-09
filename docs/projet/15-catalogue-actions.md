@@ -187,7 +187,9 @@ Toutes s'exécutent sur la machine cible sauf mention.
 **`visudo -c -f`** → drop-in `sshd_config.d` (`PermitTTY no`,
 `X11Forwarding no`, `AllowAgentForwarding no`, `AllowTcpForwarding no`,
 `PermitTunnel no`) puis **`sshd -t`** avant `reload` → clé **en dernier** →
-relire après coup, trois essais, le rechargement ferme le port un instant.
+relire après coup, trois essais, le rechargement ferme le port un instant. La
+séquence est écrite une seule fois, dans le script : la machine openCloud le
+joue sur elle-même (`enroll-local`), une machine distante le reçoit collé.
 
 **Le lanceur ne voyage pas dans la commande** — il fait plusieurs mébioctets.
 Sur la machine openCloud, `enroll-local` le prend dans le paquet. Sur une
