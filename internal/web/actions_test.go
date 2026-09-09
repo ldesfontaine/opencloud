@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/runner"
+	"github.com/ldesfontaine/opencloud/internal/scripts"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -241,6 +242,42 @@ func TestMachine_ShowsTheAvailableActionsAndTheHistory(t *testing.T) {
 	for _, expected := range []string{"Diagnostiquer", "Redémarrer", "Échouée", "trois écarts", "/machines/local/actions/diagnostiquer"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("la fiche machine ne montre pas %q :\n%s", expected, body)
+		}
+	}
+}
+
+// Le vrai catalogue, pas la fixture des autres tests : c'est lui qui décide de
+// ce qu'on voit sur la fiche d'une machine enrôlée.
+func TestMachine_Enrolled_OffersPoserLeSocle(t *testing.T) {
+	enrolled := &fakeEnrolment{status: EnrolmentStatus{Enrolled: true, Since: time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)}}
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		newFakeActions(), &fakeCatalog{definitions: catalog.Definitions()}, enrolled)
+
+	body := signedIn(t, server).get("/machines/local").Body.String()
+
+	for _, expected := range []string{"Poser le socle", "/machines/local/actions/socle"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("la fiche d'une machine enrôlée ne propose pas %q :\n%s", expected, body)
+		}
+	}
+}
+
+// L'écran « avant » dit ce qui va être fait : les répertoires, et chaque
+// paquet de la liste versionnée.
+func TestActionForm_Socle_ListsTheDirectoriesAndEveryPackage(t *testing.T) {
+	server := newActionsServer(t, &fakeMachines{machines: []store.Machine{localMachine}},
+		newFakeActions(), &fakeCatalog{definitions: catalog.Definitions()}, nil)
+
+	body := signedIn(t, server).get("/machines/local/actions/socle").Body.String()
+
+	packages, err := scripts.Packages(string(catalog.KindSocle))
+	if err != nil {
+		t.Fatalf("lire la liste de paquets : %v", err)
+	}
+	expected := append([]string{"Ce qui va être posé", "/srv/workspace", "/srv/data"}, packages...)
+	for _, text := range expected {
+		if !strings.Contains(body, text) {
+			t.Fatalf("l'écran « avant » du socle ne montre pas %q :\n%s", text, body)
 		}
 	}
 }

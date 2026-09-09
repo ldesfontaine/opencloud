@@ -67,22 +67,29 @@ login_and_set_password() {
     case "$reply" in 303*) ;; *) fail "le changement de mot de passe a échoué : $reply" ;; esac
 }
 
-# Lance Diagnostiquer sur une machine et imprime l'identifiant de l'action.
-launch_diagnostiquer() {
-    local machine=$1 token reply
-    token=$(csrf_of "/machines/$machine/actions/diagnostiquer")
-    [ -n "$token" ] || fail "pas de jeton CSRF sur l'écran « avant » de $machine"
-    reply=$(post_form "/machines/$machine/actions/diagnostiquer" --data-urlencode "_csrf=$token")
+# Lance une action sur une machine depuis l'interface, et imprime son
+# identifiant. usage : launch_action <machine> <action>
+launch_action() {
+    local machine=$1 kind=$2 token reply
+    token=$(csrf_of "/machines/$machine/actions/$kind")
+    [ -n "$token" ] || fail "pas de jeton CSRF sur l'écran « avant » de $kind sur $machine"
+    reply=$(post_form "/machines/$machine/actions/$kind" --data-urlencode "_csrf=$token")
     case "$reply" in
         "303 $BASE/actions/"*) printf '%s\n' "${reply#303 "$BASE"/actions/}" ;;
-        *) fail "le lancement n'a pas redirigé vers l'action : $reply" ;;
+        *) fail "le lancement de $kind n'a pas redirigé vers l'action : $reply" ;;
     esac
 }
 
-# Attend qu'une action soit conclue et imprime sa page.
+launch_diagnostiquer() {
+    launch_action "$1" diagnostiquer
+}
+
+# Attend qu'une action soit conclue et imprime sa page. Le second argument dit
+# combien de secondes attendre : Poser le socle télécharge des paquets, elle ne
+# tient pas dans le délai des autres.
 wait_for_conclusion() {
     local id=$1 page
-    for _ in $(seq 1 90); do
+    for _ in $(seq 1 "${2:-90}"); do
         page=$(get_page "/actions/$id")
         if printf '%s' "$page" | grep -q -e 'Appliquée' -e 'Échouée' -e 'Refusée'; then
             printf '%s' "$page"
@@ -90,5 +97,5 @@ wait_for_conclusion() {
         fi
         sleep 1
     done
-    fail "l'action $id n'a pas conclu en 90 s"
+    fail "l'action $id n'a pas conclu en ${2:-90} s"
 }

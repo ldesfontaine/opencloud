@@ -61,7 +61,7 @@
 
     {{if .Items}}
     <section class="card">
-      <h2>{{template "icon-check"}}Ce qui va être lu</h2>
+      <h2>{{template "icon-check"}}{{.ItemsTitle}}</h2>
       <ul class="items">
         {{range .Items}}<li>{{template "icon" .Icon}}<span>{{.Label}}</span></li>{{end}}
       </ul>

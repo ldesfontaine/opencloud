@@ -13,8 +13,8 @@ import (
 // qu'on veut — une action nouvelle se relit ici avant d'être visible.
 func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	definitions := Definitions()
-	if len(definitions) != 2 {
-		t.Fatalf("le catalogue tient %d actions, la fixture en fige 2 : mettre la fixture à jour", len(definitions))
+	if len(definitions) != 3 {
+		t.Fatalf("le catalogue tient %d actions, la fixture en fige 3 : mettre la fixture à jour", len(definitions))
 	}
 
 	diagnostiquer := definitions[0]
@@ -72,6 +72,62 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	if publicKey.Name != "public_key" || publicKey.Type != ParamPublicKey || !publicKey.Required {
 		t.Errorf("paramètre = %+v", publicKey)
 	}
+
+	socle := definitions[2]
+	if socle.Kind != KindSocle {
+		t.Errorf("Kind = %q", socle.Kind)
+	}
+	if socle.Label != "Poser le socle" {
+		t.Errorf("Label = %q", socle.Label)
+	}
+	if socle.Scope != ScopeMachine {
+		t.Errorf("Scope = %q, attendu %q", socle.Scope, ScopeMachine)
+	}
+	if socle.Place != PlaceTarget {
+		t.Errorf("Place = %q, attendu %q", socle.Place, PlaceTarget)
+	}
+	if !socle.Reversible || socle.Interrupts {
+		t.Error("Poser le socle est réversible et ne coupe aucun service")
+	}
+	if socle.Timeout != 15*time.Minute {
+		t.Errorf("Timeout = %s, attendu 15m : apt peut être lent", socle.Timeout)
+	}
+	if len(socle.Params) != 0 {
+		t.Errorf("Params = %v, attendu aucun", socle.Params)
+	}
+	if socle.NeedsConfirmation() {
+		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
+	}
+}
+
+// La liste de paquets du socle est la seule source : elle est embarquée, elle
+// n'est pas vide, et elle ne répète aucun paquet.
+func TestSocle_PackageList_IsEmbeddedWithoutRepeats(t *testing.T) {
+	packages, err := scripts.Packages(string(KindSocle))
+	if err != nil {
+		t.Fatalf("lire la liste de paquets : %v", err)
+	}
+	if len(packages) == 0 {
+		t.Fatal("la liste de paquets du socle est vide")
+	}
+
+	seen := map[string]bool{}
+	for _, name := range packages {
+		if seen[name] {
+			t.Errorf("le paquet %q apparaît deux fois", name)
+		}
+		seen[name] = true
+	}
+	// Les paquets du dépôt officiel de Docker : le socle pose Docker et le
+	// plugin compose, jamais docker.io.
+	for _, name := range []string{"docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"} {
+		if !seen[name] {
+			t.Errorf("la liste = %v, sans %s", packages, name)
+		}
+	}
+	if seen["docker.io"] {
+		t.Errorf("la liste = %v, avec docker.io : Docker vient de son dépôt officiel", packages)
+	}
 }
 
 func TestLookup_FindsWhatTheCatalogHoldsAndNothingElse(t *testing.T) {
@@ -80,6 +136,9 @@ func TestLookup_FindsWhatTheCatalogHoldsAndNothingElse(t *testing.T) {
 	}
 	if _, found := Lookup(KindEnroler); !found {
 		t.Error("Enroler doit être trouvée")
+	}
+	if _, found := Lookup(KindSocle); !found {
+		t.Error("Poser le socle doit être trouvée")
 	}
 	if _, found := Lookup(Kind("inconnue")); found {
 		t.Error("une action inconnue ne doit pas être trouvée")
