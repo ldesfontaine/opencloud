@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,10 @@ type Config struct {
 	// défaut (OWASP, compte d'administration) ; 0 lève la règle, pour un
 	// réseau de confiance (08-securite-et-secrets.md).
 	MinPasswordLength int `toml:"min_password_length"`
+	// Proxies de confiance, adresses ou CIDR : derrière eux seulement,
+	// X-Forwarded-For dit l'adresse d'origine. Vide par défaut, donc
+	// l'en-tête est ignoré — n'importe qui peut l'écrire.
+	TrustedProxies []string `toml:"trusted_proxies"`
 }
 
 // Bornes de min_password_length : au-delà, plus personne ne se connecte.
@@ -168,7 +173,43 @@ func (cfg Config) validate() error {
 	if cfg.MinPasswordLength < 0 || cfg.MinPasswordLength > maxMinPasswordLength {
 		return fmt.Errorf("clé « min_password_length » : attendu entre 0 et %d, reçu %d", maxMinPasswordLength, cfg.MinPasswordLength)
 	}
+	if _, err := ParseTrustedProxies(cfg.TrustedProxies); err != nil {
+		return fmt.Errorf("clé « trusted_proxies » : %w", err)
+	}
 	return nil
+}
+
+// ParseTrustedProxies rend les proxies de confiance en préfixes. Une adresse
+// seule devient le préfixe de cette adresse seule. Appelé à la validation, et
+// par qui monte l'interface.
+func ParseTrustedProxies(entries []string) ([]netip.Prefix, error) {
+	var prefixes []netip.Prefix
+	for _, entry := range entries {
+		prefix, err := parseTrustedProxy(entry)
+		if err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	return prefixes, nil
+}
+
+func parseTrustedProxy(entry string) (netip.Prefix, error) {
+	if strings.Contains(entry, "/") {
+		prefix, err := netip.ParsePrefix(entry)
+		if err != nil {
+			return netip.Prefix{}, fmt.Errorf("CIDR invalide %q", entry)
+		}
+		// Masked() : 10.0.0.7/8 et 10.0.0.0/8 désignent le même réseau, on
+		// garde la seule écriture qui contient ce qu'elle prétend contenir.
+		return prefix.Masked(), nil
+	}
+
+	address, err := netip.ParseAddr(entry)
+	if err != nil {
+		return netip.Prefix{}, fmt.Errorf("attendu une adresse IP ou un CIDR, reçu %q", entry)
+	}
+	return netip.PrefixFrom(address.Unmap(), address.Unmap().BitLen()), nil
 }
 
 func validateListen(listen string) error {

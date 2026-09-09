@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"time"
 	"unicode/utf8"
 
@@ -49,6 +50,20 @@ var (
 	ErrPasswordTooLong   = errors.New("password is too long")
 )
 
+// TooManyAttemptsFromAddressError : trop d'échecs récents depuis cette adresse
+// d'origine. Il porte le délai pour que le refus dise quand réessayer.
+type TooManyAttemptsFromAddressError struct {
+	RetryIn time.Duration
+}
+
+func (e *TooManyAttemptsFromAddressError) Error() string {
+	return fmt.Sprintf("too many login attempts from this address, retry in %s", e.RetryIn.Round(time.Second))
+}
+
+// Reste un ErrTooManyAttempts : qui ne distingue pas les freins voit un refus
+// de frein, comme avant.
+func (e *TooManyAttemptsFromAddressError) Unwrap() error { return ErrTooManyAttempts }
+
 // PasswordTooShortError : le nouveau mot de passe est sous la longueur
 // minimale. Il porte la valeur pour que le refus la dise.
 type PasswordTooShortError struct {
@@ -89,22 +104,24 @@ type Session struct {
 }
 
 type Service struct {
-	store     Store
-	logger    *slog.Logger
-	policy    PasswordPolicy
-	throttle  *loginThrottle
-	hashSlots chan struct{}
-	now       func() time.Time
+	store           Store
+	logger          *slog.Logger
+	policy          PasswordPolicy
+	throttle        *loginThrottle
+	addressThrottle *addressThrottle
+	hashSlots       chan struct{}
+	now             func() time.Time
 }
 
 func New(store Store, logger *slog.Logger, policy PasswordPolicy) *Service {
 	return &Service{
-		store:     store,
-		logger:    logger,
-		policy:    policy,
-		throttle:  newLoginThrottle(),
-		hashSlots: make(chan struct{}, maxConcurrentPasswordChecks),
-		now:       time.Now,
+		store:           store,
+		logger:          logger,
+		policy:          policy,
+		throttle:        newLoginThrottle(),
+		addressThrottle: newAddressThrottle(),
+		hashSlots:       make(chan struct{}, maxConcurrentPasswordChecks),
+		now:             time.Now,
 	}
 }
 
@@ -176,8 +193,9 @@ func (s *Service) refreshDefaultAccountObligation(ctx context.Context, mustChang
 
 // Login vérifie les identifiants et ouvre une session. Ce qui ne peut pas
 // être un identifiant ou un mot de passe est refusé avant de coûter quoi que
-// ce soit — ni frein, ni requête, ni empreinte.
-func (s *Service) Login(ctx context.Context, username, password string) (Session, error) {
+// ce soit — ni frein, ni requête, ni empreinte. clientAddress est l'adresse
+// d'origine de la tentative ; invalide, le frein par adresse ne s'applique pas.
+func (s *Service) Login(ctx context.Context, username, password string, clientAddress netip.Addr) (Session, error) {
 	if err := validate.Username(username); err != nil {
 		return Session{}, ErrInvalidCredentials
 	}
@@ -186,6 +204,11 @@ func (s *Service) Login(ctx context.Context, username, password string) (Session
 	}
 
 	now := s.now()
+	// L'adresse d'abord : elle arrête celui qui martèle sans que personne
+	// d'autre en pâtisse.
+	if allowed, retryIn := s.addressThrottle.allow(clientAddress, now); !allowed {
+		return Session{}, &TooManyAttemptsFromAddressError{RetryIn: retryIn}
+	}
 	if !s.throttle.allow(username, now) {
 		return Session{}, ErrTooManyAttempts
 	}
@@ -202,9 +225,11 @@ func (s *Service) Login(ctx context.Context, username, password string) (Session
 	}
 	if !matches {
 		s.throttle.recordFailure(username, now)
+		s.addressThrottle.recordFailure(clientAddress, now)
 		return Session{}, ErrInvalidCredentials
 	}
 	s.throttle.reset(username)
+	s.addressThrottle.reset(clientAddress)
 
 	account, err := s.store.FindAccountByUsername(ctx, username)
 	if err != nil {

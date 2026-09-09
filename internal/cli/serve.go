@@ -86,6 +86,13 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	checker := probe.New(database, machineProbes{access: machines}, probeInterval, logger)
 	go checker.Run(probeCtx)
 
+	// Déjà validés au chargement ; l'erreur ne peut venir que d'un Config
+	// fabriqué à la main.
+	trustedProxies, err := config.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		return fmt.Errorf("lire les proxies de confiance : %w", err)
+	}
+
 	server, err := web.New(web.Dependencies{
 		Auth:        authService,
 		Machines:    database,
@@ -95,6 +102,8 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		Actions:     actionRunner,
 		Catalog:     catalog.Service{},
 		Prober:      machineHealth{checker: checker, store: database},
+
+		TrustedProxies: trustedProxies,
 	}, version, logger)
 	if err != nil {
 		return fmt.Errorf("préparer l'interface : %w", err)

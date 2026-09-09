@@ -17,6 +17,10 @@ state_dir = "/var/lib/opencloud"
 # un compte d'administration). 0 lève la règle, sur un réseau de confiance.
 min_password_length = 12
 
+# Proxies de confiance, adresses ou CIDR : derrière eux seulement,
+# X-Forwarded-For dit l'adresse d'origine. Vide, l'en-tête est ignoré.
+trusted_proxies = []
+
 # Le jeton GitHub de `opencloud self-update` n'est pas ici : ce fichier est
 # lisible par le service, qui n'en a pas l'usage. Il vit dans
 # /etc/opencloud/github-token, en 0600 root:root, lu par self-update seul.
