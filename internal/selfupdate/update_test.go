@@ -315,6 +315,22 @@ func TestRun_MinorJump_IsRefusedNamingTheStep(t *testing.T) {
 	}
 }
 
+func TestRun_MajorChange_IsRefusedWithoutNamingAStep(t *testing.T) {
+	fake := newFakeGitHub(t)
+	fake.addRelease("v1.0.0", []byte("v1.0.0"))
+	test := newTestUpdater(t, fake, []byte("old binary"))
+
+	_, err := test.run(t, "0.9.0", "", false)
+
+	refused := expectRefusal(t, err, "changement de version majeure", "pas pris en charge par self-update")
+	if strings.Contains(refused.Remedy, "self-update --version") {
+		t.Errorf("aucune étape à nommer pour une majeure : %q", refused.Remedy)
+	}
+	if readFile(t, test.executable) != "old binary" || test.restart.calls != 0 {
+		t.Fatal("un refus ne touche à rien")
+	}
+}
+
 func TestRun_ChecksumMismatch_IsRefused(t *testing.T) {
 	fake := newFakeGitHub(t)
 	fake.addRelease("v0.0.3", []byte("new binary"))

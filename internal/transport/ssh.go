@@ -79,19 +79,22 @@ func (s *SSH) Put(ctx context.Context, actionID, name string, content []byte, mo
 	return nil
 }
 
-func (s *SSH) Launch(ctx context.Context, actionID string) error {
+func (s *SSH) Launch(ctx context.Context, actionID string) (int, error) {
 	if !actiondir.ValidID(actionID) {
-		return fmt.Errorf("%w: %q", ErrRefusedName, actionID)
+		return 0, fmt.Errorf("%w: %q", ErrRefusedName, actionID)
 	}
 
 	result, err := s.run(ctx, "sudo -n "+actiondir.LauncherPath+" "+actionID, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if result.exitCode == 0 {
-		return nil
+	if result.exitCode != 0 {
+		return 0, launchFailure(result)
 	}
-	return launchFailure(result)
+	// La sortie vient de la machine : ce qui n'a pas la forme attendue ne
+	// compte pas, et le lancement a eu lieu de toute façon.
+	purged, _ := actiondir.ParsePurged(result.output)
+	return purged, nil
 }
 
 // StagedLauncherPath : là où le compte opencloud dépose le lanceur avant que

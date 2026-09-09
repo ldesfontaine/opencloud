@@ -28,6 +28,10 @@ func main() {
 		refuse(err)
 	}
 
+	// Au passage de chaque action, les plus anciens dossiers partent : prepare
+	// vient de valider l'identifiant, qui est le seul argument.
+	newPurger(actiondir.Root, os.Stdout, os.Stderr).run(os.Args[1])
+
 	// execve : pas de processus intermédiaire, pas de shell, un environnement
 	// fixe. Si l'appel revient, c'est qu'il a échoué.
 	// #nosec G204 -- le vecteur est une constante de launchVector : seuls

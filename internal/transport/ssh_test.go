@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/actiondir"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -182,7 +183,7 @@ func TestPut_RevalideLIdentifiantDAction(t *testing.T) {
 
 func TestLaunch_JoueLeVecteurFixeDuLanceur(t *testing.T) {
 	fake := newFakeSSH(t)
-	if err := fake.client().Launch(context.Background(), "abc123"); err != nil {
+	if _, err := fake.client().Launch(context.Background(), "abc123"); err != nil {
 		t.Fatalf("Launch : %v", err)
 	}
 	if got, expected := fake.remoteCommand(t), "sudo -n /usr/local/sbin/oc-launch abc123"; got != expected {
@@ -190,9 +191,37 @@ func TestLaunch_JoueLeVecteurFixeDuLanceur(t *testing.T) {
 	}
 }
 
+func TestLaunch_RelitLeNombreDeDossiersPurgesParLeLanceur(t *testing.T) {
+	fake := newFakeSSH(t)
+	fake.replies(t, 0, actiondir.FormatPurged(4))
+
+	purged, err := fake.client().Launch(context.Background(), "abc123")
+	if err != nil {
+		t.Fatalf("Launch : %v", err)
+	}
+	if purged != 4 {
+		t.Errorf("dossiers purgés = %d, attendu 4", purged)
+	}
+}
+
+func TestLaunch_UneSortieDeLanceurInattendueNeComptePas(t *testing.T) {
+	for _, output := range []string{"", "purged-directories: beaucoup", "purged-directories: -3", "bonjour"} {
+		fake := newFakeSSH(t)
+		fake.replies(t, 0, output)
+
+		purged, err := fake.client().Launch(context.Background(), "abc123")
+		if err != nil {
+			t.Fatalf("%q : Launch : %v", output, err)
+		}
+		if purged != 0 {
+			t.Errorf("%q : dossiers purgés = %d, attendu 0", output, purged)
+		}
+	}
+}
+
 func TestLaunch_RevalideLIdentifiantDAction(t *testing.T) {
 	fake := newFakeSSH(t)
-	if err := fake.client().Launch(context.Background(), "ABC 123"); !errors.Is(err, ErrRefusedName) {
+	if _, err := fake.client().Launch(context.Background(), "ABC 123"); !errors.Is(err, ErrRefusedName) {
 		t.Fatalf("identifiant accepté : %v", err)
 	}
 }
@@ -201,7 +230,7 @@ func TestLaunch_UneUniteDejaLanceeSeSuitAuLieuDeSeRelancer(t *testing.T) {
 	fake := newFakeSSH(t)
 	fake.replies(t, 1, "Failed to start transient service unit: Unit oc-action-abc123.service already exists.")
 
-	err := fake.client().Launch(context.Background(), "abc123")
+	_, err := fake.client().Launch(context.Background(), "abc123")
 	if !errors.Is(err, ErrAlreadyLaunched) {
 		t.Fatalf("attendu ErrAlreadyLaunched, obtenu %v", err)
 	}
@@ -219,7 +248,7 @@ func TestLaunch_LesDeuxRefusDeSudoSontDistincts(t *testing.T) {
 		fake := newFakeSSH(t)
 		fake.replies(t, 1, testCase.output)
 
-		err := fake.client().Launch(context.Background(), "abc123")
+		_, err := fake.client().Launch(context.Background(), "abc123")
 		if !errors.Is(err, ErrLaunchRefused) {
 			t.Fatalf("%q : attendu ErrLaunchRefused, obtenu %v", testCase.output, err)
 		}
@@ -237,7 +266,7 @@ func TestLaunch_UnAutreCodeEstUnRefusDeLancement(t *testing.T) {
 	fake := newFakeSSH(t)
 	fake.replies(t, 2, "oc-launch: identifiant refusé")
 
-	err := fake.client().Launch(context.Background(), "abc123")
+	_, err := fake.client().Launch(context.Background(), "abc123")
 	if !errors.Is(err, ErrLaunchRefused) {
 		t.Fatalf("attendu ErrLaunchRefused, obtenu %v", err)
 	}
@@ -250,7 +279,7 @@ func TestLaunch_MachineInjoignableNestPasUnEchecDeLAction(t *testing.T) {
 	fake := newFakeSSH(t)
 	fake.replies(t, 255, "")
 
-	err := fake.client().Launch(context.Background(), "abc123")
+	_, err := fake.client().Launch(context.Background(), "abc123")
 	if !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("attendu ErrUnreachable, obtenu %v", err)
 	}
@@ -325,7 +354,7 @@ func TestSortie_EstBorneeEnTaille(t *testing.T) {
 	fake := newFakeSSH(t)
 	fake.replies(t, 1, strings.Repeat("a", 3*maxOutputBytes))
 
-	err := fake.client().Launch(context.Background(), "abc123")
+	_, err := fake.client().Launch(context.Background(), "abc123")
 	if err == nil {
 		t.Fatal("attendu une erreur")
 	}

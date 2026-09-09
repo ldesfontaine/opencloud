@@ -75,9 +75,10 @@ type putFile struct {
 
 // Le faux transport : lignes émises, issue choisie, injoignable N fois.
 type fakeTransport struct {
-	lines     []transport.Line
-	outcome   transport.Outcome
-	launchErr error
+	lines             []transport.Line
+	outcome           transport.Outcome
+	launchErr         error
+	purgedDirectories int
 	// Le dépôt échoue « injoignable » autant de fois, puis passe.
 	putUnreachableLeft int
 	followErr          error
@@ -116,11 +117,11 @@ func (t *fakeTransport) Put(_ context.Context, actionID, name string, content []
 	return nil
 }
 
-func (t *fakeTransport) Launch(context.Context, string) error {
+func (t *fakeTransport) Launch(context.Context, string) (int, error) {
 	t.mu.Lock()
 	t.launches++
 	t.mu.Unlock()
-	return t.launchErr
+	return t.purgedDirectories, t.launchErr
 }
 
 func (t *fakeTransport) Follow(ctx context.Context, _ string, afterCursor string, emit func(transport.Line)) (transport.Outcome, error) {

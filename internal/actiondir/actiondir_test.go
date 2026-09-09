@@ -36,3 +36,20 @@ func TestParseTimeout_DigitsWithinBoundsOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePurged_ReadsTheLauncherLineAndIgnoresTheRest(t *testing.T) {
+	if got, ok := ParsePurged(FormatPurged(7)); !ok || got != 7 {
+		t.Errorf("ParsePurged(FormatPurged(7)) = %d, %v", got, ok)
+	}
+	// La ligne se lit même si le lanceur ou sudo ont écrit autre chose avant.
+	mixed := "sudo: quelque chose\n" + FormatPurged(2)
+	if got, ok := ParsePurged(mixed); !ok || got != 2 {
+		t.Errorf("ParsePurged(%q) = %d, %v", mixed, got, ok)
+	}
+	for _, output := range []string{"", "purged-directories: 0", "purged-directories: -1",
+		"purged-directories: beaucoup", "purged-directories:", "rien à dire"} {
+		if _, ok := ParsePurged(output); ok {
+			t.Errorf("ParsePurged(%q) devrait refuser", output)
+		}
+	}
+}
