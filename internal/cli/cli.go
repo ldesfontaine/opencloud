@@ -38,10 +38,10 @@ func Run(ctx context.Context, args []string, version string, out, errOut io.Writ
 
 func usage(out io.Writer) error {
 	fmt.Fprintln(out, "usage : opencloud <commande> [--config chemin]")
-	fmt.Fprintln(out, "  serve     démarre l'interface")
-	fmt.Fprintln(out, "  status    vérifie la configuration, l'état et le service")
+	fmt.Fprintln(out, "  serve         démarre l'interface")
+	fmt.Fprintln(out, "  status        vérifie la configuration, l'état et le service")
 	fmt.Fprintln(out, "  enroll-local  enrôle cette machine sur elle-même par SSH vers localhost (sudo)")
-	fmt.Fprintln(out, "  self-update  installe la release suivante en place (sudo) ; --check, --version vX.Y.Z")
-	fmt.Fprintln(out, "  version   affiche la version")
+	fmt.Fprintln(out, "  self-update   installe la release suivante en place (sudo) ; --check, --version vX.Y.Z")
+	fmt.Fprintln(out, "  version       affiche la version")
 	return nil
 }

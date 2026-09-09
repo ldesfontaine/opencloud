@@ -7,6 +7,9 @@
    et des secrets, permissions minimales du workflow. Le paquet est joué sur
    deux systèmes : Ubuntu sur le runner, Debian 12 dans un conteneur avec
    systemd. Une VM seulement si un jour la CI ne suffit pas.
+   **La CI GitHub est la référence** : `make ci` est le tour rapide du poste de
+   travail et ne joue ni `reproducible` ni `package-test` ; la CI, si. Ce qui
+   passe en local n'est vert qu'une fois la CI verte.
 3. **Dépôt git vide, interface minimale**, une fonctionnalité à la fois.
 
 ## Les branches
@@ -44,6 +47,13 @@ les petites corrections entre deux (`v0.1.1`, `v0.1.2`). Rien au-delà tant que
 ça ne tourne pas chez quelqu'un. **Il n'y a pas de 1.0 en vue** : elle se
 décidera à part, le jour d'une release voulue comme telle, et `self-update`
 ne l'atteint pas tout seul (`20-installation-et-mise-a-jour.md`).
+
+**On publie les mineures dans l'ordre.** Un saut volontaire — `v0.0.4` puis
+`v0.2.0`, sans `v0.1.0` — fait échouer le job `self-update` de la release
+(`packaging/test-self-update.sh`), qui met à jour depuis la release précédente :
+c'est le refus de saut de mineure, et il est attendu. Le coût est de publier la
+mineure intermédiaire même si elle n'apporte rien ; ce qu'il rapporte, c'est un
+chemin de mise à jour que chaque installation peut suivre pas à pas.
 
 ## Les outils de your-cloud
 

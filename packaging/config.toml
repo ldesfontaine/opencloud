@@ -9,8 +9,8 @@
 listen = "127.0.0.1:8080"
 
 # Répertoire d'état : base, sauvegardes, clés. Créé par le paquet, gardé par
-# `apt remove`, retiré par `apt purge`. Le déplacer le sort du périmètre de
-# `apt purge`, qui ne connaît que /var/lib/opencloud.
+# `apt remove`. `apt purge` retire /var/lib/opencloud ; un state_dir déplacé
+# reste en place, à retirer à la main.
 state_dir = "/var/lib/opencloud"
 
 # Longueur minimale d'un nouveau mot de passe, en caractères (12 : l'OWASP pour
