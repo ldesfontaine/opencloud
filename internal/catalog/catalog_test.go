@@ -118,8 +118,15 @@ func TestSocle_PackageList_IsEmbeddedWithoutRepeats(t *testing.T) {
 		}
 		seen[name] = true
 	}
-	if !seen["docker.io"] {
-		t.Errorf("la liste = %v, sans docker.io : le socle pose Docker", packages)
+	// Les paquets du dépôt officiel de Docker : le socle pose Docker et le
+	// plugin compose, jamais docker.io.
+	for _, name := range []string{"docker-ce", "docker-ce-cli", "containerd.io", "docker-compose-plugin"} {
+		if !seen[name] {
+			t.Errorf("la liste = %v, sans %s", packages, name)
+		}
+	}
+	if seen["docker.io"] {
+		t.Errorf("la liste = %v, avec docker.io : Docker vient de son dépôt officiel", packages)
 	}
 }
 

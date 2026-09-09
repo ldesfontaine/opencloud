@@ -1,13 +1,17 @@
 # Les paquets du socle, un par ligne. Ajouter une ligne ici suffit : la
 # prochaine pose l'installe partout. Commentaires et lignes vides ignorés.
 #
-# Paquets apt seulement, et seulement ce qui existe à la fois sur Debian 12 et
-# sur Ubuntu 24.04 : un paquet absent de l'une des deux n'entre pas ici.
+# Paquets apt seulement. Les quatre premiers viennent du dépôt officiel de
+# Docker, que l'action ouvre juste avant d'installer
+# (docs.docker.com/engine/install/debian/ et /ubuntu/) ; les autres existent à
+# la fois sur Debian 12 et sur Ubuntu 24.04.
 #
-# docker-compose-plugin n'y est pas : il vient du dépôt de Docker, absent des
-# deux distributions (Ubuntu a docker-compose-v2, Debian n'a rien). Ouvrir ce
-# dépôt est une décision à part, elle n'a pas été prise.
-docker.io
+# Ni docker-buildx-plugin ni docker-ce-rootless-extras : le modèle de service
+# ne les demande pas. docker.io n'est plus utilisé.
+containerd.io
+docker-ce
+docker-ce-cli
+docker-compose-plugin
 screen
 ncdu
 at

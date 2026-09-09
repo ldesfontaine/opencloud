@@ -68,6 +68,7 @@ func socleDescription() actionDescription {
 		ItemsTitle: "Ce qui va être posé",
 		Items: []describedItem{
 			{Icon: iconCheck, Label: "les répertoires de la norme : /srv/workspace et /srv/data"},
+			{Icon: iconKey, Label: "la source apt officielle de Docker et sa clé, versionnée dans le dépôt"},
 		},
 	}
 

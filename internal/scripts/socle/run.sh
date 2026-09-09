@@ -1,13 +1,17 @@
 # shellcheck shell=bash
-# Poser le socle : les répertoires de la norme /srv, puis les paquets de la
-# liste versionnée du dépôt. Go insère cette liste devant ce corps, dans la
-# variable PACKAGES (internal/scripts/socle/packages.txt) — elle ne passe
-# jamais par une ligne de commande. L'en-tête commun (lib.sh) est concaténé
-# encore avant. Le script tourne en root : oc-launch le lance par systemd-run.
+# Poser le socle : les répertoires de la norme /srv, la source apt officielle
+# de Docker, puis les paquets de la liste versionnée du dépôt. Go insère cette
+# liste et la clé de Docker devant ce corps, dans les variables PACKAGES et
+# DOCKER_KEY (internal/scripts/socle/packages.txt et docker.asc) — ni l'une ni
+# l'autre ne passe par une ligne de commande, et la clé n'est pas téléchargée
+# ici : elle est versionnée dans le dépôt et son empreinte est vérifiée par un
+# test Go. L'en-tête commun (lib.sh) est concaténé encore avant. Le script
+# tourne en root : oc-launch le lance par systemd-run.
 
-# Go pose PACKAGES au-dessus ; cette ligne ne fait que garder le fichier
-# lisible seul, shellcheck compris.
+# Go pose PACKAGES et DOCKER_KEY au-dessus ; ces deux lignes ne font que garder
+# le fichier lisible seul, shellcheck compris.
 PACKAGES=${PACKAGES:-}
+DOCKER_KEY=${DOCKER_KEY:-}
 
 WORKSPACE_DIR=/srv/workspace
 DATA_DIR=/srv/data
@@ -26,8 +30,32 @@ GUARD_DIR=/var/lib/opencloud
 GUARD_FILE=/var/lib/opencloud/socle.liste
 GUARD_MODE=0644
 
+# Le dépôt officiel de Docker, posé sur chaque machine : ni Debian 12 ni
+# Ubuntu 24.04 ne portent le plugin compose, et docker.io n'est pas utilisé.
+# Emplacement de la clé, forme de la source et noms des paquets viennent de
+# docs.docker.com/engine/install/debian/ et /engine/install/ubuntu/.
+DOCKER_REPOSITORY_BASE=https://download.docker.com/linux
+KEYRINGS_DIR=/etc/apt/keyrings
+KEYRINGS_DIR_MODE=0755
+DOCKER_KEY_FILE=/etc/apt/keyrings/docker.asc
+DOCKER_KEY_MODE=0644
+DOCKER_SOURCES_FILE=/etc/apt/sources.list.d/docker.sources
+DOCKER_SOURCES_MODE=0644
+DOCKER_COMPONENTS=stable
+OS_RELEASE=/etc/os-release
+# Les noms de code que Docker publie, distribution par distribution (mêmes
+# pages). Un système absent de ces listes est un refus, pas une source apt qui
+# renverra des 404 à chaque apt-get update.
+DEBIAN_SUITES=(bookworm trixie)
+UBUNTU_SUITES=(jammy noble resolute)
+# Ce que la doc de Docker nomme « Uninstall old versions » : ces paquets se
+# disputent le dépôt officiel. openCloud n'est pas propriétaire de la machine,
+# il ne retire pas ce qu'il n'a pas posé — il refuse et donne le geste.
+CONFLICTING_PACKAGES=(docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc)
+
 APT_GET=/usr/bin/apt-get
 APT_CACHE=/usr/bin/apt-cache
+DPKG=/usr/bin/dpkg
 DPKG_QUERY=/usr/bin/dpkg-query
 APT_LISTS_DIR=/var/lib/apt/lists
 # Au-delà d'un jour, les listes de paquets se rafraîchissent avant d'installer.
@@ -35,7 +63,8 @@ APT_LISTS_MAX_AGE_DAYS=1
 # apt n'attend pas le verrou : un verrou tenu est un refus nommé, pas une
 # attente sans fin.
 APT_LOCK_OPTION=DPkg::Lock::Timeout=0
-# Ce que docker.io déballé demande, avec de la marge.
+# Ce que docker-ce, containerd.io et le plugin compose déballés demandent, avec
+# de la marge.
 MIN_FREE_MIB=1024
 
 export DEBIAN_FRONTEND=noninteractive
@@ -47,6 +76,11 @@ trap 'fail "une commande de la séquence a échoué, ligne $LINENO"' ERR
 
 # Ce que la machine a bougé : « inchangé » n'est vrai que si rien n'a changé.
 changed=0
+
+# La source apt de Docker vient d'être posée ou corrigée : apt ne connaît pas
+# encore ses paquets, et un apt-get update devient obligatoire, listes fraîches
+# ou non.
+docker_sources_changed=0
 
 step_done() {
     changed=1
@@ -121,6 +155,37 @@ require_candidate() {
     fi
 }
 
+# Une valeur de /etc/os-release, lue et non sourcée : ce fichier est du shell,
+# et le sourcer exécuterait ce qu'il contient. La clé est toujours une
+# constante de ce script.
+os_release_value() {
+    local key=$1 line
+    line=$(grep -m 1 -- "^$key=" "$OS_RELEASE" 2> /dev/null) || return 1
+    line=${line#"$key="}
+    # os-release autorise les guillemets autour de la valeur.
+    line=${line#\"}
+    printf '%s' "${line%\"}"
+}
+
+# Vrai si le fichier porte déjà exactement ce contenu : rien à écrire, donc
+# rien à annoncer comme un changement.
+file_has_content() {
+    local path=$1 content=$2
+    [ -f "$path" ] && printf '%s' "$content" | cmp -s - "$path"
+}
+
+# Écriture atomique : le temporaire naît dans le même dossier, puis un rename.
+# apt lit ces fichiers quand il veut ; il ne doit jamais en voir un à moitié
+# écrit. umask 077 crée le temporaire fermé, chmod l'ouvre ensuite.
+write_file_atomically() {
+    local path=$1 mode=$2 content=$3
+    local candidate="$path.opencloud-tmp"
+    printf '%s' "$content" > "$candidate"
+    chmod "$mode" -- "$candidate"
+    chown "$DIR_OWNER:$DIR_GROUP" -- "$candidate"
+    mv -f -- "$candidate" "$path"
+}
+
 # La norme prime, mais openCloud ne possède pas /srv : il crée ce qui manque et
 # ne touche à rien d'autre (04-implantation.md).
 ensure_directory() {
@@ -139,17 +204,10 @@ ensure_directory() {
     step_done "$path posé en $DIR_MODE, $DIR_OWNER:$DIR_GROUP"
 }
 
-# Les listes de paquets périmées feraient installer une version que le dépôt ne
-# porte plus. Rafraîchir n'est pas un changement de la machine.
-refresh_lists_if_stale() {
-    local recent update_output
-    # C'est le dossier qui date la dernière moisson : les fichiers, eux,
-    # gardent la date du serveur, toujours plus vieille qu'elle.
-    recent=$(find "$APT_LISTS_DIR" -maxdepth 0 -mtime "-$APT_LISTS_MAX_AGE_DAYS" -print 2> /dev/null || true)
-    if [ -n "$recent" ]; then
-        step "listes de paquets déjà à jour"
-        return 0
-    fi
+# Rafraîchir les listes n'est pas un changement de la machine : c'est ce qu'apt
+# sait du monde, pas ce qui est posé dessus.
+refresh_lists() {
+    local update_output
     if ! update_output=$("$APT_GET" -o "$APT_LOCK_OPTION" update 2>&1); then
         case $update_output in
             *"Could not get lock"*) refuse_apt_lock "$(apt_error_line "$update_output")" ;;
@@ -158,6 +216,20 @@ refresh_lists_if_stale() {
         fail "apt-get update a échoué"
     fi
     step "listes de paquets rafraîchies"
+}
+
+# Les listes de paquets périmées feraient installer une version que le dépôt ne
+# porte plus.
+refresh_lists_if_stale() {
+    local recent
+    # C'est le dossier qui date la dernière moisson : les fichiers, eux,
+    # gardent la date du serveur, toujours plus vieille qu'elle.
+    recent=$(find "$APT_LISTS_DIR" -maxdepth 0 -mtime "-$APT_LISTS_MAX_AGE_DAYS" -print 2> /dev/null || true)
+    if [ -n "$recent" ]; then
+        step "listes de paquets déjà à jour"
+        return 0
+    fi
+    refresh_lists
 }
 
 # ---------------------------------------------------------------- 0. préflight
@@ -194,6 +266,7 @@ fi
 
 require_binary "$APT_GET" "apt-get installe les paquets du socle"
 require_binary "$APT_CACHE" "apt-cache dit si un paquet existe dans les dépôts"
+require_binary "$DPKG" "dpkg donne l'architecture que la source de Docker déclare"
 require_binary "$DPKG_QUERY" "dpkg-query dit ce qui est déjà installé"
 require_binary /usr/bin/install "install pose les répertoires de la norme"
 
@@ -219,6 +292,49 @@ fi
 mapfile -t wanted <<< "$PACKAGES"
 info paquets_demandes "${wanted[*]}"
 
+if [ -z "$DOCKER_KEY" ]; then
+    fail "la clé du dépôt de Docker est vide : le script a été assemblé sans elle"
+fi
+
+# La source de Docker ne se pose que là où Docker publie. Ailleurs, apt
+# répondrait 404 à chaque mise à jour, et le socle aurait cassé la machine.
+distribution=$(os_release_value ID) || distribution=""
+codename=$(os_release_value VERSION_CODENAME) || codename=""
+case $distribution in
+    debian) suites=("${DEBIAN_SUITES[@]}") ;;
+    ubuntu) suites=("${UBUNTU_SUITES[@]}") ;;
+    *)
+        refuse "cette machine se déclare « ${distribution:-inconnue} » dans $OS_RELEASE, et le dépôt de Docker ne sert que Debian et Ubuntu" \
+            "poser le socle sur une machine Debian ou Ubuntu"
+        ;;
+esac
+
+suite_is_served=0
+for suite in "${suites[@]}"; do
+    if [ "$suite" = "$codename" ]; then
+        suite_is_served=1
+    fi
+done
+if [ "$suite_is_served" -ne 1 ]; then
+    refuse "le dépôt de Docker ne publie rien pour « ${codename:-inconnu} » : sur $distribution il sert ${suites[*]}" \
+        "poser le socle sur une version que Docker sert — ${suites[*]} — ou attendre qu'il publie pour « ${codename:-inconnu} »"
+fi
+architecture=$("$DPKG" --print-architecture)
+info systeme "$distribution $codename $architecture"
+
+# Les paquets Docker de la distribution se disputent ceux du dépôt officiel.
+# openCloud ne retire pas ce qu'il n'a pas posé : il nomme et rend la main.
+conflicting=()
+for package in "${CONFLICTING_PACKAGES[@]}"; do
+    if package_installed "$package"; then
+        conflicting+=("$package")
+    fi
+done
+if [ "${#conflicting[@]}" -ne 0 ]; then
+    refuse "cette machine porte déjà ${conflicting[*]}, que le dépôt officiel de Docker remplace : openCloud n'a pas posé ces paquets, il ne les retire pas" \
+        "retirer ces paquets — apt-get remove ${conflicting[*]} — puis relancer l'action"
+fi
+
 # Une horloge en dérive fait rejeter les signatures des dépôts. C'est un
 # constat, pas un refus : apt le dira lui-même, et nommément.
 synchronized=$(timedatectl show -p NTPSynchronized --value 2> /dev/null || true)
@@ -231,7 +347,56 @@ step "les répertoires de la norme /srv"
 ensure_directory "$WORKSPACE_DIR" norme_workspace
 ensure_directory "$DATA_DIR" norme_data
 
-# ----------------------------------------------------------- 2. les paquets
+# --------------------------------------------------- 2. la source de Docker
+
+step "la source apt officielle de Docker"
+
+# install -d ne retouche pas un dossier existant : le mode n'est posé qu'à la
+# création, et /etc/apt/keyrings appartient souvent déjà à la distribution.
+if [ -d "$KEYRINGS_DIR" ]; then
+    step_unchanged "$KEYRINGS_DIR"
+else
+    install -d -o "$DIR_OWNER" -g "$DIR_GROUP" -m "$KEYRINGS_DIR_MODE" -- "$KEYRINGS_DIR"
+    step_done "$KEYRINGS_DIR posé en $KEYRINGS_DIR_MODE"
+fi
+
+# La clé est versionnée dans le dépôt d'openCloud et son empreinte est vérifiée
+# par un test Go : rien n'est téléchargé ici, et une clé remplacée par erreur se
+# voit avant d'atteindre une machine.
+if file_has_content "$DOCKER_KEY_FILE" "$DOCKER_KEY"; then
+    step_unchanged "clé $DOCKER_KEY_FILE"
+else
+    write_file_atomically "$DOCKER_KEY_FILE" "$DOCKER_KEY_MODE" "$DOCKER_KEY"
+    docker_sources_changed=1
+    step_done "clé $DOCKER_KEY_FILE écrite en $DOCKER_KEY_MODE"
+fi
+info cle_docker "$(stat -c '%U:%G %a' -- "$DOCKER_KEY_FILE")"
+
+# Format deb822 : Signed-By nomme la clé, et cette source-là seule est signée
+# par elle (docs.docker.com/engine/install/debian/).
+docker_sources_content="Types: deb
+URIs: $DOCKER_REPOSITORY_BASE/$distribution
+Suites: $codename
+Components: $DOCKER_COMPONENTS
+Architectures: $architecture
+Signed-By: $DOCKER_KEY_FILE
+"
+if file_has_content "$DOCKER_SOURCES_FILE" "$docker_sources_content"; then
+    step_unchanged "source $DOCKER_SOURCES_FILE"
+else
+    write_file_atomically "$DOCKER_SOURCES_FILE" "$DOCKER_SOURCES_MODE" "$docker_sources_content"
+    docker_sources_changed=1
+    step_done "source $DOCKER_SOURCES_FILE écrite : $DOCKER_REPOSITORY_BASE/$distribution $codename $DOCKER_COMPONENTS"
+fi
+info source_docker "$DOCKER_REPOSITORY_BASE/$distribution $codename $DOCKER_COMPONENTS"
+
+# La source vient de changer : les listes d'hier, si fraîches soient-elles, ne
+# portent pas encore ses paquets.
+if [ "$docker_sources_changed" -eq 1 ]; then
+    refresh_lists
+fi
+
+# ----------------------------------------------------------- 3. les paquets
 
 step "les paquets de la liste versionnée"
 
@@ -279,7 +444,7 @@ for package in "${wanted[@]}"; do
 done
 info paquets_installes "${installed[*]}"
 
-# ------------------------------------------------------- 3. le fichier-garde
+# ------------------------------------------------------- 4. le fichier-garde
 
 step "le fichier-garde $GUARD_FILE"
 
@@ -294,13 +459,22 @@ else
     step_done "fichier-garde $GUARD_FILE écrit"
 fi
 
-# ------------------------------------------------------------- 4. vérifier
+# ------------------------------------------------------------- 5. vérifier
 
-step "vérifier — Docker par le chemin réel"
+step "vérifier — Docker et le plugin compose par le chemin réel"
 
 if command -v docker > /dev/null 2>&1; then
     docker_version=$(docker --version 2> /dev/null | awk '{ print $3 }' | tr -d ',' || true)
     info docker "${docker_version:-présent}"
+    # Le plugin compose se demande à docker, pas à un binaire docker-compose :
+    # c'est docker-compose-plugin qui est posé, et il n'a pas de commande à lui.
+    compose_version=$(docker compose version --short 2> /dev/null || true)
+    if [ -n "$compose_version" ]; then
+        info docker_compose "$compose_version"
+    else
+        info docker_compose absent
+        warn "le plugin compose ne répond pas : « docker compose » ne fonctionnera pas"
+    fi
     # Un démon qui ne démarre pas — dans un conteneur, sans privilèges — se
     # constate, il ne fait pas échouer la pose des paquets.
     if systemctl is-active --quiet docker.service 2> /dev/null; then
@@ -313,7 +487,7 @@ else
     info docker absent
 fi
 
-# ------------------------------------------------------------------ 5. constat
+# ------------------------------------------------------------------ 6. constat
 
 if [ "$changed" -eq 1 ]; then
     done_changed

@@ -5,10 +5,10 @@
 # depuis l'interface, la suivre, relire journald, couper openCloud au milieu.
 # usage : sudo packaging/test-action.sh <opencloud.deb> [--avec-socle]
 #
-# --avec-socle joue en plus « Poser le socle », qui installe docker.io : à
-# réserver à une machine jetable. Le job « package » de la CI joue ce script
-# sur le runner GitHub lui-même, où docker.io se disputerait avec le docker-ce
-# déjà posé — et le témoin, enrôlé juste après, en a besoin.
+# --avec-socle joue en plus « Poser le socle », qui ouvre le dépôt officiel de
+# Docker et installe docker-ce : à réserver à une machine jetable. Le job
+# « package » de la CI joue ce script sur le runner GitHub lui-même, dont le
+# Docker déjà posé et le témoin, enrôlé juste après, n'ont rien à y gagner.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive
 
@@ -97,7 +97,7 @@ printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "la seconde Diagnos
 if [ "$WITH_SOCLE" = "--avec-socle" ]; then
     step "Poser le socle, depuis l'interface, suivie jusqu'à sa conclusion"
     page_has /machines/local/actions/socle "/srv/workspace" || fail "l'écran « avant » du socle ne dit pas ce qu'il pose"
-    page_has /machines/local/actions/socle "docker.io" || fail "l'écran « avant » du socle ne liste pas les paquets"
+    page_has /machines/local/actions/socle "docker-ce" || fail "l'écran « avant » du socle ne liste pas les paquets"
     id=$(launch_action local socle)
     page=$(wait_for_conclusion "$id" "$SOCLE_TIMEOUT")
     printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Poser le socle n'est pas « Appliquée »"; }
@@ -105,9 +105,25 @@ if [ "$WITH_SOCLE" = "--avec-socle" ]; then
     [ -d /srv/workspace ] || fail "/srv/workspace n'est pas posé"
     [ -d /srv/data ] || fail "/srv/data n'est pas posé"
     [ -f /var/lib/opencloud/socle.liste ] || fail "le fichier-garde du socle n'est pas écrit"
-    grep -qx 'docker.io' /var/lib/opencloud/socle.liste || fail "le fichier-garde ne nomme pas les paquets posés"
-    dpkg-query -s docker.io > /dev/null 2>&1 || fail "docker.io n'est pas installé"
+    grep -qx 'docker-ce' /var/lib/opencloud/socle.liste || fail "le fichier-garde ne nomme pas les paquets posés"
+
+    step "la source officielle de Docker, posée avec sa clé"
+    [ "$(stat -c '%U:%G %a' /etc/apt/keyrings/docker.asc)" = "root:root 644" ] || fail "la clé de Docker n'est pas root:root 0644"
+    grep -q '^Signed-By: /etc/apt/keyrings/docker.asc$' /etc/apt/sources.list.d/docker.sources || fail "la source de Docker ne nomme pas sa clé"
+    grep -q '^URIs: https://download.docker.com/linux/' /etc/apt/sources.list.d/docker.sources || fail "la source de Docker ne pointe pas sur son dépôt officiel"
+    # Le paquet doit venir du dépôt de Docker, pas d'une reprise par la
+    # distribution : c'était tout l'objet de la décision. Passer par un fichier
+    # plutôt qu'un tube : grep -q sort au premier match, et pipefail ferait
+    # échouer apt-cache sur le SIGPIPE.
+    apt-cache policy docker-ce > "$WORK_DIR/docker-ce.policy"
+    grep -q 'download.docker.com' "$WORK_DIR/docker-ce.policy" || fail "docker-ce ne vient pas du dépôt de Docker"
+    dpkg-query -s docker-ce > /dev/null 2>&1 || fail "docker-ce n'est pas installé"
+    dpkg-query -s docker-compose-plugin > /dev/null 2>&1 || fail "docker-compose-plugin n'est pas installé"
     dpkg-query -s jq > /dev/null 2>&1 || fail "jq n'est pas installé"
+    printf '%s' "$page" | grep -q 'info: docker_compose=' || fail "le socle ne dit pas la version du plugin compose"
+    if printf '%s' "$page" | grep -q 'info: docker_compose=absent'; then
+        fail "le plugin compose n'a pas répondu"
+    fi
     # Le démon Docker peut refuser de démarrer là où le conteneur n'a pas les
     # privilèges : le script le constate, il n'échoue pas pour autant.
     printf '%s' "$page" | grep -q 'info: docker_service=' || fail "le socle ne dit pas si le démon Docker tourne"

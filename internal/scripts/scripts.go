@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// L'en-tête commun, le corps de chaque action et, pour celles qui en ont une,
-// leur liste de paquets — un dossier par action.
+// L'en-tête commun, le corps de chaque action et, pour celles qui en ont, leur
+// liste de paquets et la clé du dépôt de Docker — un dossier par action.
 //
-//go:embed lib.sh */run.sh */packages.txt
+//go:embed lib.sh */run.sh */packages.txt */docker.asc
 var files embed.FS
 
 const (
@@ -26,6 +26,15 @@ const (
 	listName = "packages.txt"
 	// listVariable : le nom de la variable shell où la liste est insérée.
 	listVariable = "PACKAGES"
+	// keyName : la clé publique du dépôt de Docker, versionnée dans le dépôt
+	// plutôt que téléchargée au moment de la pose ; un test vérifie son
+	// empreinte (docker_key_test.go).
+	keyName = "docker.asc"
+	// keyVariable : le nom de la variable shell où la clé est insérée.
+	keyVariable = "DOCKER_KEY"
+
+	keyArmorHeader = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
+	keyArmorFooter = "-----END PGP PUBLIC KEY BLOCK-----"
 )
 
 // Ce qu'un nom de paquet a le droit d'être : la borne de Debian, en plus
@@ -34,8 +43,8 @@ const (
 var packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]{1,63}$`)
 
 // Script rend le fichier tel qu'il sera déposé : l'en-tête commun, la liste de
-// paquets de l'action quand elle en a une, puis le corps. Un seul fichier part
-// sur la machine, il n'y a rien à y sourcer.
+// paquets de l'action et la clé de dépôt quand elle en a, puis le corps. Un
+// seul fichier part sur la machine, il n'y a rien à y sourcer.
 func Script(kind string) ([]byte, error) {
 	header, err := files.ReadFile(headerName)
 	if err != nil {
@@ -49,11 +58,33 @@ func Script(kind string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	key, err := dockerKeyBlock(kind)
+	if err != nil {
+		return nil, err
+	}
 
-	assembled := make([]byte, 0, len(header)+len(list)+len(body))
+	assembled := make([]byte, 0, len(header)+len(list)+len(key)+len(body))
 	assembled = append(assembled, header...)
 	assembled = append(assembled, list...)
+	assembled = append(assembled, key...)
 	return append(assembled, body...), nil
+}
+
+// DockerKey rend la clé publique du dépôt de Docker versionnée avec l'action,
+// telle qu'elle sera posée sur la machine. Une action qui n'en a pas rend une
+// clé vide, et ce n'est pas une erreur.
+func DockerKey(kind string) (string, error) {
+	content, err := files.ReadFile(path.Join(kind, keyName))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read docker key for %q: %w", kind, err)
+	}
+	if err := checkArmoredKey(path.Join(kind, keyName), string(content)); err != nil {
+		return "", err
+	}
+	return string(content), nil
 }
 
 // Packages rend la liste de paquets d'une action, triée et sans doublon. Une
@@ -102,6 +133,57 @@ func packageBlock(kind string) ([]byte, error) {
 	block := "\n# Les paquets de l'action, insérés ici par Go depuis " + path.Join(kind, listName) + ".\n" +
 		listVariable + "='" + strings.Join(packages, "\n") + "'\n"
 	return []byte(block), nil
+}
+
+// dockerKeyBlock rend la clé du dépôt de Docker sous la forme d'une variable
+// shell, insérée entre l'en-tête et le corps — la même mécanique que la liste
+// de paquets. La clé arrive ainsi sur la machine, sans téléchargement au
+// moment de la pose.
+func dockerKeyBlock(kind string) ([]byte, error) {
+	key, err := DockerKey(kind)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, nil
+	}
+
+	// Guillemets simples : checkArmoredKey a garanti que la clé n'en contient
+	// aucun, donc rien ne peut refermer la chaîne ni ouvrir autre chose.
+	block := "\n# La clé du dépôt de Docker, insérée ici par Go depuis " + path.Join(kind, keyName) + ".\n" +
+		keyVariable + "='" + key + "'\n"
+	return []byte(block), nil
+}
+
+// checkArmoredKey refuse tout ce qui n'est pas un bloc de clé publique armuré :
+// les deux lignes d'armure, puis rien d'autre que l'alphabet de l'armure. Un
+// guillemet simple refermerait la variable shell où la clé est insérée, et un
+// caractère de contrôle n'a rien à faire dans un fichier ASCII.
+func checkArmoredKey(source string, key string) error {
+	if !strings.HasPrefix(key, keyArmorHeader+"\n") {
+		return fmt.Errorf("read docker key %s: does not start with %s", source, keyArmorHeader)
+	}
+	if !strings.HasSuffix(strings.TrimRight(key, "\n"), keyArmorFooter) {
+		return fmt.Errorf("read docker key %s: does not end with %s", source, keyArmorFooter)
+	}
+	for index, character := range key {
+		if !isArmorCharacter(character) {
+			return fmt.Errorf("read docker key %s: byte %d is not allowed in an armored key: %q", source, index, character)
+		}
+	}
+	return nil
+}
+
+// L'alphabet base64, la somme de contrôle, les lignes d'armure et leurs
+// séparateurs — et rien de plus.
+func isArmorCharacter(character rune) bool {
+	switch {
+	case character >= 'a' && character <= 'z',
+		character >= 'A' && character <= 'Z',
+		character >= '0' && character <= '9':
+		return true
+	}
+	return strings.ContainsRune("+/=- \n", character)
 }
 
 // parsePackages lit un paquet par ligne, ignore les commentaires et les lignes
