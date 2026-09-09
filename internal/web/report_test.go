@@ -145,8 +145,8 @@ func TestReport_EachKnownKey_IsTranslated(t *testing.T) {
 	expectValue(t, read, "Espace libre sur /", "242785 Mio", "")
 	expectValue(t, read, "Mémoire libre", "20921 Mio", "")
 	expectValue(t, read, "Unités en échec", "snap-brave-621.mount", toneDanger)
-	expectValue(t, read, "Docker", "29.8.0", "")
-	expectValue(t, read, "Plugin compose", "présent", "")
+	expectValue(t, read, "Docker", "29.8.0", toneOK)
+	expectValue(t, read, "Plugin compose", "présent", toneOK)
 	expectValue(t, read, "Port 80", "libre", "")
 	expectValue(t, read, "/srv/workspace", "absent", toneWarn)
 	expectValue(t, read, "Lanceur", "absent", toneDanger)
@@ -164,6 +164,23 @@ func TestReport_AMachineInOrder_ReadsTheGoodNewsInGreen(t *testing.T) {
 	expectValue(t, read, "Propriétaire du lanceur", "root:root", "")
 	expectValue(t, read, "Mode du lanceur", "755", "")
 	expectValue(t, read, "Bits spéciaux", "aucun", "")
+}
+
+// Sans Docker, rien ne se déploie sur la machine : les deux clés le disent en
+// avertissement, et la coche verte quand l'outil est là.
+func TestReport_Docker_IsColouredLikeTheRest(t *testing.T) {
+	read := newTestReport(t, "étape: docker\ninfo: docker=absent\ninfo: plugin_compose=absent")
+
+	expectValue(t, read, "Docker", "absent", toneWarn)
+	expectValue(t, read, "Plugin compose", "absent", toneWarn)
+
+	present := newTestReport(t, "étape: docker\ninfo: docker=présent\ninfo: plugin_compose=présent")
+
+	expectValue(t, present, "Docker", "présent", toneOK)
+	docker, _ := factOf(present, "Docker")
+	if docker.Value.Mark != iconCheck {
+		t.Fatalf("Docker présent doit porter la coche, reçu %q", docker.Value.Mark)
+	}
 }
 
 func TestReport_TheDigest_IsShortenedAndKeepsTheWhole(t *testing.T) {

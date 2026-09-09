@@ -1,4 +1,4 @@
-/* Tableau de bord d'hébergeur : barre du haut, une seule couleur d'accent, et
+/* Tableau de bord d'hébergeur : barre latérale, une seule couleur d'accent, et
    ce qui compte qui saute aux yeux — l'état des machines, ce qui tourne, ce
    qui a échoué. Aucun style inline nulle part : la CSP l'interdit. */
 
@@ -62,11 +62,19 @@
   --sans: "Manrope", "Segoe UI", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
 
+  /* La barre latérale : dépliée, puis en rail d'icônes. */
+  --sidebar: 240px;
+  --rail: 64px;
+
   color-scheme: light dark;
 }
 
+/* Le sombre s'obtient de deux façons : la préférence du système, tant que
+   l'opérateur n'a rien choisi, et son choix explicite, qui gagne dans les deux
+   sens. Les deux blocs portent la même palette — le CSS ne sait pas l'écrire
+   à un seul endroit sans préprocesseur : ils se modifient ensemble. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #0e1017;
     --card: #161923;
     --ink: #eef0f6;
@@ -84,14 +92,42 @@
     --term: #0a0c12;
 
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+
+    color-scheme: dark;
   }
 }
+
+:root[data-theme="dark"] {
+  --paper: #0e1017;
+  --card: #161923;
+  --ink: #eef0f6;
+  --muted: #98a1b3;
+  --line: #272b38;
+  --subtle: #1d212c;
+
+  --ok: #2fc47a;
+  --ok-bg: rgba(47, 196, 122, 0.16);
+  --warn: #f0a63a;
+  --warn-bg: rgba(240, 166, 58, 0.16);
+  --danger: #f0616b;
+  --danger-bg: rgba(240, 97, 107, 0.16);
+
+  --term: #0a0c12;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
 
 /* --------------------------------------------------------------- le socle */
 
 * { box-sizing: border-box; }
 
 body {
+  display: flex;
+  align-items: flex-start;
   margin: 0;
   background: var(--paper);
   color: var(--ink);
@@ -140,22 +176,33 @@ p { margin: 0; }
 
 /* ------------------------------------------------------------ mise en page */
 
-.topbar {
+/* La barre latérale : la marque en haut, la navigation dessous, le thème et le
+   compte en bas. Elle tient toute la hauteur et ne défile pas avec la page. */
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 64px;
-  padding: 0 40px;
+  flex-direction: column;
+  gap: 24px;
+  flex: none;
+  width: var(--sidebar);
+  height: 100vh;
+  padding: 16px 12px;
   background: var(--card);
-  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
 }
 
-.topbar-left { display: flex; align-items: center; gap: 28px; }
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+/* Le bas de la barre est poussé en bas : l'interrupteur, puis le compte. */
+.sidebar-foot { display: flex; flex-direction: column; gap: 10px; margin-top: auto; }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 4px 6px;
   color: var(--ink);
   font-weight: 800;
   font-size: 17px;
@@ -172,32 +219,94 @@ p { margin: 0; }
   border-radius: 9px;
   background: var(--accent);
   color: var(--accent-ink);
+  flex: none;
 }
 
-nav { display: flex; align-items: center; gap: 4px; }
-
-nav a {
+/* Un item de navigation : l'icône, puis le libellé. L'onglet ouvert est posé
+   sur le fond discret, en gras. */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
   color: var(--muted);
   font-weight: 500;
-  padding: 8px 12px;
-  border-radius: 8px;
   white-space: nowrap;
 }
-nav a:hover { background: var(--subtle); color: var(--ink); text-decoration: none; }
-nav a.current { background: var(--subtle); color: var(--ink); font-weight: 600; }
+.nav-item:hover { background: var(--subtle); color: var(--ink); text-decoration: none; }
+.nav-item.current { background: var(--subtle); color: var(--ink); font-weight: 700; }
+.nav-item.current .icon { color: var(--accent); }
 
-/* Mon compte : un <details> tient le menu, sans script et sans style inline.
+/* Le bouton qui replie la barre en rail. */
+.rail-toggle {
+  height: 32px;
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  flex: none;
+}
+.rail-toggle:hover { background: var(--subtle); color: var(--ink); filter: none; }
+
+/* L'interrupteur clair/sombre : le soleil d'un côté, la lune de l'autre, et un
+   bouton rond qui glisse de l'un à l'autre. */
+.theme-switch {
+  height: 40px;
+  padding: 0;
+  justify-content: center;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.theme-switch:hover { filter: none; }
+
+.theme-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 60px;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--subtle);
+}
+.theme-track .icon { width: 14px; height: 14px; color: var(--muted); }
+.theme-sun, .theme-moon { display: inline-flex; z-index: 1; }
+:root[data-theme="dark"] .theme-moon .icon { color: var(--accent); }
+:root:not([data-theme="dark"]) .theme-sun .icon { color: var(--warn); }
+
+.theme-knob {
+  position: absolute;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--button-shadow);
+  transition: transform 350ms ease;
+}
+:root[data-theme="dark"] .theme-knob { transform: translateX(30px); }
+
+/* Le compte : un <details> tient le menu, sans script et sans style inline.
    La pastille porte l'initiale, le chevron dit qu'il y a quelque chose
-   dessous. */
+   au-dessus. */
 .account { position: relative; }
 
 .account summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  padding: 0 10px 0 6px;
-  border-radius: 999px;
+  height: 44px;
+  padding: 0 10px 0 8px;
+  border-radius: 12px;
   color: var(--ink);
   font-size: 14px;
   font-weight: 600;
@@ -208,7 +317,10 @@ nav a.current { background: var(--subtle); color: var(--ink); font-weight: 600; 
 .account summary::-webkit-details-marker { display: none; }
 .account summary:hover { background: var(--subtle); }
 .account summary .icon { color: var(--muted); }
-.account[open] summary .icon { transform: rotate(180deg); }
+.account-name { overflow: hidden; text-overflow: ellipsis; }
+/* Le chevron est poussé à droite ; il pointe vers le menu, qui s'ouvre au-dessus. */
+.account-chevron { margin-left: auto; display: inline-flex; transform: rotate(180deg); }
+.account[open] .account-chevron { transform: none; }
 
 .avatar {
   display: inline-flex;
@@ -224,10 +336,11 @@ nav a.current { background: var(--subtle); color: var(--ink); font-weight: 600; 
   flex: none;
 }
 
+/* Le menu s'ouvre vers le haut : le compte est en bas de la barre. */
 .menu {
   position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
   z-index: 20;
   min-width: 240px;
   padding: 8px;
@@ -273,6 +386,10 @@ nav a.current { background: var(--subtle); color: var(--ink); font-weight: 600; 
 .menu-item .icon { color: var(--muted); }
 .menu form { margin: 0; }
 
+/* La page vit à droite de la barre ; sans barre — la connexion — elle prend
+   toute la largeur. */
+.workspace { flex: 1; min-width: 0; }
+
 main {
   display: flex;
   flex-direction: column;
@@ -289,6 +406,23 @@ footer {
   font-size: 13px;
 }
 
+/* ------------------------------------------------- la barre en rail d'icônes */
+
+/* Repliée, la barre ne garde que les icônes : tout ce qui porte « label »
+   disparaît, et le title de chaque item dit ce qu'il est. */
+:root[data-sidebar="collapsed"] .sidebar { width: var(--rail); padding: 16px 9px; }
+:root[data-sidebar="collapsed"] .label { display: none; }
+:root[data-sidebar="collapsed"] .sidebar-head { flex-direction: column; gap: 10px; }
+:root[data-sidebar="collapsed"] .brand { padding: 0; }
+:root[data-sidebar="collapsed"] .nav-item { justify-content: center; padding: 0; }
+:root[data-sidebar="collapsed"] .account summary { justify-content: center; padding: 0; }
+:root[data-sidebar="collapsed"] .theme-track { width: 46px; padding: 0 5px; }
+:root[data-sidebar="collapsed"] .theme-knob { width: 18px; height: 18px; left: 4px; }
+:root[data-theme="dark"][data-sidebar="collapsed"] .theme-knob { transform: translateX(20px); }
+
+/* Le menu du compte s'ouvre quand même : il déborde du rail, vers la droite. */
+:root[data-sidebar="collapsed"] .menu { left: -2px; }
+
 /* En-tête de page : le titre, ce qu'on y fait, et le geste principal. */
 .page-head { display: flex; flex-direction: column; gap: 6px; }
 .page-head-row {
@@ -299,7 +433,6 @@ footer {
 }
 .page-title { display: flex; align-items: center; gap: 14px; }
 .page-head p { max-width: 78ch; }
-.page-actions { display: flex; gap: 10px; }
 
 /* Le fil d'Ariane remonte : le chevron du menu, tourné vers la gauche. */
 .breadcrumb {
@@ -319,17 +452,23 @@ footer {
 .split.command { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .column { display: flex; flex-direction: column; gap: 16px; }
 
+/* Sur un écran étroit, la barre est en rail d'office : le libellé n'a pas la
+   place. Le bouton qui la replie n'a donc plus rien à faire, il s'efface. */
 @media (max-width: 900px) {
   main { padding: 24px 20px 40px; }
-  .topbar { padding: 0 20px; }
   .split.even, .split.wide-first, .split.command { grid-template-columns: minmax(0, 1fr); }
   .page-head-row { flex-direction: column; align-items: flex-start; }
-}
 
-/* Sur un écran étroit, la barre du haut se replie plutôt que de se tasser. */
-@media (max-width: 900px) {
-  .topbar { height: auto; flex-wrap: wrap; gap: 12px; padding: 12px 20px; }
-  .topbar-left { flex-wrap: wrap; gap: 12px; }
+  .sidebar { width: var(--rail); padding: 16px 9px; }
+  .sidebar .label { display: none; }
+  .sidebar-head { flex-direction: column; gap: 10px; }
+  .brand { padding: 0; }
+  .nav-item, .account summary { justify-content: center; padding: 0; }
+  .rail-toggle { display: none; }
+  .theme-track { width: 46px; padding: 0 5px; }
+  .theme-knob { width: 18px; height: 18px; left: 4px; }
+  :root[data-theme="dark"] .theme-knob { transform: translateX(20px); }
+  .menu { left: -2px; }
 }
 
 /* ------------------------------------------------------------- composants */
@@ -425,13 +564,6 @@ button:hover, .button:hover { text-decoration: none; filter: brightness(1.06); }
   border-color: var(--line);
   box-shadow: none;
 }
-
-.button.quiet, button.quiet {
-  background: transparent;
-  color: var(--muted);
-  box-shadow: none;
-}
-.button.quiet:hover, button.quiet:hover { color: var(--ink); filter: none; }
 
 /* La note d'un échec, à côté du badge : une ligne atténuée, coupée si trop longue. */
 .status-note {
@@ -543,7 +675,7 @@ input[type="text"]:focus, input[type="password"]:focus {
 input.mono { font-family: var(--mono); font-size: 13px; }
 
 /* Dans une carte, le bouton d'un formulaire prend l'air du dernier champ ;
-   ailleurs (la barre du haut, l'en-tête d'une page) il reste aligné. */
+   ailleurs (la barre latérale, l'en-tête d'une page) il reste aligné. */
 .card form > button { margin-top: 20px; }
 .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .card-pad { padding: 0 20px 16px; }
@@ -762,4 +894,5 @@ textarea.command:focus { outline: 2px solid var(--accent); outline-offset: 2px; 
 
 @media (prefers-reduced-motion: reduce) {
   .badge::before, .cursor { animation: none; }
+  .theme-knob { transition: none; }
 }
