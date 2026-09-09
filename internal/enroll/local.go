@@ -15,33 +15,23 @@ import (
 )
 
 // Les chemins du système, relatifs à la racine : la production monte « / »,
-// les tests un dossier temporaire.
+// les tests un dossier temporaire. Ceux de la séquence elle-même — sudoers,
+// drop-in sshd, compte — vivent dans le script, et nulle part ailleurs.
 const (
-	systemdMarkerPath = "run/systemd/system"
-	passwdPath        = "etc/passwd"
-	groupPath         = "etc/group"
-	packagedLauncher  = "opt/opencloud/bin/oc-launch"
-	launcherDir       = "usr/local/sbin"
-	launcherName      = "oc-launch"
-	sudoersDir        = "etc/sudoers.d"
-	sudoersName       = "opencloud"
-	sshdDropInDir     = "etc/ssh/sshd_config.d"
-	sshdDropInName    = "opencloud.conf"
-	// sshd -t exige ce dossier ; le service le crée en démarrant, mais sur une
-	// machine où sshd n'a jamais tourné (socket activé, Ubuntu) il manque.
-	sshdRuntimeDir    = "run/sshd"
-	hostKeyDir        = "etc/ssh"
-	sudoPath          = "usr/bin/sudo"
-	visudoPath        = "usr/sbin/visudo"
-	sshdPath          = "usr/sbin/sshd"
-	usermodPath       = "usr/sbin/usermod"
-	passwdCommandPath = "usr/bin/passwd" // #nosec G101 -- un chemin de binaire, pas un secret
-	systemctlPath     = "usr/bin/systemctl"
-	accountShell      = "/bin/sh"
-	// Sans ce groupe, journalctl ne montre au compte que son propre journal :
-	// le suivi d'une unité système ne verrait rien.
-	journalGroupName   = "systemd-journal"
-	sshServiceUnitName = "ssh.service"
+	passwdPath       = "etc/passwd"
+	packagedLauncher = "opt/opencloud/bin/oc-launch"
+	launcherDir      = "usr/local/sbin"
+	launcherName     = "oc-launch"
+	hostKeyDir       = "etc/ssh"
+)
+
+// Les constats qu'un script écrit, et que l'amorçage écrit comme lui
+// (15-catalogue-actions.md §1).
+const (
+	resultDone      = "fait"
+	resultUnchanged = "inchangé"
+	resultRefused   = "refusé"
+	resultFailed    = "échoué"
 )
 
 // Le rechargement de sshd ferme le port un instant : on ne conclut pas à
@@ -65,7 +55,7 @@ type Deps struct {
 	SystemRoot string   // « / » en production
 	UID        int      // uid effectif : l'amorçage exige 0
 	Out        io.Writer
-	Commands   CommandRunner
+	Scripts    ScriptRunner
 	Transport  func(transport.Endpoint) LocalTransport
 	SSHBinary  string
 	Chown      func(name string, uid, gid int) error
@@ -81,7 +71,7 @@ func SystemDeps(root *os.Root, out io.Writer) Deps {
 		SystemRoot: "/",
 		UID:        os.Geteuid(),
 		Out:        out,
-		Commands:   SystemCommands{},
+		Scripts:    SystemScripts{},
 		Transport:  func(endpoint transport.Endpoint) LocalTransport { return transport.NewSSH(endpoint) },
 		SSHBinary:  sshBinary,
 		Chown:      os.Chown,
@@ -90,9 +80,11 @@ func SystemDeps(root *os.Root, out io.Writer) Deps {
 	}
 }
 
-// EnrollLocal enrôle la machine openCloud sur elle-même, en root. Il écrit une
-// ligne par étape, dit « inchangé » quand une étape n'a rien à faire, et se
-// termine par un constat — comme un script d'action (15-catalogue-actions.md).
+// EnrollLocal enrôle la machine openCloud sur elle-même, en root : il joue le
+// script de l'action Enrôler — le même que sur une machine distante — et fait
+// autour ce que ce script ne peut pas faire seul. Il écrit une ligne par
+// étape, dit « inchangé » quand une étape n'a rien à faire, et se termine par
+// un constat, comme un script d'action (15-catalogue-actions.md).
 func EnrollLocal(ctx context.Context, deps Deps) error {
 	run := &enrollment{deps: deps, steps: &steps{out: deps.Out}}
 
@@ -102,10 +94,10 @@ func EnrollLocal(ctx context.Context, deps Deps) error {
 		run.steps.result()
 		return nil
 	case isRefusal(err):
-		fmt.Fprintf(deps.Out, "%s refusé\n", catalog.ResultPrefix)
+		fmt.Fprintf(deps.Out, "%s %s\n", catalog.ResultPrefix, resultRefused)
 		return err
 	default:
-		fmt.Fprintf(deps.Out, "%s échoué\n", catalog.ResultPrefix)
+		fmt.Fprintf(deps.Out, "%s %s\n", catalog.ResultPrefix, resultFailed)
 		return err
 	}
 }
@@ -122,18 +114,19 @@ type enrollment struct {
 	publicKey string
 }
 
-// play tient l'ordre, et l'ordre est une propriété de sécurité : le programme,
-// puis le compte, puis sudo, puis sshd, la clé en dernier (§3 du catalogue).
+// play tient l'ordre. Le script porte celui de la séquence — le compte, puis
+// sudo, puis sshd, la clé en dernier (§3 du catalogue) ; la paire de clés vient
+// avant lui, puisqu'il pose la clé publique, et le lanceur après, comme sur une
+// machine distante.
 func (e *enrollment) play(ctx context.Context) error {
 	if err := e.preflight(); err != nil {
 		return err
 	}
 	for _, step := range []func(context.Context) error{
+		e.prepareIdentity,
+		e.playEnroler,
 		e.installLauncher,
-		e.prepareAccount,
-		e.writeSudoers,
-		e.configureSSHD,
-		e.installKey,
+		e.writeKnownHosts,
 		e.verifyRealPath,
 		e.markEnrolled,
 	} {
@@ -146,12 +139,6 @@ func (e *enrollment) play(ctx context.Context) error {
 
 func (e *enrollment) systemPath(relative string) string {
 	return filepath.Join(e.deps.SystemRoot, relative)
-}
-
-// commandPath : le chemin absolu réel du binaire. La racine de test redirige
-// ce qu'on lit, jamais ce qu'on exécute — les tests ont un faux exécuteur.
-func commandPath(relative string) string {
-	return "/" + relative
 }
 
 // steps écrit ce que l'opérateur lit et retient si quelque chose a bougé.
@@ -171,13 +158,19 @@ func (s *steps) note(format string, args ...any) {
 }
 
 func (s *steps) unchanged(format string, args ...any) {
-	fmt.Fprintf(s.out, "%s %s — inchangé\n", catalog.StepPrefix, fmt.Sprintf(format, args...))
+	fmt.Fprintf(s.out, "%s %s — %s\n", catalog.StepPrefix, fmt.Sprintf(format, args...), resultUnchanged)
+}
+
+// markChanged retient qu'une étape jouée ailleurs — le script — a changé
+// quelque chose : le constat final vaut pour toute la séquence.
+func (s *steps) markChanged() {
+	s.changed = true
 }
 
 func (s *steps) result() {
 	if s.changed {
-		fmt.Fprintf(s.out, "%s fait\n", catalog.ResultPrefix)
+		fmt.Fprintf(s.out, "%s %s\n", catalog.ResultPrefix, resultDone)
 		return
 	}
-	fmt.Fprintf(s.out, "%s inchangé\n", catalog.ResultPrefix)
+	fmt.Fprintf(s.out, "%s %s\n", catalog.ResultPrefix, resultUnchanged)
 }

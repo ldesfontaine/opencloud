@@ -1,8 +1,10 @@
 # shellcheck shell=bash
-# Enrôler : joué par l'opérateur en root sur la machine à enrôler, avec
-# OC_PUBLIC_KEY dans l'environnement. Ce script n'est pas lancé par oc-launch —
-# le lanceur n'est pas encore là ; il vient ensuite par SSH, une fois le compte
-# en place. L'en-tête commun (lib.sh) est concaténé devant celui-ci par Go.
+# Enrôler : joué en root sur la machine à enrôler, avec OC_PUBLIC_KEY dans
+# l'environnement. C'est la seule écriture de la séquence : l'opérateur le colle
+# sur une machine distante, et la machine openCloud le joue sur elle-même par
+# « sudo opencloud enroll-local » (internal/enroll). Ce script n'est pas lancé
+# par oc-launch — le lanceur n'est pas encore là ; il vient ensuite, une fois le
+# compte en place. L'en-tête commun (lib.sh) est concaténé devant celui-ci par Go.
 #
 # L'ordre est une propriété de sécurité (15-catalogue-actions.md §3) : le
 # compte, puis sudo, puis sshd, la clé en dernier.
@@ -42,7 +44,7 @@ step_unchanged() {
 
 # La règle sudo. Le compte opencloud n'a droit qu'au lanceur et à la commande
 # exacte qui pose le lanceur : c'est elle qui le met à jour à chaque version.
-# Le même texte vit dans internal/enroll/steps.go, et un test Go compare les deux.
+# Son environnement ne le suit pas (annexes/lecture-sudoers.md).
 sudoers_content() {
     cat << 'SUDOERS'
 Defaults:opencloud env_reset, !setenv, !log_input, !log_stdin
