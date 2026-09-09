@@ -52,6 +52,18 @@ sha256sum --ignore-missing -c SHA256SUMS
 
 Pas de `curl | sh`.
 
+**Ce que l'attestation couvre, et ce qu'elle suppose.** Le `.deb` n'est pas
+produit par du code du dépôt mais par `nfpm`, que `make release` récupère au
+build par `go run github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0`, dans le job
+qui porte `id-token: write` et signe. C'est assumé : la version est épinglée,
+et le module est vérifié à la récupération par la base de sommes des modules Go
+(`sum.golang.org`) — une version publiée ne peut pas changer sous nos pieds.
+L'attestation dit donc vrai sur l'origine du fichier — ce workflow, ce dépôt, ce
+tag — sans rien dire de plus sur `nfpm` que sa somme. Le coût du vendoring — un
+module de plus à suivre et à mettre à jour — dépasse ce qu'il rapporte tant que
+le dépôt est privé et la cadence de publication faible. À revoir au passage en
+public.
+
 **Entre l'installation et la première connexion**, le compte est `admin` /
 `opencloud` et le premier arrivé le prend. Le paquet écoute donc sur
 `127.0.0.1:8080` seulement : ouvrir l'interface depuis la machine (ou par un
@@ -184,7 +196,7 @@ Deux gestes, deux résultats, dits avant :
 | Geste | Ce qui part | Ce qui reste |
 |---|---|---|
 | `sudo apt remove opencloud` | Le binaire, son `.prev`, l'unité | `/etc/opencloud`, `/var/lib/opencloud` — base, clés, jetons — et **l'utilisateur système**, qui possède ces fichiers : le retirer les rendrait orphelins. Réinstaller retrouve tout |
-| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine — sauf un `state_dir` que l'opérateur aurait déplacé : `purge` ne connaît que `/var/lib/opencloud`, et ne devine pas |
+| `sudo apt purge opencloud` | Tout ce qui précède **et** `/etc/opencloud`, `/var/lib/opencloud`, l'utilisateur | Rien d'openCloud sur cette machine. `apt purge` retire `/var/lib/opencloud` ; un `state_dir` déplacé reste en place, **à retirer à la main** — le script de purge ne lit pas le conffile |
 
 Ces deux gestes, la mise à jour et la réinstallation sont **joués en CI** à
 chaque changement, sur deux systèmes : sur le runner Ubuntu

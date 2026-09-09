@@ -1,4 +1,4 @@
-# Cibles de développement. La CI joue les mêmes (.github/workflows/ci.yml).
+# Cibles de développement. La CI GitHub joue les mêmes, et davantage (cible `ci`).
 # bin/ : le binaire de dev et les outils. dist/ : ce qu'une release publie.
 # dev/ : ta configuration et ton état locaux, à toi, jamais régénérés.
 #
@@ -133,6 +133,9 @@ $(PLUMBER_BIN):
 plumber: $(PLUMBER_BIN)
 	GITHUB_TOKEN=$$(gh auth token) $(PLUMBER_BIN) analyze --config .plumber.yaml --min-points 100 --fail-warnings
 
+# Le tour de vérification en local, avant de pousser. La CI GitHub
+# (.github/workflows/ci.yml) est la référence : elle joue en plus `reproducible`
+# et `package-test`, trop lents pour le poste de travail.
 ci: fmtcheck vet lint test vuln sec shellcheck plumber build
 
 # Jette ce que le dépôt produit ; garde l'outil plumber (35 Mo) et dev/.
