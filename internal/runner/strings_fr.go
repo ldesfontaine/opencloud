@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -40,6 +41,16 @@ func messageDepositAbandoned(err error) string {
 
 func messageLaunchFailed(err error) string {
 	return fmt.Sprintf("le lancement de l'unité a échoué : %v", err)
+}
+
+// La purge des anciens dossiers d'action, écrite dans la forme des lignes des
+// scripts (internal/scripts/lib.sh). Sans « clé=valeur » : ce n'est pas un
+// constat de l'action, le rapport de l'interface la laisse donc passer.
+func messagePurgedDirectories(count int) string {
+	if count == 1 {
+		return fmt.Sprintf("%s 1 ancien dossier d'action purgé sur la machine", catalog.InfoPrefix)
+	}
+	return fmt.Sprintf("%s %d anciens dossiers d'action purgés sur la machine", catalog.InfoPrefix, count)
 }
 
 func messageFollowFailed(err error) string {

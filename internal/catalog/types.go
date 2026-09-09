@@ -101,6 +101,7 @@ type Prepared struct {
 // par étape, une ligne de constat, puis le code.
 const (
 	StepPrefix   = "étape:"
+	InfoPrefix   = "info:"
 	ResultPrefix = "résultat:"
 
 	ExitDone    = 0 // fait, ou « inchangé »

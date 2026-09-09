@@ -54,6 +54,56 @@ func TestEnqueue_JournalsThenApplies_AndKeepsTheResultLine(t *testing.T) {
 	}
 }
 
+func TestEnqueue_PurgedDirectories_AreSaidOnceInTheActionJournal(t *testing.T) {
+	database := newTestStore(t)
+	machineTransport := newFakeTransport()
+	machineTransport.purgedDirectories = 3
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: machineTransport})
+
+	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	concluded := waitForConclusion(t, database, action.ID)
+	if concluded.State != store.StateApplied {
+		t.Fatalf("état = %s, note = %q", concluded.State, concluded.Note)
+	}
+
+	lines, err := database.Lines(context.Background(), action.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// La purge se dit avant la sortie du script, dans la forme de ses lignes.
+	if len(lines) != 3 || lines[0].Text != "info: 3 anciens dossiers d'action purgés sur la machine" {
+		t.Fatalf("lignes = %+v", lines)
+	}
+	// Le curseur de reprise reste celui de journald : la purge ne le bouge pas.
+	if concluded.LastCursor != "c2" {
+		t.Fatalf("curseur = %q", concluded.LastCursor)
+	}
+}
+
+func TestEnqueue_NothingPurged_SaysNothing(t *testing.T) {
+	database := newTestStore(t)
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: newFakeTransport()})
+
+	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForConclusion(t, database, action.ID)
+
+	lines, err := database.Lines(context.Background(), action.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range lines {
+		if strings.Contains(line.Text, "purgé") {
+			t.Fatalf("rien n'a été purgé, rien ne doit se dire : %+v", lines)
+		}
+	}
+}
+
 func TestEnqueue_Refusal_IsReturnedAsIs_AndNothingIsJournalled(t *testing.T) {
 	database := newTestStore(t)
 	actionCatalog := newFakeCatalog()

@@ -83,7 +83,7 @@ func (r *Runner) depositAndLaunch(ctx context.Context, machineTransport transpor
 		return errors.New(messageDepositFailed(err))
 	}
 
-	err := machineTransport.Launch(ctx, action.ID)
+	purgedDirectories, err := machineTransport.Launch(ctx, action.ID)
 	if err != nil && !errors.Is(err, transport.ErrAlreadyLaunched) {
 		if errors.Is(err, transport.ErrUnreachable) {
 			return err
@@ -98,8 +98,23 @@ func (r *Runner) depositAndLaunch(ctx context.Context, machineTransport transpor
 	}
 	action.State = store.StateRunning
 	action.LaunchedAt = launchedAt
+	if purgedDirectories > 0 {
+		r.notePurgedDirectories(ctx, *action, purgedDirectories)
+	}
 	r.logger.Info("action launched", "action_id", action.ID, "unit", action.UnitName)
 	return nil
+}
+
+// notePurgedDirectories pose dans le journal de l'action ce que le lanceur a
+// purgé au passage : une ligne, et seulement s'il y en a eu. Le curseur ne
+// bouge pas — cette ligne ne vient pas de journald.
+func (r *Runner) notePurgedDirectories(ctx context.Context, action store.Action, purged int) {
+	line, err := r.store.AppendLine(ctx, action.ID, time.Now().UTC(), messagePurgedDirectories(purged), action.LastCursor)
+	if err != nil {
+		r.logger.Error("store purge line", "action_id", action.ID, "error", err)
+		return
+	}
+	r.publish(action.ID, Event{Seq: line.Seq, At: line.At, Text: line.Text})
 }
 
 func (r *Runner) deposit(ctx context.Context, machineTransport transport.Transport, actionID string, prepared catalog.Prepared) error {

@@ -42,7 +42,9 @@ type Transport interface {
 	// son mode. Le dossier est créé s'il manque.
 	Put(ctx context.Context, actionID, name string, content []byte, mode fs.FileMode) error
 	// Launch joue le vecteur fixe : sudo -n /usr/local/sbin/oc-launch <id>.
-	Launch(ctx context.Context, actionID string) error
+	// Il rend le nombre d'anciens dossiers d'action que le lanceur a purgés
+	// au passage, zéro s'il n'a rien purgé.
+	Launch(ctx context.Context, actionID string) (purgedDirectories int, err error)
 	// Follow lit journald pour l'unité, depuis le début ou après afterCursor,
 	// appelle emit à chaque ligne, et rend l'issue une fois l'unité finie.
 	// Il bloque jusque-là ou jusqu'à ctx.

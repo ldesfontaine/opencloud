@@ -4,6 +4,7 @@ import (
 	"path"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -27,6 +28,16 @@ const (
 	// une journée. Le lanceur refuse le reste.
 	MinTimeoutSeconds = 1
 	MaxTimeoutSeconds = 86400
+
+	// KeptDirectories : les dossiers d'action gardés sur la machine pour
+	// « aller voir » sans openCloud. Le lanceur purge les plus anciens au
+	// passage de l'action suivante (05-execution.md).
+	KeptDirectories = 30
+
+	// PurgedPrefix : la seule ligne que le lanceur écrit sur sa sortie, et
+	// seulement quand il a purgé. openCloud la relit pour poser une ligne
+	// dans le journal de l'action.
+	PurgedPrefix = "purged-directories: "
 )
 
 // L'identifiant d'une action : la seule chose variable dans le vecteur de
@@ -69,4 +80,26 @@ func ParseTimeout(content string) (int, bool) {
 		return 0, false
 	}
 	return seconds, true
+}
+
+// FormatPurged rend la ligne que le lanceur écrit sur sa sortie.
+func FormatPurged(count int) string {
+	return PurgedPrefix + strconv.Itoa(count) + "\n"
+}
+
+// ParsePurged cherche cette ligne dans la sortie du lanceur. Elle vient d'une
+// machine : tout ce qui n'a pas exactement cette forme est ignoré.
+func ParsePurged(output string) (int, bool) {
+	for line := range strings.SplitSeq(output, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), PurgedPrefix)
+		if !found {
+			continue
+		}
+		count, err := strconv.Atoi(rest)
+		if err != nil || count < 1 {
+			return 0, false
+		}
+		return count, true
+	}
+	return 0, false
 }
