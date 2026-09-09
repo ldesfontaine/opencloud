@@ -43,7 +43,7 @@ identifiant, rien d'autre.
 | Règle | Pourquoi |
 |---|---|
 | `root:root`, `0755`, sans setuid ni setgid, dans `/usr/local/sbin` | Un setuid est exécutable par tout le monde et fragile aux variables d'environnement ; un binaire ordinaire derrière `sudo` ne l'est pas |
-| Statique, sans dépendance, ~100 lignes | Moins de code, moins de surface |
+| Statique, sans dépendance hors la bibliothèque standard, quelques centaines de lignes : la validation, le lancement, et depuis le 8 septembre 2026 la purge des dossiers d'action (les 30 derniers gardés) | Moins de code, moins de surface ; la purge y vit parce que lui seul tourne en root sur la machine au passage de chaque action |
 | **Un seul argument**, `^[0-9a-z-]{1,40}$`, tout le reste refusé | Pas d'option, pas de chemin, pas de valeur libre |
 | Ignore l'environnement ; `sudoers` pose `env_reset` et `secure_path` pour l'utilisateur | Rien d'hérité ne change son comportement |
 | Chemins absolus construits en dur ; `execve` de `/usr/bin/systemd-run` seul, jamais de shell | Pas de résolution `PATH`, pas d'interpolation |
