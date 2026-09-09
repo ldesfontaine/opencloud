@@ -53,21 +53,28 @@ apparaît ici (`01-perimetre.md`).
 Critère : **la plus simple qui tienne sur une petite machine comme sur une
 grosse.**
 
-**Décidé** : **Netdata ou Beszel** pour les métriques — léger, posé en une
-action, courbes sans configuration — et **Loki + Alloy** pour centraliser les
-journaux Traefik et ceux des services (lus dans `journald`). Grafana en option
-plus tard.
+**Décidé** : **Beszel** pour les métriques — un hub en Go sur la machine
+openCloud, un agent léger par machine, courbes processeur, mémoire, disque,
+réseau et conteneurs sans configuration, alertes par courriel ou webhook — et
+**Loki + Alloy** pour centraliser les journaux Traefik et ceux des services
+(lus dans `journald`). Grafana en option plus tard. Netdata, plus détaillé
+mais bien plus lourd, est écarté ; si Beszel déçoit à l'usage, on change
+(tranché le 8 septembre 2026).
 
 Le tout tourne **sur la machine openCloud**, **sous plancher de ressources
 vérifié au préflight** — ordre de grandeur, 2 Go libres. En dessous : refus
 d'installer Loki ou le collecteur, et **proposition d'une autre machine**
 (`02-roles.md`, `15-catalogue-actions.md` §6).
 
-Le choix entre **Netdata et Beszel** reste ouvert (`11-decisions.md`).
-
 ## Ce que l'interface doit montrer
 
-L'interface est **web** : pas d'application native.
+L'interface est **web** : pas d'application native. Sa forme (8 septembre
+2026) : une **barre latérale à gauche**, repliable en rail d'icônes, qui porte
+la navigation, l'interrupteur clair/sombre et le compte ; thème mémorisé par le
+navigateur ; violet comme seul accent, Manrope, mono pour ce qui vient d'une
+machine. **Moins de texte, plus de signes** : un refus dit sa cause puis le
+geste qui la lève, une sortie de machine est interprétée en rapport, la sortie
+brute repliée dessous, et un bouton dit ce qu'il fait avant qu'on clique.
 
 | Vue | Ce qu'on y trouve |
 |---|---|
@@ -86,7 +93,7 @@ Trois exigences s'y ajoutent, et elles viennent du terrain
 (`19-cas-d-usage.md`) :
 
 - **Un seul écran qui montre et qui agit.** La vue Machine porte la santé et
-  les actions ensemble. Netdata ou Beszel, Loki, CrowdSec restent des
+  les actions ensemble. Beszel, Loki, CrowdSec restent des
   **détails** — jamais des interfaces obligatoires pour agir.
 - **Le statut d'une machine est honnête** : joignable · SSH en échec · action
   en cours · dernière remontée datée. Jamais un « en ligne » ambigu

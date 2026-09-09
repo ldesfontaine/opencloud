@@ -26,7 +26,7 @@ interface, un constructeur `New(deps)`, aucune variable globale.
 
 ## Ce qui n'est pas dans le binaire
 
-Traefik, CrowdSec, Netdata ou Beszel, Loki et Alloy, Docker : **déployés par
+Traefik, CrowdSec, Beszel, Loki et Alloy, Docker : **déployés par
 des actions**, jamais embarqués.
 
 ## Le flux d'une action

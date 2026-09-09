@@ -41,7 +41,9 @@ briques, avant que l'outil serve à quelque chose : `v0.0.1` on se connecte,
 — publier et certifier. Ensuite le **mineur** avance par jalon livré
 (`v0.2.0` déployer, `v0.3.0` sauvegarder et observer) et le **correctif** pour
 les petites corrections entre deux (`v0.1.1`, `v0.1.2`). Rien au-delà tant que
-ça ne tourne pas chez quelqu'un.
+ça ne tourne pas chez quelqu'un. **Il n'y a pas de 1.0 en vue** : elle se
+décidera à part, le jour d'une release voulue comme telle, et `self-update`
+ne l'atteint pas tout seul (`20-installation-et-mise-a-jour.md`).
 
 ## Les outils de your-cloud
 

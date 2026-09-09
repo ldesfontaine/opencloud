@@ -109,9 +109,13 @@ journal dans un fichier.
 > Il connaît leurs identifiants, demande à chaque machine ce que sont devenues
 > les unités correspondantes, et reprend le fil. Une coupure ne perd plus rien.
 
-Le script, sa sortie et son code de retour restent aussi sur la machine, sous
-`/var/lib/opencloud/actions/<id>/` — ce qui rend le geste « aller voir »
-possible **sans** openCloud.
+Le script et ses paramètres restent aussi sur la machine, sous
+`/var/lib/opencloud/actions/<id>/` — ce qui rend le geste « aller voir », et
+rejouer à la main, possible **sans** openCloud. La sortie et le code de retour,
+eux, sont dans journald. **Les 30 derniers dossiers sont gardés** ; le lanceur
+purge les plus anciens au passage de l'action suivante (tranché le 8 septembre
+2026). Un dossier gardé est lisible par le compte `opencloud` de la machine,
+paramètres compris : rien de secret n'y passe (`15-catalogue-actions.md` §4).
 
 ## Le journal de transaction
 
