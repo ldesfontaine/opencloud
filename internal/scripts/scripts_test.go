@@ -42,6 +42,72 @@ func TestScript_PutsTheCommonHeaderBeforeTheBody(t *testing.T) {
 	}
 }
 
+// Ajouter une ligne à packages.txt doit suffire : le script assemblé porte la
+// liste, et rien de ce qui n'est pas un paquet.
+func TestScript_CarriesEveryPackageOfTheListAndNoComment(t *testing.T) {
+	script, err := Script("socle")
+	if err != nil {
+		t.Fatalf("assembler le socle : %v", err)
+	}
+	assembled := string(script)
+
+	packages, err := Packages("socle")
+	if err != nil {
+		t.Fatalf("lire la liste de paquets : %v", err)
+	}
+	if len(packages) == 0 {
+		t.Fatal("la liste de paquets du socle est vide")
+	}
+	// La variable porte la liste entière, une ligne par paquet.
+	block := "PACKAGES='" + strings.Join(packages, "\n") + "'\n"
+	if !strings.Contains(assembled, block) {
+		t.Errorf("le script assemblé ne porte pas la liste :\n%s", block)
+	}
+	for _, name := range packages {
+		if !strings.Contains(assembled, name) {
+			t.Errorf("le script assemblé ne nomme pas le paquet %q", name)
+		}
+	}
+
+	// La variable arrive avant le corps qui la lit, et les commentaires du
+	// fichier restent dans le dépôt.
+	variable := strings.Index(assembled, "PACKAGES='")
+	body := strings.Index(assembled, "GUARD_FILE=")
+	if variable < 0 || body < 0 || variable > body {
+		t.Fatalf("PACKAGES à %d, corps à %d : la liste doit venir avant le corps", variable, body)
+	}
+	if strings.Contains(assembled, "Ajouter une ligne ici suffit") {
+		t.Error("un commentaire de packages.txt s'est retrouvé dans le script assemblé")
+	}
+}
+
+func TestPackages_AnActionWithoutAList_HasNone(t *testing.T) {
+	packages, err := Packages("diagnostiquer")
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if len(packages) != 0 {
+		t.Errorf("Packages = %v, attendu aucune liste", packages)
+	}
+}
+
+func TestParsePackages_RefusesWhatIsNotAPackageList(t *testing.T) {
+	for name, content := range map[string]string{
+		"un doublon":         "curl\njq\ncurl\n",
+		"une espace":         "curl jq\n",
+		"un guillemet":       "curl'\n",
+		"une majuscule":      "Curl\n",
+		"un chemin absolu":   "/usr/bin/curl\n",
+		"une substitution":   "$(id)\n",
+		"un nom trop court":  "c\n",
+		"un point d'entrée ": "../lib\n",
+	} {
+		if _, err := parsePackages("socle", []byte(content)); err == nil {
+			t.Errorf("%s devrait être refusé : %q", name, content)
+		}
+	}
+}
+
 func TestScript_UnknownKind_Fails(t *testing.T) {
 	for _, kind := range []string{"inconnue", "", "../lib"} {
 		if _, err := Script(kind); err == nil {

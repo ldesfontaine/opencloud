@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindDiagnostiquer Kind = "diagnostiquer"
 	KindEnroler       Kind = "enroler"
+	KindSocle         Kind = "socle"
 )
 
 // Scope : ce que l'action touche (05-execution.md, « les quatre attributs »).

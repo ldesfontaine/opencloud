@@ -118,7 +118,7 @@ jobs:
 
       # Le conteneur porte systemd, pas de démon Docker : privilégié et cgroups
       # de l'hôte lui suffisent, rien n'est imbriqué.
-      - name: installation, mise à jour et Diagnostiquer sur Debian 12
+      - name: installation, mise à jour, Diagnostiquer et Poser le socle sur Debian 12
         run: make package-test
 
   plumber:

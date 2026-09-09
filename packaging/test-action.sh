@@ -3,11 +3,20 @@
 # runner de la CI ou le conteneur —, jamais sur un poste de travail : installer
 # le paquet, amorcer la machine openCloud sur elle-même, lancer Diagnostiquer
 # depuis l'interface, la suivre, relire journald, couper openCloud au milieu.
-# usage : sudo packaging/test-action.sh <opencloud.deb>
+# usage : sudo packaging/test-action.sh <opencloud.deb> [--avec-socle]
+#
+# --avec-socle joue en plus « Poser le socle », qui installe docker.io : à
+# réserver à une machine jetable. Le job « package » de la CI joue ce script
+# sur le runner GitHub lui-même, où docker.io se disputerait avec le docker-ce
+# déjà posé — et le témoin, enrôlé juste après, en a besoin.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C DEBIAN_FRONTEND=noninteractive
 
 DEB=$(readlink -f -- "$1")
+WITH_SOCLE=${2:-}
+# Poser le socle télécharge et déballe Docker : le délai des autres actions ne
+# lui suffit pas.
+SOCLE_TIMEOUT=600
 VERSION=$(dpkg-deb -f "$DEB" Version)
 BASE=http://127.0.0.1:8080
 # Un mot de passe de test, fabriqué ici : rien en dur qu'un scanner prendrait
@@ -85,6 +94,31 @@ page=$(wait_for_conclusion "$id")
 printf '%s' "$page" | grep -q 'Appliquée' || fail "la seconde Diagnostiquer n'est pas « Appliquée »"
 printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "la seconde Diagnostiquer ne dit pas « inchangé »"
 
+if [ "$WITH_SOCLE" = "--avec-socle" ]; then
+    step "Poser le socle, depuis l'interface, suivie jusqu'à sa conclusion"
+    page_has /machines/local/actions/socle "/srv/workspace" || fail "l'écran « avant » du socle ne dit pas ce qu'il pose"
+    page_has /machines/local/actions/socle "docker.io" || fail "l'écran « avant » du socle ne liste pas les paquets"
+    id=$(launch_action local socle)
+    page=$(wait_for_conclusion "$id" "$SOCLE_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Poser le socle n'est pas « Appliquée »"; }
+    printf '%s' "$page" | grep -q 'résultat: fait' || fail "la première pose ne dit pas « fait »"
+    [ -d /srv/workspace ] || fail "/srv/workspace n'est pas posé"
+    [ -d /srv/data ] || fail "/srv/data n'est pas posé"
+    [ -f /var/lib/opencloud/socle.liste ] || fail "le fichier-garde du socle n'est pas écrit"
+    grep -qx 'docker.io' /var/lib/opencloud/socle.liste || fail "le fichier-garde ne nomme pas les paquets posés"
+    dpkg-query -s docker.io > /dev/null 2>&1 || fail "docker.io n'est pas installé"
+    dpkg-query -s jq > /dev/null 2>&1 || fail "jq n'est pas installé"
+    # Le démon Docker peut refuser de démarrer là où le conteneur n'a pas les
+    # privilèges : le script le constate, il n'échoue pas pour autant.
+    printf '%s' "$page" | grep -q 'info: docker_service=' || fail "le socle ne dit pas si le démon Docker tourne"
+
+    step "le socle rejoué : inchangé"
+    id=$(launch_action local socle)
+    page=$(wait_for_conclusion "$id" "$SOCLE_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || fail "le second socle n'est pas « Appliquée »"
+    printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second socle ne dit pas « inchangé »"
+fi
+
 step "openCloud coupé pendant une action : la reprise conclut sans intervention"
 id=$(launch_diagnostiquer local)
 systemctl restart opencloud.service
@@ -96,3 +130,6 @@ step "l'historique de la machine montre les actions"
 page_has /machines/local "$id" || fail "la fiche de la machine ne liste pas la dernière action"
 
 printf '\nTout tient : amorçage, refus, lancement, suivi, journal, direct, reprise.\n'
+if [ "$WITH_SOCLE" = "--avec-socle" ]; then
+    printf 'Et le socle : posé, puis inchangé.\n'
+fi

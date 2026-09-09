@@ -152,6 +152,7 @@ type actionFormView struct {
 	Attributes []attribute
 	// Ce que l'action va lire ou poser, dit avant qu'on la lance ; vide pour
 	// une action que l'interface ne sait pas encore décrire.
+	ItemsTitle        string
 	Items             []describedItem
 	Params            []catalog.ParamSpec
 	Values            map[string]string

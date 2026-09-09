@@ -85,7 +85,9 @@ reproducible: release
 
 # Le test du paquet, dans un conteneur Debian avec systemd — jamais sur le
 # poste de travail. Construit deux versions, joue packaging/test-install.sh,
-# puis packaging/test-action.sh : amorçage, Diagnostiquer par l'interface, reprise.
+# puis packaging/test-action.sh : amorçage, Diagnostiquer par l'interface,
+# Poser le socle, reprise. Le conteneur est jetable, donc --avec-socle : lui
+# seul a le droit de se faire installer docker.io.
 package-test:
 	$(MAKE) release VERSION=0.0.1 DIST=$(DIST)/test-old
 	$(MAKE) release VERSION=0.0.2 DIST=$(DIST)/test-new
@@ -96,7 +98,7 @@ package-test:
 		-v "$(CURDIR)/packaging:/packaging:ro" -v "$(CURDIR)/$(DIST):/dist:ro" \
 		opencloud-package-test >/dev/null
 	docker exec opencloud-package-test /packaging/test-install.sh /dist/test-old/opencloud_0.0.1_amd64.deb /dist/test-new/opencloud_0.0.2_amd64.deb \
-		&& docker exec opencloud-package-test /packaging/test-action.sh /dist/test-new/opencloud_0.0.2_amd64.deb; \
+		&& docker exec opencloud-package-test /packaging/test-action.sh /dist/test-new/opencloud_0.0.2_amd64.deb --avec-socle; \
 	status=$$?; docker rm -f opencloud-package-test >/dev/null; exit $$status
 
 # Le témoin : une machine Debian jetable avec systemd et sshd, à enrôler depuis

@@ -119,6 +119,7 @@ func (s *Server) newActionFormView(r *http.Request, machine store.Machine, defin
 		NeedsConfirmation: definition.NeedsConfirmation(),
 	}
 	if description, found := describeAction(definition.Kind); found {
+		view.ItemsTitle = description.ItemsTitle
 		view.Items = description.Items
 	}
 	if prepared, err := s.catalog.Prepare(definition.Kind, values); err == nil {

@@ -10,6 +10,10 @@ const diagnostiquerTimeout = 5 * time.Minute
 // et un rechargement qui n'aboutit pas ne doit pas tenir la machine.
 const enrolerTimeout = 5 * time.Minute
 
+// Poser le socle télécharge et déballe Docker : sur un lien lent, ou derrière
+// un miroir qui rame, un quart d'heure n'est pas de trop.
+const socleTimeout = 15 * time.Minute
+
 // Definitions rend le catalogue dans un ordre stable. Chaque appel construit
 // sa tranche : rien de partagé, donc rien de modifiable par un appelant.
 func Definitions() []Definition {
@@ -42,6 +46,16 @@ func Definitions() []Definition {
 					Required: true,
 				},
 			},
+		},
+		{
+			Kind:       KindSocle,
+			Label:      "Poser le socle",
+			Summary:    "Installe Docker et les outils de base, crée /srv.",
+			Scope:      ScopeMachine,
+			Place:      PlaceTarget,
+			Reversible: true,
+			Interrupts: false,
+			Timeout:    socleTimeout,
 		},
 	}
 }
