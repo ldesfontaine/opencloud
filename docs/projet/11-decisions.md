@@ -117,7 +117,6 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 
 | Question | Détail |
 |---|---|
-| **Réduire le pouvoir du jeton copié sur chaque machine** : Lucas garde le jeton de zone par défaut mais veut une meilleure voie si elle existe. Piste connue : déléguer `_acme-challenge` par `CNAME` vers une zone dédiée où chaque machine n'écrit que son enregistrement. **À étudier au jalon v0.1.0, avant de certifier (#6)** | `06-reseau-et-certificats.md` |
 | **Ports bruts (TCP non HTTP)** — hors du périmètre aujourd'hui ; **question rouverte**, à reprendre **plus tard** | `06-reseau-et-certificats.md` |
 
 ## 3. Écarté et reporté
@@ -146,6 +145,7 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | Sujet | Détail |
 |---|---|
 | **Le flux des requêtes et l'adressage IP** — à comprendre avant de choisir | `06-reseau-et-certificats.md` |
+| **Réduire le pouvoir du jeton DNS copié sur chaque machine** — étudié le 9 septembre 2026 (`annexes/etude-jeton-dns.md`) : seule une délégation de `_acme-challenge` avec écriture par nom (acme-dns, deSEC) protège vraiment, au prix d'un composant ou d'un opérateur de plus et d'un CNAME par nom certifié. **Tranché le 10 septembre 2026 : on garde le jeton de zone**, sans deSEC — Lucas veut rester représentatif de ce qui se fait réellement, et ce n'est pas ce qui se fait. La délégation reste une option par zone, à écrire si le besoin vient ; elle ne casse rien en arrivant plus tard | `06-reseau-et-certificats.md` |
 | **Outil de sauvegarde** et cohérence des bases | `07-donnees-et-sauvegardes.md` |
 | **Rétention en durée**, sauvegardes comme observation | `07`, `09` |
 | **Déploiement d'applications** — le modèle est posé | `03-modele.md` |

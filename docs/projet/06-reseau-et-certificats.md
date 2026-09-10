@@ -159,11 +159,13 @@ réaffiché, donc il ne se remplace pas à la main : l'action pose le nouveau su
 chaque machine de la zone, le vérifie, puis retire l'ancien
 (`15-catalogue-actions.md`).
 
-**Réduire ce pouvoir reste à l'étude**, avant de certifier (`11-decisions.md`,
-partie 2). La piste connue : **déléguer `_acme-challenge` par `CNAME`** vers
-une zone dédiée où chaque machine ne peut écrire que son propre
-enregistrement ; un jeton compromis ne permettrait alors plus de détourner le
-domaine. C'est un composant de plus, à peser le moment venu.
+**Réduire ce pouvoir a été étudié** (`annexes/etude-jeton-dns.md`) et
+**reporté** le 10 septembre 2026 (`11-decisions.md`, partie 3) : la seule
+protection réelle est de **déléguer `_acme-challenge` par `CNAME`** vers une
+zone où chaque machine n'écrit que son propre enregistrement (acme-dns, deSEC),
+au prix d'un composant ou d'un opérateur de plus et d'un CNAME par nom
+certifié. Lucas garde le jeton de zone, comme la pratique courante ; la
+délégation reste une option par zone, à écrire si le besoin vient.
 
 ## Ce que le proxy ne publie pas
 
