@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindDiagnostiquer Kind = "diagnostiquer"
 	KindEnroler       Kind = "enroler"
+	KindProxy         Kind = "proxy"
 	KindSocle         Kind = "socle"
 )
 

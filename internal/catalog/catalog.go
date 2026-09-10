@@ -10,6 +10,11 @@ const diagnostiquerTimeout = 5 * time.Minute
 // et un rechargement qui n'aboutit pas ne doit pas tenir la machine.
 const enrolerTimeout = 5 * time.Minute
 
+// Installer le proxy tire une image de quelques dizaines de mébioctets, puis
+// attend que Traefik réponde : dix minutes couvrent un lien lent sans laisser
+// la machine tenue si le proxy ne démarre jamais.
+const proxyTimeout = 10 * time.Minute
+
 // Poser le socle télécharge et déballe Docker : sur un lien lent, ou derrière
 // un miroir qui rame, un quart d'heure n'est pas de trop.
 const socleTimeout = 15 * time.Minute
@@ -46,6 +51,16 @@ func Definitions() []Definition {
 					Required: true,
 				},
 			},
+		},
+		{
+			Kind:       KindProxy,
+			Label:      "Installer le proxy",
+			Summary:    "Pose Traefik sur la machine, avec sa configuration statique et son résolveur DNS-01.",
+			Scope:      ScopeMachine,
+			Place:      PlaceTarget,
+			Reversible: true,
+			Interrupts: false,
+			Timeout:    proxyTimeout,
 		},
 		{
 			Kind:       KindSocle,

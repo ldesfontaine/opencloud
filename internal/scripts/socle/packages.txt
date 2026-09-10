@@ -4,7 +4,9 @@
 # Paquets apt seulement. Les quatre premiers viennent du dépôt officiel de
 # Docker, que l'action ouvre juste avant d'installer
 # (docs.docker.com/engine/install/debian/ et /ubuntu/) ; les autres existent à
-# la fois sur Debian 12 et sur Ubuntu 24.04.
+# la fois sur Debian 12 et sur Ubuntu 24.04. « make » en fait partie : le
+# modèle de service passe par les cibles d'un Makefile (03-modele.md), et une
+# machine sans make ne sait faire vivre aucun service.
 #
 # Ni docker-buildx-plugin ni docker-ce-rootless-extras : le modèle de service
 # ne les demande pas. docker.io n'est plus utilisé.
@@ -12,6 +14,7 @@ containerd.io
 docker-ce
 docker-ce-cli
 docker-compose-plugin
+make
 screen
 ncdu
 at

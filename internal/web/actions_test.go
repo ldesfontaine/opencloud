@@ -282,6 +282,32 @@ func TestActionForm_Socle_ListsTheDirectoriesAndEveryPackage(t *testing.T) {
 	}
 }
 
+// L'écran « avant » du proxy, avec le vrai catalogue : ce qui va être posé, et
+// les fichiers rendus par Go — pas seulement leurs noms.
+func TestActionForm_Proxy_ShowsWhatIsPlacedAndTheRenderedFiles(t *testing.T) {
+	server := newServerWith(t, Dependencies{
+		Auth:     newTestAuth(t),
+		Machines: &fakeMachines{machines: []store.Machine{localMachine}},
+		Actions:  newFakeActions(),
+		Catalog:  catalog.Service{},
+	})
+
+	body := signedIn(t, server).get("/machines/local/actions/proxy").Body.String()
+
+	proxy := catalog.Proxy()
+	expected := []string{
+		"Ce qui va être posé", proxy.Version, proxy.ServiceDir, proxy.CommonMakefile,
+		proxy.FragmentsDir, proxy.AcmeDir,
+		"traefik.yml", "compose.yaml", "Makefile.common",
+		"read_only: true", "provider: cloudflare", "octet pour octet",
+	}
+	for _, text := range expected {
+		if !strings.Contains(body, text) {
+			t.Fatalf("l'écran « avant » du proxy ne montre pas %q :\n%s", text, body)
+		}
+	}
+}
+
 func TestMachine_Unknown_Is404(t *testing.T) {
 	server := newActionsServer(t, &fakeMachines{}, newFakeActions(), defaultCatalog(), nil)
 
@@ -321,8 +347,13 @@ func TestActionForm_ShowsTheFourAttributesAndWhatWillBeWritten(t *testing.T) {
 			t.Fatalf("l'écran « avant » ne montre pas %q :\n%s", expected, body)
 		}
 	}
-	if !strings.Contains(body, "viendra plus tard") {
-		t.Fatal("l'écran doit dire que la comparaison des fichiers n'existe pas encore")
+	// Le nom d'un fichier ne dit pas ce qu'il contient : l'écran montre le
+	// contenu rendu, et dit ce qui décide qu'il sera réécrit ou non.
+	if !strings.Contains(body, "http: {}") {
+		t.Fatalf("l'écran « avant » ne montre pas le contenu du fichier :\n%s", body)
+	}
+	if !strings.Contains(body, "octet pour octet") {
+		t.Fatal("l'écran doit dire que chaque fichier est comparé avant d'être écrit")
 	}
 }
 

@@ -1,0 +1,73 @@
+# Les cibles standard d'un service sous la norme (docs/projet/03-modele.md).
+# openCloud appelle ces cibles ; à la main, on appelle les mêmes — c'est ce qui
+# garantit que l'outil et l'opérateur font exactement la même chose.
+#
+# Posé par openCloud dans /srv/workspace. Le Makefile d'un service l'inclut et
+# ne redéfinit que ce qui lui est propre : ses données, donc backup et restore.
+#
+# Écrit par openCloud. Comparé octet pour octet à chaque pose : une retouche à
+# la main sera écrasée.
+
+# La forme conteneurisée d'un service (03-modele.md). Le site classique aura
+# sa propre mise en œuvre du même contrat.
+COMPOSE ?= docker compose
+
+# Les lignes que « make logs » remonte avant de suivre.
+LOG_LINES ?= 200
+
+# Le conteneur où « make shell » ouvre un shell. Le service le nomme.
+SHELL_SERVICE ?=
+
+.PHONY: up down restart status logs config pull update build shell backup restore clean
+
+up:
+	$(COMPOSE) up -d --remove-orphans
+
+# Ne touche jamais aux volumes ni aux données : effacer est un geste séparé.
+down:
+	$(COMPOSE) down
+
+restart:
+	$(COMPOSE) restart
+
+status:
+	$(COMPOSE) ps
+
+logs:
+	$(COMPOSE) logs --tail=$(LOG_LINES) -f
+
+# Zéro écriture : openCloud l'appelle avant up et avant update.
+config:
+	$(COMPOSE) config
+
+# Télécharge, n'applique pas.
+pull:
+	$(COMPOSE) pull
+
+# La mise à jour du service : tirer, relancer, puis jeter les images que la
+# nouvelle version a remplacées. Jamais un volume.
+update:
+	$(MAKE) pull
+	$(MAKE) up
+	docker image prune -f
+
+build:
+	$(COMPOSE) build --pull
+
+# Pour l'opérateur, pas pour openCloud.
+shell:
+	$(COMPOSE) exec $(SHELL_SERVICE) sh
+
+# backup et restore dépendent des données du service : elles se définissent
+# dans son Makefile, jamais ici. Sans définition, il n'y a rien à archiver et
+# le dire vaut mieux que faire semblant.
+backup:
+	@echo "ce service ne définit pas « backup » : rien n'a été archivé" >&2; exit 1
+
+restore:
+	@echo "ce service ne définit pas « restore » : rien n'a été restauré" >&2; exit 1
+
+# Jamais appelé par openCloud. Ne supprime ni volume ni donnée.
+clean:
+	$(MAKE) down
+	docker image prune -f

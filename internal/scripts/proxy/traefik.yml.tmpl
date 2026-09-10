@@ -1,0 +1,66 @@
+# La configuration statique du proxy de cette machine, écrite par openCloud
+# (« Installer le proxy »). Comparée octet pour octet à chaque pose : une
+# retouche à la main sera écrasée.
+#
+# Les chemins sont ceux du conteneur ; ce que la machine monte dessous est dans
+# compose.yaml.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+# Ni API ni tableau de bord : rien à exposer, donc rien à protéger.
+api:
+  insecure: false
+  dashboard: false
+
+entryPoints:
+  web:
+    address: ":{{ .ClearPort }}"
+    http:
+      # Tout ce qui arrive en clair repart en 301 vers le même nom en HTTPS.
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+      aliasHeadersStrategy: delete
+  websecure:
+    address: ":{{ .SecurePort }}"
+    http:
+      # Un en-tête « X_Auth_User » est lu « X-Auth-User » par PHP, CGI et
+      # nginx : sans ce réglage, un client peut se donner les en-têtes que le
+      # proxy gère. openCloud sert des sites PHP, la question n'est pas
+      # théorique.
+      aliasHeadersStrategy: delete
+
+# Les hôtes virtuels sont des fragments déposés un par un dans ce dossier ;
+# Traefik les relit tout seul, il n'y a rien à recharger.
+providers:
+  file:
+    directory: {{ .ContainerFragmentsDir }}
+    watch: true
+
+# DNS-01 chez Cloudflare : il fonctionne même sans adresse publique et ouvre
+# les certificats génériques (06-reseau-et-certificats.md). Le jeton de la zone
+# est lu dans un fichier, jamais passé en variable d'environnement ; il est
+# copié sur la machine par « Faire tourner un jeton DNS ». Tant qu'il manque,
+# Traefik démarre et sert son certificat par défaut.
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      storage: {{ .ContainerAcmeStorage }}
+      dnsChallenge:
+        provider: cloudflare
+        # La propagation se constate sur des résolveurs publics : celui de la
+        # machine est souvent en retard sur la zone.
+        resolvers:
+          - "1.1.1.1:53"
+          - "9.9.9.9:53"
+
+log:
+  level: INFO
+
+# Le journal d'accès part sur la sortie standard, donc dans le journal du
+# conteneur, borné par compose.yaml.
+accessLog: {}

@@ -6,7 +6,8 @@
 # usage : sudo packaging/test-action.sh <opencloud.deb> [--avec-socle]
 #
 # --avec-socle joue en plus « Poser le socle », qui ouvre le dépôt officiel de
-# Docker et installe docker-ce : à réserver à une machine jetable. Le job
+# Docker et installe docker-ce, puis « Installer le proxy », qui prend les
+# ports 80 et 443 de la machine : à réserver à une machine jetable. Le job
 # « package » de la CI joue ce script sur le runner GitHub lui-même, dont le
 # Docker déjà posé et le témoin, enrôlé juste après, n'ont rien à y gagner.
 set -euo pipefail
@@ -17,6 +18,11 @@ WITH_SOCLE=${2:-}
 # Poser le socle télécharge et déballe Docker : le délai des autres actions ne
 # lui suffit pas.
 SOCLE_TIMEOUT=600
+# Installer le proxy tire l'image de Traefik puis attend qu'elle réponde.
+PROXY_TIMEOUT=300
+PROXY_SERVICE_DIR=/srv/workspace/system/traefik
+# Un nom que rien ne route : c'est lui qui doit recevoir le 404 du proxy.
+PROXY_UNKNOWN_NAME=proxy-inconnu.invalid
 VERSION=$(dpkg-deb -f "$DEB" Version)
 BASE=http://127.0.0.1:8080
 # Un mot de passe de test, fabriqué ici : rien en dur qu'un scanner prendrait
@@ -133,6 +139,40 @@ if [ "$WITH_SOCLE" = "--avec-socle" ]; then
     page=$(wait_for_conclusion "$id" "$SOCLE_TIMEOUT")
     printf '%s' "$page" | grep -q 'Appliquée' || fail "le second socle n'est pas « Appliquée »"
     printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second socle ne dit pas « inchangé »"
+
+    step "Installer le proxy, depuis l'interface, suivie jusqu'à sa conclusion"
+    page_has /machines/local/actions/proxy "$PROXY_SERVICE_DIR" || fail "l'écran « avant » du proxy ne dit pas où il pose le service"
+    # L'écran montre le contenu rendu, pas seulement les noms de fichiers.
+    page_has /machines/local/actions/proxy "read_only: true" || fail "l'écran « avant » du proxy ne montre pas les fichiers rendus"
+    id=$(launch_action local proxy)
+    page=$(wait_for_conclusion "$id" "$PROXY_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Installer le proxy n'est pas « Appliquée »"; }
+    printf '%s' "$page" | grep -q 'résultat: fait' || fail "la première pose du proxy ne dit pas « fait »"
+    [ -f "$PROXY_SERVICE_DIR/compose.yaml" ] || fail "le compose du proxy n'est pas posé"
+    [ -f "$PROXY_SERVICE_DIR/traefik.yml" ] || fail "la configuration statique du proxy n'est pas posée"
+    [ -f "$PROXY_SERVICE_DIR/Makefile" ] || fail "le Makefile du proxy n'est pas posé"
+    [ -f /srv/workspace/Makefile.common ] || fail "les cibles standard ne sont pas posées"
+    [ -d /srv/data/traefik ] || fail "le dossier des hôtes virtuels n'est pas posé"
+    [ "$(stat -c '%U:%G %a' /srv/data/acme)" = "root:root 700" ] || fail "le dossier acme n'est pas root:root 0700"
+    grep -q '@sha256:' "$PROXY_SERVICE_DIR/compose.yaml" || fail "l'image du proxy n'est pas épinglée par digest"
+
+    step "le proxy répond : 404 en HTTPS à un nom inconnu, 301 en clair"
+    code=$(curl -sS -k -o /dev/null -w '%{http_code}' --max-time 10 \
+        --resolve "$PROXY_UNKNOWN_NAME:443:127.0.0.1" "https://$PROXY_UNKNOWN_NAME/")
+    [ "$code" = "404" ] || fail "443 répond « $code » à un nom inconnu, attendu 404"
+    # Lue, jamais suivie : c'est la redirection qu'on éprouve.
+    reply=$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 http://127.0.0.1:80/)
+    case "$reply" in
+        "301 https://"*) ;;
+        *) fail "le clair ne redirige pas en 301 vers HTTPS : $reply" ;;
+    esac
+    printf '%s' "$page" | grep -q 'info: traefik=' || fail "le proxy ne dit pas la version de Traefik qui tourne"
+
+    step "le proxy rejoué : inchangé"
+    id=$(launch_action local proxy)
+    page=$(wait_for_conclusion "$id" "$PROXY_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || fail "le second proxy n'est pas « Appliquée »"
+    printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second proxy ne dit pas « inchangé »"
 fi
 
 step "openCloud coupé pendant une action : la reprise conclut sans intervention"
@@ -147,5 +187,5 @@ page_has /machines/local "$id" || fail "la fiche de la machine ne liste pas la d
 
 printf '\nTout tient : amorçage, refus, lancement, suivi, journal, direct, reprise.\n'
 if [ "$WITH_SOCLE" = "--avec-socle" ]; then
-    printf 'Et le socle : posé, puis inchangé.\n'
+    printf 'Et le socle, puis le proxy : posés, éprouvés, puis inchangés.\n'
 fi

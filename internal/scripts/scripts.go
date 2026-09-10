@@ -11,10 +11,11 @@ import (
 	"strings"
 )
 
-// L'en-tête commun, le corps de chaque action et, pour celles qui en ont, leur
-// liste de paquets et la clé du dépôt de Docker — un dossier par action.
+// L'en-tête commun, le Makefile.common de la norme, le corps de chaque action
+// et, pour celles qui en ont, leur liste de paquets, la clé du dépôt de Docker
+// et leurs gabarits — un dossier par action.
 //
-//go:embed lib.sh */run.sh */packages.txt */docker.asc
+//go:embed lib.sh Makefile.common */run.sh */packages.txt */docker.asc */*.tmpl
 var files embed.FS
 
 const (
@@ -32,6 +33,13 @@ const (
 	keyName = "docker.asc"
 	// keyVariable : le nom de la variable shell où la clé est insérée.
 	keyVariable = "DOCKER_KEY"
+	// commonMakefileName : les cibles standard qu'un service inclut
+	// (03-modele.md). Posé par « Installer le proxy », réutilisé par tout
+	// service déployé ensuite.
+	commonMakefileName = "Makefile.common"
+	// templateSuffix : ce qui distingue un gabarit rendu par Go d'un fichier
+	// posé tel quel.
+	templateSuffix = ".tmpl"
 
 	keyArmorHeader = "-----BEGIN PGP PUBLIC KEY BLOCK-----"
 	keyArmorFooter = "-----END PGP PUBLIC KEY BLOCK-----"
@@ -85,6 +93,26 @@ func DockerKey(kind string) (string, error) {
 		return "", err
 	}
 	return string(content), nil
+}
+
+// CommonMakefile rend les cibles standard qu'un Makefile de service inclut.
+func CommonMakefile() ([]byte, error) {
+	content, err := files.ReadFile(commonMakefileName)
+	if err != nil {
+		return nil, fmt.Errorf("read common makefile: %w", err)
+	}
+	return content, nil
+}
+
+// Template rend le gabarit <name>.tmpl versionné avec une action, tel quel :
+// c'est l'appelant qui le rend, avec les valeurs qu'il connaît.
+func Template(kind string, name string) ([]byte, error) {
+	source := path.Join(kind, name+templateSuffix)
+	content, err := files.ReadFile(source)
+	if err != nil {
+		return nil, fmt.Errorf("read template %s: %w", source, err)
+	}
+	return content, nil
 }
 
 // Packages rend la liste de paquets d'une action, triée et sans doublon. Une
