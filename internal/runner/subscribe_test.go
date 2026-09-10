@@ -68,7 +68,7 @@ func TestClose_StopsTheRunner_AndLeavesRunningActionsToTheNextResume(t *testing.
 	database := newTestStore(t)
 	machineTransport := newFakeTransport()
 	machineTransport.gate = make(chan struct{})
-	runner := New(database, newFakeCatalog(), &fakeTransports{transport: machineTransport}, discardLogger())
+	runner := New(database, newFakeCatalog(), &fakeTransports{transport: machineTransport}, nil, discardLogger())
 
 	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
 	if err != nil {

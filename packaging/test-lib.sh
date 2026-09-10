@@ -84,6 +84,39 @@ launch_diagnostiquer() {
     launch_action "$1" diagnostiquer
 }
 
+# Lance une action avec ses paramètres, sur la machine openCloud. Le jeton CSRF
+# vient de l'écran « avant » de l'action, comme pour un navigateur.
+# usage : launch_action_with <action> <champ=valeur>…
+launch_action_with() {
+    local kind=$1 token reply
+    shift
+    token=$(csrf_of "/machines/local/actions/$kind")
+    [ -n "$token" ] || fail "pas de jeton CSRF sur l'écran « avant » de $kind"
+
+    local fields=(--data-urlencode "_csrf=$token")
+    local field
+    for field in "$@"; do
+        fields+=(--data-urlencode "$field")
+    done
+
+    reply=$(post_form "/machines/local/actions/$kind" "${fields[@]}")
+    case "$reply" in
+        "303 $BASE/actions/"*) printf '%s\n' "${reply#303 "$BASE"/actions/}" ;;
+        *) fail "le lancement de $kind n'a pas redirigé vers l'action : $reply" ;;
+    esac
+}
+
+# usage : launch_vhost <domaine> <environnement> <service>
+launch_vhost() {
+    launch_action_with vhost "domain=$1" "environment=$2" "service=$3"
+}
+
+# La suppression coupe le nom : l'écran « avant » exige la confirmation, et le
+# POST doit la porter.
+launch_vhost_removal() {
+    launch_action_with vhost-remove "domain=$1" "confirm=oui"
+}
+
 # Attend qu'une action soit conclue et imprime sa page. Le second argument dit
 # combien de secondes attendre : Poser le socle télécharge des paquets, elle ne
 # tient pas dans le délai des autres.

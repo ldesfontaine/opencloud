@@ -99,6 +99,31 @@ type runningAction struct {
 	Lines      []outputLine
 }
 
+// domainsView : ce que les machines portent vraiment, un nom par ligne.
+type domainsView struct {
+	Domains  []domainRow
+	Subtitle string
+}
+
+type domainRow struct {
+	Name        string
+	MachineID   string
+	MachineName string
+	Environment string
+	Service     string
+	Port        int
+	UpdatedAt   string
+	// Le lien vers l'écran « avant » de la suppression, nom déjà posé.
+	RemovePath string
+}
+
+// domainMachinesView : sur quelle machine publier. Le formulaire de l'action
+// vit déjà par machine ; cet écran ne fait que mener au bon.
+type domainMachinesView struct {
+	Machines []machineRow
+	Kind     string
+}
+
 // machineFormView : déclarer une machine, premier temps de l'enrôlement.
 type machineFormView struct {
 	Values  map[string]string
@@ -155,11 +180,14 @@ type actionFormView struct {
 	Attributes []attribute
 	// Ce que l'action va lire ou poser, dit avant qu'on la lance ; vide pour
 	// une action que l'interface ne sait pas encore décrire.
-	ItemsTitle        string
-	Items             []describedItem
-	Params            []catalog.ParamSpec
-	Values            map[string]string
-	Files             []preparedFile
+	ItemsTitle string
+	Items      []describedItem
+	Params     []catalog.ParamSpec
+	Values     map[string]string
+	Files      []preparedFile
+	// Vrai quand la préparation a abouti : sans elle, on ne sait pas encore
+	// ce que l'action posera, et une carte vide mentirait.
+	FilesKnown        bool
 	NeedsConfirmation bool
 	Refusal           *refusalView
 }

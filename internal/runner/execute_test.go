@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -372,5 +374,53 @@ func TestEnqueue_Enroler_IsRefused_ItIsPlayedByTheCommand(t *testing.T) {
 	}
 	if len(actions) != 0 {
 		t.Fatalf("actions journalisées = %d, attendu 0", len(actions))
+	}
+}
+
+// recordingObserver retient ce que le runner lui passe : c'est la seule chose
+// que le runner promet à qui suit les conclusions.
+type recordingObserver struct {
+	mu        sync.Mutex
+	concluded []store.Action
+}
+
+func (o *recordingObserver) ActionConcluded(_ context.Context, action store.Action) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.concluded = append(o.concluded, action)
+}
+
+func (o *recordingObserver) seen() []store.Action {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.concluded)
+}
+
+// Ce que l'observateur reçoit est la ligne conclue, pas celle d'avant : sans
+// l'état ni le constat, la table des hôtes virtuels ne saurait rien.
+func TestConclude_HandsTheConcludedLineToTheObserver(t *testing.T) {
+	database := newTestStore(t)
+	runner := newTestRunner(t, database, newFakeCatalog(), &fakeTransports{transport: newFakeTransport()})
+	observer := &recordingObserver{}
+	runner.observer = observer
+
+	action, err := runner.Enqueue(context.Background(), store.LocalMachineID, catalog.KindDiagnostiquer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForConclusion(t, database, action.ID)
+
+	seen := observer.seen()
+	if len(seen) != 1 {
+		t.Fatalf("l'observateur a vu %d conclusions, attendu une", len(seen))
+	}
+	if seen[0].ID != action.ID || seen[0].State != store.StateApplied {
+		t.Errorf("conclusion = %+v", seen[0])
+	}
+	if seen[0].Result != "rien à signaler" {
+		t.Errorf("constat = %q", seen[0].Result)
+	}
+	if seen[0].ExitCode == nil || *seen[0].ExitCode != 0 {
+		t.Errorf("code = %v", seen[0].ExitCode)
 	}
 }

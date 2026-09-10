@@ -117,6 +117,20 @@ func (r *Runner) notePurgedDirectories(ctx context.Context, action store.Action,
 	r.publish(action.ID, Event{Seq: line.Seq, At: line.At, Text: line.Text})
 }
 
+// notifyObserver passe la ligne conclue à qui la suit — la table des hôtes
+// virtuels, aujourd'hui. Ce que l'observateur en fait ne regarde pas le runner,
+// et ce qu'il rate ne change rien à la conclusion déjà écrite.
+func (r *Runner) notifyObserver(ctx context.Context, action store.Action, state store.ActionState, exitCode *int, result string) {
+	if r.observer == nil {
+		return
+	}
+	concluded := action
+	concluded.State = state
+	concluded.ExitCode = exitCode
+	concluded.Result = result
+	r.observer.ActionConcluded(ctx, concluded)
+}
+
 func (r *Runner) deposit(ctx context.Context, machineTransport transport.Transport, actionID string, prepared catalog.Prepared) error {
 	if err := machineTransport.Put(ctx, actionID, actiondir.ScriptName, prepared.Script, scriptMode); err != nil {
 		return err
@@ -156,5 +170,6 @@ func (r *Runner) conclude(ctx context.Context, action store.Action, state store.
 		return
 	}
 	r.logger.Info("action concluded", "action_id", action.ID, "state", string(state), "note", note)
+	r.notifyObserver(writeCtx, action, state, exitCode, result)
 	r.publish(action.ID, Event{Done: true, State: state, Result: result})
 }

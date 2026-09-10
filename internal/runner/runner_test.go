@@ -245,7 +245,7 @@ func newTestStore(t *testing.T) *store.Store {
 // réessais sont immédiats.
 func newTestRunner(t *testing.T, database *store.Store, actionCatalog Catalog, transports Transports) *Runner {
 	t.Helper()
-	runner := New(database, actionCatalog, transports, slog.New(slog.DiscardHandler))
+	runner := New(database, actionCatalog, transports, nil, slog.New(slog.DiscardHandler))
 	runner.retryDelays = []time.Duration{time.Millisecond}
 	runner.followGrace = 0
 	t.Cleanup(runner.Close)

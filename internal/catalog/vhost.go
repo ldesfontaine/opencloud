@@ -51,6 +51,38 @@ func VhostFragmentPath(domain string) string {
 	return proxyFragmentsDir + "/" + domain + vhostFragmentSuffix
 }
 
+// VhostPublication : ce qu'une action d'hôte virtuel publie, lu dans ses
+// paramètres validés. Les noms des paramètres ne vivent qu'ici.
+type VhostPublication struct {
+	Domain      string
+	Environment string
+	Service     string
+}
+
+func VhostPublicationOf(params map[string]string) VhostPublication {
+	return VhostPublication{
+		Domain:      params[paramDomain],
+		Environment: params[paramEnvironment],
+		Service:     params[paramService],
+	}
+}
+
+// Params rend la publication sous la forme que l'action attend. Un champ vide
+// n'entre pas : l'écran de l'action le demandera.
+func (p VhostPublication) Params() map[string]string {
+	params := map[string]string{}
+	for name, value := range map[string]string{
+		paramDomain:      p.Domain,
+		paramEnvironment: p.Environment,
+		paramService:     p.Service,
+	} {
+		if value != "" {
+			params[name] = value
+		}
+	}
+	return params
+}
+
 // vhostValues est ce que le gabarit du fragment connaît. Le domaine est validé
 // avant d'arriver ici : ni guillemet, ni antislash, ni accent grave.
 type vhostValues struct {

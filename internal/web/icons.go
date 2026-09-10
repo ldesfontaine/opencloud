@@ -8,11 +8,13 @@ const (
 	iconAlert    = "alert"
 	iconCheck    = "check"
 	iconClock    = "clock"
+	iconGlobe    = "globe"
 	iconInfo     = "info"
 	iconKey      = "key"
 	iconRefresh  = "refresh"
 	iconServer   = "server"
 	iconShield   = "shield"
 	iconTerminal = "terminal"
+	iconTrash    = "trash"
 	iconX        = "x"
 )

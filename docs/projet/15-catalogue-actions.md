@@ -208,7 +208,7 @@ répondent encore** : ajouter une machine ne casse pas celles qui tournent
 **Installer le proxy** — tirer l'image par digest **avant** qu'un fichier la
 nomme → créer les répertoires **avant** qu'un montage les nomme → écrire la
 config statique **avant** que le service qui la lit démarre → créer le réseau
-partagé **avant** que `compose` le nomme, puisqu'il y est déclaré externe →
+partagé **avant** que `compose` s'en serve, puisqu'il y est déclaré externe →
 démarrer →
 vérifier : 443 répond **404** à un nom inconnu, 80 répond **301** vers HTTPS,
 lu et non suivi.

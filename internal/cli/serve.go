@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/domain"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/runner"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -74,7 +75,10 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	// Le runner s'arrête avant la base : une action en cours reste « running »
 	// et la reprise la retrouvera au prochain démarrage.
 	machines := machineAccess{root: root}
-	actionRunner := runner.New(database, catalog.Service{}, machines, logger)
+	// La table des hôtes virtuels suit les conclusions du runner : elle est
+	// écrite quand une publication aboutit, pas quand on la demande.
+	domains := domain.New(database, logger)
+	actionRunner := runner.New(database, catalog.Service{}, machines, domains, logger)
 	defer actionRunner.Close()
 	if err := actionRunner.Resume(ctx); err != nil {
 		return fmt.Errorf("reprendre les actions en cours : %w", err)
@@ -96,6 +100,7 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	server, err := web.New(web.Dependencies{
 		Auth:        authService,
 		Machines:    database,
+		Domains:     database,
 		Declaration: machineDeclaration{store: database},
 		Enrolment:   machines,
 		Enroller:    machines,

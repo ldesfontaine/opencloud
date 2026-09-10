@@ -1,0 +1,51 @@
+{{define "title"}}Domaines{{end}}
+{{define "content"}}
+<div class="page-head-row">
+  <div class="page-head">
+    <h1>Domaines</h1>
+    {{if .Data.Subtitle}}<p class="muted">{{.Data.Subtitle}}</p>{{end}}
+  </div>
+  <a class="button" href="/domains/new">{{template "icon-plus"}}Créer un hôte virtuel</a>
+</div>
+
+{{if .Data.Domains}}
+<section class="card table-card">
+  <div class="card-head">
+    <h2>{{template "icon-globe"}}Noms publiés</h2>
+    <span class="muted">le port est celui lu sur la machine</span>
+  </div>
+  <table class="grid">
+    <thead>
+      <tr><th>Nom</th><th>Machine</th><th>Environnement</th><th>Service</th><th>Port</th><th>Publié</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Data.Domains}}
+      <tr>
+        <td>
+          <div class="machine-name">
+            <span class="machine-mark">{{template "icon-globe"}}</span>
+            <span class="mono">{{.Name}}</span>
+          </div>
+        </td>
+        <td><a href="/machines/{{.MachineID}}">{{.MachineName}}</a></td>
+        <td class="mono muted">{{.Environment}}</td>
+        <td class="mono muted">{{.Service}}</td>
+        <td class="mono">{{.Port}}</td>
+        <td class="muted">{{.UpdatedAt}}</td>
+        <td class="tight">
+          <a class="button icon-only danger" href="{{.RemovePath}}" title="Supprimer l'hôte virtuel de {{.Name}}">
+            {{template "icon-trash"}}<span class="reader-only">Supprimer {{.Name}}</span>
+          </a>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{else}}
+<section class="card empty">
+  <p>Aucun nom publié pour l'instant.</p>
+  <a class="button" href="/domains/new">{{template "icon-plus"}}Créer un hôte virtuel</a>
+</section>
+{{end}}
+{{end}}
