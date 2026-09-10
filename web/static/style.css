@@ -565,6 +565,20 @@ button:hover, .button:hover { text-decoration: none; filter: brightness(1.06); }
   box-shadow: none;
 }
 
+/* Un geste dans une ligne de tableau : l'icône seule, sans le poids d'un
+   bouton plein. Le titre et le texte pour lecteur d'écran disent ce qu'elle
+   fait. */
+.button.icon-only {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--card);
+  color: var(--muted);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.button.icon-only:hover { filter: none; color: var(--accent); border-color: var(--accent); }
+.button.icon-only.danger:hover { color: var(--danger); border-color: var(--danger); }
+
 /* La note d'un échec, à côté du badge : une ligne atténuée, coupée si trop longue. */
 .status-note {
   display: block;

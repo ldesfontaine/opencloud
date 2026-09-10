@@ -155,6 +155,17 @@ func labelInfrastructureSubtitle(machineCount int) string {
 	return fmt.Sprintf("%d machines, une seule source de vérité : chacune dit son état et son âge.", machineCount)
 }
 
+// La vue Domaines montre ce que les machines portent, pas ce qu'on a demandé.
+func labelDomainsSubtitle(domainCount int) string {
+	switch domainCount {
+	case 0:
+		return ""
+	case 1:
+		return "Un nom publié, constaté sur sa machine."
+	}
+	return fmt.Sprintf("%d noms publiés, constatés sur leurs machines.", domainCount)
+}
+
 func labelReachableSince(age time.Duration) string {
 	minutes := int(age.Minutes())
 	if minutes < 1 {

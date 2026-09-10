@@ -1,0 +1,34 @@
+# Le service témoin : le plus petit service sous la norme qui répond en HTTP.
+# Il ne sert qu'à éprouver la publication d'un nom, de bout en bout
+# (docs/projet/03-modele.md, « Le conteneur qu'un service publie »).
+
+services:
+  temoin:
+    # Épinglée par digest : le tag reste lisible, c'est le digest qui décide.
+    image: traefik/whoami:v1.12.0@sha256:c4717a8d1f0134a7444e24f881160e033991f23027c6c5a9a3f8fd22e70d1d44
+    # Le nom par lequel le proxy joint ce conteneur : <environnement>-<service>.
+    container_name: prod-temoin
+    restart: unless-stopped
+    labels:
+      # Le port que le conteneur écoute. « Créer un hôte virtuel » le lit ici,
+      # personne ne le saisit.
+      opencloud.port: "80"
+    # Aucun port publié sur la machine : le proxy est la seule porte.
+    networks:
+      - proxy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Le réseau partagé, créé par « Installer le proxy ». Externe : ce service ne
+# le possède pas, il le rejoint.
+networks:
+  proxy:
+    external: true

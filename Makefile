@@ -86,9 +86,9 @@ reproducible: release
 # Le test du paquet, dans un conteneur Debian avec systemd — jamais sur le
 # poste de travail. Construit deux versions, joue packaging/test-install.sh,
 # puis packaging/test-action.sh : amorçage, Diagnostiquer par l'interface,
-# Poser le socle, Installer le proxy, reprise. Le conteneur est jetable, donc
-# --avec-socle : lui seul a le droit de se faire installer Docker et de prendre
-# les ports 80 et 443.
+# Poser le socle, Installer le proxy, le témoin publié puis retiré, reprise. Le
+# conteneur est jetable, donc --avec-socle : lui seul a le droit de se faire
+# installer Docker et de prendre les ports 80 et 443.
 #
 # Deux volumes anonymes pour /var/lib/docker et /var/lib/containerd : le Docker
 # posé dans le conteneur y empile ses images, et overlayfs ne se monte pas sur
@@ -102,6 +102,7 @@ package-test:
 		-v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
 		-v /var/lib/docker -v /var/lib/containerd \
 		-v "$(CURDIR)/packaging:/packaging:ro" -v "$(CURDIR)/$(DIST):/dist:ro" \
+		-v "$(CURDIR)/examples:/examples:ro" \
 		opencloud-package-test >/dev/null
 	docker exec opencloud-package-test /packaging/test-install.sh /dist/test-old/opencloud_0.0.1_amd64.deb /dist/test-new/opencloud_0.0.2_amd64.deb \
 		&& docker exec opencloud-package-test /packaging/test-action.sh /dist/test-new/opencloud_0.0.2_amd64.deb --avec-socle; \

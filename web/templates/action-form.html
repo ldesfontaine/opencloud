@@ -13,7 +13,7 @@
 
 <div class="split wide-first">
   <div class="column">
-    <section class="card">
+    <section class="card" id="deposited-files">
       <h2>{{template "icon-copy"}}Fichiers déposés sur la machine</h2>
       {{if .Files}}
       <table class="grid">
@@ -34,8 +34,10 @@
       {{end}}
       <p class="hint">Chaque fichier est comparé octet pour octet à celui de la machine
       avant d'être écrit : identique, il n'est pas réécrit et l'action le dit.</p>
-      {{else}}
+      {{else if .FilesKnown}}
       <p class="muted">Aucun fichier à poser.</p>
+      {{else}}
+      <p class="muted">Les fichiers dépendent des paramètres : ils s'affichent dès qu'ils sont saisis.</p>
       {{end}}
     </section>
 
@@ -43,12 +45,23 @@
       <h2>{{template "icon-terminal"}}Lancer</h2>
       <form method="post" action="/machines/{{.Machine.ID}}/actions/{{.Kind}}">
         <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
-        {{range .Params}}
-        <label for="{{.Name}}">{{.Label}}</label>
-        <input id="{{.Name}}" name="{{.Name}}" type="text" value="{{index $.Data.Values .Name}}"{{if .Required}} required{{end}}>
-        {{else}}
-        <p class="muted">Cette action ne prend aucun paramètre.</p>
-        {{end}}
+        {{/* Chaque saisie redemande l'écran et n'en reprend que la carte des
+             fichiers : le diff de ce qui va être écrit se montre avant de
+             lancer, même quand il dépend des paramètres. Seuls les champs de
+             ce bloc partent — le jeton anti-CSRF n'a rien à faire dans une
+             URL. */}}
+        <div id="action-params">
+          {{range .Params}}
+          <label for="{{.Name}}">{{.Label}}</label>
+          <input id="{{.Name}}" name="{{.Name}}" type="text" value="{{index $.Data.Values .Name}}"{{if .Required}} required{{end}}
+                 hx-get="/machines/{{$.Data.Machine.ID}}/actions/{{$.Data.Kind}}"
+                 hx-trigger="change, keyup changed delay:500ms"
+                 hx-include="#action-params"
+                 hx-target="#deposited-files" hx-select="#deposited-files" hx-swap="outerHTML">
+          {{else}}
+          <p class="muted">Cette action ne prend aucun paramètre.</p>
+          {{end}}
+        </div>
         {{if .NeedsConfirmation}}
         <p class="confirm">
           <input id="confirm" name="confirm" type="checkbox" value="oui" required>

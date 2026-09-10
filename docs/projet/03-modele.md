@@ -73,7 +73,22 @@ de données** — effacer est un geste séparé ; et **`update` ne s'exécute ja
 seul** — c'est une action, approuvée.
 
 Un `Makefile.common` fourni par openCloud porte les cibles génériques ; le
-`Makefile` du service l'inclut et ne redéfinit que ce qui lui est propre.
+`Makefile` du service l'inclut et ne redéfinit que ce qui lui est propre. Il est
+posé en `/srv/workspace/Makefile.common` par *Installer le proxy*.
+
+### Le conteneur qu'un service publie
+
+Trois lignes dans le `compose.yaml`, et c'est tout ce qu'un hôte virtuel
+demande — **le port n'est jamais saisi**, il est lu ici
+(`15-catalogue-actions.md` §3) :
+
+| Ligne | Ce qu'elle dit |
+|---|---|
+| `container_name: <environnement>-<service>` | Le nom par lequel le proxy le joint. **Un nom de conteneur, pas un nom de service `compose`** : Docker le résout sur tout réseau partagé et le garantit unique sur la machine, alors qu'un nom de service n'est qu'un alias de son projet — deux projets peuvent porter le même `web` |
+| `labels: { opencloud.port: "<n>" }` | Le port que le conteneur écoute. C'est **sa définition**, jamais une socket constatée |
+| `networks: [proxy]`, et `proxy: { external: true }` en tête du fichier | Le **réseau Docker partagé** que *Installer le proxy* crée. Le proxy et le service sont deux projets `compose` : sans ce réseau, ils ne se joignent pas |
+
+Un service qui n'expose aucun domaine n'a besoin d'aucune des trois.
 
 ## Les deux formes de service
 

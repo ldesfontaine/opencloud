@@ -18,7 +18,8 @@ type pageTemplates map[string]*template.Template
 // parsePageTemplates lit chaque page servie, un gabarit sous templates/<nom>.html.
 func parsePageTemplates(files fs.FS) (pageTemplates, error) {
 	templates := pageTemplates{}
-	for _, name := range []string{"login", "password", "infrastructure", "machine", "machine-new", "action-form", "action"} {
+	for _, name := range []string{"login", "password", "infrastructure", "machine", "machine-new",
+		"domains", "domains-new", "action-form", "action"} {
 		parsed, err := template.ParseFS(files, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, fmt.Errorf("parse template %s: %w", name, err)
@@ -57,13 +58,19 @@ func (s *Server) newPage(r *http.Request, account *store.Account, csrfToken stri
 }
 
 // Les onglets de la barre latérale ; un onglet, une section.
-const sectionInfrastructure = "infrastructure"
+const (
+	sectionInfrastructure = "infrastructure"
+	sectionDomains        = "domains"
+)
 
 // sectionForPath dit quel onglet est ouvert. Une fiche de machine et une
 // action sont sous Infrastructure : l'opérateur y est arrivé par là. Une page
 // hors des onglets — le mot de passe — n'en marque aucun.
 func sectionForPath(path string) string {
-	if path == "/" || strings.HasPrefix(path, "/machines/") || strings.HasPrefix(path, "/actions/") {
+	switch {
+	case path == "/domains" || strings.HasPrefix(path, "/domains/"):
+		return sectionDomains
+	case path == "/" || strings.HasPrefix(path, "/machines/") || strings.HasPrefix(path, "/actions/"):
 		return sectionInfrastructure
 	}
 	return ""

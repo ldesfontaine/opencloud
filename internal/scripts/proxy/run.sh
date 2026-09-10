@@ -33,6 +33,10 @@ DIR_GROUP=root
 FILE_MODE=0644
 
 CONTAINER_NAME=traefik
+# Le réseau que le proxy partage avec les services qu'il publie : le fragment
+# d'un hôte virtuel route vers un conteneur joint par son nom sur ce réseau
+# (03-modele.md). Créé ici, déclaré externe dans compose.yaml.
+SHARED_NETWORK=proxy
 CLEAR_PORT=80
 SECURE_PORT=443
 # Un nom que rien ne route : .invalid est réservé (RFC 2606). C'est lui qui
@@ -305,7 +309,24 @@ place_file traefik.yml "$SERVICE_DIR/traefik.yml"
 place_file compose.yaml "$SERVICE_DIR/compose.yaml"
 place_file Makefile "$SERVICE_DIR/Makefile"
 
-# ------------------------------------------------- 4. la validation à blanc
+# --------------------------------------------------------- 4. le réseau partagé
+
+step "le réseau partagé des services publiés"
+
+# Créé avant que compose le nomme : il y est déclaré externe, et compose
+# refuserait de démarrer sur un réseau absent.
+if "$DOCKER" network inspect -- "$SHARED_NETWORK" > /dev/null 2>&1; then
+    step_unchanged "réseau $SHARED_NETWORK"
+else
+    if ! network_output=$("$DOCKER" network create -- "$SHARED_NETWORK" 2>&1); then
+        printf '%s\n' "$network_output" | tail -n 20
+        fail "le réseau $SHARED_NETWORK n'a pas pu être créé"
+    fi
+    step_done "réseau $SHARED_NETWORK créé"
+fi
+info reseau_partage "$SHARED_NETWORK"
+
+# ------------------------------------------------- 5. la validation à blanc
 
 step "valider la configuration à blanc — make config"
 
@@ -314,7 +335,7 @@ if ! config_output=$("$MAKE" -C "$SERVICE_DIR" config 2>&1); then
     fail "make config refuse la configuration du proxy : rien n'a été démarré"
 fi
 
-# ------------------------------------------------------------ 5. démarrer
+# ------------------------------------------------------------ 6. démarrer
 
 step "démarrer le proxy — make up"
 
@@ -328,7 +349,7 @@ else
     step_done "le proxy tourne"
 fi
 
-# ------------------------------------------------------------- 6. vérifier
+# ------------------------------------------------------------- 7. vérifier
 
 step "vérifier par le chemin réel — un nom inconnu en HTTPS, puis le clair"
 
@@ -379,7 +400,7 @@ if [ ! -f "$ACME_DIR/cloudflare.token" ]; then
     warn "le jeton DNS de la zone n'est pas encore sur cette machine : le proxy sert son certificat par défaut"
 fi
 
-# ------------------------------------------------------------------ 7. constat
+# ------------------------------------------------------------------ 8. constat
 
 if [ "$changed" -eq 1 ]; then
     done_changed

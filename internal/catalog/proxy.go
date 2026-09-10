@@ -42,6 +42,11 @@ const (
 	proxyAcmeDir = "/srv/data/acme"
 )
 
+// SharedNetwork est le réseau Docker que le proxy partage avec les services
+// qu'il publie. Le proxy le crée ; chaque service publié le rejoint en
+// externe. Sans lui, deux projets compose ne se joignent pas (03-modele.md).
+const SharedNetwork = "proxy"
+
 // Ce que le proxy voit de l'intérieur du conteneur. Rien ici n'est un chemin
 // de la machine : ce qui est monté dessous est dans compose.yaml.
 const (
@@ -81,6 +86,7 @@ type proxyValues struct {
 	Image         string
 	Version       string
 	ContainerName string
+	SharedNetwork string
 	ClearPort     string
 	SecurePort    string
 
@@ -115,6 +121,7 @@ type ProxyLayout struct {
 	CommonMakefile string
 	FragmentsDir   string
 	AcmeDir        string
+	SharedNetwork  string
 }
 
 // Proxy rend ce que l'action pose, pour qui doit le dire à l'opérateur.
@@ -126,6 +133,7 @@ func Proxy() ProxyLayout {
 		CommonMakefile: proxyCommonMakefile,
 		FragmentsDir:   proxyFragmentsDir,
 		AcmeDir:        proxyAcmeDir,
+		SharedNetwork:  SharedNetwork,
 	}
 }
 
@@ -134,6 +142,7 @@ func newProxyValues() proxyValues {
 		Image:         proxyImage(),
 		Version:       traefikVersion,
 		ContainerName: proxyContainerName,
+		SharedNetwork: SharedNetwork,
 		ClearPort:     strconv.Itoa(proxyClearPort),
 		SecurePort:    strconv.Itoa(proxySecurePort),
 

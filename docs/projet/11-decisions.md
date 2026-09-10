@@ -78,6 +78,10 @@ renvoie au document qui la détaille. Les questions ouvertes ne vivent qu'ici.
 | **Journaux des services dans `journald`**, rien sous `/srv` | `04-implantation.md` |
 | **HTTP seulement** : un port brut reste hors du périmètre — **question rouverte**, voir partie 2 | `03-modele.md`, `06` |
 | Sur une machine déjà utilisée, openCloud **crée ses répertoires et rien de plus** ; port 80/443 pris = échec explicite. **Le refus nomme ce qu'il a trouvé** : gestionnaire présent (Plesk, cPanel), `certbot` actif, ou le processus qui tient le port | `04-implantation.md`, `15` §5 |
+| **Le proxy vit sous `/srv/workspace/system/traefik`** — `system` parce qu'il n'appartient à aucun environnement, tout en restant un service sous la norme. Ses fragments d'hôtes virtuels sous `/srv/data/traefik`, ses certificats et son jeton sous `/srv/data/acme` *(10 septembre 2026)* | `04-implantation.md`, `15` |
+| **Le jeton Cloudflare de la zone est attendu dans `/srv/data/acme/cloudflare.token`**, lu par Traefik seul. Il ne sert qu'à écrire le TXT `_acme-challenge` qui prouve la possession du domaine, donc à obtenir et renouveler les certificats. Tant qu'il manque, le proxy démarre et sert son certificat par défaut *(10 septembre 2026)* | `06-reseau-et-certificats.md`, `08` |
+| **`make` fait partie du socle** : les cibles standard d'un service sont un Makefile, et openCloud n'appelle qu'elles *(10 septembre 2026)* | `03-modele.md`, `15` |
+| **Un réseau Docker partagé `proxy`**, créé par *Installer le proxy* et déclaré externe : c'est par lui que le proxy joint les conteneurs qu'il publie. **Un service publié déclare son port par le label `opencloud.port=<n>`** sur le conteneur à exposer, qui porte `container_name: <env>-<service>` et rejoint ce réseau. Le port n'est jamais saisi : *Créer un hôte virtuel* le lit là *(10 septembre 2026)* | `03-modele.md`, `15` §3 |
 
 ### Réseau, TLS, enrôlement
 

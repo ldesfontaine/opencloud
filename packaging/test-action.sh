@@ -23,6 +23,17 @@ PROXY_TIMEOUT=300
 PROXY_SERVICE_DIR=/srv/workspace/system/traefik
 # Un nom que rien ne route : c'est lui qui doit recevoir le 404 du proxy.
 PROXY_UNKNOWN_NAME=proxy-inconnu.invalid
+# Créer un hôte virtuel lit la machine, pose un fichier et attend que le proxy
+# relise son dossier : rien de long.
+VHOST_TIMEOUT=120
+# Le service témoin, versionné dans le dépôt, posé à la main comme le ferait un
+# opérateur. .test est réservé (RFC 2606) : aucun DNS ne le sert.
+TEMOIN_SOURCE=$(dirname -- "$0")/../examples/temoin
+TEMOIN_ENVIRONMENT=prod
+TEMOIN_SERVICE=temoin
+TEMOIN_CONTAINER=$TEMOIN_ENVIRONMENT-$TEMOIN_SERVICE
+TEMOIN_DIR=/srv/workspace/$TEMOIN_ENVIRONMENT/$TEMOIN_SERVICE
+TEMOIN_NAME=temoin.example.test
 VERSION=$(dpkg-deb -f "$DEB" Version)
 BASE=http://127.0.0.1:8080
 # Un mot de passe de test, fabriqué ici : rien en dur qu'un scanner prendrait
@@ -173,6 +184,77 @@ if [ "$WITH_SOCLE" = "--avec-socle" ]; then
     page=$(wait_for_conclusion "$id" "$PROXY_TIMEOUT")
     printf '%s' "$page" | grep -q 'Appliquée' || fail "le second proxy n'est pas « Appliquée »"
     printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second proxy ne dit pas « inchangé »"
+    docker network inspect proxy > /dev/null 2>&1 || fail "le réseau partagé « proxy » n'est pas posé"
+
+    step "le service témoin, posé à la main sous la norme"
+    # Tout ce qu'openCloud fait se fait aussi à la main : ce sont les trois
+    # commandes du README du témoin, jouées telles quelles.
+    mkdir -p "/srv/workspace/$TEMOIN_ENVIRONMENT"
+    rm -rf "$TEMOIN_DIR"
+    cp -r "$TEMOIN_SOURCE" "$TEMOIN_DIR"
+    make -C "$TEMOIN_DIR" config > "$WORK_DIR/temoin-config.log" 2>&1 \
+        || { cat "$WORK_DIR/temoin-config.log"; fail "make config du témoin"; }
+    make -C "$TEMOIN_DIR" up > "$WORK_DIR/temoin-up.log" 2>&1 \
+        || { cat "$WORK_DIR/temoin-up.log"; fail "make up du témoin"; }
+    [ "$(docker container inspect --format '{{.State.Status}}' "$TEMOIN_CONTAINER")" = "running" ] \
+        || fail "le conteneur du témoin ne tourne pas"
+
+    step "Créer un hôte virtuel, depuis l'interface"
+    page_has "/machines/local/actions/vhost" "Créer un hôte virtuel" || fail "l'écran « avant » de l'hôte virtuel n'existe pas"
+    # Le port n'est pas un champ du formulaire : il est lu sur la machine.
+    if page_has "/machines/local/actions/vhost" 'name="port"'; then
+        fail "le formulaire demande un port : il doit être lu dans la définition du service"
+    fi
+    id=$(launch_vhost "$TEMOIN_NAME" "$TEMOIN_ENVIRONMENT" "$TEMOIN_SERVICE")
+    page=$(wait_for_conclusion "$id" "$VHOST_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Créer un hôte virtuel n'est pas « Appliquée »"; }
+    printf '%s' "$page" | grep -q 'résultat: fait' || fail "la première publication ne dit pas « fait »"
+    printf '%s' "$page" | grep -q 'info: port=80' || fail "l'action ne dit pas le port qu'elle a lu"
+    printf '%s' "$page" | grep -q 'info: dns=' || fail "l'action ne constate pas la résolution du nom"
+    fragment=/srv/data/traefik/$TEMOIN_NAME.yml
+    [ -f "$fragment" ] || fail "le fragment de $TEMOIN_NAME n'est pas posé"
+    grep -q "http://$TEMOIN_CONTAINER:80" "$fragment" || fail "le fragment ne route pas vers le conteneur du témoin"
+    if grep -q '@OC_PORT@' "$fragment"; then
+        fail "le marqueur de port est resté dans le fragment"
+    fi
+
+    step "le nom répond : 200, et c'est bien le témoin au bout"
+    code=$(curl -sS -k --max-time 10 --resolve "$TEMOIN_NAME:443:127.0.0.1" \
+        -o "$WORK_DIR/temoin.html" -w '%{http_code}' "https://$TEMOIN_NAME/")
+    [ "$code" = "200" ] || fail "$TEMOIN_NAME répond « $code », attendu 200"
+    grep -q "Host: $TEMOIN_NAME" "$WORK_DIR/temoin.html" \
+        || { cat "$WORK_DIR/temoin.html"; fail "la réponse ne vient pas du témoin"; }
+
+    step "la vue Domaines liste le nom, avec le port constaté"
+    page=$(get_page /domains)
+    printf '%s' "$page" | grep -q "$TEMOIN_NAME" || fail "la vue Domaines ne liste pas $TEMOIN_NAME"
+    printf '%s' "$page" | grep -q '>80<' || fail "la vue Domaines ne montre pas le port constaté"
+    printf '%s' "$page" | grep -q "vhost-remove?domain=$TEMOIN_NAME" || fail "la vue Domaines n'offre pas de retirer le nom"
+
+    step "l'hôte virtuel rejoué : inchangé"
+    id=$(launch_vhost "$TEMOIN_NAME" "$TEMOIN_ENVIRONMENT" "$TEMOIN_SERVICE")
+    page=$(wait_for_conclusion "$id" "$VHOST_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || fail "le second hôte virtuel n'est pas « Appliquée »"
+    printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second hôte virtuel ne dit pas « inchangé »"
+
+    step "Supprimer l'hôte virtuel : le nom répond 404 et la ligne disparaît"
+    id=$(launch_vhost_removal "$TEMOIN_NAME")
+    page=$(wait_for_conclusion "$id" "$VHOST_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Supprimer un hôte virtuel n'est pas « Appliquée »"; }
+    printf '%s' "$page" | grep -q 'résultat: fait' || fail "la suppression ne dit pas « fait »"
+    [ ! -e "$fragment" ] || fail "le fragment de $TEMOIN_NAME est encore là"
+    code=$(curl -sS -k -o /dev/null -w '%{http_code}' --max-time 10 \
+        --resolve "$TEMOIN_NAME:443:127.0.0.1" "https://$TEMOIN_NAME/")
+    [ "$code" = "404" ] || fail "$TEMOIN_NAME répond « $code » après suppression, attendu 404"
+    if get_page /domains | grep -q "$TEMOIN_NAME"; then
+        fail "la vue Domaines liste encore $TEMOIN_NAME"
+    fi
+
+    step "la suppression rejouée : inchangé"
+    id=$(launch_vhost_removal "$TEMOIN_NAME")
+    page=$(wait_for_conclusion "$id" "$VHOST_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || fail "la seconde suppression n'est pas « Appliquée »"
+    printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "la seconde suppression ne dit pas « inchangé »"
 fi
 
 step "openCloud coupé pendant une action : la reprise conclut sans intervention"
@@ -187,5 +269,5 @@ page_has /machines/local "$id" || fail "la fiche de la machine ne liste pas la d
 
 printf '\nTout tient : amorçage, refus, lancement, suivi, journal, direct, reprise.\n'
 if [ "$WITH_SOCLE" = "--avec-socle" ]; then
-    printf 'Et le socle, puis le proxy : posés, éprouvés, puis inchangés.\n'
+    printf 'Et le socle, le proxy, le témoin publié par son nom puis retiré : posés, éprouvés, puis inchangés.\n'
 fi

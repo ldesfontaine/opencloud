@@ -21,6 +21,14 @@ type Catalog interface {
 	Prepare(kind catalog.Kind, params map[string]string) (catalog.Prepared, error)
 }
 
+// Observer est prévenu quand une action conclut, avec la ligne du journal
+// telle qu'elle vient d'être écrite. Il ne peut ni retarder ni changer la
+// conclusion : c'est domain qui s'en sert pour tenir la table des hôtes
+// virtuels, et le runner ne sait pas ce qu'il en fait (16-architecture.md).
+type Observer interface {
+	ActionConcluded(ctx context.Context, action store.Action)
+}
+
 // Transports rend le transport d'une machine. ErrNotEnrolled dit que la
 // machine n'a pas encore de compte ni de clé : rien ne peut partir.
 type Transports interface {
@@ -49,6 +57,7 @@ type Runner struct {
 	store      *store.Store
 	catalog    Catalog
 	transports Transports
+	observer   Observer
 	logger     *slog.Logger
 
 	// Le contexte de vie des exécuteurs : Close l'annule, chacun s'arrête
@@ -67,12 +76,15 @@ type Runner struct {
 	subscribers map[string]map[*subscriber]struct{}
 }
 
-func New(database *store.Store, actionCatalog Catalog, transports Transports, logger *slog.Logger) *Runner {
+// New monte le runner. observer peut être nil : sans lui, une conclusion ne
+// prévient personne.
+func New(database *store.Store, actionCatalog Catalog, transports Transports, observer Observer, logger *slog.Logger) *Runner {
 	lifetime, stop := context.WithCancel(context.Background())
 	return &Runner{
 		store:       database,
 		catalog:     actionCatalog,
 		transports:  transports,
+		observer:    observer,
 		logger:      logger,
 		lifetime:    lifetime,
 		stop:        stop,

@@ -131,7 +131,7 @@ Toutes s'exécutent sur la machine cible sauf mention.
 | **Tester l'accès** | machine | — | non | non | `ssh true`, `sudo -n true`, `systemd-run --version`. Le bouton de la fiche machine — et **une exécution périodique, en silence**, qui alimente le statut à quatre états (`02-roles.md`). |
 | **Diagnostiquer** | machine | — | non | non | Lecture seule : services, disque, horloge, ports 80/443, versions. **Pare-feu vérifié depuis l'extérieur**, et **avertissement sur tout port publié en `0.0.0.0`** — Docker contourne `ufw`. **Tourne périodiquement**, compare au **dernier état connu** et **signale l'écart sans le corriger**. Sortie structurée. *(SysWarden `audit`)* |
 | **Poser le socle** | machine | — | non | non | Répertoires de la norme, puis **la source apt officielle de Docker** (`/etc/apt/sources.list.d/docker.sources`, clé versionnée dans le dépôt et posée en `/etc/apt/keyrings/docker.asc`, empreinte vérifiée par un test Go), puis les paquets d'une **liste versionnée dans le dépôt** (`internal/scripts/socle/packages.txt`, embarqué dans le binaire ; ajouter une ligne suffit pour que la prochaine pose l'installe partout) : `containerd.io`, `docker-ce`, `docker-ce-cli`, `docker-compose-plugin`, `make`, `screen`, `ncdu`, `at`, `curl`, `htop`, `rsync`, `jq`. Paquets apt seulement ; `docker.io` n'est pas utilisé. **Refus nommés** : une distribution ou un nom de code que Docker ne sert pas, et un paquet Docker de la distribution déjà installé (`docker.io`, `docker-doc`, `docker-compose`, `docker-compose-v2`, `podman-docker`, `containerd`, `runc`) — openCloud ne retire pas ce qu'il n'a pas posé, il donne le `apt-get remove`. Un outil hors apt se pose à la main. Fichier-garde d'idempotence : `/var/lib/opencloud/socle.liste`, la liste posée nom par nom. |
-| **Installer le proxy** | machine | — | non | non | **Traefik, un service sous la norme** : `/srv/workspace/system/traefik` (`compose.yaml` + `Makefile`), un seul par machine, partagé par ses environnements. Image **épinglée par digest**, jamais un tag. Fichiers rendus par Go : configuration statique (80 → 301 vers 443, fournisseur `file` sur `/srv/data/traefik`, journal d'accès, API et tableau de bord désactivés, **résolveur ACME DNS-01 Cloudflare** dont le jeton est lu dans `/srv/data/acme/cloudflare.token`), `compose.yaml` durci (`read_only`, `cap_drop: ALL` + `NET_BIND_SERVICE`, `no-new-privileges`, aucune socket Docker) et `Makefile`. Pose aussi le `Makefile.common` que tout service inclut (`/srv/workspace/Makefile.common`). Séquence §3. |
+| **Installer le proxy** | machine | — | non | non | **Traefik, un service sous la norme** : `/srv/workspace/system/traefik` (`compose.yaml` + `Makefile`), un seul par machine, partagé par ses environnements. Image **épinglée par digest**, jamais un tag. Fichiers rendus par Go : configuration statique (80 → 301 vers 443, fournisseur `file` sur `/srv/data/traefik`, journal d'accès, API et tableau de bord désactivés, **résolveur ACME DNS-01 Cloudflare** dont le jeton est lu dans `/srv/data/acme/cloudflare.token`), `compose.yaml` durci (`read_only`, `cap_drop: ALL` + `NET_BIND_SERVICE`, `no-new-privileges`, aucune socket Docker) et `Makefile`. Crée aussi le **réseau Docker partagé `proxy`**, par lequel il joint les conteneurs qu'il publie, et pose le `Makefile.common` que tout service inclut (`/srv/workspace/Makefile.common`). Séquence §3. |
 | **Installer CrowdSec** | machine | — | non | non | Agent + bouncer Traefik, enregistré auprès de l'API sur la machine openCloud. Pose aussi la **vérification périodique que le bouncer bloque réellement** — une requête de test, pas un `systemctl is-active`. |
 | **Installer le collecteur** | machine | — | non | non | Métriques + Alloy vers Loki. Compte système distinct. **Refus si la machine n'atteint pas le plancher de ressources** (ordre de grandeur, 2 Go libres) : une autre machine est proposée (§6, `02-roles.md`). |
 | **Débannir** | machine | adresse | non | non | Retire une décision CrowdSec, nommément. La liste des bannissements vit dans l'interface (`09-observation-et-interface.md`). |
@@ -144,8 +144,8 @@ Toutes s'exécutent sur la machine cible sauf mention.
 
 | Action | Portée | Paramètres | Irrév. | Coupe | Notes |
 |---|---|---|---|---|---|
-| **Créer un hôte virtuel** | domaine | nom, service cible, port lu sur la machine | non | non | Fragment rendu par Go, posé dans `data/traefik/`, rien à recharger (`providers.file.watch`). Vérifie en HTTPS local, SNI + `Host`. **Constate la résolution du nom** ; si elle ne pointe pas vers cette machine, **propose** *Créer l'enregistrement DNS*. |
-| **Supprimer un hôte virtuel** | domaine | nom | non | **oui** | Retire fragment et certificat. |
+| **Créer un hôte virtuel** | domaine | nom, environnement, service | non | non | **Le port n'est pas saisi** : il est lu sur la machine, dans la définition du service (§3). Fragment rendu par Go — routeur `Host()` sur `websecure`, TLS **sans résolveur** —, posé dans `data/traefik/`, rien à recharger (`providers.file.watch`). Vérifie en HTTPS local, SNI + `Host`. **Constate la résolution du nom** ; si elle ne pointe pas vers cette machine, **propose** *Créer l'enregistrement DNS*. Le certificat est une action à part, qui reprendra ce fragment. |
+| **Supprimer un hôte virtuel** | domaine | nom | non | **oui** | Retire le fragment ; le nom répond 404. **Le certificat n'est pas touché** : il reste dans le stockage ACME du proxy — le retirer relève de l'action qui l'a demandé. |
 | **Créer l'enregistrement DNS** | domaine + DNS | nom, type (`A` ou `CNAME`), valeur, zone | non | non | Sur la machine openCloud, par l'API Cloudflare. **Sur demande, jamais automatique, toujours montrée** avant écriture. La deuxième et dernière écriture DNS d'openCloud (`06-reseau-et-certificats.md`). |
 | **Demander un certificat** | domaine + DNS | nom | non | non | TXT `_acme-challenge` chez Cloudflare. **Préflight DNS + CAA + budget Let's Encrypt** (§6). Mécanisme de dépôt : ouvert (`11`). |
 | **Renouveler** | domaine + DNS | nom | non | non | Le bouton de la page certificats. Même préflight. **Refuse pendant la fenêtre de blocage Let's Encrypt** et dit l'heure de déblocage. |
@@ -207,15 +207,26 @@ répondent encore** : ajouter une machine ne casse pas celles qui tournent
 
 **Installer le proxy** — tirer l'image par digest **avant** qu'un fichier la
 nomme → créer les répertoires **avant** qu'un montage les nomme → écrire la
-config statique **avant** que le service qui la lit démarre → démarrer →
+config statique **avant** que le service qui la lit démarre → créer le réseau
+partagé **avant** que `compose` s'en serve, puisqu'il y est déclaré externe →
+démarrer →
 vérifier : 443 répond **404** à un nom inconnu, 80 répond **301** vers HTTPS,
 lu et non suivi.
 
-**Créer un hôte virtuel** — refus si pas de proxy ; refus si le port n'est pas
-celui d'un service présent (lu dans sa définition, jamais dans une socket qui
-écoute) ; comparer le fragment octet pour octet ; poser ; vérifier en HTTPS sur
-`127.0.0.1:443` avec le nom en SNI **et** en `Host`, quinze essais à une
-seconde.
+**Créer un hôte virtuel** — refus si pas de proxy (dossier, conteneur, réseau
+partagé) ; refus si le service n'a pas de définition sous
+`/srv/workspace/<env>/<service>/compose.yaml`, si elle ne nomme pas le
+conteneur `<env>-<service>`, s'il ne déclare pas `opencloud.port=<n>`, s'il ne
+rejoint pas le réseau `proxy`, ou s'il ne tourne pas. **Le port est celui d'un
+service présent, lu dans sa définition, jamais dans une socket qui écoute** :
+c'est le seul trou du fragment rendu par Go, et le script le comble après
+l'avoir borné. Comparer octet pour octet ; poser atomiquement ; ne rien
+recharger ; vérifier en HTTPS sur `127.0.0.1:443` avec le nom en SNI **et** en
+`Host`, quinze essais à une seconde — 404 veut dire qu'aucun routeur ne connaît
+le nom, 502/503/504 que le conteneur ne répond pas. Enfin **constater la
+résolution DNS** du nom : un `info:`, et un avertissement si elle ne pointe pas
+vers cette machine — jamais un refus, le nom peut être publié avant d'être
+résolu.
 
 **WireGuard** — relire le rôle déjà tenu ; générer la clé si absente, jamais la
 remplacer (`O_EXCL`, `0640`, dossier `0750`) ; écrire la config ; activer le

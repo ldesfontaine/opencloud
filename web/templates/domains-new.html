@@ -1,0 +1,47 @@
+{{define "title"}}Créer un hôte virtuel{{end}}
+{{define "content"}}
+{{with .Data}}
+<div class="page-head">
+  <a class="breadcrumb" href="/domains">{{template "icon-chevron"}}Domaines</a>
+  <h1>Créer un hôte virtuel</h1>
+  <p class="muted">Un nom est servi par le proxy d'une machine : d'abord, laquelle.</p>
+</div>
+
+{{if .Machines}}
+<section class="card table-card">
+  <div class="card-head">
+    <h2>{{template "icon-server"}}Sur quelle machine</h2>
+  </div>
+  <table class="grid">
+    <thead>
+      <tr><th>Machine</th><th>Adresse</th><th>Statut</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Machines}}
+      <tr>
+        <td>
+          <div class="machine-name">
+            <span class="machine-mark">{{template "icon-server"}}</span>
+            <a href="/machines/{{.ID}}">{{.Name}}</a>
+          </div>
+        </td>
+        <td class="mono muted">{{.Address}}</td>
+        <td><span class="badge {{.Status.State}}">{{.Status.Label}}</span></td>
+        <td class="tight">
+          <a class="button icon-only" href="/machines/{{.ID}}/actions/{{$.Data.Kind}}" title="Publier un nom sur {{.Name}}">
+            {{template "icon-arrow-right"}}<span class="reader-only">Publier sur {{.Name}}</span>
+          </a>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{else}}
+<section class="card empty">
+  <p>Aucune machine pour l'instant.</p>
+  <a class="button" href="/machines/new">{{template "icon-plus"}}Enrôler une machine</a>
+</section>
+{{end}}
+{{end}}
+{{end}}

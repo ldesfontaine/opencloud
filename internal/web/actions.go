@@ -21,7 +21,10 @@ func (s *Server) showActionForm(w http.ResponseWriter, r *http.Request, account 
 		return
 	}
 
-	view := s.newActionFormView(r, machine, definition, map[string]string{})
+	// Un lien peut porter les valeurs — « Supprimer » depuis la vue Domaines,
+	// ou le formulaire qui se rafraîchit pendant la saisie. Elles remplissent
+	// l'écran, elles ne lancent rien : c'est le POST qui lance.
+	view := s.newActionFormView(r, machine, definition, queriedValues(r, definition))
 	s.render(w, http.StatusOK, "action-form", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
 }
 
@@ -103,6 +106,17 @@ func submittedValues(r *http.Request, definition catalog.Definition) map[string]
 	return values
 }
 
+// queriedValues lit dans l'URL ce que l'action déclare, et rien d'autre : un
+// paramètre inconnu n'entre pas dans l'écran.
+func queriedValues(r *http.Request, definition catalog.Definition) map[string]string {
+	query := r.URL.Query()
+	values := map[string]string{}
+	for _, param := range definition.Params {
+		values[param.Name] = query.Get(param.Name)
+	}
+	return values
+}
+
 // newActionFormView tente la préparation pour montrer les fichiers qui vont
 // être posés. Une préparation qui refuse ne se voit pas ici : sur GET les
 // paramètres ne sont pas encore saisis, et sur POST le refus est affiché à
@@ -123,6 +137,7 @@ func (s *Server) newActionFormView(r *http.Request, machine store.Machine, defin
 		view.Items = description.Items
 	}
 	if prepared, err := s.catalog.Prepare(definition.Kind, values); err == nil {
+		view.FilesKnown = true
 		view.Files = describeFiles(prepared.Files)
 	}
 	return view

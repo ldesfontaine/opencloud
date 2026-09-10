@@ -33,6 +33,8 @@ var actionDescriptions = map[catalog.Kind]func() actionDescription{
 	catalog.KindDiagnostiquer: diagnosticDescription,
 	catalog.KindProxy:         proxyDescription,
 	catalog.KindSocle:         socleDescription,
+	catalog.KindVhost:         vhostDescription,
+	catalog.KindVhostRemove:   vhostRemoveDescription,
 }
 
 func describeAction(kind catalog.Kind) (actionDescription, bool) {
@@ -100,6 +102,37 @@ func socleDescription() actionDescription {
 		Label: "les paquets de la liste versionnée : " + strings.Join(packages, ", "),
 	})
 	return description
+}
+
+// Les chemins ne se recopient pas ici : ils viennent du catalogue, qui les
+// décide.
+func vhostDescription() actionDescription {
+	proxy := catalog.Proxy()
+	return actionDescription{
+		Line:       "Publie un nom sur le proxy de la machine, vers le conteneur du service.",
+		ItemsTitle: "Ce qui va être posé",
+		Items: []describedItem{
+			{Icon: iconGlobe, Label: "le fragment du nom, un fichier sous " + proxy.FragmentsDir},
+			{Icon: iconRefresh, Label: "rien à recharger : le proxy relit ce dossier tout seul"},
+			{Icon: iconTerminal, Label: "le port n'est pas saisi : il est lu dans la définition du service, sur la machine"},
+			{Icon: iconServer, Label: "le conteneur est joint par son nom sur le réseau partagé « " + proxy.SharedNetwork + " »"},
+			{Icon: iconShield, Label: "vérifié par une requête HTTPS locale, le nom en SNI et en Host"},
+			{Icon: iconKey, Label: "pas de certificat : « Demander un certificat » viendra ensuite"},
+		},
+	}
+}
+
+func vhostRemoveDescription() actionDescription {
+	proxy := catalog.Proxy()
+	return actionDescription{
+		Line:       "Retire le fragment du nom : le proxy cesse de le servir.",
+		ItemsTitle: "Ce qui va être retiré",
+		Items: []describedItem{
+			{Icon: iconTrash, Label: "le fragment du nom, sous " + proxy.FragmentsDir},
+			{Icon: iconShield, Label: "vérifié par une requête HTTPS locale : le nom doit répondre 404"},
+			{Icon: iconKey, Label: "le certificat reste dans " + proxy.AcmeDir + " : il n'est pas révoqué"},
+		},
+	}
 }
 
 // summaryOf : la ligne de l'interface quand elle existe, sinon le résumé du

@@ -30,13 +30,17 @@ pour l'état d'un programme. Il est sauvegardé par une règle nommée, en plus 
 ```
 <racine>/                        # /srv
 ├── workspace/                   # ce qui tourne — définitions, code, configuration
+│   ├── Makefile.common          # les cibles standard, incluses par chaque service
+│   ├── system/                  # ce qui n'appartient à aucun environnement
+│   │   └── traefik/             # le proxy de la machine, un service sous la norme
 │   └── <environnement>/
 │       └── <service>/
 └── data/                        # ce qui doit survivre à un redéploiement
     ├── <environnement>/
     │   └── <service>/           # volumes, bases, fichiers applicatifs
+    ├── traefik/                 # les fragments d'hôtes virtuels, un par domaine
     ├── backups/                 # sauvegardes et instantanés
-    └── acme/                    # certificats et clés privées TLS
+    └── acme/                    # certificats, clés privées TLS, jeton DNS de la zone
 ```
 
 > **On peut effacer `workspace` et le reconstruire ; on ne peut jamais effacer

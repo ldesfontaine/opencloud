@@ -33,6 +33,13 @@ type Machines interface {
 	Machine(ctx context.Context, id string) (store.Machine, error)
 }
 
+// Domains est la lecture des hôtes virtuels publiés. Le vrai est
+// *store.Store ; ce que la table porte est écrit par domain, quand une action
+// aboutit — jamais par l'interface.
+type Domains interface {
+	Domains(ctx context.Context) ([]store.Domain, error)
+}
+
 // MachineDeclaration est l'écriture : déclarer une machine, changer son
 // adresse et son port. Séparée de la lecture, parce que les pages d'action ne
 // demandent que la lecture.
@@ -103,6 +110,7 @@ type Catalog interface {
 type Dependencies struct {
 	Auth        Authenticator
 	Machines    Machines
+	Domains     Domains
 	Declaration MachineDeclaration
 	Enrolment   Enrolment
 	Enroller    Enroller
@@ -118,6 +126,7 @@ type Dependencies struct {
 type Server struct {
 	auth        Authenticator
 	machines    Machines
+	domains     Domains
 	declaration MachineDeclaration
 	enrolment   Enrolment
 	enroller    Enroller
@@ -153,6 +162,7 @@ func New(deps Dependencies, version string, logger *slog.Logger) (*Server, error
 	return &Server{
 		auth:        deps.Auth,
 		machines:    deps.Machines,
+		domains:     deps.Domains,
 		declaration: deps.Declaration,
 		enrolment:   deps.Enrolment,
 		enroller:    deps.Enroller,
@@ -182,6 +192,8 @@ func (s *Server) routes() []route {
 		{"GET /{$}", s.requireAccount(s.showInfrastructure)},
 		{"GET /actions/{id}", s.requireAccount(s.showAction)},
 		{"GET /actions/{id}/stream", s.requireAccount(s.streamAction)},
+		{"GET /domains", s.requireAccount(s.showDomains)},
+		{"GET /domains/new", s.requireAccount(s.showDomainMachines)},
 		{"GET /healthz", http.HandlerFunc(s.showHealth)},
 		{"GET /login", http.HandlerFunc(s.showLogin)},
 		{"POST /login", http.HandlerFunc(s.submitLogin)},
@@ -226,6 +238,12 @@ func (s *Server) Handler() http.Handler {
 // catalogue sont branchés ; sans eux, l'interface est celle du squelette.
 func (s *Server) actionsReady() bool {
 	return s.machines != nil && s.actions != nil && s.catalog != nil
+}
+
+// La vue Domaines lit la table des hôtes virtuels et mène aux formulaires
+// d'action des machines : sans l'une ou les autres, elle n'existe pas.
+func (s *Server) domainsReady() bool {
+	return s.domains != nil && s.actionsReady()
 }
 
 // Déclarer une machine demande l'écriture du store et l'enrôlement : sans

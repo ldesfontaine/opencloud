@@ -136,6 +136,7 @@ func expectRedirect(t *testing.T, response *httptest.ResponseRecorder, location 
 func TestRoutes_AreFrozen(t *testing.T) {
 	want := []string{
 		"GET /{$}", "GET /actions/{id}", "GET /actions/{id}/stream",
+		"GET /domains", "GET /domains/new",
 		"GET /healthz", "GET /login", "POST /login", "POST /logout",
 		"POST /machines", "GET /machines/new", "GET /machines/{id}",
 		"POST /machines/{id}/access",
@@ -513,8 +514,8 @@ func TestSidebar_Anonymous_HasNoSidebar(t *testing.T) {
 // un nom sans dessin ne se verrait qu'à l'écran.
 func TestIcons_EveryNameFromGo_IsDrawnByTheTemplate(t *testing.T) {
 	server := newTestServer(t)
-	names := []string{iconActivity, iconAlert, iconCheck, iconClock, iconInfo, iconKey,
-		iconRefresh, iconServer, iconShield, iconTerminal, iconX}
+	names := []string{iconActivity, iconAlert, iconCheck, iconClock, iconGlobe, iconInfo, iconKey,
+		iconRefresh, iconServer, iconShield, iconTerminal, iconTrash, iconX}
 
 	for _, name := range names {
 		var drawn strings.Builder
