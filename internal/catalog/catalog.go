@@ -19,6 +19,11 @@ const proxyTimeout = 10 * time.Minute
 // un miroir qui rame, un quart d'heure n'est pas de trop.
 const socleTimeout = 15 * time.Minute
 
+// Les deux actions d'hôte virtuel lisent la machine, posent ou retirent un
+// fichier, puis attendent que le proxy relise son dossier : quinze essais à
+// une seconde, et rien de long avant. Cinq minutes couvrent tout.
+const vhostTimeout = 5 * time.Minute
+
 // Definitions rend le catalogue dans un ordre stable. Chaque appel construit
 // sa tranche : rien de partagé, donc rien de modifiable par un appelant.
 func Definitions() []Definition {
@@ -71,6 +76,35 @@ func Definitions() []Definition {
 			Reversible: true,
 			Interrupts: false,
 			Timeout:    socleTimeout,
+		},
+		{
+			Kind:  KindVhost,
+			Label: "Créer un hôte virtuel",
+			Summary: "Publie un nom sur le proxy de la machine, vers le conteneur du service. " +
+				"Le port n'est pas saisi : il est lu dans la définition du service.",
+			Scope:      ScopeDomain,
+			Place:      PlaceTarget,
+			Reversible: true,
+			Interrupts: false,
+			Timeout:    vhostTimeout,
+			Params: []ParamSpec{
+				{Name: paramDomain, Label: "nom de domaine", Type: ParamDomain, Required: true},
+				{Name: paramEnvironment, Label: "environnement", Type: ParamSlug, Required: true},
+				{Name: paramService, Label: "service", Type: ParamSlug, Required: true},
+			},
+		},
+		{
+			Kind:       KindVhostRemove,
+			Label:      "Supprimer un hôte virtuel",
+			Summary:    "Retire le fragment du nom : le proxy cesse de le servir, et il répond 404.",
+			Scope:      ScopeDomain,
+			Place:      PlaceTarget,
+			Reversible: true,
+			Interrupts: true,
+			Timeout:    vhostTimeout,
+			Params: []ParamSpec{
+				{Name: paramDomain, Label: "nom de domaine", Type: ParamDomain, Required: true},
+			},
 		},
 	}
 }

@@ -1,0 +1,25 @@
+# L'hôte virtuel de {{ .Domain }}, écrit par openCloud (« Créer un hôte
+# virtuel »). Comparé octet pour octet à chaque pose : une retouche à la main
+# sera écrasée.
+#
+# Traefik relit ce dossier tout seul : il n'y a rien à recharger.
+http:
+  routers:
+    "{{ .Domain }}":
+      rule: "Host(`{{ .Domain }}`)"
+      entryPoints:
+        - websecure
+      service: "{{ .Domain }}"
+      # TLS sans résolveur : demander le certificat est une action à part, qui
+      # reprendra ce fragment. En attendant, Traefik sert son certificat par
+      # défaut, et le nom répond.
+      tls: {}
+  services:
+    "{{ .Domain }}":
+      loadBalancer:
+        servers:
+          # Le conteneur est joint par son nom sur le réseau partagé
+          # « {{ .Network }} ». Le port est le seul trou de ce fichier :
+          # openCloud ne le connaît pas, le script le lit dans la définition du
+          # service posée sur la machine et le remplace ici.
+          - url: "http://{{ .Container }}:{{ .Port }}"

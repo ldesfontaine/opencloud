@@ -13,8 +13,8 @@ import (
 // qu'on veut — une action nouvelle se relit ici avant d'être visible.
 func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	definitions := Definitions()
-	if len(definitions) != 4 {
-		t.Fatalf("le catalogue tient %d actions, la fixture en fige 4 : mettre la fixture à jour", len(definitions))
+	if len(definitions) != 6 {
+		t.Fatalf("le catalogue tient %d actions, la fixture en fige 6 : mettre la fixture à jour", len(definitions))
 	}
 
 	diagnostiquer := definitions[0]
@@ -124,6 +124,67 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	if socle.NeedsConfirmation() {
 		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
 	}
+
+	vhost := definitions[4]
+	if vhost.Kind != KindVhost {
+		t.Errorf("Kind = %q", vhost.Kind)
+	}
+	if vhost.Label != "Créer un hôte virtuel" {
+		t.Errorf("Label = %q", vhost.Label)
+	}
+	if vhost.Scope != ScopeDomain {
+		t.Errorf("Scope = %q, attendu %q", vhost.Scope, ScopeDomain)
+	}
+	if vhost.Place != PlaceTarget {
+		t.Errorf("Place = %q, attendu %q", vhost.Place, PlaceTarget)
+	}
+	if !vhost.Reversible || vhost.Interrupts {
+		t.Error("Créer un hôte virtuel est réversible et ne coupe rien : elle ajoute une route")
+	}
+	if vhost.Timeout != 5*time.Minute {
+		t.Errorf("Timeout = %s, attendu 5m", vhost.Timeout)
+	}
+	// Le port n'est pas un paramètre : il est lu sur la machine, dans la
+	// définition du service (15-catalogue-actions.md §3).
+	wantParams := []ParamSpec{
+		{Name: paramDomain, Type: ParamDomain},
+		{Name: paramEnvironment, Type: ParamSlug},
+		{Name: paramService, Type: ParamSlug},
+	}
+	if len(vhost.Params) != len(wantParams) {
+		t.Fatalf("Params = %v, attendu %d paramètres", vhost.Params, len(wantParams))
+	}
+	for index, want := range wantParams {
+		got := vhost.Params[index]
+		if got.Name != want.Name || got.Type != want.Type || !got.Required {
+			t.Errorf("paramètre %d = %+v, attendu %q de type %q, requis", index, got, want.Name, want.Type)
+		}
+	}
+	for _, spec := range vhost.Params {
+		if spec.Name == "port" {
+			t.Error("le port ne se saisit pas : il est lu dans la définition du service")
+		}
+	}
+
+	removal := definitions[5]
+	if removal.Kind != KindVhostRemove {
+		t.Errorf("Kind = %q", removal.Kind)
+	}
+	if removal.Label != "Supprimer un hôte virtuel" {
+		t.Errorf("Label = %q", removal.Label)
+	}
+	if removal.Scope != ScopeDomain {
+		t.Errorf("Scope = %q, attendu %q", removal.Scope, ScopeDomain)
+	}
+	if !removal.Interrupts {
+		t.Error("Supprimer un hôte virtuel coupe le nom : elle s'annonce comme telle")
+	}
+	if !removal.NeedsConfirmation() {
+		t.Error("une action qui coupe se confirme")
+	}
+	if len(removal.Params) != 1 || removal.Params[0].Name != paramDomain {
+		t.Errorf("Params = %v, attendu le seul nom de domaine", removal.Params)
+	}
 }
 
 // La liste de paquets du socle est la seule source : elle est embarquée, elle
@@ -168,6 +229,12 @@ func TestLookup_FindsWhatTheCatalogHoldsAndNothingElse(t *testing.T) {
 	}
 	if _, found := Lookup(KindSocle); !found {
 		t.Error("Poser le socle doit être trouvée")
+	}
+	if _, found := Lookup(KindVhost); !found {
+		t.Error("Créer un hôte virtuel doit être trouvée")
+	}
+	if _, found := Lookup(KindVhostRemove); !found {
+		t.Error("Supprimer un hôte virtuel doit être trouvée")
 	}
 	if _, found := Lookup(Kind("inconnue")); found {
 		t.Error("une action inconnue ne doit pas être trouvée")

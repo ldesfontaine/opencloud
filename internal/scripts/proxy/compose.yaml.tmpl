@@ -42,3 +42,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    networks:
+      - {{ .SharedNetwork }}
+
+# Le réseau que le proxy partage avec les services qu'il publie. Il est créé
+# par l'action, avant ce fichier, et déclaré externe : deux projets compose
+# distincts ne peuvent pas se joindre autrement.
+networks:
+  {{ .SharedNetwork }}:
+    external: true

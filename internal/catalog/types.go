@@ -14,6 +14,8 @@ const (
 	KindEnroler       Kind = "enroler"
 	KindProxy         Kind = "proxy"
 	KindSocle         Kind = "socle"
+	KindVhost         Kind = "vhost"
+	KindVhostRemove   Kind = "vhost-remove"
 )
 
 // Scope : ce que l'action touche (05-execution.md, « les quatre attributs »).
