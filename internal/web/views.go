@@ -121,6 +121,9 @@ type preparedFile struct {
 	Path string
 	Size string
 	Mode string
+	// Le contenu rendu, ligne par ligne : l'écran « avant » montre ce qui va
+	// être écrit, pas seulement son nom (15-catalogue-actions.md §1).
+	Lines []string
 }
 
 // refusalView : ce qui a été refusé, en deux temps — la cause, puis le geste
@@ -298,9 +301,10 @@ func describeFiles(files []catalog.File) []preparedFile {
 	var described []preparedFile
 	for _, file := range files {
 		described = append(described, preparedFile{
-			Path: file.Path,
-			Size: fmt.Sprintf("%d octets", len(file.Content)),
-			Mode: fmt.Sprintf("%04o", file.Mode.Perm()),
+			Path:  file.Path,
+			Size:  fmt.Sprintf("%d octets", len(file.Content)),
+			Mode:  fmt.Sprintf("%04o", file.Mode.Perm()),
+			Lines: strings.Split(strings.TrimRight(string(file.Content), "\n"), "\n"),
 		})
 	}
 	return described

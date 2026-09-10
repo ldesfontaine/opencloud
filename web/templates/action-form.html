@@ -24,10 +24,19 @@
           {{end}}
         </tbody>
       </table>
+      {{range .Files}}
+      <details class="raw">
+        <summary>{{template "icon-copy"}}{{.Path}}</summary>
+        <div class="output compact">
+          {{range .Lines}}<div class="line plain">{{.}}</div>{{end}}
+        </div>
+      </details>
+      {{end}}
+      <p class="hint">Chaque fichier est comparé octet pour octet à celui de la machine
+      avant d'être écrit : identique, il n'est pas réécrit et l'action le dit.</p>
       {{else}}
       <p class="muted">Aucun fichier à poser.</p>
       {{end}}
-      <p class="hint">La comparaison avec ce qui est sur la machine viendra plus tard.</p>
     </section>
 
     <section class="card">

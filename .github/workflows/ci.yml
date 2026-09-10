@@ -104,7 +104,7 @@ jobs:
   # code de sortie du conteneur.
   package-debian:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -116,9 +116,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # Le conteneur porte systemd, pas de démon Docker : privilégié et cgroups
-      # de l'hôte lui suffisent, rien n'est imbriqué.
-      - name: installation, mise à jour, Diagnostiquer et Poser le socle sur Debian 12
+      # Le conteneur porte systemd et, une fois le socle posé, son propre démon
+      # Docker : privilégié et cgroups de l'hôte lui suffisent.
+      - name: installation, mise à jour, Diagnostiquer, socle et proxy sur Debian 12
         run: make package-test
 
   plumber:

@@ -13,8 +13,8 @@ import (
 // qu'on veut — une action nouvelle se relit ici avant d'être visible.
 func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	definitions := Definitions()
-	if len(definitions) != 3 {
-		t.Fatalf("le catalogue tient %d actions, la fixture en fige 3 : mettre la fixture à jour", len(definitions))
+	if len(definitions) != 4 {
+		t.Fatalf("le catalogue tient %d actions, la fixture en fige 4 : mettre la fixture à jour", len(definitions))
 	}
 
 	diagnostiquer := definitions[0]
@@ -73,7 +73,33 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		t.Errorf("paramètre = %+v", publicKey)
 	}
 
-	socle := definitions[2]
+	proxy := definitions[2]
+	if proxy.Kind != KindProxy {
+		t.Errorf("Kind = %q", proxy.Kind)
+	}
+	if proxy.Label != "Installer le proxy" {
+		t.Errorf("Label = %q", proxy.Label)
+	}
+	if proxy.Scope != ScopeMachine {
+		t.Errorf("Scope = %q, attendu %q", proxy.Scope, ScopeMachine)
+	}
+	if proxy.Place != PlaceTarget {
+		t.Errorf("Place = %q, attendu %q", proxy.Place, PlaceTarget)
+	}
+	if !proxy.Reversible || proxy.Interrupts {
+		t.Error("Installer le proxy est réversible et ne coupe rien : rien ne tourne encore derrière")
+	}
+	if proxy.Timeout != 10*time.Minute {
+		t.Errorf("Timeout = %s, attendu 10m", proxy.Timeout)
+	}
+	if len(proxy.Params) != 0 {
+		t.Errorf("Params = %v, attendu aucun", proxy.Params)
+	}
+	if proxy.NeedsConfirmation() {
+		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
+	}
+
+	socle := definitions[3]
 	if socle.Kind != KindSocle {
 		t.Errorf("Kind = %q", socle.Kind)
 	}
@@ -136,6 +162,9 @@ func TestLookup_FindsWhatTheCatalogHoldsAndNothingElse(t *testing.T) {
 	}
 	if _, found := Lookup(KindEnroler); !found {
 		t.Error("Enroler doit être trouvée")
+	}
+	if _, found := Lookup(KindProxy); !found {
+		t.Error("Installer le proxy doit être trouvée")
 	}
 	if _, found := Lookup(KindSocle); !found {
 		t.Error("Poser le socle doit être trouvée")

@@ -47,6 +47,10 @@ func Prepare(kind Kind, params map[string]string) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, fmt.Errorf("assemble script: %w", err)
 	}
+	files, err := renderFiles(kind)
+	if err != nil {
+		return Prepared{}, err
+	}
 
 	digest := sha256.Sum256(script)
 	return Prepared{
@@ -55,7 +59,19 @@ func Prepare(kind Kind, params map[string]string) (Prepared, error) {
 		Script:       script,
 		ScriptDigest: scriptDigestPrefix + hex.EncodeToString(digest[:]),
 		ParamsEnv:    paramsEnv,
+		Files:        files,
 	}, nil
+}
+
+// renderFiles rend ce que l'action dépose sous files/. Une action qui ne pose
+// aucun fichier n'en rend aucun, et ce n'est pas une erreur.
+func renderFiles(kind Kind) ([]File, error) {
+	switch kind {
+	case KindProxy:
+		return proxyFiles()
+	default:
+		return nil, nil
+	}
 }
 
 func validateParams(definition Definition, params map[string]string) (map[string]string, error) {

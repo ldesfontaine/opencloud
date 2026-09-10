@@ -1,0 +1,44 @@
+# Le proxy de cette machine, écrit par openCloud (« Installer le proxy »).
+# Comparé octet pour octet à chaque pose : une retouche à la main sera écrasée.
+#
+# Un seul proxy par machine, partagé par ses environnements (03-modele.md).
+
+services:
+  traefik:
+    # Épinglée par digest : le tag reste lisible, c'est le digest qui décide.
+    image: {{ .Image }}
+    container_name: {{ .ContainerName }}
+    restart: unless-stopped
+    # La porte de la machine, et rien d'autre. Aucune socket Docker n'est
+    # montée : les routes viennent du fournisseur file.
+    ports:
+      - "{{ .ClearPort }}:{{ .ClearPort }}"
+      - "{{ .SecurePort }}:{{ .SecurePort }}"
+    volumes:
+      - {{ .StaticConfigFile }}:{{ .ContainerStaticConfigFile }}:ro
+      - {{ .FragmentsDir }}:{{ .ContainerFragmentsDir }}:ro
+      # En écriture : Traefik y garde les certificats et leurs clés, et y lit
+      # le jeton DNS de la zone.
+      - {{ .AcmeDir }}:{{ .ContainerAcmeDir }}
+    environment:
+      # Le jeton de la zone Cloudflare, lu dans un fichier : il n'apparaît ni
+      # dans l'environnement du conteneur, ni dans « docker inspect ».
+      CF_DNS_API_TOKEN_FILE: {{ .ContainerTokenFile }}
+    # Rien à écrire hors des montages déclarés.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      # Se lier à 80 et 443, et rien de plus.
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    # Le journal d'accès du proxy est bavard : borné ici, il ne remplit pas le
+    # disque de la machine.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

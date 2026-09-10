@@ -31,6 +31,7 @@ type describedItem struct {
 // aucune liste : la table dit ce qu'on sait dire, pas ce qu'on promet.
 var actionDescriptions = map[catalog.Kind]func() actionDescription{
 	catalog.KindDiagnostiquer: diagnosticDescription,
+	catalog.KindProxy:         proxyDescription,
 	catalog.KindSocle:         socleDescription,
 }
 
@@ -55,6 +56,24 @@ func diagnosticDescription() actionDescription {
 			{Icon: iconShield, Label: "les ports 80 et 443"},
 			{Icon: iconCheck, Label: "la norme /srv : workspace et data"},
 			{Icon: iconKey, Label: "le lanceur : propriétaire, mode, empreinte"},
+		},
+	}
+}
+
+// Ni la version, ni l'image, ni les chemins ne se recopient ici : ils vivent
+// dans le catalogue, qui les décide, et l'écran les relit.
+func proxyDescription() actionDescription {
+	proxy := catalog.Proxy()
+	return actionDescription{
+		Line:       "Pose Traefik sur la machine : il tient les ports 80 et 443 et servira les hôtes virtuels.",
+		ItemsTitle: "Ce qui va être posé",
+		Items: []describedItem{
+			{Icon: iconServer, Label: "Traefik " + proxy.Version + ", épinglée par digest : " + proxy.Image},
+			{Icon: iconCheck, Label: "le service et sa configuration statique : " + proxy.ServiceDir},
+			{Icon: iconTerminal, Label: "les cibles standard qu'un service inclut : " + proxy.CommonMakefile},
+			{Icon: iconRefresh, Label: "le dossier des hôtes virtuels, relu tout seul : " + proxy.FragmentsDir},
+			{Icon: iconKey, Label: "le dossier des certificats et du jeton DNS : " + proxy.AcmeDir},
+			{Icon: iconShield, Label: "les ports 80 et 443, qui doivent être libres"},
 		},
 	}
 }
