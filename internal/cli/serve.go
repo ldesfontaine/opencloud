@@ -14,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/catalog"
+	"github.com/ldesfontaine/opencloud/internal/cloudflare"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/domain"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -21,8 +22,20 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/systemd"
 	"github.com/ldesfontaine/opencloud/internal/web"
+	"github.com/ldesfontaine/opencloud/internal/zone"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
+
+// observers prévient plusieurs suiveurs d'une même conclusion, dans l'ordre.
+// Le runner n'en connaît qu'un ; savoir qu'ils sont deux est une affaire de
+// câblage.
+type observers []runner.Observer
+
+func (list observers) ActionConcluded(ctx context.Context, action store.Action) {
+	for _, observer := range list {
+		observer.ActionConcluded(ctx, action)
+	}
+}
 
 const (
 	stateDirMode      = 0o700
@@ -78,7 +91,12 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 	// La table des hôtes virtuels suit les conclusions du runner : elle est
 	// écrite quand une publication aboutit, pas quand on la demande.
 	domains := domain.New(database, logger)
-	actionRunner := runner.New(database, catalog.Service{}, machines, domains, logger)
+	// Les zones Cloudflare et leurs jetons. Le gardien est aussi la source des
+	// jetons du catalogue : lui seul lit les fichiers, et il ne les rend qu'à
+	// l'action qui les dépose.
+	zones := zone.New(root, database, cloudflare.New(cfg.CloudflareAPIURL), logger)
+	actionRunner := runner.New(database, catalog.Service{Tokens: zones}, machines,
+		observers{domains, zones}, logger)
 	defer actionRunner.Close()
 	if err := actionRunner.Resume(ctx); err != nil {
 		return fmt.Errorf("reprendre les actions en cours : %w", err)
@@ -101,11 +119,12 @@ func runServe(ctx context.Context, args []string, version string, errOut io.Writ
 		Auth:        authService,
 		Machines:    database,
 		Domains:     database,
+		Zones:       zones,
 		Declaration: machineDeclaration{store: database},
 		Enrolment:   machines,
 		Enroller:    machines,
 		Actions:     actionRunner,
-		Catalog:     catalog.Service{},
+		Catalog:     catalog.Service{Tokens: zones},
 		Prober:      machineHealth{checker: checker, store: database},
 
 		TrustedProxies: trustedProxies,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,11 @@ type Config struct {
 	// défaut (OWASP, compte d'administration) ; 0 lève la règle, pour un
 	// réseau de confiance (08-securite-et-secrets.md).
 	MinPasswordLength int `toml:"min_password_length"`
+	// Racine de l'API Cloudflare. Vide en production : c'est celle de
+	// Cloudflare. **Développement et tests seulement** — le test de bout en
+	// bout la fait pointer sur un faux Cloudflare local, pour éprouver
+	// l'ajout d'une zone sans compte ni jeton réels.
+	CloudflareAPIURL string `toml:"cloudflare_api_url"`
 	// Proxies de confiance, adresses ou CIDR : derrière eux seulement,
 	// X-Forwarded-For dit l'adresse d'origine. Vide par défaut, donc
 	// l'en-tête est ignoré — n'importe qui peut l'écrire.
@@ -175,6 +181,26 @@ func (cfg Config) validate() error {
 	}
 	if _, err := ParseTrustedProxies(cfg.TrustedProxies); err != nil {
 		return fmt.Errorf("clé « trusted_proxies » : %w", err)
+	}
+	if err := validateCloudflareAPIURL(cfg.CloudflareAPIURL); err != nil {
+		return fmt.Errorf("clé « cloudflare_api_url » : %w", err)
+	}
+	return nil
+}
+
+// validateCloudflareAPIURL n'accepte qu'une racine absolue en http ou https.
+// Vide, c'est celle de Cloudflare : la clé ne sert qu'aux tests.
+func validateCloudflareAPIURL(value string) error {
+	if value == "" {
+		return nil
+	}
+
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("attendu une URL, reçu %q", value)
+	}
+	if parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("attendu une racine http:// ou https://, reçue %q", value)
 	}
 	return nil
 }

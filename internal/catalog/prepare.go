@@ -29,7 +29,14 @@ var (
 // Prepare valide les paramètres et rend tout ce que l'action dépose. Un
 // paramètre inconnu, manquant ou hors forme est un refus nommé, avant tout
 // effet.
+//
+// Sans source de jetons : les actions qui n'en ont pas besoin se préparent
+// quand même, « Poser le jeton DNS » non.
 func Prepare(kind Kind, params map[string]string) (Prepared, error) {
+	return prepare(kind, params, nil)
+}
+
+func prepare(kind Kind, params map[string]string, tokens Tokens) (Prepared, error) {
 	definition, found := Lookup(kind)
 	if !found {
 		return Prepared{}, fmt.Errorf("%w: %s", ErrUnknownKind, kind)
@@ -47,7 +54,7 @@ func Prepare(kind Kind, params map[string]string) (Prepared, error) {
 	if err != nil {
 		return Prepared{}, fmt.Errorf("assemble script: %w", err)
 	}
-	files, err := renderFiles(kind, validated)
+	files, err := renderFiles(kind, validated, tokens)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -65,12 +72,14 @@ func Prepare(kind Kind, params map[string]string) (Prepared, error) {
 
 // renderFiles rend ce que l'action dépose sous files/. Une action qui ne pose
 // aucun fichier n'en rend aucun, et ce n'est pas une erreur.
-func renderFiles(kind Kind, params map[string]string) ([]File, error) {
+func renderFiles(kind Kind, params map[string]string, tokens Tokens) ([]File, error) {
 	switch kind {
 	case KindProxy:
 		return proxyFiles()
 	case KindVhost:
 		return vhostFiles(params)
+	case KindDNSToken:
+		return dnsTokenFiles(params, tokens)
 	default:
 		return nil, nil
 	}

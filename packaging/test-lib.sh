@@ -117,6 +117,29 @@ launch_vhost_removal() {
     launch_action_with vhost-remove "domain=$1" "confirm=oui"
 }
 
+# Poser le jeton DNS coupe brièvement — Traefik redémarre si le fichier change
+# —, donc l'écran « avant » exige la confirmation.
+# usage : launch_dns_token <zone>
+launch_dns_token() {
+    launch_action_with dns-token "zone=$1" "confirm=oui"
+}
+
+# POST d'un formulaire de zone. Le jeton part dans le corps, jamais dans l'URL.
+# usage : post_zone <chemin> <champ=valeur>…
+post_zone() {
+    local path=$1 token
+    shift
+    token=$(csrf_of /domains)
+    [ -n "$token" ] || fail "pas de jeton CSRF sur la vue Domaines"
+
+    local fields=(--data-urlencode "_csrf=$token")
+    local field
+    for field in "$@"; do
+        fields+=(--data-urlencode "$field")
+    done
+    post_form "$path" "${fields[@]}"
+}
+
 # Attend qu'une action soit conclue et imprime sa page. Le second argument dit
 # combien de secondes attendre : Poser le socle télécharge des paquets, elle ne
 # tient pas dans le délai des autres.

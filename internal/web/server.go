@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/catalog"
 	"github.com/ldesfontaine/opencloud/internal/runner"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/zone"
 	assets "github.com/ldesfontaine/opencloud/web"
 )
 
@@ -38,6 +39,17 @@ type Machines interface {
 // aboutit — jamais par l'interface.
 type Domains interface {
 	Domains(ctx context.Context) ([]store.Domain, error)
+}
+
+// Zones est la section « Zones Cloudflare » de la vue Domaines. Le vrai est
+// *zone.Keeper. Le jeton entre par Add et Rotate, il ne ressort jamais : rien
+// ici ne le rend.
+type Zones interface {
+	Zones(ctx context.Context) ([]zone.Zone, error)
+	Names(ctx context.Context) ([]string, error)
+	Add(ctx context.Context, name, token string) error
+	Rotate(ctx context.Context, name, token string) error
+	Remove(ctx context.Context, name string) error
 }
 
 // MachineDeclaration est l'écriture : déclarer une machine, changer son
@@ -111,6 +123,7 @@ type Dependencies struct {
 	Auth        Authenticator
 	Machines    Machines
 	Domains     Domains
+	Zones       Zones
 	Declaration MachineDeclaration
 	Enrolment   Enrolment
 	Enroller    Enroller
@@ -127,6 +140,7 @@ type Server struct {
 	auth        Authenticator
 	machines    Machines
 	domains     Domains
+	zones       Zones
 	declaration MachineDeclaration
 	enrolment   Enrolment
 	enroller    Enroller
@@ -163,6 +177,7 @@ func New(deps Dependencies, version string, logger *slog.Logger) (*Server, error
 		auth:        deps.Auth,
 		machines:    deps.Machines,
 		domains:     deps.Domains,
+		zones:       deps.Zones,
 		declaration: deps.Declaration,
 		enrolment:   deps.Enrolment,
 		enroller:    deps.Enroller,
@@ -209,6 +224,9 @@ func (s *Server) routes() []route {
 		{"GET /password", s.requireAccount(s.showPasswordChange)},
 		{"POST /password", s.requireAccount(s.submitPasswordChange)},
 		{"GET /static/", s.static},
+		{"POST /zones", s.requireAccount(s.submitZone)},
+		{"POST /zones/{name}/remove", s.requireAccount(s.submitZoneRemoval)},
+		{"POST /zones/{name}/token", s.requireAccount(s.submitZoneRotation)},
 	}
 }
 
@@ -244,6 +262,13 @@ func (s *Server) actionsReady() bool {
 // d'action des machines : sans l'une ou les autres, elle n'existe pas.
 func (s *Server) domainsReady() bool {
 	return s.domains != nil && s.actionsReady()
+}
+
+// La section « Zones Cloudflare » vit dans la vue Domaines et mène aux
+// formulaires d'action des machines : sans l'une ou les autres, elle n'existe
+// pas.
+func (s *Server) zonesReady() bool {
+	return s.zones != nil && s.domainsReady()
 }
 
 // Déclarer une machine demande l'écriture du store et l'enrôlement : sans

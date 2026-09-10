@@ -60,9 +60,9 @@ const (
 	proxyContainerTokenFile        = proxyContainerAcmeDir + "/" + proxyTokenFileName
 )
 
-// proxyTokenFileName : le jeton DNS de la zone, posé par « Faire tourner un
-// jeton DNS » à côté des certificats qu'il sert à obtenir. Le script le nomme
-// aussi, pour dire à l'opérateur qu'il manque encore.
+// proxyTokenFileName : le jeton DNS de la zone, posé par « Poser le jeton
+// DNS » à côté des certificats qu'il sert à obtenir. Le script le nomme aussi,
+// pour dire à l'opérateur qu'il manque encore.
 const proxyTokenFileName = "cloudflare.token"
 
 // Les noms des fichiers déposés sous files/, dans l'ordre où le script s'en

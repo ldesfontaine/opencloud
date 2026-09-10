@@ -17,20 +17,27 @@
       <h2>{{template "icon-copy"}}Fichiers déposés sur la machine</h2>
       {{if .Files}}
       <table class="grid">
-        <thead><tr><th>Chemin</th><th>Taille</th><th>Mode</th></tr></thead>
+        <thead><tr><th>Chemin</th><th>Taille</th><th>Mode</th><th></th></tr></thead>
         <tbody>
           {{range .Files}}
-          <tr><td class="mono">{{.Path}}</td><td>{{.Size}}</td><td class="mono">{{.Mode}}</td></tr>
+          <tr>
+            <td class="mono">{{.Path}}</td>
+            <td>{{.Size}}</td>
+            <td class="mono">{{.Mode}}</td>
+            <td>{{if .Secret}}{{template "icon-key"}}<span class="muted">secret, non affiché</span>{{end}}</td>
+          </tr>
           {{end}}
         </tbody>
       </table>
       {{range .Files}}
+      {{if not .Secret}}
       <details class="raw">
         <summary>{{template "icon-copy"}}{{.Path}}</summary>
         <div class="output compact">
           {{range .Lines}}<div class="line plain">{{.}}</div>{{end}}
         </div>
       </details>
+      {{end}}
       {{end}}
       <p class="hint">Chaque fichier est comparé octet pour octet à celui de la machine
       avant d'être écrit : identique, il n'est pas réécrit et l'action le dit.</p>
@@ -53,11 +60,26 @@
         <div id="action-params">
           {{range .Params}}
           <label for="{{.Name}}">{{.Label}}</label>
+          {{$choices := index $.Data.Choices .Name}}
+          {{if $choices}}
+          {{/* Un paramètre dont openCloud connaît les valeurs se choisit, il ne
+               se tape pas : une zone absente de la liste n'a pas de jeton. */}}
+          <select id="{{.Name}}" name="{{.Name}}"{{if .Required}} required{{end}}
+                  hx-get="/machines/{{$.Data.Machine.ID}}/actions/{{$.Data.Kind}}"
+                  hx-trigger="change"
+                  hx-include="#action-params"
+                  hx-target="#deposited-files" hx-select="#deposited-files" hx-swap="outerHTML">
+            <option value="">— choisir —</option>
+            {{$chosen := index $.Data.Values .Name}}
+            {{range $choices}}<option value="{{.}}"{{if eq . $chosen}} selected{{end}}>{{.}}</option>{{end}}
+          </select>
+          {{else}}
           <input id="{{.Name}}" name="{{.Name}}" type="text" value="{{index $.Data.Values .Name}}"{{if .Required}} required{{end}}
                  hx-get="/machines/{{$.Data.Machine.ID}}/actions/{{$.Data.Kind}}"
                  hx-trigger="change, keyup changed delay:500ms"
                  hx-include="#action-params"
                  hx-target="#deposited-files" hx-select="#deposited-files" hx-swap="outerHTML">
+          {{end}}
           {{else}}
           <p class="muted">Cette action ne prend aucun paramètre.</p>
           {{end}}

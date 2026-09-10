@@ -13,8 +13,8 @@ import (
 // qu'on veut — une action nouvelle se relit ici avant d'être visible.
 func TestDefinitions_AreTheFrozenList(t *testing.T) {
 	definitions := Definitions()
-	if len(definitions) != 6 {
-		t.Fatalf("le catalogue tient %d actions, la fixture en fige 6 : mettre la fixture à jour", len(definitions))
+	if len(definitions) != 7 {
+		t.Fatalf("le catalogue tient %d actions, la fixture en fige 7 : mettre la fixture à jour", len(definitions))
 	}
 
 	diagnostiquer := definitions[0]
@@ -46,7 +46,39 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
 	}
 
-	enroler := definitions[1]
+	dnsToken := definitions[1]
+	if dnsToken.Kind != KindDNSToken {
+		t.Errorf("Kind = %q", dnsToken.Kind)
+	}
+	if dnsToken.Label != "Poser le jeton DNS" {
+		t.Errorf("Label = %q", dnsToken.Label)
+	}
+	if dnsToken.Scope != ScopeDomain {
+		t.Errorf("Scope = %q, attendu %q", dnsToken.Scope, ScopeDomain)
+	}
+	if dnsToken.Place != PlaceTarget {
+		t.Errorf("Place = %q, attendu %q", dnsToken.Place, PlaceTarget)
+	}
+	if !dnsToken.Reversible {
+		t.Error("Poser le jeton DNS est réversible : on repose l'ancien jeton")
+	}
+	if !dnsToken.Interrupts {
+		t.Error("Poser le jeton DNS coupe brièvement : Traefik redémarre si le fichier change")
+	}
+	if !dnsToken.NeedsConfirmation() {
+		t.Error("une action qui coupe se confirme")
+	}
+	if dnsToken.Timeout != 5*time.Minute {
+		t.Errorf("Timeout = %s, attendu 5m", dnsToken.Timeout)
+	}
+	if len(dnsToken.Params) != 1 || dnsToken.Params[0].Name != paramZone || !dnsToken.Params[0].Required {
+		t.Errorf("Params = %v, attendu la seule zone, requise", dnsToken.Params)
+	}
+	if dnsToken.Params[0].Type != ParamDomain {
+		t.Errorf("la zone est un nom de domaine, type = %q", dnsToken.Params[0].Type)
+	}
+
+	enroler := definitions[2]
 	if enroler.Kind != KindEnroler {
 		t.Errorf("Kind = %q", enroler.Kind)
 	}
@@ -73,7 +105,7 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		t.Errorf("paramètre = %+v", publicKey)
 	}
 
-	proxy := definitions[2]
+	proxy := definitions[3]
 	if proxy.Kind != KindProxy {
 		t.Errorf("Kind = %q", proxy.Kind)
 	}
@@ -99,7 +131,7 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
 	}
 
-	socle := definitions[3]
+	socle := definitions[4]
 	if socle.Kind != KindSocle {
 		t.Errorf("Kind = %q", socle.Kind)
 	}
@@ -125,7 +157,7 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		t.Error("une action réversible qui n'interrompt rien ne se confirme pas")
 	}
 
-	vhost := definitions[4]
+	vhost := definitions[5]
 	if vhost.Kind != KindVhost {
 		t.Errorf("Kind = %q", vhost.Kind)
 	}
@@ -166,7 +198,7 @@ func TestDefinitions_AreTheFrozenList(t *testing.T) {
 		}
 	}
 
-	removal := definitions[5]
+	removal := definitions[6]
 	if removal.Kind != KindVhostRemove {
 		t.Errorf("Kind = %q", removal.Kind)
 	}

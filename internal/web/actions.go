@@ -136,11 +136,28 @@ func (s *Server) newActionFormView(r *http.Request, machine store.Machine, defin
 		view.ItemsTitle = description.ItemsTitle
 		view.Items = description.Items
 	}
+	view.Choices = s.choicesFor(r, definition)
 	if prepared, err := s.catalog.Prepare(definition.Kind, values); err == nil {
 		view.FilesKnown = true
 		view.Files = describeFiles(prepared.Files)
 	}
 	return view
+}
+
+// choicesFor rend les valeurs qu'un paramètre accepte, quand la liste est
+// connue d'openCloud. La zone d'un jeton DNS en est une : on ne pose que le
+// jeton d'une zone enregistrée, il n'y a rien à saisir à la main.
+func (s *Server) choicesFor(r *http.Request, definition catalog.Definition) map[string][]string {
+	if definition.Kind != catalog.KindDNSToken || s.zones == nil {
+		return nil
+	}
+
+	names, err := s.zones.Names(r.Context())
+	if err != nil {
+		s.logger.Warn("list zones for the action form", "kind", definition.Kind, "error", err)
+		return nil
+	}
+	return map[string][]string{zoneNameFieldName: names}
 }
 
 func (s *Server) showAction(w http.ResponseWriter, r *http.Request, account store.Account) {

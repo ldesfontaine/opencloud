@@ -166,6 +166,22 @@ func labelDomainsSubtitle(domainCount int) string {
 	return fmt.Sprintf("%d noms publiés, constatés sur leurs machines.", domainCount)
 }
 
+// Ce qu'une machine porte du jeton d'une zone. Moins de texte, plus de
+// signes : la pastille dit l'état, le libellé n'est là que pour l'infobulle
+// et le lecteur d'écran.
+const (
+	markCurrent = "✓"
+	markStale   = "⚠"
+	markAbsent  = "·"
+
+	// #nosec G101 -- trois libellés d'interface, pas un secret
+	labelTokenCurrent = "jeton à jour"
+	// #nosec G101 -- idem
+	labelTokenStale = "ancien jeton : rejouer la pose"
+	// #nosec G101 -- idem
+	labelTokenAbsent = "jeton jamais posé"
+)
+
 func labelReachableSince(age time.Duration) string {
 	minutes := int(age.Minutes())
 	if minutes < 1 {

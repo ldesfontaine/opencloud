@@ -17,7 +17,7 @@ export SOURCE_DATE_EPOCH
 NFPM_VERSION = v2.47.0
 DIST ?= dist
 
-.PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test temoin-up temoin-down clean
+.PHONY: build run test vet fmt fmtcheck lint vuln sec shellcheck plumber ci release reproducible package-test fake-cloudflare temoin-up temoin-down clean
 
 # La cible est fixée : le paquet déclare amd64, les binaires doivent l'être aussi.
 # Le lanceur n'a pas de version : il ne se met à jour qu'avec le paquet.
@@ -96,6 +96,7 @@ reproducible: release
 package-test:
 	$(MAKE) release VERSION=0.0.1 DIST=$(DIST)/test-old
 	$(MAKE) release VERSION=0.0.2 DIST=$(DIST)/test-new
+	$(MAKE) fake-cloudflare
 	docker build -q -t opencloud-package-test packaging/test-image >/dev/null
 	docker rm -f -v opencloud-package-test >/dev/null 2>&1 || true
 	docker run -d --name opencloud-package-test --privileged --cgroupns=host \
@@ -107,6 +108,14 @@ package-test:
 	docker exec opencloud-package-test /packaging/test-install.sh /dist/test-old/opencloud_0.0.1_amd64.deb /dist/test-new/opencloud_0.0.2_amd64.deb \
 		&& docker exec opencloud-package-test /packaging/test-action.sh /dist/test-new/opencloud_0.0.2_amd64.deb --avec-socle; \
 	status=$$?; docker rm -f -v opencloud-package-test >/dev/null; exit $$status
+
+# Le faux Cloudflare du test de bout en bout, dans DIST parce que c'est le seul
+# dossier que le conteneur voit. Jamais publié : release ne le construit pas,
+# et le paquet ne l'emporte pas.
+fake-cloudflare:
+	mkdir -p $(DIST)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -buildvcs=false \
+		-o $(DIST)/fake-cloudflare ./packaging/fake-cloudflare
 
 # Le témoin : une machine Debian jetable avec systemd et sshd, à enrôler depuis
 # l'interface pour développer l'enrôlement à distance. Son sshd est publié sur

@@ -24,6 +24,11 @@ const socleTimeout = 15 * time.Minute
 // une seconde, et rien de long avant. Cinq minutes couvrent tout.
 const vhostTimeout = 5 * time.Minute
 
+// Poser le jeton DNS compare un fichier, le pose, puis redémarre le proxy et
+// attend qu'il réponde : quinze essais à une seconde, plus le temps que
+// compose arrête et relance le conteneur. Cinq minutes couvrent tout.
+const dnsTokenTimeout = 5 * time.Minute
+
 // Definitions rend le catalogue dans un ordre stable. Chaque appel construit
 // sa tranche : rien de partagé, donc rien de modifiable par un appelant.
 func Definitions() []Definition {
@@ -37,6 +42,22 @@ func Definitions() []Definition {
 			Reversible: true,
 			Interrupts: false,
 			Timeout:    diagnostiquerTimeout,
+		},
+		{
+			Kind:  KindDNSToken,
+			Label: "Poser le jeton DNS",
+			Summary: "Pose sur la machine le jeton Cloudflare de la zone, à côté des certificats. " +
+				"Le proxy redémarre si le fichier change : c'est au démarrage que le résolveur le lit.",
+			Scope:      ScopeDomain,
+			Place:      PlaceTarget,
+			Reversible: true,
+			// Traefik redémarre quand le jeton change : quelques secondes sans
+			// réponse sur la machine, et l'écran « avant » le dit.
+			Interrupts: true,
+			Timeout:    dnsTokenTimeout,
+			Params: []ParamSpec{
+				{Name: paramZone, Label: "zone Cloudflare", Type: ParamDomain, Required: true},
+			},
 		},
 		{
 			Kind:  KindEnroler,

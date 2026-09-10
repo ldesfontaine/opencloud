@@ -7,7 +7,8 @@
 #
 # --avec-socle joue en plus « Poser le socle », qui ouvre le dépôt officiel de
 # Docker et installe docker-ce, puis « Installer le proxy », qui prend les
-# ports 80 et 443 de la machine : à réserver à une machine jetable. Le job
+# ports 80 et 443 de la machine, puis la zone Cloudflare et « Poser le jeton
+# DNS », qui redémarre le proxy : à réserver à une machine jetable. Le job
 # « package » de la CI joue ce script sur le runner GitHub lui-même, dont le
 # Docker déjà posé et le témoin, enrôlé juste après, n'ont rien à y gagner.
 set -euo pipefail
@@ -26,6 +27,19 @@ PROXY_UNKNOWN_NAME=proxy-inconnu.invalid
 # Créer un hôte virtuel lit la machine, pose un fichier et attend que le proxy
 # relise son dossier : rien de long.
 VHOST_TIMEOUT=120
+# Poser le jeton DNS redémarre le proxy et attend qu'il réponde.
+DNS_TOKEN_TIMEOUT=180
+# La zone du test : .test est réservé (RFC 2606), aucun DNS ne la sert. Les
+# jetons sont fabriqués ici, pour un faux Cloudflare qui ne parle qu'à ce test.
+ZONE_NAME=exemple.test
+ZONE_TOKEN="jetable-$(date +%s)-zone"
+ZONE_NEW_TOKEN="jetable-$(date +%s)-zone-tournee"
+ZONE_TOKEN_FILE=/var/lib/opencloud/zones/$ZONE_NAME.token
+PROXY_TOKEN_FILE=/srv/data/acme/cloudflare.token
+# Le faux Cloudflare, construit par « make fake-cloudflare » dans dist/, que le
+# conteneur voit sous /dist. Jamais installé, jamais publié.
+FAKE_CLOUDFLARE=${FAKE_CLOUDFLARE:-/dist/fake-cloudflare}
+FAKE_CLOUDFLARE_LISTEN=127.0.0.1:9123
 # Le service témoin, versionné dans le dépôt, posé à la main comme le ferait un
 # opérateur. .test est réservé (RFC 2606) : aucun DNS ne le sert.
 TEMOIN_SOURCE=$(dirname -- "$0")/../examples/temoin
@@ -186,6 +200,85 @@ if [ "$WITH_SOCLE" = "--avec-socle" ]; then
     printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "le second proxy ne dit pas « inchangé »"
     docker network inspect proxy > /dev/null 2>&1 || fail "le réseau partagé « proxy » n'est pas posé"
 
+    step "un faux Cloudflare, pour éprouver la zone sans compte ni jeton réels"
+    [ -x "$FAKE_CLOUDFLARE" ] || fail "le faux Cloudflare n'est pas là : $FAKE_CLOUDFLARE — « make fake-cloudflare »"
+    "$FAKE_CLOUDFLARE" -listen "$FAKE_CLOUDFLARE_LISTEN" -zone "$ZONE_NAME" \
+        -tokens "$ZONE_TOKEN,$ZONE_NEW_TOKEN" > "$WORK_DIR/fake-cloudflare.log" 2>&1 &
+    FAKE_CLOUDFLARE_PID=$!
+    trap 'kill "$FAKE_CLOUDFLARE_PID" 2> /dev/null || true' EXIT
+    # Sans jeton, le faux Cloudflare répond 401 : c'est une réponse, donc il
+    # écoute. Pas de -f, qui ferait de ce 401 un échec.
+    for _ in $(seq 1 20); do
+        if curl -sS -o /dev/null "http://$FAKE_CLOUDFLARE_LISTEN/zones" 2> /dev/null; then break; fi
+        sleep 1
+    done
+    # La clé est de développement : elle n'existe que pour ce test, et le
+    # binaire n'accepte qu'une racine http:// ou https:// (internal/config).
+    printf '\ncloudflare_api_url = "http://%s"\n' "$FAKE_CLOUDFLARE_LISTEN" >> /etc/opencloud/config.toml
+    systemctl restart opencloud.service
+    wait_for_health
+
+    step "ajouter une zone : un jeton refusé ne laisse rien, un jeton valide s'enregistre"
+    reply=$(post_zone /zones "zone=$ZONE_NAME" "token=jeton-qui-ne-vaut-rien")
+    case "$reply" in 422*) ;; *) fail "un jeton refusé par Cloudflare doit refuser l'ajout : $reply" ;; esac
+    [ ! -e "$ZONE_TOKEN_FILE" ] || fail "un jeton refusé a quand même été écrit"
+
+    reply=$(post_zone /zones "zone=$ZONE_NAME" "token=$ZONE_TOKEN")
+    case "$reply" in "303 $BASE/domains") ;; *) fail "l'ajout de la zone n'a pas abouti : $reply" ;; esac
+    [ "$(stat -c '%U %a' "$ZONE_TOKEN_FILE")" = "opencloud 600" ] || fail "le jeton de la zone n'est pas opencloud 0600"
+    page_has /domains "$ZONE_NAME" || fail "la vue Domaines ne liste pas la zone"
+    if get_page /domains | grep -q "$ZONE_TOKEN"; then
+        fail "la vue Domaines réaffiche le jeton"
+    fi
+
+    step "Poser le jeton DNS sur la machine locale, depuis l'interface"
+    page_has "/machines/local/actions/dns-token?zone=$ZONE_NAME" "secret, non affiché" \
+        || fail "l'écran « avant » ne dit pas que le fichier du jeton n'est pas affiché"
+    if page_has "/machines/local/actions/dns-token?zone=$ZONE_NAME" "$ZONE_TOKEN"; then
+        fail "l'écran « avant » montre le jeton"
+    fi
+    id=$(launch_dns_token "$ZONE_NAME")
+    page=$(wait_for_conclusion "$id" "$DNS_TOKEN_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "Poser le jeton DNS n'est pas « Appliquée »"; }
+    printf '%s' "$page" | grep -q 'résultat: fait' || fail "la première pose ne dit pas « fait »"
+    printf '%s' "$page" | grep -q 'info: jeton=' || fail "l'action ne dit pas l'empreinte du jeton posé"
+    [ "$(stat -c '%U:%G %a' "$PROXY_TOKEN_FILE")" = "root:root 600" ] || fail "le jeton posé n'est pas root:root 0600"
+    cmp -s "$ZONE_TOKEN_FILE" "$PROXY_TOKEN_FILE" || fail "le jeton posé n'est pas celui de la zone"
+
+    step "le proxy est revenu après le redémarrage : 404 en HTTPS à un nom inconnu"
+    code=$(curl -sS -k -o /dev/null -w '%{http_code}' --max-time 10 \
+        --resolve "$PROXY_UNKNOWN_NAME:443:127.0.0.1" "https://$PROXY_UNKNOWN_NAME/")
+    [ "$code" = "404" ] || fail "443 répond « $code » après la pose du jeton, attendu 404"
+
+    step "le jeton ne traîne dans aucun journal"
+    for unit in opencloud "oc-action-$id"; do
+        journalctl -u "$unit" --no-pager > "$WORK_DIR/journal-$unit.log" 2>/dev/null || true
+        if grep -q "$ZONE_TOKEN" "$WORK_DIR/journal-$unit.log"; then
+            fail "le jeton apparaît dans le journal de $unit"
+        fi
+    done
+
+    step "la vue Domaines dit que la machine est à jour"
+    page_has /domains 'jeton à jour' || fail "la vue Domaines ne dit pas que la machine porte le jeton courant"
+
+    step "le jeton rejoué : inchangé, et le proxy ne redémarre pas"
+    id=$(launch_dns_token "$ZONE_NAME")
+    page=$(wait_for_conclusion "$id" "$DNS_TOKEN_TIMEOUT")
+    printf '%s' "$page" | grep -q 'Appliquée' || fail "la seconde pose n'est pas « Appliquée »"
+    printf '%s' "$page" | grep -q 'résultat: inchangé' || fail "la seconde pose ne dit pas « inchangé »"
+
+    step "faire tourner le jeton : la machine porte encore l'ancien tant qu'on ne rejoue pas"
+    reply=$(post_zone "/zones/$ZONE_NAME/token" "token=$ZONE_NEW_TOKEN")
+    case "$reply" in "303 $BASE/domains") ;; *) fail "la rotation du jeton n'a pas abouti : $reply" ;; esac
+    page_has /domains 'ancien jeton' || fail "la vue Domaines ne signale pas la machine restée sur l'ancien jeton"
+
+    step "poser le nouveau jeton : « fait », et la vue redevient à jour"
+    id=$(launch_dns_token "$ZONE_NAME")
+    page=$(wait_for_conclusion "$id" "$DNS_TOKEN_TIMEOUT")
+    printf '%s' "$page" | grep -q 'résultat: fait' || { printf '%s\n' "$page" | grep -o 'résultat:[^<]*' >&2 || true; fail "la pose du nouveau jeton ne dit pas « fait »"; }
+    cmp -s "$ZONE_TOKEN_FILE" "$PROXY_TOKEN_FILE" || fail "le jeton posé n'est pas le nouveau jeton de la zone"
+    page_has /domains 'jeton à jour' || fail "la vue Domaines ne redit pas « à jour » après la pose du nouveau jeton"
+
     step "le service témoin, posé à la main sous la norme"
     # Tout ce qu'openCloud fait se fait aussi à la main : ce sont les trois
     # commandes du README du témoin, jouées telles quelles.
@@ -269,5 +362,6 @@ page_has /machines/local "$id" || fail "la fiche de la machine ne liste pas la d
 
 printf '\nTout tient : amorçage, refus, lancement, suivi, journal, direct, reprise.\n'
 if [ "$WITH_SOCLE" = "--avec-socle" ]; then
-    printf 'Et le socle, le proxy, le témoin publié par son nom puis retiré : posés, éprouvés, puis inchangés.\n'
+    printf 'Et le socle, le proxy, la zone et son jeton — posé, tourné, reposé —, le témoin\n'
+    printf 'publié par son nom puis retiré : posés, éprouvés, puis inchangés.\n'
 fi

@@ -16,6 +16,7 @@ const (
 	KindSocle         Kind = "socle"
 	KindVhost         Kind = "vhost"
 	KindVhostRemove   Kind = "vhost-remove"
+	KindDNSToken      Kind = "dns-token"
 )
 
 // Scope : ce que l'action touche (05-execution.md, « les quatre attributs »).
@@ -88,6 +89,9 @@ type File struct {
 	Path    string
 	Content []byte
 	Mode    fs.FileMode
+	// Secret : le contenu porte un jeton. L'écran « avant » nomme le fichier
+	// et son mode, il ne montre jamais ce qu'il y a dedans.
+	Secret bool
 }
 
 // Prepared est tout ce qu'une action dépose. Aucune valeur saisie n'apparaît

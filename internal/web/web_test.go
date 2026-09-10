@@ -143,6 +143,7 @@ func TestRoutes_AreFrozen(t *testing.T) {
 		"GET /machines/{id}/actions/{kind}", "POST /machines/{id}/actions/{kind}",
 		"POST /machines/{id}/confirm", "POST /machines/{id}/probe",
 		"GET /password", "POST /password", "GET /static/",
+		"POST /zones", "POST /zones/{name}/remove", "POST /zones/{name}/token",
 	}
 	got := newTestServer(t).Routes()
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

@@ -154,9 +154,19 @@ la machine openCloud éteinte. Le prix est dit tel quel : **une machine
 compromise devient une zone compromise**, et la rotation touche toutes les
 machines de la zone.
 
+**Où il vit, et comment il voyage.** Sur la machine openCloud, le jeton d'une
+zone est un fichier `0600` sous `/var/lib/opencloud/zones/<zone>.token`, écrit
+une fois après vérification chez Cloudflare et **jamais réaffiché**
+(`08-securite-et-secrets.md`) ; la base ne garde que le nom de la zone, son
+identifiant Cloudflare et ses dates. Il arrive sur une machine par l'action
+*Poser le jeton DNS*, qui le dépose dans `/srv/data/acme/cloudflare.token`,
+`0600` root, et redémarre Traefik si le fichier a changé — le résolveur lit le
+jeton au démarrage.
+
 **La rotation d'un jeton est une action du catalogue.** Un jeton n'est jamais
-réaffiché, donc il ne se remplace pas à la main : l'action pose le nouveau sur
-chaque machine de la zone, le vérifie, puis retire l'ancien
+réaffiché, donc il ne se remplace pas à la main : on remplace celui de la zone
+dans openCloud, puis on rejoue *Poser le jeton DNS* sur chaque machine de la
+zone. La vue Domaines dit lesquelles portent encore l'ancien
 (`15-catalogue-actions.md`).
 
 **Réduire ce pouvoir a été étudié** (`annexes/etude-jeton-dns.md`) et

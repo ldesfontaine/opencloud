@@ -671,7 +671,7 @@ button:hover, .button:hover { text-decoration: none; filter: brightness(1.06); }
 /* Formulaires : un champ de 42 px, un anneau d'accent au focus. */
 label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
 
-input[type="text"], input[type="password"] {
+input[type="text"], input[type="password"], select {
   width: 100%;
   height: 42px;
   padding: 0 14px;
@@ -681,7 +681,7 @@ input[type="text"], input[type="password"] {
   color: var(--ink);
   font: inherit;
 }
-input[type="text"]:focus, input[type="password"]:focus {
+input[type="text"]:focus, input[type="password"]:focus, select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ring);
@@ -731,6 +731,25 @@ input.mono { font-family: var(--mono); font-size: 13px; }
 .items { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .items li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .items .icon { color: var(--muted); }
+
+/* Les machines d'une zone : une pastille dit l'état du jeton, le title dit
+   la phrase. Un signe se lit plus vite qu'une colonne de mots. */
+.items.tight { gap: 6px; }
+.items.tight li { font-size: 13px; }
+/* Une zone Cloudflare : un bloc par zone dans la même carte, séparés d'un
+   trait. Un tableau aurait rendu la ligne trop large pour l'écran, et le
+   formulaire de rotation illisible dans une cellule. */
+.zone { padding: 18px 0; }
+.zone + .zone { border-top: 1px solid var(--line); }
+.zone-head { display: flex; align-items: center; gap: 14px; }
+.zone-title { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.zone-title .muted { font-size: 13px; }
+.zone .items { margin-top: 14px; }
+.zone details { margin-top: 14px; }
+
+.token-mark { display: inline-flex; width: 1.1em; justify-content: center; font-weight: 700; color: var(--muted); }
+.token-mark.current { color: var(--ok); }
+.token-mark.stale { color: var(--warn); }
 
 /* Le rapport d'une action conclue : une carte par étape, une grille dedans. */
 .card.report { padding: 20px 24px; }

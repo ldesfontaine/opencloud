@@ -31,6 +31,7 @@ type describedItem struct {
 // aucune liste : la table dit ce qu'on sait dire, pas ce qu'on promet.
 var actionDescriptions = map[catalog.Kind]func() actionDescription{
 	catalog.KindDiagnostiquer: diagnosticDescription,
+	catalog.KindDNSToken:      dnsTokenDescription,
 	catalog.KindProxy:         proxyDescription,
 	catalog.KindSocle:         socleDescription,
 	catalog.KindVhost:         vhostDescription,
@@ -58,6 +59,24 @@ func diagnosticDescription() actionDescription {
 			{Icon: iconShield, Label: "les ports 80 et 443"},
 			{Icon: iconCheck, Label: "la norme /srv : workspace et data"},
 			{Icon: iconKey, Label: "le lanceur : propriétaire, mode, empreinte"},
+		},
+	}
+}
+
+// L'écran dit ce qui sera posé et ce que ça coupe ; il ne montre jamais le
+// jeton, et le catalogue ne le rend pas non plus (fichier marqué secret).
+func dnsTokenDescription() actionDescription {
+	proxy := catalog.Proxy()
+	return actionDescription{
+		Line:       "Pose le jeton Cloudflare de la zone sur la machine, pour que Traefik obtienne ses certificats.",
+		ItemsTitle: "Ce qui va être posé",
+		Items: []describedItem{
+			{Icon: iconKey, Label: "le jeton de la zone, en 0600 root : " + catalog.DNSTokenPath()},
+			{Icon: iconShield, Label: "jamais affiché, jamais journalisé — seule son empreinte est écrite"},
+			{Icon: iconRefresh, Label: "si le fichier change, le proxy redémarre : quelques secondes sans réponse"},
+			{Icon: iconCheck, Label: "vérifié par une requête HTTPS locale, puis par le journal du résolveur"},
+			{Icon: iconServer, Label: "rejouée avec le même jeton : rien n'est écrit, rien ne redémarre"},
+			{Icon: iconGlobe, Label: "les certificats déjà obtenus restent dans " + proxy.AcmeDir},
 		},
 	}
 }

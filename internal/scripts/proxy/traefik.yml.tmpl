@@ -44,7 +44,7 @@ providers:
 # DNS-01 chez Cloudflare : il fonctionne même sans adresse publique et ouvre
 # les certificats génériques (06-reseau-et-certificats.md). Le jeton de la zone
 # est lu dans un fichier, jamais passé en variable d'environnement ; il est
-# copié sur la machine par « Faire tourner un jeton DNS ». Tant qu'il manque,
+# copié sur la machine par « Poser le jeton DNS ». Tant qu'il manque,
 # Traefik démarre et sert son certificat par défaut.
 certificatesResolvers:
   letsencrypt:

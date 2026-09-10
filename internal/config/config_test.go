@@ -113,6 +113,29 @@ func TestParse_InvalidTrustedProxy_IsARefusalThatNamesTheKey(t *testing.T) {
 	}
 }
 
+// La racine de l'API Cloudflare est vide en production : c'est celle de
+// Cloudflare. La clé ne sert qu'aux tests, et n'accepte qu'une vraie racine.
+func TestParse_CloudflareAPIURL_IsEmptyUnlessSaidAndMustBeARoot(t *testing.T) {
+	if defaults().CloudflareAPIURL != "" {
+		t.Fatal("sans clé, la racine doit rester celle de Cloudflare")
+	}
+
+	cfg, _, err := Parse([]byte("state_dir = \"state\"\ncloudflare_api_url = \"http://127.0.0.1:9123\"\n"))
+	if err != nil {
+		t.Fatalf("erreur inattendue : %v", err)
+	}
+	if cfg.CloudflareAPIURL != "http://127.0.0.1:9123" {
+		t.Fatalf("CloudflareAPIURL = %q", cfg.CloudflareAPIURL)
+	}
+
+	for _, entry := range []string{"pas-une-url", "ftp://exemple.fr", "/chemin"} {
+		_, _, err := Parse([]byte("state_dir = \"state\"\ncloudflare_api_url = \"" + entry + "\"\n"))
+		if err == nil || !strings.Contains(err.Error(), "cloudflare_api_url") {
+			t.Fatalf("%q doit être refusé en nommant la clé, reçu %v", entry, err)
+		}
+	}
+}
+
 func TestParse_RetiredGitHubToken_IsAWarningThatGivesTheGesture(t *testing.T) {
 	_, warnings, err := Parse([]byte("state_dir = \"state\"\ngithub_token = \"github_pat_abc\"\n"))
 	if err != nil {

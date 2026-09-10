@@ -99,11 +99,52 @@ type runningAction struct {
 	Lines      []outputLine
 }
 
-// domainsView : ce que les machines portent vraiment, un nom par ligne.
+// domainsView : ce que les machines portent vraiment, un nom par ligne, et
+// les zones Cloudflare qui les certifieront.
 type domainsView struct {
 	Domains  []domainRow
 	Subtitle string
+	// Zones et ses gestes n'existent que si le gardien des zones est branché.
+	CanManageZones bool
+	Zones          []zoneRow
+	// Le nom saisi, gardé sur un refus : le jeton, lui, ne revient jamais.
+	ZoneName string
+	// Ce que le geste sur une zone a refusé, nil sinon.
+	ZoneRefusal *refusalView
 }
+
+// zoneRow : une zone Cloudflare et l'état de son jeton sur les machines.
+// L'empreinte est celle du jeton courant ; le jeton lui-même n'est nulle part.
+type zoneRow struct {
+	Name        string
+	AddedAt     string
+	RotatedAt   string
+	Fingerprint string
+	Machines    []zoneMachineRow
+	RotatePath  string
+	RemovePath  string
+}
+
+// zoneMachineRow : une machine et le jeton qu'elle porte pour cette zone.
+type zoneMachineRow struct {
+	MachineID   string
+	MachineName string
+	// State donne sa classe à la pastille ; Mark et Label la disent.
+	State       string
+	Mark        string
+	Label       string
+	PlacedAt    string
+	Fingerprint string
+	// Le lien vers l'écran « avant » de la pose, zone déjà choisie.
+	PlacePath string
+}
+
+// Les trois états d'une machine devant le jeton d'une zone.
+const (
+	tokenCurrent = "current"
+	tokenStale   = "stale"
+	tokenAbsent  = "absent"
+)
 
 type domainRow struct {
 	Name        string
@@ -149,6 +190,9 @@ type preparedFile struct {
 	// Le contenu rendu, ligne par ligne : l'écran « avant » montre ce qui va
 	// être écrit, pas seulement son nom (15-catalogue-actions.md §1).
 	Lines []string
+	// Secret : le fichier porte un jeton. Son contenu n'est pas rendu, et la
+	// table le dit à sa place (08-securite-et-secrets.md).
+	Secret bool
 }
 
 // refusalView : ce qui a été refusé, en deux temps — la cause, puis le geste
@@ -184,7 +228,10 @@ type actionFormView struct {
 	Items      []describedItem
 	Params     []catalog.ParamSpec
 	Values     map[string]string
-	Files      []preparedFile
+	// Choices : les valeurs qu'un paramètre accepte, par nom de paramètre. Un
+	// paramètre qui en a se choisit dans une liste, jamais en saisie libre.
+	Choices map[string][]string
+	Files   []preparedFile
 	// Vrai quand la préparation a abouti : sans elle, on ne sait pas encore
 	// ce que l'action posera, et une carte vide mentirait.
 	FilesKnown        bool
@@ -325,15 +372,22 @@ func (s *Server) newActionRows(actions []store.Action) []actionRow {
 	return rows
 }
 
+// describeFiles rend ce que l'écran « avant » montre des fichiers déposés. Un
+// fichier secret n'entre ici que par son nom, sa taille et son mode : son
+// contenu ne quitte jamais le catalogue.
 func describeFiles(files []catalog.File) []preparedFile {
 	var described []preparedFile
 	for _, file := range files {
-		described = append(described, preparedFile{
-			Path:  file.Path,
-			Size:  fmt.Sprintf("%d octets", len(file.Content)),
-			Mode:  fmt.Sprintf("%04o", file.Mode.Perm()),
-			Lines: strings.Split(strings.TrimRight(string(file.Content), "\n"), "\n"),
-		})
+		shown := preparedFile{
+			Path:   file.Path,
+			Size:   fmt.Sprintf("%d octets", len(file.Content)),
+			Mode:   fmt.Sprintf("%04o", file.Mode.Perm()),
+			Secret: file.Secret,
+		}
+		if !file.Secret {
+			shown.Lines = strings.Split(strings.TrimRight(string(file.Content), "\n"), "\n")
+		}
+		described = append(described, shown)
 	}
 	return described
 }

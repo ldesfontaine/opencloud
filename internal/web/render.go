@@ -68,7 +68,10 @@ const (
 // hors des onglets — le mot de passe — n'en marque aucun.
 func sectionForPath(path string) string {
 	switch {
-	case path == "/domains" || strings.HasPrefix(path, "/domains/"):
+	// Les zones vivent dans la vue Domaines : leurs gestes marquent le même
+	// onglet.
+	case path == "/domains" || strings.HasPrefix(path, "/domains/") ||
+		path == "/zones" || strings.HasPrefix(path, "/zones/"):
 		return sectionDomains
 	case path == "/" || strings.HasPrefix(path, "/machines/") || strings.HasPrefix(path, "/actions/"):
 		return sectionInfrastructure

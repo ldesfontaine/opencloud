@@ -48,4 +48,78 @@
   <a class="button" href="/domains/new">{{template "icon-plus"}}Créer un hôte virtuel</a>
 </section>
 {{end}}
+
+{{if .Data.CanManageZones}}
+{{if .Data.ZoneRefusal}}{{template "refusal" .Data.ZoneRefusal}}{{end}}
+
+<section class="card" id="zones">
+  <h2>{{template "icon-key"}}Zones Cloudflare</h2>
+  <p class="hint">Un jeton par zone, posé sur chaque machine qui la sert.
+  Écrit une fois, jamais réaffiché.</p>
+
+  {{if .Data.Zones}}
+  {{range .Data.Zones}}
+  <article class="zone">
+    <div class="zone-head">
+      <span class="machine-mark">{{template "icon-key"}}</span>
+      <div class="zone-title">
+        <span class="mono">{{.Name}}</span>
+        <span class="muted">ajoutée le {{.AddedAt}} · jeton du {{.RotatedAt}} ·
+          <span class="mono">{{.Fingerprint}}</span></span>
+      </div>
+      <form method="post" action="{{.RemovePath}}">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        <button type="submit" class="button icon-only danger" title="Retirer la zone {{.Name}}">
+          {{template "icon-trash"}}<span class="reader-only">Retirer {{.Name}}</span>
+        </button>
+      </form>
+    </div>
+
+    {{/* Une machine par ligne : la pastille dit l'état du jeton, le lien mène
+         à l'écran « avant » de la pose, zone déjà choisie. */}}
+    <ul class="items tight">
+      {{range .Machines}}
+      <li>
+        <span class="token-mark {{.State}}" title="{{.Label}}">{{.Mark}}</span>
+        <a href="{{.PlacePath}}" title="Poser le jeton sur {{.MachineName}} — {{.Label}}">{{.MachineName}}</a>
+        {{if .Fingerprint}}<span class="mono muted">{{.Fingerprint}}</span>{{end}}
+        <span class="muted">{{.Label}}</span>
+      </li>
+      {{end}}
+    </ul>
+
+    <details class="raw">
+      <summary>{{template "icon-refresh"}}Faire tourner le jeton</summary>
+      <form method="post" action="{{.RotatePath}}">
+        <input type="hidden" name="_csrf" value="{{$.CSRFToken}}">
+        <label for="token-{{.Name}}">nouveau jeton pour {{.Name}}</label>
+        {{/* Jamais de value : un jeton ne se réaffiche pas. */}}
+        <input id="token-{{.Name}}" name="token" type="password" autocomplete="off" required>
+        <p class="hint">Le nouveau jeton est vérifié chez Cloudflare, puis remplace l'ancien
+        dans openCloud. Chaque machine le reçoit en rejouant « Poser le jeton DNS ».</p>
+        <button type="submit">{{template "icon-refresh"}}Faire tourner</button>
+      </form>
+    </details>
+  </article>
+  {{end}}
+  {{else}}
+  <p class="muted">Aucune zone enregistrée : sans jeton, aucun certificat ne peut être demandé.</p>
+  {{end}}
+
+  <details class="raw" {{if .Data.ZoneRefusal}}open{{end}}>
+    <summary>{{template "icon-plus"}}Ajouter une zone</summary>
+    <form method="post" action="/zones">
+      <input type="hidden" name="_csrf" value="{{.CSRFToken}}">
+      <label for="zone">nom de la zone</label>
+      <input id="zone" name="zone" type="text" value="{{.Data.ZoneName}}" placeholder="exemple.fr" required>
+      <label for="zone-token">jeton d'API Cloudflare</label>
+      {{/* Écrit une fois, jamais relu : le champ part vide à chaque affichage. */}}
+      <input id="zone-token" name="token" type="password" autocomplete="off" required>
+      <p class="hint">Un jeton « Zone / DNS / Edit » sur cette zone. Il est vérifié chez
+      Cloudflare avant d'être écrit, et n'est plus jamais affiché.</p>
+      <button type="submit">{{template "icon-plus"}}Ajouter</button>
+    </form>
+  </details>
+</section>
+{{end}}
 {{end}}

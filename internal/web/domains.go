@@ -16,22 +16,41 @@ func (s *Server) showDomains(w http.ResponseWriter, r *http.Request, account sto
 		return
 	}
 
+	view, err := s.newDomainsView(r)
+	if err != nil {
+		s.serverError(w, "build domains view", err)
+		return
+	}
+	s.render(w, http.StatusOK, "domains", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
+}
+
+// newDomainsView rassemble ce que la vue montre : les noms publiés, et les
+// zones Cloudflare quand leur gardien est branché.
+func (s *Server) newDomainsView(r *http.Request) (domainsView, error) {
 	published, err := s.domains.Domains(r.Context())
 	if err != nil {
-		s.serverError(w, "list domains", err)
-		return
+		return domainsView{}, err
 	}
 	machines, err := s.machines.Machines(r.Context())
 	if err != nil {
-		s.serverError(w, "list machines", err)
-		return
+		return domainsView{}, err
 	}
 
 	view := domainsView{
-		Domains:  newDomainRows(published, machines),
-		Subtitle: labelDomainsSubtitle(len(published)),
+		Domains:        newDomainRows(published, machines),
+		Subtitle:       labelDomainsSubtitle(len(published)),
+		CanManageZones: s.zonesReady(),
 	}
-	s.render(w, http.StatusOK, "domains", s.newPage(r, &account, s.csrfFormToken(w, r)).withData(view))
+	if !view.CanManageZones {
+		return view, nil
+	}
+
+	registered, err := s.zones.Zones(r.Context())
+	if err != nil {
+		return domainsView{}, err
+	}
+	view.Zones = newZoneRows(registered, machines)
+	return view, nil
 }
 
 // showDomainMachines est le premier écran de la publication : sur quelle
