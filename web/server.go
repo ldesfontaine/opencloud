@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"mime"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -31,6 +32,11 @@ func New(opts Options) (*Server, error) {
 	build, err := staticBuild()
 	if err != nil {
 		return nil, fmt.Errorf("fingerprint static files: %w", err)
+	}
+	// La table MIME de Go ignore woff2 ; sans cela le navigateur reçoit un
+	// octet-stream et certains refusent la police.
+	if err := mime.AddExtensionType(".woff2", "font/woff2"); err != nil {
+		return nil, fmt.Errorf("register woff2 type: %w", err)
 	}
 	server := &Server{
 		logger:     opts.Logger,
