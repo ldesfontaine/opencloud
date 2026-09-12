@@ -7,9 +7,18 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
+// La vue d'ensemble compte les machines ; sans machine, elle invite à en
+// ajouter une.
 func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	text := s.catalog()
-	data := s.newView(r, navOverview, text.Get("nav.overview"), text.Get("overview.subtitle"))
+	statuses, err := s.machines.List(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	page := s.overviewPage(text, statuses)
+	data := s.newView(r, navOverview, text.Get("nav.overview"), page.Subtitle)
+	data.Page = page
 	s.render(w, r, http.StatusOK, "overview", data)
 }
 

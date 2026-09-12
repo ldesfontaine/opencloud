@@ -63,6 +63,10 @@ type account struct {
 
 func (s *Server) newView(r *http.Request, active, title, subtitle string) view {
 	text := s.catalog()
+	total, online, err := s.machines.Count(r.Context())
+	if err != nil {
+		s.logger.Error("count machines", "error", err)
+	}
 	return view{
 		T:          text,
 		Lang:       string(text.Code()),
@@ -74,7 +78,7 @@ func (s *Server) newView(r *http.Request, active, title, subtitle string) view {
 		Title:      title,
 		Subtitle:   subtitle,
 		Active:     active,
-		Nav:        s.navigation(text),
+		Nav:        s.navigation(text, machineCount{Total: total, Online: online, Known: err == nil}),
 		Account:    s.account(text),
 	}
 }
@@ -91,15 +95,24 @@ func (s *Server) languages(text lang.Catalog) []languageOption {
 	return options
 }
 
-// Les compteurs viendront des composants (machines, services…) ; sans eux,
-// aucun chiffre n'est affiché plutôt qu'un zéro inventé.
-func (s *Server) navigation(text lang.Catalog) []navSection {
+// Ce que la barre latérale sait des machines ; Known est faux quand le
+// comptage a échoué, et rien n'est affiché plutôt qu'un zéro inventé.
+type machineCount struct {
+	Total  int
+	Online int
+	Known  bool
+}
+
+// Les autres compteurs viendront avec leurs composants (services…) ; le
+// compteur des machines passe au rouge dès qu'une machine est hors ligne.
+func (s *Server) navigation(text lang.Catalog, machines machineCount) []navSection {
 	return []navSection{
 		{
 			Label: text.Get("nav.section_view"),
 			Items: []navItem{
 				{Key: navOverview, Label: text.Get("nav.overview"), Href: "/", Icon: "grid"},
-				{Key: navMachines, Label: text.Get("nav.machines"), Href: "/machines", Icon: "server"},
+				{Key: navMachines, Label: text.Get("nav.machines"), Href: "/machines", Icon: "server",
+					Count: machines.Total, HasCount: machines.Known && machines.Total > 0, Hot: machines.Online < machines.Total},
 				{Key: navServices, Label: text.Get("nav.services"), Href: "/services", Icon: "box"},
 				{Key: navDomains, Label: text.Get("nav.domains"), Href: "/domaines", Icon: "globe"},
 				{Key: navBackups, Label: text.Get("nav.backups"), Href: "/sauvegardes", Icon: "archive"},

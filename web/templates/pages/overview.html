@@ -1,5 +1,6 @@
 {{define "actions"}}<a class="btn btn-primary" href="/machines/nouvelle">{{template "icon" "plus"}}{{.T.Get "machine.add"}}</a>{{end}}
 {{define "content"}}
+{{if eq .Page.Total 0}}
 <section class="card">
   <div class="empty">
     <span class="empty-icon">{{template "icon" "server"}}</span>
@@ -7,4 +8,25 @@
     <p>{{.T.Get "overview.empty_text"}}</p>
   </div>
 </section>
+{{else}}
+<div class="grid-4">
+  <div class="card"><div class="card-b stat">
+    <span class="label">{{template "icon" "server"}}{{.T.Get "nav.machines"}}</span>
+    <span class="stat-value">{{.Page.Total}}</span>
+    <span class="foot"><b>{{.T.Format "overview.online" .Page.Online}}</b></span>
+  </div></div>
+</div>
+<section class="card">
+  <div class="card-h"><span class="card-t">{{.T.Get "nav.machines"}}</span><a class="card-s" href="/machines">{{.T.Get "overview.see_all"}}</a></div>
+  <div class="list">
+    {{range .Page.Rows}}
+    <a class="row" href="/machines/{{.ID}}">
+      <span class="dot {{if .Online}}ok{{else}}danger{{end}}"></span>
+      <span class="txt"><b>{{.Name}}</b><span>{{if .Address}}<span class="mono">{{.Address}}</span> · {{end}}{{.OS}}</span></span>
+      <span class="when">{{.SeenAgo}}</span>
+    </a>
+    {{end}}
+  </div>
+</section>
+{{end}}
 {{end}}

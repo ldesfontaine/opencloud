@@ -12,7 +12,7 @@ func TestParse_EmptyFile_UsesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if cfg.Listen != Default().Listen || cfg.StateDir != Default().StateDir || cfg.PublicURL != "" || len(cfg.TrustedProxies) != 0 {
 		t.Fatalf("got %+v, want defaults", cfg)
 	}
 	if len(warnings) != 0 {
@@ -69,5 +69,21 @@ func TestLoad_ReadsTheFileAtThePath(t *testing.T) {
 	}
 	if _, _, err := Load(filepath.Join(t.TempDir(), "absent.toml")); err == nil {
 		t.Fatal("want an error for a missing file")
+	}
+}
+
+func TestParse_PublicURLAndProxies_AreValidated(t *testing.T) {
+	cfg, _, err := Parse([]byte("public_url = \"https://oc.example.fr\"\ntrusted_proxies = [\"127.0.0.1/32\", \"10.0.0.0/8\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PublicURL != "https://oc.example.fr" || len(cfg.TrustedPrefixes()) != 2 {
+		t.Fatalf("got %+v", cfg)
+	}
+	if _, _, err := Parse([]byte("public_url = \"oc.example.fr\"\n")); err == nil {
+		t.Error("public_url without scheme accepted")
+	}
+	if _, _, err := Parse([]byte("trusted_proxies = [\"not-a-cidr\"]\n")); err == nil {
+		t.Error("bad cidr accepted")
 	}
 }

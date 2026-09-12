@@ -1,6 +1,14 @@
 GET /{$}
 GET /machines
+GET /machines/tableau
 GET /machines/nouvelle
+POST /machines/nouvelle
+POST /machines/jetons/{id}/actions/annuler
+GET /machines/{id}
+GET /machines/{id}/en-tete
+GET /machines/{id}/{tab}
+POST /machines/{id}/actions/retirer
+POST /machines/{id}/actions/reenroler
 GET /services
 GET /domaines
 GET /sauvegardes
@@ -8,5 +16,9 @@ GET /alertes
 GET /parametres
 POST /langue
 GET /systeme-visuel
+POST /agent/enroll
+POST /agent/challenge
+GET /agent/stream
+POST /agent/signal
 GET /static/{build}/{path...}
 GET /
