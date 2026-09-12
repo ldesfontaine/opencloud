@@ -1,0 +1,204 @@
+# English strings. Same key tree as fr.toml: a test checks it.
+
+[app]
+name = "openCloud"
+
+[nav]
+section_view = "View"
+section_settings = "Settings"
+overview = "Overview"
+machines = "Machines"
+services = "Services"
+domains = "Domains"
+backups = "Backups"
+alerts = "Alerts"
+settings = "Preferences"
+
+[theme]
+light = "Light theme"
+dark = "Dark theme"
+
+[language]
+label = "Language"
+fr = "Français"
+en = "English"
+
+[account]
+name = "Administrator"
+role = "Local account"
+
+[overview]
+subtitle = "No machine yet."
+empty_title = "No machine"
+empty_text = "Add a first machine to see its state, its services and its alerts here."
+
+[machine]
+add = "Add a machine"
+new_title = "New machine"
+select = "Machine"
+agent = "agent"
+seen_ago = "seen %s ago"
+
+[tab]
+summary = "Summary"
+services = "Services"
+domains = "Domains and certificates"
+network = "Network"
+backups = "Backups"
+logs = "Logs"
+settings = "Settings"
+
+[state]
+online = "Online"
+offline = "Offline"
+active = "Active"
+stopped = "Stopped"
+failed = "Failed"
+to_renew = "To renew"
+proxy = "Proxy"
+
+[action]
+more = "More actions"
+delete = "Delete"
+hover = "Hover"
+
+[soon]
+subtitle = "This page comes with an upcoming feature."
+badge = "Soon"
+text = "The foundation is in place; the content follows, feature by feature."
+
+[notfound]
+title = "Page not found"
+subtitle = "This address matches nothing."
+text = "Check the link or go back to the overview."
+back = "Back to the overview"
+
+[error]
+internal = "An internal error occurred. Check the server logs."
+forbidden = "Request refused: the form has expired, reload the page."
+
+[visual]
+title = "Visual system"
+subtitle = "One accent colour, black for the primary action, bordered cards without shadow. Geist to read, Geist Mono for what gets copied."
+
+[visual.colors]
+title = "Colours · light / dark"
+bg = "Page background"
+surface = "Surface"
+surface_2 = "Surface 2"
+line = "Line"
+ink = "Ink"
+ink_2 = "Ink 2"
+muted = "Muted"
+accent = "Accent"
+ok = "OK"
+warn = "Warning"
+danger = "Danger"
+primary = "Primary action"
+
+[visual.type]
+title = "Typography"
+h1 = "Page title"
+card = "Card title"
+body = "Body text, short sentences."
+secondary = "Secondary text, subtitles, dates."
+secondary_spec = "12 / 400 / muted"
+label = "Section label"
+label_spec = "11 / 500 / .08em / uppercase"
+stat = "Key figure"
+
+[visual.spacing]
+title = "Radii, spacing, controls"
+card = "Card"
+card_value = "radius 14 · border 1px · padding 20"
+control = "Control (button, field, select)"
+control_value = "height 36 · radius 8 · small 30 / 7"
+pill = "Status pill"
+pill_value = "height 24 · radius 999 · dot 6"
+grid = "Spacing grid"
+sidebar = "Sidebar"
+sidebar_value = "232 · item 34 · radius 8"
+icons = "Icons"
+icons_value = "stroke 1.6 · 16 inline · 18 in the graph"
+shadow = "Shadow"
+shadow_value = "none on cards · light on buttons and menus"
+
+[visual.stats]
+title = "Key figures and meters"
+cpu = "Processor"
+cpu_foot = "4 cores, load 0.9"
+disk = "Disk"
+disk_unit = "GB / 80"
+disk_foot = ", alert threshold at 85%"
+
+[visual.table]
+title = "Table"
+service = "Service"
+image = "Image"
+state = "State"
+
+[visual.buttons]
+title = "Buttons"
+primary = "Primary"
+secondary = "Secondary"
+ghost = "Ghost"
+accent = "Accent, rare"
+small = "Small"
+disabled = "Disabled"
+
+[visual.states]
+title = "States"
+open_count = "2 open"
+
+[visual.fields]
+title = "Fields and selects"
+service_name = "Service name"
+domain = "Domain"
+filter = "Filter"
+all = "All"
+active = "Active"
+stopped = "Stopped"
+auto_renew = "Automatic renewal"
+enabled = "Enabled"
+disabled = "Disabled"
+tooltip = "Tooltip"
+tooltip_text = "Seen 12 s ago, probed every 5 min"
+
+[visual.nav]
+title = "Navigation and nodes"
+rest = "Rest"
+active = "Active"
+alerting = "With alert"
+selected = "selected"
+internet = "Internet"
+proxy_entry = "proxy entry"
+
+[visual.machine]
+title = "Machine header and tabs"
+
+[visual.events]
+title = "Event list"
+card_title = "Recent activity"
+card_sub = "Example"
+e1 = "nextcloud updated to 29.0.4"
+e1_sub = "vps-paris-1 · requested by the operator"
+e1_when = "2 h ago"
+e2 = "Unrequested reboot"
+e2_sub = "vps-lyon-2 · kernel updated by the system"
+e2_when = "yesterday, 03:12"
+e3 = "Virtual host created"
+e3_sub = "vps-paris-1 · requested by the operator"
+e3_when = "yesterday, 22:40"
+
+[visual.empty]
+title = "Empty state"
+heading = "No backup"
+text = "A backup appears here as soon as a service declares one."
+
+[visual.tone]
+title = "Tone"
+intro = "French, short sentences, verb first:"
+verb_1 = "Declare a service"
+verb_2 = "Back up"
+verb_3 = "Restart"
+rules = "Numbers and identifiers in mono. States as pills, never as coloured text alone. An alert states the fact, then the cause, then what can be done."

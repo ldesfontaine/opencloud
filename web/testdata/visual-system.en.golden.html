@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual system · openCloud</title>
+<link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/BUILD/app.css">
+<script src="/static/BUILD/theme.js"></script>
+<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'>
+<script src="/static/BUILD/vendor/htmx-2.0.10.min.js" defer></script>
+</head>
+<body>
+
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="M3 8l9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 13A8.5 8.5 0 0 1 11 3a7 7 0 1 0 10 10Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><path d="M6 19v2M10 19v2M14 19v2M18 19v2"/><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9v6M12 9v6M17 9v6"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><path d="M21 12H3M5 6h14l2 6v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5l2-6Z"/><path d="M7 15h.01M11 15h.01"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+</svg>
+
+<div class="app">
+
+<aside class="side">
+  <a class="brand" href="/">
+    <span class="mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9H14"/></svg></span>
+    <span class="wordmark"><span>open</span><b>Cloud</b></span>
+  </a>
+  
+  <div class="side-label">View</div>
+  <nav class="nav">
+    
+    <a class="nav-item" href="/">
+      <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
+      <span>Overview</span>
+      
+    </a>
+    
+    <a class="nav-item" href="/machines">
+      <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
+      <span>Machines</span>
+      
+    </a>
+    
+    <a class="nav-item" href="/services">
+      <svg class="icon" aria-hidden="true"><use href="#i-box"/></svg>
+      <span>Services</span>
+      
+    </a>
+    
+    <a class="nav-item" href="/domaines">
+      <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
+      <span>Domains</span>
+      
+    </a>
+    
+    <a class="nav-item" href="/sauvegardes">
+      <svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>
+      <span>Backups</span>
+      
+    </a>
+    
+    <a class="nav-item" href="/alertes">
+      <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
+      <span>Alerts</span>
+      
+    </a>
+    
+  </nav>
+  
+  <div class="side-label">Settings</div>
+  <nav class="nav">
+    
+    <a class="nav-item" href="/parametres">
+      <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
+      <span>Preferences</span>
+      
+    </a>
+    
+  </nav>
+  
+  <div class="side-foot">
+    <div class="switches">
+      <div class="theme" role="group">
+        <button type="button" data-set-theme="light" aria-label="Light theme" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Dark theme" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      </div>
+      <form class="theme lang" method="post" action="/langue" aria-label="Language">
+        <input type="hidden" name="csrf" value="CSRF">
+        <input type="hidden" name="return" value="/systeme-visuel">
+        
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français">fr</button>
+        
+        <button type="submit" name="language" value="en" title="English" aria-label="English" class="active" aria-current="true">en</button>
+        
+      </form>
+    </div>
+    <div class="account">
+      <span class="avatar" aria-hidden="true">A</span>
+      <span class="who"><b>Administrator</b><span>Local account</span></span>
+    </div>
+  </div>
+</aside>
+
+<main class="main" id="main">
+<div class="content">
+
+<header class="page-head">
+  <div>
+    <h1>Visual system</h1>
+    <p class="sub">One accent colour, black for the primary action, bordered cards without shadow. Geist to read, Geist Mono for what gets copied.</p>
+  </div>
+  <div class="actions"><span class="pill pill-neutral nodot">v0.0.1</span></div>
+</header>
+
+
+<div class="grid-2 gap-40">
+  <div class="stack gap-24">
+
+    <section>
+      <h2 class="side-label section-label">Colours · light / dark</h2>
+      <div class="grid-4 gap-14">
+        <div class="swatch-item"><div class="swatch sw-bg"></div><b>Page background</b><span class="mono muted">--bg</span><span class="mono muted">#f6f6f8 · #0d0e12</span></div>
+        <div class="swatch-item"><div class="swatch sw-surface"></div><b>Surface</b><span class="mono muted">--surface</span><span class="mono muted">#ffffff · #15171c</span></div>
+        <div class="swatch-item"><div class="swatch sw-surface-2"></div><b>Surface 2</b><span class="mono muted">--surface-2</span><span class="mono muted">#f1f2f5 · #1c1f26</span></div>
+        <div class="swatch-item"><div class="swatch sw-line"></div><b>Line</b><span class="mono muted">--line</span><span class="mono muted">#e5e7ec · #262a33</span></div>
+        <div class="swatch-item"><div class="swatch sw-ink"></div><b>Ink</b><span class="mono muted">--ink</span><span class="mono muted">#101216 · #eef0f4</span></div>
+        <div class="swatch-item"><div class="swatch sw-ink-2"></div><b>Ink 2</b><span class="mono muted">--ink-2</span><span class="mono muted">#4b5160 · #b3b8c4</span></div>
+        <div class="swatch-item"><div class="swatch sw-muted"></div><b>Muted</b><span class="mono muted">--muted</span><span class="mono muted">#7a8194 · #7d8494</span></div>
+        <div class="swatch-item"><div class="swatch sw-accent"></div><b>Accent</b><span class="mono muted">--accent</span><span class="mono muted">#5b5be6 · #7c7cf0</span></div>
+        <div class="swatch-item"><div class="swatch sw-ok"></div><b>OK</b><span class="mono muted">--ok</span><span class="mono muted">#1f9d57 · #3ac776</span></div>
+        <div class="swatch-item"><div class="swatch sw-warn"></div><b>Warning</b><span class="mono muted">--warn</span><span class="mono muted">#d78d0c · #f0a92a</span></div>
+        <div class="swatch-item"><div class="swatch sw-danger"></div><b>Danger</b><span class="mono muted">--danger</span><span class="mono muted">#de4350 · #f06470</span></div>
+        <div class="swatch-item"><div class="swatch sw-primary"></div><b>Primary action</b><span class="mono muted">--primary</span><span class="mono muted">#101216 · #eef0f4</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Typography</h2>
+      <div class="card"><div class="card-b gap-12">
+        <div class="kv"><span class="type-h1">Page title</span><span class="mono muted">22 / 600 / -0.02em</span></div>
+        <div class="kv"><span class="card-t">Card title</span><span class="mono muted">14 / 600</span></div>
+        <div class="kv"><span>Body text, short sentences.</span><span class="mono muted">13 / 400 / 1.45</span></div>
+        <div class="kv"><span class="secondary">Secondary text, subtitles, dates.</span><span class="mono muted">12 / 400 / muted</span></div>
+        <div class="kv"><span class="side-label inline-label">Section label</span><span class="mono muted">11 / 500 / .08em / uppercase</span></div>
+        <div class="kv"><span class="mono">51.15.20.114 · nextcloud:29.0.4</span><span class="mono muted">Geist Mono 12</span></div>
+        <div class="kv"><span class="stat-value">3,1<small>Go</small></span><span class="mono muted">Key figure 26 / 600 / -0.03em</span></div>
+      </div></div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Radii, spacing, controls</h2>
+      <div class="card"><div class="card-b gap-10">
+        <div class="kv"><span class="k">Card</span><span class="mono">radius 14 · border 1px · padding 20</span></div>
+        <div class="kv"><span class="k">Control (button, field, select)</span><span class="mono">height 36 · radius 8 · small 30 / 7</span></div>
+        <div class="kv"><span class="k">Status pill</span><span class="mono">height 24 · radius 999 · dot 6</span></div>
+        <div class="kv"><span class="k">Spacing grid</span><span class="mono">4 · 8 · 12 · 16 · 20 · 24 · 32</span></div>
+        <div class="kv"><span class="k">Sidebar</span><span class="mono">232 · item 34 · radius 8</span></div>
+        <div class="kv"><span class="k">Icons</span><span class="mono">stroke 1.6 · 16 inline · 18 in the graph</span></div>
+        <div class="kv"><span class="k">Shadow</span><span class="mono">none on cards · light on buttons and menus</span></div>
+      </div></div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Key figures and meters</h2>
+      <div class="grid-2 gap-16">
+        <div class="card"><div class="card-b stat">
+          <span class="label"><svg class="icon" aria-hidden="true"><use href="#i-cpu"/></svg>Processor</span>
+          <span class="stat-value">23<small>%</small></span>
+          <svg class="meter" width="100%" height="6" aria-hidden="true"><rect class="meter-track" width="100%" height="6" rx="3"/><rect class="meter-fill" width="23%" height="6" rx="3"/></svg>
+          <span class="foot">4 cores, load 0.9</span>
+        </div></div>
+        <div class="card"><div class="card-b stat">
+          <span class="label"><svg class="icon" aria-hidden="true"><use href="#i-disk"/></svg>Disk</span>
+          <span class="stat-value">69<small>GB / 80</small></span>
+          <svg class="meter meter-warn" width="100%" height="6" aria-hidden="true"><rect class="meter-track" width="100%" height="6" rx="3"/><rect class="meter-fill" width="86%" height="6" rx="3"/></svg>
+          <span class="foot"><b>86 %</b>, alert threshold at 85%</span>
+        </div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Table</h2>
+      <div class="card">
+        <table class="table">
+          <thead><tr><th>Service</th><th>Image</th><th>State</th><th class="th-end"></th></tr></thead>
+          <tbody>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>nextcloud</span></td><td class="num">nextcloud:29.0.4</td><td><span class="pill pill-ok">Active</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="More actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>vaultwarden</span></td><td class="num">vaultwarden/server:1.32</td><td><span class="pill pill-warn">To renew</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="More actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>matomo</span></td><td class="num">matomo:5.1</td><td><span class="pill pill-neutral">Stopped</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="More actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+  <div class="stack gap-24">
+
+    <section>
+      <h2 class="side-label section-label">Buttons</h2>
+      <div class="cluster">
+        <button type="button" class="btn btn-primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Primary</button>
+        <button type="button" class="btn btn-secondary"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Secondary</button>
+        <button type="button" class="btn btn-ghost">Ghost</button>
+        <button type="button" class="btn btn-danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Delete</button>
+        <button type="button" class="btn btn-accent">Accent, rare</button>
+        <button type="button" class="btn btn-secondary btn-sm">Small</button>
+        <button type="button" class="btn btn-secondary btn-icon" aria-label="More actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
+        <button type="button" class="btn btn-primary" disabled>Disabled</button>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">States</h2>
+      <div class="cluster">
+        <span class="pill pill-ok">Online</span>
+        <span class="pill pill-ok">Active</span>
+        <span class="pill pill-warn">To renew</span>
+        <span class="pill pill-danger">Failed</span>
+        <span class="pill pill-neutral">Stopped</span>
+        <span class="pill pill-accent">Proxy</span>
+        <span class="pill pill-neutral nodot">v0.0.1</span>
+        <span class="pill pill-danger nodot">2 open</span>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Fields and selects</h2>
+      <div class="grid-2 gap-14">
+        <div class="field"><label for="vs-name">Service name</label><input id="vs-name" class="input" type="text" placeholder="nextcloud"></div>
+        <div class="field"><label for="vs-domain">Domain</label><input id="vs-domain" class="input mono" type="text" value="cloud.exemple.fr"></div>
+        <div class="field"><label for="vs-machine">Machine</label>
+          <span class="select"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><select id="vs-machine"><option>vps-paris-1</option><option>vps-lyon-2</option></select><span class="chev"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></span>
+        </div>
+        <div class="field"><span class="field-label">Filter</span>
+          <span class="seg" role="radiogroup" aria-label="Filter">
+            <label><input type="radio" name="vs-filter" checked><span>All</span></label>
+            <label><input type="radio" name="vs-filter"><span>Active</span></label>
+            <label><input type="radio" name="vs-filter"><span>Stopped</span></label>
+          </span>
+        </div>
+        <div class="field"><span class="field-label">Automatic renewal</span>
+          <div class="cluster control-row"><input type="checkbox" class="toggle" role="switch" checked aria-label="Enabled"><input type="checkbox" class="toggle" role="switch" aria-label="Disabled"></div>
+        </div>
+        <div class="field"><span class="field-label">Tooltip</span>
+          <div class="control-row"><button type="button" class="btn btn-secondary btn-sm" data-tip="Seen 12 s ago, probed every 5 min">Hover</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Navigation and nodes</h2>
+      <div class="grid-nav-nodes">
+        <nav class="nav">
+          <a class="nav-item" href="/systeme-visuel"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>Rest</span></a>
+          <a class="nav-item active" href="/systeme-visuel"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><span>Active</span><span class="count">3</span></a>
+          <a class="nav-item" href="/systeme-visuel"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span>With alert</span><span class="count hot">2</span></a>
+        </nav>
+        <div class="stack gap-10">
+          <div class="node"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span><span class="t"><b>nextcloud</b><span>cloud.exemple.fr</span></span><span class="dot ok"></span></div>
+          <div class="node sel"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span><span class="t"><b>nextcloud</b><span>selected</span></span><span class="dot ok"></span></div>
+          <div class="node edge-node"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></span><span class="t"><b>Internet</b><span>proxy entry</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Machine header and tabs</h2>
+      <div class="card"><div class="card-b gap-16">
+        <div class="machine-head">
+          <span class="select"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><select aria-label="Machine"><option>vps-paris-1</option></select><span class="chev"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></span>
+          <span class="pill pill-ok">Online</span>
+          <div class="meta"><span class="mono">51.15.20.114</span><span class="sep"></span><span>Debian 12</span><span class="sep"></span><span>agent <span class="mono">0.0.1</span></span><span class="sep"></span><span>seen 12 s ago</span></div>
+        </div>
+        <nav class="tabs">
+          <a class="tab active" href="/systeme-visuel">Summary</a>
+          <a class="tab" href="/systeme-visuel">Services<span class="n">6</span></a>
+          <a class="tab" href="/systeme-visuel">Domains and certificates<span class="n">5</span></a>
+          <a class="tab" href="/systeme-visuel">Network</a>
+          <a class="tab" href="/systeme-visuel">Backups</a>
+          <a class="tab" href="/systeme-visuel">Logs</a>
+          <a class="tab" href="/systeme-visuel">Settings</a>
+        </nav>
+      </div></div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Event list</h2>
+      <div class="card">
+        <div class="card-h"><span class="card-t">Recent activity</span><span class="card-s">Example</span></div>
+        <div class="list">
+          <div class="row"><span class="dot ok"></span><span class="txt"><b>nextcloud updated to 29.0.4</b><span>vps-paris-1 · requested by the operator</span></span><span class="when">2 h ago</span></div>
+          <div class="row"><span class="dot warn"></span><span class="txt"><b>Unrequested reboot</b><span>vps-lyon-2 · kernel updated by the system</span></span><span class="when">yesterday, 03:12</span></div>
+          <div class="row"><span class="dot neutral"></span><span class="txt"><b>Virtual host created</b><span>vps-paris-1 · requested by the operator</span></span><span class="when">yesterday, 22:40</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Empty state</h2>
+      <div class="card"><div class="empty">
+        <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg></span>
+        <h3>No backup</h3>
+        <p>A backup appears here as soon as a service declares one.</p>
+      </div></div>
+    </section>
+
+    <section>
+      <h2 class="side-label section-label">Tone</h2>
+      <div class="card"><div class="card-b gap-8">
+        <div>French, short sentences, verb first: <b class="medium">Declare a service</b>, <b class="medium">Back up</b>, <b class="medium">Restart</b>.</div>
+        <div class="muted">Numbers and identifiers in mono. States as pills, never as coloured text alone. An alert states the fact, then the cause, then what can be done.</div>
+      </div></div>
+    </section>
+
+  </div>
+</div>
+
+</div>
+</main>
+</div>
+</body>
+</html>

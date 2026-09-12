@@ -98,9 +98,20 @@
   </nav>
   
   <div class="side-foot">
-    <div class="theme" role="group">
-      <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
-      <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+    <div class="switches">
+      <div class="theme" role="group">
+        <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      </div>
+      <form class="theme lang" method="post" action="/langue" aria-label="Langue">
+        <input type="hidden" name="csrf" value="CSRF">
+        <input type="hidden" name="return" value="/systeme-visuel">
+        
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
+        
+        <button type="submit" name="language" value="en" title="English" aria-label="English">en</button>
+        
+      </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">A</span>
@@ -160,8 +171,8 @@
       <div class="card"><div class="card-b gap-10">
         <div class="kv"><span class="k">Carte</span><span class="mono">rayon 14 · bord 1px · padding 20</span></div>
         <div class="kv"><span class="k">Contrôle (bouton, champ, sélecteur)</span><span class="mono">hauteur 36 · rayon 8 · petit 30 / 7</span></div>
-        <div class="kv"><span class="k">Pastille d'état</span><span class="mono">hauteur 24 · rayon 999 · point 6</span></div>
-        <div class="kv"><span class="k">Grille d'espacement</span><span class="mono">4 · 8 · 12 · 16 · 20 · 24 · 32</span></div>
+        <div class="kv"><span class="k">Pastille d&#39;état</span><span class="mono">hauteur 24 · rayon 999 · point 6</span></div>
+        <div class="kv"><span class="k">Grille d&#39;espacement</span><span class="mono">4 · 8 · 12 · 16 · 20 · 24 · 32</span></div>
         <div class="kv"><span class="k">Barre latérale</span><span class="mono">232 · item 34 · rayon 8</span></div>
         <div class="kv"><span class="k">Icônes</span><span class="mono">trait 1,6 · 16 en ligne · 18 dans le graphe</span></div>
         <div class="kv"><span class="k">Ombre</span><span class="mono">aucune sur les cartes · légère sur les boutons et menus</span></div>
@@ -181,7 +192,7 @@
           <span class="label"><svg class="icon" aria-hidden="true"><use href="#i-disk"/></svg>Disque</span>
           <span class="stat-value">69<small>Go / 80</small></span>
           <svg class="meter meter-warn" width="100%" height="6" aria-hidden="true"><rect class="meter-track" width="100%" height="6" rx="3"/><rect class="meter-fill" width="86%" height="6" rx="3"/></svg>
-          <span class="foot"><b>86 %</b>, seuil d'alerte à 85 %</span>
+          <span class="foot"><b>86 %</b>, seuil d&#39;alerte à 85 %</span>
         </div></div>
       </div>
     </section>
@@ -192,9 +203,9 @@
         <table class="table">
           <thead><tr><th>Service</th><th>Image</th><th>État</th><th class="th-end"></th></tr></thead>
           <tbody>
-            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>nextcloud</span></td><td class="num">nextcloud:29.0.4</td><td><span class="pill pill-ok">Actif</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d'actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
-            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>vaultwarden</span></td><td class="num">vaultwarden/server:1.32</td><td><span class="pill pill-warn">À renouveler</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d'actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
-            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>matomo</span></td><td class="num">matomo:5.1</td><td><span class="pill pill-neutral">Arrêté</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d'actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>nextcloud</span></td><td class="num">nextcloud:29.0.4</td><td><span class="pill pill-ok">Actif</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d&#39;actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>vaultwarden</span></td><td class="num">vaultwarden/server:1.32</td><td><span class="pill pill-warn">À renouveler</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d&#39;actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
+            <tr><td><span class="svc"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-box"/></svg></span>matomo</span></td><td class="num">matomo:5.1</td><td><span class="pill pill-neutral">Arrêté</span></td><td class="td-end"><button type="button" class="btn btn-ghost btn-icon btn-sm" aria-label="Plus d&#39;actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button></td></tr>
           </tbody>
         </table>
       </div>
@@ -212,7 +223,7 @@
         <button type="button" class="btn btn-danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Supprimer</button>
         <button type="button" class="btn btn-accent">Accent, rare</button>
         <button type="button" class="btn btn-secondary btn-sm">Petit</button>
-        <button type="button" class="btn btn-secondary btn-icon" aria-label="Plus d'actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
+        <button type="button" class="btn btn-secondary btn-icon" aria-label="Plus d&#39;actions"><svg class="icon" aria-hidden="true"><use href="#i-more"/></svg></button>
         <button type="button" class="btn btn-primary" disabled>Désactivé</button>
       </div>
     </section>
@@ -292,13 +303,13 @@
     </section>
 
     <section>
-      <h2 class="side-label section-label">Liste d'événements</h2>
+      <h2 class="side-label section-label">Liste d&#39;événements</h2>
       <div class="card">
         <div class="card-h"><span class="card-t">Activité récente</span><span class="card-s">Exemple</span></div>
         <div class="list">
-          <div class="row"><span class="dot ok"></span><span class="txt"><b>nextcloud mis à jour en 29.0.4</b><span>vps-paris-1 · demandé par l'opérateur</span></span><span class="when">il y a 2 h</span></div>
+          <div class="row"><span class="dot ok"></span><span class="txt"><b>nextcloud mis à jour en 29.0.4</b><span>vps-paris-1 · demandé par l&#39;opérateur</span></span><span class="when">il y a 2 h</span></div>
           <div class="row"><span class="dot warn"></span><span class="txt"><b>Redémarrage non demandé</b><span>vps-lyon-2 · noyau mis à jour par le système</span></span><span class="when">hier, 03:12</span></div>
-          <div class="row"><span class="dot neutral"></span><span class="txt"><b>Hôte virtuel créé</b><span>vps-paris-1 · demandé par l'opérateur</span></span><span class="when">hier, 22:40</span></div>
+          <div class="row"><span class="dot neutral"></span><span class="txt"><b>Hôte virtuel créé</b><span>vps-paris-1 · demandé par l&#39;opérateur</span></span><span class="when">hier, 22:40</span></div>
         </div>
       </div>
     </section>
@@ -308,15 +319,15 @@
       <div class="card"><div class="empty">
         <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg></span>
         <h3>Aucune sauvegarde</h3>
-        <p>Une sauvegarde apparaît ici dès qu'un service en déclare une.</p>
+        <p>Une sauvegarde apparaît ici dès qu&#39;un service en déclare une.</p>
       </div></div>
     </section>
 
     <section>
       <h2 class="side-label section-label">Ton</h2>
       <div class="card"><div class="card-b gap-8">
-        <div>Français, phrases courtes, verbe d'abord : <b class="medium">Déclarer un service</b>, <b class="medium">Sauvegarder</b>, <b class="medium">Redémarrer</b>.</div>
-        <div class="muted">Les nombres et identifiants en mono. Les états en pastille, jamais en texte coloré seul. Une alerte dit le fait, puis la cause, puis ce qu'on peut faire.</div>
+        <div>Français, phrases courtes, verbe d&#39;abord : <b class="medium">Déclarer un service</b>, <b class="medium">Sauvegarder</b>, <b class="medium">Redémarrer</b>.</div>
+        <div class="muted">Les nombres et identifiants en mono. Les états en pastille, jamais en texte coloré seul. Une alerte dit le fait, puis la cause, puis ce qu&#39;on peut faire.</div>
       </div></div>
     </section>
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vue d&#39;ensemble · openCloud</title>
+<title>Machines · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -48,13 +48,13 @@
   <div class="side-label">Vue</div>
   <nav class="nav">
     
-    <a class="nav-item active" href="/" aria-current="page">
+    <a class="nav-item" href="/">
       <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
       <span>Vue d&#39;ensemble</span>
       
     </a>
     
-    <a class="nav-item" href="/machines">
+    <a class="nav-item active" href="/machines" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       
@@ -98,9 +98,20 @@
   </nav>
   
   <div class="side-foot">
-    <div class="theme" role="group">
-      <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
-      <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+    <div class="switches">
+      <div class="theme" role="group">
+        <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      </div>
+      <form class="theme lang" method="post" action="/langue" aria-label="Langue">
+        <input type="hidden" name="csrf" value="CSRF">
+        <input type="hidden" name="return" value="/machines">
+        
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
+        
+        <button type="submit" name="language" value="en" title="English" aria-label="English">en</button>
+        
+      </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">A</span>
@@ -114,18 +125,17 @@
 
 <header class="page-head">
   <div>
-    <h1>Vue d&#39;ensemble</h1>
-    <p class="sub">Aucune machine pour l&#39;instant.</p>
+    <h1>Machines</h1>
+    <p class="sub">Cette page arrive avec une prochaine fonctionnalité.</p>
   </div>
-  <div class="actions"><a class="btn btn-primary" href="/machines/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Ajouter une machine</a></div>
+  <div class="actions"></div>
 </header>
 
 
 <section class="card">
   <div class="empty">
-    <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>
-    <h2>Aucune machine</h2>
-    <p>Ajoutez une première machine pour voir ici son état, ses services et ses alertes.</p>
+    <span class="pill pill-neutral nodot">Bientôt</span>
+    <p>Le socle est en place ; le contenu suivra, fonctionnalité par fonctionnalité.</p>
   </div>
 </section>
 

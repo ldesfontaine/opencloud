@@ -71,7 +71,16 @@ func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error
 	s.logger.Error("internal error", "path", r.URL.Path, "error", err)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusInternalServerError)
-	if _, err := fmt.Fprintln(w, s.text.InternalError); err != nil {
+	if _, err := fmt.Fprintln(w, s.catalog().Get("error.internal")); err != nil {
 		s.logger.Warn("write error response", "path", r.URL.Path, "error", err)
+	}
+}
+
+// Un refus dit sa cause en texte, avec le code HTTP qui va avec.
+func (s *Server) refuse(w http.ResponseWriter, r *http.Request, status int, cause string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(status)
+	if _, err := fmt.Fprintln(w, cause); err != nil {
+		s.logger.Warn("write refusal", "path", r.URL.Path, "error", err)
 	}
 }

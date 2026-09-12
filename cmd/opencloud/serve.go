@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/version"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -44,7 +45,11 @@ func runServe(args []string) error {
 	}
 	defer stateDir.Close()
 
-	server, err := web.New(web.Options{Logger: logger, Version: version.Number()})
+	server, err := web.New(web.Options{
+		Logger:   logger,
+		Version:  version.Number(),
+		Settings: settings.New(stateDir),
+	})
 	if err != nil {
 		return err
 	}

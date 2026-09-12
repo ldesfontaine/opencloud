@@ -5,11 +5,22 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	server, err := New(Options{Logger: slog.New(slog.NewTextHandler(os.Stderr, nil)), Version: "v0.0.1"})
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	server, err := New(Options{
+		Logger:   slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Version:  "v0.0.1",
+		Settings: settings.New(root),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -122,14 +122,17 @@ h1, h2, h3, p { margin: 0; }
 .nav-item .count.hot { color: var(--danger); font-weight: 600; }
 
 .side-foot { margin-top: auto; padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
-.theme { display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--surface-2); }
+.switches { display: flex; gap: 8px; }
+.theme { flex: 1; display: flex; gap: 4px; padding: 3px; border-radius: 8px; background: var(--surface-2); margin: 0; }
 .theme button {
   flex: 1; height: 26px; border: 0; border-radius: 6px; background: transparent;
   color: var(--muted); display: grid; place-items: center; cursor: pointer;
 }
 .theme button:hover { color: var(--ink); }
 :root[data-theme="light"] .theme [data-set-theme="light"],
-:root[data-theme="dark"] .theme [data-set-theme="dark"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+:root[data-theme="dark"] .theme [data-set-theme="dark"],
+.lang button.active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+.lang button { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .account {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px;
   border-radius: 10px; border: 1px solid var(--line); background: var(--surface);
