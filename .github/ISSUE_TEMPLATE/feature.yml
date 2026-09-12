@@ -1,0 +1,43 @@
+name: Fonctionnalité
+description: Une fonctionnalité qui a de la valeur pour quelqu'un, avec ses critères d'acceptation.
+title: "feat(portée): "
+labels: ["type/feature"]
+body:
+  - type: textarea
+    id: contexte
+    attributes:
+      label: Contexte
+      description: Pourquoi maintenant, en deux lignes.
+    validations:
+      required: true
+  - type: textarea
+    id: story
+    attributes:
+      label: User story
+      placeholder: "En tant que <rôle>, je veux <quoi>, afin de <pourquoi>."
+    validations:
+      required: true
+  - type: textarea
+    id: acceptation
+    attributes:
+      label: Critères d'acceptation
+      description: Vérifiables. Une case par critère.
+      value: |
+        - [ ] Étant donné …, quand …, alors …
+    validations:
+      required: true
+  - type: textarea
+    id: taches
+    attributes:
+      label: Tâches
+      value: |
+        - [ ] 
+  - type: textarea
+    id: hors
+    attributes:
+      label: Hors périmètre
+  - type: textarea
+    id: refs
+    attributes:
+      label: Références
+      description: Les documents du cadrage concernés.

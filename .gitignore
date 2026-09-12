@@ -1,0 +1,10 @@
+/bin/
+/dist/
+/dev/
+# Arbres de travail et fichiers de session des agents.
+/.claude/
+*.db
+*.db-wal
+*.db-shm
+.env
+coverage.out

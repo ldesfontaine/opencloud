@@ -1,0 +1,101 @@
+version: "2.0"
+
+# Politique CI/CD vérifiée par Plumber à chaque exécution. Elle ne dépend que du
+# contenu versionné : aucun contrôle n'exige un jeton d'administration.
+github:
+  controls:
+    actionsMustBePinnedByCommitSha:
+      enabled: true
+      trustedOwners: []
+
+    githubActionMustComeFromAuthorizedSources:
+      enabled: true
+      trustGithubOfficialActions: true
+      trustSameOrgActions: false
+      minimumStars: 0
+      trustedGithubActions:
+        - getplumber/plumber
+        - gitleaks/gitleaks-action
+
+    containerImageMustNotUseForbiddenTags:
+      enabled: true
+      containerImagesMustBePinnedByDigest: true
+
+    pipelineMustNotEnableDebugTrace:
+      enabled: true
+      forbiddenVariables:
+        - ACTIONS_STEP_DEBUG
+        - ACTIONS_RUNNER_DEBUG
+
+    pipelineMustNotUseDockerInDocker:
+      enabled: true
+      detectInsecureDaemon: true
+
+    reusableWorkflowsMustNotInheritSecrets:
+      enabled: true
+
+    workflowMustNotExportEntireSecretsContext:
+      enabled: true
+
+    securityJobsMustNotBeWeakened:
+      enabled: true
+      securityJobPatterns:
+        - verify
+        - plumber
+      allowFailureMustBeFalse:
+        enabled: true
+      rulesMustNotBeRedefined:
+        enabled: true
+      whenMustNotBeManual:
+        enabled: true
+
+    pipelineMustNotExecuteUnverifiedScripts:
+      enabled: true
+      trustedUrls: []
+
+    workflowMustNotInjectUserInputInScripts:
+      enabled: true
+
+    workflowMustNotWriteUntrustedContentToGitHubEnv:
+      enabled: true
+
+    workflowMustNotUseDangerousTriggers:
+      enabled: true
+
+    pullRequestTargetMustNotCheckoutHead:
+      enabled: true
+
+    workflowsMustDeclarePermissions:
+      enabled: true
+
+    workflowMustNotGrantPermissionsWriteAll:
+      enabled: true
+
+    checkoutMustNotPersistCredentials:
+      enabled: true
+
+    externalRefsMustNotCollide:
+      enabled: true
+
+    actionsMustNotBeArchived:
+      enabled: true
+
+    actionRefsMustExistUpstream:
+      enabled: true
+
+    actionsMustNotCarryKnownCVEs:
+      enabled: true
+
+    actionsMustNotExecuteMutableRemoteCode:
+      enabled: true
+
+    releaseWorkflowsMustNotRestoreUntrustedCache:
+      enabled: true
+
+    # Exige un jeton d'administration : à activer quand la branche main sera
+    # protégée sur GitHub.
+    branchMustBeProtected:
+      enabled: false
+
+    workflowMustIncludeRequiredActions:
+      enabled: false

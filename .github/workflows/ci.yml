@@ -1,0 +1,55 @@
+# Les actions sont épinglées par SHA de commit : un tag est un pointeur mobile.
+# Plumber (.plumber.yaml) vérifie cette politique à chaque exécution.
+# Les étapes Go reviennent avec le premier code (docs/projet/12-methode.md).
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read # gitleaks lit les commits de la PR
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  plumber:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: politique CI/CD
+        uses: getplumber/plumber@c85c712bca3c9f547a88c66bb2541db179a1a79e # v0.4.52
+        with:
+          version: v0.4.52
+          verify-attestation: "true"
+          config-file: .plumber.yaml
+          min-points: "100"
+          fail-warnings: "true"
+          soft-fail: "false"
+          upload-sarif: "false"
+          upload-artifacts: "false"
+          pbom: ""
+          pbom-cyclonedx: ""
+          sarif: ""
