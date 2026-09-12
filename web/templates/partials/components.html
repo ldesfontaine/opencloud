@@ -1,0 +1,2 @@
+{{/* Jauge : le remplissage est un attribut SVG, pas un style en ligne, pour rester dans la CSP. */}}
+{{define "meter"}}<svg class="meter{{if .Tone}} meter-{{.Tone}}{{end}}" width="100%" height="6" aria-hidden="true"><rect class="meter-track" width="100%" height="6" rx="3"/><rect class="meter-fill" width="{{.Percent}}%" height="6" rx="3"/></svg>{{end}}

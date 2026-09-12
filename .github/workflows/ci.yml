@@ -1,6 +1,7 @@
 # Les actions sont épinglées par SHA de commit : un tag est un pointeur mobile.
 # Plumber (.plumber.yaml) vérifie cette politique à chaque exécution.
-# Les étapes Go reviennent avec le premier code (docs/projet/12-methode.md).
+# Les étapes Go appellent les cibles du Makefile : les versions des outils
+# n'existent qu'à un seul endroit.
 name: ci
 
 on:
@@ -53,3 +54,36 @@ jobs:
           pbom: ""
           pbom-cyclonedx: ""
           sarif: ""
+
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt et goimports
+        run: make fmt
+
+      - name: go vet
+        run: make vet
+
+      - name: staticcheck
+        run: make staticcheck
+
+      - name: go test
+        run: make test
+
+      - name: govulncheck
+        run: make vulncheck
+
+      - name: gosec
+        run: make gosec
+
+      - name: build
+        run: make build

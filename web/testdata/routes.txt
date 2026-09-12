@@ -1,0 +1,11 @@
+GET /{$}
+GET /machines
+GET /machines/nouvelle
+GET /services
+GET /domaines
+GET /sauvegardes
+GET /alertes
+GET /parametres
+GET /systeme-visuel
+GET /static/{build}/{path...}
+GET /

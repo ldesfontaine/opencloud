@@ -1,0 +1,10 @@
+{{define "actions"}}<a class="btn btn-primary" href="/machines/nouvelle">{{template "icon" "plus"}}{{.T.AddMachine}}</a>{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="empty">
+    <span class="empty-icon">{{template "icon" "server"}}</span>
+    <h2>{{.T.OverviewEmptyTitle}}</h2>
+    <p>{{.T.OverviewEmptyText}}</p>
+  </div>
+</section>
+{{end}}

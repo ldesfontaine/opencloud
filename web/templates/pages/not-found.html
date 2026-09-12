@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="card">
+  <div class="empty">
+    <span class="empty-icon">{{template "icon" "search"}}</span>
+    <h2>{{.T.NotFoundTitle}}</h2>
+    <p>{{.T.NotFoundText}}</p>
+    <a class="btn btn-secondary" href="/">{{.T.BackToOverview}}</a>
+  </div>
+</section>
+{{end}}

@@ -1,0 +1,9 @@
+{{define "page-head"}}
+<header class="page-head">
+  <div>
+    <h1>{{.Title}}</h1>
+    {{if .Subtitle}}<p class="sub">{{.Subtitle}}</p>{{end}}
+  </div>
+  <div class="actions">{{template "actions" .}}</div>
+</header>
+{{end}}
