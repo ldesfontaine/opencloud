@@ -106,6 +106,7 @@ text = "Vérifiez le lien ou revenez à la vue d'ensemble."
 back = "Revenir à la vue d'ensemble"
 
 [error]
+unknown_language = "Requête refusée : cette langue n'existe pas."
 internal = "Une erreur interne est survenue. Consultez les journaux du serveur."
 forbidden = "Requête refusée : le formulaire a expiré, rechargez la page."
 
