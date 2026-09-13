@@ -1,0 +1,34 @@
+{{define "content"}}
+<section class="card form-card">
+  <form class="card-b" method="post" action="/taches/nouvelle">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="field">
+      <label for="job-name">{{.T.Get "job.name_label"}}</label>
+      <input id="job-name" class="input" type="text" name="name" value="{{.Page.Name}}" placeholder="sauvegarde nextcloud" maxlength="80" autocomplete="off" autofocus required>
+      <span class="field-help">{{.T.Get "job.name_help"}}</span>
+    </div>
+    <div class="field">
+      <label for="job-machine">{{.T.Get "job.machine_label"}}</label>
+      <span class="select"><select id="job-machine" name="machine_id"><option value="">{{.T.Get "job.machine_none"}}</option>{{range .Page.Machines}}<option value="{{.ID}}"{{if .Selected}} selected{{end}}>{{.Name}}</option>{{end}}</select><span class="chev">{{template "icon" "chevron-down"}}</span></span>
+      <span class="field-help">{{.T.Get "job.machine_help"}}</span>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="job-interval">{{.T.Get "job.interval_label"}}</label>
+        <input id="job-interval" class="input mono" type="number" name="interval_minutes" value="{{.Page.IntervalMinutes}}" min="1" max="10080" required>
+        <span class="field-help">{{.T.Get "job.interval_help"}}</span>
+      </div>
+      <div class="field">
+        <label for="job-grace">{{.T.Get "job.grace_label"}}</label>
+        <input id="job-grace" class="input mono" type="number" name="grace_minutes" value="{{.Page.GraceMinutes}}" min="0" max="10080" required>
+        <span class="field-help">{{.T.Get "job.grace_help"}}</span>
+      </div>
+    </div>
+    {{if .Page.ErrorKey}}<span class="pill pill-danger">{{.T.Get .Page.ErrorKey}}</span>{{end}}
+    <div class="cluster">
+      <button type="submit" class="btn btn-primary">{{template "icon" "plus"}}{{.T.Get "job.create"}}</button>
+      <a class="btn btn-ghost" href="/taches">{{.T.Get "job.cancel"}}</a>
+    </div>
+  </form>
+</section>
+{{end}}

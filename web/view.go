@@ -13,6 +13,7 @@ const (
 	navServices = "services"
 	navDomains  = "domains"
 	navBackups  = "backups"
+	navJobs     = "jobs"
 	navAlerts   = "alerts"
 	navSettings = "settings"
 )
@@ -67,6 +68,10 @@ func (s *Server) newView(r *http.Request, active, title, subtitle string) view {
 	if err != nil {
 		s.logger.Error("count machines", "error", err)
 	}
+	jobsTotal, attention, jobsErr := s.heartbeats.Count(r.Context())
+	if jobsErr != nil {
+		s.logger.Error("count heartbeats", "error", jobsErr)
+	}
 	return view{
 		T:          text,
 		Lang:       string(text.Code()),
@@ -78,8 +83,9 @@ func (s *Server) newView(r *http.Request, active, title, subtitle string) view {
 		Title:      title,
 		Subtitle:   subtitle,
 		Active:     active,
-		Nav:        s.navigation(text, machineCount{Total: total, Online: online, Known: err == nil}),
-		Account:    s.account(text),
+		Nav: s.navigation(text, machineCount{Total: total, Online: online, Known: err == nil},
+			jobCount{Total: jobsTotal, Attention: attention, Known: jobsErr == nil}),
+		Account: s.account(text),
 	}
 }
 
@@ -103,9 +109,17 @@ type machineCount struct {
 	Known  bool
 }
 
+// Ce que la barre latérale sait des tâches ; le compteur montre celles à
+// traiter, en retard ou en échec, et passe au rouge dès qu'il y en a une.
+type jobCount struct {
+	Total     int
+	Attention int
+	Known     bool
+}
+
 // Les autres compteurs viendront avec leurs composants (services…) ; le
 // compteur des machines passe au rouge dès qu'une machine est hors ligne.
-func (s *Server) navigation(text lang.Catalog, machines machineCount) []navSection {
+func (s *Server) navigation(text lang.Catalog, machines machineCount, jobs jobCount) []navSection {
 	return []navSection{
 		{
 			Label: text.Get("nav.section_view"),
@@ -116,6 +130,8 @@ func (s *Server) navigation(text lang.Catalog, machines machineCount) []navSecti
 				{Key: navServices, Label: text.Get("nav.services"), Href: "/services", Icon: "box"},
 				{Key: navDomains, Label: text.Get("nav.domains"), Href: "/domaines", Icon: "globe"},
 				{Key: navBackups, Label: text.Get("nav.backups"), Href: "/sauvegardes", Icon: "archive"},
+				{Key: navJobs, Label: text.Get("nav.jobs"), Href: "/taches", Icon: "clock",
+					Count: jobs.Attention, HasCount: jobs.Known && jobs.Attention > 0, Hot: jobs.Attention > 0},
 				{Key: navAlerts, Label: text.Get("nav.alerts"), Href: "/alertes", Icon: "bell"},
 			},
 		},

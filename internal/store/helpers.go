@@ -50,3 +50,40 @@ func isUniqueViolation(err error) bool {
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
+
+func nullableInt(value *int) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableMillis(d *time.Duration) any {
+	if d == nil {
+		return nil
+	}
+	return d.Milliseconds()
+}
+
+func timeOf(value sql.NullInt64) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return time.Unix(value.Int64, 0)
+}
+
+func intPointer(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	i := int(value.Int64)
+	return &i
+}
+
+func durationPointer(millis sql.NullInt64) *time.Duration {
+	if !millis.Valid {
+		return nil
+	}
+	d := time.Duration(millis.Int64) * time.Millisecond
+	return &d
+}

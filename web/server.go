@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -41,12 +42,29 @@ type MachineService interface {
 	Signal(ctx context.Context, sessionToken string) error
 }
 
+// Ce que le serveur attend du composant heartbeat : les pages d'un côté,
+// les pings publics de l'autre.
+type HeartbeatService interface {
+	List(ctx context.Context) ([]heartbeat.Heartbeat, error)
+	Get(ctx context.Context, id string) (heartbeat.Heartbeat, error)
+	Count(ctx context.Context) (total, attention int, err error)
+	Create(ctx context.Context, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
+	Delete(ctx context.Context, id string) error
+	Pause(ctx context.Context, id string) error
+	Resume(ctx context.Context, id string) error
+	Pings(ctx context.Context, id string, limit int) ([]heartbeat.Ping, error)
+	Runs(ctx context.Context, id string, limit int) ([]heartbeat.Run, error)
+	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
+}
+
 type Server struct {
 	logger         *slog.Logger
 	version        string
 	catalogs       lang.Catalogs
 	settings       SettingsStore
 	machines       MachineService
+	heartbeats     HeartbeatService
+	pingLimits     *pingLimits
 	publicURL      string
 	trustedProxies []netip.Prefix
 	pages          map[string]*template.Template
@@ -61,10 +79,11 @@ type Server struct {
 }
 
 type Options struct {
-	Logger   *slog.Logger
-	Version  string
-	Settings SettingsStore
-	Machines MachineService
+	Logger     *slog.Logger
+	Version    string
+	Settings   SettingsStore
+	Machines   MachineService
+	Heartbeats HeartbeatService
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
 	PublicURL      string
@@ -101,6 +120,8 @@ func New(opts Options) (*Server, error) {
 		catalogs:       catalogs,
 		settings:       opts.Settings,
 		machines:       opts.Machines,
+		heartbeats:     opts.Heartbeats,
+		pingLimits:     newPingLimits(),
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		pages:          pages,
@@ -108,6 +129,9 @@ func New(opts Options) (*Server, error) {
 		staticBase:     staticPrefix + build + "/",
 		clock:          opts.Clock,
 		current:        current,
+	}
+	if opts.Clock != nil {
+		server.pingLimits.setClock(opts.Clock)
 	}
 	server.handler = securityHeaders(server.csrfCookie(server.mux()))
 	return server, nil

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -20,8 +21,9 @@ var testNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
 
 type testServer struct {
 	*Server
-	machines *machine.Service
-	db       *store.DB
+	machines   *machine.Service
+	heartbeats *heartbeat.Service
+	db         *store.DB
 }
 
 // Le serveur de test tourne sur le vrai composant machine et une vraie base
@@ -47,17 +49,20 @@ func newTestServer(t *testing.T) *testServer {
 	if err != nil {
 		t.Fatal(err)
 	}
+	heartbeats := heartbeat.New(db, logger)
+	heartbeats.SetClock(func() time.Time { return testNow })
 	server, err := New(Options{
-		Logger:   logger,
-		Version:  "v0.0.1",
-		Settings: settings.New(root),
-		Machines: machines,
-		Clock:    func() time.Time { return testNow },
+		Logger:     logger,
+		Version:    "v0.0.1",
+		Settings:   settings.New(root),
+		Machines:   machines,
+		Heartbeats: heartbeats,
+		Clock:      func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testServer{Server: server, machines: machines, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

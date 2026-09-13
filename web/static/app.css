@@ -444,3 +444,12 @@ h1 { font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2
 .list form.row { margin: 0; }
 .card-h a.card-s { color: var(--accent); }
 .actions form { margin: 0; }
+
+/* ---- tâches ---- */
+
+.snippet { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nowrap { white-space: nowrap; }
+.scroll-x { overflow-x: auto; }
+.result-ok { color: var(--ok); }
+.result-danger { color: var(--danger); }
+.stat .foot b.danger { color: var(--danger); }

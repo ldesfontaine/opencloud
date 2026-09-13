@@ -10,7 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
@@ -18,32 +20,41 @@ var updateGolden = flag.Bool("update", false, "réécrit les rendus de référen
 
 // Le rendu de chaque page est figé dans testdata/*.golden.html, dans chaque
 // langue ; `go test ./web -update` les réécrit après un changement voulu.
-func TestRender_MatchesGoldenFiles(t *testing.T) {
-	cases := []struct {
-		name   string
-		path   string
-		status int
-	}{
+type renderCase struct {
+	name   string
+	path   string
+	status int
+}
+
+func renderCases(jobID string) []renderCase {
+	return []renderCase{
 		{"overview", "/", http.StatusOK},
 		{"machines", "/machines", http.StatusOK},
 		{"machine-new", "/machines/nouvelle", http.StatusOK},
 		{"machine", "/machines/" + remoteID, http.StatusOK},
 		{"machine-tab", "/machines/" + remoteID + "/services", http.StatusOK},
 		{"machine-local", "/machines/local", http.StatusOK},
+		{"jobs", "/taches", http.StatusOK},
+		{"job-new", "/taches/nouvelle", http.StatusOK},
+		{"job", "/taches/" + jobID, http.StatusOK},
 		{"soon", "/services", http.StatusOK},
 		{"visual-system", "/systeme-visuel", http.StatusOK},
 		{"not-found", "/rien-ici", http.StatusNotFound},
 	}
+}
+
+func TestRender_MatchesGoldenFiles(t *testing.T) {
 	for _, code := range lang.Codes() {
 		server := newTestServer(t)
 		server.enroll(t, "vps-paris-1", remoteID)
 		if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2"); err != nil {
 			t.Fatal(err)
 		}
+		jobID := server.seedJobs(t)
 		if err := server.saveLanguage(code); err != nil {
 			t.Fatal(err)
 		}
-		for _, tc := range cases {
+		for _, tc := range renderCases(jobID) {
 			t.Run(tc.name+"/"+string(code), func(t *testing.T) {
 				recorder := httptest.NewRecorder()
 				server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tc.path, nil))
@@ -80,23 +91,58 @@ var (
 	tokenValue = regexp.MustCompile(`oc_[a-z2-7]{20,}`)
 	tokenMask  = regexp.MustCompile(`oc_[a-z2-7]{6}…`)
 	tokenID    = regexp.MustCompile(`jetons/[0-9a-f]{16}/`)
+	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
+	jobID      = regexp.MustCompile(`taches/[0-9a-f]{16}`)
+	clockValue = regexp.MustCompile(`\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}`)
 )
 
-// L'empreinte des statiques, le jeton CSRF et les jetons d'enrôlement
-// changent à chaque build ou requête ; le golden les remplace par une
-// valeur fixe.
+// L'empreinte des statiques, le jeton CSRF, les jetons d'enrôlement et de
+// ping, les identifiants de tâche changent à chaque build ou requête, et
+// les horodatages suivent le fuseau de la machine ; le golden les remplace
+// par une valeur fixe.
 func normalize(server *Server, body string) string {
 	body = strings.ReplaceAll(body, server.staticBase, "/static/BUILD/")
 	body = csrfValue.ReplaceAllString(body, `name="csrf" value="CSRF"`)
 	body = tokenValue.ReplaceAllString(body, "oc_TOKEN")
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
-	return tokenID.ReplaceAllString(body, "jetons/TOKENID/")
+	body = tokenID.ReplaceAllString(body, "jetons/TOKENID/")
+	body = pingToken.ReplaceAllString(body, "hb_TOKEN")
+	body = jobID.ReplaceAllString(body, "taches/JOBID")
+	return clockValue.ReplaceAllString(body, "DATE TIME")
+}
+
+// Deux tâches pour des rendus parlants : l'une rattachée à la machine
+// distante, démarrée puis finie ; l'autre sans machine, en échec.
+func (ts *testServer) seedJobs(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	backup, err := ts.heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde nextcloud", MachineID: remoteID, Interval: 24 * time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := 0
+	for _, ping := range []heartbeat.Ping{{Kind: heartbeat.KindStart}, {Kind: heartbeat.KindExitCode, ExitCode: &zero}} {
+		ping.Source = "51.15.20.114"
+		ping.Method = "GET"
+		if _, err := ts.heartbeats.Receive(ctx, backup.Token, ping); err != nil {
+			t.Fatal(err)
+		}
+	}
+	certbot, err := ts.heartbeats.Create(ctx, heartbeat.Definition{Name: "certbot renew", Interval: 12 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := 1
+	if _, err := ts.heartbeats.Receive(ctx, certbot.Token, heartbeat.Ping{Kind: heartbeat.KindExitCode, ExitCode: &one, Source: "10.8.0.1", Method: "POST"}); err != nil {
+		t.Fatal(err)
+	}
+	return backup.ID
 }
 
 func TestRender_EveryPageTemplateHasARoute(t *testing.T) {
 	server := newTestServer(t)
 	rendered := map[string]bool{}
-	for _, page := range []string{"overview", "machines", "machine-new", "machine-token", "machine", "soon", "visual-system", "not-found"} {
+	for _, page := range []string{"overview", "machines", "machine-new", "machine-token", "machine", "jobs", "job-new", "job", "soon", "visual-system", "not-found"} {
 		rendered[page] = true
 	}
 	for page := range server.pages {
@@ -123,7 +169,8 @@ func TestTemplates_ContainNoInlineStyleScriptOrMissingKey(t *testing.T) {
 			t.Fatal(err)
 		}
 		server.enroll(t, "vps-paris-1", remoteID)
-		for _, path := range []string{"/", "/machines", "/machines/nouvelle", "/machines/" + remoteID, "/machines/" + remoteID + "/reseau", "/systeme-visuel", "/rien-ici"} {
+		jobID := server.seedJobs(t)
+		for _, path := range []string{"/", "/machines", "/machines/nouvelle", "/machines/" + remoteID, "/machines/" + remoteID + "/reseau", "/taches", "/taches/nouvelle", "/taches/" + jobID, "/systeme-visuel", "/rien-ici"} {
 			recorder := httptest.NewRecorder()
 			server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 			body := recorder.Body.String()

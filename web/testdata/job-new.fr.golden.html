@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Machines · openCloud</title>
+<title>Nouvelle tâche · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -48,16 +48,16 @@
     <span class="wordmark"><span>open</span><b>Cloud</b></span>
   </a>
   
-  <div class="side-label">View</div>
+  <div class="side-label">Vue</div>
   <nav class="nav">
     
     <a class="nav-item" href="/">
       <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
-      <span>Overview</span>
+      <span>Vue d&#39;ensemble</span>
       
     </a>
     
-    <a class="nav-item active" href="/machines" aria-current="page">
+    <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       <span class="count hot">2</span>
@@ -71,36 +71,36 @@
     
     <a class="nav-item" href="/domaines">
       <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
-      <span>Domains</span>
+      <span>Domaines</span>
       
     </a>
     
     <a class="nav-item" href="/sauvegardes">
       <svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>
-      <span>Backups</span>
+      <span>Sauvegardes</span>
       
     </a>
     
-    <a class="nav-item" href="/taches">
+    <a class="nav-item active" href="/taches" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-      <span>Jobs</span>
+      <span>Tâches</span>
       <span class="count hot">1</span>
     </a>
     
     <a class="nav-item" href="/alertes">
       <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
-      <span>Alerts</span>
+      <span>Alertes</span>
       
     </a>
     
   </nav>
   
-  <div class="side-label">Settings</div>
+  <div class="side-label">Réglages</div>
   <nav class="nav">
     
     <a class="nav-item" href="/parametres">
       <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
-      <span>Preferences</span>
+      <span>Paramètres</span>
       
     </a>
     
@@ -109,22 +109,22 @@
   <div class="side-foot">
     <div class="switches">
       <div class="theme" role="group">
-        <button type="button" data-set-theme="light" aria-label="Light theme" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
-        <button type="button" data-set-theme="dark" aria-label="Dark theme" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+        <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
       </div>
-      <form class="theme lang" method="post" action="/langue" aria-label="Language">
+      <form class="theme lang" method="post" action="/langue" aria-label="Langue">
         <input type="hidden" name="csrf" value="CSRF">
-        <input type="hidden" name="return" value="/machines">
+        <input type="hidden" name="return" value="/taches/nouvelle">
         
-        <button type="submit" name="language" value="fr" title="Français" aria-label="Français">fr</button>
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
         
-        <button type="submit" name="language" value="en" title="English" aria-label="English" class="active" aria-current="true">en</button>
+        <button type="submit" name="language" value="en" title="English" aria-label="English">en</button>
         
       </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">A</span>
-      <span class="who"><b>Administrator</b><span>Local account</span></span>
+      <span class="who"><b>Administrateur</b><span>Compte local</span></span>
     </div>
   </div>
 </aside>
@@ -134,60 +134,45 @@
 
 <header class="page-head">
   <div>
-    <h1>Machines</h1>
-    <p class="sub">2 machines, 1 online.</p>
+    <h1>Nouvelle tâche</h1>
+    <p class="sub">Nommez la tâche, dites tous les combien elle doit pinger, et collez l&#39;URL dans votre script.</p>
   </div>
-  <div class="actions"><a class="btn btn-primary" href="/machines/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add a machine</a></div>
+  <div class="actions"></div>
 </header>
 
 
-
-<div id="machines-table" hx-get="/machines/tableau" hx-trigger="every 10s" hx-swap="outerHTML">
-  <section class="card">
-    <table class="table">
-      <thead><tr><th>Machine</th><th>Address</th><th>System</th><th>Agent</th><th>State</th><th>Last signal</th><th class="th-end"></th></tr></thead>
-      <tbody>
-        
-        <tr>
-          <td><a class="svc" href="/machines/local"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>opencloud<span class="pill pill-neutral nodot">this machine</span></a></td>
-          <td class="num">10.8.0.1</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-ok">Online</span></td>
-          <td class="secondary">seen just now</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/local">Open</a></td>
-        </tr>
-        
-        <tr>
-          <td><a class="svc" href="/machines/11111111-2222-4333-8444-555555555555"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>vps-paris-1</a></td>
-          <td class="num">51.15.20.114</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-danger">Offline</span></td>
-          <td class="secondary">never seen</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/11111111-2222-4333-8444-555555555555">Open</a></td>
-        </tr>
-        
-      </tbody>
-    </table>
-  </section>
-  
-  <section class="card">
-    <div class="card-h"><span class="card-t">Awaiting enrollment</span><span class="card-s">The install command has not been run yet.</span></div>
-    <div class="list">
-      
-      <form class="row" method="post" action="/machines/jetons/TOKENID/actions/annuler">
-        <input type="hidden" name="csrf" value="CSRF">
-        <span class="dot neutral"></span>
-        <span class="txt"><b>vps-lyon-2</b><span><span class="mono">oc_MASKED…</span> · expires in 24 h</span></span>
-        <button type="submit" class="btn btn-ghost btn-sm when">Cancel the token</button>
-      </form>
-      
+<section class="card form-card">
+  <form class="card-b" method="post" action="/taches/nouvelle">
+    <input type="hidden" name="csrf" value="CSRF">
+    <div class="field">
+      <label for="job-name">Nom de la tâche</label>
+      <input id="job-name" class="input" type="text" name="name" value="" placeholder="sauvegarde nextcloud" maxlength="80" autocomplete="off" autofocus required>
+      <span class="field-help">Ce que vous voulez lire dans la liste : « sauvegarde nextcloud ».</span>
     </div>
-  </section>
-  
-</div>
-
+    <div class="field">
+      <label for="job-machine">Machine</label>
+      <span class="select"><select id="job-machine" name="machine_id"><option value="">Aucune</option><option value="local">opencloud</option><option value="11111111-2222-4333-8444-555555555555">vps-paris-1</option></select><span class="chev"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></span>
+      <span class="field-help">Facultatif : la machine où la tâche tourne.</span>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="job-interval">Intervalle, en minutes</label>
+        <input id="job-interval" class="input mono" type="number" name="interval_minutes" value="60" min="1" max="10080" required>
+        <span class="field-help">Tous les combien la tâche tourne : 1 minute à 7 jours.</span>
+      </div>
+      <div class="field">
+        <label for="job-grace">Grâce, en minutes</label>
+        <input id="job-grace" class="input mono" type="number" name="grace_minutes" value="10" min="0" max="10080" required>
+        <span class="field-help">Le retard toléré avant de passer en retard, au plus l&#39;intervalle.</span>
+      </div>
+    </div>
+    
+    <div class="cluster">
+      <button type="submit" class="btn btn-primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Créer le moniteur</button>
+      <a class="btn btn-ghost" href="/taches">Annuler</a>
+    </div>
+  </form>
+</section>
 
 </div>
 </main>

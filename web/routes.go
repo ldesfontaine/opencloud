@@ -11,7 +11,8 @@ type route struct {
 // L'arbre des routes, figé par routes_test.go : tout ajout casse le test,
 // c'est voulu. Une route par écran, une route par action ; les fragments
 // HTMX portent un nom de morceau (tableau, en-tete). Sous /agent, ce que
-// l'agent d'une machine appelle.
+// l'agent d'une machine appelle ; sous /ping, ce qu'un cron appelle, sans
+// authentification : le jeton est le secret.
 func (s *Server) routes() []route {
 	return []route{
 		{"GET", "/{$}", s.overview},
@@ -28,6 +29,15 @@ func (s *Server) routes() []route {
 		{"GET", "/services", s.soon(navServices, "nav.services")},
 		{"GET", "/domaines", s.soon(navDomains, "nav.domains")},
 		{"GET", "/sauvegardes", s.soon(navBackups, "nav.backups")},
+		{"GET", "/taches", s.jobsPage},
+		{"GET", "/taches/tableau", s.jobsTable},
+		{"GET", "/taches/nouvelle", s.newJobPage},
+		{"POST", "/taches/nouvelle", s.createJob},
+		{"GET", "/taches/{id}", s.jobPage},
+		{"GET", "/taches/{id}/etat", s.jobState},
+		{"POST", "/taches/{id}/actions/pause", s.pauseJob},
+		{"POST", "/taches/{id}/actions/reprendre", s.resumeJob},
+		{"POST", "/taches/{id}/actions/supprimer", s.deleteJob},
 		{"GET", "/alertes", s.soon(navAlerts, "nav.alerts")},
 		{"GET", "/parametres", s.soon(navSettings, "nav.settings")},
 		{"POST", "/langue", s.setLanguage},
@@ -36,6 +46,12 @@ func (s *Server) routes() []route {
 		{"POST", "/agent/challenge", s.agentChallenge},
 		{"GET", "/agent/stream", s.agentStream},
 		{"POST", "/agent/signal", s.agentSignal},
+		{"GET", "/ping/{token}", s.pingFinish},
+		{"POST", "/ping/{token}", s.pingFinish},
+		{"GET", "/ping/{token}/start", s.pingStart},
+		{"POST", "/ping/{token}/start", s.pingStart},
+		{"GET", "/ping/{token}/{code}", s.pingExitCode},
+		{"POST", "/ping/{token}/{code}", s.pingExitCode},
 		{"GET", staticPrefix + "{build}/{path...}", s.static},
 		{"GET", "/", s.notFound},
 	}

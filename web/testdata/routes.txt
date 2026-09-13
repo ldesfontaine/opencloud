@@ -12,6 +12,15 @@ POST /machines/{id}/actions/reenroler
 GET /services
 GET /domaines
 GET /sauvegardes
+GET /taches
+GET /taches/tableau
+GET /taches/nouvelle
+POST /taches/nouvelle
+GET /taches/{id}
+GET /taches/{id}/etat
+POST /taches/{id}/actions/pause
+POST /taches/{id}/actions/reprendre
+POST /taches/{id}/actions/supprimer
 GET /alertes
 GET /parametres
 POST /langue
@@ -20,5 +29,11 @@ POST /agent/enroll
 POST /agent/challenge
 GET /agent/stream
 POST /agent/signal
+GET /ping/{token}
+POST /ping/{token}
+GET /ping/{token}/start
+POST /ping/{token}/start
+GET /ping/{token}/{code}
+POST /ping/{token}/{code}
 GET /static/{build}/{path...}
 GET /
