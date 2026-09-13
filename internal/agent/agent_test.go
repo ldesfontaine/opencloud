@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -54,7 +55,7 @@ func newBench(t *testing.T) *bench {
 }
 
 func (b *bench) options(token string) Options {
-	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger}
+	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger}
 }
 
 func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) bool) machine.Status {
@@ -95,7 +96,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return !s.Online })
 
 	identity, err := LoadIdentity(b.stateDir)
-	if err != nil || identity.MachineID != online.ID || identity.Server != b.url {
+	if err != nil || identity.MachineID != online.ID || identity.Server != b.url || identity.Language != lang.English {
 		t.Fatalf("identity %+v %v", identity, err)
 	}
 	// Second démarrage : plus de jeton, l'identité suffit.
@@ -141,7 +142,7 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "re-enroll") {
+		if !errors.Is(err, ErrIdentityRefused) {
 			t.Fatalf("got %v", err)
 		}
 	case <-time.After(5 * time.Second):

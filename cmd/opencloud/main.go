@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -10,7 +11,7 @@ const usage = `Usage : opencloud <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
-  agent     tourne sur une machine gérée (options -server -token -state -pin)
+  agent     tourne sur une machine gérée (options -server -token -lang -pin -state)
   version   affiche la version
 `
 
@@ -33,6 +34,10 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "opencloud :", err)
+		var refused *refusal
+		if errors.As(err, &refused) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }

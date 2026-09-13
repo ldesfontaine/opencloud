@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -180,5 +181,14 @@ func TestPublicURL_PrefersConfigThenTrustedProxyThenHost(t *testing.T) {
 	server.publicURL = "http://127.0.0.1:8080"
 	if _, local := server.resolvePublicURL(request); !local {
 		t.Error("loopback not flagged as local")
+	}
+}
+
+func TestInstallCommand_CarriesTheLanguageOnlyWhenNotDefault(t *testing.T) {
+	if got := installCommand("https://oc.example.fr", "oc_x", lang.French); got != "sudo opencloud agent -server https://oc.example.fr -token oc_x" {
+		t.Errorf("fr: %q", got)
+	}
+	if got := installCommand("https://oc.example.fr", "oc_x", lang.English); !strings.HasSuffix(got, " -lang en") {
+		t.Errorf("en: %q", got)
 	}
 }
