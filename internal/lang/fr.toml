@@ -265,5 +265,7 @@ token_consumed = "Jeton refusé : il a déjà servi. Un jeton n'enrôle qu'une m
 token_expired = "Jeton refusé : il a expiré. Créez-en un nouveau depuis la page Machines."
 name_taken = "Enrôlement refusé : une machine porte déjà ce nom. Retirez-la ou choisissez un autre nom."
 identity_refused = "openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. Créez un nouveau jeton et relancez l'installation."
+plain_refused = "Adresse refusée : openCloud est en http:// et n'est pas sur cette machine, le jeton passerait en clair. Utilisez https://, ou -allow-plain si le réseau est déjà chiffré (WireGuard)."
+pin_mismatch = "Certificat refusé : ce n'est pas celui dont l'empreinte a été épinglée. Le certificat d'openCloud a changé, ou quelqu'un se fait passer pour lui. Vérifiez l'empreinte avant de la remplacer."
 server_failed = "openCloud a répondu par une erreur %d. Consultez ses journaux."
 failed = "L'agent s'est arrêté : %s"

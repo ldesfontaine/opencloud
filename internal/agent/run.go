@@ -32,6 +32,9 @@ type Options struct {
 	Server string
 	Token  string
 	Pin    string
+	// AllowPlain accepte http:// vers un serveur distant ; à réserver à un
+	// réseau déjà chiffré.
+	AllowPlain bool
 	// Language est la langue de l'opérateur, donnée par la commande
 	// d'installation ; l'identité la garde ensuite.
 	Language lang.Code
@@ -51,7 +54,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	client, err := NewClient(identity.Server, identity.Pin, opts.Version)
+	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return err
 	}
@@ -80,7 +83,7 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	client, err := NewClient(identity.Server, identity.Pin, opts.Version)
+	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return Identity{}, err
 	}

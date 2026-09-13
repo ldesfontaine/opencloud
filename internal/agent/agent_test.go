@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -166,10 +167,49 @@ func TestReadEvent_ParsesEventsAndSkipsComments(t *testing.T) {
 }
 
 func TestPinnedTLS_RejectsAMalformedPin(t *testing.T) {
-	if _, err := NewClient("https://example", "sha256:zz", "v"); err == nil {
+	if _, err := NewClient("https://example", "sha256:zz", "v", false); err == nil {
 		t.Fatal("bad pin accepted")
 	}
-	if _, err := NewClient("example.com", "", "v"); err == nil {
+	if _, err := NewClient("example.com", "", "v", false); err == nil {
 		t.Fatal("url without scheme accepted")
+	}
+}
+
+// http:// ne passe que vers cette machine, ou en le demandant expressément.
+func TestNewClient_RefusesPlainHTTPToARemoteServer(t *testing.T) {
+	for _, server := range []string{"http://127.0.0.1:8080", "http://localhost:8080", "http://[::1]:8080"} {
+		if _, err := NewClient(server, "", "v", false); err != nil {
+			t.Errorf("%s refused: %v", server, err)
+		}
+	}
+	for _, server := range []string{"http://192.168.1.10:8080", "http://oc.example.fr"} {
+		if _, err := NewClient(server, "", "v", false); !errors.Is(err, ErrPlainRefused) {
+			t.Errorf("%s: %v", server, err)
+		}
+		if _, err := NewClient(server, "", "v", true); err != nil {
+			t.Errorf("%s with allow-plain: %v", server, err)
+		}
+	}
+	if _, err := NewClient("https://192.168.1.10", "", "v", false); err != nil {
+		t.Errorf("https refused: %v", err)
+	}
+}
+
+// L'agent épinglé contre un serveur TLS au mauvais certificat refuse avant
+// d'envoyer quoi que ce soit, et le dit comme un refus.
+func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	defer server.Close()
+	client, err := NewClient(server.URL, strings.Repeat("00", 32), "v", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.Signal(context.Background(), "session")
+	if !errors.Is(err, ErrPinMismatch) {
+		t.Fatalf("got %v", err)
+	}
+	catalogs, _ := lang.Load()
+	if message, refused := Explain(err, catalogs.For(lang.French)); !refused || message == "" {
+		t.Fatalf("explain: %q %v", message, refused)
 	}
 }
