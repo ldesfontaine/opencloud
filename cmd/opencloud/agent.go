@@ -35,6 +35,7 @@ func runAgent(args []string) error {
 	token := flags.String("token", "", "jeton d'enrôlement, premier lancement seulement")
 	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
+	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -58,13 +59,14 @@ func runAgent(args []string) error {
 	defer stop()
 	logger.Info("agent starting", "version", version.String(), "state_dir", *stateDir)
 	err = agent.Run(ctx, agent.Options{
-		StateDir: root,
-		Server:   *server,
-		Token:    *token,
-		Pin:      *pin,
-		Language: code,
-		Version:  version.Number(),
-		Logger:   logger,
+		StateDir:   root,
+		Server:     *server,
+		Token:      *token,
+		Pin:        *pin,
+		AllowPlain: *allowPlain,
+		Language:   code,
+		Version:    version.Number(),
+		Logger:     logger,
 	})
 	if err == nil {
 		return nil

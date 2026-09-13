@@ -17,6 +17,10 @@ func Explain(err error, text lang.Catalog) (string, bool) {
 		return text.Get("agent.not_enrolled"), true
 	case errors.Is(err, ErrIdentityRefused):
 		return text.Get("agent.identity_refused"), true
+	case errors.Is(err, ErrPlainRefused):
+		return text.Get("agent.plain_refused"), true
+	case errors.Is(err, ErrPinMismatch):
+		return text.Get("agent.pin_mismatch"), true
 	case errors.As(err, &refused):
 		if key, ok := refusalKeys[refused.Code]; ok {
 			return text.Get(key), true

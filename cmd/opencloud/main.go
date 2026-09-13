@@ -11,7 +11,7 @@ const usage = `Usage : opencloud <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
-  agent     tourne sur une machine gérée (options -server -token -lang -pin -state)
+  agent     tourne sur une machine gérée (options -server -token -lang -pin -allow-plain -state)
   version   affiche la version
 `
 

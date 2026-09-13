@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +46,15 @@ func (e *ServerError) Permanent() bool {
 	return e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound || e.Status == http.StatusConflict
 }
 
+var (
+	// ErrPlainRefused : le serveur est en http:// et n'est pas sur cette
+	// machine ; le jeton et les signaux passeraient en clair sur le réseau.
+	ErrPlainRefused = errors.New("plain http to a remote server refused")
+	// ErrPinMismatch : le certificat présenté n'est pas celui épinglé ; il a
+	// changé, ou quelqu'un se fait passer pour openCloud.
+	ErrPinMismatch = errors.New("certificate does not match the pin")
+)
+
 // Client parle à un serveur openCloud ; il ne sait rien de la boucle.
 type Client struct {
 	server  string
@@ -51,10 +62,16 @@ type Client struct {
 	version string
 }
 
-func NewClient(server, pin, version string) (*Client, error) {
+// NewClient refuse http:// vers autre chose que la boucle locale, sauf si
+// allowPlain le dit : un tunnel WireGuard ou un LAN de confiance, en
+// connaissance de cause.
+func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 	server = strings.TrimRight(server, "/")
 	if !strings.HasPrefix(server, "http://") && !strings.HasPrefix(server, "https://") {
 		return nil, fmt.Errorf("server url must start with http:// or https://")
+	}
+	if strings.HasPrefix(server, "http://") && !allowPlain && !isLoopback(server) {
+		return nil, ErrPlainRefused
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if pin != "" {
@@ -65,6 +82,19 @@ func NewClient(server, pin, version string) (*Client, error) {
 		transport.TLSClientConfig = tlsConfig
 	}
 	return &Client{server: server, http: &http.Client{Transport: transport}, version: version}, nil
+}
+
+func isLoopback(server string) bool {
+	parsed, err := url.Parse(server)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // pinnedTLS accepte un seul certificat, celui dont l'empreinte SHA-256 est
@@ -89,7 +119,7 @@ func pinnedTLS(pin string) (*tls.Config, error) {
 func verifyPin(certificate *x509.Certificate, expected []byte) error {
 	sum := sha256.Sum256(certificate.Raw)
 	if !bytes.Equal(sum[:], expected) {
-		return fmt.Errorf("certificate fingerprint %x does not match the pin", sum)
+		return fmt.Errorf("%w: fingerprint %x", ErrPinMismatch, sum)
 	}
 	return nil
 }
