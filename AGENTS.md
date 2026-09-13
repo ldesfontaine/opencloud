@@ -8,6 +8,9 @@
    — conventions de code.
 3. [`docs/projet/21-direction-artistique.md`](docs/projet/21-direction-artistique.md)
    — l'interface : couleurs, typographie, composants, ton, marque.
+4. [`docs/projet/22-fonctionnement.md`](docs/projet/22-fonctionnement.md)
+   — comment l'application tourne : acteurs, flux, ce qui est chiffré, ce qui
+   est stocké. **Chaque fonctionnalité intégrée le met à jour.**
 
 ## Règles
 
