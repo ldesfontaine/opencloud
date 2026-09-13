@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -20,6 +21,10 @@ const (
 // navigateur accepte un cookie Secure sur localhost pour le développement.
 func (s *Server) csrfCookie(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isMachineRoute(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if _, err := r.Cookie(csrfCookieName); err != nil {
 			token, err := newCSRFToken()
 			if err != nil {
@@ -67,4 +72,10 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// Un agent ou un cron n'a que faire d'un cookie : aucun n'est posé sous
+// /agent ni /ping, et leurs POST ne portent pas de jeton anti-CSRF.
+func isMachineRoute(path string) bool {
+	return strings.HasPrefix(path, "/agent/") || strings.HasPrefix(path, "/ping/")
 }

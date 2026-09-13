@@ -1,0 +1,62 @@
+{{define "actions"}}
+{{if .Page.Job.Paused}}<form method="post" action="/taches/{{.Page.Job.ID}}/actions/reprendre"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="btn btn-secondary">{{template "icon" "refresh"}}{{.T.Get "job.resume"}}</button></form>
+{{else}}<form method="post" action="/taches/{{.Page.Job.ID}}/actions/pause"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="btn btn-secondary">{{template "icon" "pause"}}{{.T.Get "job.pause"}}</button></form>
+{{end}}<form method="post" action="/taches/{{.Page.Job.ID}}/actions/supprimer" hx-post="/taches/{{.Page.Job.ID}}/actions/supprimer" hx-confirm="{{.T.Format "job.delete_confirm" .Page.Job.Name}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="btn btn-danger">{{template "icon" "x"}}{{.T.Get "job.delete"}}</button></form>
+{{end}}
+{{define "content"}}
+<section class="card">
+  <div class="card-b gap-16">
+    {{template "job-state" .}}
+  </div>
+</section>
+<section class="card">
+  <div class="card-h"><span class="card-t">{{.T.Get "job.ping_url_title"}}</span><span class="card-s">{{.T.Get "job.ping_url_text"}}</span></div>
+  <div class="card-b">
+    <div class="token-box"><code class="mono">{{.Page.PingURL}}</code><button type="button" class="btn btn-secondary btn-sm" data-copy="{{.Page.PingURL}}" data-copied="{{.T.Get "machine.copied"}}">{{.T.Get "machine.copy"}}</button></div>
+    {{if .Page.URLLocal}}<div class="note note-danger">{{.T.Get "job.url_local"}}</div>{{end}}
+    <div class="kv"><span class="k">{{.T.Get "job.form_finish"}}</span><span class="mono">{{.Page.PingURL}}</span></div>
+    <div class="kv"><span class="k">{{.T.Get "job.form_start"}}</span><span class="mono">{{.Page.PingURL}}/start</span></div>
+    <div class="kv"><span class="k">{{.T.Get "job.form_code"}}</span><span class="mono">{{.Page.PingURL}}/{code}</span></div>
+  </div>
+</section>
+<section class="card">
+  <div class="card-h"><span class="card-t">{{.T.Get "job.snippets_title"}}</span><span class="card-s">{{.T.Get "job.snippets_text"}}</span></div>
+  <div class="card-b gap-16">
+    {{range .Page.Snippets}}
+    <div class="field">
+      <div class="kv"><span class="field-label">{{.Label}}</span><button type="button" class="btn btn-ghost btn-sm" data-copy="{{.Code}}" data-copied="{{$.T.Get "machine.copied"}}">{{$.T.Get "machine.copy"}}</button></div>
+      <pre class="snippet mono">{{.Code}}</pre>
+    </div>
+    {{end}}
+  </div>
+</section>
+<div class="grid-2">
+<section class="card">
+  <div class="card-h"><span class="card-t">{{.T.Get "job.runs_title"}}</span><span class="card-s">{{.T.Get "job.runs_text"}}</span></div>
+  {{if .Page.Runs}}
+  <div class="list">
+    {{range .Page.Runs}}
+    <div class="row">
+      <span class="dot {{.Tone}}"></span>
+      <span class="txt"><b>{{.Outcome}}{{if .ExitCode}} · <span class="mono">{{.ExitCode}}</span>{{end}}{{if .Duration}} · <span class="mono">{{.Duration}}</span>{{end}}</b>{{if .Started}}<span>{{.Started}}</span>{{end}}{{if .Payload}}<span class="mono">{{.Payload}}</span>{{end}}</span>
+      <span class="when">{{.When}}</span>
+    </div>
+    {{end}}
+  </div>
+  {{else}}<div class="empty"><p>{{.T.Get "job.runs_empty"}}</p></div>{{end}}
+</section>
+<section class="card">
+  <div class="card-h"><span class="card-t">{{.T.Get "job.pings_title"}}</span><span class="card-s">{{.T.Get "job.pings_text"}}</span></div>
+  {{if .Page.Pings}}
+  <table class="table">
+    <thead><tr><th>{{.T.Get "job.col_kind"}}</th><th>{{.T.Get "job.col_source"}}</th><th>{{.T.Get "job.col_received"}}</th></tr></thead>
+    <tbody>
+      {{range .Page.Pings}}
+      <tr><td>{{.Kind}}{{if .ExitCode}} <span class="mono">{{.ExitCode}}</span>{{end}}</td><td class="num">{{.Source}} · {{.Method}}</td><td class="num">{{.When}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}<div class="empty"><p>{{.T.Get "job.pings_empty"}}</p></div>{{end}}
+</section>
+</div>
+{{end}}

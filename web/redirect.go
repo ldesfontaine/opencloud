@@ -10,5 +10,5 @@ func (s *Server) redirect(w http.ResponseWriter, r *http.Request, target string)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	http.Redirect(w, r, target, http.StatusSeeOther) // #nosec G710 -- les cibles commencent toutes par « / » : un chemin local, jamais un hôte.
 }

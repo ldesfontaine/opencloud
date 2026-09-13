@@ -15,6 +15,11 @@
     <span class="stat-value">{{.Page.Total}}</span>
     <span class="foot"><b>{{.T.Format "overview.online" .Page.Online}}</b></span>
   </div></div>
+  <div class="card"><div class="card-b stat">
+    <span class="label">{{template "icon" "clock"}}{{.T.Get "nav.jobs"}}</span>
+    <span class="stat-value">{{.Page.Jobs}}</span>
+    <span class="foot">{{if .Page.JobsAttention}}<b class="danger">{{.T.Format "overview.jobs_attention" .Page.JobsAttention}}</b>{{else}}{{.T.Get "overview.jobs_ok"}}{{end}}</span>
+  </div></div>
 </div>
 <section class="card">
   <div class="card-h"><span class="card-t">{{.T.Get "nav.machines"}}</span><a class="card-s" href="/machines">{{.T.Get "overview.see_all"}}</a></div>

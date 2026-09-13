@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -303,5 +304,28 @@ func TestRecordConnection_UpdatesAddressVersionAndLastSeen(t *testing.T) {
 	}
 	if err := db.RecordConnection(ctx, "nobody", "", "", later); !errors.Is(err, machine.ErrNotFound) {
 		t.Fatalf("unknown machine: %v", err)
+	}
+}
+
+// Une machine retirée laisse ses moniteurs, détachés.
+func TestDeleteMachine_DetachesItsHeartbeats(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := time.Now()
+	cleartext := issueToken(t, db, "vps", "", now)
+	enrolled, err := db.Enroll(ctx, machine.HashToken(cleartext), candidate(t), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	monitor := heartbeat.Heartbeat{ID: "job1", Token: "hb_x", Name: "job", MachineID: enrolled.ID, Status: heartbeat.StatusNew, Interval: time.Hour, CreatedAt: now}
+	if err := db.InsertHeartbeat(ctx, monitor); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteMachine(ctx, enrolled.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetHeartbeat(ctx, "job1")
+	if err != nil || got.MachineID != "" || got.MachineName != "" {
+		t.Fatalf("heartbeat %+v err %v", got, err)
 	}
 }

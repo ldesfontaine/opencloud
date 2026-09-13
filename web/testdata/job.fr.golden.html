@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>opencloud · openCloud</title>
+<title>sauvegarde nextcloud · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -57,7 +57,7 @@
       
     </a>
     
-    <a class="nav-item active" href="/machines" aria-current="page">
+    <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       <span class="count hot">2</span>
@@ -81,7 +81,7 @@
       
     </a>
     
-    <a class="nav-item" href="/taches">
+    <a class="nav-item active" href="/taches" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
       <span>Tâches</span>
       <span class="count hot">1</span>
@@ -114,7 +114,7 @@
       </div>
       <form class="theme lang" method="post" action="/langue" aria-label="Langue">
         <input type="hidden" name="csrf" value="CSRF">
-        <input type="hidden" name="return" value="/machines/local">
+        <input type="hidden" name="return" value="/taches/JOBID">
         
         <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
         
@@ -134,44 +134,110 @@
 
 <header class="page-head">
   <div>
-    <h1>opencloud</h1>
+    <h1>sauvegarde nextcloud</h1>
     
   </div>
-  <div class="actions"></div>
+  <div class="actions">
+<form method="post" action="/taches/JOBID/actions/pause"><input type="hidden" name="csrf" value="CSRF"><button type="submit" class="btn btn-secondary"><svg class="icon" aria-hidden="true"><use href="#i-pause"/></svg>Mettre en pause</button></form>
+<form method="post" action="/taches/JOBID/actions/supprimer" hx-post="/taches/JOBID/actions/supprimer" hx-confirm="Supprimer sauvegarde nextcloud ? Son historique sera effacé et son URL de ping ne répondra plus."><input type="hidden" name="csrf" value="CSRF"><button type="submit" class="btn btn-danger"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>Supprimer</button></form>
+</div>
 </header>
 
 
 <section class="card">
   <div class="card-b gap-16">
     
-<div class="machine-head">
-  <span class="select"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><select aria-label="Machine" data-navigate><option value="/machines/local" selected>opencloud</option><option value="/machines/11111111-2222-4333-8444-555555555555">vps-paris-1</option></select><span class="chev"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></span>
-  
-<span id="machine-state" class="machine-state" hx-get="/machines/local/en-tete" hx-trigger="every 10s" hx-swap="outerHTML">
-  <span class="pill pill-ok">En ligne</span>
+<span id="job-state" class="machine-state" hx-get="/taches/JOBID/etat" hx-trigger="every 10s" hx-swap="outerHTML">
+  <span class="pill pill-ok">À l&#39;heure</span>
   <span class="meta">
-    <span class="mono">10.8.0.1</span><span class="sep"></span>
-    <span>Debian 12</span><span class="sep"></span>
-    <span>agent <span class="mono">v0.0.1</span></span><span class="sep"></span>
-    <span>vu à l&#39;instant</span>
+    <a href="/machines/11111111-2222-4333-8444-555555555555">vps-paris-1</a><span class="sep"></span>
+    <span>toutes les <span class="mono">24 h</span></span><span class="sep"></span>
+    <span>grâce <span class="mono">1 h</span></span><span class="sep"></span>
+    <span>dernier ping à l&#39;instant</span><span class="sep"></span>
+    <span>échéance dans 1 j</span>
+    <span class="sep"></span><span class="mono result result-ok">code 0 · 0 ms</span>
   </span>
 </span>
 
-</div>
-
-    <nav class="tabs">
-      <a class="tab active" href="/machines/local" aria-current="page">Résumé</a><a class="tab" href="/machines/local/services">Services</a><a class="tab" href="/machines/local/domaines">Domaines et certificats</a><a class="tab" href="/machines/local/reseau">Réseau</a><a class="tab" href="/machines/local/sauvegardes">Sauvegardes</a><a class="tab" href="/machines/local/journaux">Journaux</a><a class="tab" href="/machines/local/reglages">Réglages</a>
-    </nav>
   </div>
 </section>
-
 <section class="card">
-  <div class="card-h"><span class="card-t">Résumé</span></div>
-  <div class="card-b gap-10">
-    <div class="kv"><span class="k">Type</span><span>La machine openCloud</span></div><div class="kv"><span class="k">Adresse</span><span class="mono">10.8.0.1</span></div><div class="kv"><span class="k">Système</span><span>Debian 12</span></div><div class="kv"><span class="k">Agent</span><span class="mono">v0.0.1</span></div><div class="kv"><span class="k">Dernier signal</span><span>vu à l&#39;instant</span></div>
+  <div class="card-h"><span class="card-t">URL de ping</span><span class="card-s">Appelée en GET ou en POST, sans authentification : l&#39;URL est le secret.</span></div>
+  <div class="card-b">
+    <div class="token-box"><code class="mono">http://example.com/ping/hb_TOKEN</code><button type="button" class="btn btn-secondary btn-sm" data-copy="http://example.com/ping/hb_TOKEN" data-copied="Copié">Copier</button></div>
+    
+    <div class="kv"><span class="k">La tâche a fini</span><span class="mono">http://example.com/ping/hb_TOKEN</span></div>
+    <div class="kv"><span class="k">La tâche démarre</span><span class="mono">http://example.com/ping/hb_TOKEN/start</span></div>
+    <div class="kv"><span class="k">Fini avec ce code de sortie</span><span class="mono">http://example.com/ping/hb_TOKEN/{code}</span></div>
   </div>
 </section>
-
+<section class="card">
+  <div class="card-h"><span class="card-t">À coller</span><span class="card-s">Choisissez la forme qui va à votre tâche.</span></div>
+  <div class="card-b gap-16">
+    
+    <div class="field">
+      <div class="kv"><span class="field-label">Un ping en fin de tâche</span><button type="button" class="btn btn-ghost btn-sm" data-copy="curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN" data-copied="Copié">Copier</button></div>
+      <pre class="snippet mono">curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN</pre>
+    </div>
+    
+    <div class="field">
+      <div class="kv"><span class="field-label">Ligne de cron</span><button type="button" class="btn btn-ghost btn-sm" data-copy="0 2 * * * /usr/local/bin/sauvegarde.sh &amp;&amp; curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN" data-copied="Copié">Copier</button></div>
+      <pre class="snippet mono">0 2 * * * /usr/local/bin/sauvegarde.sh &amp;&amp; curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN</pre>
+    </div>
+    
+    <div class="field">
+      <div class="kv"><span class="field-label">Script avec démarrage, fin et code de sortie</span><button type="button" class="btn btn-ghost btn-sm" data-copy="#!/bin/bash
+curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN/start
+/usr/local/bin/sauvegarde.sh
+code=$?
+curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN/&#34;$code&#34;
+exit &#34;$code&#34;" data-copied="Copié">Copier</button></div>
+      <pre class="snippet mono">#!/bin/bash
+curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN/start
+/usr/local/bin/sauvegarde.sh
+code=$?
+curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN/&#34;$code&#34;
+exit &#34;$code&#34;</pre>
+    </div>
+    
+    <div class="field">
+      <div class="kv"><span class="field-label">Healthcheck Docker</span><button type="button" class="btn btn-ghost btn-sm" data-copy="HEALTHCHECK --interval=5m CMD curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN || exit 1" data-copied="Copié">Copier</button></div>
+      <pre class="snippet mono">HEALTHCHECK --interval=5m CMD curl -fsS -m 10 --retry 3 -o /dev/null http://example.com/ping/hb_TOKEN || exit 1</pre>
+    </div>
+    
+  </div>
+</section>
+<div class="grid-2">
+<section class="card">
+  <div class="card-h"><span class="card-t">Exécutions</span><span class="card-s">Les vingt dernières, la plus récente d&#39;abord.</span></div>
+  
+  <div class="list">
+    
+    <div class="row">
+      <span class="dot ok"></span>
+      <span class="txt"><b>Réussie · <span class="mono">code 0</span> · <span class="mono">0 ms</span></b><span>démarrée à DATE TIME</span></span>
+      <span class="when">à l&#39;instant</span>
+    </div>
+    
+  </div>
+  
+</section>
+<section class="card">
+  <div class="card-h"><span class="card-t">Pings reçus</span><span class="card-s">Les vingt derniers, tels quels ; gardés sept jours.</span></div>
+  
+  <table class="table">
+    <thead><tr><th>Forme</th><th>Source</th><th>Reçu</th></tr></thead>
+    <tbody>
+      
+      <tr><td>Fin, code <span class="mono">0</span></td><td class="num">51.15.20.114 · GET</td><td class="num">DATE TIME</td></tr>
+      
+      <tr><td>Démarrage</td><td class="num">51.15.20.114 · GET</td><td class="num">DATE TIME</td></tr>
+      
+    </tbody>
+  </table>
+  
+</section>
+</div>
 
 </div>
 </main>

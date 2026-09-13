@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Machines · openCloud</title>
+<title>New job · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -57,7 +57,7 @@
       
     </a>
     
-    <a class="nav-item active" href="/machines" aria-current="page">
+    <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       <span class="count hot">2</span>
@@ -81,7 +81,7 @@
       
     </a>
     
-    <a class="nav-item" href="/taches">
+    <a class="nav-item active" href="/taches" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
       <span>Jobs</span>
       <span class="count hot">1</span>
@@ -114,7 +114,7 @@
       </div>
       <form class="theme lang" method="post" action="/langue" aria-label="Language">
         <input type="hidden" name="csrf" value="CSRF">
-        <input type="hidden" name="return" value="/machines">
+        <input type="hidden" name="return" value="/taches/nouvelle">
         
         <button type="submit" name="language" value="fr" title="Français" aria-label="Français">fr</button>
         
@@ -134,60 +134,45 @@
 
 <header class="page-head">
   <div>
-    <h1>Machines</h1>
-    <p class="sub">2 machines, 1 online.</p>
+    <h1>New job</h1>
+    <p class="sub">Name the job, say how often it must ping, and paste the URL into your script.</p>
   </div>
-  <div class="actions"><a class="btn btn-primary" href="/machines/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add a machine</a></div>
+  <div class="actions"></div>
 </header>
 
 
-
-<div id="machines-table" hx-get="/machines/tableau" hx-trigger="every 10s" hx-swap="outerHTML">
-  <section class="card">
-    <table class="table">
-      <thead><tr><th>Machine</th><th>Address</th><th>System</th><th>Agent</th><th>State</th><th>Last signal</th><th class="th-end"></th></tr></thead>
-      <tbody>
-        
-        <tr>
-          <td><a class="svc" href="/machines/local"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>opencloud<span class="pill pill-neutral nodot">this machine</span></a></td>
-          <td class="num">10.8.0.1</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-ok">Online</span></td>
-          <td class="secondary">seen just now</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/local">Open</a></td>
-        </tr>
-        
-        <tr>
-          <td><a class="svc" href="/machines/11111111-2222-4333-8444-555555555555"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>vps-paris-1</a></td>
-          <td class="num">51.15.20.114</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-danger">Offline</span></td>
-          <td class="secondary">never seen</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/11111111-2222-4333-8444-555555555555">Open</a></td>
-        </tr>
-        
-      </tbody>
-    </table>
-  </section>
-  
-  <section class="card">
-    <div class="card-h"><span class="card-t">Awaiting enrollment</span><span class="card-s">The install command has not been run yet.</span></div>
-    <div class="list">
-      
-      <form class="row" method="post" action="/machines/jetons/TOKENID/actions/annuler">
-        <input type="hidden" name="csrf" value="CSRF">
-        <span class="dot neutral"></span>
-        <span class="txt"><b>vps-lyon-2</b><span><span class="mono">oc_MASKED…</span> · expires in 24 h</span></span>
-        <button type="submit" class="btn btn-ghost btn-sm when">Cancel the token</button>
-      </form>
-      
+<section class="card form-card">
+  <form class="card-b" method="post" action="/taches/nouvelle">
+    <input type="hidden" name="csrf" value="CSRF">
+    <div class="field">
+      <label for="job-name">Job name</label>
+      <input id="job-name" class="input" type="text" name="name" value="" placeholder="sauvegarde nextcloud" maxlength="80" autocomplete="off" autofocus required>
+      <span class="field-help">What you want to read in the list: &#34;nextcloud backup&#34;.</span>
     </div>
-  </section>
-  
-</div>
-
+    <div class="field">
+      <label for="job-machine">Machine</label>
+      <span class="select"><select id="job-machine" name="machine_id"><option value="">None</option><option value="local">opencloud</option><option value="11111111-2222-4333-8444-555555555555">vps-paris-1</option></select><span class="chev"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg></span></span>
+      <span class="field-help">Optional: the machine the job runs on.</span>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="job-interval">Interval, in minutes</label>
+        <input id="job-interval" class="input mono" type="number" name="interval_minutes" value="60" min="1" max="10080" required>
+        <span class="field-help">How often the job runs: 1 minute to 7 days.</span>
+      </div>
+      <div class="field">
+        <label for="job-grace">Grace, in minutes</label>
+        <input id="job-grace" class="input mono" type="number" name="grace_minutes" value="10" min="0" max="10080" required>
+        <span class="field-help">The delay tolerated before the job is late, at most the interval.</span>
+      </div>
+    </div>
+    
+    <div class="cluster">
+      <button type="submit" class="btn btn-primary"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Create the monitor</button>
+      <a class="btn btn-ghost" href="/taches">Cancel</a>
+    </div>
+  </form>
+</section>
 
 </div>
 </main>

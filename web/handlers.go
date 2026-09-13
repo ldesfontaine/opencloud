@@ -17,6 +17,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := s.overviewPage(text, statuses)
+	page.Jobs, page.JobsAttention, err = s.heartbeats.Count(r.Context())
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
 	data := s.newView(r, navOverview, text.Get("nav.overview"), page.Subtitle)
 	data.Page = page
 	s.render(w, r, http.StatusOK, "overview", data)

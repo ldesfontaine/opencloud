@@ -36,10 +36,12 @@ type machinesPage struct {
 }
 
 type overviewPage struct {
-	Subtitle string
-	Total    int
-	Online   int
-	Rows     []machineRow
+	Subtitle      string
+	Total         int
+	Online        int
+	Rows          []machineRow
+	Jobs          int
+	JobsAttention int
 }
 
 type newMachineForm struct {
@@ -199,6 +201,8 @@ func formatDuration(text lang.Catalog, d time.Duration) string {
 	switch {
 	case d < 0:
 		return formatDuration(text, 0)
+	case d < time.Second:
+		return text.Format("time.milliseconds", d.Milliseconds())
 	case d < time.Minute:
 		return text.Format("time.seconds", int(d.Seconds()))
 	case d < time.Hour:

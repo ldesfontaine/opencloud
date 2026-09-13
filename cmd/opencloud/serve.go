@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -72,11 +73,21 @@ func runServe(args []string) error {
 		return err
 	}
 
+	heartbeats := heartbeat.New(db, logger)
+	watchDone := make(chan struct{})
+	go func() {
+		heartbeats.Watch(ctx)
+		close(watchDone)
+	}()
+	// La boucle finit avant que la base ne se ferme.
+	defer func() { stop(); <-watchDone }()
+
 	server, err := web.New(web.Options{
 		Logger:         logger,
 		Version:        version.Number(),
 		Settings:       settings.New(stateDir),
 		Machines:       machines,
+		Heartbeats:     heartbeats,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
 	})

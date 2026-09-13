@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Machines · openCloud</title>
+<title>Tâches · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -48,16 +48,16 @@
     <span class="wordmark"><span>open</span><b>Cloud</b></span>
   </a>
   
-  <div class="side-label">View</div>
+  <div class="side-label">Vue</div>
   <nav class="nav">
     
     <a class="nav-item" href="/">
       <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
-      <span>Overview</span>
+      <span>Vue d&#39;ensemble</span>
       
     </a>
     
-    <a class="nav-item active" href="/machines" aria-current="page">
+    <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       <span class="count hot">2</span>
@@ -71,36 +71,36 @@
     
     <a class="nav-item" href="/domaines">
       <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
-      <span>Domains</span>
+      <span>Domaines</span>
       
     </a>
     
     <a class="nav-item" href="/sauvegardes">
       <svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>
-      <span>Backups</span>
+      <span>Sauvegardes</span>
       
     </a>
     
-    <a class="nav-item" href="/taches">
+    <a class="nav-item active" href="/taches" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
-      <span>Jobs</span>
+      <span>Tâches</span>
       <span class="count hot">1</span>
     </a>
     
     <a class="nav-item" href="/alertes">
       <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
-      <span>Alerts</span>
+      <span>Alertes</span>
       
     </a>
     
   </nav>
   
-  <div class="side-label">Settings</div>
+  <div class="side-label">Réglages</div>
   <nav class="nav">
     
     <a class="nav-item" href="/parametres">
       <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
-      <span>Preferences</span>
+      <span>Paramètres</span>
       
     </a>
     
@@ -109,22 +109,22 @@
   <div class="side-foot">
     <div class="switches">
       <div class="theme" role="group">
-        <button type="button" data-set-theme="light" aria-label="Light theme" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
-        <button type="button" data-set-theme="dark" aria-label="Dark theme" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+        <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
       </div>
-      <form class="theme lang" method="post" action="/langue" aria-label="Language">
+      <form class="theme lang" method="post" action="/langue" aria-label="Langue">
         <input type="hidden" name="csrf" value="CSRF">
-        <input type="hidden" name="return" value="/machines">
+        <input type="hidden" name="return" value="/taches">
         
-        <button type="submit" name="language" value="fr" title="Français" aria-label="Français">fr</button>
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
         
-        <button type="submit" name="language" value="en" title="English" aria-label="English" class="active" aria-current="true">en</button>
+        <button type="submit" name="language" value="en" title="English" aria-label="English">en</button>
         
       </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">A</span>
-      <span class="who"><b>Administrator</b><span>Local account</span></span>
+      <span class="who"><b>Administrateur</b><span>Compte local</span></span>
     </div>
   </div>
 </aside>
@@ -134,56 +134,41 @@
 
 <header class="page-head">
   <div>
-    <h1>Machines</h1>
-    <p class="sub">2 machines, 1 online.</p>
+    <h1>Tâches</h1>
+    <p class="sub">2 tâches surveillées, 1 à traiter.</p>
   </div>
-  <div class="actions"><a class="btn btn-primary" href="/machines/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add a machine</a></div>
+  <div class="actions"><a class="btn btn-primary" href="/taches/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Surveiller une tâche</a></div>
 </header>
 
 
 
-<div id="machines-table" hx-get="/machines/tableau" hx-trigger="every 10s" hx-swap="outerHTML">
-  <section class="card">
+<div id="jobs-table" hx-get="/taches/tableau" hx-trigger="every 10s" hx-swap="outerHTML">
+  
+  <section class="card scroll-x">
     <table class="table">
-      <thead><tr><th>Machine</th><th>Address</th><th>System</th><th>Agent</th><th>State</th><th>Last signal</th><th class="th-end"></th></tr></thead>
+      <thead><tr><th>Tâche</th><th>Machine</th><th>Intervalle</th><th>État</th><th>Dernier ping</th><th class="th-end">Résultat</th></tr></thead>
       <tbody>
         
         <tr>
-          <td><a class="svc" href="/machines/local"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>opencloud<span class="pill pill-neutral nodot">this machine</span></a></td>
-          <td class="num">10.8.0.1</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-ok">Online</span></td>
-          <td class="secondary">seen just now</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/local">Open</a></td>
+          <td><a class="svc" href="/taches/JOBID"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span>certbot renew</a></td>
+          <td><span class="muted">—</span></td>
+          <td class="num">12 h</td>
+          <td><span class="pill pill-danger">En échec</span></td>
+          <td class="secondary nowrap">à l&#39;instant</td>
+          <td class="num td-end"><span class="result result-danger">code 1</span></td>
         </tr>
         
         <tr>
-          <td><a class="svc" href="/machines/11111111-2222-4333-8444-555555555555"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>vps-paris-1</a></td>
-          <td class="num">51.15.20.114</td>
-          <td>Debian 12</td>
-          <td class="num">v0.0.1</td>
-          <td><span class="pill pill-danger">Offline</span></td>
-          <td class="secondary">never seen</td>
-          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/11111111-2222-4333-8444-555555555555">Open</a></td>
+          <td><a class="svc" href="/taches/JOBID"><span class="ico"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span>sauvegarde nextcloud</a></td>
+          <td><a href="/machines/11111111-2222-4333-8444-555555555555">vps-paris-1</a></td>
+          <td class="num">24 h</td>
+          <td><span class="pill pill-ok">À l&#39;heure</span></td>
+          <td class="secondary nowrap">à l&#39;instant</td>
+          <td class="num td-end"><span class="result result-ok">code 0 · 0 ms</span></td>
         </tr>
         
       </tbody>
     </table>
-  </section>
-  
-  <section class="card">
-    <div class="card-h"><span class="card-t">Awaiting enrollment</span><span class="card-s">The install command has not been run yet.</span></div>
-    <div class="list">
-      
-      <form class="row" method="post" action="/machines/jetons/TOKENID/actions/annuler">
-        <input type="hidden" name="csrf" value="CSRF">
-        <span class="dot neutral"></span>
-        <span class="txt"><b>vps-lyon-2</b><span><span class="mono">oc_MASKED…</span> · expires in 24 h</span></span>
-        <button type="submit" class="btn btn-ghost btn-sm when">Cancel the token</button>
-      </form>
-      
-    </div>
   </section>
   
 </div>
