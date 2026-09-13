@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Page introuvable · openCloud</title>
+<title>Machines · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
@@ -45,16 +45,16 @@
     <span class="wordmark"><span>open</span><b>Cloud</b></span>
   </a>
   
-  <div class="side-label">Vue</div>
+  <div class="side-label">View</div>
   <nav class="nav">
     
     <a class="nav-item" href="/">
       <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
-      <span>Vue d&#39;ensemble</span>
+      <span>Overview</span>
       
     </a>
     
-    <a class="nav-item" href="/machines">
+    <a class="nav-item active" href="/machines" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
       
@@ -68,43 +68,54 @@
     
     <a class="nav-item" href="/domaines">
       <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
-      <span>Domaines</span>
+      <span>Domains</span>
       
     </a>
     
     <a class="nav-item" href="/sauvegardes">
       <svg class="icon" aria-hidden="true"><use href="#i-archive"/></svg>
-      <span>Sauvegardes</span>
+      <span>Backups</span>
       
     </a>
     
     <a class="nav-item" href="/alertes">
       <svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg>
-      <span>Alertes</span>
+      <span>Alerts</span>
       
     </a>
     
   </nav>
   
-  <div class="side-label">Réglages</div>
+  <div class="side-label">Settings</div>
   <nav class="nav">
     
     <a class="nav-item" href="/parametres">
       <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
-      <span>Paramètres</span>
+      <span>Preferences</span>
       
     </a>
     
   </nav>
   
   <div class="side-foot">
-    <div class="theme" role="group">
-      <button type="button" data-set-theme="light" aria-label="Thème clair" title="Thème clair"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
-      <button type="button" data-set-theme="dark" aria-label="Thème sombre" title="Thème sombre"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+    <div class="switches">
+      <div class="theme" role="group">
+        <button type="button" data-set-theme="light" aria-label="Light theme" title="Light theme"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
+        <button type="button" data-set-theme="dark" aria-label="Dark theme" title="Dark theme"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      </div>
+      <form class="theme lang" method="post" action="/langue" aria-label="Language">
+        <input type="hidden" name="csrf" value="CSRF">
+        <input type="hidden" name="return" value="/machines">
+        
+        <button type="submit" name="language" value="fr" title="Français" aria-label="Français">fr</button>
+        
+        <button type="submit" name="language" value="en" title="English" aria-label="English" class="active" aria-current="true">en</button>
+        
+      </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">A</span>
-      <span class="who"><b>Administrateur</b><span>Compte local</span></span>
+      <span class="who"><b>Administrator</b><span>Local account</span></span>
     </div>
   </div>
 </aside>
@@ -114,8 +125,8 @@
 
 <header class="page-head">
   <div>
-    <h1>Page introuvable</h1>
-    <p class="sub">Cette adresse ne correspond à rien.</p>
+    <h1>Machines</h1>
+    <p class="sub">This page comes with an upcoming feature.</p>
   </div>
   <div class="actions"></div>
 </header>
@@ -123,10 +134,8 @@
 
 <section class="card">
   <div class="empty">
-    <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg></span>
-    <h2>Page introuvable</h2>
-    <p>Vérifiez le lien ou revenez à la vue d&#39;ensemble.</p>
-    <a class="btn btn-secondary" href="/">Revenir à la vue d&#39;ensemble</a>
+    <span class="pill pill-neutral nodot">Soon</span>
+    <p>The foundation is in place; the content follows, feature by feature.</p>
   </div>
 </section>
 

@@ -1,9 +1,9 @@
 {{define "layout"}}<!doctype html>
-<html lang="fr">
+<html lang="{{.Lang}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} · {{.T.AppName}}</title>
+<title>{{.Title}} · {{.T.Get "app.name"}}</title>
 <link rel="icon" href="{{.StaticBase}}favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="{{.StaticBase}}app.css">
 <script src="{{.StaticBase}}theme.js"></script>

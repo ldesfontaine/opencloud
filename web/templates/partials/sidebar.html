@@ -17,9 +17,18 @@
   </nav>
   {{end}}
   <div class="side-foot">
-    <div class="theme" role="group">
-      <button type="button" data-set-theme="light" aria-label="{{.T.ThemeLight}}" title="{{.T.ThemeLight}}">{{template "icon" "sun"}}</button>
-      <button type="button" data-set-theme="dark" aria-label="{{.T.ThemeDark}}" title="{{.T.ThemeDark}}">{{template "icon" "moon"}}</button>
+    <div class="switches">
+      <div class="theme" role="group">
+        <button type="button" data-set-theme="light" aria-label="{{.T.Get "theme.light"}}" title="{{.T.Get "theme.light"}}">{{template "icon" "sun"}}</button>
+        <button type="button" data-set-theme="dark" aria-label="{{.T.Get "theme.dark"}}" title="{{.T.Get "theme.dark"}}">{{template "icon" "moon"}}</button>
+      </div>
+      <form class="theme lang" method="post" action="/langue" aria-label="{{.T.Get "language.label"}}">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="return" value="{{.Return}}">
+        {{range .Languages}}
+        <button type="submit" name="language" value="{{.Code}}" title="{{.Label}}" aria-label="{{.Label}}"{{if .Active}} class="active" aria-current="true"{{end}}>{{.Code}}</button>
+        {{end}}
+      </form>
     </div>
     <div class="account">
       <span class="avatar" aria-hidden="true">{{.Account.Initial}}</span>

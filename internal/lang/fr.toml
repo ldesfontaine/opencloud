@@ -1,0 +1,204 @@
+# Chaînes en français. Même arbre de clés que en.toml : un test le vérifie.
+
+[app]
+name = "openCloud"
+
+[nav]
+section_view = "Vue"
+section_settings = "Réglages"
+overview = "Vue d'ensemble"
+machines = "Machines"
+services = "Services"
+domains = "Domaines"
+backups = "Sauvegardes"
+alerts = "Alertes"
+settings = "Paramètres"
+
+[theme]
+light = "Thème clair"
+dark = "Thème sombre"
+
+[language]
+label = "Langue"
+fr = "Français"
+en = "English"
+
+[account]
+name = "Administrateur"
+role = "Compte local"
+
+[overview]
+subtitle = "Aucune machine pour l'instant."
+empty_title = "Aucune machine"
+empty_text = "Ajoutez une première machine pour voir ici son état, ses services et ses alertes."
+
+[machine]
+add = "Ajouter une machine"
+new_title = "Nouvelle machine"
+select = "Machine"
+agent = "agent"
+seen_ago = "vu il y a %s"
+
+[tab]
+summary = "Résumé"
+services = "Services"
+domains = "Domaines et certificats"
+network = "Réseau"
+backups = "Sauvegardes"
+logs = "Journaux"
+settings = "Réglages"
+
+[state]
+online = "En ligne"
+offline = "Hors ligne"
+active = "Actif"
+stopped = "Arrêté"
+failed = "En échec"
+to_renew = "À renouveler"
+proxy = "Proxy"
+
+[action]
+more = "Plus d'actions"
+delete = "Supprimer"
+hover = "Survoler"
+
+[soon]
+subtitle = "Cette page arrive avec une prochaine fonctionnalité."
+badge = "Bientôt"
+text = "Le socle est en place ; le contenu suivra, fonctionnalité par fonctionnalité."
+
+[notfound]
+title = "Page introuvable"
+subtitle = "Cette adresse ne correspond à rien."
+text = "Vérifiez le lien ou revenez à la vue d'ensemble."
+back = "Revenir à la vue d'ensemble"
+
+[error]
+internal = "Une erreur interne est survenue. Consultez les journaux du serveur."
+forbidden = "Requête refusée : le formulaire a expiré, rechargez la page."
+
+[visual]
+title = "Système visuel"
+subtitle = "Une seule couleur d'accent, du noir pour l'action principale, des cartes bordées sans ombre. Geist pour lire, Geist Mono pour ce qui se copie."
+
+[visual.colors]
+title = "Couleurs · clair / sombre"
+bg = "Fond de page"
+surface = "Surface"
+surface_2 = "Surface 2"
+line = "Trait"
+ink = "Encre"
+ink_2 = "Encre 2"
+muted = "Discret"
+accent = "Accent"
+ok = "OK"
+warn = "Attention"
+danger = "Danger"
+primary = "Action principale"
+
+[visual.type]
+title = "Typographie"
+h1 = "Titre de page"
+card = "Titre de carte"
+body = "Texte courant, phrases courtes."
+secondary = "Texte secondaire, sous-titres, dates."
+secondary_spec = "12 / 400 / discret"
+label = "Étiquette de section"
+label_spec = "11 / 500 / .08em / capitales"
+stat = "Chiffre clé"
+
+[visual.spacing]
+title = "Rayons, espaces, contrôles"
+card = "Carte"
+card_value = "rayon 14 · bord 1px · padding 20"
+control = "Contrôle (bouton, champ, sélecteur)"
+control_value = "hauteur 36 · rayon 8 · petit 30 / 7"
+pill = "Pastille d'état"
+pill_value = "hauteur 24 · rayon 999 · point 6"
+grid = "Grille d'espacement"
+sidebar = "Barre latérale"
+sidebar_value = "232 · item 34 · rayon 8"
+icons = "Icônes"
+icons_value = "trait 1,6 · 16 en ligne · 18 dans le graphe"
+shadow = "Ombre"
+shadow_value = "aucune sur les cartes · légère sur les boutons et menus"
+
+[visual.stats]
+title = "Chiffres clés et jauges"
+cpu = "Processeur"
+cpu_foot = "4 cœurs, charge 0,9"
+disk = "Disque"
+disk_unit = "Go / 80"
+disk_foot = ", seuil d'alerte à 85 %"
+
+[visual.table]
+title = "Tableau"
+service = "Service"
+image = "Image"
+state = "État"
+
+[visual.buttons]
+title = "Boutons"
+primary = "Principal"
+secondary = "Secondaire"
+ghost = "Discret"
+accent = "Accent, rare"
+small = "Petit"
+disabled = "Désactivé"
+
+[visual.states]
+title = "États"
+open_count = "2 ouvertes"
+
+[visual.fields]
+title = "Champs et sélecteurs"
+service_name = "Nom du service"
+domain = "Domaine"
+filter = "Filtre"
+all = "Tous"
+active = "Actifs"
+stopped = "Arrêtés"
+auto_renew = "Renouvellement automatique"
+enabled = "Activé"
+disabled = "Désactivé"
+tooltip = "Info-bulle"
+tooltip_text = "Vu il y a 12 s, sondé toutes les 5 min"
+
+[visual.nav]
+title = "Navigation et nœuds"
+rest = "Repos"
+active = "Actif"
+alerting = "Avec alerte"
+selected = "sélectionné"
+internet = "Internet"
+proxy_entry = "entrée du proxy"
+
+[visual.machine]
+title = "En-tête de machine et onglets"
+
+[visual.events]
+title = "Liste d'événements"
+card_title = "Activité récente"
+card_sub = "Exemple"
+e1 = "nextcloud mis à jour en 29.0.4"
+e1_sub = "vps-paris-1 · demandé par l'opérateur"
+e1_when = "il y a 2 h"
+e2 = "Redémarrage non demandé"
+e2_sub = "vps-lyon-2 · noyau mis à jour par le système"
+e2_when = "hier, 03:12"
+e3 = "Hôte virtuel créé"
+e3_sub = "vps-paris-1 · demandé par l'opérateur"
+e3_when = "hier, 22:40"
+
+[visual.empty]
+title = "État vide"
+heading = "Aucune sauvegarde"
+text = "Une sauvegarde apparaît ici dès qu'un service en déclare une."
+
+[visual.tone]
+title = "Ton"
+intro = "Français, phrases courtes, verbe d'abord :"
+verb_1 = "Déclarer un service"
+verb_2 = "Sauvegarder"
+verb_3 = "Redémarrer"
+rules = "Les nombres et identifiants en mono. Les états en pastille, jamais en texte coloré seul. Une alerte dit le fait, puis la cause, puis ce qu'on peut faire."

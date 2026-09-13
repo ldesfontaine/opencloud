@@ -6,6 +6,7 @@ GET /domaines
 GET /sauvegardes
 GET /alertes
 GET /parametres
+POST /langue
 GET /systeme-visuel
 GET /static/{build}/{path...}
 GET /
