@@ -106,6 +106,7 @@ text = "Check the link or go back to the overview."
 back = "Back to the overview"
 
 [error]
+unknown_language = "Request refused: this language does not exist."
 internal = "An internal error occurred. Check the server logs."
 forbidden = "Request refused: the form has expired, reload the page."
 

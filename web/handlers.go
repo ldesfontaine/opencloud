@@ -61,7 +61,7 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 	}
 	code, ok := lang.Parse(r.FormValue("language"))
 	if !ok {
-		s.refuse(w, r, http.StatusBadRequest, "unknown language")
+		s.refuse(w, r, http.StatusBadRequest, s.catalog().Get("error.unknown_language"))
 		return
 	}
 	if err := s.saveLanguage(code); err != nil {
