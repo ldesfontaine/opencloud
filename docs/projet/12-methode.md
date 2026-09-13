@@ -38,8 +38,9 @@ Le changement de version est une décision de Lucas.
 
 ## La CI
 
-`.github/workflows/ci.yml` joue ce qui ne dépend pas du code : scan des secrets
-et politique Plumber (`.plumber.yaml`). Les étapes Go — `gofmt`, `go vet`,
-`staticcheck`, `go test`, `govulncheck`, `gosec`, build — reviennent avec le
-premier code, épinglées par version. Les actions GitHub sont épinglées par SHA
-de commit.
+`.github/workflows/ci.yml` joue le scan des secrets, la politique Plumber
+(`.plumber.yaml`), puis les étapes Go — `gofmt`, `go vet`, `staticcheck`,
+`go test`, `govulncheck`, `gosec`, build — et les étapes du front — `tsc`,
+`vitest`, `vite build` — épinglées par version dans le Makefile et
+`web/package.json`. Le front se compile avant les tests Go, qui
+l'embarquent. Les actions GitHub sont épinglées par SHA de commit.

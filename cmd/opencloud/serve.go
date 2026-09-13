@@ -16,10 +16,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/version"
-	"github.com/ldesfontaine/opencloud/web"
 )
 
 const (
@@ -82,7 +82,7 @@ func runServe(args []string) error {
 	// La boucle finit avant que la base ne se ferme.
 	defer func() { stop(); <-watchDone }()
 
-	server, err := web.New(web.Options{
+	server, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
 		Settings:       settings.New(stateDir),

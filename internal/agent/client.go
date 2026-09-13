@@ -22,7 +22,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/web"
 )
 
 const (
@@ -124,8 +123,8 @@ func verifyPin(certificate *x509.Certificate, expected []byte) error {
 	return nil
 }
 
-func (c *Client) Enroll(ctx context.Context, identity Identity, token string, info hostinfo.Info) (web.EnrollResponse, error) {
-	request := web.EnrollRequest{
+func (c *Client) Enroll(ctx context.Context, identity Identity, token string, info hostinfo.Info) (machine.EnrollResponse, error) {
+	request := machine.EnrollRequest{
 		MachineID:    identity.MachineID,
 		PublicKey:    base64.StdEncoding.EncodeToString(identity.PublicKey),
 		Token:        token,
@@ -134,16 +133,16 @@ func (c *Client) Enroll(ctx context.Context, identity Identity, token string, in
 		Arch:         info.Arch,
 		AgentVersion: c.version,
 	}
-	var response web.EnrollResponse
+	var response machine.EnrollResponse
 	if err := c.postJSON(ctx, "/agent/enroll", request, &response); err != nil {
-		return web.EnrollResponse{}, fmt.Errorf("enroll: %w", err)
+		return machine.EnrollResponse{}, fmt.Errorf("enroll: %w", err)
 	}
 	return response, nil
 }
 
 func (c *Client) challenge(ctx context.Context, machineID string) ([]byte, error) {
-	var response web.ChallengeResponse
-	if err := c.postJSON(ctx, "/agent/challenge", web.ChallengeRequest{MachineID: machineID}, &response); err != nil {
+	var response machine.ChallengeResponse
+	if err := c.postJSON(ctx, "/agent/challenge", machine.ChallengeRequest{MachineID: machineID}, &response); err != nil {
 		return nil, fmt.Errorf("challenge: %w", err)
 	}
 	nonce, err := base64.StdEncoding.DecodeString(response.Nonce)
@@ -179,11 +178,11 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set(web.HeaderMachine, identity.MachineID)
-	request.Header.Set(web.HeaderNonce, base64.StdEncoding.EncodeToString(nonce))
-	request.Header.Set(web.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
-	request.Header.Set(web.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
-	request.Header.Set(web.HeaderAgentVersion, c.version)
+	request.Header.Set(machine.HeaderMachine, identity.MachineID)
+	request.Header.Set(machine.HeaderNonce, base64.StdEncoding.EncodeToString(nonce))
+	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
+	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
+	request.Header.Set(machine.HeaderAgentVersion, c.version)
 	request.Header.Set("Accept", "text/event-stream")
 
 	response, err := c.http.Do(request)

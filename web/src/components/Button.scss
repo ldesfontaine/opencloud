@@ -1,0 +1,90 @@
+.btn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:disabled,
+  &[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-ink);
+
+  &:hover:not(:disabled) {
+    background: var(--primary-hover);
+    color: var(--primary-ink);
+  }
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: var(--shadow-1);
+
+  &:hover:not(:disabled) {
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+}
+
+.btn-ghost {
+  color: var(--ink-2);
+
+  &:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+}
+
+.btn-danger {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: var(--line);
+
+  &:hover:not(:disabled) {
+    background: var(--danger-wash);
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+
+  &:hover:not(:disabled) {
+    color: var(--accent-ink);
+    opacity: 0.92;
+  }
+}
+
+.btn-sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.btn-icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+
+  &.btn-sm {
+    width: 30px;
+  }
+}

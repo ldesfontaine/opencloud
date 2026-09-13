@@ -1,0 +1,1 @@
+{"id":"local","name":"opencloud","kind":"local","hostname":"opencloud-host","address":"10.8.0.1","os":"Debian 12","arch":"amd64","agent_version":"v0.0.1","local":true,"online":true,"enrolled_at":"2026-09-12T12:00:00Z","last_seen_at":"2026-09-12T12:00:00Z"}

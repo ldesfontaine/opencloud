@@ -57,3 +57,6 @@ L'essentiel :
 - Bibliothèque standard d'abord ; pas de réflexion, pas de cadre opaque.
 - `gofmt`, `goimports`, `staticcheck` : la machine tient le style, l'humain
   garde l'attention pour le sens.
+- Le front (`web/`, React + TypeScript + SCSS) suit les mêmes règles ;
+  `make front` le compile et l'embarque, `make front-check` le vérifie. Aucune
+  chaîne visible en dur : tout passe par les catalogues `internal/lang`.
