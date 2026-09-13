@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/web"
@@ -58,6 +59,13 @@ type HeartbeatService interface {
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
+// Ce que le serveur attend du bus du direct : un abonnement par onglet, et
+// le compte pour plafonner.
+type Live interface {
+	Subscribe() *live.Subscription
+	Count() int
+}
+
 type Server struct {
 	logger         *slog.Logger
 	version        string
@@ -65,6 +73,7 @@ type Server struct {
 	settings       SettingsStore
 	machines       MachineService
 	heartbeats     HeartbeatService
+	live           Live
 	pingLimits     *pingLimits
 	publicURL      string
 	trustedProxies []netip.Prefix
@@ -84,6 +93,7 @@ type Options struct {
 	Settings   SettingsStore
 	Machines   MachineService
 	Heartbeats HeartbeatService
+	Live       Live
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
 	PublicURL      string
@@ -117,6 +127,7 @@ func New(opts Options) (*Server, error) {
 		settings:       opts.Settings,
 		machines:       opts.Machines,
 		heartbeats:     opts.Heartbeats,
+		live:           opts.Live,
 		pingLimits:     newPingLimits(),
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
@@ -127,7 +138,7 @@ func New(opts Options) (*Server, error) {
 	if opts.Clock != nil {
 		server.pingLimits.setClock(opts.Clock)
 	}
-	server.handler = securityHeaders(server.mux())
+	server.handler = server.chain(securityHeaders(server.mux()))
 	return server, nil
 }
 

@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> migration du front vers React, le 13 septembre 2026.
+> fonctionnalité 4, le direct, le 13 septembre 2026.
 
 ## Les acteurs
 
@@ -47,6 +47,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | --- | --- | --- | --- |
 | Interface | navigateur → Traefik | TLS de Traefik | Personne encore : pas d'authentification dans le socle, c'est un trou connu. Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige la même origine : `Sec-Fetch-Site` et un corps `application/json`. Pas de cookie : rien à voler tant qu'il n'y a pas de session |
+| Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies` |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
@@ -109,6 +110,29 @@ moniteur. La source notée est l'adresse résolue par `trusted_proxies` ; un
 relais par l'agent, s'il vient un jour, y écrira `agent:<machine>` sans
 changer le schéma.
 
+## Comment l'interface se met à jour sans recharger
+
+1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
+   répond `connected`, puis un commentaire toutes les 15 s pour tenir la
+   connexion derrière Traefik.
+2. `machine` et `heartbeat` publient sur le bus interne (`internal/live`) à
+   chaque changement visible : jeton, enrôlement, connexion, signal,
+   déconnexion, retrait ; création, ping, échéance dépassée, pause, reprise,
+   suppression. Le bus ne porte que deux sujets, `machines` et `jobs`.
+3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
+   avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
+   voyage dans le flux.
+4. Un onglet lent voit ses sujets fusionnés : cent signaux non lus font un
+   seul `machines`. Rien ne se perd, rien ne s'accumule.
+5. Connexion coupée : le navigateur revient seul après 5 s avec
+   `Last-Event-ID` ; le serveur répond `reconnected` et le front relit tout.
+   **Rien n'est rejoué** : ce qui s'est passé pendant la coupure se voit au
+   retour, pas événement par événement.
+
+L'agent garde son propre flux `/agent/stream`, authentifié ; les deux flux
+traversent la même chaîne de middlewares (panique, identifiant de requête,
+journal, limite de corps à 1 Mio), qui relaie `Flush`.
+
 ### Limitation de débit sur `/ping`
 
 | Clé | Débit continu | Rafale | Sert à |
@@ -157,3 +181,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 2 · multihost | Tout ce document : machines, agent, enrôlement, flux, signal, base et migrations |
 | 3 · heartbeats | Les routes publiques `/ping/…`, les tables `heartbeats`, `heartbeat_pings`, `heartbeat_runs`, la rétention, la limitation de débit, la boucle d'échéance |
 | Front React | L'API JSON sous `/api/…`, le front embarqué dans le binaire, la garde même-origine à la place du cookie anti-CSRF ; les temps relatifs se calculent dans le navigateur |
+| 4 · direct | Le bus `internal/live`, le flux `/api/events`, la chaîne de middlewares et `X-Request-ID`, la clé `log_level` de la configuration |

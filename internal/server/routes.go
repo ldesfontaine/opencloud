@@ -25,6 +25,7 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/session/language", s.setLanguage},
 		{"GET", "/api/i18n/{code}", s.catalogAPI},
 		{"GET", "/api/counts", s.counts},
+		{"GET", "/api/events", s.events},
 		{"GET", "/api/machines", s.listMachines},
 		{"POST", "/api/machines/tokens", s.createMachineToken},
 		{"DELETE", "/api/machines/tokens/{id}", s.cancelMachineToken},

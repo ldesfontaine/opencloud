@@ -20,7 +20,7 @@ interface State<T> {
 // page le demande, ou quand le signal de rafraîchissement passe. Les
 // données précédentes restent à l'écran pendant la relecture.
 export function useResource<T>(path: string | null): Resource<T> {
-  const { version } = useRefresh();
+  const version = useRefresh().versionFor(path ?? "");
   const [tick, setTick] = useState(0);
   const [state, setState] = useState<State<T>>({ data: null, error: null, loading: path !== null });
 

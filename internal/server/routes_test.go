@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -23,6 +24,7 @@ type testServer struct {
 	*Server
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
+	bus        *live.Bus
 	db         *store.DB
 }
 
@@ -41,8 +43,10 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
+	machines.SetListener(bus)
 	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{
 		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
 	})
@@ -51,18 +55,20 @@ func newTestServer(t *testing.T) *testServer {
 	}
 	heartbeats := heartbeat.New(db, logger)
 	heartbeats.SetClock(func() time.Time { return testNow })
+	heartbeats.SetWatcher(bus)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
 		Settings:   settings.New(root),
 		Machines:   machines,
 		Heartbeats: heartbeats,
+		Live:       bus,
 		Clock:      func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, bus: bus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

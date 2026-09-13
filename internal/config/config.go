@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -28,12 +29,30 @@ type Config struct {
 	PublicURL string `toml:"public_url" validate:"omitempty,http_url"`
 	// Mandataires dont les en-têtes X-Forwarded-* sont crus, en CIDR.
 	TrustedProxies []string `toml:"trusted_proxies" validate:"dive,cidr"`
+	// Niveau du journal : debug, info, warn, error. Vide : info. En debug,
+	// chaque requête HTTP fait une ligne.
+	LogLevel string `toml:"log_level" validate:"omitempty,oneof=debug info warn error"`
 }
 
 func Default() Config {
 	return Config{
 		Listen:   defaultListen,
 		StateDir: defaultStateDir,
+	}
+}
+
+// SlogLevel traduit le réglage pour slog ; la validation a déjà borné les
+// valeurs, tout le reste vaut info.
+func (c Config) SlogLevel() slog.Level {
+	switch c.LogLevel {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
 

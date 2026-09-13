@@ -65,9 +65,17 @@ type Listener interface {
 	Failed(heartbeat Heartbeat, exitCode int)
 }
 
+// Watcher reçoit chaque changement d'un moniteur, quel qu'il soit : le
+// direct s'y branche. Listener ne reçoit que ce qui mérite une alerte.
+// nil est toléré.
+type Watcher interface {
+	HeartbeatChanged(heartbeatID string)
+}
+
 type Service struct {
 	store    Store
 	listener Listener
+	watcher  Watcher
 	logger   *slog.Logger
 	// now est remplaçable dans les tests : les échéances se comparent à lui.
 	now func() time.Time
@@ -83,6 +91,16 @@ func (s *Service) SetClock(now func() time.Time) {
 
 func (s *Service) SetListener(listener Listener) {
 	s.listener = listener
+}
+
+func (s *Service) SetWatcher(watcher Watcher) {
+	s.watcher = watcher
+}
+
+func (s *Service) changed(heartbeatID string) {
+	if s.watcher != nil {
+		s.watcher.HeartbeatChanged(heartbeatID)
+	}
 }
 
 // Create tire l'identifiant et le jeton, puis écrit le moniteur ; il naît
@@ -113,6 +131,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat created", "heartbeat_id", id, "name", heartbeat.Name)
+	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
 }
 
@@ -140,6 +159,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat deleted", "heartbeat_id", id)
+	s.changed(id)
 	return nil
 }
 
@@ -158,6 +178,7 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat paused", "heartbeat_id", id)
+	s.changed(id)
 	return nil
 }
 
@@ -182,6 +203,7 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 		return ErrNotPaused
 	}
 	s.logger.Info("heartbeat resumed", "heartbeat_id", id)
+	s.changed(id)
 	return nil
 }
 
@@ -226,6 +248,7 @@ func (s *Service) Receive(ctx context.Context, token string, ping Ping) (Heartbe
 	}
 	s.logger.Info("heartbeat ping", "heartbeat_id", after.ID, "kind", string(ping.Kind), "status", string(after.Status), "source", ping.Source)
 	s.notifyAfterPing(before, after, ping)
+	s.changed(after.ID)
 	return after, nil
 }
 
@@ -328,6 +351,7 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 	if s.listener != nil {
 		s.listener.Late(after)
 	}
+	s.changed(after.ID)
 	return nil
 }
 
