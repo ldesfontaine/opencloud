@@ -1,12 +1,14 @@
 import { NavLink, Outlet } from "react-router";
 
 import type { Counts } from "../api/types";
+import { useLive } from "../hooks/useLive";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { Icon, Mark, type IconName } from "./Icon";
 import "./Layout.scss";
 
 export function Layout() {
+  useLive();
   return (
     <div className="app">
       <Sidebar />

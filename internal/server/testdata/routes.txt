@@ -2,6 +2,7 @@ GET /api/session
 PUT /api/session/language
 GET /api/i18n/{code}
 GET /api/counts
+GET /api/events
 GET /api/machines
 POST /api/machines/tokens
 DELETE /api/machines/tokens/{id}

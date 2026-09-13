@@ -11,6 +11,11 @@ const (
 	indexFile     = "index.html"
 	assetsPrefix  = "/assets/"
 	immutableYear = "public, max-age=31536000, immutable"
+	// Le navigateur demande /favicon.ico de lui-même, même quand la page
+	// déclare une autre icône ; on lui sert le signe de la marque plutôt
+	// qu'un 404 dans les journaux. Le type dit SVG, et c'est lui qui compte.
+	legacyFavicon = "favicon.ico"
+	brandFavicon  = "favicon.svg"
 )
 
 // serveApp sert un fichier de dist s'il existe, sinon index.html : le
@@ -24,6 +29,9 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if name == legacyFavicon {
+		name = brandFavicon
+	}
 	if name != "" && name != indexFile && s.isAppFile(name) {
 		if strings.HasPrefix(r.URL.Path, assetsPrefix) {
 			w.Header().Set("Cache-Control", immutableYear)

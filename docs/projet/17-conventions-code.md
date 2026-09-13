@@ -218,7 +218,17 @@ pings (`/ping/`) ne changent pas.
   formulaires, et ce qui vaut tant qu'il n'y a pas d'authentification.
 - CSP stricte inchangée : le front compilé n'a ni script ni style en ligne,
   un test le vérifie. Rien ne se charge depuis Internet.
-- Le direct viendra en SSE, une seule connexion par onglet (fonctionnalité 4).
+- **Le direct** : `GET /api/events` en SSE, **une seule connexion par onglet**,
+  ouverte par la coquille. L'événement ne porte qu'un **sujet** (`machines`,
+  `jobs`) ; le front relit la ressource par l'API. Rien n'est rejoué : à la
+  reconnexion le serveur dit `reconnected` et le front relit tout. Un
+  composant qui change quelque chose de visible le publie sur
+  `internal/live`, jamais depuis un handler.
+- **La chaîne de middlewares**, de l'extérieur vers l'intérieur : panique →
+  identifiant de requête → journal → limite de corps (1 Mio). Une enveloppe
+  du `ResponseWriter` **relaie `Flush` et `Unwrap`**, sans quoi les deux flux
+  SSE mourraient en silence ; c'est testé. `X-Request-ID` est tiré par le
+  serveur, jamais lu du client.
 
 ## Le front
 

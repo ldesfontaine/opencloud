@@ -39,10 +39,18 @@ type LocalInfo struct {
 	Version  string
 }
 
+// Listener reçoit chaque changement qui se voit dans l'interface : une
+// machine qui entre, se connecte, signale, part ; un jeton émis ou annulé.
+// Le direct s'y branche ; nil est toléré.
+type Listener interface {
+	MachineChanged(machineID string)
+}
+
 type Service struct {
 	store    Store
 	sessions *Sessions
 	nonces   *nonces
+	listener Listener
 	logger   *slog.Logger
 	// now est remplaçable dans les tests : « vu il y a » se compare à lui.
 	now func() time.Time
@@ -61,6 +69,16 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
 func (s *Service) SetClock(now func() time.Time) {
 	s.now = now
+}
+
+func (s *Service) SetListener(listener Listener) {
+	s.listener = listener
+}
+
+func (s *Service) changed(machineID string) {
+	if s.listener != nil {
+		s.listener.MachineChanged(machineID)
+	}
 }
 
 // EnsureLocal crée ou rafraîchit la machine openCloud elle-même au démarrage.
@@ -161,6 +179,7 @@ func (s *Service) issueToken(ctx context.Context, name, machineID string) (strin
 	if err := s.store.InsertToken(ctx, token); err != nil {
 		return "", Token{}, fmt.Errorf("insert token: %w", err)
 	}
+	s.changed(machineID)
 	return cleartext, token, nil
 }
 
@@ -169,7 +188,11 @@ func (s *Service) PendingTokens(ctx context.Context) ([]Token, error) {
 }
 
 func (s *Service) CancelToken(ctx context.Context, id string) error {
-	return s.store.DeleteToken(ctx, id)
+	if err := s.store.DeleteToken(ctx, id); err != nil {
+		return err
+	}
+	s.changed("")
+	return nil
 }
 
 // Remove retire une machine et coupe son flux ; la machine openCloud reste.
@@ -186,6 +209,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	}
 	s.sessions.Close(id)
 	s.logger.Info("machine removed", "machine_id", id, "name", machine.Name)
+	s.changed(id)
 	return nil
 }
 
@@ -218,6 +242,7 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	// Un ré-enrôlement remplace la clé : l'ancien flux ne vaut plus rien.
 	s.sessions.Close(machine.ID)
 	s.logger.Info("machine enrolled", "machine_id", machine.ID, "name", machine.Name)
+	s.changed(machine.ID)
 	return machine, nil
 }
 
@@ -280,6 +305,7 @@ func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion 
 		return nil, fmt.Errorf("open session: %w", err)
 	}
 	s.logger.Info("machine connected", "machine_id", machineID, "address", address)
+	s.changed(machineID)
 	return session, nil
 }
 
@@ -287,6 +313,7 @@ func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion 
 func (s *Service) Disconnect(session *Session) {
 	s.sessions.Release(session)
 	s.logger.Info("machine disconnected", "machine_id", session.MachineID)
+	s.changed(session.MachineID)
 }
 
 // Signal note qu'une machine dont le flux est ouvert vient de donner signe
@@ -296,5 +323,9 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) error {
 	if !ok {
 		return ErrNotConnected
 	}
-	return s.store.TouchMachine(ctx, session.MachineID, s.now())
+	if err := s.store.TouchMachine(ctx, session.MachineID, s.now()); err != nil {
+		return err
+	}
+	s.changed(session.MachineID)
+	return nil
 }

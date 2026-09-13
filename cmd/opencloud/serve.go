@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -34,12 +35,11 @@ func runServe(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-
 	cfg, warnings, err := config.Load(*configPath)
 	if err != nil {
 		return err
 	}
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	for _, warning := range warnings {
 		logger.Warn("config", "detail", warning)
 	}
@@ -61,7 +61,10 @@ func runServe(args []string) error {
 		logger.Warn("purge expired tokens", "error", err)
 	}
 
+	// Le bus du direct : machine et heartbeat y publient, les onglets y lisent.
+	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
+	machines.SetListener(bus)
 	info := hostinfo.Collect()
 	if err := machines.EnsureLocal(ctx, machine.LocalInfo{
 		Hostname: info.Hostname,
@@ -74,6 +77,7 @@ func runServe(args []string) error {
 	}
 
 	heartbeats := heartbeat.New(db, logger)
+	heartbeats.SetWatcher(bus)
 	watchDone := make(chan struct{})
 	go func() {
 		heartbeats.Watch(ctx)
@@ -88,6 +92,7 @@ func runServe(args []string) error {
 		Settings:       settings.New(stateDir),
 		Machines:       machines,
 		Heartbeats:     heartbeats,
+		Live:           bus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
 	})

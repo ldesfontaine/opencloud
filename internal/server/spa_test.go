@@ -54,6 +54,12 @@ func TestSPA_AssetsAreImmutableAndPublicFilesRevalidated(t *testing.T) {
 			t.Errorf("%s: %d %q", name, recorder.Code, recorder.Header().Get("Cache-Control"))
 		}
 	}
+	// Le navigateur demande /favicon.ico de lui-même : il reçoit le signe
+	// de la marque, jamais un 404.
+	icon := get(server.Server, "/favicon.ico")
+	if icon.Code != http.StatusOK || !strings.HasPrefix(icon.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Errorf("favicon.ico: %d %q", icon.Code, icon.Header().Get("Content-Type"))
+	}
 	for _, name := range []string{"/favicon.svg", "/theme.js"} {
 		recorder := get(server.Server, name)
 		if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-cache" {
