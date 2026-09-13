@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/fsx"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -22,18 +23,20 @@ const (
 // Identity est ce que l'agent garde entre deux démarrages : sa clé, l'id que
 // le serveur lui a reconnu, et où le joindre.
 type Identity struct {
-	MachineID  string    `json:"machine_id"`
-	PublicKey  []byte    `json:"public_key"`
-	PrivateKey []byte    `json:"private_key"`
-	Server     string    `json:"server"`
-	Pin        string    `json:"pin,omitempty"`
+	MachineID  string `json:"machine_id"`
+	PublicKey  []byte `json:"public_key"`
+	PrivateKey []byte `json:"private_key"`
+	Server     string `json:"server"`
+	Pin        string `json:"pin,omitempty"`
+	// Langue de l'opérateur, choisie sur openCloud au moment de l'installation.
+	Language   lang.Code `json:"language,omitempty"`
 	EnrolledAt time.Time `json:"enrolled_at"`
 }
 
 var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and -token")
 
 // NewIdentity tire une clé et un id ; rien n'est écrit avant l'enrôlement.
-func NewIdentity(server, pin string) (Identity, error) {
+func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate key: %w", err)
@@ -42,7 +45,7 @@ func NewIdentity(server, pin string) (Identity, error) {
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate id: %w", err)
 	}
-	return Identity{MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin}, nil
+	return Identity{MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin, Language: language}, nil
 }
 
 func LoadIdentity(stateDir *os.Root) (Identity, error) {

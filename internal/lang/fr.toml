@@ -257,3 +257,13 @@ seconds = "%d s"
 minutes = "%d min"
 hours = "%d h"
 days = "%d j"
+
+[agent]
+not_enrolled = "Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud, avec -server et -token."
+token_not_found = "Jeton refusé : openCloud ne le connaît pas. Créez-en un nouveau depuis la page Machines."
+token_consumed = "Jeton refusé : il a déjà servi. Un jeton n'enrôle qu'une machine, créez-en un nouveau."
+token_expired = "Jeton refusé : il a expiré. Créez-en un nouveau depuis la page Machines."
+name_taken = "Enrôlement refusé : une machine porte déjà ce nom. Retirez-la ou choisissez un autre nom."
+identity_refused = "openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. Créez un nouveau jeton et relancez l'installation."
+server_failed = "openCloud a répondu par une erreur %d. Consultez ses journaux."
+failed = "L'agent s'est arrêté : %s"

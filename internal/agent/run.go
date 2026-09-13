@@ -10,7 +10,12 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 )
+
+// ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
+// nouvel enrôlement la ramène.
+var ErrIdentityRefused = errors.New("identity refused by the server")
 
 const (
 	DefaultSignalInterval = 30 * time.Second
@@ -27,6 +32,9 @@ type Options struct {
 	Server string
 	Token  string
 	Pin    string
+	// Language est la langue de l'opérateur, donnée par la commande
+	// d'installation ; l'identité la garde ensuite.
+	Language lang.Code
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
@@ -68,7 +76,7 @@ func loadOrEnroll(ctx context.Context, opts Options) (Identity, error) {
 // enroll tire l'identité, la présente avec le jeton, puis l'écrit avec l'id
 // que le serveur a retenu : un ré-enrôlement garde l'id de la machine.
 func enroll(ctx context.Context, opts Options) (Identity, error) {
-	identity, err := NewIdentity(opts.Server, opts.Pin)
+	identity, err := NewIdentity(opts.Server, opts.Pin, opts.Language)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -99,7 +107,7 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, opts 
 		}
 		var refused *ServerError
 		if errors.As(err, &refused) && refused.Permanent() {
-			return fmt.Errorf("identity refused, re-enroll this machine: %w", err)
+			return fmt.Errorf("%w: %w", ErrIdentityRefused, err)
 		}
 		if time.Since(startedAt) > stableStream {
 			delay = minBackoff

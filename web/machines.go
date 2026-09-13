@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -85,15 +86,21 @@ func (s *Server) renderToken(w http.ResponseWriter, r *http.Request, token machi
 	data.Page = tokenPage{
 		Name:      token.Name,
 		Token:     cleartext,
-		Command:   installCommand(url, cleartext),
+		Command:   installCommand(url, cleartext, text.Code()),
 		ExpiresIn: formatDuration(text, machine.TokenLifetime),
 		URLLocal:  isLocal,
 	}
 	s.render(w, r, http.StatusOK, "machine-token", data)
 }
 
-func installCommand(publicURL, token string) string {
-	return "sudo opencloud agent -server " + publicURL + " -token " + token
+// La commande à coller ; la langue n'y figure que si elle n'est pas celle
+// par défaut, pour rester courte.
+func installCommand(publicURL, token string, code lang.Code) string {
+	command := "sudo opencloud agent -server " + publicURL + " -token " + token
+	if code != lang.Default {
+		command += " -lang " + string(code)
+	}
+	return command
 }
 
 func (s *Server) cancelMachineToken(w http.ResponseWriter, r *http.Request) {

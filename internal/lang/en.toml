@@ -257,3 +257,13 @@ seconds = "%d s"
 minutes = "%d min"
 hours = "%d h"
 days = "%d d"
+
+[agent]
+not_enrolled = "This machine is not enrolled. Run the install command given by openCloud, with -server and -token."
+token_not_found = "Token refused: openCloud does not know it. Create a new one from the Machines page."
+token_consumed = "Token refused: it has already been used. A token enrolls one machine, create a new one."
+token_expired = "Token refused: it has expired. Create a new one from the Machines page."
+name_taken = "Enrollment refused: a machine already has this name. Remove it or pick another name."
+identity_refused = "openCloud no longer recognises this machine: it was removed or re-enrolled elsewhere. Create a new token and run the install again."
+server_failed = "openCloud answered with error %d. Check its logs."
+failed = "The agent stopped: %s"
