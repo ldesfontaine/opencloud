@@ -35,8 +35,8 @@ func postLanguage(server *Server, cookie *http.Cookie, form url.Values) *httptes
 
 func TestSetLanguage_SavesAndRedirectsBack(t *testing.T) {
 	server := newTestServer(t)
-	cookie := csrfCookieFrom(t, server)
-	recorder := postLanguage(server, cookie, url.Values{
+	cookie := csrfCookieFrom(t, server.Server)
+	recorder := postLanguage(server.Server, cookie, url.Values{
 		"csrf": {cookie.Value}, "language": {"en"}, "return": {"/machines"},
 	})
 	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/machines" {
@@ -58,19 +58,19 @@ func TestSetLanguage_SavesAndRedirectsBack(t *testing.T) {
 
 func TestSetLanguage_WithoutValidCSRF_IsRefused(t *testing.T) {
 	server := newTestServer(t)
-	cookie := csrfCookieFrom(t, server)
-	if got := postLanguage(server, cookie, url.Values{"csrf": {"wrong"}, "language": {"en"}}); got.Code != http.StatusForbidden {
+	cookie := csrfCookieFrom(t, server.Server)
+	if got := postLanguage(server.Server, cookie, url.Values{"csrf": {"wrong"}, "language": {"en"}}); got.Code != http.StatusForbidden {
 		t.Errorf("bad token: status %d", got.Code)
 	}
-	if got := postLanguage(server, nil, url.Values{"csrf": {cookie.Value}, "language": {"en"}}); got.Code != http.StatusForbidden {
+	if got := postLanguage(server.Server, nil, url.Values{"csrf": {cookie.Value}, "language": {"en"}}); got.Code != http.StatusForbidden {
 		t.Errorf("no cookie: status %d", got.Code)
 	}
 }
 
 func TestSetLanguage_UnknownLanguage_IsRefused(t *testing.T) {
 	server := newTestServer(t)
-	cookie := csrfCookieFrom(t, server)
-	got := postLanguage(server, cookie, url.Values{"csrf": {cookie.Value}, "language": {"klingon"}})
+	cookie := csrfCookieFrom(t, server.Server)
+	got := postLanguage(server.Server, cookie, url.Values{"csrf": {cookie.Value}, "language": {"klingon"}})
 	if got.Code != http.StatusBadRequest {
 		t.Fatalf("status %d", got.Code)
 	}
@@ -92,7 +92,7 @@ func TestReturnPath_OnlyFollowsLocalPaths(t *testing.T) {
 }
 
 func TestCSRFCookie_IsSecureHttpOnlyAndStrict(t *testing.T) {
-	cookie := csrfCookieFrom(t, newTestServer(t))
+	cookie := csrfCookieFrom(t, newTestServer(t).Server)
 	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" {
 		t.Fatalf("cookie %+v", cookie)
 	}

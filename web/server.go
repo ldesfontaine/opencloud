@@ -1,14 +1,18 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
@@ -18,14 +22,38 @@ type SettingsStore interface {
 	Save(settings.Settings) error
 }
 
+// Ce que le serveur attend du composant machine : les pages d'un côté,
+// l'agent de l'autre.
+type MachineService interface {
+	List(ctx context.Context) ([]machine.Status, error)
+	Get(ctx context.Context, id string) (machine.Status, error)
+	Count(ctx context.Context) (total, online int, err error)
+	CreateToken(ctx context.Context, name string) (string, machine.Token, error)
+	CreateReenrollToken(ctx context.Context, machineID string) (string, machine.Token, error)
+	PendingTokens(ctx context.Context) ([]machine.Token, error)
+	CancelToken(ctx context.Context, id string) error
+	Remove(ctx context.Context, id string) error
+	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
+	Challenge(ctx context.Context, machineID string) ([]byte, error)
+	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
+	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
+	Disconnect(session *machine.Session)
+	Signal(ctx context.Context, sessionToken string) error
+}
+
 type Server struct {
-	logger     *slog.Logger
-	version    string
-	catalogs   lang.Catalogs
-	settings   SettingsStore
-	pages      map[string]*template.Template
-	staticBase string
-	handler    http.Handler
+	logger         *slog.Logger
+	version        string
+	catalogs       lang.Catalogs
+	settings       SettingsStore
+	machines       MachineService
+	publicURL      string
+	trustedProxies []netip.Prefix
+	pages          map[string]*template.Template
+	partials       *template.Template
+	staticBase     string
+	handler        http.Handler
+	clock          func() time.Time
 
 	// Les réglages courants, relus à chaque page, réécrits à chaque changement.
 	mu      sync.RWMutex
@@ -36,6 +64,13 @@ type Options struct {
 	Logger   *slog.Logger
 	Version  string
 	Settings SettingsStore
+	Machines MachineService
+	// Adresse publique d'openCloud pour la commande d'installation ; vide :
+	// déduite de la requête.
+	PublicURL      string
+	TrustedProxies []netip.Prefix
+	// Clock remplace l'horloge, pour les tests ; nil = time.Now.
+	Clock func() time.Time
 }
 
 func New(opts Options) (*Server, error) {
@@ -47,7 +82,7 @@ func New(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load settings: %w", err)
 	}
-	pages, err := parsePages()
+	pages, partials, err := parsePages()
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
@@ -61,13 +96,18 @@ func New(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("register woff2 type: %w", err)
 	}
 	server := &Server{
-		logger:     opts.Logger,
-		version:    opts.Version,
-		catalogs:   catalogs,
-		settings:   opts.Settings,
-		pages:      pages,
-		staticBase: staticPrefix + build + "/",
-		current:    current,
+		logger:         opts.Logger,
+		version:        opts.Version,
+		catalogs:       catalogs,
+		settings:       opts.Settings,
+		machines:       opts.Machines,
+		publicURL:      opts.PublicURL,
+		trustedProxies: opts.TrustedProxies,
+		pages:          pages,
+		partials:       partials,
+		staticBase:     staticPrefix + build + "/",
+		clock:          opts.Clock,
+		current:        current,
 	}
 	server.handler = securityHeaders(server.csrfCookie(server.mux()))
 	return server, nil

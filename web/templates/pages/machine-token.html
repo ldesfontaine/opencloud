@@ -1,0 +1,19 @@
+{{define "content"}}
+<section class="card form-card">
+  <div class="card-b">
+    <div class="note note-warn">{{.T.Format "machine.token_once" .Page.ExpiresIn}}</div>
+    <div class="field">
+      <span class="field-label">{{.T.Get "machine.token_label"}}</span>
+      <div class="token-box"><code class="mono">{{.Page.Token}}</code><button type="button" class="btn btn-secondary btn-sm" data-copy="{{.Page.Token}}" data-copied="{{.T.Get "machine.copied"}}">{{.T.Get "machine.copy"}}</button></div>
+    </div>
+    <div class="field">
+      <span class="field-label">{{.T.Get "machine.command_label"}}</span>
+      <div class="token-box"><code class="mono">{{.Page.Command}}</code><button type="button" class="btn btn-secondary btn-sm" data-copy="{{.Page.Command}}" data-copied="{{.T.Get "machine.copied"}}">{{.T.Get "machine.copy"}}</button></div>
+    </div>
+    {{if .Page.URLLocal}}<div class="note note-danger">{{.T.Get "machine.url_local"}}</div>{{end}}
+    <div class="cluster">
+      <a class="btn btn-secondary" href="/machines">{{.T.Get "machine.back_to_list"}}</a>
+    </div>
+  </div>
+</section>
+{{end}}

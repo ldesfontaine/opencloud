@@ -1,0 +1,60 @@
+{{/* Le tableau des machines et les jetons en attente ; rafraîchi par HTMX. */}}
+{{define "machines-table"}}
+<div id="machines-table" hx-get="/machines/tableau" hx-trigger="every 10s" hx-swap="outerHTML">
+  <section class="card">
+    <table class="table">
+      <thead><tr><th>{{.T.Get "machines.col_machine"}}</th><th>{{.T.Get "machines.col_address"}}</th><th>{{.T.Get "machines.col_os"}}</th><th>{{.T.Get "machines.col_agent"}}</th><th>{{.T.Get "machines.col_state"}}</th><th>{{.T.Get "machines.col_seen"}}</th><th class="th-end"></th></tr></thead>
+      <tbody>
+        {{range .Page.Rows}}
+        <tr>
+          <td><a class="svc" href="/machines/{{.ID}}"><span class="ico">{{template "icon" "server"}}</span>{{.Name}}{{if .Local}}<span class="pill pill-neutral nodot">{{$.T.Get "machine.this_machine"}}</span>{{end}}</a></td>
+          <td class="num">{{.Address}}</td>
+          <td>{{.OS}}</td>
+          <td class="num">{{.AgentVersion}}</td>
+          <td>{{template "state-pill" (dict "Online" .Online "T" $.T)}}</td>
+          <td class="secondary">{{.SeenAgo}}</td>
+          <td class="td-end"><a class="btn btn-ghost btn-sm" href="/machines/{{.ID}}">{{$.T.Get "machines.open"}}</a></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+  {{if .Page.Pending}}
+  <section class="card">
+    <div class="card-h"><span class="card-t">{{.T.Get "machines.pending_title"}}</span><span class="card-s">{{.T.Get "machines.pending_text"}}</span></div>
+    <div class="list">
+      {{range .Page.Pending}}
+      <form class="row" method="post" action="/machines/jetons/{{.ID}}/actions/annuler">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <span class="dot neutral"></span>
+        <span class="txt"><b>{{.Name}}</b><span><span class="mono">{{.Masked}}</span> · {{$.T.Format "machines.pending_expires" .ExpiresIn}}{{if .Reenroll}} · {{$.T.Get "machines.pending_reenroll"}}{{end}}</span></span>
+        <button type="submit" class="btn btn-ghost btn-sm when">{{$.T.Get "machines.cancel_token"}}</button>
+      </form>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</div>
+{{end}}
+
+{{define "state-pill"}}{{if .Online}}<span class="pill pill-ok">{{.T.Get "state.online"}}</span>{{else}}<span class="pill pill-danger">{{.T.Get "state.offline"}}</span>{{end}}{{end}}
+
+{{/* L'état d'une machine dans son en-tête : pastille et métadonnées, rafraîchis par HTMX. */}}
+{{define "machine-state"}}
+<span id="machine-state" class="machine-state" hx-get="/machines/{{.Page.Head.Current.ID}}/en-tete" hx-trigger="every 10s" hx-swap="outerHTML">
+  {{template "state-pill" (dict "Online" .Page.Head.Current.Online "T" .T)}}
+  <span class="meta">
+    {{if .Page.Head.Current.Address}}<span class="mono">{{.Page.Head.Current.Address}}</span><span class="sep"></span>{{end}}
+    <span>{{.Page.Head.Current.OS}}</span><span class="sep"></span>
+    <span>{{.T.Get "machine.agent"}} <span class="mono">{{.Page.Head.Current.AgentVersion}}</span></span><span class="sep"></span>
+    <span>{{.Page.Head.Current.SeenAgo}}</span>
+  </span>
+</span>
+{{end}}
+
+{{define "machine-head"}}
+<div class="machine-head">
+  <span class="select">{{template "icon" "server"}}<select aria-label="{{.T.Get "machine.select"}}" data-navigate>{{range .Page.Head.All}}<option value="/machines/{{.ID}}"{{if eq .ID $.Page.Head.Current.ID}} selected{{end}}>{{.Name}}</option>{{end}}</select><span class="chev">{{template "icon" "chevron-down"}}</span></span>
+  {{template "machine-state" .}}
+</div>
+{{end}}

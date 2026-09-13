@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"net/http/httptest"
@@ -24,12 +25,21 @@ func TestRender_MatchesGoldenFiles(t *testing.T) {
 		status int
 	}{
 		{"overview", "/", http.StatusOK},
-		{"soon", "/machines", http.StatusOK},
+		{"machines", "/machines", http.StatusOK},
+		{"machine-new", "/machines/nouvelle", http.StatusOK},
+		{"machine", "/machines/" + remoteID, http.StatusOK},
+		{"machine-tab", "/machines/" + remoteID + "/services", http.StatusOK},
+		{"machine-local", "/machines/local", http.StatusOK},
+		{"soon", "/services", http.StatusOK},
 		{"visual-system", "/systeme-visuel", http.StatusOK},
 		{"not-found", "/rien-ici", http.StatusNotFound},
 	}
 	for _, code := range lang.Codes() {
 		server := newTestServer(t)
+		server.enroll(t, "vps-paris-1", remoteID)
+		if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2"); err != nil {
+			t.Fatal(err)
+		}
 		if err := server.saveLanguage(code); err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +50,7 @@ func TestRender_MatchesGoldenFiles(t *testing.T) {
 				if recorder.Code != tc.status {
 					t.Fatalf("status %d, want %d", recorder.Code, tc.status)
 				}
-				got := normalize(server, recorder.Body.String())
+				got := normalize(server.Server, recorder.Body.String())
 				compareGolden(t, filepath.Join("testdata", tc.name+"."+string(code)+".golden.html"), got)
 			})
 		}
@@ -63,19 +73,30 @@ func compareGolden(t *testing.T, golden, got string) {
 	}
 }
 
-var csrfValue = regexp.MustCompile(`name="csrf" value="[0-9a-f]+"`)
+const remoteID = "11111111-2222-4333-8444-555555555555"
 
-// L'empreinte des statiques et le jeton CSRF changent à chaque build ou
-// requête ; le golden les remplace par une valeur fixe.
+var (
+	csrfValue  = regexp.MustCompile(`name="csrf" value="[0-9a-f]+"`)
+	tokenValue = regexp.MustCompile(`oc_[a-z2-7]{20,}`)
+	tokenMask  = regexp.MustCompile(`oc_[a-z2-7]{6}…`)
+	tokenID    = regexp.MustCompile(`jetons/[0-9a-f]{16}/`)
+)
+
+// L'empreinte des statiques, le jeton CSRF et les jetons d'enrôlement
+// changent à chaque build ou requête ; le golden les remplace par une
+// valeur fixe.
 func normalize(server *Server, body string) string {
 	body = strings.ReplaceAll(body, server.staticBase, "/static/BUILD/")
-	return csrfValue.ReplaceAllString(body, `name="csrf" value="CSRF"`)
+	body = csrfValue.ReplaceAllString(body, `name="csrf" value="CSRF"`)
+	body = tokenValue.ReplaceAllString(body, "oc_TOKEN")
+	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
+	return tokenID.ReplaceAllString(body, "jetons/TOKENID/")
 }
 
 func TestRender_EveryPageTemplateHasARoute(t *testing.T) {
 	server := newTestServer(t)
 	rendered := map[string]bool{}
-	for _, page := range []string{"overview", "soon", "visual-system", "not-found"} {
+	for _, page := range []string{"overview", "machines", "machine-new", "machine-token", "machine", "soon", "visual-system", "not-found"} {
 		rendered[page] = true
 	}
 	for page := range server.pages {
@@ -101,7 +122,8 @@ func TestTemplates_ContainNoInlineStyleScriptOrMissingKey(t *testing.T) {
 		if err := server.saveLanguage(code); err != nil {
 			t.Fatal(err)
 		}
-		for _, path := range []string{"/", "/machines", "/systeme-visuel", "/rien-ici"} {
+		server.enroll(t, "vps-paris-1", remoteID)
+		for _, path := range []string{"/", "/machines", "/machines/nouvelle", "/machines/" + remoteID, "/machines/" + remoteID + "/reseau", "/systeme-visuel", "/rien-ici"} {
 			recorder := httptest.NewRecorder()
 			server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 			body := recorder.Body.String()

@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/version"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -45,10 +48,37 @@ func runServe(args []string) error {
 	}
 	defer stateDir.Close()
 
-	server, err := web.New(web.Options{
-		Logger:   logger,
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	db, err := store.Open(ctx, stateDir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := db.PurgeExpiredTokens(ctx, time.Now()); err != nil {
+		logger.Warn("purge expired tokens", "error", err)
+	}
+
+	machines := machine.New(db, machine.NewSessions(), logger)
+	info := hostinfo.Collect()
+	if err := machines.EnsureLocal(ctx, machine.LocalInfo{
+		Hostname: info.Hostname,
+		Address:  info.Address,
+		OS:       info.OS,
+		Arch:     info.Arch,
 		Version:  version.Number(),
-		Settings: settings.New(stateDir),
+	}); err != nil {
+		return err
+	}
+
+	server, err := web.New(web.Options{
+		Logger:         logger,
+		Version:        version.Number(),
+		Settings:       settings.New(stateDir),
+		Machines:       machines,
+		PublicURL:      cfg.PublicURL,
+		TrustedProxies: cfg.TrustedPrefixes(),
 	})
 	if err != nil {
 		return err
@@ -58,11 +88,11 @@ func runServe(args []string) error {
 		Handler:           server,
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
-	return listenUntilSignal(logger, httpServer, cfg)
+	return listenUntilSignal(ctx, logger, httpServer, cfg)
 }
 
 // Le répertoire d'état est ouvert une fois par os.Root ; les composants qui
-// viendront y écrire passeront par lui.
+// y écrivent passent par lui.
 func openStateDir(path string) (*os.Root, error) {
 	if err := os.MkdirAll(path, stateDirMode); err != nil { // bounded: config.StateDir
 		return nil, fmt.Errorf("create state dir: %w", err)
@@ -74,10 +104,7 @@ func openStateDir(path string) (*os.Root, error) {
 	return root, nil
 }
 
-func listenUntilSignal(logger *slog.Logger, httpServer *http.Server, cfg config.Config) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
+func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, cfg config.Config) error {
 	failed := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.Listen, "state_dir", cfg.StateDir, "version", version.String())

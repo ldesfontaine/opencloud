@@ -10,6 +10,7 @@ const usage = `Usage : opencloud <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
+  agent     tourne sur une machine gérée (options -server -token -state -pin)
   version   affiche la version
 `
 
@@ -22,6 +23,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = runServe(os.Args[2:])
+	case "agent":
+		err = runAgent(os.Args[2:])
 	case "version":
 		err = runVersion()
 	default:

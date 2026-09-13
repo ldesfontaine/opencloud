@@ -9,6 +9,7 @@
 <script src="/static/BUILD/theme.js"></script>
 <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'>
 <script src="/static/BUILD/vendor/htmx-2.0.10.min.js" defer></script>
+<script src="/static/BUILD/app.js" defer></script>
 </head>
 <body>
 
@@ -57,7 +58,7 @@
     <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
-      
+      <span class="count hot">2</span>
     </a>
     
     <a class="nav-item" href="/services">
@@ -126,19 +127,39 @@
 <header class="page-head">
   <div>
     <h1>Overview</h1>
-    <p class="sub">No machine yet.</p>
+    <p class="sub">2 machines, 1 online.</p>
   </div>
   <div class="actions"><a class="btn btn-primary" href="/machines/nouvelle"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add a machine</a></div>
 </header>
 
 
+
+<div class="grid-4">
+  <div class="card"><div class="card-b stat">
+    <span class="label"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>Machines</span>
+    <span class="stat-value">2</span>
+    <span class="foot"><b>1 online</b></span>
+  </div></div>
+</div>
 <section class="card">
-  <div class="empty">
-    <span class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span>
-    <h2>No machine</h2>
-    <p>Add a first machine to see its state, its services and its alerts here.</p>
+  <div class="card-h"><span class="card-t">Machines</span><a class="card-s" href="/machines">See all</a></div>
+  <div class="list">
+    
+    <a class="row" href="/machines/local">
+      <span class="dot ok"></span>
+      <span class="txt"><b>opencloud</b><span><span class="mono">10.8.0.1</span> · Debian 12</span></span>
+      <span class="when">seen just now</span>
+    </a>
+    
+    <a class="row" href="/machines/11111111-2222-4333-8444-555555555555">
+      <span class="dot danger"></span>
+      <span class="txt"><b>vps-paris-1</b><span><span class="mono">51.15.20.114</span> · Debian 12</span></span>
+      <span class="when">never seen</span>
+    </a>
+    
   </div>
 </section>
+
 
 </div>
 </main>

@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Machines · openCloud</title>
+<title>Services · openCloud</title>
 <link rel="icon" href="/static/BUILD/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/BUILD/app.css">
 <script src="/static/BUILD/theme.js"></script>
 <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true,"includeIndicatorStyles":false}'>
 <script src="/static/BUILD/vendor/htmx-2.0.10.min.js" defer></script>
+<script src="/static/BUILD/app.js" defer></script>
 </head>
 <body>
 
@@ -54,13 +55,13 @@
       
     </a>
     
-    <a class="nav-item active" href="/machines" aria-current="page">
+    <a class="nav-item" href="/machines">
       <svg class="icon" aria-hidden="true"><use href="#i-server"/></svg>
       <span>Machines</span>
-      
+      <span class="count hot">2</span>
     </a>
     
-    <a class="nav-item" href="/services">
+    <a class="nav-item active" href="/services" aria-current="page">
       <svg class="icon" aria-hidden="true"><use href="#i-box"/></svg>
       <span>Services</span>
       
@@ -105,7 +106,7 @@
       </div>
       <form class="theme lang" method="post" action="/langue" aria-label="Langue">
         <input type="hidden" name="csrf" value="CSRF">
-        <input type="hidden" name="return" value="/machines">
+        <input type="hidden" name="return" value="/services">
         
         <button type="submit" name="language" value="fr" title="Français" aria-label="Français" class="active" aria-current="true">fr</button>
         
@@ -125,7 +126,7 @@
 
 <header class="page-head">
   <div>
-    <h1>Machines</h1>
+    <h1>Services</h1>
     <p class="sub">Cette page arrive avec une prochaine fonctionnalité.</p>
   </div>
   <div class="actions"></div>

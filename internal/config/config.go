@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 
@@ -22,6 +23,11 @@ type Config struct {
 	Listen string `toml:"listen" validate:"required,hostname_port"`
 	// Répertoire d'état : base, certificats, sauvegardes locales.
 	StateDir string `toml:"state_dir" validate:"required"`
+	// Adresse à laquelle les machines joignent openCloud, mise dans la
+	// commande d'installation. Vide : déduite de la requête.
+	PublicURL string `toml:"public_url" validate:"omitempty,http_url"`
+	// Mandataires dont les en-têtes X-Forwarded-* sont crus, en CIDR.
+	TrustedProxies []string `toml:"trusted_proxies" validate:"dive,cidr"`
 }
 
 func Default() Config {
@@ -29,6 +35,18 @@ func Default() Config {
 		Listen:   defaultListen,
 		StateDir: defaultStateDir,
 	}
+}
+
+// TrustedPrefixes rend les mandataires sous forme utilisable ; la validation
+// a déjà garanti la syntaxe.
+func (c Config) TrustedPrefixes() []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(c.TrustedProxies))
+	for _, cidr := range c.TrustedProxies {
+		if prefix, err := netip.ParsePrefix(cidr); err == nil {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes
 }
 
 // Lit le fichier, le valide, et renvoie les clés inconnues en avertissements.
