@@ -1,0 +1,236 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+
+  label,
+  .field-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+}
+
+.field-help {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.input {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+
+  &::placeholder {
+    color: var(--muted);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-wash);
+  }
+
+  &.mono {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+}
+
+.select {
+  position: relative;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  box-shadow: var(--shadow-1);
+
+  select {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    height: 100%;
+    padding: 0 24px 0 0;
+    font-weight: 500;
+    color: var(--ink);
+    cursor: pointer;
+
+    &:focus {
+      outline: none;
+    }
+  }
+
+  &:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-wash);
+  }
+
+  .chev {
+    position: absolute;
+    right: 10px;
+    pointer-events: none;
+    color: var(--muted);
+    display: grid;
+
+    .icon {
+      width: 14px;
+      height: 14px;
+    }
+  }
+}
+
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  gap: 2px;
+
+  label {
+    position: relative;
+    display: inline-flex;
+  }
+
+  input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+
+    &:checked + span {
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: var(--shadow-1);
+    }
+
+    &:focus-visible + span {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+  }
+
+  span {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+
+.toggle {
+  appearance: none;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-strong);
+  position: relative;
+  cursor: pointer;
+  flex: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--surface);
+    box-shadow: var(--shadow-1);
+    transition: left 0.15s ease;
+  }
+
+  &:checked {
+    background: var(--primary);
+
+    &::after {
+      left: 16px;
+    }
+  }
+}
+
+.control-row {
+  height: 36px;
+}
+
+// Info-bulle : fond encre, pour le détail qu'on ne veut pas à l'écran.
+[data-tip] {
+  position: relative;
+
+  &:hover::after,
+  &:focus-visible::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 10;
+    background: var(--ink);
+    color: var(--bg);
+    font-size: 12px;
+    font-weight: 400;
+    padding: 6px 9px;
+    border-radius: 7px;
+    box-shadow: var(--shadow-2);
+    white-space: nowrap;
+  }
+
+  &:hover::before,
+  &:focus-visible::before {
+    content: "";
+    position: absolute;
+    left: 14px;
+    bottom: calc(100% + 4px);
+    z-index: 11;
+    width: 8px;
+    height: 8px;
+    background: var(--ink);
+    transform: rotate(45deg);
+  }
+}
+
+// Ce qui se copie : un jeton, une commande, un extrait.
+.token-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+
+  code {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--ink);
+  }
+}
+
+.snippet {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

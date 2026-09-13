@@ -11,14 +11,20 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 ```
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
-web/templates/, web/static/  # gabarits et fichiers statiques, embarqués
+internal/server/             # la couche HTTP : API JSON, routes de l'agent et des pings, front servi
+web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
 migrations/                  # SQL numéroté, embarqué
 docs/projet/                 # méthode, conventions, direction artistique
 .github/                     # CI, gabarits de tickets
 ```
 
-`web/` et `migrations/` sont à la racine parce qu'un `embed` ne remonte pas
-au-dessus de son dossier, et qu'un humain les cherche là.
+**Le Go vit dans `internal/`, le front dans `web/`.** `web/` et `migrations/`
+sont à la racine parce qu'un `embed` ne remonte pas au-dessus de son
+dossier, et qu'un humain les cherche là ; le seul Go de `web/` est
+`embed.go`, qui expose `dist/` à `internal/server`. `web/dist` est produit
+par `make front` : il n'est pas versionné, et tout build ou test Go le fait
+d'abord. Quand `internal/server` grossira, il se découpera par consommateur
+(`server/api`, `server/agentapi`, `server/ping`), pas avant.
 
 **Un package naît avec sa fonctionnalité.** Pas de package vide qui promet.
 Pas de package `util`. Un package = un concept.
@@ -30,6 +36,7 @@ Trois dossiers hors git, pour trois raisons :
 | `bin/` | `make build` | le binaire de dev, refait à chaque build, et l'outil plumber | jette le binaire, garde l'outil |
 | `dist/` | `make release` | ce qu'une release publie : binaire versionné, `.deb`, `SHA256SUMS` | jette tout |
 | `dev/` | `make run` la première fois, puis toi | `config.toml` et `state/` : ton `/etc` et ton `/var/lib` locaux | n'y touche jamais |
+| `web/node_modules/`, `web/dist/` | `make front` | les paquets npm épinglés par le verrou, et le front compilé | vide `dist/`, garde `node_modules/` |
 
 ## La langue
 
@@ -103,6 +110,13 @@ func (r *Runner) DepositScript(ctx context.Context, action Action) error {
 Go ≥ 1.26. Les outils (`staticcheck`, `govulncheck`, `gosec`) sont
 épinglés par version dans le Makefile et la CI — jamais `@latest`. `CGO_ENABLED=0`, `-trimpath`, version par `ldflags` depuis le tag.
 SQLite `modernc.org/sqlite`. Un binaire, reproductible.
+
+Le front demande Node ≥ 20.19 et npm. Les paquets sont épinglés à la version
+exacte dans `web/package.json` (`save-exact`), le verrou est
+versionné, la CI joue `npm ci`. Le npm 9 de Debian plante parfois pour
+produire le premier verrou ; `npx npm@10 install` le fait, et `npm ci` le
+rejoue ensuite sans souci. Sass est la version JavaScript pure : pas de
+binaire par plateforme.
 
 ## Les composants
 
@@ -182,16 +196,48 @@ qui ne change rien le dit et sort `0`.
 
 ## Le web
 
-- Handlers **minces** : lire, valider, appeler un composant, rendre. Aucune
-  logique métier.
-- `html/template` seulement — l'échappement est automatique, on ne le
-  contourne pas (`template.HTML` interdit sauf revue).
-- Une route par action : `POST /machines/{id}/actions/{name}`. Pas de route
-  « exécuter ».
-- HTMX pour les fragments, SSE pour le direct. Pas de JavaScript maison au-delà
-  de quelques lignes.
-- Sessions côté serveur, cookie `Secure` `HttpOnly` `SameSite=Strict`, jeton
-  anti-CSRF sur tout `POST`.
+Le serveur Go sert une API JSON sous `/api/` et le front compilé pour tout le
+reste ; le navigateur fait le rendu. Les routes de l'agent (`/agent/`) et des
+pings (`/ping/`) ne changent pas.
+
+- Handlers **minces** : lire, valider, appeler un composant, répondre en
+  JSON. Aucune logique métier. Le serveur rend des **faits** (instants ISO en
+  UTC, durées en secondes), jamais du texte formaté : « vu il y a 12 s » se
+  calcule dans le navigateur.
+- Une route par lecture, une route par action : `GET /api/jobs/{id}`,
+  `POST /api/jobs/{id}/actions/pause`, `DELETE /api/jobs/{id}`. Les chemins
+  de l'API sont en anglais, comme le code ; les adresses des écrans restent en
+  français (`/machines`, `/taches`), comme l'opérateur les lit.
+- Une erreur de l'API est un seul mot : `{"error": "job.name_invalid"}`. Quand
+  l'opérateur doit le lire, c'est une **clé du catalogue** et le front la
+  traduit ; sinon un code court (`not_found`, `bad_json`, `internal`). Le front
+  ne lit jamais un texte anglais du serveur.
+- Toute écriture sous `/api/` passe la garde même-origine : `Sec-Fetch-Site`
+  autre que `same-origin` ou `none` refusé, corps autre que
+  `application/json` refusé. C'est ce qui remplace le jeton anti-CSRF des
+  formulaires, et ce qui vaut tant qu'il n'y a pas d'authentification.
+- CSP stricte inchangée : le front compilé n'a ni script ni style en ligne,
+  un test le vérifie. Rien ne se charge depuis Internet.
+- Le direct viendra en SSE, une seule connexion par onglet (fonctionnalité 4).
+
+## Le front
+
+`web/`, React + TypeScript strict + Vite, SCSS avec les jetons de la
+direction artistique. Les mêmes règles qu'en Go, transposées :
+
+- **Identifiants en anglais, commentaires en français**, courts, le pourquoi.
+- Un composant par fichier, son `.scss` à côté, importé par lui. Les classes
+  gardent les noms de la direction artistique (`card`, `pill`, `btn`).
+- **Aucune chaîne visible en dur** : tout passe par `t("clé")` et les
+  catalogues TOML servis par `/api/i18n/{code}` ; un test Go vérifie que
+  chaque clé demandée existe dans les deux langues.
+- Une page lit ses données par `useResource("/api/…")` et relit sur le signal
+  de `useRefresh()` : c'est là que le direct se branchera.
+- Pas de bibliothèque d'état ni de requêtes tant que `fetch` et quelques hooks
+  suffisent. Toute dépendance nouvelle se décide en revue.
+- `tsc --noEmit` et `vitest` en local et en CI (`make front-check`) ; la
+  logique pure (durées, formats) a ses tests, les composants se vérifient
+  dans le navigateur.
 
 ## Les journaux
 
@@ -207,7 +253,9 @@ scripts relus.
 - **`gofmt`, `goimports`, `staticcheck` obligatoires**, en local et en CI : la
   machine tient le style, l'humain garde l'attention pour le sens.
 - **Fixtures figées** : la liste des actions et leurs schémas, l'arbre des
-  routes, le rendu des gabarits. Tout changement casse un test — c'est voulu.
+  routes, les réponses JSON de l'API (`internal/server/testdata/*.golden.json`,
+  `go test ./internal/server -update` pour les réécrire après vérification). Tout
+  changement casse un test — c'est voulu.
 - Un composant se teste avec des faux des interfaces qu'il consomme.
 - Les scripts : `shellcheck` + un test qui vérifie que chaque action du
   catalogue a son `run.sh` et inversement.
@@ -217,8 +265,8 @@ scripts relus.
 
 ## La CI
 
-`go build`, `go vet`, `staticcheck`, `go test`, `govulncheck`, `gosec`,
-`shellcheck`, scan des secrets. `permissions: read` par défaut, délais,
+`go build`, `go vet`, `staticcheck`, `tsc`, `vitest`, `vite build`,
+`go test`, `govulncheck`, `gosec`, `shellcheck`, scan des secrets. `permissions: read` par défaut, délais,
 `concurrency`. **Actions épinglées par SHA de commit**, et **Plumber** vérifie
 la politique CI/CD (`.plumber.yaml`) à chaque exécution — bloquant, 100 points
 exigés. `make ci` joue les mêmes commandes en local, `make plumber` la même

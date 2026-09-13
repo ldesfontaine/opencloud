@@ -1,0 +1,183 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.card-h {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  a.card-s {
+    color: var(--accent);
+  }
+}
+
+.card-t {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.card-s {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.card-b {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-card {
+  max-width: 560px;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+
+  .k {
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  > :last-child {
+    text-align: right;
+  }
+}
+
+.stat {
+  gap: 10px;
+
+  .label {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .foot {
+    font-size: 12px;
+    color: var(--muted);
+
+    b {
+      color: var(--ink-2);
+      font-weight: 500;
+
+      &.danger {
+        color: var(--danger);
+      }
+    }
+  }
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+
+  small {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0;
+    margin-left: 4px;
+  }
+}
+
+.meter {
+  display: block;
+  width: 100%;
+  height: 6px;
+}
+
+.meter-track {
+  fill: var(--surface-2);
+}
+
+.meter-fill {
+  fill: var(--accent);
+}
+
+.meter-ok .meter-fill {
+  fill: var(--ok);
+}
+
+.meter-warn .meter-fill {
+  fill: var(--warn);
+}
+
+.meter-danger .meter-fill {
+  fill: var(--danger);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 48px 24px;
+
+  h2,
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  p {
+    color: var(--muted);
+    max-width: 36em;
+  }
+
+  .btn {
+    margin-top: 8px;
+  }
+}
+
+.empty-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+
+  .icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.note {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.note-warn {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+
+.note-danger {
+  background: var(--danger-wash);
+  color: var(--danger);
+}

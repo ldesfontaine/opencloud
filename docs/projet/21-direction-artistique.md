@@ -128,19 +128,26 @@ Le signe retenu, grille 24 px, trait 2,2 arrondi :
 - Une alerte dit le fait, puis la cause, puis ce qu'on peut faire.
 - Les nombres se lisent en mono, les unités en discret. Pas d'emoji.
 
-## Pile front proposée
+## Pile front
 
 | Choix | Ce qu'il rapporte | Ce qu'il coûte |
 | --- | --- | --- |
-| Gabarits Go + HTMX + CSS à jetons (comme aujourd'hui) | Un seul binaire, pas de chaîne de build JS, CSP stricte | Le graphe réseau et le temps réel demandent un peu de JS à la main (SVG, SSE) |
-| SvelteKit embarqué dans le binaire | Graphe et temps réel plus simples, composants réutilisables | Une chaîne de build, un second langage, une CSP à assouplir |
+| Gabarits Go + HTMX + CSS à jetons (12 → 13 septembre) | Un seul binaire, pas de chaîne de build JS, CSP stricte | Le graphe réseau et le temps réel demandent du JS à la main ; pas de composants, pas d'état côté navigateur |
+| **Go + React embarqué (retenu le 13 septembre)** | Composants, état côté navigateur, graphe et direct plus simples ; le serveur Go et ses composants restent tels quels | Une chaîne de build (Vite, Node en CI), un second langage, une API JSON à dessiner par écran |
+| SvelteKit embarqué | Comme React, écarté | Un cadre de moins connu |
+| AdonisJS + Inertia | Un seul langage partout, écarté | Le serveur Go à réécrire, les modules Go de Projet_M plus réutilisables |
 
-Tranché le 12 septembre 2026 : Go + HTMX, le graphe en SVG généré côté
-serveur. À revoir seulement si le module `frontend-socle` impose autre chose.
+Tranché le 12 septembre 2026 : Go + HTMX. **Revu le 13 septembre 2026 :
+Go + React embarqué**, SCSS avec les jetons de ce document, un fichier de
+style par composant, briques minimales (react, react-dom, react-router,
+TypeScript strict, Vite). Le graphe reste à dessiner en SVG, côté navigateur
+désormais. Les jetons, la typographie et les composants de ce document ne
+changent pas : ils sont portés tels quels.
 
 ## Tranché le 12 septembre 2026
 
-1. Pile front : Go + HTMX + CSS à jetons.
+1. Pile front : Go + HTMX + CSS à jetons ; **remplacée le 13 septembre par
+   Go + React embarqué, SCSS à jetons** (voir « Pile front »).
 2. Accent : indigo `#5b5be6` (sombre `#7c7cf0`).
 3. Nom affiché : « openCloud ».
 4. Signe de la marque : piste A, le nuage ouvert.

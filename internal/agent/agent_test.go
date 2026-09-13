@@ -14,9 +14,9 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
-	"github.com/ldesfontaine/opencloud/web"
 )
 
 // Un vrai serveur openCloud sur un port éphémère, et un vrai agent contre lui.
@@ -41,7 +41,7 @@ func newBench(t *testing.T) *bench {
 	}
 	t.Cleanup(func() { db.Close() })
 	machines := machine.New(db, machine.NewSessions(), logger)
-	handler, err := web.New(web.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines})
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines})
 	if err != nil {
 		t.Fatal(err)
 	}

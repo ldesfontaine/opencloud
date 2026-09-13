@@ -1,0 +1,84 @@
+.pill {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  &::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+
+  &.nodot::before {
+    display: none;
+  }
+}
+
+.pill-ok {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+
+.pill-warn {
+  background: var(--warn-wash);
+  color: var(--warn);
+}
+
+.pill-danger {
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
+.pill-neutral {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+
+.pill-accent {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+
+  &.ok {
+    background: var(--ok);
+  }
+
+  &.warn {
+    background: var(--warn);
+  }
+
+  &.danger {
+    background: var(--danger);
+  }
+
+  &.accent {
+    background: var(--accent);
+  }
+
+  &.neutral {
+    background: var(--line-strong);
+  }
+}
+
+// Le dernier résultat d'une tâche : code et durée, teintés.
+.result-ok {
+  color: var(--ok);
+}
+
+.result-danger {
+  color: var(--danger);
+}

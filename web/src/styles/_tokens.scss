@@ -1,0 +1,58 @@
+// Les jetons de la direction artistique du 12 septembre 2026. Les couleurs
+// ne s'écrivent qu'ici ; le sombre a ses valeurs propres, jamais dérivées.
+:root {
+  color-scheme: light;
+  --bg: #f6f6f8;
+  --surface: #ffffff;
+  --surface-2: #f1f2f5;
+  --line: #e5e7ec;
+  --line-strong: #d3d6de;
+  --ink: #101216;
+  --ink-2: #4b5160;
+  --muted: #7a8194;
+  --accent: #5b5be6;
+  --accent-ink: #ffffff;
+  --accent-wash: #eeeefc;
+  --accent-line: #c9c9f7;
+  --ok: #1f9d57;
+  --ok-wash: #e4f6ec;
+  --warn: #d78d0c;
+  --warn-wash: #fdf2dc;
+  --danger: #de4350;
+  --danger-wash: #fde9eb;
+  --primary: #101216;
+  --primary-ink: #ffffff;
+  --primary-hover: #2a2e38;
+  --shadow-1: 0 1px 2px rgba(16, 18, 22, 0.05);
+  --shadow-2: 0 1px 2px rgba(16, 18, 22, 0.05), 0 8px 24px rgba(16, 18, 22, 0.08);
+  --sans: "Geist", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --side-width: 232px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0e12;
+  --surface: #15171c;
+  --surface-2: #1c1f26;
+  --line: #262a33;
+  --line-strong: #353a47;
+  --ink: #eef0f4;
+  --ink-2: #b3b8c4;
+  --muted: #7d8494;
+  --accent: #7c7cf0;
+  --accent-ink: #ffffff;
+  --accent-wash: #1f2040;
+  --accent-line: #3a3a7a;
+  --ok: #3ac776;
+  --ok-wash: #12301f;
+  --warn: #f0a92a;
+  --warn-wash: #33260d;
+  --danger: #f06470;
+  --danger-wash: #3a1a1e;
+  --primary: #eef0f4;
+  --primary-ink: #101216;
+  --primary-hover: #d5d9e2;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
