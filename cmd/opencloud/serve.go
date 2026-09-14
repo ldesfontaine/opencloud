@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -78,13 +81,16 @@ func runServe(args []string) error {
 
 	heartbeats := heartbeat.New(db, logger)
 	heartbeats.SetWatcher(bus)
-	watchDone := make(chan struct{})
-	go func() {
-		heartbeats.Watch(ctx)
-		close(watchDone)
-	}()
-	// La boucle finit avant que la base ne se ferme.
-	defer func() { stop(); <-watchDone }()
+	resources := resource.New(db, logger)
+	resources.SetWatcher(bus)
+	// Trois boucles de fond : les échéances, le rollup et la purge, et la
+	// mesure de cette machine, qui est son propre agent. Elles finissent
+	// avant que la base ne se ferme.
+	var loops sync.WaitGroup
+	runLoop(&loops, func() { heartbeats.Watch(ctx) })
+	runLoop(&loops, func() { resources.Watch(ctx) })
+	runLoop(&loops, func() { resources.SampleLocal(ctx, machine.LocalID, sampler.New(), resource.SampleInterval) })
+	defer func() { stop(); loops.Wait() }()
 
 	server, err := server.New(server.Options{
 		Logger:         logger,
@@ -92,6 +98,7 @@ func runServe(args []string) error {
 		Settings:       settings.New(stateDir),
 		Machines:       machines,
 		Heartbeats:     heartbeats,
+		Resources:      resources,
 		Live:           bus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
@@ -105,6 +112,14 @@ func runServe(args []string) error {
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	return listenUntilSignal(ctx, logger, httpServer, cfg)
+}
+
+func runLoop(loops *sync.WaitGroup, loop func()) {
+	loops.Add(1)
+	go func() {
+		defer loops.Done()
+		loop()
+	}()
 }
 
 // Le répertoire d'état est ouvert une fois par os.Root ; les composants qui

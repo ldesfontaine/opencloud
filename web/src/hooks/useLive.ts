@@ -12,9 +12,11 @@ export function useLive(): void {
     const source = new EventSource("/api/events");
     const onMachines = () => refresh("machines");
     const onJobs = () => refresh("jobs");
+    const onResources = () => refresh("resources");
     const onReconnected = () => refresh();
     source.addEventListener("machines", onMachines);
     source.addEventListener("jobs", onJobs);
+    source.addEventListener("resources", onResources);
     source.addEventListener("reconnected", onReconnected);
     return () => source.close();
   }, [refresh]);

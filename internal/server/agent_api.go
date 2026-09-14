@@ -11,11 +11,15 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
 )
 
 const (
 	streamPingInterval = 15 * time.Second
 	maxAgentBody       = 16 << 10
+	// Un lot de rattrapage : 120 lectures d'environ 250 octets, plus une
+	// centaine par volume, jusqu'à 32 volumes.
+	maxSignalBody = 512 << 10
 )
 
 type agentError struct {
@@ -145,14 +149,25 @@ func (s *Server) writeAuthError(w http.ResponseWriter, err error) {
 	}
 }
 
-// Un signal de vie, authentifié par le jeton de la session ouverte.
+// Un signal de vie, authentifié par le jeton de la session ouverte. Son
+// corps, facultatif, porte les lectures de ressources faites depuis le
+// précédent ; un lot hors de ce qu'un agent peut mesurer est refusé en
+// bloc, le signal de vie compte quand même.
 func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
-	err := s.machines.Signal(r.Context(), token)
+	var request resource.SignalRequest
+	if r.ContentLength != 0 {
+		body := http.MaxBytesReader(w, r.Body, maxSignalBody)
+		if err := json.NewDecoder(body).Decode(&request); err != nil {
+			s.writeAgentError(w, http.StatusBadRequest, "bad_json")
+			return
+		}
+	}
+	machineID, err := s.machines.Signal(r.Context(), token)
 	if errors.Is(err, machine.ErrNotConnected) {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
@@ -162,7 +177,16 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	err = s.resources.Record(r.Context(), machineID, request.Readings)
+	switch {
+	case errors.Is(err, resource.ErrReadingInvalid), errors.Is(err, resource.ErrTooManyReadings):
+		s.writeAgentError(w, http.StatusBadRequest, "bad_readings")
+	case err != nil:
+		s.logger.Error("record readings", "machine_id", machineID, "error", err)
+		s.writeAgentError(w, http.StatusInternalServerError, "internal")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {

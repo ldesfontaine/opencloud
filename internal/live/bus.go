@@ -10,8 +10,9 @@ import (
 type Topic string
 
 const (
-	TopicMachines Topic = "machines"
-	TopicJobs     Topic = "jobs"
+	TopicMachines  Topic = "machines"
+	TopicJobs      Topic = "jobs"
+	TopicResources Topic = "resources"
 )
 
 type Bus struct {
@@ -65,15 +66,19 @@ func (b *Bus) Count() int {
 	return len(b.subscribers)
 }
 
-// MachineChanged et HeartbeatChanged sont les crochets que les composants
-// machine et heartbeat appellent ; l'identifiant ne sert pas encore : le
-// front relit la liste entière.
+// MachineChanged, HeartbeatChanged et ResourcesChanged sont les crochets
+// que les composants machine, heartbeat et resource appellent ;
+// l'identifiant ne sert pas encore : le front relit la liste entière.
 func (b *Bus) MachineChanged(string) {
 	b.Publish(TopicMachines)
 }
 
 func (b *Bus) HeartbeatChanged(string) {
 	b.Publish(TopicJobs)
+}
+
+func (b *Bus) ResourcesChanged(string) {
+	b.Publish(TopicResources)
 }
 
 func (s *Subscription) add(topic Topic) {

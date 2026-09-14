@@ -36,7 +36,7 @@ func TestListener_HearsEveryVisibleChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.service.Signal(ctx, session.Token); err != nil {
+	if _, err := h.service.Signal(ctx, session.Token); err != nil {
 		t.Fatal(err)
 	}
 	h.service.Disconnect(session)

@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 4, le direct, le 13 septembre 2026.
+> fonctionnalité 5, les ressources, le 14 septembre 2026.
 
 ## Les acteurs
 
@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | L'opérateur | Lucas, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base, et le rôle d'agent pour elle-même |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud et mesure la machine |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 
@@ -48,7 +48,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Interface | navigateur → Traefik | TLS de Traefik | Personne encore : pas d'authentification dans le socle, c'est un trou connu. Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige la même origine : `Sec-Fetch-Site` et un corps `application/json`. Pas de cookie : rien à voler tant qu'il n'y a pas de session |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, `503` au-delà |
-| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée |
+| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies` |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
@@ -66,6 +66,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les moniteurs de tâches et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer un moniteur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -110,15 +111,69 @@ moniteur. La source notée est l'adresse résolue par `trusted_proxies` ; un
 relais par l'agent, s'il vient un jour, y écrira `agent:<machine>` sans
 changer le schéma.
 
+## Comment une machine est mesurée
+
+1. L'agent lit `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/net/dev`
+   et `/proc/mounts` toutes les 10 s, puis fait un `statfs` par volume. Le
+   processeur et le réseau sont des deltas entre deux lectures : un
+   pourcentage actif, un débit en octets par seconde hors boucle locale. La
+   mémoire, le swap, la charge sur une minute, le nombre de cœurs et les
+   volumes sont instantanés.
+2. Un volume est un système de fichiers de disque monté : ext2 à ext4, xfs,
+   btrfs, zfs, f2fs, jfs, vfat, exfat, ntfs, ntfs3, fuseblk. Le reste ne
+   compte pas : les pseudo-systèmes du noyau et les tmpfs, l'overlay des
+   conteneurs, les images en boucle (`/dev/loop…`, dont les snaps), les
+   montages réseau (nfs, cifs), et tout ce qui est monté sous `/boot`,
+   `/snap`, `/var/lib/docker` et `/var/lib/containers`. Un même
+   périphérique monté plusieurs fois, `/` et `/home` sur un btrfs par
+   exemple, fait un seul volume, nommé par son point de montage le plus
+   court. Un volume qui ne se mesure pas est laissé de côté, jamais montré à
+   zéro. `disk_used` et `disk_total` font la somme des volumes.
+3. Les lectures attendent dans un tampon en mémoire d'une heure au plus. Le
+   signal de toutes les 30 s les emporte dans son corps, par lots de 120 ; un
+   rattrapage après une coupure enchaîne les signaux jusqu'à vider le tampon.
+   Un redémarrage de l'agent perd le tampon : pas de spool sur disque.
+4. La machine openCloud se mesure elle-même dans `opencloud serve`, à la même
+   cadence, sans passer par le réseau : c'est son rôle d'agent.
+5. openCloud refuse en bloc un lot dont une lecture est hors de mesure
+   (pourcentage hors de 0 à 100, nombre négatif, date à plus de cinq minutes
+   dans le futur ou plus vieille que le brut gardé, volume sans point de
+   montage absolu ou compté deux fois, plus de 32 volumes) ; le signal de
+   vie compte quand même. Une lecture déjà en base, rejouée, est ignorée,
+   ses volumes avec.
+6. Toutes les 5 min, le rollup rejoue tous les seaux horaires que le brut
+   couvre encore, puis les seaux journaliers, en une instruction SQL par seau
+   qui réécrit le seau s'il existe. Pas de curseur : un redémarrage ou un
+   rattrapage se corrige seul. Le journalier est pondéré par le nombre
+   d'échantillons de chaque heure.
+7. La purge, au départ puis une fois par jour, efface chaque étage au-delà de
+   sa rétention. Chaque fenêtre lit une table gardée strictement plus
+   longtemps qu'elle : une purge ne tronque jamais une lecture en cours.
+
+| Fenêtre | Table lue | Pas des points |
+| --- | --- | --- |
+| 1 h | brut | 10 s |
+| 24 h | brut, groupé | 5 min |
+| 7 j, 30 j | horaire | 1 h |
+| 90 j | journalier | 1 jour, en UTC |
+
+La valeur courante est le dernier échantillon en base. Passé 90 s sans
+échantillon, la machine est « indisponible » : l'API dit `available: false`
+et le front affiche un tiret et l'âge de la dernière mesure, jamais un zéro.
+L'API rend des faits : octets, octets par seconde, pourcentage processeur ;
+les pourcentages de mémoire et de disque et les unités lisibles se
+calculent dans le navigateur.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine` et `heartbeat` publient sur le bus interne (`internal/live`) à
-   chaque changement visible : jeton, enrôlement, connexion, signal,
-   déconnexion, retrait ; création, ping, échéance dépassée, pause, reprise,
-   suppression. Le bus ne porte que deux sujets, `machines` et `jobs`.
+2. `machine`, `heartbeat` et `resource` publient sur le bus interne
+   (`internal/live`) à chaque changement visible : jeton, enrôlement,
+   connexion, signal, déconnexion, retrait ; création, ping, échéance
+   dépassée, pause, reprise, suppression ; lot de mesures écrit. Le bus ne
+   porte que trois sujets, `machines`, `jobs` et `resources`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
    voyage dans le flux.
@@ -169,8 +224,10 @@ refusés avant d'envoyer quoi que ce soit.
 | Authentification de l'interface | Qui atteint le port web peut tout faire, par l'API comme par l'interface, dont créer un jeton | Socle, à décider |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
 | Téléchargement du binaire, unité systemd | La commande d'installation suppose le binaire présent | À part |
-| Spool côté agent | Un signal perdu pendant une coupure est perdu | Avec les premiers événements à rejouer |
-| L'agent ne mesure rien | Ni conteneurs, ni ressources | Fonctionnalités 5, 6 |
+| Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
+| Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
+| L'agent ne mesure pas les conteneurs | Ni ressources par conteneur, ni top consommateurs | Fonctionnalité 6 |
+| Alerte sur une ressource | Le disque à 86 % se voit en jauge orange, personne n'est prévenu | Fonctionnalité 11 |
 | Alerte sur une tâche | « En retard » et « En échec » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11, par l'interface `heartbeat.Listener` |
 | Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer le moniteur | À décider |
 
@@ -182,3 +239,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 3 · heartbeats | Les routes publiques `/ping/…`, les tables `heartbeats`, `heartbeat_pings`, `heartbeat_runs`, la rétention, la limitation de débit, la boucle d'échéance |
 | Front React | L'API JSON sous `/api/…`, le front embarqué dans le binaire, la garde même-origine à la place du cookie anti-CSRF ; les temps relatifs se calculent dans le navigateur |
 | 4 · direct | Le bus `internal/live`, le flux `/api/events`, la chaîne de middlewares et `X-Request-ID`, la clé `log_level` de la configuration |
+| 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*` et `machine_disks`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |

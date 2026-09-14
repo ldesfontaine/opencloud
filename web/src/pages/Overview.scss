@@ -1,0 +1,31 @@
+.overview-machines {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.overview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+// Une carte qui est un lien : même dessin, le trait s'appuie au survol.
+a.machine-card {
+  color: inherit;
+
+  &:hover {
+    border-color: var(--line-strong);
+  }
+
+  .card-b {
+    gap: 12px;
+  }
+}
+
+.machine-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}

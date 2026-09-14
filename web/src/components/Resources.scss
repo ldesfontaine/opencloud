@@ -1,0 +1,45 @@
+.meters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  .kv .muted {
+    font-size: 12px;
+  }
+}
+
+// Dans la tuile Disque, les volumes en colonne, en secondaire.
+.disk-volumes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  .kv {
+    font-size: 12px;
+  }
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.chart-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

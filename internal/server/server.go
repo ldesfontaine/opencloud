@@ -15,6 +15,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -41,7 +43,16 @@ type MachineService interface {
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
-	Signal(ctx context.Context, sessionToken string) error
+	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
+}
+
+// Ce que le serveur attend du composant resource : l'API lit, le signal de
+// l'agent écrit.
+type ResourceService interface {
+	Record(ctx context.Context, machineID string, readings []sampler.Reading) error
+	Current(ctx context.Context, machineID string) (resource.Current, error)
+	CurrentAll(ctx context.Context) ([]resource.Current, error)
+	History(ctx context.Context, machineID, window string) (resource.Window, []sampler.Reading, error)
 }
 
 // Ce que le serveur attend du composant heartbeat : l'API d'un côté,
@@ -73,6 +84,7 @@ type Server struct {
 	settings       SettingsStore
 	machines       MachineService
 	heartbeats     HeartbeatService
+	resources      ResourceService
 	live           Live
 	pingLimits     *pingLimits
 	publicURL      string
@@ -93,6 +105,7 @@ type Options struct {
 	Settings   SettingsStore
 	Machines   MachineService
 	Heartbeats HeartbeatService
+	Resources  ResourceService
 	Live       Live
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
@@ -127,6 +140,7 @@ func New(opts Options) (*Server, error) {
 		settings:       opts.Settings,
 		machines:       opts.Machines,
 		heartbeats:     opts.Heartbeats,
+		resources:      opts.Resources,
 		live:           opts.Live,
 		pingLimits:     newPingLimits(),
 		publicURL:      opts.PublicURL,

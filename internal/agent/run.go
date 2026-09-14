@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
@@ -41,6 +44,8 @@ type Options struct {
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
+	// SampleInterval est la cadence de mesure ; zéro vaut celle du produit.
+	SampleInterval time.Duration
 	Logger         *slog.Logger
 }
 
@@ -50,6 +55,9 @@ func Run(ctx context.Context, opts Options) error {
 	if opts.SignalInterval <= 0 {
 		opts.SignalInterval = DefaultSignalInterval
 	}
+	if opts.SampleInterval <= 0 {
+		opts.SampleInterval = resource.SampleInterval
+	}
 	identity, err := loadOrEnroll(ctx, opts)
 	if err != nil {
 		return err
@@ -58,7 +66,30 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	return keepConnected(ctx, client, identity, opts)
+	// La mesure continue pendant une coupure : le tampon rattrape au retour.
+	readings := &buffer{}
+	go sampleLoop(ctx, sampler.New(), readings, opts)
+	return keepConnected(ctx, client, identity, readings, opts)
+}
+
+func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
+	ticker := time.NewTicker(opts.SampleInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			reading, ok, err := probe.Sample(now)
+			if err != nil {
+				opts.Logger.Warn("sample machine", "error", err)
+				continue
+			}
+			if ok {
+				readings.push(reading)
+			}
+		}
+	}
 }
 
 func loadOrEnroll(ctx context.Context, opts Options) (Identity, error) {
@@ -100,11 +131,11 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	return identity, nil
 }
 
-func keepConnected(ctx context.Context, client *Client, identity Identity, opts Options) error {
+func keepConnected(ctx context.Context, client *Client, identity Identity, readings *buffer, opts Options) error {
 	delay := minBackoff
 	for {
 		startedAt := time.Now()
-		err := connectOnce(ctx, client, identity, opts)
+		err := connectOnce(ctx, client, identity, readings, opts)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -127,7 +158,7 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, opts 
 
 // connectOnce tient un flux et envoie un signal à intervalle régulier tant
 // qu'il vit ; il rend la main dès que le flux tombe.
-func connectOnce(ctx context.Context, client *Client, identity Identity, opts Options) error {
+func connectOnce(ctx context.Context, client *Client, identity Identity, readings *buffer, opts Options) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stream, err := client.OpenStream(streamCtx, identity)
@@ -149,9 +180,28 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, opts Op
 		case err := <-lost:
 			return err
 		case <-ticker.C:
-			if err := client.Signal(ctx, stream.Session); err != nil {
+			if err := signal(ctx, client, stream.Session, readings); err != nil {
 				return err
 			}
+		}
+	}
+}
+
+// signal livre le tampon par lots, tant qu'il reste de quoi faire un lot
+// plein : un rattrapage se vide en quelques signaux serrés. Une erreur
+// réseau remet le lot dans le tampon ; un refus du serveur le jette, ces
+// lectures ne passeront jamais.
+func signal(ctx context.Context, client *Client, session string, readings *buffer) error {
+	for {
+		batch := readings.take(resource.MaxReadingsPerSignal)
+		err := client.Signal(ctx, session, batch)
+		var refused *ServerError
+		if err != nil && !(errors.As(err, &refused) && refused.Status == http.StatusBadRequest) {
+			readings.restore(batch)
+			return err
+		}
+		if len(batch) < resource.MaxReadingsPerSignal {
+			return err
 		}
 	}
 }

@@ -1,0 +1,15 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=14099388k,nr_inodes=3524847,mode=755,inode64 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=2851484k,mode=755,inode64 0 0
+/dev/nvme0n1p2 / btrfs rw,relatime,ssd,discard=async,space_cache=v2,subvolid=256,subvol=/@ 0 0
+cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot 0 0
+/dev/nvme0n1p2 /home btrfs rw,relatime,ssd,discard=async,space_cache=v2,subvolid=257,subvol=/@home 0 0
+/dev/nvme0n1p2 /mnt/home-bis btrfs rw,relatime,ssd,discard=async,space_cache=v2,subvolid=257,subvol=/@home 0 0
+/dev/loop2 /snap/gnome-42-2204/263 squashfs ro,nodev,relatime,errors=continue 0 0
+/dev/loop16 /snap/snapd/27591 squashfs ro,nodev,relatime,errors=continue 0 0
+tmpfs /tmp tmpfs rw,noatime,inode64 0 0
+/dev/nvme0n1p1 /boot/efi vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 0
+tmpfs /run/user/1000 tmpfs rw,nosuid,nodev,relatime,size=2851480k,nr_inodes=712870,mode=700,uid=1000,gid=1002,inode64 0 0
+portal /run/user/1000/doc fuse.portal rw,nosuid,nodev,relatime,user_id=1000,group_id=1002 0 0
+nsfs /run/docker/netns/default nsfs rw 0 0

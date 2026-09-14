@@ -43,7 +43,7 @@ export function Stat({
   icon: IconName;
   label: string;
   value: ReactNode;
-  unit?: string;
+  unit?: string | undefined;
   meter?: ReactNode;
   foot: ReactNode;
 }) {
@@ -67,7 +67,7 @@ export function Stat({
 
 // Jauge : le remplissage est un attribut SVG, pas un style en ligne, pour
 // rester dans la CSP.
-export function Meter({ percent, tone }: { percent: number; tone?: "ok" | "warn" | "danger" }) {
+export function Meter({ percent, tone }: { percent: number; tone?: "ok" | "warn" | "danger" | undefined }) {
   return (
     <svg className={tone ? `meter meter-${tone}` : "meter"} width="100%" height="6" aria-hidden="true">
       <rect className="meter-track" width="100%" height="6" rx="3" />
