@@ -257,21 +257,21 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 		t.Fatalf("after connect: %+v", status)
 	}
 	h.now = h.now.Add(30 * time.Second)
-	if err := h.service.Signal(context.Background(), session.Token); err != nil {
+	if _, err := h.service.Signal(context.Background(), session.Token); err != nil {
 		t.Fatal(err)
 	}
 	status, _ = h.service.Get(context.Background(), m.ID)
 	if !status.LastSeenAt.Equal(h.now) {
 		t.Fatalf("signal did not touch last seen: %+v", status)
 	}
-	if err := h.service.Signal(context.Background(), "bogus"); !errors.Is(err, ErrNotConnected) {
+	if _, err := h.service.Signal(context.Background(), "bogus"); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("bogus session: %v", err)
 	}
 	h.service.Disconnect(session)
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("still online after disconnect")
 	}
-	if err := h.service.Signal(context.Background(), session.Token); !errors.Is(err, ErrNotConnected) {
+	if _, err := h.service.Signal(context.Background(), session.Token); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("signal after disconnect: %v", err)
 	}
 }

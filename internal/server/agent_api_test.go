@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
 func parsePrefixes(t *testing.T, cidrs ...string) []netip.Prefix {
@@ -212,5 +214,48 @@ func readAll(resp *http.Response, timeout time.Duration) (string, error) {
 		return buffer.String(), err
 	case <-time.After(timeout):
 		return buffer.String(), context.DeadlineExceeded
+	}
+}
+
+// Le signal porte les lectures : elles s'écrivent au nom de la machine de
+// la session, un lot hors de mesure est refusé, un signal nu reste un signal.
+func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	resp, session, cancel := openStream(t, server, enrolled.ID, private)
+	defer resp.Body.Close()
+	defer cancel()
+
+	signal := func(payload any) *httptest.ResponseRecorder {
+		var body bytes.Buffer
+		if payload != nil {
+			_ = json.NewEncoder(&body).Encode(payload)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/agent/signal", &body)
+		request.Header.Set("Authorization", "Bearer "+session)
+		if payload != nil {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		return recorder
+	}
+	readings := []sampler.Reading{testReading(testNow.Add(-10*time.Second), 42)}
+	if got := signal(resource.SignalRequest{Readings: readings}); got.Code != http.StatusNoContent {
+		t.Fatalf("signal with readings: %d %s", got.Code, got.Body.String())
+	}
+	current, err := server.resources.Current(context.Background(), remoteID)
+	if err != nil || !current.Available || current.Sample.CPUPercent != 42 {
+		t.Fatalf("recorded %+v %v", current, err)
+	}
+	bad := []sampler.Reading{testReading(testNow, 250)}
+	if got := signal(resource.SignalRequest{Readings: bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
+		t.Fatalf("bad readings: %d %s", got.Code, got.Body.String())
+	}
+	if got := signal(nil); got.Code != http.StatusNoContent {
+		t.Fatalf("bare signal: %d", got.Code)
+	}
+	if got := signal("not an object"); got.Code != http.StatusBadRequest {
+		t.Fatalf("bad json: %d", got.Code)
 	}
 }

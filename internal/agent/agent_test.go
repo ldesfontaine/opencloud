@@ -14,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -21,10 +22,11 @@ import (
 
 // Un vrai serveur openCloud sur un port éphémère, et un vrai agent contre lui.
 type bench struct {
-	url      string
-	machines *machine.Service
-	stateDir *os.Root
-	logger   *slog.Logger
+	url       string
+	machines  *machine.Service
+	resources *resource.Service
+	stateDir  *os.Root
+	logger    *slog.Logger
 }
 
 func newBench(t *testing.T) *bench {
@@ -41,7 +43,8 @@ func newBench(t *testing.T) *bench {
 	}
 	t.Cleanup(func() { db.Close() })
 	machines := machine.New(db, machine.NewSessions(), logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines})
+	resources := resource.New(db, logger)
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines, Resources: resources})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +55,11 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { agentRoot.Close() })
-	return &bench{url: server.URL, machines: machines, stateDir: agentRoot, logger: logger}
+	return &bench{url: server.URL, machines: machines, resources: resources, stateDir: agentRoot, logger: logger}
 }
 
 func (b *bench) options(token string) Options {
-	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, Logger: b.logger}
+	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger}
 }
 
 func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) bool) machine.Status {
@@ -90,6 +93,18 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 		t.Fatalf("connected machine %+v", online)
 	}
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.LastSeenAt.After(online.LastSeenAt) })
+	// L'agent a mesuré cette machine et l'a livré avec son signal.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		current, err := b.resources.Current(context.Background(), online.ID)
+		if err == nil && current.Available && current.Sample.CPUCores > 0 && current.Sample.MemTotal > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no reading reached the server: %+v %v", current, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("run: %v", err)
@@ -204,7 +219,7 @@ func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = client.Signal(context.Background(), "session")
+	err = client.Signal(context.Background(), "session", nil)
 	if !errors.Is(err, ErrPinMismatch) {
 		t.Fatalf("got %v", err)
 	}

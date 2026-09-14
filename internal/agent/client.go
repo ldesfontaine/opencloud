@@ -22,6 +22,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
 const (
@@ -216,14 +218,27 @@ func (s *Stream) Follow() error {
 	}
 }
 
-func (c *Client) Signal(ctx context.Context, session string) error {
+// Signal donne signe de vie et livre les lectures faites depuis le
+// précédent ; sans lecture, le signal part sans corps.
+func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/signal", nil)
+	var body io.Reader
+	if len(readings) > 0 {
+		content, err := json.Marshal(resource.SignalRequest{Readings: readings})
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(content)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/signal", body)
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Authorization", "Bearer "+session)
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		return fmt.Errorf("signal: %w", err)

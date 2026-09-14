@@ -16,6 +16,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
 var updateGolden = flag.Bool("update", false, "réécrit les réponses de référence dans testdata/")
@@ -79,6 +81,30 @@ func (ts *testServer) seedJobs(t *testing.T) string {
 	return backup.ID
 }
 
+// Une lecture parlante, celle de la planche « Machine » de la direction
+// artistique.
+func testReading(at time.Time, cpu float64) sampler.Reading {
+	return sampler.Reading{
+		SampledAt: at, CPUPercent: cpu, CPUCores: 4, Load1: 0.9,
+		MemUsed: 3_328_599_654, MemTotal: 8_589_934_592, SwapUsed: 0, SwapTotal: 2_147_483_648,
+		DiskUsed: 44_023_414_784, DiskTotal: 85_899_345_920, NetRxPerSecond: 1_048_576, NetTxPerSecond: 209_715,
+	}
+}
+
+// La machine openCloud a mesuré à l'instant ; la machine distante a une
+// lecture trop vieille pour valoir « maintenant ».
+func (ts *testServer) seedResources(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	local := []sampler.Reading{testReading(testNow.Add(-20*time.Second), 18), testReading(testNow.Add(-10*time.Second), 23)}
+	if err := ts.resources.Record(ctx, machine.LocalID, local); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.resources.Record(ctx, remoteID, []sampler.Reading{testReading(testNow.Add(-5*time.Minute), 61)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 var (
 	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
 	shortID    = regexp.MustCompile(`"(id|machine_id)":"[0-9a-f]{16}"`)
@@ -120,14 +146,20 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	jobID := server.seedJobs(t)
+	server.seedResources(t)
 	cases := map[string]string{
-		"session":  "/api/session",
-		"counts":   "/api/counts",
-		"machines": "/api/machines",
-		"machine":  "/api/machines/" + remoteID,
-		"local":    "/api/machines/local",
-		"jobs":     "/api/jobs",
-		"job":      "/api/jobs/" + jobID,
+		"session":          "/api/session",
+		"counts":           "/api/counts",
+		"machines":         "/api/machines",
+		"machine":          "/api/machines/" + remoteID,
+		"local":            "/api/machines/local",
+		"jobs":             "/api/jobs",
+		"job":              "/api/jobs/" + jobID,
+		"resources":        "/api/resources",
+		"local_resources":  "/api/machines/local/resources",
+		"remote_resources": "/api/machines/" + remoteID + "/resources",
+		"history":          "/api/machines/local/resources/history?window=1h",
+		"history_hourly":   "/api/machines/local/resources/history?window=7d",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -258,5 +290,22 @@ func TestAPI_RefusalKeysExistInEveryCatalog(t *testing.T) {
 	}
 	if found == 0 {
 		t.Fatal("no refusal found: the guard no longer sees the code")
+	}
+}
+
+func TestAPI_Resources_AnswerNotFoundAndUnknownWindow(t *testing.T) {
+	server := newTestServer(t)
+	if got := callAPI(server.Server, http.MethodGet, "/api/machines/nope/resources", nil); got.Code != http.StatusNotFound {
+		t.Fatalf("unknown machine: %d", got.Code)
+	}
+	got := callAPI(server.Server, http.MethodGet, "/api/machines/local/resources/history?window=2h", nil)
+	if got.Code != http.StatusBadRequest || errorCode(t, got) != codeWindowUnknown {
+		t.Fatalf("unknown window: %d %s", got.Code, got.Body.String())
+	}
+	// Sans lecture : indisponible, et rien qui ressemble à un zéro.
+	var current currentJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/local/resources", nil), &current)
+	if current.Available || current.Sample != nil {
+		t.Fatalf("empty machine: %+v", current)
 	}
 }

@@ -9,6 +9,9 @@ DELETE /api/machines/tokens/{id}
 GET /api/machines/{id}
 DELETE /api/machines/{id}
 POST /api/machines/{id}/actions/reenroll
+GET /api/machines/{id}/resources
+GET /api/machines/{id}/resources/history
+GET /api/resources
 GET /api/jobs
 POST /api/jobs
 GET /api/jobs/{id}

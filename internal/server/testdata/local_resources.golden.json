@@ -1,0 +1,1 @@
+{"machine_id":"local","available":true,"sample":{"sampled_at":"2026-09-12T11:59:50Z","cpu_percent":23,"cpu_cores":4,"load_1":0.9,"mem_used":3328599654,"mem_total":8589934592,"swap_used":0,"swap_total":2147483648,"disk_used":44023414784,"disk_total":85899345920,"net_rx_per_second":1048576,"net_tx_per_second":209715}}

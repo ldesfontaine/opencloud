@@ -317,15 +317,16 @@ func (s *Service) Disconnect(session *Session) {
 }
 
 // Signal note qu'une machine dont le flux est ouvert vient de donner signe
-// de vie. La feature heartbeat enrichira ce qu'elle envoie.
-func (s *Service) Signal(ctx context.Context, sessionToken string) error {
+// de vie, et rend son identifiant : ce que le signal porte avec lui, les
+// échantillons de ressources, s'écrit à ce nom.
+func (s *Service) Signal(ctx context.Context, sessionToken string) (string, error) {
 	session, ok := s.sessions.Lookup(sessionToken)
 	if !ok {
-		return ErrNotConnected
+		return "", ErrNotConnected
 	}
 	if err := s.store.TouchMachine(ctx, session.MachineID, s.now()); err != nil {
-		return err
+		return "", err
 	}
 	s.changed(session.MachineID)
-	return nil
+	return session.MachineID, nil
 }

@@ -104,3 +104,43 @@ export interface JobResponse {
 export interface JobsResponse {
   jobs: Job[];
 }
+
+// Une lecture de l'agent : instant, pourcentage processeur, octets et
+// octets par seconde ; les pourcentages de mémoire et de disque se calculent
+// ici. Un point d'historique a la même forme, daté du début de son seau.
+export interface Reading {
+  sampled_at: string;
+  cpu_percent: number;
+  cpu_cores: number;
+  load_1: number;
+  mem_used: number;
+  mem_total: number;
+  swap_used: number;
+  swap_total: number;
+  disk_used: number;
+  disk_total: number;
+  net_rx_per_second: number;
+  net_tx_per_second: number;
+}
+
+// La valeur courante d'une machine : la dernière lecture, disponible si
+// elle a moins de 90 s ; sans lecture, null, jamais des zéros.
+export interface Current {
+  machine_id: string;
+  available: boolean;
+  sample: Reading | null;
+}
+
+export interface ResourcesResponse {
+  machines: Current[];
+}
+
+export type WindowName = "1h" | "24h" | "7d" | "30d" | "90d";
+
+export interface HistoryResponse {
+  machine_id: string;
+  window: WindowName;
+  span_seconds: number;
+  step_seconds: number;
+  points: Reading[];
+}

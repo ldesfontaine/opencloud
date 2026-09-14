@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 // Les sujets du direct, tels que le serveur les nomme.
-export type Topic = "machines" | "jobs";
+export type Topic = "machines" | "jobs" | "resources";
 
 type Versions = Record<Topic, number>;
 
@@ -14,8 +14,12 @@ interface Refresh {
 
 const RefreshContext = createContext<Refresh>({ refresh: () => {}, versionFor: () => 0 });
 
-// Le chemin d'une ressource dit son sujet ; les compteurs relèvent des deux.
+// Le chemin d'une ressource dit son sujet ; les compteurs relèvent des
+// machines et des tâches.
 function topicsOf(path: string): Topic[] {
+  if (path.includes("/resources")) {
+    return ["resources"];
+  }
   if (path.startsWith("/api/machines")) {
     return ["machines"];
   }
@@ -29,11 +33,12 @@ function topicsOf(path: string): Topic[] {
 // l'arrivée d'un sujet du direct. Chaque sujet a son compteur, pour que la
 // page des tâches ne relise pas quand une machine signale.
 export function RefreshProvider({ children }: { children: ReactNode }) {
-  const [versions, setVersions] = useState<Versions>({ machines: 0, jobs: 0 });
+  const [versions, setVersions] = useState<Versions>({ machines: 0, jobs: 0, resources: 0 });
   const refresh = useCallback((topic?: Topic) => {
     setVersions((current) => ({
       machines: topic === undefined || topic === "machines" ? current.machines + 1 : current.machines,
       jobs: topic === undefined || topic === "jobs" ? current.jobs + 1 : current.jobs,
+      resources: topic === undefined || topic === "resources" ? current.resources + 1 : current.resources,
     }));
   }, []);
   const value = useMemo<Refresh>(

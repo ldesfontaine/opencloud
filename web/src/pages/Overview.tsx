@@ -1,27 +1,31 @@
 import { Link } from "react-router";
 
-import type { Counts, MachinesResponse } from "../api/types";
+import type { Counts, MachinesResponse, ResourcesResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, CardHeader, Empty, Stat } from "../components/Card";
+import { Card, Empty, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot } from "../components/Pill";
-import { List, RowText, RowWhen } from "../components/Table";
+import { StatePill } from "../components/Pill";
+import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { machinesSubtitle } from "../lib/subtitles";
 import { seenAgo } from "../lib/time";
+import "./Overview.scss";
 
-// La vue d'ensemble compte les machines et les tâches ; sans machine, elle
-// invite à en ajouter une.
+// La vue d'ensemble compte les machines et les tâches, puis montre chaque
+// machine en carte avec ses trois jauges ; sans machine, elle invite à en
+// ajouter une.
 export function Overview() {
   const t = useT();
   const now = useNow();
   const machines = useResource<MachinesResponse>("/api/machines");
   const counts = useResource<Counts>("/api/counts");
+  const resources = useResource<ResourcesResponse>("/api/resources");
   const list = machines.data?.machines ?? [];
   const online = list.filter((machine) => machine.online).length;
+  const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
   return (
     <>
       <PageHead
@@ -56,25 +60,32 @@ export function Overview() {
               }
             />
           </div>
-          <Card>
-            <CardHeader title={t("nav.machines")} aside={<Link to="/machines">{t("overview.see_all")}</Link>} />
-            <List>
+          <div className="overview-machines">
+            <div className="overview-head">
+              <span className="card-t">{t("nav.machines")}</span>
+              <Link to="/machines">{t("overview.see_all")}</Link>
+            </div>
+            <div className="grid-3">
               {list.map((machine) => (
-                <Link className="row" key={machine.id} to={`/machines/${machine.id}`}>
-                  <Dot tone={machine.online ? "ok" : "danger"} />
-                  <RowText title={machine.name}>
-                    {machine.address !== "" && (
-                      <>
-                        <span className="mono">{machine.address}</span> ·{" "}
-                      </>
-                    )}
-                    {machine.os}
-                  </RowText>
-                  <RowWhen>{seenAgo(t, machine.last_seen_at, now)}</RowWhen>
+                <Link className="card machine-card" key={machine.id} to={`/machines/${machine.id}`}>
+                  <div className="card-h">
+                    <span className="machine-card-title">
+                      <span className="card-t">{machine.name}</span>
+                      <span className="mono muted">{machine.address !== "" ? machine.address : machine.os}</span>
+                    </span>
+                    <StatePill online={machine.online} />
+                  </div>
+                  <div className="card-b">
+                    <MachineMeters current={currentOf(machine.id)} />
+                    <div className="kv">
+                      <span className="k">{machine.os}</span>
+                      <span className="secondary">{seenAgo(t, machine.last_seen_at, now)}</span>
+                    </div>
+                  </div>
                 </Link>
               ))}
-            </List>
-          </Card>
+            </div>
+          </div>
         </>
       )}
     </>
