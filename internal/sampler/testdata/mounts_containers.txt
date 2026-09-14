@@ -1,0 +1,13 @@
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda2 / ext4 rw,relatime,errors=remount-ro 0 0
+/dev/sda1 /boot ext4 rw,relatime 0 0
+/dev/loop0 /snap/core22/1122 squashfs ro,nodev,relatime,errors=continue 0 0
+/dev/loop1 /snap/lxd/24061 squashfs ro,nodev,relatime,errors=continue 0 0
+/dev/loop3 /mnt/image ext4 ro,relatime 0 0
+/dev/sdb1 /var/lib/docker ext4 rw,relatime 0 0
+overlay /var/lib/docker/overlay2/3f2a/merged overlay rw,relatime,lowerdir=/var/lib/docker/overlay2/l/A:/var/lib/docker/overlay2/l/B,upperdir=/var/lib/docker/overlay2/3f2a/diff,workdir=/var/lib/docker/overlay2/3f2a/work 0 0
+nsfs /run/docker/netns/1a2b nsfs rw 0 0
+/dev/sdc1 /var/lib/containers/storage xfs rw,relatime 0 0
+nas:/export/backups /mnt/nas nfs4 rw,relatime,vers=4.2,rsize=1048576,wsize=1048576 0 0
+//nas/photos /mnt/photos cifs rw,relatime,vers=3.1.1 0 0
+/dev/sdd1 /mnt/disque\040externe ext4 rw,relatime 0 0

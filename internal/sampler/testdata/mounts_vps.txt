@@ -1,0 +1,8 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=1980000k,nr_inodes=495000,mode=755,inode64 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=400000k,mode=755,inode64 0 0
+/dev/vda1 / ext4 rw,relatime,discard,errors=remount-ro 0 0
+/dev/vda15 /boot/efi vfat rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro 0 0
+/dev/vdb /data xfs rw,relatime,attr2,inode64,logbufs=8,logbsize=32k,noquota 0 0
+tmpfs /run/user/0 tmpfs rw,nosuid,nodev,relatime,size=200000k,nr_inodes=50000,mode=700,inode64 0 0

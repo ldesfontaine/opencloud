@@ -17,8 +17,9 @@ import (
 const (
 	streamPingInterval = 15 * time.Second
 	maxAgentBody       = 16 << 10
-	// Un lot de rattrapage : 120 lectures d'environ 250 octets.
-	maxSignalBody = 64 << 10
+	// Un lot de rattrapage : 120 lectures d'environ 250 octets, plus une
+	// centaine par volume, jusqu'à 32 volumes.
+	maxSignalBody = 512 << 10
 )
 
 type agentError struct {

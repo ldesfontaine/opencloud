@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
 func openTestDB(t *testing.T) *DB {
@@ -327,5 +328,53 @@ func TestDeleteMachine_DetachesItsHeartbeats(t *testing.T) {
 	got, err := db.GetHeartbeat(ctx, "job1")
 	if err != nil || got.MachineID != "" || got.MachineName != "" {
 		t.Fatalf("heartbeat %+v err %v", got, err)
+	}
+}
+
+func countRows(t *testing.T, db *DB, table string) int {
+	t.Helper()
+	var count int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func twoVolumes(at time.Time) sampler.Reading {
+	return sampler.Reading{
+		SampledAt: at, CPUCores: 2, MemTotal: 1, DiskUsed: 3, DiskTotal: 30,
+		Disks: []sampler.Disk{{MountPoint: "/", Device: "/dev/vda1", Used: 1, Total: 10}, {MountPoint: "/data", Device: "/dev/vdb", Used: 2, Total: 20}},
+	}
+}
+
+// Les volumes vivent avec le brut : la purge du brut les efface, le retrait
+// de la machine aussi, et un échantillon rejoué ne les réécrit pas.
+func TestPurgeSamples_AndDeleteMachine_TakeTheDisksAlong(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := time.Unix(1_800_000_000, 0)
+	cleartext := issueToken(t, db, "vps", "", now)
+	enrolled, err := db.Enroll(ctx, machine.HashToken(cleartext), candidate(t), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, fresh := twoVolumes(now.Add(-time.Hour)), twoVolumes(now)
+	if err := db.InsertSamples(ctx, enrolled.ID, []sampler.Reading{old, fresh, fresh}); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, db, "machine_disks"); got != 4 {
+		t.Fatalf("%d disk rows after insert, want 4", got)
+	}
+	if err := db.PurgeSamples(ctx, now.Add(-time.Minute), now, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, db, "machine_disks"); got != 2 {
+		t.Fatalf("%d disk rows after purge, want 2", got)
+	}
+	if err := db.DeleteMachine(ctx, enrolled.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, db, "machine_disks"); got != 0 {
+		t.Fatalf("%d disk rows after delete, want 0", got)
 	}
 }

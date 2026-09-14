@@ -68,7 +68,10 @@ func TestSample_FirstReadingArmsTheCounters_SecondOneMeasures(t *testing.T) {
 	proc.write("meminfo", meminfo)
 	proc.write("loadavg", "0.90 1.20 1.50 2/300 4242\n")
 	proc.write("net/dev", netBefore)
-	sampler := NewAt(proc.path, t.TempDir())
+	// Deux montages du même volume, et un tmpfs : une seule mesure, faite
+	// par statfs sur un dossier qui existe.
+	proc.write("mounts", "/dev/fake "+proc.path+"/data ext4 rw 0 0\n/dev/fake "+proc.path+" ext4 rw 0 0\ntmpfs /run tmpfs rw 0 0\n")
+	sampler := NewAt(proc.path)
 	start := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
 
 	if _, ok, err := sampler.Sample(start); ok || err != nil {
@@ -94,7 +97,10 @@ func TestSample_FirstReadingArmsTheCounters_SecondOneMeasures(t *testing.T) {
 	if reading.NetRxPerSecond != 10000 || reading.NetTxPerSecond != 5000 {
 		t.Errorf("net %+v", reading)
 	}
-	if reading.DiskTotal == 0 || reading.DiskUsed == 0 || reading.DiskUsed > reading.DiskTotal {
+	if len(reading.Disks) != 1 || reading.Disks[0].MountPoint != proc.path || reading.Disks[0].Device != "/dev/fake" {
+		t.Errorf("disks %+v", reading.Disks)
+	}
+	if reading.DiskTotal == 0 || reading.DiskUsed == 0 || reading.DiskUsed > reading.DiskTotal || reading.DiskTotal != reading.Disks[0].Total {
 		t.Errorf("disk %+v", reading)
 	}
 	if !reading.SampledAt.Equal(start.Add(10 * time.Second)) {
@@ -143,7 +149,7 @@ func TestSample_OnThisMachine_ReadsTheRealProc(t *testing.T) {
 	if !ok || err != nil {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
-	if reading.CPUCores == 0 || reading.MemTotal == 0 || reading.DiskTotal == 0 {
+	if reading.CPUCores == 0 || reading.MemTotal == 0 || reading.DiskTotal == 0 || len(reading.Disks) == 0 {
 		t.Fatalf("empty reading %+v", reading)
 	}
 }

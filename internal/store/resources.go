@@ -40,8 +40,9 @@ const rollupUpdate = `ON CONFLICT (machine_id, bucket) DO UPDATE SET
 	avg_net_rx_per_second = excluded.avg_net_rx_per_second, avg_net_tx_per_second = excluded.avg_net_tx_per_second,
 	sample_count = excluded.sample_count`
 
-// InsertSamples écrit un lot dans une transaction ; un échantillon déjà
-// là, rejoué après une coupure, est ignoré.
+// InsertSamples écrit un lot dans une transaction, chaque échantillon avec
+// ses volumes ; un échantillon déjà là, rejoué après une coupure, est
+// ignoré, ses volumes avec.
 func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sampler.Reading) error {
 	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {
@@ -49,7 +50,7 @@ func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sa
 	}
 	defer tx.Rollback()
 	for _, reading := range readings {
-		_, err := tx.ExecContext(ctx, `
+		result, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO machine_samples (machine_id, sampled_at, cpu_percent, cpu_cores, load_1,
 				mem_used, mem_total, swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -58,6 +59,18 @@ func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sa
 			reading.DiskUsed, reading.DiskTotal, reading.NetRxPerSecond, reading.NetTxPerSecond)
 		if err != nil {
 			return fmt.Errorf("insert sample: %w", err)
+		}
+		if inserted, _ := result.RowsAffected(); inserted == 0 {
+			continue
+		}
+		for _, disk := range reading.Disks {
+			_, err := tx.ExecContext(ctx, `
+				INSERT INTO machine_disks (machine_id, sampled_at, mount_point, device, disk_used, disk_total)
+				VALUES (?, ?, ?, ?, ?, ?)`,
+				machineID, reading.SampledAt.Unix(), disk.MountPoint, disk.Device, disk.Used, disk.Total)
+			if err != nil {
+				return fmt.Errorf("insert disk: %w", err)
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -71,20 +84,27 @@ const latestSampleQuery = `
 		swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second
 	FROM machine_samples`
 
+// Le dernier échantillon de chaque machine, par ses deux clés.
+const latestOfEachMachine = `SELECT machine_id, MAX(sampled_at) FROM machine_samples GROUP BY machine_id`
+
 func (db *DB) LatestSample(ctx context.Context, machineID string) (resource.Sample, error) {
 	row := db.sql.QueryRowContext(ctx, latestSampleQuery+` WHERE machine_id = ? ORDER BY sampled_at DESC LIMIT 1`, machineID)
 	sample, err := scanSample(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return resource.Sample{}, resource.ErrNoSample
 	}
+	if err != nil {
+		return resource.Sample{}, err
+	}
+	sample.Disks, err = db.listDisks(ctx, machineID, sample.SampledAt)
 	return sample, err
 }
 
-// LatestSamples rend le dernier échantillon de chaque machine qui en a un.
+// LatestSamples rend le dernier échantillon de chaque machine qui en a un,
+// avec ses volumes.
 func (db *DB) LatestSamples(ctx context.Context) ([]resource.Sample, error) {
-	rows, err := db.sql.QueryContext(ctx, latestSampleQuery+` AS latest
-		WHERE sampled_at = (SELECT MAX(sampled_at) FROM machine_samples WHERE machine_id = latest.machine_id)
-		ORDER BY machine_id`)
+	rows, err := db.sql.QueryContext(ctx, latestSampleQuery+`
+		WHERE (machine_id, sampled_at) IN (`+latestOfEachMachine+`) ORDER BY machine_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list latest samples: %w", err)
 	}
@@ -97,7 +117,54 @@ func (db *DB) LatestSamples(ctx context.Context) ([]resource.Sample, error) {
 		}
 		samples = append(samples, sample)
 	}
-	return samples, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	disks, err := db.listLatestDisks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range samples {
+		samples[i].Disks = disks[samples[i].MachineID]
+	}
+	return samples, nil
+}
+
+const diskColumns = `machine_id, mount_point, device, disk_used, disk_total`
+
+// listDisks rend les volumes d'un échantillon, par point de montage.
+func (db *DB) listDisks(ctx context.Context, machineID string, sampledAt time.Time) ([]sampler.Disk, error) {
+	byMachine, err := db.queryDisks(ctx, `SELECT `+diskColumns+` FROM machine_disks
+		WHERE machine_id = ? AND sampled_at = ? ORDER BY mount_point`, machineID, sampledAt.Unix())
+	if err != nil {
+		return nil, err
+	}
+	return byMachine[machineID], nil
+}
+
+// listLatestDisks rend les volumes du dernier échantillon de chaque
+// machine, en une requête.
+func (db *DB) listLatestDisks(ctx context.Context) (map[string][]sampler.Disk, error) {
+	return db.queryDisks(ctx, `SELECT `+diskColumns+` FROM machine_disks
+		WHERE (machine_id, sampled_at) IN (`+latestOfEachMachine+`) ORDER BY machine_id, mount_point`)
+}
+
+func (db *DB) queryDisks(ctx context.Context, query string, args ...any) (map[string][]sampler.Disk, error) {
+	rows, err := db.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list disks: %w", err)
+	}
+	defer rows.Close()
+	byMachine := map[string][]sampler.Disk{}
+	for rows.Next() {
+		var machineID string
+		var disk sampler.Disk
+		if err := rows.Scan(&machineID, &disk.MountPoint, &disk.Device, &disk.Used, &disk.Total); err != nil {
+			return nil, err
+		}
+		byMachine[machineID] = append(byMachine[machineID], disk)
+	}
+	return byMachine, rows.Err()
 }
 
 // ListSamples groupe le brut par pas : un point par seau de step, daté du
@@ -179,6 +246,11 @@ func (db *DB) PurgeSamples(ctx context.Context, rawBefore, hourlyBefore, dailyBe
 		return fmt.Errorf("begin purge samples: %w", err)
 	}
 	defer tx.Rollback()
+	// Les volumes d'abord, par leur index : la cascade de la clé étrangère
+	// ferait le même travail ligne à ligne.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_disks WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
+		return fmt.Errorf("purge disks: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
 		return fmt.Errorf("purge samples: %w", err)
 	}

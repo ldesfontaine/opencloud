@@ -1,9 +1,10 @@
 import { useState } from "react";
 
-import type { Current, HistoryResponse, Reading, WindowName } from "../api/types";
+import type { Current, Disk, HistoryResponse, Reading, WindowName } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
+import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
 import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, percentOf, rateQuantity } from "../lib/units";
 import { Button } from "./Button";
@@ -39,6 +40,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
   const rate = sample ? rateQuantity(t, language, sample.net_rx_per_second + sample.net_tx_per_second) : null;
   const memPercent = sample ? percentOf(sample.mem_used, sample.mem_total) : 0;
   const diskPercent = sample ? percentOf(sample.disk_used, sample.disk_total) : 0;
+  const volumes = sample?.disks ?? [];
   return (
     <div className="grid-4">
       <Stat
@@ -62,8 +64,8 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.disk")}
         value={sample && disk ? bytesIn(language, sample.disk_used, sample.disk_total) : "–"}
         unit={disk ? `${disk.unit} / ${disk.value}` : undefined}
-        meter={<Meter percent={diskPercent} tone={sample ? meterTone(diskPercent) : undefined} />}
-        foot={sample ? t("resource.disk_foot", diskPercent) : foot}
+        meter={volumes.length > 1 ? <DiskVolumes disks={volumes} /> : <Meter percent={diskPercent} tone={sample ? meterTone(diskPercent) : undefined} />}
+        foot={diskFoot(t, sample, volumes.length, diskPercent, foot)}
       />
       <Stat
         icon="network"
@@ -74,6 +76,40 @@ export function ResourceStats({ current }: { current: Current | null }) {
       />
     </div>
   );
+}
+
+// Une jauge par volume, la plus pleine en tête, nommée par son point de
+// montage ; le périphérique et les octets sont dans l'info-bulle.
+function DiskVolumes({ disks }: { disks: Disk[] }) {
+  const { t, language } = useI18n();
+  return (
+    <div className="disk-volumes">
+      {fullestFirst(disks).map((disk) => {
+        const percent = percentOf(disk.used, disk.total);
+        const detail = `${disk.device} · ${formatBytes(t, language, disk.used)} / ${formatBytes(t, language, disk.total)}`;
+        return (
+          <div className="meter-row" key={disk.mount_point} title={detail}>
+            <div className="kv">
+              <span className="k mono">{disk.mount_point}</span>
+              <span className="mono">{percent} %</span>
+            </div>
+            <Meter percent={percent} tone={meterTone(percent)} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Un seul volume : son pourcentage ; plusieurs : leur nombre et le total.
+function diskFoot(t: ReturnType<typeof useI18n>["t"], sample: Reading | null, volumes: number, percent: number, unavailable: string): string {
+  if (!sample) {
+    return unavailable;
+  }
+  if (volumes > 1) {
+    return t("resource.disks_foot", volumes, percent);
+  }
+  return t("resource.disk_foot", percent);
 }
 
 // Pourquoi il n'y a pas de chiffre : jamais mesuré, ou mesuré trop tôt.

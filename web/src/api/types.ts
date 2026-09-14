@@ -105,9 +105,18 @@ export interface JobsResponse {
   jobs: Job[];
 }
 
+// Un volume réel de la machine, nommé par son point de montage.
+export interface Disk {
+  mount_point: string;
+  device: string;
+  used: number;
+  total: number;
+}
+
 // Une lecture de l'agent : instant, pourcentage processeur, octets et
 // octets par seconde ; les pourcentages de mémoire et de disque se calculent
-// ici. Un point d'historique a la même forme, daté du début de son seau.
+// ici. disk_used et disk_total font la somme des volumes. Un point
+// d'historique a la même forme, daté du début de son seau, sans les volumes.
 export interface Reading {
   sampled_at: string;
   cpu_percent: number;
@@ -121,6 +130,7 @@ export interface Reading {
   disk_total: number;
   net_rx_per_second: number;
   net_tx_per_second: number;
+  disks?: Disk[];
 }
 
 // La valeur courante d'une machine : la dernière lecture, disponible si

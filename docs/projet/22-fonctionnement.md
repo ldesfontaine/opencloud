@@ -66,7 +66,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les moniteurs de tâches et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer un moniteur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -114,26 +114,39 @@ changer le schéma.
 ## Comment une machine est mesurée
 
 1. L'agent lit `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/net/dev`
-   et fait un `statfs` de `/` toutes les 10 s. Le processeur et le réseau sont
-   des deltas entre deux lectures : un pourcentage actif, un débit en octets
-   par seconde hors boucle locale. La mémoire, le swap, la charge sur une
-   minute, le nombre de cœurs et le disque de la racine sont instantanés.
-2. Les lectures attendent dans un tampon en mémoire d'une heure au plus. Le
+   et `/proc/mounts` toutes les 10 s, puis fait un `statfs` par volume. Le
+   processeur et le réseau sont des deltas entre deux lectures : un
+   pourcentage actif, un débit en octets par seconde hors boucle locale. La
+   mémoire, le swap, la charge sur une minute, le nombre de cœurs et les
+   volumes sont instantanés.
+2. Un volume est un système de fichiers de disque monté : ext2 à ext4, xfs,
+   btrfs, zfs, f2fs, jfs, vfat, exfat, ntfs, ntfs3, fuseblk. Le reste ne
+   compte pas : les pseudo-systèmes du noyau et les tmpfs, l'overlay des
+   conteneurs, les images en boucle (`/dev/loop…`, dont les snaps), les
+   montages réseau (nfs, cifs), et tout ce qui est monté sous `/boot`,
+   `/snap`, `/var/lib/docker` et `/var/lib/containers`. Un même
+   périphérique monté plusieurs fois, `/` et `/home` sur un btrfs par
+   exemple, fait un seul volume, nommé par son point de montage le plus
+   court. Un volume qui ne se mesure pas est laissé de côté, jamais montré à
+   zéro. `disk_used` et `disk_total` font la somme des volumes.
+3. Les lectures attendent dans un tampon en mémoire d'une heure au plus. Le
    signal de toutes les 30 s les emporte dans son corps, par lots de 120 ; un
    rattrapage après une coupure enchaîne les signaux jusqu'à vider le tampon.
    Un redémarrage de l'agent perd le tampon : pas de spool sur disque.
-3. La machine openCloud se mesure elle-même dans `opencloud serve`, à la même
+4. La machine openCloud se mesure elle-même dans `opencloud serve`, à la même
    cadence, sans passer par le réseau : c'est son rôle d'agent.
-4. openCloud refuse en bloc un lot dont une lecture est hors de mesure
+5. openCloud refuse en bloc un lot dont une lecture est hors de mesure
    (pourcentage hors de 0 à 100, nombre négatif, date à plus de cinq minutes
-   dans le futur ou plus vieille que le brut gardé) ; le signal de vie compte
-   quand même. Une lecture déjà en base, rejouée, est ignorée.
-5. Toutes les 5 min, le rollup rejoue tous les seaux horaires que le brut
+   dans le futur ou plus vieille que le brut gardé, volume sans point de
+   montage absolu ou compté deux fois, plus de 32 volumes) ; le signal de
+   vie compte quand même. Une lecture déjà en base, rejouée, est ignorée,
+   ses volumes avec.
+6. Toutes les 5 min, le rollup rejoue tous les seaux horaires que le brut
    couvre encore, puis les seaux journaliers, en une instruction SQL par seau
    qui réécrit le seau s'il existe. Pas de curseur : un redémarrage ou un
    rattrapage se corrige seul. Le journalier est pondéré par le nombre
    d'échantillons de chaque heure.
-6. La purge, au départ puis une fois par jour, efface chaque étage au-delà de
+7. La purge, au départ puis une fois par jour, efface chaque étage au-delà de
    sa rétention. Chaque fenêtre lit une table gardée strictement plus
    longtemps qu'elle : une purge ne tronque jamais une lecture en cours.
 
@@ -212,7 +225,7 @@ refusés avant d'envoyer quoi que ce soit.
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
 | Téléchargement du binaire, unité systemd | La commande d'installation suppose le binaire présent | À part |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
-| Un seul disque mesuré | Le système de fichiers de `/` seulement ; des données sur `/srv` ou `/home` ne se voient pas | À décider |
+| Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
 | L'agent ne mesure pas les conteneurs | Ni ressources par conteneur, ni top consommateurs | Fonctionnalité 6 |
 | Alerte sur une ressource | Le disque à 86 % se voit en jauge orange, personne n'est prévenu | Fonctionnalité 11 |
 | Alerte sur une tâche | « En retard » et « En échec » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11, par l'interface `heartbeat.Listener` |
@@ -226,4 +239,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 3 · heartbeats | Les routes publiques `/ping/…`, les tables `heartbeats`, `heartbeat_pings`, `heartbeat_runs`, la rétention, la limitation de débit, la boucle d'échéance |
 | Front React | L'API JSON sous `/api/…`, le front embarqué dans le binaire, la garde même-origine à la place du cookie anti-CSRF ; les temps relatifs se calculent dans le navigateur |
 | 4 · direct | Le bus `internal/live`, le flux `/api/events`, la chaîne de middlewares et `X-Request-ID`, la clé `log_level` de la configuration |
-| 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |
+| 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*` et `machine_disks`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |

@@ -7,14 +7,13 @@ import (
 	"time"
 )
 
-const (
-	defaultProcPath = "/proc"
-	defaultRootPath = "/"
-)
+const defaultProcPath = "/proc"
 
 // Reading est ce qu'une mesure dit de la machine à un instant : le
 // processeur et le réseau sont des deltas depuis la mesure précédente, le
 // reste est instantané. Les octets sont des octets, les débits par seconde.
+// DiskUsed et DiskTotal font la somme des volumes ; un point d'historique,
+// agrégé, ne porte que cette somme.
 type Reading struct {
 	SampledAt      time.Time `json:"sampled_at"`
 	CPUPercent     float64   `json:"cpu_percent"`
@@ -28,13 +27,13 @@ type Reading struct {
 	DiskTotal      int64     `json:"disk_total"`
 	NetRxPerSecond int64     `json:"net_rx_per_second"`
 	NetTxPerSecond int64     `json:"net_tx_per_second"`
+	Disks          []Disk    `json:"disks,omitempty"`
 }
 
 // Sampler lit la machine ; la première lecture n'a pas de delta et ne rend
 // rien, les suivantes comparent aux compteurs qu'il garde.
 type Sampler struct {
 	procPath string
-	rootPath string
 	prevCPU  cpuCounters
 	prevNet  netCounters
 	prevAt   time.Time
@@ -42,12 +41,12 @@ type Sampler struct {
 }
 
 func New() *Sampler {
-	return NewAt(defaultProcPath, defaultRootPath)
+	return NewAt(defaultProcPath)
 }
 
-// NewAt lit un autre /proc et une autre racine : les tests s'en servent.
-func NewAt(procPath, rootPath string) *Sampler {
-	return &Sampler{procPath: procPath, rootPath: rootPath}
+// NewAt lit un autre /proc : les tests s'en servent.
+func NewAt(procPath string) *Sampler {
+	return &Sampler{procPath: procPath}
 }
 
 // Sample mesure maintenant. Le booléen est faux à la première lecture, qui
@@ -69,6 +68,10 @@ func (s *Sampler) Sample(now time.Time) (Reading, bool, error) {
 	if err != nil {
 		return Reading{}, false, fmt.Errorf("read loadavg: %w", err)
 	}
+	mounts, err := readMounts(filepath.Join(s.procPath, "mounts"))
+	if err != nil {
+		return Reading{}, false, fmt.Errorf("read mounts: %w", err)
+	}
 	if !s.primed {
 		s.remember(cpu, net, now)
 		return Reading{}, false, nil
@@ -85,7 +88,8 @@ func (s *Sampler) Sample(now time.Time) (Reading, bool, error) {
 		SwapTotal:  memory.swapTotal,
 	}
 	reading.NetRxPerSecond, reading.NetTxPerSecond = netRates(s.prevNet, net, elapsed)
-	reading.DiskUsed, reading.DiskTotal = diskUsage(s.rootPath)
+	reading.Disks = measureDisks(mounts)
+	reading.DiskUsed, reading.DiskTotal = sumDisks(reading.Disks)
 	s.remember(cpu, net, now)
 	return reading, true, nil
 }

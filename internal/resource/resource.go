@@ -3,6 +3,7 @@ package resource
 import (
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/sampler"
@@ -18,6 +19,9 @@ const (
 	MaxReadingsPerSignal = 120
 	// Un échantillon daté d'après cette avance est refusé : horloge fausse.
 	maxFutureSkew = 5 * time.Minute
+	// Plus de volumes qu'une machine n'en a : un agent qui déraille.
+	MaxDisksPerReading  = 32
+	maxMountPointLength = 255
 
 	// Chaque fenêtre lit une table gardée strictement plus longtemps qu'elle.
 	RawRetention    = 48 * time.Hour
@@ -98,6 +102,25 @@ func validate(reading sampler.Reading, now time.Time) error {
 		if value < 0 {
 			return ErrReadingInvalid
 		}
+	}
+	return validateDisks(reading.Disks)
+}
+
+// validateDisks refuse un volume sans point de montage absolu, un nombre
+// négatif, deux fois le même point de montage, ou trop de volumes.
+func validateDisks(disks []sampler.Disk) error {
+	if len(disks) > MaxDisksPerReading {
+		return ErrReadingInvalid
+	}
+	seen := make(map[string]bool, len(disks))
+	for _, disk := range disks {
+		if !strings.HasPrefix(disk.MountPoint, "/") || len(disk.MountPoint) > maxMountPointLength || len(disk.Device) > maxMountPointLength {
+			return ErrReadingInvalid
+		}
+		if disk.Used < 0 || disk.Total < 0 || seen[disk.MountPoint] {
+			return ErrReadingInvalid
+		}
+		seen[disk.MountPoint] = true
 	}
 	return nil
 }

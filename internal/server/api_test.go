@@ -82,12 +82,16 @@ func (ts *testServer) seedJobs(t *testing.T) string {
 }
 
 // Une lecture parlante, celle de la planche « Machine » de la direction
-// artistique.
+// artistique, avec un second volume de données plus plein que le système.
 func testReading(at time.Time, cpu float64) sampler.Reading {
 	return sampler.Reading{
 		SampledAt: at, CPUPercent: cpu, CPUCores: 4, Load1: 0.9,
 		MemUsed: 3_328_599_654, MemTotal: 8_589_934_592, SwapUsed: 0, SwapTotal: 2_147_483_648,
-		DiskUsed: 44_023_414_784, DiskTotal: 85_899_345_920, NetRxPerSecond: 1_048_576, NetTxPerSecond: 209_715,
+		DiskUsed: 366_145_961_984, DiskTotal: 622_770_257_920, NetRxPerSecond: 1_048_576, NetTxPerSecond: 209_715,
+		Disks: []sampler.Disk{
+			{MountPoint: "/", Device: "/dev/vda1", Used: 44_023_414_784, Total: 85_899_345_920},
+			{MountPoint: "/data", Device: "/dev/vdb", Used: 322_122_547_200, Total: 536_870_912_000},
+		},
 	}
 }
 

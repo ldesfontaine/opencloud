@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -58,11 +59,16 @@ func newBench(t *testing.T) *bench {
 	return b
 }
 
+// Deux volumes, le système et les données ; les totaux en font la somme.
 func reading(at time.Time, cpu float64) sampler.Reading {
 	return sampler.Reading{
 		SampledAt: at, CPUPercent: cpu, CPUCores: 4, Load1: 0.9,
 		MemUsed: 3 << 30, MemTotal: 8 << 30, SwapUsed: 0, SwapTotal: 2 << 30,
-		DiskUsed: 41 << 30, DiskTotal: 80 << 30, NetRxPerSecond: 1_000_000, NetTxPerSecond: 200_000,
+		DiskUsed: 341 << 30, DiskTotal: 580 << 30, NetRxPerSecond: 1_000_000, NetTxPerSecond: 200_000,
+		Disks: []sampler.Disk{
+			{MountPoint: "/", Device: "/dev/vda1", Used: 41 << 30, Total: 80 << 30},
+			{MountPoint: "/data", Device: "/dev/vdb", Used: 300 << 30, Total: 500 << 30},
+		},
 	}
 }
 
@@ -101,6 +107,36 @@ func TestRecord_KeepsTheLatestAsCurrent_AndTellsTheWatcher(t *testing.T) {
 	}
 }
 
+// Les volumes suivent leur échantillon : le courant les rend, un
+// échantillon rejoué ne les double pas, l'historique n'en garde que la
+// somme.
+func TestRecord_KeepsEachVolumeWithItsSample(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	first := reading(testNow.Add(-10*time.Second), 10)
+	replayed := reading(testNow.Add(-10*time.Second), 10)
+	replayed.Disks = replayed.Disks[:1]
+	if err := b.service.Record(ctx, machine.LocalID, []sampler.Reading{first, replayed}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := b.service.Current(ctx, machine.LocalID)
+	if err != nil || current.Sample == nil || len(current.Sample.Disks) != 2 {
+		t.Fatalf("current %+v %v", current, err)
+	}
+	if got := current.Sample.Disks[1]; got.MountPoint != "/data" || got.Device != "/dev/vdb" || got.Used != 300<<30 || got.Total != 500<<30 {
+		t.Fatalf("data volume %+v", got)
+	}
+	all, err := b.service.CurrentAll(ctx)
+	if err != nil || len(all) != 1 || len(all[0].Sample.Disks) != 2 || all[0].Sample.Disks[0].MountPoint != "/" {
+		t.Fatalf("all %+v %v", all, err)
+	}
+	// L'historique ne porte que la somme.
+	_, points, err := b.service.History(ctx, machine.LocalID, "1h")
+	if err != nil || len(points) != 1 || points[0].Disks != nil || points[0].DiskTotal != 580<<30 {
+		t.Fatalf("history %+v %v", points, err)
+	}
+}
+
 func TestCurrent_IsUnavailableWhenStaleOrAbsent_NeverZero(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
@@ -125,12 +161,20 @@ func TestCurrent_IsUnavailableWhenStaleOrAbsent_NeverZero(t *testing.T) {
 func TestRecord_RefusesWhatAnAgentCannotHaveMeasured(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
+	tooManyDisks := make([]sampler.Disk, resource.MaxDisksPerReading+1)
+	for i := range tooManyDisks {
+		tooManyDisks[i] = sampler.Disk{MountPoint: "/" + strconv.Itoa(i), Total: 1}
+	}
 	cases := map[string]sampler.Reading{
-		"cpu over 100":   {SampledAt: testNow, CPUPercent: 101},
-		"negative":       {SampledAt: testNow, MemUsed: -1},
-		"far future":     {SampledAt: testNow.Add(time.Hour)},
-		"older than raw": {SampledAt: testNow.Add(-resource.RawRetention - time.Hour)},
-		"no date":        {},
+		"cpu over 100":         {SampledAt: testNow, CPUPercent: 101},
+		"negative":             {SampledAt: testNow, MemUsed: -1},
+		"far future":           {SampledAt: testNow.Add(time.Hour)},
+		"older than raw":       {SampledAt: testNow.Add(-resource.RawRetention - time.Hour)},
+		"no date":              {},
+		"relative mount point": {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "data", Total: 1}}},
+		"negative volume":      {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Used: -1, Total: 1}}},
+		"same volume twice":    {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Total: 1}, {MountPoint: "/", Total: 2}}},
+		"too many volumes":     {SampledAt: testNow, Disks: tooManyDisks},
 	}
 	for name, bad := range cases {
 		if err := b.service.Record(ctx, machine.LocalID, []sampler.Reading{reading(testNow, 1), bad}); !errors.Is(err, resource.ErrReadingInvalid) {

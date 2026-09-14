@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -172,20 +171,4 @@ func netRates(previous, current netCounters, elapsed time.Duration) (rx, tx int6
 		tx = int64(float64(current.tx-previous.tx) / seconds)
 	}
 	return rx, tx
-}
-
-// diskUsage mesure le système de fichiers qui porte path, comme df : les
-// blocs réservés à root comptent dans l'utilisé. Zéro si statfs échoue.
-func diskUsage(path string) (used, total int64) {
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(path, &fs); err != nil {
-		return 0, 0
-	}
-	blockSize := uint64(fs.Bsize)        // #nosec G115 -- une taille de bloc, toujours positive.
-	total = int64(fs.Blocks * blockSize) // #nosec G115 -- des octets, loin de MaxInt64.
-	free := int64(fs.Bavail * blockSize) // #nosec G115 -- idem.
-	if total >= free {
-		used = total - free
-	}
-	return used, total
 }
