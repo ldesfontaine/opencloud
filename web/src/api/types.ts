@@ -10,6 +10,7 @@ export interface Session {
 export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
+  services: { total: number; attention: number };
 }
 
 export interface Machine {
@@ -153,4 +154,93 @@ export interface HistoryResponse {
   span_seconds: number;
   step_seconds: number;
   points: Reading[];
+}
+
+// Un port publié sur l'hôte d'une machine.
+export interface Port {
+  ip: string;
+  host_port: number;
+  container_port: number;
+  protocol: string;
+}
+
+export type ServiceState = "created" | "running" | "paused" | "restarting" | "removing" | "exited" | "dead";
+export type ServiceHealth = "" | "starting" | "healthy" | "unhealthy";
+
+// La mesure courante d'un service, absente si elle n'est pas fraîche.
+export interface ServiceSample {
+  sampled_at: string;
+  cpu_percent: number;
+  mem_used: number;
+  mem_limit: number;
+}
+
+// Un service : des faits ; la pastille se dérive ici de l'état, du code
+// de sortie et de la santé.
+export interface Service {
+  id: string;
+  machine_id: string;
+  machine_name: string;
+  kind: "container";
+  name: string;
+  group: string;
+  container_id: string;
+  image: string;
+  image_id: string;
+  state: ServiceState;
+  exit_code: number;
+  health: ServiceHealth;
+  restart_count: number;
+  ports: Port[];
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  archived_at: string | null;
+  current: ServiceSample | null;
+}
+
+// Ce qu'une machine dit de son Docker.
+export interface Engine {
+  machine_id: string;
+  present: boolean;
+  reason: "" | "no_socket" | "denied" | "down" | "too_old";
+  version: string;
+  api_version: string;
+  checked_at: string;
+}
+
+export interface ServicesResponse {
+  services: Service[];
+  engines: Engine[];
+}
+
+export interface Transition {
+  id: number;
+  at: string;
+  action: string;
+  previous_state: ServiceState | "";
+  new_state: ServiceState | "";
+  previous_health: ServiceHealth;
+  new_health: ServiceHealth;
+  exit_code: number | null;
+  replayed: boolean;
+  snippet: string;
+}
+
+export interface ServiceResponse {
+  service: Service;
+  engine: Engine | null;
+  transitions: Transition[];
+}
+
+export interface LogLine {
+  at: string | null;
+  stream: string;
+  text: string;
+}
+
+export interface LogsResponse {
+  lines: LogLine[];
 }

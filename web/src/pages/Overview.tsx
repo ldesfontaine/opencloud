@@ -48,6 +48,18 @@ export function Overview() {
           <div className="grid-4">
             <Stat icon="server" label={t("nav.machines")} value={list.length} foot={<b>{t("overview.online", online)}</b>} />
             <Stat
+              icon="box"
+              label={t("nav.services")}
+              value={counts.data?.services.total ?? "–"}
+              foot={
+                counts.data && counts.data.services.attention > 0 ? (
+                  <b className="danger">{t("overview.services_attention", counts.data.services.attention)}</b>
+                ) : (
+                  t("overview.services_ok")
+                )
+              }
+            />
+            <Stat
               icon="clock"
               label={t("nav.jobs")}
               value={counts.data?.jobs.total ?? "–"}

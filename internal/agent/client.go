@@ -22,8 +22,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const (
@@ -204,28 +204,33 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	return &Stream{Session: data, body: response.Body, reader: reader}, nil
 }
 
-// Follow lit le flux jusqu'à sa fin ; « closed » est une fin voulue par le
-// serveur, tout le reste est une coupure.
-func (s *Stream) Follow() error {
+// Follow lit le flux jusqu'à sa fin et passe chaque commande du serveur
+// à handle ; « closed » est une fin voulue par le serveur, tout le reste
+// est une coupure.
+func (s *Stream) Follow(handle func(name, data string)) error {
 	for {
 		name, data, err := readEvent(s.reader)
 		if err != nil {
 			return err
 		}
-		if name == "closed" {
+		switch name {
+		case "closed":
 			return fmt.Errorf("stream closed by server: %s", data)
+		case "ping", "session", "":
+		default:
+			handle(name, data)
 		}
 	}
 }
 
-// Signal donne signe de vie et livre les lectures faites depuis le
-// précédent ; sans lecture, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading) error {
+// Signal donne signe de vie et livre ce qui attendait : les lectures de la
+// machine et ce que Docker a montré ; sans rien, le signal part sans corps.
+func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
-	if len(readings) > 0 {
-		content, err := json.Marshal(resource.SignalRequest{Readings: readings})
+	if len(readings) > 0 || report != nil {
+		content, err := json.Marshal(machine.SignalRequest{Readings: readings, Services: report})
 		if err != nil {
 			return err
 		}
@@ -246,6 +251,31 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("signal: %w", serverError(response))
+	}
+	return nil
+}
+
+// PostLogs livre un lot de journal pour une requête du serveur.
+func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch service.LogBatch) error {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	content, err := json.Marshal(batch)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/logs/"+url.PathEscape(requestID), bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+session)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("post logs: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("post logs: %w", serverError(response))
 	}
 	return nil
 }

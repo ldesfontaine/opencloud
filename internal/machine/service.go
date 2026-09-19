@@ -330,3 +330,8 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) (string, erro
 	s.changed(session.MachineID)
 	return session.MachineID, nil
 }
+
+// Command pousse une commande à l'agent d'une machine par son flux ouvert.
+func (s *Service) Command(machineID, name string, payload any) error {
+	return s.sessions.Command(machineID, Command{Name: name, Payload: payload})
+}

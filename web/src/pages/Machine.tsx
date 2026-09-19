@@ -2,18 +2,20 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { api } from "../api/client";
-import type { Current, Machine, MachinesResponse, TokenResponse } from "../api/types";
+import type { Current, Machine, MachinesResponse, ServicesResponse, TokenResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { MachineHead, machineTabs, Tabs } from "../components/MachineHead";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
+import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../lib/refresh";
+import { engineNote } from "../lib/services";
 import { seenAgo } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -62,6 +64,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             </CardBody>
           </Card>
         </>
+      ) : tab === "services" ? (
+        <MachineServices machineID={current.id} />
       ) : (
         <Card>
           <Empty
@@ -75,6 +79,36 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         </Card>
       )}
     </>
+  );
+}
+
+// L'onglet Services : le tableau de la planche avec son filtre ; sans
+// service, ce que la machine a dit de son Docker.
+function MachineServices({ machineID }: { machineID: string }) {
+  const t = useT();
+  const services = useResource<ServicesResponse>(`/api/machines/${machineID}/services`);
+  const [filter, setFilter] = useServiceFilter();
+  const all = services.data?.services ?? [];
+  const shown = filterServices(all, filter);
+  const note = services.data && all.length === 0 ? engineNote(t, services.data.engines[0]) : null;
+  return (
+    <Card className="scroll-x">
+      <CardHeader title={t("tab.services")} aside={services.data ? t("services.machine_subtitle", all.length) : ""} />
+      {services.error && <Failure error={services.error} />}
+      {all.length > 0 && (
+        <div className="table-bar">
+          <ServiceFilter value={filter} onChange={setFilter} />
+        </div>
+      )}
+      {note !== null && (
+        <CardBody>
+          <Note tone="warn">{note}</Note>
+        </CardBody>
+      )}
+      {services.data && all.length === 0 && note === null && <Empty text={t("services.empty_title")} />}
+      {shown.length > 0 && <ServiceTable services={shown} withMachine={false} />}
+      {all.length > 0 && shown.length === 0 && <Empty text={t("services.empty_title")} />}
+    </Card>
   );
 }
 

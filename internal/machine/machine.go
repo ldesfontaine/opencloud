@@ -83,6 +83,7 @@ var (
 	ErrClockSkew     = errors.New("clock skew exceeds the tolerance")
 	ErrBadSignature  = errors.New("invalid signature")
 	ErrNotConnected  = errors.New("machine not connected")
+	ErrBusy          = errors.New("machine command queue full")
 )
 
 // Un nom de machine se lit comme une étiquette DNS : il servira dans des

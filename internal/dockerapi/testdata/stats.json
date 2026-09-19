@@ -1,0 +1,111 @@
+{
+    "id": "0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513",
+    "name": "/opencloud-fixture",
+    "os_type": "linux",
+    "read": "2026-09-19T07:24:05.237488245Z",
+    "cpu_stats": {
+        "cpu_usage": {
+            "total_usage": 29336000,
+            "usage_in_kernelmode": 13150000,
+            "usage_in_usermode": 16185000
+        },
+        "system_cpu_usage": 1095314330000000,
+        "online_cpus": 20,
+        "throttling_data": {
+            "periods": 0,
+            "throttled_periods": 0,
+            "throttled_time": 0
+        }
+    },
+    "memory_stats": {
+        "usage": 2846720,
+        "stats": {
+            "active_anon": 86016,
+            "active_file": 1429504,
+            "anon": 114688,
+            "anon_thp": 0,
+            "file": 1470464,
+            "file_dirty": 0,
+            "file_mapped": 1163264,
+            "file_writeback": 0,
+            "inactive_anon": 0,
+            "inactive_file": 40960,
+            "kernel_stack": 32768,
+            "pgactivate": 0,
+            "pgdeactivate": 0,
+            "pgfault": 908,
+            "pglazyfree": 0,
+            "pglazyfreed": 0,
+            "pgmajfault": 2,
+            "pgrefill": 0,
+            "pgscan": 0,
+            "pgsteal": 0,
+            "shmem": 0,
+            "slab": 263408,
+            "slab_reclaimable": 96280,
+            "slab_unreclaimable": 167128,
+            "sock": 0,
+            "thp_collapse_alloc": 0,
+            "thp_fault_alloc": 2,
+            "unevictable": 0,
+            "workingset_activate": 0,
+            "workingset_nodereclaim": 0,
+            "workingset_refault": 0
+        },
+        "limit": 29199167488
+    },
+    "networks": {
+        "eth0": {
+            "rx_bytes": 736,
+            "rx_packets": 8,
+            "rx_errors": 0,
+            "rx_dropped": 0,
+            "tx_bytes": 126,
+            "tx_packets": 3,
+            "tx_errors": 0,
+            "tx_dropped": 0
+        }
+    },
+    "pids_stats": {
+        "current": 2,
+        "limit": 33223
+    },
+    "blkio_stats": {
+        "io_service_bytes_recursive": [
+            {
+                "major": 259,
+                "minor": 0,
+                "op": "read",
+                "value": 1527808
+            },
+            {
+                "major": 259,
+                "minor": 0,
+                "op": "write",
+                "value": 0
+            }
+        ],
+        "io_serviced_recursive": null,
+        "io_queue_recursive": null,
+        "io_service_time_recursive": null,
+        "io_wait_time_recursive": null,
+        "io_merged_recursive": null,
+        "io_time_recursive": null,
+        "sectors_recursive": null
+    },
+    "num_procs": 0,
+    "storage_stats": {},
+    "preread": "0001-01-01T00:00:00Z",
+    "precpu_stats": {
+        "cpu_usage": {
+            "total_usage": 0,
+            "usage_in_kernelmode": 0,
+            "usage_in_usermode": 0
+        },
+        "throttling_data": {
+            "periods": 0,
+            "throttled_periods": 0,
+            "throttled_time": 0
+        }
+    }
+}

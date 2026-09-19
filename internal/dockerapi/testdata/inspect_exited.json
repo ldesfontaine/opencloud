@@ -1,0 +1,32 @@
+{
+    "Id": "9a76def9fdb994bdfc6822838576baef2c3edfd5893c00b7f4a5b4e318b8df97",
+    "Name": "/opencloud-fixture-exited",
+    "Image": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "Created": "2026-09-19T08:15:35.848652237Z",
+    "RestartCount": 0,
+    "State": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 1,
+        "FinishedAt": "2026-09-19T08:15:36.051864028Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-09-19T08:15:35.91826111Z",
+        "Status": "exited"
+    },
+    "Config": {
+        "Image": "alpine:3.20",
+        "Tty": false,
+        "Labels": {
+            "com.docker.compose.project": "fixture",
+            "com.docker.compose.service": "job"
+        },
+        "Healthcheck": null
+    },
+    "NetworkSettings": {
+        "Ports": {}
+    }
+}

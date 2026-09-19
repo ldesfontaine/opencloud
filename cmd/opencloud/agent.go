@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/ldesfontaine/opencloud/internal/agent"
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -37,6 +38,7 @@ func runAgent(args []string) error {
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
+	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -59,14 +61,15 @@ func runAgent(args []string) error {
 	defer stop()
 	logger.Info("agent starting", "version", version.String(), "state_dir", *stateDir)
 	err = agent.Run(ctx, agent.Options{
-		StateDir:   root,
-		Server:     *server,
-		Token:      *token,
-		Pin:        *pin,
-		AllowPlain: *allowPlain,
-		Language:   code,
-		Version:    version.Number(),
-		Logger:     logger,
+		StateDir:     root,
+		Server:       *server,
+		Token:        *token,
+		Pin:          *pin,
+		AllowPlain:   *allowPlain,
+		Language:     code,
+		Version:      version.Number(),
+		DockerSocket: *dockerSocket,
+		Logger:       logger,
 	})
 	if err == nil {
 		return nil

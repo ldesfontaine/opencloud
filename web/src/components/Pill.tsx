@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import type { JobStatus } from "../api/types";
+import type { JobStatus, Service } from "../api/types";
 import { useT } from "../i18n/context";
+import { servicePill } from "../lib/services";
 import "./Pill.scss";
 
 export type Tone = "ok" | "warn" | "danger" | "neutral" | "accent";
@@ -34,4 +35,12 @@ const jobTones: Record<JobStatus, Tone> = {
 export function JobPill({ status }: { status: JobStatus }) {
   const t = useT();
   return <Pill tone={jobTones[status]}>{t(`job.status_${status}`)}</Pill>;
+}
+
+// Pastille d'un service : Actif, Démarre, Défaillant, Redémarre, En pause,
+// Arrêté ; dérivée des faits, jamais envoyée par le serveur.
+export function ServicePill({ service }: { service: Pick<Service, "state" | "exit_code" | "health"> }) {
+  const t = useT();
+  const pill = servicePill(service);
+  return <Pill tone={pill.tone}>{t(`service.state_${pill.key}`)}</Pill>;
 }

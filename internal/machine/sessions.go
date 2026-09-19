@@ -17,6 +17,7 @@ type Session struct {
 	ConnectedAt time.Time
 	done        chan struct{}
 	closeOnce   sync.Once
+	commands    chan Command
 }
 
 // Done se ferme quand la session est fermée par le serveur : machine retirée,
@@ -55,6 +56,7 @@ func (s *Sessions) Open(machineID string, now time.Time) (*Session, error) {
 		Token:       hex.EncodeToString(raw),
 		ConnectedAt: now,
 		done:        make(chan struct{}),
+		commands:    make(chan Command, commandBacklog),
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -109,4 +111,37 @@ func (s *Sessions) CountOnline() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.byMachine)
+}
+
+// Command est ce que le serveur pousse à l'agent par son flux : le nom de
+// l'événement et son contenu, encodé en JSON par le flux.
+type Command struct {
+	Name    string
+	Payload any
+}
+
+// Une file courte : un suivi de journal qui s'ouvre et se ferme, jamais
+// des rafales. Pleine, la commande est refusée plutôt que d'attendre.
+const commandBacklog = 16
+
+// Commands rend la file que le flux de la session lit.
+func (s *Session) Commands() <-chan Command {
+	return s.commands
+}
+
+// Command pousse une commande à la machine ; ErrNotConnected sans flux,
+// ErrBusy si la file est pleine.
+func (s *Sessions) Command(machineID string, command Command) error {
+	s.mu.RLock()
+	session, ok := s.byMachine[machineID]
+	s.mu.RUnlock()
+	if !ok {
+		return ErrNotConnected
+	}
+	select {
+	case session.commands <- command:
+		return nil
+	default:
+		return ErrBusy
+	}
 }

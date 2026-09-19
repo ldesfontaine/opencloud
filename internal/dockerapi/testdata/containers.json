@@ -1,0 +1,87 @@
+[
+    {
+        "Id": "0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513",
+        "Names": [
+            "/opencloud-fixture"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "State": "running",
+        "Created": 1789802641,
+        "Labels": {
+            "com.docker.compose.project": "fixture",
+            "com.docker.compose.service": "web"
+        },
+        "Ports": [
+            {
+                "IP": "127.0.0.1",
+                "PrivatePort": 80,
+                "PublicPort": 18080,
+                "Type": "tcp"
+            }
+        ]
+    },
+    {
+        "Id": "a05a825a4cd39c2a90195674fda3e0d56bd539bd71b18ce6ce163f9f3d8e4d60",
+        "Names": [
+            "/fixture-1"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:0b966deb3eab0b26100f6a45bb3b1d5bdf563bb22ac7314ff38ecca4bcb7e90e",
+        "State": "exited",
+        "Created": 1784822348,
+        "Labels": {
+            "com.docker.compose.project": "fixture",
+            "com.docker.compose.service": "other"
+        },
+        "Ports": []
+    },
+    {
+        "Id": "4063e61d7cfe26206b3806050a3d540c5cfc3ac383dde32dcb8bc115c8b129b6",
+        "Names": [
+            "/fixture-2"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:95eb23de2e7db1b81c66200c6d49d3a2c32dd657ec1de05904fdaf79d86c5ef6",
+        "State": "exited",
+        "Created": 1780646425,
+        "Labels": {},
+        "Ports": []
+    },
+    {
+        "Id": "c2be58533dc26aa1e0704cfc723ff412ef8aeaa553239804b95b3e6e7531e07e",
+        "Names": [
+            "/fixture-3"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:95eb23de2e7db1b81c66200c6d49d3a2c32dd657ec1de05904fdaf79d86c5ef6",
+        "State": "exited",
+        "Created": 1780646362,
+        "Labels": {},
+        "Ports": []
+    },
+    {
+        "Id": "0b727dc8792a2dcc71af6199f0a997f2721ed5eebd8a8f6f9c77bab1654ce4fa",
+        "Names": [
+            "/fixture-4"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:95eb23de2e7db1b81c66200c6d49d3a2c32dd657ec1de05904fdaf79d86c5ef6",
+        "State": "exited",
+        "Created": 1780646321,
+        "Labels": {},
+        "Ports": []
+    },
+    {
+        "Id": "f3927c8cedc44426d7682b2bb6e5c354b47fe0f3f3ec4a7c0c1caa10abeff09b",
+        "Names": [
+            "/fixture-5"
+        ],
+        "Image": "alpine:3.20",
+        "ImageID": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+        "State": "exited",
+        "Created": 1780645360,
+        "Labels": {},
+        "Ports": []
+    }
+]

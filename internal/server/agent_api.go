@@ -12,14 +12,19 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const (
 	streamPingInterval = 15 * time.Second
 	maxAgentBody       = 16 << 10
 	// Un lot de rattrapage : 120 lectures d'environ 250 octets, plus une
-	// centaine par volume, jusqu'à 32 volumes.
-	maxSignalBody = 512 << 10
+	// centaine par volume, jusqu'à 32 volumes ; et la section services,
+	// un inventaire de 256 conteneurs d'un kilo-octet au plus.
+	maxSignalBody = 1 << 20
+	// Un lot de journal : 64 lignes de 64 Kio au plus, en pratique bien
+	// moins ; la chaîne de middlewares plafonne déjà à 1 Mio.
+	maxLogsBody = 1 << 20
 )
 
 type agentError struct {
@@ -131,8 +136,22 @@ func (s *Server) agentStream(w http.ResponseWriter, r *http.Request) {
 			if err := writeEvent(w, "ping", ""); err != nil {
 				return
 			}
+		case command := <-session.Commands():
+			if err := writeCommand(w, command); err != nil {
+				return
+			}
 		}
 	}
+}
+
+// writeCommand pousse une commande à l'agent : son nom en événement, son
+// contenu en JSON sur une ligne, tiré par le serveur.
+func writeCommand(w http.ResponseWriter, command machine.Command) error {
+	payload, err := json.Marshal(command.Payload)
+	if err != nil {
+		return err
+	}
+	return writeEvent(w, command.Name, string(payload))
 }
 
 func (s *Server) writeAuthError(w http.ResponseWriter, err error) {
@@ -159,7 +178,7 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
-	var request resource.SignalRequest
+	var request machine.SignalRequest
 	if r.ContentLength != 0 {
 		body := http.MaxBytesReader(w, r.Body, maxSignalBody)
 		if err := json.NewDecoder(body).Decode(&request); err != nil {
@@ -181,12 +200,51 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, resource.ErrReadingInvalid), errors.Is(err, resource.ErrTooManyReadings):
 		s.writeAgentError(w, http.StatusBadRequest, "bad_readings")
+		return
 	case err != nil:
 		s.logger.Error("record readings", "machine_id", machineID, "error", err)
+		s.writeAgentError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	// Un agent plus vieux n'envoie pas de section services : rien à écrire.
+	if request.Services != nil {
+		err = s.services.Record(r.Context(), machineID, *request.Services)
+	}
+	switch {
+	case errors.Is(err, service.ErrReportInvalid):
+		s.writeAgentError(w, http.StatusBadRequest, "bad_services")
+	case err != nil:
+		s.logger.Error("record services", "machine_id", machineID, "error", err)
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// Un lot de journal livré par l'agent pour une requête que le serveur lui
+// a poussée. Une requête que personne n'attend plus répond 404 : l'agent
+// arrête de suivre.
+func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	if _, err := s.machines.Signal(r.Context(), token); err != nil {
+		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	var batch service.LogBatch
+	body := http.MaxBytesReader(w, r.Body, maxLogsBody)
+	if err := json.NewDecoder(body).Decode(&batch); err != nil {
+		s.writeAgentError(w, http.StatusBadRequest, "bad_json")
+		return
+	}
+	if !s.services.DeliverLogs(r.Context(), r.PathValue("request"), batch) {
+		s.writeAgentError(w, http.StatusNotFound, "request_unknown")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {
