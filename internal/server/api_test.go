@@ -111,25 +111,38 @@ func (ts *testServer) seedResources(t *testing.T) {
 }
 
 // Deux services sur la machine distante, le projet Compose de la planche
-// « Machine » : nextcloud actif et mesuré, sa base arrêtée sur un crash ;
-// et sur la machine openCloud, un Docker absent.
+// « Machine » : nextcloud actif, mesuré, publié sur toutes les interfaces
+// et sur le réseau interne du projet ; sa base sur ce réseau seul, avec son
+// port publié sur la boucle locale, arrêtée sur un crash ; et sur la
+// machine openCloud, un Docker absent.
 func (ts *testServer) seedServices(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 	started := testNow.Add(-26 * time.Hour)
 	finished := testNow.Add(-10 * time.Minute)
+	internalNet, bridgeNet := strings.Repeat("c", 64), strings.Repeat("d", 64)
 	web := service.Container{
 		ContainerID: strings.Repeat("a", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4", ImageID: "sha256:" + strings.Repeat("1", 64),
 		State: service.StateRunning, Health: service.HealthHealthy, RestartCount: 0,
-		Ports:     []service.Port{{IP: "127.0.0.1", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
-		CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
+		Ports:       []service.Port{{IP: "0.0.0.0", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}, {IP: "::", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
+		NetworkMode: "nextcloud_internal",
+		Networks:    []service.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.2", Aliases: []string{"nextcloud"}}},
+		DependsOn:   []service.Dependency{{Name: "nextcloud-db", Source: service.DependencyCompose}},
+		CreatedAt:   testNow.Add(-48 * time.Hour), StartedAt: &started,
 	}
 	db := service.Container{
 		ContainerID: strings.Repeat("b", 64), Name: "nextcloud-db", Group: "nextcloud", Image: "postgres:16.4", ImageID: "sha256:" + strings.Repeat("2", 64),
 		State: service.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
+		Ports:       []service.Port{{IP: "127.0.0.1", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}},
+		NetworkMode: "nextcloud_internal",
+		Networks:    []service.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.3", Aliases: []string{"nextcloud-db", "postgres"}}},
 	}
 	report := service.Report{
 		Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []service.Container{web, db},
+		NetworksComplete: true, Networks: []service.NetworkReport{
+			{NetworkID: bridgeNet, Name: "bridge", Driver: "bridge"},
+			{NetworkID: internalNet, Name: "nextcloud_internal", Driver: "bridge", Internal: true, Group: "nextcloud"},
+		},
 		Stats: []service.Stat{{ContainerID: web.ContainerID, SampledAt: testNow.Add(-10 * time.Second), CPUPercent: 12.5, MemUsed: 1_503_238_553, MemLimit: 8_589_934_592}},
 	}
 	if err := ts.services.Record(ctx, remoteID, report); err != nil {
@@ -194,6 +207,9 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	cases := map[string]string{
 		"services":         "/api/services",
 		"machine_services": "/api/machines/" + remoteID + "/services",
+		"machine_network":  "/api/machines/" + remoteID + "/network",
+		"local_network":    "/api/machines/local/network",
+		"network":          "/api/network",
 		"local_services":   "/api/machines/local/services",
 		"service":          "/api/services/" + serviceID,
 		"transitions":      "/api/services/" + serviceID + "/transitions?limit=1",

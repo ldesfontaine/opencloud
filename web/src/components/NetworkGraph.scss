@@ -1,0 +1,220 @@
+// Le graphe réseau : fond pointé, nœuds, arêtes, groupes, dans les jetons.
+.netgraph {
+  position: relative;
+  // La base reste la hauteur : un flex-basis nul l'écraserait en colonne.
+  flex: 1 1 auto;
+  min-width: 0;
+  height: clamp(420px, 62vh, 760px);
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+
+  svg {
+    display: block;
+    cursor: grab;
+
+    &.dragging {
+      cursor: grabbing;
+    }
+  }
+}
+
+.netgraph-bg {
+  fill: url("#netgraph-dots");
+}
+
+.netgraph-dot {
+  fill: var(--line-strong);
+}
+
+.netgraph-group {
+  rect {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    stroke-dasharray: 4 4;
+  }
+
+  text {
+    fill: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+.netgraph-edge {
+  path {
+    fill: none;
+    stroke: var(--line-strong);
+    stroke-width: 1.5;
+  }
+
+  text {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .label-bg {
+    fill: var(--surface);
+    stroke: none;
+  }
+
+  &.depends path {
+    stroke-dasharray: 4 5;
+  }
+
+  &.hot {
+    path {
+      stroke: var(--accent);
+    }
+
+    text {
+      fill: var(--accent);
+    }
+
+    .netgraph-arrow {
+      stroke: var(--accent);
+    }
+  }
+}
+
+.netgraph-arrow {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.netgraph-node {
+  cursor: pointer;
+  outline: none;
+
+  .frame {
+    fill: var(--surface);
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+
+  .ring {
+    fill: none;
+    stroke: var(--accent-wash);
+    stroke-width: 6;
+  }
+
+  .ico {
+    fill: var(--surface-2);
+  }
+
+  .icon {
+    overflow: visible;
+    color: var(--ink-2);
+  }
+
+  .name {
+    fill: var(--ink);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .sub {
+    fill: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .dot {
+    &.ok {
+      fill: var(--ok);
+    }
+
+    &.warn {
+      fill: var(--warn);
+    }
+
+    &.danger {
+      fill: var(--danger);
+    }
+
+    &.accent {
+      fill: var(--accent);
+    }
+
+    &.neutral {
+      fill: var(--line-strong);
+    }
+  }
+
+  &:hover .frame,
+  &:focus-visible .frame {
+    stroke: var(--line-strong);
+  }
+
+  &.selected .frame {
+    stroke: var(--accent);
+  }
+
+  &.internet {
+    .frame {
+      fill: var(--primary);
+      stroke: var(--primary);
+    }
+
+    .ico {
+      fill: var(--primary-ink);
+      fill-opacity: 0.14;
+    }
+
+    .icon,
+    .name {
+      color: var(--primary-ink);
+      fill: var(--primary-ink);
+    }
+
+    .sub {
+      fill: var(--primary-ink);
+      fill-opacity: 0.7;
+    }
+  }
+}
+
+.netgraph-legend {
+  position: absolute;
+  left: 20px;
+  bottom: 16px;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  align-items: center;
+  pointer-events: none;
+
+  i {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 1.5px solid var(--line-strong);
+    vertical-align: middle;
+    margin-right: 6px;
+
+    &.hot {
+      border-color: var(--accent);
+    }
+
+    &.dashed {
+      border-top-style: dashed;
+    }
+  }
+}
+
+.netgraph-tools {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  display: flex;
+  gap: 6px;
+}

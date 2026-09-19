@@ -58,6 +58,7 @@ type ServiceTracker interface {
 	Get(ctx context.Context, id string) (service.Service, error)
 	Transitions(ctx context.Context, id string, limit int) ([]service.Transition, error)
 	Engines(ctx context.Context) ([]service.Engine, error)
+	Topology(ctx context.Context, machineID string) (service.Topology, error)
 	CurrentAll(ctx context.Context) ([]service.Current, error)
 	Count(ctx context.Context) (total, attention int, err error)
 	FollowLogs(ctx context.Context, serviceID string, tail int) (<-chan service.LogBatch, error)

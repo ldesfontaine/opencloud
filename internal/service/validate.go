@@ -2,6 +2,7 @@ package service
 
 import (
 	"math"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -13,6 +14,14 @@ import (
 func validate(report Report, now time.Time) error {
 	if len(report.Inventory) > MaxContainersPerReport || len(report.Events) > MaxEventsPerReport || len(report.Stats) > MaxStatsPerReport {
 		return ErrReportInvalid
+	}
+	if len(report.Networks) > MaxNetworksPerMachine {
+		return ErrReportInvalid
+	}
+	for _, network := range report.Networks {
+		if !isContainerID(network.NetworkID) || network.Name == "" || len(network.Name) > MaxNameLength || network.Driver == "" || len(network.Driver) > MaxNameLength || len(network.Group) > MaxNameLength {
+			return ErrReportInvalid
+		}
 	}
 	if report.Engine != nil && !report.Engine.Present && report.Engine.Reason == "" {
 		return ErrReportInvalid
@@ -56,6 +65,33 @@ func validateContainer(container Container, now time.Time) error {
 	if container.CreatedAt.IsZero() || isTooLate(container.CreatedAt, now) {
 		return ErrReportInvalid
 	}
+	return validateNetworking(container)
+}
+
+func validateNetworking(container Container) error {
+	if len(container.NetworkMode) > MaxNameLength || len(container.Networks) > MaxNetworksPerContainer || len(container.DependsOn) > MaxDependencies {
+		return ErrReportInvalid
+	}
+	for _, attachment := range container.Networks {
+		if !isContainerID(attachment.NetworkID) || attachment.Name == "" || len(attachment.Name) > MaxNameLength || len(attachment.Aliases) > MaxAliasesPerNetwork {
+			return ErrReportInvalid
+		}
+		if attachment.IP != "" {
+			if _, err := netip.ParseAddr(attachment.IP); err != nil {
+				return ErrReportInvalid
+			}
+		}
+		for _, alias := range attachment.Aliases {
+			if alias == "" || len(alias) > MaxNameLength {
+				return ErrReportInvalid
+			}
+		}
+	}
+	for _, dependency := range container.DependsOn {
+		if dependency.Name == "" || len(dependency.Name) > MaxNameLength || (dependency.Source != DependencyCompose && dependency.Source != DependencyLink) {
+			return ErrReportInvalid
+		}
+	}
 	return nil
 }
 
@@ -85,7 +121,8 @@ func validateStat(stat Stat, now time.Time) error {
 	return nil
 }
 
-// Un identifiant Docker : 64 caractères hexadécimaux.
+// Un identifiant Docker, de conteneur comme de réseau : 64 caractères
+// hexadécimaux.
 func isContainerID(id string) bool {
 	if len(id) != 64 {
 		return false

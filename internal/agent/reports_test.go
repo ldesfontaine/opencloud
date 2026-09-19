@@ -14,12 +14,17 @@ func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
 	pending.Deliver(service.Report{Engine: &service.EngineReport{Present: true}})
 	pending.Deliver(service.Report{Complete: true, Inventory: []service.Container{{Name: "a"}}})
 	pending.Deliver(service.Report{Complete: true, Inventory: []service.Container{{Name: "b"}}})
+	pending.Deliver(service.Report{NetworksComplete: true, Networks: []service.NetworkReport{{Name: "old"}}})
+	pending.Deliver(service.Report{NetworksComplete: true, Networks: []service.NetworkReport{{Name: "new"}}})
 	pending.Deliver(service.Report{Events: []service.Event{{Action: "start"}}})
 	pending.Deliver(service.Report{Stats: []service.Stat{{CPUPercent: 1}}})
 
 	taken := pending.take()
 	if taken == nil || !taken.Engine.Present || len(taken.Inventory) != 1 || taken.Inventory[0].Name != "b" || len(taken.Events) != 1 || len(taken.Stats) != 1 {
 		t.Fatalf("taken = %+v", taken)
+	}
+	if !taken.NetworksComplete || len(taken.Networks) != 1 || taken.Networks[0].Name != "new" {
+		t.Fatalf("networks = %+v", taken.Networks)
 	}
 	if pending.take() != nil {
 		t.Fatal("take empties the buffer")
@@ -28,7 +33,7 @@ func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
 	pending.restore(taken)
 	pending.markReplayed()
 	again := pending.take()
-	if len(again.Events) != 2 || again.Events[0].Action != "start" || !again.Events[0].Replayed || !again.Events[1].Replayed || again.Inventory[0].Name != "b" {
+	if len(again.Events) != 2 || again.Events[0].Action != "start" || !again.Events[0].Replayed || !again.Events[1].Replayed || again.Inventory[0].Name != "b" || !again.NetworksComplete {
 		t.Fatalf("again = %+v", again)
 	}
 }

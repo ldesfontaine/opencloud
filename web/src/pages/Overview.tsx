@@ -4,6 +4,7 @@ import type { Counts, MachinesResponse, ResourcesResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Empty, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
+import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
 import { StatePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
@@ -14,9 +15,9 @@ import { machinesSubtitle } from "../lib/subtitles";
 import { seenAgo } from "../lib/time";
 import "./Overview.scss";
 
-// La vue d'ensemble compte les machines et les tâches, puis montre chaque
-// machine en carte avec ses trois jauges ; sans machine, elle invite à en
-// ajouter une.
+// La vue d'ensemble compte les machines et les tâches, dessine le réseau de
+// toutes les machines, puis montre chaque machine en carte avec ses trois
+// jauges ; sans machine, elle invite à en ajouter une.
 export function Overview() {
   const t = useT();
   const now = useNow();
@@ -71,6 +72,13 @@ export function Overview() {
                 )
               }
             />
+          </div>
+          <div className="overview-machines">
+            <div className="overview-head">
+              <span className="card-t">{t("tab.network")}</span>
+              {list.length === 1 && list[0] !== undefined && <Link to={`/machines/${list[0].id}/reseau`}>{t("network.overview_detail")}</Link>}
+            </div>
+            <NetworkOverview />
           </div>
           <div className="overview-machines">
             <div className="overview-head">

@@ -2,16 +2,17 @@ import { Link, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
 import type { ServiceResponse, Transition } from "../api/types";
-import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { LogViewer } from "../components/LogViewer";
+import { modeText } from "../components/NetworkInspector";
 import { PageHead } from "../components/PageHead";
 import { Dot, ServicePill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
-import { formatPorts, servicePill, transitionTitle } from "../lib/services";
+import { findingText, formatBindings, servicePill, transitionTitle } from "../lib/services";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatDecimal } from "../lib/units";
 import { NotFound } from "./NotFound";
@@ -34,7 +35,6 @@ function ServiceView({ response }: { response: ServiceResponse }) {
   const { t, language } = useI18n();
   const now = useNow();
   const service = response.service;
-  const ports = formatPorts(service.ports);
   return (
     <>
       <PageHead title={service.name} subtitle={service.group !== "" && service.group !== service.name ? service.group : ""} />
@@ -66,7 +66,7 @@ function ServiceView({ response }: { response: ServiceResponse }) {
           </span>
         </CardBody>
       </Card>
-      <div className="grid-2">
+      <div className="grid-3">
         <Card>
           <CardHeader title={t("tab.summary")} />
           <CardBody gap={10}>
@@ -75,7 +75,6 @@ function ServiceView({ response }: { response: ServiceResponse }) {
             <KeyValue label={t("service.field_image")} value={service.image} mono />
             {service.image_id !== "" && <KeyValue label={t("service.field_image_id")} value={service.image_id.replace("sha256:", "").slice(0, 12)} mono />}
             <KeyValue label={t("service.field_container")} value={service.container_id.slice(0, 12)} mono />
-            <KeyValue label={t("service.field_ports")} value={ports !== "" ? ports : t("service.internal")} mono />
             <KeyValue label={t("service.field_restarts")} value={service.restart_count} mono />
             <KeyValue label={t("service.field_created")} value={formatClock(service.created_at)} mono />
             {service.started_at !== null && <KeyValue label={t("service.field_started")} value={formatClock(service.started_at)} mono />}
@@ -87,6 +86,38 @@ function ServiceView({ response }: { response: ServiceResponse }) {
               />
             )}
             <KeyValue label={t("service.field_seen")} value={ago(t, service.last_seen_at, now)} />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title={t("tab.network")} aside={<Link to={`/machines/${service.machine_id}/reseau`}>{t("network.open_graph")}</Link>} />
+          <CardBody gap={10}>
+            <KeyValue label={t("network.field_mode")} value={modeText(t, service)} mono />
+            <KeyValue
+              label={t("service.field_ports")}
+              value={service.ports.length > 0 ? formatBindings(service.ports).map((line) => <div key={line}>{line}</div>) : t("service.internal")}
+              mono
+            />
+            <KeyValue
+              label={t("network.field_networks")}
+              value={service.networks.length > 0 ? service.networks.map((attachment) => <div key={attachment.network_id}>{attachment.ip !== "" ? `${attachment.name} · ${attachment.ip}` : attachment.name}</div>) : t("network.none")}
+              mono
+            />
+            <KeyValue
+              label={t("network.field_depends")}
+              value={service.depends_on.length > 0 ? service.depends_on.map((dependency) => dependency.name).join(", ") : t("network.none")}
+              mono
+            />
+            {service.exposure.map((finding) =>
+              finding.level === "warn" ? (
+                <Note tone="warn" key={finding.kind + String(finding.port)}>
+                  {findingText(t, finding)}
+                </Note>
+              ) : (
+                <span className="secondary" key={finding.kind + String(finding.port)}>
+                  {findingText(t, finding)}
+                </span>
+              ),
+            )}
           </CardBody>
         </Card>
         <Card>

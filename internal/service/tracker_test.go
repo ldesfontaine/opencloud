@@ -288,6 +288,85 @@ func TestRecord_StatsBecomeTheCurrentValue(t *testing.T) {
 	}
 }
 
+// Les réseaux voyagent avec l'inventaire : ceux de la machine remplacent
+// la liste précédente, ceux de chaque conteneur remplacent ses
+// appartenances ; un événement réseau réinspecte sans transition.
+func TestRecord_NetworksReplaceTheListAndTheAttachments(t *testing.T) {
+	b := newBench(t)
+	backNet, frontNet := strings.Repeat("3", 64), strings.Repeat("4", 64)
+	web := running(webID, "web", "fixture")
+	web.NetworkMode, web.Privileged = "fixture_back", true
+	web.Networks = []service.Attachment{{NetworkID: backNet, Name: "fixture_back", IP: "172.20.0.2", Aliases: []string{"web"}}, {NetworkID: frontNet, Name: "fixture_front", IP: "172.22.0.2"}}
+	web.DependsOn = []service.Dependency{{Name: "db", Source: service.DependencyCompose}}
+	report := inventory(web, running(dbID, "db", "fixture"))
+	report.NetworksComplete = true
+	report.Networks = []service.NetworkReport{
+		{NetworkID: backNet, Name: "fixture_back", Driver: "bridge", Internal: true, Group: "fixture"},
+		{NetworkID: frontNet, Name: "fixture_front", Driver: "bridge", Group: "fixture"},
+	}
+	b.record(t, report)
+
+	stored := b.get(t, webID)
+	if stored.NetworkMode != "fixture_back" || !stored.Privileged || len(stored.Networks) != 2 || stored.Networks[0].Name != "fixture_back" || stored.Networks[0].Aliases[0] != "web" || stored.Networks[1].IP != "172.22.0.2" {
+		t.Fatalf("web = %+v", stored)
+	}
+	if len(stored.DependsOn) != 1 || stored.DependsOn[0] != (service.Dependency{Name: "db", Source: service.DependencyCompose}) {
+		t.Fatalf("depends = %+v", stored.DependsOn)
+	}
+	topology, err := b.tracker.Topology(context.Background(), machine.LocalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(topology.Groups) != 1 || topology.Groups[0].Name != "fixture_back" || !topology.Groups[0].Internal || len(topology.Groups[0].Members) != 1 {
+		t.Fatalf("groups = %+v", topology.Groups)
+	}
+	if len(topology.Edges) != 1 || topology.Edges[0].Kind != service.EdgeDepends || topology.Edges[0].To != service.ID(machine.LocalID, dbID) {
+		t.Fatalf("edges = %+v", topology.Edges)
+	}
+
+	// Le conteneur quitte le réseau de devant ; la machine perd ce réseau.
+	web.Networks = web.Networks[:1]
+	b.now = b.now.Add(time.Minute)
+	b.record(t, service.Report{Events: []service.Event{{At: b.now, Action: service.ActionNetworkDisconnect, ContainerID: webID, Container: &web}}})
+	b.record(t, service.Report{NetworksComplete: true, Networks: report.Networks[:1]})
+	stored = b.get(t, webID)
+	if len(stored.Networks) != 1 || len(b.transitions(t, webID)) != 1 {
+		t.Fatalf("after disconnect = %+v, transitions = %d", stored.Networks, len(b.transitions(t, webID)))
+	}
+	networks, err := b.db.ListNetworks(context.Background(), machine.LocalID)
+	if err != nil || len(networks) != 1 || networks[0].Name != "fixture_back" {
+		t.Fatalf("networks = %+v %v", networks, err)
+	}
+}
+
+func TestRecord_RefusesBadNetworking(t *testing.T) {
+	b := newBench(t)
+	bad := func(mutate func(container *service.Container)) service.Report {
+		web := running(webID, "web", "fixture")
+		mutate(&web)
+		return inventory(web)
+	}
+	cases := map[string]service.Report{
+		"network id": bad(func(c *service.Container) { c.Networks = []service.Attachment{{NetworkID: "short", Name: "x"}} }),
+		"network ip": bad(func(c *service.Container) {
+			c.Networks = []service.Attachment{{NetworkID: dbID, Name: "x", IP: "not-an-ip"}}
+		}),
+		"empty alias": bad(func(c *service.Container) {
+			c.Networks = []service.Attachment{{NetworkID: dbID, Name: "x", Aliases: []string{""}}}
+		}),
+		"dependency": bad(func(c *service.Container) { c.DependsOn = []service.Dependency{{Name: "db", Source: "guess"}} }),
+	}
+	machineNetworks := inventory()
+	machineNetworks.NetworksComplete = true
+	machineNetworks.Networks = []service.NetworkReport{{NetworkID: dbID, Name: "", Driver: "bridge"}}
+	cases["machine network"] = machineNetworks
+	for name, report := range cases {
+		if err := b.tracker.Record(context.Background(), machine.LocalID, report); !errors.Is(err, service.ErrReportInvalid) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
 func TestRecord_RefusesAnOutOfRangeReport(t *testing.T) {
 	b := newBench(t)
 	bad := running("short", "web", "")

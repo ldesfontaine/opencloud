@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -127,13 +128,49 @@ func (w *Watcher) reportEngine(report service.EngineReport) {
 	w.sink.Deliver(service.Report{Engine: &report})
 }
 
+// deliverInventory livre les conteneurs et les réseaux de la machine, les
+// deux listes complètes.
 func (w *Watcher) deliverInventory(ctx context.Context) {
 	inventory, err := w.inventory(ctx)
 	if err != nil {
 		w.logger.Warn("docker inventory", "error", err)
 		return
 	}
-	w.sink.Deliver(service.Report{Complete: true, Inventory: inventory})
+	networks, err := w.networks(ctx)
+	if err != nil {
+		w.logger.Warn("docker networks", "error", err)
+		return
+	}
+	w.sink.Deliver(service.Report{Complete: true, Inventory: inventory, NetworksComplete: true, Networks: networks})
+}
+
+// deliverNetworks ne relit que les réseaux : après un réseau créé ou
+// détruit, l'inventaire des conteneurs n'a pas bougé.
+func (w *Watcher) deliverNetworks(ctx context.Context) {
+	networks, err := w.networks(ctx)
+	if err != nil {
+		w.logger.Warn("docker networks", "error", err)
+		return
+	}
+	w.sink.Deliver(service.Report{NetworksComplete: true, Networks: networks})
+}
+
+func (w *Watcher) networks(ctx context.Context) ([]service.NetworkReport, error) {
+	list, err := w.client.ListNetworks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	networks := make([]service.NetworkReport, 0, len(list))
+	for _, network := range list {
+		networks = append(networks, service.NetworkReport{
+			NetworkID: network.ID, Name: network.Name, Driver: network.Driver, Internal: network.Internal,
+			Group: network.Labels[dockerapi.LabelComposeProject],
+		})
+	}
+	if len(networks) > service.MaxNetworksPerMachine {
+		networks = networks[:service.MaxNetworksPerMachine]
+	}
+	return networks, nil
 }
 
 // inventory liste puis inspecte chaque conteneur ; un « compose run » est
@@ -223,11 +260,16 @@ func (w *Watcher) follow(ctx context.Context) error {
 
 // handleEvent traduit une action Docker en événement de service, avec le
 // conteneur réinspecté ; les actions qui ne changent ni l'état ni la
-// santé ni le nom sont ignorées, le prochain inventaire couvre le reste.
+// santé ni le nom ni les réseaux sont ignorées, le prochain inventaire
+// couvre le reste. Un réseau créé ou détruit fait relire la liste.
 func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 	w.mu.Lock()
 	w.since = raw.Since()
 	w.mu.Unlock()
+	if raw.Type == "network" && (raw.Action == "create" || raw.Action == "destroy") {
+		w.deliverNetworks(ctx)
+		return
+	}
 	event, wanted := translate(raw)
 	if !wanted {
 		return
@@ -251,8 +293,12 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 
 // translate dit quel état ou quelle santé une action implique. Un
 // « stop » ou un « kill » ne changent rien par eux-mêmes : le « die » qui
-// suit porte l'état et le code de sortie.
+// suit porte l'état et le code de sortie. Sur un réseau, l'acteur est le
+// réseau : le conteneur est dans les attributs.
 func translate(raw dockerapi.Event) (service.Event, bool) {
+	if raw.Type == "network" {
+		return translateNetwork(raw)
+	}
 	event := service.Event{At: raw.At(), Action: raw.Action, ContainerID: raw.Actor.ID}
 	if strings.HasPrefix(raw.Action, "health_status") {
 		_, status, _ := strings.Cut(raw.Action, ": ")
@@ -278,6 +324,19 @@ func translate(raw dockerapi.Event) (service.Event, bool) {
 		return service.Event{}, false
 	}
 	return event, true
+}
+
+func translateNetwork(raw dockerapi.Event) (service.Event, bool) {
+	event := service.Event{At: raw.At(), ContainerID: raw.Actor.Attributes["container"]}
+	switch raw.Action {
+	case "connect":
+		event.Action = service.ActionNetworkConnect
+	case "disconnect":
+		event.Action = service.ActionNetworkDisconnect
+	default:
+		return service.Event{}, false
+	}
+	return event, event.ContainerID != ""
 }
 
 // snippet lit les dernières lignes du journal d'un conteneur qui vient de
@@ -385,6 +444,10 @@ func toContainer(inspected dockerapi.Container) service.Container {
 		ExitCode:     inspected.State.ExitCode,
 		RestartCount: inspected.RestartCount,
 		Ports:        publishedPorts(inspected.Network.Ports),
+		NetworkMode:  inspected.Host.NetworkMode,
+		Privileged:   inspected.Host.Privileged,
+		Networks:     attachments(inspected),
+		DependsOn:    dependencies(inspected),
 		CreatedAt:    dockerapi.ParseTime(inspected.Created),
 	}
 	if composeService := inspected.Config.Labels[dockerapi.LabelComposeService]; composeService != "" {
@@ -421,6 +484,70 @@ func publishedPorts(ports map[string][]dockerapi.PortBinding) []service.Port {
 		published = published[:service.MaxPortsPerContainer]
 	}
 	return published
+}
+
+// attachments lit les réseaux joints, par nom ; l'alias qu'est l'id court
+// du conteneur n'apprend rien et n'est pas gardé.
+func attachments(inspected dockerapi.Container) []service.Attachment {
+	shortID := inspected.ID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+	var joined []service.Attachment
+	for name, endpoint := range inspected.Network.Networks {
+		names := endpoint.DNSNames
+		if len(names) == 0 {
+			names = endpoint.Aliases
+		}
+		aliases := make([]string, 0, len(names))
+		for _, alias := range names {
+			if alias != "" && alias != shortID && !contains(aliases, alias) {
+				aliases = append(aliases, alias)
+			}
+		}
+		if len(aliases) > service.MaxAliasesPerNetwork {
+			aliases = aliases[:service.MaxAliasesPerNetwork]
+		}
+		joined = append(joined, service.Attachment{NetworkID: endpoint.NetworkID, Name: name, IP: endpoint.IPAddress, Aliases: aliases})
+	}
+	sort.Slice(joined, func(i, j int) bool { return joined[i].Name < joined[j].Name })
+	if len(joined) > service.MaxNetworksPerContainer {
+		joined = joined[:service.MaxNetworksPerContainer]
+	}
+	return joined
+}
+
+// dependencies lit les dépendances déclarées : le label Compose
+// « db:service_started:false,cache:service_healthy:true » donne des noms de
+// services ; un lien « /db:/web/db » donne un nom de conteneur.
+func dependencies(inspected dockerapi.Container) []service.Dependency {
+	var declared []service.Dependency
+	for _, entry := range strings.Split(inspected.Config.Labels[dockerapi.LabelComposeDependsOn], ",") {
+		name, _, _ := strings.Cut(entry, ":")
+		if name != "" {
+			declared = append(declared, service.Dependency{Name: name, Source: service.DependencyCompose})
+		}
+	}
+	for _, link := range inspected.Host.Links {
+		target, _, _ := strings.Cut(link, ":")
+		target = strings.TrimPrefix(target, "/")
+		if target != "" {
+			declared = append(declared, service.Dependency{Name: target, Source: service.DependencyLink})
+		}
+	}
+	if len(declared) > service.MaxDependencies {
+		declared = declared[:service.MaxDependencies]
+	}
+	return declared
+}
+
+func contains(list []string, value string) bool {
+	for _, candidate := range list {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
 }
 
 func splitPortKey(key string) (int, string) {

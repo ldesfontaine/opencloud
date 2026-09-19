@@ -7,6 +7,7 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { MachineHead, machineTabs, Tabs } from "../components/MachineHead";
+import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
@@ -20,8 +21,8 @@ import { seenAgo } from "../lib/time";
 import { NotFound } from "./NotFound";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
-// onglets, le résumé avec ses quatre chiffres clés et l'historique ; les
-// autres onglets attendent leur fonctionnalité.
+// onglets, le résumé avec ses quatre chiffres clés et l'historique, les
+// services, le réseau ; les autres onglets attendent leur fonctionnalité.
 export function MachinePage() {
   const { id = "", tab = "" } = useParams();
   const machines = useResource<MachinesResponse>("/api/machines");
@@ -66,6 +67,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         </>
       ) : tab === "services" ? (
         <MachineServices machineID={current.id} />
+      ) : tab === "reseau" ? (
+        <NetworkView machineID={current.id} />
       ) : (
         <Card>
           <Empty

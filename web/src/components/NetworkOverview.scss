@@ -1,0 +1,42 @@
+// La version compacte de la vue d'ensemble : la hauteur suit le dessin.
+.netgraph.overview {
+  height: auto;
+  flex: none;
+
+  svg {
+    cursor: default;
+  }
+}
+
+.netgraph-group.machine {
+  cursor: pointer;
+  outline: none;
+
+  text {
+    letter-spacing: 0.06em;
+  }
+
+  .empty {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-family: var(--mono);
+  }
+
+  .dot.ok {
+    fill: var(--ok);
+  }
+
+  .dot.danger {
+    fill: var(--danger);
+  }
+
+  &:hover rect,
+  &:focus-visible rect {
+    stroke: var(--ink-2);
+  }
+}
+
+.netgraph-node.compact .name {
+  font-size: 12px;
+}
