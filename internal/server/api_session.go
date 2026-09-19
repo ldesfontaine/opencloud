@@ -21,6 +21,7 @@ type languageRequest struct {
 type countsResponse struct {
 	Machines machineCounts `json:"machines"`
 	Jobs     jobCounts     `json:"jobs"`
+	Services jobCounts     `json:"services"`
 }
 
 type machineCounts struct {
@@ -91,8 +92,14 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	services, failing, err := s.services.Count(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	s.writeAPI(w, http.StatusOK, countsResponse{
 		Machines: machineCounts{Total: total, Online: online},
 		Jobs:     jobCounts{Total: jobs, Attention: attention},
+		Services: jobCounts{Total: services, Attention: failing},
 	})
 }

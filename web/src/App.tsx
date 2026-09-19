@@ -10,6 +10,8 @@ import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { Overview } from "./pages/Overview";
+import { ServicePage } from "./pages/Service";
+import { Services } from "./pages/Services";
 import { Soon } from "./pages/Soon";
 import { VisualSystem } from "./pages/VisualSystem";
 
@@ -25,7 +27,8 @@ export function App() {
         <Route path="machines/jeton" element={<MachineToken />} />
         <Route path="machines/:id" element={<MachinePage />} />
         <Route path="machines/:id/:tab" element={<MachinePage />} />
-        <Route path="services" element={<Soon navKey="services" />} />
+        <Route path="services" element={<Services />} />
+        <Route path="services/:id" element={<ServicePage />} />
         <Route path="domaines" element={<Soon navKey="domains" />} />
         <Route path="sauvegardes" element={<Soon navKey="backups" />} />
         <Route path="taches" element={<Jobs />} />

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
+	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -21,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
+	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/version"
@@ -83,13 +86,22 @@ func runServe(args []string) error {
 	heartbeats.SetWatcher(bus)
 	resources := resource.New(db, logger)
 	resources.SetWatcher(bus)
-	// Trois boucles de fond : les échéances, le rollup et la purge, et la
-	// mesure de cette machine, qui est son propre agent. Elles finissent
-	// avant que la base ne se ferme.
+	services := service.New(db, logger)
+	services.SetWatcher(bus)
+	// La machine openCloud veille son propre Docker, sans passer par le
+	// réseau : ce que le veilleur observe s'écrit directement.
+	watcher := dockerwatch.New(dockerapi.New(cfg.DockerSocket), localSink{ctx: ctx, services: services, logger: logger}, dockerwatch.Options{Logger: logger})
+	services.SetLocalLogSource(machine.LocalID, watcher)
+	// Cinq boucles de fond : les échéances, le rollup et la purge, la
+	// mesure de cette machine, qui est son propre agent, la purge des
+	// services et le veilleur Docker. Elles finissent avant que la base
+	// ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
 	runLoop(&loops, func() { resources.SampleLocal(ctx, machine.LocalID, sampler.New(), resource.SampleInterval) })
+	runLoop(&loops, func() { services.Watch(ctx) })
+	runLoop(&loops, func() { watcher.Run(ctx) })
 	defer func() { stop(); loops.Wait() }()
 
 	server, err := server.New(server.Options{
@@ -99,6 +111,7 @@ func runServe(args []string) error {
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,
+		Services:       services,
 		Live:           bus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
@@ -106,6 +119,8 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Le serveur tient les flux des agents : c'est lui qui leur commande.
+	services.SetCommander(server)
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server,
@@ -154,4 +169,17 @@ func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *htt
 		return fmt.Errorf("shutdown: %w", err)
 	}
 	return nil
+}
+
+// localSink écrit ce que le veilleur de la machine openCloud observe.
+type localSink struct {
+	ctx      context.Context
+	services *service.Tracker
+	logger   *slog.Logger
+}
+
+func (s localSink) Deliver(report service.Report) {
+	if err := s.services.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
+		s.logger.Error("record local services", "error", err)
+	}
 }

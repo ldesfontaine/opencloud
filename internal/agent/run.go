@@ -10,10 +10,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/dockerapi"
+	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
@@ -46,7 +49,9 @@ type Options struct {
 	SignalInterval time.Duration
 	// SampleInterval est la cadence de mesure ; zéro vaut celle du produit.
 	SampleInterval time.Duration
-	Logger         *slog.Logger
+	// DockerSocket est la socket du démon ; vide vaut celle de Docker.
+	DockerSocket string
+	Logger       *slog.Logger
 }
 
 // Run enrôle l'agent si besoin, puis tient le flux ouvert jusqu'à ce que le
@@ -66,10 +71,25 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	if opts.DockerSocket == "" {
+		opts.DockerSocket = dockerapi.DefaultSocket
+	}
 	// La mesure continue pendant une coupure : le tampon rattrape au retour.
 	readings := &buffer{}
 	go sampleLoop(ctx, sampler.New(), readings, opts)
-	return keepConnected(ctx, client, identity, readings, opts)
+	// Le veilleur Docker aussi ; ses rapports attendent dans le leur.
+	observed := &reports{}
+	watcher := dockerwatch.New(dockerapi.New(opts.DockerSocket), observed, dockerwatch.Options{Logger: opts.Logger})
+	go watcher.Run(ctx)
+	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, logs: watcher}, opts)
+}
+
+// pending est ce que l'agent a à livrer, et ce qui sait servir les
+// journaux quand le serveur les demande.
+type pending struct {
+	readings *buffer
+	reports  *reports
+	logs     service.LogSource
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -131,11 +151,11 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	return identity, nil
 }
 
-func keepConnected(ctx context.Context, client *Client, identity Identity, readings *buffer, opts Options) error {
+func keepConnected(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
 	delay := minBackoff
 	for {
 		startedAt := time.Now()
-		err := connectOnce(ctx, client, identity, readings, opts)
+		err := connectOnce(ctx, client, identity, pending, opts)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -157,8 +177,10 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, readi
 }
 
 // connectOnce tient un flux et envoie un signal à intervalle régulier tant
-// qu'il vit ; il rend la main dès que le flux tombe.
-func connectOnce(ctx context.Context, client *Client, identity Identity, readings *buffer, opts Options) error {
+// qu'il vit ; il rend la main dès que le flux tombe. Ce qui attendait dans
+// le tampon des services est marqué rejoué : le serveur l'écrit sans y
+// voir du neuf.
+func connectOnce(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stream, err := client.OpenStream(streamCtx, identity)
@@ -167,9 +189,11 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, reading
 	}
 	defer stream.Close()
 	opts.Logger.Info("connected", "server", identity.Server)
+	pending.reports.markReplayed()
 
+	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, opts.Logger)
 	lost := make(chan error, 1)
-	go func() { lost <- stream.Follow() }()
+	go func() { lost <- stream.Follow(commands.handle) }()
 
 	ticker := time.NewTicker(opts.SignalInterval)
 	defer ticker.Stop()
@@ -180,7 +204,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, reading
 		case err := <-lost:
 			return err
 		case <-ticker.C:
-			if err := signal(ctx, client, stream.Session, readings); err != nil {
+			if err := signal(ctx, client, stream.Session, pending); err != nil {
 				return err
 			}
 		}
@@ -191,13 +215,15 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, reading
 // plein : un rattrapage se vide en quelques signaux serrés. Une erreur
 // réseau remet le lot dans le tampon ; un refus du serveur le jette, ces
 // lectures ne passeront jamais.
-func signal(ctx context.Context, client *Client, session string, readings *buffer) error {
+func signal(ctx context.Context, client *Client, session string, pending *pending) error {
 	for {
-		batch := readings.take(resource.MaxReadingsPerSignal)
-		err := client.Signal(ctx, session, batch)
+		batch := pending.readings.take(resource.MaxReadingsPerSignal)
+		report := pending.reports.take()
+		err := client.Signal(ctx, session, batch, report)
 		var refused *ServerError
 		if err != nil && !(errors.As(err, &refused) && refused.Status == http.StatusBadRequest) {
-			readings.restore(batch)
+			pending.readings.restore(batch)
+			pending.reports.restore(report)
 			return err
 		}
 		if len(batch) < resource.MaxReadingsPerSignal {

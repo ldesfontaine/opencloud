@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -17,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/web"
 )
@@ -44,6 +47,22 @@ type MachineService interface {
 	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
+	Command(machineID, name string, payload any) error
+}
+
+// Ce que le serveur attend du composant service : l'API lit, le signal de
+// l'agent écrit, les journaux passent dans les deux sens.
+type ServiceTracker interface {
+	Record(ctx context.Context, machineID string, report service.Report) error
+	List(ctx context.Context, machineID string) ([]service.Service, error)
+	Get(ctx context.Context, id string) (service.Service, error)
+	Transitions(ctx context.Context, id string, limit int) ([]service.Transition, error)
+	Engines(ctx context.Context) ([]service.Engine, error)
+	CurrentAll(ctx context.Context) ([]service.Current, error)
+	Count(ctx context.Context) (total, attention int, err error)
+	FollowLogs(ctx context.Context, serviceID string, tail int) (<-chan service.LogBatch, error)
+	FetchLogs(ctx context.Context, serviceID string, tail int) ([]service.LogLine, error)
+	DeliverLogs(ctx context.Context, requestID string, batch service.LogBatch) bool
 }
 
 // Ce que le serveur attend du composant resource : l'API lit, le signal de
@@ -85,7 +104,9 @@ type Server struct {
 	machines       MachineService
 	heartbeats     HeartbeatService
 	resources      ResourceService
+	services       ServiceTracker
 	live           Live
+	logStreams     atomic.Int32
 	pingLimits     *pingLimits
 	publicURL      string
 	trustedProxies []netip.Prefix
@@ -106,6 +127,7 @@ type Options struct {
 	Machines   MachineService
 	Heartbeats HeartbeatService
 	Resources  ResourceService
+	Services   ServiceTracker
 	Live       Live
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
@@ -141,6 +163,7 @@ func New(opts Options) (*Server, error) {
 		machines:       opts.Machines,
 		heartbeats:     opts.Heartbeats,
 		resources:      opts.Resources,
+		services:       opts.Services,
 		live:           opts.Live,
 		pingLimits:     newPingLimits(),
 		publicURL:      opts.PublicURL,
@@ -176,4 +199,14 @@ func (s *Server) saveLanguage(code lang.Code) error {
 	snapshot := s.current
 	s.mu.Unlock()
 	return s.settings.Save(snapshot)
+}
+
+// Command fait du serveur le commandeur des agents : c'est lui qui tient
+// leurs flux. Une machine sans flux est hors ligne pour le relais.
+func (s *Server) Command(machineID, name string, payload any) error {
+	err := s.machines.Command(machineID, name, payload)
+	if errors.Is(err, machine.ErrNotConnected) {
+		return service.ErrMachineOffline
+	}
+	return err
 }

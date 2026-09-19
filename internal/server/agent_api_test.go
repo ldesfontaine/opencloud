@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 )
 
@@ -241,7 +240,7 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 		return recorder
 	}
 	readings := []sampler.Reading{testReading(testNow.Add(-10*time.Second), 42)}
-	if got := signal(resource.SignalRequest{Readings: readings}); got.Code != http.StatusNoContent {
+	if got := signal(machine.SignalRequest{Readings: readings}); got.Code != http.StatusNoContent {
 		t.Fatalf("signal with readings: %d %s", got.Code, got.Body.String())
 	}
 	current, err := server.resources.Current(context.Background(), remoteID)
@@ -249,7 +248,7 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 		t.Fatalf("recorded %+v %v", current, err)
 	}
 	bad := []sampler.Reading{testReading(testNow, 250)}
-	if got := signal(resource.SignalRequest{Readings: bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
+	if got := signal(machine.SignalRequest{Readings: bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
 		t.Fatalf("bad readings: %d %s", got.Code, got.Body.String())
 	}
 	if got := signal(nil); got.Code != http.StatusNoContent {

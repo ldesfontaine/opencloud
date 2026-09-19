@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -26,6 +27,7 @@ type testServer struct {
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	resources  *resource.Service
+	services   *service.Tracker
 	bus        *live.Bus
 	db         *store.DB
 }
@@ -61,6 +63,9 @@ func newTestServer(t *testing.T) *testServer {
 	resources := resource.New(db, logger)
 	resources.SetClock(func() time.Time { return testNow })
 	resources.SetWatcher(bus)
+	services := service.New(db, logger)
+	services.SetClock(func() time.Time { return testNow })
+	services.SetWatcher(bus)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -68,13 +73,16 @@ func newTestServer(t *testing.T) *testServer {
 		Machines:   machines,
 		Heartbeats: heartbeats,
 		Resources:  resources,
+		Services:   services,
 		Live:       bus,
 		Clock:      func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, bus: bus, db: db}
+	// Le serveur commande les agents par leurs flux, comme dans serve.
+	services.SetCommander(server)
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, bus: bus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

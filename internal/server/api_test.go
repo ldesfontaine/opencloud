@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 var updateGolden = flag.Bool("update", false, "réécrit les réponses de référence dans testdata/")
@@ -109,6 +110,44 @@ func (ts *testServer) seedResources(t *testing.T) {
 	}
 }
 
+// Deux services sur la machine distante, le projet Compose de la planche
+// « Machine » : nextcloud actif et mesuré, sa base arrêtée sur un crash ;
+// et sur la machine openCloud, un Docker absent.
+func (ts *testServer) seedServices(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	started := testNow.Add(-26 * time.Hour)
+	finished := testNow.Add(-10 * time.Minute)
+	web := service.Container{
+		ContainerID: strings.Repeat("a", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4", ImageID: "sha256:" + strings.Repeat("1", 64),
+		State: service.StateRunning, Health: service.HealthHealthy, RestartCount: 0,
+		Ports:     []service.Port{{IP: "127.0.0.1", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
+		CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
+	}
+	db := service.Container{
+		ContainerID: strings.Repeat("b", 64), Name: "nextcloud-db", Group: "nextcloud", Image: "postgres:16.4", ImageID: "sha256:" + strings.Repeat("2", 64),
+		State: service.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
+	}
+	report := service.Report{
+		Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []service.Container{web, db},
+		Stats: []service.Stat{{ContainerID: web.ContainerID, SampledAt: testNow.Add(-10 * time.Second), CPUPercent: 12.5, MemUsed: 1_503_238_553, MemLimit: 8_589_934_592}},
+	}
+	if err := ts.services.Record(ctx, remoteID, report); err != nil {
+		t.Fatal(err)
+	}
+	one := 1
+	db.State, db.ExitCode, db.FinishedAt = service.StateExited, 1, &finished
+	crash := service.Report{Events: []service.Event{{At: finished, Action: "die", ContainerID: db.ContainerID, State: service.StateExited, ExitCode: &one, Snippet: "FATAL: out of memory", Container: &db}}}
+	if err := ts.services.Record(ctx, remoteID, crash); err != nil {
+		t.Fatal(err)
+	}
+	absent := service.Report{Engine: &service.EngineReport{Present: false, Reason: service.ReasonNoSocket}}
+	if err := ts.services.Record(ctx, machine.LocalID, absent); err != nil {
+		t.Fatal(err)
+	}
+	return service.ID(remoteID, db.ContainerID)
+}
+
 var (
 	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
 	shortID    = regexp.MustCompile(`"(id|machine_id)":"[0-9a-f]{16}"`)
@@ -151,7 +190,13 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	}
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
+	serviceID := server.seedServices(t)
 	cases := map[string]string{
+		"services":         "/api/services",
+		"machine_services": "/api/machines/" + remoteID + "/services",
+		"local_services":   "/api/machines/local/services",
+		"service":          "/api/services/" + serviceID,
+		"transitions":      "/api/services/" + serviceID + "/transitions?limit=1",
 		"session":          "/api/session",
 		"counts":           "/api/counts",
 		"machines":         "/api/machines",

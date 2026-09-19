@@ -17,6 +17,9 @@ const (
 	DefaultPath     = "/etc/opencloud/config.toml"
 	defaultListen   = "127.0.0.1:8080"
 	defaultStateDir = "/var/lib/opencloud"
+	// La socket du démon Docker de la machine openCloud, pour son rôle
+	// d'agent ; le processus doit pouvoir la lire.
+	defaultDockerSocket = "/var/run/docker.sock"
 )
 
 type Config struct {
@@ -32,12 +35,16 @@ type Config struct {
 	// Niveau du journal : debug, info, warn, error. Vide : info. En debug,
 	// chaque requête HTTP fait une ligne.
 	LogLevel string `toml:"log_level" validate:"omitempty,oneof=debug info warn error"`
+	// Socket du démon Docker de cette machine. Absente : la machine
+	// openCloud n'a aucun service, ce n'est pas une erreur.
+	DockerSocket string `toml:"docker_socket" validate:"required"`
 }
 
 func Default() Config {
 	return Config{
-		Listen:   defaultListen,
-		StateDir: defaultStateDir,
+		Listen:       defaultListen,
+		StateDir:     defaultStateDir,
+		DockerSocket: defaultDockerSocket,
 	}
 }
 
