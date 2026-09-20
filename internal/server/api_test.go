@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
@@ -80,6 +81,45 @@ func (ts *testServer) seedJobs(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return backup.ID
+}
+
+// Deux sondes pour des réponses parlantes : l'une sur le site de la
+// machine distante, déjà sondée trois fois et dégradée par un certificat
+// refusé, l'autre sur la base, portée par la machine openCloud et encore
+// neuve. Une seule a donc un agrégat journalier.
+func (ts *testServer) seedProbes(t *testing.T, serviceID string) string {
+	t.Helper()
+	ctx := context.Background()
+	site, err := ts.probes.Create(ctx, probe.Definition{
+		Name: "site nextcloud", Kind: probe.KindHTTP, Target: "https://cloud.exemple.fr/status.php",
+		MachineID: remoteID, ServiceID: serviceID, ExpectedBody: "installed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ts.probes.Create(ctx, probe.Definition{
+		Name: "base nextcloud", Kind: probe.KindTCP, Target: "127.0.0.1:5432", MachineID: machine.LocalID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	code := 200
+	certificate := &probe.Certificate{
+		Subject: "cloud.exemple.fr", Issuer: "openCloud dev",
+		NotBefore: testNow.Add(-24 * time.Hour), NotAfter: testNow.Add(89 * 24 * time.Hour),
+		Fingerprint: strings.Repeat("e", 64),
+	}
+	results := []probe.Result{
+		{ProbeID: site.ID, CheckedAt: testNow.Add(-48 * time.Hour), Outcome: probe.OutcomeDown, DurationMs: 10_000, Reason: probe.ReasonTimeout},
+		{ProbeID: site.ID, CheckedAt: testNow.Add(-24 * time.Hour), Outcome: probe.OutcomeUp, DurationMs: 118, Code: &code},
+		{ProbeID: site.ID, CheckedAt: testNow.Add(-30 * time.Second), Outcome: probe.OutcomeDegraded, DurationMs: 132, Code: &code, Reason: probe.ReasonTLSUntrusted, Certificate: certificate},
+	}
+	if err := ts.probes.Record(ctx, remoteID, probe.Report{Results: results}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.probes.Rollup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return site.ID
 }
 
 // Une lecture parlante, celle de la planche « Machine » de la direction
@@ -166,6 +206,8 @@ var (
 	shortID    = regexp.MustCompile(`"(id|machine_id)":"[0-9a-f]{16}"`)
 	tokenMask  = regexp.MustCompile(`oc_[a-z2-7]{6}…`)
 	tokenValue = regexp.MustCompile(`oc_[a-z2-7]{20,}`)
+	// Les jours d'une sonde sont rangés sous son identifiant, en clé.
+	probeKey = regexp.MustCompile(`"[0-9a-f]{16}":\[`)
 )
 
 // Les identifiants de tâche et de jeton, les jetons de ping et
@@ -174,6 +216,7 @@ func normalize(body string) string {
 	body = pingToken.ReplaceAllString(body, "hb_TOKEN")
 	body = shortID.ReplaceAllString(body, `"$1":"ID"`)
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
+	body = probeKey.ReplaceAllString(body, `"ID":[`)
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 
@@ -204,7 +247,11 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
 	serviceID := server.seedServices(t)
+	probeID := server.seedProbes(t, serviceID)
 	cases := map[string]string{
+		"probes":           "/api/probes",
+		"probe":            "/api/probes/" + probeID,
+		"machine_probes":   "/api/machines/" + remoteID + "/probes",
 		"services":         "/api/services",
 		"machine_services": "/api/machines/" + remoteID + "/services",
 		"machine_network":  "/api/machines/" + remoteID + "/network",

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
@@ -23,6 +24,22 @@ func (ts *testServer) agentPost(session, path string, payload any) *httptest.Res
 	recorder := httptest.NewRecorder()
 	ts.ServeHTTP(recorder, request)
 	return recorder
+}
+
+// readCommand lit le flux de l'agent jusqu'à la commande attendue : il
+// porte aussi le jeu de sondes, poussé dès l'ouverture et à chaque
+// changement.
+func readCommand(t *testing.T, stream *bufio.Reader, want string) string {
+	t.Helper()
+	for {
+		name, data := readStreamEvent(t, stream)
+		if name == want {
+			return data
+		}
+		if name != probe.CommandProbes {
+			t.Fatalf("commande inattendue %q en attendant %q", name, want)
+		}
+	}
 }
 
 // readStreamEvent lit le prochain événement nommé du flux de l'agent, en
@@ -55,7 +72,7 @@ func readStreamEvent(t *testing.T, reader *bufio.Reader) (string, string) {
 func TestAgentSignal_CarriesServicesAndRefusesBadReports(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, session, cancel := openStream(t, server, enrolled.ID, private)
+	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 
@@ -81,7 +98,7 @@ func TestAgentSignal_CarriesServicesAndRefusesBadReports(t *testing.T) {
 func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, session, cancel := openStream(t, server, enrolled.ID, private)
+	resp, session, agentStream, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 	serviceID := server.seedServices(t)
@@ -100,14 +117,13 @@ func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("stream: %d %s", browser.StatusCode, browser.Header.Get("Content-Type"))
 	}
 
-	agent := bufio.NewReader(resp.Body)
-	name, data := readStreamEvent(t, agent)
+	data := readCommand(t, agentStream, service.CommandLogs)
 	var command service.LogRequest
 	if err := json.Unmarshal([]byte(data), &command); err != nil {
 		t.Fatal(err)
 	}
-	if name != service.CommandLogs || command.ID == "" || command.ContainerID != strings.Repeat("b", 64) || command.Tail != 20 || !command.Follow {
-		t.Fatalf("command %s %+v", name, command)
+	if command.ID == "" || command.ContainerID != strings.Repeat("b", 64) || command.Tail != 20 || !command.Follow {
+		t.Fatalf("command %+v", command)
 	}
 
 	if got := server.agentPost(session, "/agent/logs/unknown", service.LogBatch{}); got.Code != http.StatusNotFound {
@@ -141,7 +157,7 @@ func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 func TestServiceLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, _, cancel := openStream(t, server, enrolled.ID, private)
+	resp, _, agentStream, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 	serviceID := server.seedServices(t)
@@ -154,16 +170,12 @@ func TestServiceLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := bufio.NewReader(resp.Body)
-	name, data := readStreamEvent(t, agent)
-	if name != service.CommandLogs {
-		t.Fatalf("first command %s", name)
-	}
+	data := readCommand(t, agentStream, service.CommandLogs)
 	browser.Body.Close()
 	stop()
-	name, stopData := readStreamEvent(t, agent)
-	if name != service.CommandLogsStop || !strings.Contains(data, jsonID(t, stopData)) {
-		t.Fatalf("second command %s %s", name, stopData)
+	stopData := readCommand(t, agentStream, service.CommandLogsStop)
+	if !strings.Contains(data, jsonID(t, stopData)) {
+		t.Fatalf("la commande d'arrêt ne porte pas la requête ouverte: %s", stopData)
 	}
 }
 

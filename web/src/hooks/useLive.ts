@@ -14,11 +14,13 @@ export function useLive(): void {
     const onJobs = () => refresh("jobs");
     const onResources = () => refresh("resources");
     const onServices = () => refresh("services");
+    const onProbes = () => refresh("probes");
     const onReconnected = () => refresh();
     source.addEventListener("machines", onMachines);
     source.addEventListener("jobs", onJobs);
     source.addEventListener("resources", onResources);
     source.addEventListener("services", onServices);
+    source.addEventListener("probes", onProbes);
     source.addEventListener("reconnected", onReconnected);
     return () => source.close();
   }, [refresh]);

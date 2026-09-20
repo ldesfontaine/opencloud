@@ -12,10 +12,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 type fakeLogs struct{ requests []service.LogRequest }
+
+// fakeProber note les jeux de sondes que le serveur pousse.
+type fakeProber struct {
+	mu          sync.Mutex
+	assignments []probe.Assignment
+}
+
+func (p *fakeProber) Assign(assignment probe.Assignment) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.assignments = append(p.assignments, assignment)
+}
+
+func (p *fakeProber) last() probe.Assignment {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.assignments) == 0 {
+		return probe.Assignment{}
+	}
+	return p.assignments[len(p.assignments)-1]
+}
 
 func (l *fakeLogs) OpenLogs(ctx context.Context, request service.LogRequest) (<-chan service.LogBatch, error) {
 	l.requests = append(l.requests, request)
@@ -93,7 +115,7 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 	logs := &fakeLogs{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := newCommandRunner(ctx, client, "session-1", logs, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	runner := newCommandRunner(ctx, client, "session-1", logs, &fakeProber{}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	runner.handle(service.CommandLogs, `{"id":"one","container_id":"c1","tail":10}`)
 	posted.waitFor(t, "one", 2)
@@ -131,4 +153,27 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 	}
 	runner.handle("unknown", `{"id":"x"}`)
 	runner.handle(service.CommandLogs, `not json`)
+}
+
+// La commande « probes » remplace le jeu de l'agent ; un contenu illisible
+// ne le vide pas, il est simplement ignoré.
+func TestCommandRunner_AssignsTheProbeSet(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	prober := &fakeProber{}
+	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	payload, err := json.Marshal(probe.Assignment{Probes: []probe.Task{{ID: "p1", Kind: probe.KindHTTP, Target: "https://a.fr/", IntervalSeconds: 60}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.handle(probe.CommandProbes, string(payload))
+	if assignment := prober.last(); len(assignment.Probes) != 1 || assignment.Probes[0].ID != "p1" {
+		t.Fatalf("le jeu reçu n'est pas transmis: %+v", assignment)
+	}
+
+	runner.handle(probe.CommandProbes, "{pas du json")
+	if len(prober.assignments) != 1 {
+		t.Fatalf("un contenu illisible a été transmis: %+v", prober.assignments)
+	}
 }

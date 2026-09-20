@@ -1,0 +1,39 @@
+// Un segment par jour, serrés ; la barre se rétrécit avec sa colonne.
+.ubar {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  min-width: 120px;
+  height: 22px;
+}
+
+.ubar-seg {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.ubar-ok {
+  background: var(--ok);
+}
+
+.ubar-warn {
+  background: var(--warn);
+}
+
+.ubar-danger {
+  background: var(--danger);
+}
+
+.ubar-none {
+  background: var(--line);
+}
+
+// La barre et son pourcentage, sur une ligne, dans une cellule de tableau.
+.ubar-cell {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 200px;
+}

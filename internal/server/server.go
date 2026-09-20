@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -75,6 +76,24 @@ type ResourceService interface {
 	History(ctx context.Context, machineID, window string) (resource.Window, []sampler.Reading, error)
 }
 
+// Ce que le serveur attend du composant probe : l'API lit et agit, le
+// signal de l'agent écrit, et le flux qui s'ouvre repart avec le jeu de
+// sondes de sa machine.
+type ProbeService interface {
+	List(ctx context.Context, machineID string) ([]probe.Probe, error)
+	Get(ctx context.Context, id string) (probe.Probe, error)
+	Count(ctx context.Context) (total, attention int, err error)
+	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
+	Delete(ctx context.Context, id string) error
+	Pause(ctx context.Context, id string) error
+	Resume(ctx context.Context, id string) error
+	Results(ctx context.Context, id string, limit int) ([]probe.Result, error)
+	Days(ctx context.Context, id string, span time.Duration) ([]probe.Day, error)
+	Uptimes(ctx context.Context, id string) ([]probe.Uptime, error)
+	Assign(ctx context.Context, machineID string)
+	Record(ctx context.Context, machineID string, report probe.Report) error
+}
+
 // Ce que le serveur attend du composant heartbeat : l'API d'un côté,
 // les pings publics de l'autre.
 type HeartbeatService interface {
@@ -106,6 +125,7 @@ type Server struct {
 	heartbeats     HeartbeatService
 	resources      ResourceService
 	services       ServiceTracker
+	probes         ProbeService
 	live           Live
 	logStreams     atomic.Int32
 	pingLimits     *pingLimits
@@ -129,6 +149,7 @@ type Options struct {
 	Heartbeats HeartbeatService
 	Resources  ResourceService
 	Services   ServiceTracker
+	Probes     ProbeService
 	Live       Live
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
@@ -165,6 +186,7 @@ func New(opts Options) (*Server, error) {
 		heartbeats:     opts.Heartbeats,
 		resources:      opts.Resources,
 		services:       opts.Services,
+		probes:         opts.Probes,
 		live:           opts.Live,
 		pingLimits:     newPingLimits(),
 		publicURL:      opts.PublicURL,

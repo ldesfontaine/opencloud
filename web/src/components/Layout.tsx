@@ -113,9 +113,9 @@ interface Counter {
 }
 
 // Les machines comptent toutes, en rouge dès qu'une est hors ligne ; les
-// tâches ne comptent que celles à traiter ; les services comptent tous, en
-// rouge dès qu'un est défaillant. Rien tant que l'API n'a pas
-// répondu, plutôt qu'un zéro inventé.
+// tâches ne comptent que celles à traiter ; les services et les sondes
+// comptent tous, en rouge dès qu'un est défaillant ou hors ligne. Rien
+// tant que l'API n'a pas répondu, plutôt qu'un zéro inventé.
 function counter(key: string, counts: Counts | null): Counter | null {
   if (!counts) {
     return null;
@@ -128,6 +128,9 @@ function counter(key: string, counts: Counts | null): Counter | null {
   }
   if (key === "services" && counts.services.total > 0) {
     return { value: counts.services.total, hot: counts.services.attention > 0 };
+  }
+  if (key === "domains" && counts.probes.total > 0) {
+    return { value: counts.probes.total, hot: counts.probes.attention > 0 };
   }
   return null;
 }

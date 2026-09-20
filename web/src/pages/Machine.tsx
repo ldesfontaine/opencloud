@@ -2,13 +2,14 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { api } from "../api/client";
-import type { Current, Machine, MachinesResponse, ServicesResponse, TokenResponse } from "../api/types";
+import type { Current, Machine, MachinesResponse, ProbesResponse, ServicesResponse, TokenResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { MachineHead, machineTabs, Tabs } from "../components/MachineHead";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
+import { ProbeTable } from "../components/ProbeTable";
 import { Pill } from "../components/Pill";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
@@ -69,6 +70,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <MachineServices machineID={current.id} />
       ) : tab === "reseau" ? (
         <NetworkView machineID={current.id} />
+      ) : tab === "domaines" ? (
+        <MachineProbes machineID={current.id} />
       ) : (
         <Card>
           <Empty
@@ -79,6 +82,29 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               </Pill>
             }
           />
+        </Card>
+      )}
+    </>
+  );
+}
+
+// L'onglet Domaines et certificats : les sondes que cette machine exécute.
+// Les certificats viendront s'y poser avec leur fonctionnalité.
+function MachineProbes({ machineID }: { machineID: string }) {
+  const t = useT();
+  const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
+  const list = probes.data?.probes ?? [];
+  return (
+    <>
+      {probes.error && <Failure error={probes.error} />}
+      {probes.data && list.length === 0 && (
+        <Card>
+          <Empty icon="globe" text={t("probes.machine_empty")} />
+        </Card>
+      )}
+      {probes.data && list.length > 0 && (
+        <Card className="scroll-x">
+          <ProbeTable probes={list} days={probes.data.days} />
         </Card>
       )}
     </>

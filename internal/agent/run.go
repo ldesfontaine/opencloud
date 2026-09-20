@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -81,15 +82,22 @@ func Run(ctx context.Context, opts Options) error {
 	observed := &reports{}
 	watcher := dockerwatch.New(dockerapi.New(opts.DockerSocket), observed, dockerwatch.Options{Logger: opts.Logger})
 	go watcher.Run(ctx)
-	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, logs: watcher}, opts)
+	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
+	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
+	checked := &results{}
+	prober := probe.NewRunner(checked, opts.Logger)
+	go prober.Run(ctx)
+	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, logs: watcher, probes: prober}, opts)
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les
-// journaux quand le serveur les demande.
+// journaux et les sondes quand le serveur les demande.
 type pending struct {
 	readings *buffer
 	reports  *reports
+	results  *results
 	logs     service.LogSource
+	probes   probe.Assignable
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -190,8 +198,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	defer stream.Close()
 	opts.Logger.Info("connected", "server", identity.Server)
 	pending.reports.markReplayed()
+	pending.results.markReplayed()
 
-	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, opts.Logger)
+	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, opts.Logger)
 	lost := make(chan error, 1)
 	go func() { lost <- stream.Follow(commands.handle) }()
 
@@ -214,16 +223,19 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 // signal livre le tampon par lots, tant qu'il reste de quoi faire un lot
 // plein : un rattrapage se vide en quelques signaux serrés. Une erreur
 // réseau remet le lot dans le tampon ; un refus du serveur le jette, ces
-// lectures ne passeront jamais.
+// lectures ne passeront jamais. Les essais des sondes partent dans le
+// même corps, à côté des mesures et des services.
 func signal(ctx context.Context, client *Client, session string, pending *pending) error {
 	for {
 		batch := pending.readings.take(resource.MaxReadingsPerSignal)
 		report := pending.reports.take()
-		err := client.Signal(ctx, session, batch, report)
+		checked := pending.results.take()
+		err := client.Signal(ctx, session, batch, report, checked)
 		var refused *ServerError
 		if err != nil && !(errors.As(err, &refused) && refused.Status == http.StatusBadRequest) {
 			pending.readings.restore(batch)
 			pending.reports.restore(report)
+			pending.results.restore(checked)
 			return err
 		}
 		if len(batch) < resource.MaxReadingsPerSignal {

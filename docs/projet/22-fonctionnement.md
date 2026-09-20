@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 7, le réseau des services, le 19 septembre 2026.
+> fonctionnalité 8, les sondes, le 19 septembre 2026.
 
 ## Les acteurs
 
@@ -14,6 +14,7 @@
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
+| Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -26,6 +27,7 @@ flowchart LR
         op["Opérateur<br>navigateur"]
         ag["Machine gérée<br><code>opencloud agent</code>"]
         job["Tâche planifiée<br><code>curl /ping/…</code>"]
+        tgt["Cible sondée<br>URL ou port"]
     end
     subgraph oc["Machine openCloud"]
         tr["Traefik<br>:443 TLS"]
@@ -37,6 +39,8 @@ flowchart LR
     op == "HTTPS" ==> tr
     ag == "HTTPS<br>enrôlement, flux SSE, signal" ==> tr
     job == "HTTPS<br>ping, sans authentification" ==> tr
+    ag -- "sonde HTTP ou TCP,<br>chiffrée si la cible l'est" --> tgt
+    srv -- "sonde, pour ses<br>propres cibles" --> tgt
     ag --- id[("identity.json<br>clé privée, 0600")]
 ```
 
@@ -52,6 +56,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet, plafonnée à 16 |
+| Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://`, rien si elle est en `http://` ou en TCP | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies` |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
@@ -73,6 +78,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, dernier essai, dernier certificat vu), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -313,22 +319,103 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
 | `GET /networks` | liste | id, nom, pilote, interne, projet Compose |
 | `GET /events?filters=container,network` | flux | `connect`, `disconnect`, `create`, `destroy` |
 
-Le nœud proxy, les domaines et le certificat de l'inspecteur attendent
-les fonctionnalités 8 et 9 ; les alertes d'exposition, la 11 ; le bouton
+Le nœud proxy et le certificat de l'inspecteur attendent le proxy et la
+fonctionnalité 9 ; une sonde se lit sur la fiche du service qu'elle
+surveille, pas encore sur le graphe ; les alertes d'exposition, la 11 ; le bouton
 Redémarrer, les actions : le client Docker ne connaît aucun verbe qui
 écrit.
+
+## Comment une cible est sondée
+
+Une sonde vérifie qu'une URL ou qu'un port répond, à intervalle régulier.
+Elle ne naît que de l'interface : aucun label, aucune découverte. C'est
+**la machine qui la porte** qui l'exécute, et la machine openCloud par
+défaut, qui voit la cible depuis l'extérieur ; confiée à l'agent de la
+machine du service, la même sonde la voit depuis l'intérieur, ce qui
+marche derrière un NAT.
+
+1. L'opérateur crée la sonde : un nom, un type (HTTP ou TCP), une cible,
+   une machine, un service facultatif, un intervalle, un délai et deux
+   seuils. Venue d'une fiche de service, elle arrive pré-remplie sur le
+   premier port publié. La sonde est « Nouveau » : rien n'est su tant
+   qu'aucun essai n'est revenu.
+2. Le serveur pousse à cette machine **le jeu complet de ses sondes**, sur
+   le flux déjà ouvert, à chaque changement et à chaque connexion. Le jeu
+   remplace le précédent ; une sonde en pause n'y est pas. Une machine
+   hors ligne le reçoit en revenant. La machine openCloud reçoit le sien
+   sans passer par le réseau : c'est son rôle d'agent.
+3. L'agent tient une goroutine par sonde. Une sonde part tout de suite,
+   puis suit son intervalle ; une sonde dont rien n'a changé garde sa
+   goroutine et son horloge quand le jeu est repoussé.
+4. La sonde résout le nom elle-même, écarte les adresses de **lien-local**
+   (dont `169.254.169.254`, celle des métadonnées d'hébergeur, qui livre
+   les identifiants de l'instance), puis compose vers l'adresse retenue :
+   ce que le nom répondrait au deuxième appel ne change pas la
+   destination. La boucle locale et les adresses privées restent ouvertes,
+   c'est l'usage voulu.
+5. Une sonde HTTP envoie un GET, HEAD ou POST — jamais une méthode qui
+   écrit —, lit au plus 64 Kio du corps, et juge le code reçu puis le
+   texte attendu. Une sonde TCP ouvre la connexion et la referme.
+6. **Un certificat refusé n'est pas une panne.** Quand la requête HTTPS
+   échoue sur la chaîne, la sonde ouvre une poignée de main nue pour
+   savoir si l'hôte répond et lire ce qu'il présente : **la requête n'est
+   jamais rejouée**, rien de ce qu'elle portait ne part vers un pair non
+   vérifié. L'essai est alors **dégradé** : un succès partout où cela
+   compte, l'uptime n'en est pas entamé, seul l'état change.
+7. Les essais attendent dans un tampon en mémoire et partent dans le corps
+   du signal, section `probes`. Après une reconnexion, ce qui attendait est
+   marqué **rejoué** : le serveur l'écrit dans l'histoire, mais ni l'état,
+   ni les compteurs, ni le direct n'y voient du neuf.
+8. openCloud refuse en bloc un rapport hors de mesure (plus de 512 essais,
+   une date à plus de cinq minutes dans le futur ou plus vieille que le
+   brut gardé, une durée négative, un code hors de 100 à 599, un motif
+   inconnu) ; le signal de vie compte quand même. Une sonde que la machine
+   ne porte plus est ignorée, ses essais avec. Un essai déjà en base,
+   rejoué, tombe sur la même clé et ne compte pas deux fois.
+9. L'état ne bascule **qu'au seuil atteint** : trois échecs de suite par
+   défaut pour passer Hors ligne, deux succès pour revenir. Trois
+   exceptions : le premier essai fixe l'état tout de suite, parce qu'une
+   sonde qui répond n'a pas à rester « Nouveau » ; Dégradé et En ligne
+   sont deux nuances d'un même succès et passent de l'une à l'autre sans
+   seuil ; une sonde en pause ne bouge pas, même si un essai parti avant
+   la pause arrive après.
+10. Toutes les 5 min, le rollup réécrit chaque jour UTC **entièrement**
+    couvert par le brut, en une instruction par jour. Le jour que la
+    rétention entame n'est pas rejoué : il a déjà été agrégé quand il
+    était entier. Pas de curseur : un redémarrage ou un rattrapage se
+    corrige seul. La purge, au départ puis une fois par jour, efface les
+    essais de plus de sept jours et l'agrégat de plus d'un an.
+
+| Fenêtre | Table lue | Pourquoi |
+| --- | --- | --- |
+| 24 h | `probe_results` | Le brut est gardé sept jours, strictement plus longtemps |
+| 7 j, 30 j, 90 j | `probe_days` | L'agrégat garde des comptes, pas un pourcentage : les jours s'additionnent |
+
+Le serveur rend des faits : des essais et des succès, jamais un
+pourcentage ; le navigateur divise, et affiche un tiret quand la fenêtre
+est vide, jamais un zéro qui ferait croire à une panne. Les motifs d'échec
+voyagent en un mot d'une liste fermée (`timeout`, `refused`, `dns`,
+`unreachable`, `address`, `status`, `body`, `redirect`, `tls_untrusted`,
+`tls_expired`, `tls_hostname`), que le front traduit : le navigateur ne lit
+jamais le texte d'une erreur Go.
+
+Une machine porte 64 sondes au plus ; au-delà, la création est refusée avec
+la clé du catalogue. L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s
+sans dépasser l'intervalle. Une sonde ne s'édite pas : on la supprime et on
+la recrée, comme un moniteur de tâche.
 
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource` et `service` publient sur le bus
-   interne (`internal/live`) à chaque changement visible : jeton,
+2. `machine`, `heartbeat`, `resource`, `service` et `probe` publient sur le
+   bus interne (`internal/live`) à chaque changement visible : jeton,
    enrôlement, connexion, signal, déconnexion, retrait ; création, ping,
    échéance dépassée, pause, reprise, suppression ; lot de mesures écrit ;
-   rapport de services ou de réseaux écrit. Le bus ne porte que quatre sujets,
-   `machines`, `jobs`, `resources` et `services`.
+   rapport de services ou de réseaux écrit ; essais de sondes écrits. Le bus
+   ne porte que cinq sujets, `machines`, `jobs`, `resources`, `services` et
+   `probes`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
    voyage dans le flux.
@@ -390,6 +477,11 @@ refusés avant d'envoyer quoi que ce soit.
 | Alerte sur une ressource | Le disque à 86 % se voit en jauge orange, personne n'est prévenu | Fonctionnalité 11 |
 | Alerte sur une tâche | « En retard » et « En échec » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11, par l'interface `heartbeat.Listener` |
 | Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer le moniteur | À décider |
+| Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
+| Pas d'édition d'une sonde | Changer une cadence impose de supprimer et recréer, ce qui perd l'historique | À décider |
+| Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée | Fonctionnalité 11, qui saura ce qu'est un incident |
+| Pas de spool des sondes | Un redémarrage de l'agent perd les essais en attente : un trou dans l'historique, et l'agrégat de ce jour le dit | Avec le spool des mesures |
+| Le certificat vu n'est pas suivi | La sonde HTTPS garde le dernier certificat présenté, personne ne prévient de son échéance | Fonctionnalité 9 |
 
 ## Par fonctionnalité
 
@@ -402,3 +494,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*` et `machine_disks`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |
 | 6 · services | Le veilleur Docker de l'agent et de `serve`, la section `services` du signal, les commandes sur `/agent/stream` et `POST /agent/logs/{request}`, les tables `services`, `service_transitions`, `service_samples`, `machine_engines`, la clé `docker_socket` et le drapeau `-docker-socket`, les routes `/api/services…` et `/api/machines/{id}/services`, le sujet `services` |
 | 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
+| 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
