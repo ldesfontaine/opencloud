@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
-import type { JobStatus, Service } from "../api/types";
+import type { JobStatus, ProbeStatus, Service } from "../api/types";
 import { useT } from "../i18n/context";
+import { probeTones } from "../lib/probes";
 import { servicePill } from "../lib/services";
 import "./Pill.scss";
 
@@ -43,4 +44,10 @@ export function ServicePill({ service }: { service: Pick<Service, "state" | "exi
   const t = useT();
   const pill = servicePill(service);
   return <Pill tone={pill.tone}>{t(`service.state_${pill.key}`)}</Pill>;
+}
+
+// Pastille d'une sonde : Nouveau, En ligne, Dégradé, Hors ligne, En pause.
+export function ProbePill({ status }: { status: ProbeStatus }) {
+  const t = useT();
+  return <Pill tone={probeTones[status]}>{t(`probe.status_${status}`)}</Pill>;
 }

@@ -81,7 +81,10 @@ func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 
 // Ouvre le flux avec une preuve signée et rend la réponse en cours et le
 // jeton de session lu dans le premier événement.
-func openStream(t *testing.T, server *testServer, machineID string, private ed25519.PrivateKey) (*http.Response, string, context.CancelFunc) {
+// openStream ouvre le flux d'un agent et rend le tampon qui l'a lu : ce
+// que le serveur pousse juste après la session arrive souvent dans le même
+// paquet, et un second tampon le perdrait.
+func openStream(t *testing.T, server *testServer, machineID string, private ed25519.PrivateKey) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
 	challenge := postJSON(server.Server, "/agent/challenge", machine.ChallengeRequest{MachineID: machineID})
 	if challenge.Code != http.StatusOK {
@@ -128,13 +131,13 @@ func openStream(t *testing.T, server *testServer, machineID string, private ed25
 			break
 		}
 	}
-	return resp, session, cancel
+	return resp, session, reader, cancel
 }
 
 func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, session, cancel := openStream(t, server, enrolled.ID, private)
+	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 
@@ -189,7 +192,7 @@ func TestAgentStream_RefusesABadProof(t *testing.T) {
 func TestAgentRemoval_ClosesTheStream(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, _, cancel := openStream(t, server, enrolled.ID, private)
+	resp, _, _, cancel := openStream(t, server, enrolled.ID, private)
 	defer cancel()
 	defer resp.Body.Close()
 	if err := server.machines.Remove(context.Background(), enrolled.ID); err != nil {
@@ -221,7 +224,7 @@ func readAll(resp *http.Response, timeout time.Duration) (string, error) {
 func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
-	resp, session, cancel := openStream(t, server, enrolled.ID, private)
+	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 

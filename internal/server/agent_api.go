@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
@@ -19,8 +20,9 @@ const (
 	streamPingInterval = 15 * time.Second
 	maxAgentBody       = 16 << 10
 	// Un lot de rattrapage : 120 lectures d'environ 250 octets, plus une
-	// centaine par volume, jusqu'à 32 volumes ; et la section services,
-	// un inventaire de 256 conteneurs d'un kilo-octet au plus.
+	// centaine par volume, jusqu'à 32 volumes ; la section services, un
+	// inventaire de 256 conteneurs d'un kilo-octet au plus ; et la section
+	// sondes, 512 essais de deux cents octets.
 	maxSignalBody = 1 << 20
 	// Un lot de journal : 64 lignes de 64 Kio au plus, en pratique bien
 	// moins ; la chaîne de middlewares plafonne déjà à 1 Mio.
@@ -116,6 +118,9 @@ func (s *Server) agentStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.machines.Disconnect(session)
+	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine : la
+	// commande attend dans la file que la boucle ci-dessous va lire.
+	s.probes.Assign(r.Context(), authenticated.ID)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -213,8 +218,21 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, service.ErrReportInvalid):
 		s.writeAgentError(w, http.StatusBadRequest, "bad_services")
+		return
 	case err != nil:
 		s.logger.Error("record services", "machine_id", machineID, "error", err)
+		s.writeAgentError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	// Ni de section sondes : le serveur l'accepte aussi.
+	if request.Probes != nil {
+		err = s.probes.Record(r.Context(), machineID, *request.Probes)
+	}
+	switch {
+	case errors.Is(err, probe.ErrReportInvalid):
+		s.writeAgentError(w, http.StatusBadRequest, "bad_probes")
+	case err != nil:
+		s.logger.Error("record probes", "machine_id", machineID, "error", err)
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
 	default:
 		w.WriteHeader(http.StatusNoContent)

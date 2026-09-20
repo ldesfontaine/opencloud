@@ -93,7 +93,7 @@ func TestEvents_RealChangesReachTheTab(t *testing.T) {
 	job := server.createJob(t, "job")
 	next, _ := openEvents(t, server, "")
 	next()
-	resp, _, cancelStream := openStream(t, server, enrolled.ID, private)
+	resp, _, _, cancelStream := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancelStream()
 	if got := next(); got != "machines" {

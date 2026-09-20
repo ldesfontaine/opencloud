@@ -11,6 +11,7 @@ export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
   services: { total: number; attention: number };
+  probes: { total: number; attention: number };
 }
 
 export interface Machine {
@@ -310,4 +311,84 @@ export interface LogLine {
 
 export interface LogsResponse {
   lines: LogLine[];
+}
+
+export type ProbeStatus = "new" | "up" | "degraded" | "down" | "paused";
+export type ProbeOutcome = "up" | "degraded" | "down";
+export type ProbeKind = "http" | "tcp";
+
+// Ce que la sonde a vu de la chaîne présentée au dernier essai HTTPS ; la
+// fonctionnalité certificats la reprendra.
+export interface Certificate {
+  subject: string;
+  issuer: string;
+  not_before: string;
+  not_after: string;
+  fingerprint: string;
+}
+
+// Une sonde : des faits. La pastille, la disponibilité et les libellés se
+// dérivent ici. machine_online dit si quelqu'un sonde encore.
+export interface Probe {
+  id: string;
+  name: string;
+  kind: ProbeKind;
+  target: string;
+  machine_id: string;
+  machine_name: string;
+  machine_online: boolean;
+  service_id: string;
+  service_name: string;
+  status: ProbeStatus;
+  interval_seconds: number;
+  timeout_seconds: number;
+  failure_threshold: number;
+  recovery_threshold: number;
+  method: string;
+  expected_status: string;
+  expected_body: string;
+  follow_redirects: boolean;
+  last_checked_at: string | null;
+  last_duration_ms: number;
+  last_code: number | null;
+  last_reason: string;
+  certificate: Certificate | null;
+  created_at: string;
+}
+
+// Un jour agrégé, en heure UTC : des comptes, jamais un pourcentage.
+export interface ProbeDay {
+  day: string;
+  total: number;
+  success: number;
+  degraded: number;
+  duration_ms: number;
+}
+
+export interface ProbeResult {
+  checked_at: string;
+  outcome: ProbeOutcome;
+  duration_ms: number;
+  code: number | null;
+  reason: string;
+}
+
+// Une fenêtre de disponibilité : des essais et des succès ; le pourcentage
+// se calcule ici, et une fenêtre sans essai n'en a pas.
+export interface ProbeUptime {
+  window: string;
+  total: number;
+  success: number;
+}
+
+export interface ProbesResponse {
+  probes: Probe[];
+  days: Record<string, ProbeDay[]>;
+}
+
+export interface ProbeResponse {
+  probe: Probe;
+  uptime: ProbeUptime[];
+  days: ProbeDay[];
+  results: ProbeResult[];
 }

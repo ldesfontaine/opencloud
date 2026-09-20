@@ -15,7 +15,8 @@ import { machinesSubtitle } from "../lib/subtitles";
 import { seenAgo } from "../lib/time";
 import "./Overview.scss";
 
-// La vue d'ensemble compte les machines et les tâches, dessine le réseau de
+// La vue d'ensemble compte les machines, les services, les sondes et les
+// tâches, dessine le réseau de
 // toutes les machines, puis montre chaque machine en carte avec ses trois
 // jauges ; sans machine, elle invite à en ajouter une.
 export function Overview() {
@@ -57,6 +58,18 @@ export function Overview() {
                   <b className="danger">{t("overview.services_attention", counts.data.services.attention)}</b>
                 ) : (
                   t("overview.services_ok")
+                )
+              }
+            />
+            <Stat
+              icon="globe"
+              label={t("nav.domains")}
+              value={counts.data?.probes.total ?? "–"}
+              foot={
+                counts.data && counts.data.probes.attention > 0 ? (
+                  <b className="danger">{t("overview.probes_attention", counts.data.probes.attention)}</b>
+                ) : (
+                  t("overview.probes_ok")
                 )
               }
             />

@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
@@ -40,10 +41,11 @@ type ChallengeResponse struct {
 }
 
 // Ce que l'agent envoie avec son signal : les lectures de la machine faites
-// depuis le signal précédent, et ce que son Docker a montré. Un signal
-// sans corps reste un signal ; un agent plus vieux n'envoie pas de
-// services, le serveur l'accepte.
+// depuis le signal précédent, ce que son Docker a montré, et ce que ses
+// sondes ont donné. Un signal sans corps reste un signal ; un agent plus
+// vieux n'envoie ni services ni sondes, le serveur l'accepte.
 type SignalRequest struct {
 	Readings []sampler.Reading `json:"readings,omitempty"`
 	Services *service.Report   `json:"services,omitempty"`
+	Probes   *probe.Report     `json:"probes,omitempty"`
 }

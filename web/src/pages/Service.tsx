@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
 import type { ServiceResponse, Transition } from "../api/types";
+import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { LogViewer } from "../components/LogViewer";
@@ -18,7 +19,7 @@ import { formatBytes, formatDecimal } from "../lib/units";
 import { NotFound } from "./NotFound";
 
 // La fiche d'un service : la pastille et les faits, les transitions, les
-// journaux en direct.
+// journaux en direct, et de quoi le mettre sous sonde.
 export function ServicePage() {
   const { id = "" } = useParams();
   const response = useResource<ServiceResponse>(`/api/services/${id}`);
@@ -37,7 +38,15 @@ function ServiceView({ response }: { response: ServiceResponse }) {
   const service = response.service;
   return (
     <>
-      <PageHead title={service.name} subtitle={service.group !== "" && service.group !== service.name ? service.group : ""} />
+      <PageHead
+        title={service.name}
+        subtitle={service.group !== "" && service.group !== service.name ? service.group : ""}
+        actions={
+          <Button icon="globe" to={`/domaines/nouvelle?service=${service.id}`}>
+            {t("probe.watch_service")}
+          </Button>
+        }
+      />
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">

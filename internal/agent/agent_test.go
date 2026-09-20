@@ -14,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -44,7 +45,10 @@ func newBench(t *testing.T) *bench {
 	t.Cleanup(func() { db.Close() })
 	machines := machine.New(db, machine.NewSessions(), logger)
 	resources := resource.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines, Resources: resources})
+	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine : le
+	// serveur de test a donc besoin du composant, même vide.
+	probes := probe.New(db, logger)
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines, Resources: resources, Probes: probes})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +223,7 @@ func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = client.Signal(context.Background(), "session", nil, nil)
+	err = client.Signal(context.Background(), "session", nil, nil, nil)
 	if !errors.Is(err, ErrPinMismatch) {
 		t.Fatalf("got %v", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
@@ -92,17 +93,28 @@ func runServe(args []string) error {
 	// réseau : ce que le veilleur observe s'écrit directement.
 	watcher := dockerwatch.New(dockerapi.New(cfg.DockerSocket), localSink{ctx: ctx, services: services, logger: logger}, dockerwatch.Options{Logger: logger})
 	services.SetLocalLogSource(machine.LocalID, watcher)
-	// Cinq boucles de fond : les échéances, le rollup et la purge, la
-	// mesure de cette machine, qui est son propre agent, la purge des
-	// services et le veilleur Docker. Elles finissent avant que la base
-	// ne se ferme.
+	probes := probe.New(db, logger)
+	probes.SetWatcher(bus)
+	// La machine openCloud exécute aussi ses propres sondes, sans passer
+	// par le réseau : son jeu ne sort pas du processus.
+	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, logger)
+	probes.SetLocalRunner(machine.LocalID, prober)
+	// Sept boucles de fond : les échéances, le rollup et la purge des
+	// mesures, la mesure de cette machine, qui est son propre agent, la
+	// purge des services, le veilleur Docker, le rollup et la purge des
+	// sondes, et leur moteur. Elles finissent avant que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
 	runLoop(&loops, func() { resources.SampleLocal(ctx, machine.LocalID, sampler.New(), resource.SampleInterval) })
 	runLoop(&loops, func() { services.Watch(ctx) })
 	runLoop(&loops, func() { watcher.Run(ctx) })
+	runLoop(&loops, func() { probes.Watch(ctx) })
+	runLoop(&loops, func() { prober.Run(ctx) })
 	defer func() { stop(); loops.Wait() }()
+	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
+	// la base garde des sondes de cette machine repart dès le démarrage.
+	probes.Assign(ctx, machine.LocalID)
 
 	server, err := server.New(server.Options{
 		Logger:         logger,
@@ -112,6 +124,7 @@ func runServe(args []string) error {
 		Heartbeats:     heartbeats,
 		Resources:      resources,
 		Services:       services,
+		Probes:         probes,
 		Live:           bus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
@@ -121,6 +134,7 @@ func runServe(args []string) error {
 	}
 	// Le serveur tient les flux des agents : c'est lui qui leur commande.
 	services.SetCommander(server)
+	probes.SetCommander(server)
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server,
@@ -181,5 +195,18 @@ type localSink struct {
 func (s localSink) Deliver(report service.Report) {
 	if err := s.services.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
 		s.logger.Error("record local services", "error", err)
+	}
+}
+
+// localProbes écrit ce que les sondes de la machine openCloud ont donné.
+type localProbes struct {
+	ctx    context.Context
+	probes *probe.Service
+	logger *slog.Logger
+}
+
+func (p localProbes) Deliver(report probe.Report) {
+	if err := p.probes.Record(p.ctx, machine.LocalID, report); err != nil && p.ctx.Err() == nil {
+		p.logger.Error("record local probes", "error", err)
 	}
 }

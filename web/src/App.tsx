@@ -9,6 +9,9 @@ import { MachineNew } from "./pages/MachineNew";
 import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
+import { ProbePage } from "./pages/Probe";
+import { ProbeNew } from "./pages/ProbeNew";
+import { Probes } from "./pages/Probes";
 import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
@@ -29,7 +32,9 @@ export function App() {
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services />} />
         <Route path="services/:id" element={<ServicePage />} />
-        <Route path="domaines" element={<Soon navKey="domains" />} />
+        <Route path="domaines" element={<Probes />} />
+        <Route path="domaines/nouvelle" element={<ProbeNew />} />
+        <Route path="domaines/:id" element={<ProbePage />} />
         <Route path="sauvegardes" element={<Soon navKey="backups" />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobNew />} />
