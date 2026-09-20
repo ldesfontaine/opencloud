@@ -1,25 +1,31 @@
 import { Link } from "react-router";
 
-import type { NetworkResponse, Service } from "../api/types";
-import { useT, type Translate } from "../i18n/context";
+import type { NetworkResponse, Probe, Service } from "../api/types";
+import { useNow } from "../hooks/useNow";
+import { useCertificateThresholds, useT, type Translate } from "../i18n/context";
+import { read, soonest } from "../lib/certificates";
 import { internetID, peersOf, publicPorts } from "../lib/network";
 import { findingText, formatBindings, needsCaution, serviceIcon } from "../lib/services";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
+import { Remaining } from "./Certificate";
 import { Icon } from "./Icon";
 import { Pill, ServicePill } from "./Pill";
 import "./NetworkInspector.scss";
 
 interface Props {
   response: NetworkResponse;
+  // Les sondes de la machine : celles rattachées au service choisi disent
+  // le certificat qu'il sert.
+  probes: Probe[];
   selected: string | null;
   onSelect: (id: string) => void;
 }
 
 // L'inspecteur de la planche : 300 px à droite, les faits du nœud choisi ;
-// sans choix, ce que la machine compte. Domaine et certificat attendent
-// leurs fonctionnalités ; Redémarrer attend les actions.
-export function NetworkInspector({ response, selected, onSelect }: Props) {
+// sans choix, ce que la machine compte. Le domaine attend le proxy ;
+// Redémarrer attend les actions.
+export function NetworkInspector({ response, probes, selected, onSelect }: Props) {
   const service = response.services.find((candidate) => candidate.id === selected);
   if (selected === internetID) {
     return <InternetInspector response={response} onSelect={onSelect} />;
@@ -27,7 +33,26 @@ export function NetworkInspector({ response, selected, onSelect }: Props) {
   if (service === undefined) {
     return <MachineInspector response={response} />;
   }
-  return <ServiceInspector service={service} response={response} onSelect={onSelect} />;
+  return <ServiceInspector service={service} response={response} probes={probes} onSelect={onSelect} />;
+}
+
+// Le certificat que les sondes de ce service ont vu ; le plus pressé quand
+// il y en a plusieurs. Rien quand aucune sonde ne le surveille.
+function CertificateRow({ service, probes }: { service: Service; probes: Probe[] }) {
+  const t = useT();
+  const now = useNow();
+  const thresholds = useCertificateThresholds();
+  const watched = probes.filter((probe) => probe.service_id === service.id).map((probe) => probe.certificate);
+  const certificate = soonest(watched);
+  if (certificate === null) {
+    return null;
+  }
+  return (
+    <div className="kv">
+      <span className="k">{t("cert.field_certificate")}</span>
+      <Remaining reading={read(certificate, thresholds, now)} />
+    </div>
+  );
 }
 
 function MachineInspector({ response }: { response: NetworkResponse }) {
@@ -79,7 +104,17 @@ function InternetInspector({ response, onSelect }: { response: NetworkResponse; 
   );
 }
 
-function ServiceInspector({ service, response, onSelect }: { service: Service; response: NetworkResponse; onSelect: (id: string) => void }) {
+function ServiceInspector({
+  service,
+  response,
+  probes,
+  onSelect,
+}: {
+  service: Service;
+  response: NetworkResponse;
+  probes: Probe[];
+  onSelect: (id: string) => void;
+}) {
   const t = useT();
   const peers = peersOf(service, response.services);
   const dependencies = response.edges.filter((edge) => edge.kind === "depends" && edge.from === service.id);
@@ -100,6 +135,7 @@ function ServiceInspector({ service, response, onSelect }: { service: Service; r
         <KeyValue label={t("service.field_image")} value={service.image} mono />
         {service.group !== "" && <KeyValue label={t("service.field_group")} value={service.group} mono />}
         <KeyValue label={t("network.field_mode")} value={modeText(t, service)} mono />
+        <CertificateRow service={service} probes={probes} />
 
         <span className="k">{t("service.field_ports")}</span>
         {service.ports.length === 0 && <span className="muted">{t("service.internal")}</span>}

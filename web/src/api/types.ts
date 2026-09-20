@@ -5,6 +5,15 @@ export interface Session {
   version: string;
   language: string;
   languages: string[];
+  // Les jours à partir desquels un certificat se signale. Le serveur les
+  // tient : le compteur et la couleur d'une ligne basculent sur le même
+  // chiffre.
+  certificate_thresholds: CertificateThresholds;
+}
+
+export interface CertificateThresholds {
+  warning: number;
+  danger: number;
 }
 
 export interface Counts {
@@ -12,6 +21,15 @@ export interface Counts {
   jobs: { total: number; attention: number };
   services: { total: number; attention: number };
   probes: { total: number; attention: number };
+  certificates: CertificateCounts;
+}
+
+// Les certificats vus par les sondes actives. soonest_expires_at est nul
+// tant qu'aucune sonde n'en a vu.
+export interface CertificateCounts {
+  total: number;
+  expiring: number;
+  soonest_expires_at: string | null;
 }
 
 export interface Machine {
@@ -319,12 +337,20 @@ export type ProbeKind = "http" | "tcp";
 
 // Ce que la sonde a vu de la chaîne présentée au dernier essai HTTPS ; la
 // fonctionnalité certificats la reprendra.
+// La chaîne présentée, en faits. L'échéance et la confiance sont deux
+// choses : un certificat d'autorité interne a une date parfaitement
+// lisible. L'état et la pastille se dérivent ici, dans lib/certificates.
 export interface Certificate {
   subject: string;
   issuer: string;
   not_before: string;
   not_after: string;
   fingerprint: string;
+  chain_valid: boolean;
+  hostname_match: boolean;
+  // Vide quand la cible n'agrafe rien : personne n'est contacté pour le
+  // savoir.
+  ocsp: "" | "good" | "revoked" | "unknown";
 }
 
 // Une sonde : des faits. La pastille, la disponibilité et les libellés se
@@ -348,6 +374,9 @@ export interface Probe {
   expected_status: string;
   expected_body: string;
   follow_redirects: boolean;
+  // Une sonde TCP qui fait une poignée de main plutôt qu'une simple
+  // connexion, pour lire le certificat d'un port qui ne parle pas HTTP.
+  tls: boolean;
   last_checked_at: string | null;
   last_duration_ms: number;
   last_code: number | null;
