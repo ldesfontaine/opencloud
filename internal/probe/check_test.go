@@ -14,6 +14,12 @@ import (
 
 var checkNow = time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 
+// check sonde avec le magasin du système seul : une machine sans autorité
+// interne ajoutée, le cas de presque toutes.
+func check(task Task, now time.Time) Result {
+	return NewChecker(nil).Check(context.Background(), task, now)
+}
+
 func httpTask(target string) Task {
 	return Task{ID: "p1", Kind: KindHTTP, Target: target, IntervalSeconds: 60, TimeoutSeconds: 5, Method: "GET", ExpectedStatus: "2xx"}
 }
@@ -24,7 +30,7 @@ func TestCheckHTTP_AcceptsTheExpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := Check(context.Background(), httpTask(server.URL), checkNow)
+	result := check(httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeUp || result.Reason != ReasonNone {
 		t.Fatalf("attendu en ligne, obtenu %+v", result)
 	}
@@ -39,7 +45,7 @@ func TestCheckHTTP_RefusesAnUnexpectedStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := Check(context.Background(), httpTask(server.URL), checkNow)
+	result := check(httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonStatus {
 		t.Fatalf("attendu hors ligne pour code inattendu, obtenu %+v", result)
 	}
@@ -53,11 +59,11 @@ func TestCheckHTTP_LooksForTheExpectedText(t *testing.T) {
 
 	task := httpTask(server.URL)
 	task.ExpectedBody = `"status":"ok"`
-	if result := Check(context.Background(), task, checkNow); result.Outcome != OutcomeUp {
+	if result := check(task, checkNow); result.Outcome != OutcomeUp {
 		t.Fatalf("texte attendu présent mais refusé: %+v", result)
 	}
 	task.ExpectedBody = "hors sujet"
-	result := Check(context.Background(), task, checkNow)
+	result := check(task, checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonBody {
 		t.Fatalf("texte attendu absent mais accepté: %+v", result)
 	}
@@ -71,7 +77,7 @@ func TestCheckHTTP_RedirectCountsAsTheStatusItIs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result := Check(context.Background(), httpTask(server.URL), checkNow)
+	result := check(httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonStatus {
 		t.Fatalf("la redirection non suivie devait rester un code inattendu: %+v", result)
 	}
@@ -85,7 +91,7 @@ func TestCheckHTTP_StopsAfterTooManyRedirects(t *testing.T) {
 
 	task := httpTask(server.URL)
 	task.FollowRedirects = true
-	result := Check(context.Background(), task, checkNow)
+	result := check(task, checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonRedirect {
 		t.Fatalf("attendu trop de redirections, obtenu %+v", result)
 	}
@@ -104,7 +110,7 @@ func TestCheckHTTP_GivesUpAfterTheTimeout(t *testing.T) {
 
 	task := httpTask(server.URL)
 	task.TimeoutSeconds = 1
-	result := Check(context.Background(), task, checkNow)
+	result := check(task, checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonTimeout {
 		t.Fatalf("attendu un délai dépassé, obtenu %+v", result)
 	}
@@ -125,7 +131,7 @@ func TestCheckHTTP_UntrustedCertificateIsDegradedAndNeverReplays(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	result := Check(context.Background(), httpTask(server.URL), checkNow)
+	result := check(httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeDegraded {
 		t.Fatalf("attendu dégradé, obtenu %+v", result)
 	}
@@ -158,7 +164,7 @@ func TestCheckHTTP_UnreachableTLSHostIsDown(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	result := Check(context.Background(), httpTask(target), checkNow)
+	result := check(httpTask(target), checkNow)
 	if result.Outcome != OutcomeDown {
 		t.Fatalf("attendu hors ligne, obtenu %+v", result)
 	}
@@ -167,7 +173,7 @@ func TestCheckHTTP_UnreachableTLSHostIsDown(t *testing.T) {
 // L'adresse de métadonnées des hébergeurs ne se compose jamais, même si
 // une sonde plus vieille la porte encore.
 func TestCheck_RefusesALinkLocalAddressWithoutDialing(t *testing.T) {
-	result := Check(context.Background(), httpTask("http://169.254.169.254/latest/meta-data/"), checkNow)
+	result := check(httpTask("http://169.254.169.254/latest/meta-data/"), checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonAddress {
 		t.Fatalf("attendu une adresse refusée, obtenu %+v", result)
 	}
@@ -190,7 +196,7 @@ func TestCheckTCP_ConnectsAndCloses(t *testing.T) {
 	}()
 
 	task := Task{ID: "p2", Kind: KindTCP, Target: listener.Addr().String(), IntervalSeconds: 60, TimeoutSeconds: 5}
-	if result := Check(context.Background(), task, checkNow); result.Outcome != OutcomeUp {
+	if result := check(task, checkNow); result.Outcome != OutcomeUp {
 		t.Fatalf("attendu en ligne, obtenu %+v", result)
 	}
 }
@@ -205,7 +211,7 @@ func TestCheckTCP_ReportsARefusedConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := Task{ID: "p2", Kind: KindTCP, Target: address, IntervalSeconds: 60, TimeoutSeconds: 5}
-	result := Check(context.Background(), task, checkNow)
+	result := check(task, checkNow)
 	if result.Outcome != OutcomeDown || result.Reason != ReasonRefused {
 		t.Fatalf("attendu une connexion refusée, obtenu %+v", result)
 	}
@@ -214,7 +220,7 @@ func TestCheckTCP_ReportsARefusedConnection(t *testing.T) {
 func TestCheck_DatesTheResultWithTheClockItIsGiven(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer server.Close()
-	if got := Check(context.Background(), httpTask(server.URL), checkNow).CheckedAt; !got.Equal(checkNow) {
+	if got := check(httpTask(server.URL), checkNow).CheckedAt; !got.Equal(checkNow) {
 		t.Fatalf("attendu %s, obtenu %s", checkNow, got)
 	}
 }
