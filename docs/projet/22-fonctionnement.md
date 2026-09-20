@@ -56,7 +56,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet, plafonnée à 16 |
-| Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://`, rien si elle est en `http://` ou en TCP | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée |
+| Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies` |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
@@ -78,7 +78,8 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, dernier essai, dernier certificat vu), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -319,11 +320,11 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
 | `GET /networks` | liste | id, nom, pilote, interne, projet Compose |
 | `GET /events?filters=container,network` | flux | `connect`, `disconnect`, `create`, `destroy` |
 
-Le nœud proxy et le certificat de l'inspecteur attendent le proxy et la
-fonctionnalité 9 ; une sonde se lit sur la fiche du service qu'elle
-surveille, pas encore sur le graphe ; les alertes d'exposition, la 11 ; le bouton
-Redémarrer, les actions : le client Docker ne connaît aucun verbe qui
-écrit.
+Le nœud proxy attend le proxy ; l'inspecteur dit maintenant le certificat
+du service, quand une sonde en surveille un. Une sonde se lit sur la fiche
+du service qu'elle surveille, pas encore sur le graphe ; les alertes
+d'exposition, la 11 ; le bouton Redémarrer, les actions : le client Docker
+ne connaît aucun verbe qui écrit.
 
 ## Comment une cible est sondée
 
@@ -404,6 +405,79 @@ la clé du catalogue. L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s
 sans dépasser l'intervalle. Une sonde ne s'édite pas : on la supprime et on
 la recrée, comme un moniteur de tâche.
 
+## Comment un certificat est jugé
+
+Un certificat n'est pas un objet d'openCloud : c'est **un fait de la
+sonde**. Aucune liste à tenir, aucune cadence de plus, aucun écran de
+création. Surveiller l'échéance d'un domaine, c'est créer une sonde
+dessus ; une sonde HTTPS en voit un sans qu'on demande rien, et une sonde
+TCP en voit un quand on lui demande la poignée de main — ce qui couvre un
+port chiffré qui ne parle pas HTTP, SMTP ou IMAP.
+
+1. **Qui vérifie** : la machine qui porte la sonde, la même qui sonde, avec
+   les autorités qu'elle connaît. Le serveur ne juge jamais une chaîne à sa
+   place : il ne l'a pas vue.
+2. **Quand** : à chaque essai, à la cadence de la sonde. Même quand la
+   requête vient d'aboutir, la chaîne et le nom sont revérifiés : tenir
+   pour vrai ce qu'on n'a pas vérifié, c'est ne jamais voir une chaîne
+   cassée.
+3. **Ce qui est vérifié, séparément** : que la chaîne remonte à une
+   autorité connue de cette machine, dates comprises ; que le certificat
+   couvre le nom demandé. Les deux ne se déduisent pas l'un de l'autre —
+   une chaîne impeccable peut servir le mauvais domaine.
+4. **Ce qui est lu sans rien demander** : l'agrafe OCSP que la cible remet
+   pendant la poignée de main. **Aucun répondeur n'est contacté.** Ce qui
+   n'est pas agrafé n'est pas su, et se dit en ne disant rien. Une agrafe
+   périmée ne prouve plus rien : elle vaut « sans réponse exploitable ».
+5. **Ce qui est stocké** : le dernier certificat vu, et lui seul. Pas
+   d'historique des vérifications, pas de chaîne complète. Un
+   renouvellement se reconnaît au changement d'empreinte, l'âge se lit sur
+   la date de début. Un essai qui ne voit rien n'efface pas ce qu'on
+   savait : une coupure ne fait pas disparaître ce que la cible sert.
+6. **Une autorité interne** se déclare par `ca_file` dans la configuration,
+   ou `-ca-file` sur l'agent : le paquet PEM s'**ajoute** au magasin du
+   système, il ne le remplace pas, donc les autorités publiques continuent
+   de marcher. Un chemin faux, un fichier illisible ou un PEM sans
+   certificat **arrêtent le démarrage** — sans quoi `crypto/x509` rendrait
+   un magasin vide sans une ligne de journal, et toutes les chaînes
+   deviendraient « autorité inconnue ». À poser sur **chaque machine qui
+   sonde** : la régler sur la machine openCloud ne change rien pour une
+   sonde portée par un agent.
+
+**L'échéance et la confiance sont deux faits, jamais fusionnés.** Un
+certificat d'autorité interne, ou qui couvre le mauvais nom, garde une date
+parfaitement lisible — et c'est justement le cas où l'opérateur se fait
+avoir. L'interface les montre côte à côte : une pastille pour l'échéance,
+une pour la confiance quand il y a un doute, et jamais l'une à la place de
+l'autre.
+
+| État | Ce qu'il dit | Seuil |
+| --- | --- | --- |
+| Valide | L'échéance est loin | plus de 30 jours |
+| À renouveler | L'échéance approche | 30 jours, puis danger à 7 |
+| Expiré | L'échéance est passée | — |
+| Non vérifié | La chaîne ne remonte à aucune autorité connue de la machine qui sonde, ou le certificat ne couvre pas le nom demandé | — |
+| Révoqué | L'agrafe dit que l'émetteur l'a révoqué avant son échéance | — |
+
+Les seuils sont ceux du produit, tenus à un seul endroit et servis au
+navigateur par `/api/session` : le compteur de la vue d'ensemble et la
+couleur d'une ligne basculent sur le même chiffre. Le serveur rend des
+faits — des dates, deux booléens, un mot pour l'agrafe — et compte ce qui
+approche ; l'état, la couleur et les jours restants se font dans le
+navigateur. Les jours restants s'arrondissent **vers le haut** : douze
+heures font encore un jour, et ce qui est passé s'arrondit vers le bas,
+pour que « 1 jour » et « −1 jour » ne se confondent jamais.
+
+**Une sonde dégradée et un certificat expiré ne se contredisent pas** : la
+sonde parle de disponibilité, le certificat parle de confiance. Le service
+répond parfaitement ; on ne peut simplement plus prouver à qui on parle.
+C'est pourquoi un certificat refusé laisse l'uptime intact. Et une chaîne
+refusée **parce que** le certificat est expiré ne se compte pas deux fois :
+« Expiré » le dit déjà.
+
+Une sonde en pause ne compte pas : elle ne regarde plus, et ce qu'elle a vu
+ne dit plus rien de la cible.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
@@ -481,7 +555,11 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas d'édition d'une sonde | Changer une cadence impose de supprimer et recréer, ce qui perd l'historique | À décider |
 | Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée | Fonctionnalité 11, qui saura ce qu'est un incident |
 | Pas de spool des sondes | Un redémarrage de l'agent perd les essais en attente : un trou dans l'historique, et l'agrégat de ce jour le dit | Avec le spool des mesures |
-| Le certificat vu n'est pas suivi | La sonde HTTPS garde le dernier certificat présenté, personne ne prévient de son échéance | Fonctionnalité 9 |
+| Alerte sur un certificat | « À renouveler » et « Expiré » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11 |
+| Pas de renouvellement | openCloud observe un certificat, il ne le renouvelle pas et ne sait rien d'un renouvellement qui a échoué | À décider, avec le proxy |
+| Pas d'historique des certificats | Un renouvellement se reconnaît au changement d'empreinte, mais on ne sait pas quand il a eu lieu si openCloud était coupé, ni combien de fois | À décider |
+| Un domaine sans sonde n'est pas surveillé | Surveiller l'échéance d'un domaine impose de créer une sonde dessus ; pour un domaine qu'on ne veut pas sonder chaque minute, il faut régler l'intervalle à 24 h | À décider |
+| L'autorité interne se pose machine par machine | `ca_file` n'est pas distribuée par le serveur : chaque machine qui sonde porte la sienne | À décider |
 
 ## Par fonctionnalité
 
@@ -495,3 +573,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 6 · services | Le veilleur Docker de l'agent et de `serve`, la section `services` du signal, les commandes sur `/agent/stream` et `POST /agent/logs/{request}`, les tables `services`, `service_transitions`, `service_samples`, `machine_engines`, la clé `docker_socket` et le drapeau `-docker-socket`, les routes `/api/services…` et `/api/machines/{id}/services`, le sujet `services` |
 | 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
+| 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
