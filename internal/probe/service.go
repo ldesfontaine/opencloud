@@ -22,7 +22,7 @@ type Store interface {
 	CountProbes(ctx context.Context) (total, attention int, err error)
 	// CountProbeCertificates compte les certificats vus et ceux dont
 	// l'échéance tombe avant l'instant donné.
-	CountProbeCertificates(ctx context.Context, before time.Time) (Certificates, error)
+	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
 	CountProbesOnMachine(ctx context.Context, machineID string) (int, error)
 	DeleteProbe(ctx context.Context, id string) error
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
@@ -174,7 +174,8 @@ func NeedsAttention(status Status) bool {
 // du produit, publié au navigateur par la session : un seul chiffre, une
 // seule source, et la même bascule à l'écran qu'au compteur.
 func (s *Service) Certificates(ctx context.Context) (Certificates, error) {
-	return s.store.CountProbeCertificates(ctx, s.now().Add(CertificateWarning*24*time.Hour))
+	now := s.now()
+	return s.store.CountProbeCertificates(ctx, now, now.Add(CertificateWarning*24*time.Hour))
 }
 
 func (s *Service) Results(ctx context.Context, id string, limit int) ([]Result, error) {

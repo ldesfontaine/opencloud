@@ -5,7 +5,7 @@ import { api, ApiError } from "../api/client";
 import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
-import { CertificatePill, Remaining } from "../components/Certificate";
+import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { Dot, ProbePill } from "../components/Pill";
@@ -186,7 +186,10 @@ function CertificateCard({ probe }: { probe: Probe }) {
       <CardHeader title={t("probe.cert_title")} aside={t("probe.cert_text")} />
       <CardBody gap={10}>
         <div className="kv">
-          <CertificatePill reading={reading} />
+          <span className="cluster">
+            <CertificatePill reading={reading} />
+            <TrustPill reading={reading} />
+          </span>
           <Remaining reading={reading} />
         </div>
         <KeyValue label={t("probe.cert_subject")} value={certificate.subject} mono />

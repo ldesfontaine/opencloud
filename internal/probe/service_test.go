@@ -393,8 +393,8 @@ func TestCertificates_CountWhatIsSeenAndWhatIsClose(t *testing.T) {
 	if counted.Total != 2 {
 		t.Fatalf("deux sondes ont vu un certificat, comptées %d", counted.Total)
 	}
-	if counted.Expiring != 1 {
-		t.Fatalf("une seule échéance est sous le seuil, comptées %d", counted.Expiring)
+	if counted.Expiring != 1 || counted.Expired != 0 {
+		t.Fatalf("une seule échéance sous le seuil, aucune passée: %+v", counted)
 	}
 	if !counted.Soonest.Equal(testNow.AddDate(0, 0, 12)) {
 		t.Fatalf("la plus proche échéance attendue dans 12 jours, obtenue %s", counted.Soonest)
@@ -417,6 +417,29 @@ func TestCertificates_IgnoreAPausedProbe(t *testing.T) {
 	}
 	if counted.Total != 0 || counted.Expiring != 0 || !counted.Soonest.IsZero() {
 		t.Fatalf("une sonde en pause ne compte pas: %+v", counted)
+	}
+}
+
+// Ce qui approche de sa fin et ce qui l'a passée sont deux comptes : on ne
+// renouvelle pas de la même façon un certificat mort et un qui va mourir.
+// La plus proche échéance rendue est à venir, sans quoi elle ne dirait pas
+// dans combien de jours.
+func TestCertificates_SeparateWhatIsCloseFromWhatIsPast(t *testing.T) {
+	fixture := newBench(t)
+	dead := fixture.create(t, "mort", "https://mort.exemple.fr/")
+	soon := fixture.create(t, "bientot", "https://bientot.exemple.fr/")
+	fixture.seeCertificate(t, dead.ID, testNow.AddDate(0, 0, -4))
+	fixture.seeCertificate(t, soon.ID, testNow.AddDate(0, 0, 12))
+
+	counted, err := fixture.service.Certificates(context.Background())
+	if err != nil {
+		t.Fatalf("compter les certificats: %v", err)
+	}
+	if counted.Expired != 1 || counted.Expiring != 1 {
+		t.Fatalf("un expiré et un qui approche: %+v", counted)
+	}
+	if !counted.Soonest.Equal(testNow.AddDate(0, 0, 12)) {
+		t.Fatalf("la plus proche échéance doit être à venir, obtenue %s", counted.Soonest)
 	}
 }
 

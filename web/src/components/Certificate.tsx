@@ -7,20 +7,35 @@ import { read, type CertificateReading } from "../lib/certificates";
 import { formatDuration } from "../lib/time";
 import { Card, CardBody, CardHeader, Empty } from "./Card";
 import { Pill } from "./Pill";
+import "./Certificate.scss";
 
 // Ce qui reste, en jours, dans le ton de son urgence. Un certificat expiré
 // dit depuis combien de temps plutôt qu'un nombre négatif.
 export function Remaining({ reading }: { reading: CertificateReading }) {
   const t = useT();
   const text = reading.days < 0 ? t("cert.expired_days", -reading.days) : t("cert.days", reading.days);
-  return <span className={`mono ${reading.tone === "ok" ? "secondary" : reading.tone}`}>{text}</span>;
+  return <span className={`mono nowrap cert-days ${reading.tone === "ok" ? "secondary" : reading.tone}`}>{text}</span>;
 }
 
 // L'état d'un certificat, dans le vocabulaire de la direction artistique.
-// La confiance ne l'écrase jamais : elle se dit à côté, pas à la place.
+// Il ne parle que de l'échéance.
 export function CertificatePill({ reading }: { reading: CertificateReading }) {
   const t = useT();
   return <Pill tone={reading.tone}>{t(`cert.state_${reading.state}`)}</Pill>;
+}
+
+// La confiance, à côté de l'échéance et jamais à sa place : une chaîne
+// qu'on ne peut pas vérifier ne rend pas la date fausse. Rien à dire quand
+// tout se vérifie.
+export function TrustPill({ reading }: { reading: CertificateReading }) {
+  const t = useT();
+  if (reading.revoked) {
+    return <Pill tone="danger">{t("cert.trust_revoked")}</Pill>;
+  }
+  if (reading.untrusted) {
+    return <Pill tone="warn">{t("cert.trust_unverified")}</Pill>;
+  }
+  return null;
 }
 
 // La note d'une ligne : ce qu'on ne peut pas prouver d'abord, l'âge du

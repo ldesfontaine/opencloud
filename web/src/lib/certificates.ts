@@ -13,6 +13,7 @@ export type CertificateState = "valid" | "to_renew" | "expired";
 
 export interface CertificateReading {
   state: CertificateState;
+  // Le ton de l'échéance seule ; la confiance a le sien.
   tone: Tone;
   // Les jours restants, arrondis vers le haut : un certificat qui meurt
   // dans douze heures a encore « 1 jour », pas zéro. Négatif une fois
@@ -36,9 +37,16 @@ export function daysUntil(at: string, now: number): number {
 
 export function read(certificate: Certificate, thresholds: CertificateThresholds, now: number): CertificateReading {
   const days = daysUntil(certificate.not_after, now);
-  const untrusted = !certificate.chain_valid || !certificate.hostname_match;
-  const revoked = certificate.ocsp === "revoked";
-  return { state: stateOf(days, thresholds), tone: toneOf(days, thresholds, untrusted || revoked), days, untrusted, revoked };
+  return {
+    state: stateOf(days, thresholds),
+    tone: toneOf(days, thresholds),
+    days,
+    // Une chaîne refusée sur un certificat expiré n'apprend rien : c'est
+    // l'échéance qui l'explique, et elle se dit déjà. Le nom, lui, reste
+    // une information à part entière dans les deux cas.
+    untrusted: (!certificate.chain_valid && days >= 0) || !certificate.hostname_match,
+    revoked: certificate.ocsp === "revoked",
+  };
 }
 
 function stateOf(days: number, thresholds: CertificateThresholds): CertificateState {
@@ -48,19 +56,14 @@ function stateOf(days: number, thresholds: CertificateThresholds): CertificateSt
   return days <= thresholds.warning ? "to_renew" : "valid";
 }
 
-// Le plus urgent l'emporte : une chaîne qu'on ne peut pas vérifier vaut au
-// moins une attention, même sur un certificat qui a trois mois devant lui.
-function toneOf(days: number, thresholds: CertificateThresholds, doubtful: boolean): Tone {
-  if (days < 0) {
-    return "danger";
-  }
+// Le ton de l'échéance, et rien d'autre. Une chaîne qu'on ne peut pas
+// vérifier ne la rend pas fausse : elle se dit à côté, par sa propre
+// pastille, jamais en teintant celle-ci.
+function toneOf(days: number, thresholds: CertificateThresholds): Tone {
   if (days <= thresholds.danger) {
     return "danger";
   }
-  if (days <= thresholds.warning || doubtful) {
-    return "warn";
-  }
-  return "ok";
+  return days <= thresholds.warning ? "warn" : "ok";
 }
 
 // Le certificat le plus pressé d'une liste, pour l'en-tête d'un onglet ou

@@ -1,0 +1,11 @@
+// Ce qu'il reste à un certificat, dans le ton de son urgence. Un
+// certificat sain reste discret : il n'a rien à réclamer.
+.cert-days {
+  &.warn {
+    color: var(--warn);
+  }
+
+  &.danger {
+    color: var(--danger);
+  }
+}

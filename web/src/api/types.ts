@@ -24,11 +24,13 @@ export interface Counts {
   certificates: CertificateCounts;
 }
 
-// Les certificats vus par les sondes actives. soonest_expires_at est nul
-// tant qu'aucune sonde n'en a vu.
+// Les certificats vus par les sondes actives. expiring et expired sont
+// disjoints ; soonest_expires_at est la plus proche échéance à venir, nulle
+// quand il n'y en a aucune.
 export interface CertificateCounts {
   total: number;
   expiring: number;
+  expired: number;
   soonest_expires_at: string | null;
 }
 

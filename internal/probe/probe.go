@@ -254,15 +254,17 @@ type Result struct {
 	Replayed bool `json:"replayed,omitempty"`
 }
 
-// Certificates est ce que la vue d'ensemble compte : les certificats vus,
-// ceux dont l'échéance approche, et la plus proche de toutes. Une sonde en
-// pause n'y est pas : elle ne regarde plus, son certificat est une vieille
-// nouvelle.
+// Certificates est ce que la vue d'ensemble compte. Une sonde en pause n'y
+// est pas : elle ne regarde plus, son certificat est une vieille nouvelle.
 type Certificates struct {
-	Total    int
+	Total int
+	// Expiring et Expired sont disjoints : ce qui approche de sa fin n'est
+	// pas ce qui l'a déjà passée, et l'opérateur n'a pas la même chose à
+	// faire dans les deux cas.
 	Expiring int
-	// Soonest est l'échéance la plus proche ; zéro quand aucun certificat
-	// n'a été vu. Le navigateur en tire les jours restants.
+	Expired  int
+	// Soonest est la plus proche échéance **à venir** ; zéro quand il n'y
+	// en a aucune. Le navigateur en tire les jours restants.
 	Soonest time.Time
 }
 

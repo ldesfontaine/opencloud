@@ -41,9 +41,12 @@ type countsResponse struct {
 }
 
 type certificateCounts struct {
-	Total    int `json:"total"`
+	Total int `json:"total"`
+	// Deux comptes disjoints : ce qui approche de sa fin, et ce qui l'a
+	// déjà passée.
 	Expiring int `json:"expiring"`
-	// Nul quand aucune sonde n'a encore vu de certificat.
+	Expired  int `json:"expired"`
+	// La plus proche échéance à venir ; nulle quand il n'y en a aucune.
 	SoonestExpiresAt *time.Time `json:"soonest_expires_at"`
 }
 
@@ -141,7 +144,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 }
 
 func certificatesToJSON(counted probe.Certificates) certificateCounts {
-	response := certificateCounts{Total: counted.Total, Expiring: counted.Expiring}
+	response := certificateCounts{Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired}
 	if !counted.Soonest.IsZero() {
 		soonest := counted.Soonest.UTC()
 		response.SoonestExpiresAt = &soonest

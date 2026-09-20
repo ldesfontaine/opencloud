@@ -60,13 +60,13 @@ describe("read", () => {
   });
 
   // Le cœur de la décision : l'échéance et la confiance sont deux faits.
-  it("garde l'échéance lisible sur une chaîne qu'on ne peut pas vérifier", () => {
+  // Le doute se dit par sa propre pastille, il ne teinte pas la date.
+  it("garde l'échéance lisible et franche sur une chaîne qu'on ne peut pas vérifier", () => {
     const reading = read(certificate(inDays(84), { chain_valid: false }), thresholds, now);
     expect(reading.untrusted).toBe(true);
     expect(reading.days).toBe(84);
     expect(reading.state).toBe("valid");
-    // La chaîne douteuse colore en attention sans effacer les 84 jours.
-    expect(reading.tone).toBe("warn");
+    expect(reading.tone).toBe("ok");
   });
 
   it("compte un nom qui ne correspond pas comme une chaîne douteuse", () => {
@@ -79,8 +79,9 @@ describe("read", () => {
     expect(read(certificate(inDays(84), { ocsp: "" }), thresholds, now).revoked).toBe(false);
   });
 
-  it("laisse l'échéance la plus urgente l'emporter sur le doute", () => {
+  it("colore sur la seule échéance, doute ou pas", () => {
     expect(read(certificate(inDays(3), { chain_valid: false }), thresholds, now).tone).toBe("danger");
+    expect(read(certificate(inDays(3), { chain_valid: true }), thresholds, now).tone).toBe("danger");
   });
 });
 
@@ -92,5 +93,20 @@ describe("soonest", () => {
 
   it("rend rien quand aucune sonde n'a vu de certificat", () => {
     expect(soonest([null, null])).toBeNull();
+  });
+});
+
+describe("read, sur un certificat expiré", () => {
+  // Une chaîne refusée parce que le certificat est expiré n'apprend rien
+  // de plus : « Expiré » le dit déjà, et « Non vérifié » à côté ferait
+  // croire à un second problème.
+  it("ne compte pas comme douteuse une chaîne que la seule expiration a fait refuser", () => {
+    const reading = read(certificate(inDays(-3), { chain_valid: false }), thresholds, now);
+    expect(reading.state).toBe("expired");
+    expect(reading.untrusted).toBe(false);
+  });
+
+  it("garde le nom qui ne correspond pas, lui, même passée l'échéance", () => {
+    expect(read(certificate(inDays(-3), { chain_valid: false, hostname_match: false }), thresholds, now).untrusted).toBe(true);
   });
 });
