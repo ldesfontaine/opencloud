@@ -1,4 +1,4 @@
-import type { Engine, Port, Service, ServiceState, Transition } from "../api/types";
+import type { Engine, Finding, Port, Service, ServiceState, Transition } from "../api/types";
 import type { Tone } from "../components/Pill";
 import type { Translate } from "../i18n/context";
 
@@ -66,6 +66,79 @@ export function formatPorts(ports: Port[]): string {
     if (!seen.has(port.host_port)) {
       seen.add(port.host_port);
       parts.push(`:${port.host_port}`);
+    }
+  }
+  return parts.join(" · ");
+}
+
+// Une liaison telle que l'inspecteur l'écrit : « 0.0.0.0:18081 → 80/tcp ».
+export function formatBinding(port: Port): string {
+  const host = isPublicIP(port.ip) ? `0.0.0.0:${port.host_port}` : `${port.ip}:${port.host_port}`;
+  return `${host} → ${port.container_port}/${port.protocol}`;
+}
+
+// Les liaisons uniques : 0.0.0.0 et :: sur le même port n'en font qu'une.
+export function formatBindings(ports: Port[]): string[] {
+  const lines: string[] = [];
+  for (const port of ports) {
+    const line = formatBinding(port);
+    if (!lines.includes(line)) {
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+export function isPublicIP(ip: string): boolean {
+  return ip === "" || ip === "0.0.0.0" || ip === "::";
+}
+
+// Le nom de l'image sans registre ni étiquette : « postgres » pour
+// « ghcr.io/lib/postgres:16.4 ».
+export function imageBase(image: string): string {
+  const withoutTag = image.split("@")[0]!.replace(/:[^/]*$/, "");
+  return withoutTag.split("/").pop() ?? withoutTag;
+}
+
+const databaseImages = /^(postgres|postgresql|mysql|mariadb|redis|valkey|mongo|mongodb|memcached|elasticsearch|opensearch)$/;
+
+// L'icône d'un nœud : une base pour les images de bases de données, le
+// carton pour le reste. Le proxy attend sa fonctionnalité.
+export function serviceIcon(service: Pick<Service, "image">): "box" | "database" {
+  return databaseImages.test(imageBase(service.image)) ? "database" : "box";
+}
+
+// La clé du catalogue d'un constat, et ce qu'il y a à y insérer.
+export function findingText(t: Translate, finding: Finding): string {
+  if (finding.port !== undefined) {
+    return t(`network.exposure_${finding.kind}`, `${finding.port}/${finding.protocol ?? ""}`);
+  }
+  return t(`network.exposure_${finding.kind}`);
+}
+
+export function needsCaution(service: Pick<Service, "exposure">): boolean {
+  return service.exposure.some((finding) => finding.level === "warn");
+}
+
+// Le point d'un nœud : le danger d'abord, puis l'attention d'un constat ou
+// d'un redémarrage, puis l'état.
+export function nodeTone(service: Pick<Service, "state" | "exit_code" | "health" | "exposure">): Tone {
+  const tone = servicePill(service).tone;
+  if (tone === "danger" || tone === "warn") {
+    return tone;
+  }
+  return needsCaution(service) ? "warn" : tone;
+}
+
+// Le sous-titre d'un nœud, en mono : l'image, puis ses ports publiés.
+export function nodeSubtitle(service: Pick<Service, "image" | "ports">): string {
+  const parts = [imageBase(service.image)];
+  const seen = new Set<string>();
+  for (const port of service.ports) {
+    const label = isPublicIP(port.ip) ? `:${port.host_port}` : `${port.ip}:${port.host_port}`;
+    if (!seen.has(label)) {
+      seen.add(label);
+      parts.push(label);
     }
   }
   return parts.join(" · ");

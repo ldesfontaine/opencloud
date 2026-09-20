@@ -36,6 +36,8 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
 		{"GET", "/api/resources", s.listResources},
 		{"GET", "/api/machines/{id}/services", s.listMachineServices},
+		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
+		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/services", s.listServices},
 		{"GET", "/api/services/{id}", s.getService},
 		{"GET", "/api/services/{id}/transitions", s.listServiceTransitions},

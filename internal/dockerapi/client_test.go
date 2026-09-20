@@ -67,6 +67,8 @@ func fixtureMux(t *testing.T) *http.ServeMux {
 	mux.HandleFunc("GET /v1.41/containers/json", serveFixture(t, "containers.json"))
 	mux.HandleFunc("GET /v1.41/containers/0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513/json", serveFixture(t, "inspect_running.json"))
 	mux.HandleFunc("GET /v1.41/containers/exited/json", serveFixture(t, "inspect_exited.json"))
+	mux.HandleFunc("GET /v1.41/containers/networked/json", serveFixture(t, "inspect_networked.json"))
+	mux.HandleFunc("GET /v1.41/networks", serveFixture(t, "networks.json"))
 	mux.HandleFunc("GET /v1.41/containers/{id}/json", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"No such container: nope"}`))
@@ -79,8 +81,12 @@ func fixtureMux(t *testing.T) *http.ServeMux {
 		_, _ = w.Write(fixture(t, "logs_multiplexed.bin"))
 	})
 	mux.HandleFunc("GET /v1.41/events", func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Query().Get("filters"), "container") {
+		if filters := r.URL.Query().Get("filters"); !strings.Contains(filters, "container") || !strings.Contains(filters, "network") {
 			t.Errorf("events filters: %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("since") == "network" {
+			_, _ = w.Write(fixture(t, "events_network.ndjson"))
+			return
 		}
 		_, _ = w.Write(fixture(t, "events.ndjson"))
 	})
@@ -189,6 +195,87 @@ func TestInspect_RunningAndExited(t *testing.T) {
 	}
 	if exited.State.Status != "exited" || ParseTime(exited.State.FinishedAt).IsZero() {
 		t.Fatalf("exited = %+v", exited.State)
+	}
+}
+
+// Un conteneur Compose sur deux réseaux, dont un interne, avec ses
+// dépendances déclarées : ce que la feature réseau lit en plus.
+func TestInspect_ReadsNetworksModeAndDependencies(t *testing.T) {
+	client := fakeDaemon(t, fixtureMux(t))
+	web, err := client.Inspect(context.Background(), "networked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if web.Host.NetworkMode != "ocfix_back" || web.Host.Privileged || len(web.Host.Links) != 0 {
+		t.Fatalf("host = %+v", web.Host)
+	}
+	if web.Config.Labels[LabelComposeDependsOn] != "cache:service_started:false,db:service_started:false" {
+		t.Fatalf("depends_on = %q", web.Config.Labels[LabelComposeDependsOn])
+	}
+	back, ok := web.Network.Networks["ocfix_back"]
+	if !ok || back.NetworkID != "0af01ef1573714129ced483d26f2250c1de6ce40a2ae2b7911ecc9534c02c3bf" || back.IPAddress != "172.20.0.4" || len(back.Aliases) != 3 {
+		t.Fatalf("back = %+v", back)
+	}
+	if bindings := web.Network.Ports["80/tcp"]; len(bindings) != 2 || bindings[0].HostIP != "0.0.0.0" || bindings[1].HostIP != "::" {
+		t.Fatalf("ports = %+v", web.Network.Ports)
+	}
+}
+
+func TestListNetworks_ReadsDriverAndInternal(t *testing.T) {
+	client := fakeDaemon(t, fixtureMux(t))
+	networks, err := client.ListNetworks(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]Network, len(networks))
+	for _, network := range networks {
+		byName[network.Name] = network
+	}
+	if len(networks) != 8 || byName["host"].Driver != "host" || byName["none"].Driver != "null" || byName["bridge"].Internal {
+		t.Fatalf("networks = %+v", networks)
+	}
+	back := byName["ocfix_back"]
+	if !back.Internal || back.Driver != "bridge" || back.Labels[LabelComposeProject] != "ocfix" || len(back.ID) != 64 {
+		t.Fatalf("back = %+v", back)
+	}
+}
+
+// Les événements de réseau : l'acteur est le réseau, « container » dit qui
+// se connecte ; un « create » de réseau n'a pas de conteneur.
+func TestEvents_NetworkEventsNameTheContainer(t *testing.T) {
+	client := fakeDaemon(t, fixtureMux(t))
+	stream, err := client.Events(context.Background(), "network")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	var connects, creates int
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if event.Type != "network" {
+			continue
+		}
+		switch event.Action {
+		case "connect", "disconnect":
+			connects++
+			if len(event.Actor.Attributes["container"]) != 64 || event.Actor.Attributes["name"] == "" {
+				t.Fatalf("event = %+v", event)
+			}
+		case "create", "destroy":
+			creates++
+			if _, has := event.Actor.Attributes["container"]; has {
+				t.Fatalf("event = %+v", event)
+			}
+		}
+	}
+	if connects != 5 || creates != 2 {
+		t.Fatalf("connects = %d creates = %d", connects, creates)
 	}
 }
 

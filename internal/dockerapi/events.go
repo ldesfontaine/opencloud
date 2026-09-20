@@ -15,7 +15,9 @@ import (
 // labels du conteneur.
 const maxEventLine = 256 << 10
 
-// Event est un événement de conteneur tel que le démon le pousse.
+// Event est un événement de conteneur ou de réseau tel que le démon le
+// pousse. Sur un réseau, l'acteur est le réseau et l'attribut « container »
+// dit qui s'y connecte.
 type Event struct {
 	Type   string
 	Action string
@@ -61,11 +63,11 @@ type EventStream struct {
 	scanner *bufio.Scanner
 }
 
-// Events ouvre le flux des événements de conteneurs ; since, s'il n'est pas
-// vide, rejoue d'abord ceux survenus depuis cet instant. Le contexte tient
-// le flux : l'annuler le ferme.
+// Events ouvre le flux des événements de conteneurs et de réseaux ; since,
+// s'il n'est pas vide, rejoue d'abord ceux survenus depuis cet instant. Le
+// contexte tient le flux : l'annuler le ferme.
 func (c *Client) Events(ctx context.Context, since string) (*EventStream, error) {
-	query := url.Values{"filters": {`{"type":["container"]}`}}
+	query := url.Values{"filters": {`{"type":["container","network"]}`}}
 	if since != "" {
 		query.Set("since", since)
 	}

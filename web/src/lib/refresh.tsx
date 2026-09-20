@@ -20,7 +20,7 @@ function topicsOf(path: string): Topic[] {
   if (path.includes("/resources")) {
     return ["resources"];
   }
-  if (path.includes("/services")) {
+  if (path.includes("/services") || path.includes("/network")) {
     return ["services"];
   }
   if (path.startsWith("/api/machines")) {

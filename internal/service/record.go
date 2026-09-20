@@ -19,6 +19,8 @@ type Store interface {
 	// LatestServiceSamples rend le dernier échantillon de chaque service.
 	LatestServiceSamples(ctx context.Context) ([]Sample, error)
 	ListEngines(ctx context.Context) ([]Engine, error)
+	// ListNetworks rend les réseaux d'une machine, par nom.
+	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
 	PurgeServices(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
 }
 
@@ -34,8 +36,12 @@ type Changes struct {
 	// Keep : un inventaire complet fait foi.
 	ArchiveMissing bool
 	Keep           []string
-	Transitions    []Transition
-	Samples        []Sample
+	// ReplaceNetworks remplace les réseaux de la machine par Networks : la
+	// liste complète fait foi, un réseau détruit disparaît.
+	ReplaceNetworks bool
+	Networks        []Network
+	Transitions     []Transition
+	Samples         []Sample
 }
 
 // Watcher reçoit chaque écriture visible : le direct s'y branche. nil est
@@ -107,6 +113,9 @@ func planChanges(machineID string, stored []Service, report Report, now time.Tim
 	if report.Complete {
 		plan.applyInventory(report.Inventory)
 	}
+	if report.NetworksComplete {
+		plan.applyNetworks(report.Networks)
+	}
 	for _, event := range report.Events {
 		plan.applyEvent(event)
 	}
@@ -145,6 +154,17 @@ func (p *planner) applyInventory(inventory []Container) {
 		archived := service
 		archived.ArchivedAt = p.now
 		p.record(archived, service, true, Transition{At: p.now, Action: "gone"})
+	}
+}
+
+func (p *planner) applyNetworks(networks []NetworkReport) {
+	p.changes.ReplaceNetworks = true
+	p.changes.Networks = make([]Network, 0, len(networks))
+	for _, network := range networks {
+		p.changes.Networks = append(p.changes.Networks, Network{
+			MachineID: p.machineID, NetworkID: network.NetworkID, Name: network.Name, Driver: network.Driver,
+			Internal: network.Internal, Group: network.Group, SeenAt: p.now,
+		})
 	}
 }
 
@@ -212,6 +232,10 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		Health:       container.Health,
 		RestartCount: container.RestartCount,
 		Ports:        container.Ports,
+		NetworkMode:  container.NetworkMode,
+		Privileged:   container.Privileged,
+		Networks:     container.Networks,
+		DependsOn:    container.DependsOn,
 		CreatedAt:    container.CreatedAt.UTC(),
 		FirstSeenAt:  p.now,
 		LastSeenAt:   p.now,
@@ -288,6 +312,20 @@ func (t *Tracker) Transitions(ctx context.Context, id string, limit int) ([]Tran
 		return nil, err
 	}
 	return t.store.ListTransitions(ctx, id, limit)
+}
+
+// Topology rend ce que l'onglet Réseau d'une machine dessine : ses
+// services vivants, ses groupes et ses arêtes.
+func (t *Tracker) Topology(ctx context.Context, machineID string) (Topology, error) {
+	services, err := t.List(ctx, machineID)
+	if err != nil {
+		return Topology{}, err
+	}
+	networks, err := t.store.ListNetworks(ctx, machineID)
+	if err != nil {
+		return Topology{}, err
+	}
+	return BuildTopology(services, networks), nil
 }
 
 // Engines rend ce que chaque machine a dit de son Docker.

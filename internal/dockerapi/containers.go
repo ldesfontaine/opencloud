@@ -7,12 +7,15 @@ import (
 	"time"
 )
 
-// Les labels que Compose pose, et le seul qu'on lit pour exclure :
-// « docker compose run » fait un conteneur jetable avec les labels du service.
+// Les labels que Compose pose : le projet et le service qui nomment, le
+// « oneoff » qui exclut (« docker compose run » fait un conteneur jetable
+// avec les labels du service), et les dépendances déclarées, sous la forme
+// « db:service_started:false,cache:service_healthy:true ».
 const (
-	LabelComposeProject = "com.docker.compose.project"
-	LabelComposeService = "com.docker.compose.service"
-	LabelComposeOneOff  = "com.docker.compose.oneoff"
+	LabelComposeProject   = "com.docker.compose.project"
+	LabelComposeService   = "com.docker.compose.service"
+	LabelComposeOneOff    = "com.docker.compose.oneoff"
+	LabelComposeDependsOn = "com.docker.compose.depends_on"
 )
 
 // Summary est une ligne de la liste ; seuls les champs lus sont déclarés.
@@ -57,7 +60,18 @@ type Container struct {
 	RestartCount int
 	State        ContainerState
 	Config       ContainerConfig
+	Host         HostConfig      `json:"HostConfig"`
 	Network      NetworkSettings `json:"NetworkSettings"`
+}
+
+// HostConfig est ce que le démon a reçu à la création ; on n'en lit que ce
+// qui touche au réseau et aux droits.
+type HostConfig struct {
+	// bridge, host, none, container:<id>, ou le nom du premier réseau joint.
+	NetworkMode string
+	Privileged  bool
+	// Les liens hérités de « --link », sous la forme « /db:/web/db ».
+	Links []string
 }
 
 type ContainerState struct {
@@ -88,6 +102,18 @@ type NetworkSettings struct {
 	// La clé est « 80/tcp » ; la valeur est nulle quand le port n'est pas
 	// publié.
 	Ports map[string][]PortBinding
+	// La clé est le nom du réseau ; l'appartenance reste quand le conteneur
+	// est arrêté, l'adresse se vide.
+	Networks map[string]Endpoint
+}
+
+// Endpoint est la présence d'un conteneur sur un réseau.
+type Endpoint struct {
+	NetworkID string
+	IPAddress string
+	Aliases   []string
+	// Docker 25 nomme ici ce que le DNS du réseau résout ; avant, Aliases.
+	DNSNames []string
 }
 
 type PortBinding struct {

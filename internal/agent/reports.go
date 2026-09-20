@@ -7,8 +7,9 @@ import (
 )
 
 // reports garde ce que le veilleur Docker a observé entre deux signaux :
-// le dernier état du démon, le dernier inventaire complet, les événements
-// et les mesures dans l'ordre. Plein, il oublie le plus ancien.
+// le dernier état du démon, le dernier inventaire complet, la dernière
+// liste des réseaux, les événements et les mesures dans l'ordre. Plein, il
+// oublie le plus ancien.
 type reports struct {
 	mu      sync.Mutex
 	pending service.Report
@@ -24,6 +25,10 @@ func (r *reports) Deliver(report service.Report) {
 	if report.Complete {
 		r.pending.Complete = true
 		r.pending.Inventory = report.Inventory
+	}
+	if report.NetworksComplete {
+		r.pending.NetworksComplete = true
+		r.pending.Networks = report.Networks
 	}
 	r.pending.Events = appendBounded(r.pending.Events, report.Events, service.MaxEventsPerReport)
 	r.pending.Stats = appendBounded(r.pending.Stats, report.Stats, service.MaxStatsPerReport)
@@ -62,6 +67,9 @@ func (r *reports) restore(report *service.Report) {
 	}
 	if !r.pending.Complete && report.Complete {
 		r.pending.Complete, r.pending.Inventory = true, report.Inventory
+	}
+	if !r.pending.NetworksComplete && report.NetworksComplete {
+		r.pending.NetworksComplete, r.pending.Networks = true, report.Networks
 	}
 	r.pending.Events = appendBounded(report.Events, r.pending.Events, service.MaxEventsPerReport)
 	r.pending.Stats = appendBounded(report.Stats, r.pending.Stats, service.MaxStatsPerReport)

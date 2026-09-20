@@ -1,0 +1,246 @@
+{
+    "Id": "0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346",
+    "Created": "2026-09-19T08:35:53.771548462Z",
+    "Path": "sh",
+    "Args": [
+        "-c",
+        "while true; do sleep 60; done"
+    ],
+    "State": {
+        "Status": "running",
+        "Running": true,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 23213,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-19T08:35:54.137134745Z",
+        "FinishedAt": "0001-01-01T00:00:00Z"
+    },
+    "Image": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "ResolvConfPath": "/var/lib/docker/containers/0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346/resolv.conf",
+    "HostnamePath": "/var/lib/docker/containers/0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346/hostname",
+    "HostsPath": "/var/lib/docker/containers/0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346/hosts",
+    "LogPath": "/var/lib/docker/containers/0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346/0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346-json.log",
+    "Name": "/ocfix-web-1",
+    "RestartCount": 0,
+    "Driver": "overlayfs",
+    "Platform": "linux",
+    "MountLabel": "",
+    "ProcessLabel": "",
+    "AppArmorProfile": "docker-default",
+    "ExecIDs": null,
+    "HostConfig": {
+        "Binds": null,
+        "ContainerIDFile": "",
+        "LogConfig": {
+            "Type": "json-file",
+            "Config": {}
+        },
+        "NetworkMode": "ocfix_back",
+        "PortBindings": {
+            "80/tcp": [
+                {
+                    "HostIp": "",
+                    "HostPort": "18081"
+                }
+            ]
+        },
+        "RestartPolicy": {
+            "Name": "no",
+            "MaximumRetryCount": 0
+        },
+        "AutoRemove": false,
+        "VolumeDriver": "",
+        "VolumesFrom": null,
+        "ConsoleSize": [
+            0,
+            0
+        ],
+        "CapAdd": null,
+        "CapDrop": null,
+        "CgroupnsMode": "private",
+        "Dns": null,
+        "DnsOptions": null,
+        "DnsSearch": null,
+        "ExtraHosts": [],
+        "GroupAdd": null,
+        "IpcMode": "private",
+        "Cgroup": "",
+        "Links": null,
+        "OomScoreAdj": 0,
+        "PidMode": "",
+        "Privileged": false,
+        "PublishAllPorts": false,
+        "ReadonlyRootfs": false,
+        "SecurityOpt": null,
+        "UTSMode": "",
+        "UsernsMode": "",
+        "ShmSize": 67108864,
+        "Runtime": "runc",
+        "Isolation": "",
+        "CpuShares": 0,
+        "Memory": 0,
+        "NanoCpus": 0,
+        "CgroupParent": "",
+        "BlkioWeight": 0,
+        "BlkioWeightDevice": null,
+        "BlkioDeviceReadBps": null,
+        "BlkioDeviceWriteBps": null,
+        "BlkioDeviceReadIOps": null,
+        "BlkioDeviceWriteIOps": null,
+        "CpuPeriod": 0,
+        "CpuQuota": 0,
+        "CpuRealtimePeriod": 0,
+        "CpuRealtimeRuntime": 0,
+        "CpusetCpus": "",
+        "CpusetMems": "",
+        "Devices": null,
+        "DeviceCgroupRules": null,
+        "DeviceRequests": null,
+        "MemoryReservation": 0,
+        "MemorySwap": 0,
+        "MemorySwappiness": null,
+        "OomKillDisable": null,
+        "PidsLimit": null,
+        "Ulimits": null,
+        "CpuCount": 0,
+        "CpuPercent": 0,
+        "IOMaximumIOps": 0,
+        "IOMaximumBandwidth": 0,
+        "MaskedPaths": [
+            "/proc/acpi",
+            "/proc/asound",
+            "/proc/interrupts",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/sys/devices/virtual/powercap",
+            "/sys/firmware"
+        ],
+        "ReadonlyPaths": [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger"
+        ]
+    },
+    "GraphDriver": {
+        "Data": null,
+        "Name": "overlayfs"
+    },
+    "Mounts": [],
+    "Config": {
+        "Hostname": "0b8a6dace372",
+        "Domainname": "",
+        "User": "",
+        "AttachStdin": false,
+        "AttachStdout": true,
+        "AttachStderr": true,
+        "ExposedPorts": {
+            "80/tcp": {}
+        },
+        "Tty": false,
+        "OpenStdin": false,
+        "StdinOnce": false,
+        "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "Cmd": [
+            "sh",
+            "-c",
+            "while true; do sleep 60; done"
+        ],
+        "Image": "alpine:3.20",
+        "Volumes": null,
+        "WorkingDir": "/",
+        "Entrypoint": null,
+        "Labels": {
+            "com.docker.compose.config-hash": "7760ca57f9e3053f34058090a2376ce94e1bbb1fd0366b4c09c9b47711890c95",
+            "com.docker.compose.container-number": "1",
+            "com.docker.compose.depends_on": "cache:service_started:false,db:service_started:false",
+            "com.docker.compose.image": "sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e",
+            "com.docker.compose.oneoff": "False",
+            "com.docker.compose.project": "ocfix",
+            "com.docker.compose.project.config_files": "/tmp/claude-1000/-home-lucas-Documents-dev-opencloud/8c87a136-ab3f-4e96-aa4e-2e9d87e85962/scratchpad/ocfix/compose.yaml",
+            "com.docker.compose.project.working_dir": "/tmp/claude-1000/-home-lucas-Documents-dev-opencloud/8c87a136-ab3f-4e96-aa4e-2e9d87e85962/scratchpad/ocfix",
+            "com.docker.compose.service": "web",
+            "com.docker.compose.version": "5.5.1"
+        }
+    },
+    "NetworkSettings": {
+        "SandboxID": "d287bdea972c2a06bd888dc5910141817403a3577905be8fd03ae4722ef52a03",
+        "SandboxKey": "/var/run/docker/netns/d287bdea972c",
+        "Ports": {
+            "80/tcp": [
+                {
+                    "HostIp": "0.0.0.0",
+                    "HostPort": "18081"
+                },
+                {
+                    "HostIp": "::",
+                    "HostPort": "18081"
+                }
+            ]
+        },
+        "Networks": {
+            "ocfix_back": {
+                "IPAMConfig": null,
+                "Links": null,
+                "Aliases": [
+                    "ocfix-web-1",
+                    "web",
+                    "0b8a6dace372"
+                ],
+                "DriverOpts": null,
+                "GwPriority": 0,
+                "NetworkID": "0af01ef1573714129ced483d26f2250c1de6ce40a2ae2b7911ecc9534c02c3bf",
+                "EndpointID": "fe35f2741859360d7c05815dd02c58fc23e33042ba4a4240a1497fe2e09391c3",
+                "Gateway": "",
+                "IPAddress": "172.20.0.4",
+                "MacAddress": "52:f8:a8:a8:1a:8a",
+                "IPPrefixLen": 16,
+                "IPv6Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "DNSNames": [
+                    "ocfix-web-1",
+                    "web",
+                    "0b8a6dace372"
+                ]
+            },
+            "ocfix_front": {
+                "IPAMConfig": null,
+                "Links": null,
+                "Aliases": [
+                    "ocfix-web-1",
+                    "web",
+                    "0b8a6dace372"
+                ],
+                "DriverOpts": null,
+                "GwPriority": 0,
+                "NetworkID": "834fd73b3e7c0000c3adeedade3f9823efe78ea4fc3f7e162e89e879f23a5f6e",
+                "EndpointID": "bda56009b86c3f691e6eca352ad0b87b65040664109ed034e46a7dfbf352b0ab",
+                "Gateway": "172.22.0.1",
+                "IPAddress": "172.22.0.2",
+                "MacAddress": "de:67:0d:53:99:f1",
+                "IPPrefixLen": 16,
+                "IPv6Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "DNSNames": [
+                    "ocfix-web-1",
+                    "web",
+                    "0b8a6dace372"
+                ]
+            }
+        }
+    }
+}

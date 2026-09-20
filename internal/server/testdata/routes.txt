@@ -13,6 +13,8 @@ GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history
 GET /api/resources
 GET /api/machines/{id}/services
+GET /api/machines/{id}/network
+GET /api/network
 GET /api/services
 GET /api/services/{id}
 GET /api/services/{id}/transitions

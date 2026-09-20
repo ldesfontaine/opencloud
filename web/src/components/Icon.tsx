@@ -113,7 +113,39 @@ const paths: Record<string, ReactNode> = {
   ),
   network: <path d="M3 12h4l3-8 4 16 3-8h4" />,
   check: <path d="m5 12 4 4L19 6" />,
+  minus: <path d="M5 12h14" />,
+  database: (
+    <>
+      <ellipse cx="12" cy="6" rx="8" ry="3" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </>
+  ),
+  proxy: (
+    <>
+      <circle cx="6" cy="19" r="2" />
+      <circle cx="18" cy="5" r="2" />
+      <path d="M8 19h6a4 4 0 0 0 0-8h-4a4 4 0 0 1 0-8h6" />
+    </>
+  ),
+  crosshair: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" />
+      <path d="M14 3v6h6M8 13h8M8 17h6" />
+    </>
+  ),
 };
+
+// Les tracés seuls, pour un SVG qui dessine l'icône lui-même : le graphe.
+export function iconPaths(name: IconName): ReactNode {
+  return paths[name];
+}
 
 export type IconName = keyof typeof paths;
 

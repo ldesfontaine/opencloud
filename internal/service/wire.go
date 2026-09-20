@@ -3,18 +3,30 @@ package service
 import "time"
 
 // Report est ce que l'agent met dans son signal, à côté des lectures de la
-// machine. Complete dit que Inventory est la liste entière, même vide.
+// machine. Complete dit que Inventory est la liste entière, même vide ;
+// NetworksComplete dit la même chose de Networks.
 type Report struct {
-	Engine    *EngineReport `json:"engine,omitempty"`
-	Complete  bool          `json:"complete,omitempty"`
-	Inventory []Container   `json:"inventory,omitempty"`
-	Events    []Event       `json:"events,omitempty"`
-	Stats     []Stat        `json:"stats,omitempty"`
+	Engine           *EngineReport   `json:"engine,omitempty"`
+	Complete         bool            `json:"complete,omitempty"`
+	Inventory        []Container     `json:"inventory,omitempty"`
+	NetworksComplete bool            `json:"networks_complete,omitempty"`
+	Networks         []NetworkReport `json:"networks,omitempty"`
+	Events           []Event         `json:"events,omitempty"`
+	Stats            []Stat          `json:"stats,omitempty"`
 }
 
 // IsEmpty dit si le signal ne porte rien sur les services.
 func (r Report) IsEmpty() bool {
-	return r.Engine == nil && !r.Complete && len(r.Events) == 0 && len(r.Stats) == 0
+	return r.Engine == nil && !r.Complete && !r.NetworksComplete && len(r.Events) == 0 && len(r.Stats) == 0
+}
+
+// NetworkReport est un réseau de la machine tel que l'agent l'a listé.
+type NetworkReport struct {
+	NetworkID string `json:"network_id"`
+	Name      string `json:"name"`
+	Driver    string `json:"driver"`
+	Internal  bool   `json:"internal,omitempty"`
+	Group     string `json:"group,omitempty"`
 }
 
 type EngineReport struct {
@@ -26,19 +38,23 @@ type EngineReport struct {
 
 // Container est un conteneur tel que l'agent l'a inspecté.
 type Container struct {
-	ContainerID  string     `json:"container_id"`
-	Name         string     `json:"name"`
-	Group        string     `json:"group,omitempty"`
-	Image        string     `json:"image"`
-	ImageID      string     `json:"image_id,omitempty"`
-	State        State      `json:"state"`
-	ExitCode     int        `json:"exit_code"`
-	Health       Health     `json:"health,omitempty"`
-	RestartCount int        `json:"restart_count"`
-	Ports        []Port     `json:"ports,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	ContainerID  string       `json:"container_id"`
+	Name         string       `json:"name"`
+	Group        string       `json:"group,omitempty"`
+	Image        string       `json:"image"`
+	ImageID      string       `json:"image_id,omitempty"`
+	State        State        `json:"state"`
+	ExitCode     int          `json:"exit_code"`
+	Health       Health       `json:"health,omitempty"`
+	RestartCount int          `json:"restart_count"`
+	Ports        []Port       `json:"ports,omitempty"`
+	NetworkMode  string       `json:"network_mode,omitempty"`
+	Privileged   bool         `json:"privileged,omitempty"`
+	Networks     []Attachment `json:"networks,omitempty"`
+	DependsOn    []Dependency `json:"depends_on,omitempty"`
+	CreatedAt    time.Time    `json:"created_at"`
+	StartedAt    *time.Time   `json:"started_at,omitempty"`
+	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
 }
 
 // Event est un événement Docker traduit par l'agent : l'action, l'état et
@@ -57,8 +73,14 @@ type Event struct {
 	Container   *Container `json:"container,omitempty"`
 }
 
-// ActionDestroy est la seule action qui ferme une fiche.
-const ActionDestroy = "destroy"
+// ActionDestroy est la seule action qui ferme une fiche. Les actions de
+// réseau ne changent ni l'état ni la santé : elles portent le conteneur
+// réinspecté, avec ses réseaux du moment.
+const (
+	ActionDestroy           = "destroy"
+	ActionNetworkConnect    = "network_connect"
+	ActionNetworkDisconnect = "network_disconnect"
+)
 
 type Stat struct {
 	ContainerID string    `json:"container_id"`

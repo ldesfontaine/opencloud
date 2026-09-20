@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useRef, useState, type MouseEvent } from "react";
 
+import { useSize } from "../hooks/useSize";
 import { useT } from "../i18n/context";
 import "./Chart.scss";
 
@@ -36,7 +37,7 @@ const timeTicks = 4;
 export function Chart({ series, from, to, stepMs, max, format, height = 160 }: Props) {
   const t = useT();
   const holder = useRef<HTMLDivElement>(null);
-  const width = useWidth(holder);
+  const width = useSize(holder).width;
   const [hover, setHover] = useState<number | null>(null);
 
   const plotWidth = Math.max(0, width - margin.left - margin.right);
@@ -138,25 +139,6 @@ function Cursor({
       </text>
     </g>
   );
-}
-
-// La largeur du conteneur, suivie : le SVG se dessine en pixels.
-function useWidth(holder: React.RefObject<HTMLDivElement | null>): number {
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    const element = holder.current;
-    if (!element) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setWidth(Math.floor(entry.contentRect.width));
-      }
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [holder]);
-  return width;
 }
 
 // Le haut de l'échelle : le maximum donné, sinon le plus grand point vu

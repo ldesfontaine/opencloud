@@ -51,6 +51,12 @@ const (
 	MaxPortsPerContainer   = 64
 	MaxNameLength          = 255
 	MaxImageLength         = 512
+	// Les réseaux d'une machine et ceux qu'un conteneur joint ; les alias
+	// et les dépendances déclarées d'un conteneur.
+	MaxNetworksPerMachine   = 256
+	MaxNetworksPerContainer = 32
+	MaxAliasesPerNetwork    = 16
+	MaxDependencies         = 64
 	// L'extrait de journal capturé sur un arrêt anormal : les dernières
 	// lignes, bornées en nombre et en taille.
 	SnippetLines    = 50
@@ -81,20 +87,79 @@ type Service struct {
 	Health       Health
 	RestartCount int
 	Ports        []Port
-	CreatedAt    time.Time
-	StartedAt    time.Time
-	FinishedAt   time.Time
-	FirstSeenAt  time.Time
-	LastSeenAt   time.Time
-	ArchivedAt   time.Time
+	// Le mode réseau tel que Docker le dit : bridge, host, none,
+	// container:<id>, ou le nom du premier réseau joint.
+	NetworkMode string
+	Privileged  bool
+	Networks    []Attachment
+	DependsOn   []Dependency
+	CreatedAt   time.Time
+	StartedAt   time.Time
+	FinishedAt  time.Time
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+	ArchivedAt  time.Time
 }
 
-// Port est un port publié sur l'hôte.
+// Port est un port publié sur l'hôte. Une IP vide, 0.0.0.0 ou :: dit
+// toutes les interfaces.
 type Port struct {
 	IP            string `json:"ip"`
 	HostPort      int    `json:"host_port"`
 	ContainerPort int    `json:"container_port"`
 	Protocol      string `json:"protocol"`
+}
+
+// IsPublic dit si le port écoute sur toutes les interfaces de la machine.
+func (p Port) IsPublic() bool {
+	return p.IP == "" || p.IP == "0.0.0.0" || p.IP == "::"
+}
+
+// Attachment est la présence d'un service sur un réseau de sa machine ;
+// l'adresse est vide quand le conteneur est arrêté, l'appartenance reste.
+type Attachment struct {
+	NetworkID string   `json:"network_id"`
+	Name      string   `json:"name"`
+	IP        string   `json:"ip"`
+	Aliases   []string `json:"aliases"`
+}
+
+// Dependency est une dépendance déclarée : par le label Compose, ou par un
+// lien hérité de « --link ». Ce qu'un réseau partagé laisse deviner n'en
+// est pas une : c'est une joignabilité, et elle se calcule à la lecture.
+type Dependency struct {
+	Name   string           `json:"name"`
+	Source DependencySource `json:"source"`
+}
+
+type DependencySource string
+
+const (
+	DependencyCompose DependencySource = "compose"
+	DependencyLink    DependencySource = "link"
+)
+
+// Network est un réseau Docker d'une machine. Les réseaux bridge, host et
+// none existent sur toute machine : ils ne font jamais un groupe.
+type Network struct {
+	MachineID string
+	NetworkID string
+	Name      string
+	Driver    string
+	Internal  bool
+	// Le projet Compose qui l'a créé ; vide sinon.
+	Group  string
+	SeenAt time.Time
+}
+
+// IsUserDefined dit si le réseau a été créé par l'opérateur ou par
+// Compose : ce sont ceux qui dessinent un groupe.
+func (n Network) IsUserDefined() bool {
+	switch n.Name {
+	case "bridge", "host", "none":
+		return false
+	}
+	return n.Driver != "host" && n.Driver != "null"
 }
 
 // ID dérive l'identifiant d'un conteneur sur une machine : le même

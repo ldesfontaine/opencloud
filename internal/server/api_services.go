@@ -22,29 +22,35 @@ const (
 
 // Un service tel que le front le lit : des faits, jamais une pastille. Le
 // front dérive Actif, Défaillant, Arrêté de l'état, du code de sortie et
-// de la santé. La mesure courante est là si elle est fraîche.
+// de la santé. La mesure courante est là si elle est fraîche ; les
+// constats d'exposition sont calculés à la lecture.
 type serviceJSON struct {
-	ID           string         `json:"id"`
-	MachineID    string         `json:"machine_id"`
-	MachineName  string         `json:"machine_name"`
-	Kind         string         `json:"kind"`
-	Name         string         `json:"name"`
-	Group        string         `json:"group"`
-	ContainerID  string         `json:"container_id"`
-	Image        string         `json:"image"`
-	ImageID      string         `json:"image_id"`
-	State        string         `json:"state"`
-	ExitCode     int            `json:"exit_code"`
-	Health       string         `json:"health"`
-	RestartCount int            `json:"restart_count"`
-	Ports        []service.Port `json:"ports"`
-	CreatedAt    time.Time      `json:"created_at"`
-	StartedAt    *time.Time     `json:"started_at"`
-	FinishedAt   *time.Time     `json:"finished_at"`
-	FirstSeenAt  time.Time      `json:"first_seen_at"`
-	LastSeenAt   time.Time      `json:"last_seen_at"`
-	ArchivedAt   *time.Time     `json:"archived_at"`
-	Current      *sampleJSON    `json:"current"`
+	ID           string               `json:"id"`
+	MachineID    string               `json:"machine_id"`
+	MachineName  string               `json:"machine_name"`
+	Kind         string               `json:"kind"`
+	Name         string               `json:"name"`
+	Group        string               `json:"group"`
+	ContainerID  string               `json:"container_id"`
+	Image        string               `json:"image"`
+	ImageID      string               `json:"image_id"`
+	State        string               `json:"state"`
+	ExitCode     int                  `json:"exit_code"`
+	Health       string               `json:"health"`
+	RestartCount int                  `json:"restart_count"`
+	Ports        []service.Port       `json:"ports"`
+	NetworkMode  string               `json:"network_mode"`
+	Privileged   bool                 `json:"privileged"`
+	Networks     []service.Attachment `json:"networks"`
+	DependsOn    []service.Dependency `json:"depends_on"`
+	Exposure     []service.Finding    `json:"exposure"`
+	CreatedAt    time.Time            `json:"created_at"`
+	StartedAt    *time.Time           `json:"started_at"`
+	FinishedAt   *time.Time           `json:"finished_at"`
+	FirstSeenAt  time.Time            `json:"first_seen_at"`
+	LastSeenAt   time.Time            `json:"last_seen_at"`
+	ArchivedAt   *time.Time           `json:"archived_at"`
+	Current      *sampleJSON          `json:"current"`
 }
 
 type sampleJSON struct {
@@ -344,16 +350,17 @@ func tailOf(r *http.Request) int {
 }
 
 func serviceToJSON(item service.Service, machineName string, current service.Current) serviceJSON {
-	ports := item.Ports
-	if ports == nil {
-		ports = []service.Port{}
-	}
 	converted := serviceJSON{
 		ID: item.ID, MachineID: item.MachineID, MachineName: machineName, Kind: string(item.Kind),
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
 		State: string(item.State), ExitCode: item.ExitCode, Health: string(item.Health), RestartCount: item.RestartCount,
-		Ports: ports, CreatedAt: item.CreatedAt.UTC(), StartedAt: timeOrNil(item.StartedAt), FinishedAt: timeOrNil(item.FinishedAt),
+		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
+		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: service.Exposure(item),
+		CreatedAt: item.CreatedAt.UTC(), StartedAt: timeOrNil(item.StartedAt), FinishedAt: timeOrNil(item.FinishedAt),
 		FirstSeenAt: item.FirstSeenAt.UTC(), LastSeenAt: item.LastSeenAt.UTC(), ArchivedAt: timeOrNil(item.ArchivedAt),
+	}
+	for i := range converted.Networks {
+		converted.Networks[i].Aliases = orEmpty(converted.Networks[i].Aliases)
 	}
 	if current.Available && current.Sample != nil {
 		converted.Current = &sampleJSON{
@@ -362,6 +369,14 @@ func serviceToJSON(item service.Service, machineName string, current service.Cur
 		}
 	}
 	return converted
+}
+
+// Une liste nulle s'écrit [] : le front n'a pas à distinguer null de vide.
+func orEmpty[T any](list []T) []T {
+	if list == nil {
+		return []T{}
+	}
+	return list
 }
 
 func engineToJSON(engine service.Engine) engineJSON {

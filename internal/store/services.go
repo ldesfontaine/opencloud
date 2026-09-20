@@ -13,7 +13,7 @@ import (
 )
 
 const serviceColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
-	health, restart_count, ports, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at`
+	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at`
 
 // ListServices rend les fiches d'une machine, ou de toutes si machineID
 // est vide, archivées comprises, par groupe puis par nom.
@@ -37,7 +37,13 @@ func (db *DB) ListServices(ctx context.Context, machineID string) ([]service.Ser
 		}
 		services = append(services, item)
 	}
-	return services, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if machineID == "" {
+		return services, db.attachNetworks(ctx, ``, nil, services)
+	}
+	return services, db.attachNetworks(ctx, `WHERE service_id IN (SELECT id FROM services WHERE machine_id = ?)`, []any{machineID}, services)
 }
 
 func (db *DB) GetService(ctx context.Context, id string) (service.Service, error) {
@@ -46,7 +52,47 @@ func (db *DB) GetService(ctx context.Context, id string) (service.Service, error
 	if errors.Is(err, sql.ErrNoRows) {
 		return service.Service{}, service.ErrNotFound
 	}
-	return item, err
+	if err != nil {
+		return service.Service{}, err
+	}
+	services := []service.Service{item}
+	if err := db.attachNetworks(ctx, `WHERE service_id = ?`, []any{id}, services); err != nil {
+		return service.Service{}, err
+	}
+	return services[0], nil
+}
+
+// attachNetworks lit en une requête les appartenances des fiches que la
+// clause désigne et les pose sur chacune, par nom de réseau.
+func (db *DB) attachNetworks(ctx context.Context, where string, args []any, services []service.Service) error {
+	if len(services) == 0 {
+		return nil
+	}
+	query := `SELECT service_id, network_id, name, ip, aliases FROM service_networks ` + where + ` ORDER BY service_id, name` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("list service networks: %w", err)
+	}
+	defer rows.Close()
+	byService := map[string][]service.Attachment{}
+	for rows.Next() {
+		var serviceID, aliases string
+		var attachment service.Attachment
+		if err := rows.Scan(&serviceID, &attachment.NetworkID, &attachment.Name, &attachment.IP, &aliases); err != nil {
+			return err
+		}
+		if err := json.Unmarshal([]byte(aliases), &attachment.Aliases); err != nil {
+			return fmt.Errorf("decode aliases of %s: %w", serviceID, err)
+		}
+		byService[serviceID] = append(byService[serviceID], attachment)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range services {
+		services[i].Networks = byService[services[i].ID]
+	}
+	return nil
 }
 
 // ApplyChanges écrit un rapport entier dans une transaction : fiches,
@@ -82,6 +128,11 @@ func (db *DB) ApplyChanges(ctx context.Context, changes service.Changes) error {
 			return err
 		}
 	}
+	if changes.ReplaceNetworks {
+		if err := replaceMachineNetworks(ctx, tx, changes.MachineID, changes.Networks); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit apply services: %w", err)
 	}
@@ -89,30 +140,109 @@ func (db *DB) ApplyChanges(ctx context.Context, changes service.Changes) error {
 }
 
 func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error {
-	ports, err := json.Marshal(item.Ports)
+	ports, err := encodeList(item.Ports)
 	if err != nil {
 		return fmt.Errorf("encode ports: %w", err)
 	}
-	if item.Ports == nil {
-		ports = []byte("[]")
+	dependsOn, err := encodeList(item.DependsOn)
+	if err != nil {
+		return fmt.Errorf("encode dependencies: %w", err)
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO services (`+serviceColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, group_name = excluded.group_name, image = excluded.image,
 			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code,
 			health = excluded.health, restart_count = excluded.restart_count, ports = excluded.ports,
+			network_mode = excluded.network_mode, privileged = excluded.privileged, depends_on = excluded.depends_on,
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
 			last_seen_at = excluded.last_seen_at, archived_at = excluded.archived_at`,
 		item.ID, item.MachineID, string(item.Kind), item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
-		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, string(ports),
+		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, ports,
+		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt))
 	if err != nil {
 		return fmt.Errorf("upsert service %s: %w", item.ID, err)
 	}
+	return replaceServiceNetworks(ctx, tx, item)
+}
+
+// Une liste nulle s'écrit « [] » : la colonne ne connaît pas null.
+func encodeList[T any](list []T) (string, error) {
+	if list == nil {
+		return "[]", nil
+	}
+	encoded, err := json.Marshal(list)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+// replaceServiceNetworks réécrit les appartenances d'une fiche : ce que le
+// conteneur dit à l'instant fait foi.
+func replaceServiceNetworks(ctx context.Context, tx *sql.Tx, item service.Service) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM service_networks WHERE service_id = ?`, item.ID); err != nil {
+		return fmt.Errorf("clear service networks %s: %w", item.ID, err)
+	}
+	for _, attachment := range item.Networks {
+		aliases, err := encodeList(attachment.Aliases)
+		if err != nil {
+			return fmt.Errorf("encode aliases: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO service_networks (service_id, network_id, name, ip, aliases) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT (service_id, network_id) DO UPDATE SET name = excluded.name, ip = excluded.ip, aliases = excluded.aliases`,
+			item.ID, attachment.NetworkID, attachment.Name, attachment.IP, aliases)
+		if err != nil {
+			return fmt.Errorf("insert service network %s: %w", item.ID, err)
+		}
+	}
 	return nil
+}
+
+// replaceMachineNetworks remplace la liste des réseaux de la machine.
+func replaceMachineNetworks(ctx context.Context, tx *sql.Tx, machineID string, networks []service.Network) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_networks WHERE machine_id = ?`, machineID); err != nil {
+		return fmt.Errorf("clear machine networks: %w", err)
+	}
+	for _, network := range networks {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO machine_networks (machine_id, network_id, name, driver, internal, group_name, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (machine_id, network_id) DO UPDATE SET name = excluded.name, driver = excluded.driver,
+				internal = excluded.internal, group_name = excluded.group_name, seen_at = excluded.seen_at`,
+			machineID, network.NetworkID, network.Name, network.Driver, boolToInt(network.Internal), network.Group, network.SeenAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert machine network %s: %w", network.Name, err)
+		}
+	}
+	return nil
+}
+
+// ListNetworks rend les réseaux d'une machine, par nom.
+func (db *DB) ListNetworks(ctx context.Context, machineID string) ([]service.Network, error) {
+	rows, err := db.sql.QueryContext(ctx, `
+		SELECT machine_id, network_id, name, driver, internal, group_name, seen_at FROM machine_networks
+		WHERE machine_id = ? ORDER BY name`, machineID)
+	if err != nil {
+		return nil, fmt.Errorf("list machine networks: %w", err)
+	}
+	defer rows.Close()
+	networks := []service.Network{}
+	for rows.Next() {
+		var network service.Network
+		var internal int
+		var seenAt int64
+		if err := rows.Scan(&network.MachineID, &network.NetworkID, &network.Name, &network.Driver, &internal, &network.Group, &seenAt); err != nil {
+			return nil, err
+		}
+		network.Internal = internal != 0
+		network.SeenAt = time.Unix(seenAt, 0).UTC()
+		networks = append(networks, network)
+	}
+	return networks, rows.Err()
 }
 
 // archiveMissing archive les fiches vivantes de la machine que
@@ -265,17 +395,23 @@ func (db *DB) PurgeServices(ctx context.Context, transitionsBefore, archivedBefo
 
 func scanService(row scanner) (service.Service, error) {
 	var item service.Service
-	var kind, state, health, ports string
+	var kind, state, health, ports, dependsOn string
+	var privileged int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
-		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt)
+		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
+		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt)
 	if err != nil {
 		return service.Service{}, err
 	}
 	item.Kind, item.State, item.Health = service.Kind(kind), service.State(state), service.Health(health)
+	item.Privileged = privileged != 0
 	if err := json.Unmarshal([]byte(ports), &item.Ports); err != nil {
 		return service.Service{}, fmt.Errorf("decode ports of %s: %w", item.ID, err)
+	}
+	if err := json.Unmarshal([]byte(dependsOn), &item.DependsOn); err != nil {
+		return service.Service{}, fmt.Errorf("decode dependencies of %s: %w", item.ID, err)
 	}
 	item.CreatedAt = time.Unix(createdAt, 0).UTC()
 	item.FirstSeenAt = time.Unix(firstSeen, 0).UTC()

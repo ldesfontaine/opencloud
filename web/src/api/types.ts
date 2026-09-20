@@ -164,6 +164,32 @@ export interface Port {
   protocol: string;
 }
 
+// La présence d'un service sur un réseau de sa machine ; l'adresse est
+// vide quand le conteneur est arrêté.
+export interface Attachment {
+  network_id: string;
+  name: string;
+  ip: string;
+  aliases: string[];
+}
+
+// Une dépendance déclarée : par le label Compose ou par un lien hérité.
+export interface Dependency {
+  name: string;
+  source: "compose" | "link";
+}
+
+export type FindingKind = "host_network" | "privileged" | "database_port_public" | "port_public";
+
+// Un constat d'exposition, calculé par le serveur à la lecture : « warn »
+// fait un point orange sur le nœud, « info » une ligne dans l'inspecteur.
+export interface Finding {
+  kind: FindingKind;
+  level: "info" | "warn";
+  port?: number;
+  protocol?: string;
+}
+
 export type ServiceState = "created" | "running" | "paused" | "restarting" | "removing" | "exited" | "dead";
 export type ServiceHealth = "" | "starting" | "healthy" | "unhealthy";
 
@@ -192,6 +218,12 @@ export interface Service {
   health: ServiceHealth;
   restart_count: number;
   ports: Port[];
+  // bridge, host, none, container:<id>, ou le nom du premier réseau joint.
+  network_mode: string;
+  privileged: boolean;
+  networks: Attachment[];
+  depends_on: Dependency[];
+  exposure: Finding[];
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -233,6 +265,41 @@ export interface ServiceResponse {
   service: Service;
   engine: Engine | null;
   transitions: Transition[];
+}
+
+// Un groupe du graphe : un réseau créé par l'opérateur ou par Compose, et
+// les services que le serveur y a placés.
+export interface Group {
+  network_id: string;
+  name: string;
+  internal: boolean;
+  members: string[];
+}
+
+// Une arête : d'Internet à un port publié, ou d'un service à celui dont il
+// dépend. Le nœud Internet a l'identifiant « internet ».
+export interface Edge {
+  from: string;
+  to: string;
+  kind: "public" | "depends";
+  port?: number;
+  protocol?: string;
+  source?: "compose" | "link";
+}
+
+export interface NetworkResponse {
+  machine_id: string;
+  machine_name: string;
+  online: boolean;
+  engine: Engine | null;
+  services: Service[];
+  groups: Group[];
+  edges: Edge[];
+}
+
+// Toutes les machines, chacune avec sa topologie, pour la vue d'ensemble.
+export interface OverviewNetworkResponse {
+  machines: NetworkResponse[];
 }
 
 export interface LogLine {

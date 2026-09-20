@@ -1,0 +1,22 @@
+.network-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.network-bar {
+  border-bottom: 0;
+  padding: 0;
+}
+
+.network-body {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  .network-body {
+    flex-direction: column;
+  }
+}

@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 6, les services, le 19 septembre 2026.
+> fonctionnalité 7, le réseau des services, le 19 septembre 2026.
 
 ## Les acteurs
 
@@ -11,7 +11,7 @@
 | L'opérateur | Lucas, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base, et le rôle d'agent pour elle-même |
 | Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker |
-| Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
+| Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 
@@ -71,7 +71,8 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les moniteurs de tâches et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer un moniteur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, santé, ports publiés, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -242,7 +243,80 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
 Pas de label `opencloud.*` : openCloud déclarera ses services plus tard,
 les labels viendront avec. Les ports publiés s'affichent dans la colonne
 Domaine en attendant les domaines ; l'empreinte d'image attend les mises à
-jour ; les réseaux et dépendances viendront avec l'inspection réseau.
+jour.
+
+## Comment le réseau des services se lit
+
+L'onglet Réseau d'une machine dessine ce qui relie ses services et ce
+qui est exposé au monde. Le serveur rend des faits : les services, les
+groupes, les arêtes, les constats ; le navigateur place et trace.
+
+1. À chaque inventaire, l'agent lit sur chaque conteneur son mode réseau
+   (`bridge`, `host`, `none`, `container:<id>`, ou le nom du premier
+   réseau joint), s'il est privilégié, les réseaux qu'il joint avec son
+   adresse et ses alias (l'id court du conteneur est écarté des alias),
+   et ses dépendances déclarées : le label Compose
+   `com.docker.compose.depends_on`, puis les liens hérités de `--link`.
+   Il liste aussi les réseaux de la machine en un appel : nom, pilote,
+   interne ou non, projet Compose. Les deux listes complètes voyagent
+   avec l'inventaire.
+2. Entre deux inventaires, le flux d'événements porte aussi les réseaux :
+   un `connect` ou un `disconnect` réinspecte le conteneur concerné et
+   repart avec ses réseaux du moment, sans transition ; un `create` ou un
+   `destroy` de réseau fait relire la liste, qui repart seule.
+3. openCloud refuse en bloc un rapport hors de mesure (plus de 256
+   réseaux par machine ou 32 par conteneur, un id qui n'est pas un id
+   Docker, une adresse qui n'en est pas une, plus de 16 alias, plus de 64
+   dépendances, une dépendance d'une source inconnue) ; sinon il écrit
+   tout dans la même transaction que les fiches : la liste des réseaux
+   remplace la précédente, les appartenances d'une fiche remplacent les
+   siennes.
+4. Les constats d'exposition sont calculés à la lecture, jamais stockés,
+   jamais alertés : la fonctionnalité alertes les reprendra avec un diff
+   par type. Le mode `host` court-circuite l'analyse des ports. C'est le
+   port du conteneur qui compte, pas celui de l'hôte.
+5. La topologie se calcule à la lecture, sur `GET /api/machines/{id}/network`.
+   Un groupe est un réseau créé par l'opérateur ou par Compose ; `bridge`,
+   `host` et `none` n'en font jamais. Un réseau qu'un service dit joindre
+   compte même si la machine ne l'a pas encore listé. Un service dans
+   plusieurs réseaux va dans celui où il a le plus de voisins, le premier
+   par le nom à égalité ; ses autres réseaux se lisent dans l'inspecteur.
+   Une arête publique va d'Internet à chaque port publié sur toutes les
+   interfaces (`0.0.0.0`, `::` ou une adresse vide ; les deux sur le même
+   port n'en font qu'une). Une arête de dépendance va d'un service à
+   celui qu'il déclare : une dépendance Compose se résout dans le même
+   projet, un lien par le nom du conteneur ; ce qui ne se résout pas n'a
+   pas d'arête, la fiche le dit. Ce qu'un réseau partagé laisse deviner
+   n'est pas une dépendance : c'est une joignabilité, l'inspecteur
+   l'écrit « joint par le réseau X ».
+6. Le navigateur place en trois colonnes : Internet ; ce qu'Internet
+   atteint, services publiés hors groupe puis groupes qui en abritent un ;
+   puis le reste. Une route publique ne traverse donc jamais un nœud. Le
+   point d'un nœud dit le danger d'abord, puis l'attention d'un constat
+   ou d'un redémarrage, puis l'état. Le filtre Tous, Actifs, Arrêtés cache
+   des nœuds, les arêtes et les groupes vides avec eux. Le sujet
+   `services` du direct relit la topologie ; la sélection tient par
+   identifiant.
+
+| Constat | Règle | Niveau |
+| --- | --- | --- |
+| `host_network` | mode réseau `host` | attention |
+| `privileged` | conteneur privilégié | attention |
+| `database_port_public` | port de conteneur 3306, 5432, 6379 ou 27017 publié sur toutes les interfaces | attention |
+| `port_public` | tout autre port publié sur toutes les interfaces | information |
+
+| Ce que l'agent lit en plus | Où | Ce qu'il en garde |
+| --- | --- | --- |
+| `GET /containers/{id}/json` | `HostConfig` | mode réseau, privilégié, liens |
+| `GET /containers/{id}/json` | `NetworkSettings.Networks` | par réseau : id, adresse, alias |
+| `GET /containers/{id}/json` | label `com.docker.compose.depends_on` | les noms de services, dans l'ordre du label |
+| `GET /networks` | liste | id, nom, pilote, interne, projet Compose |
+| `GET /events?filters=container,network` | flux | `connect`, `disconnect`, `create`, `destroy` |
+
+Le nœud proxy, les domaines et le certificat de l'inspecteur attendent
+les fonctionnalités 8 et 9 ; les alertes d'exposition, la 11 ; le bouton
+Redémarrer, les actions : le client Docker ne connaît aucun verbe qui
+écrit.
 
 ## Comment l'interface se met à jour sans recharger
 
@@ -253,7 +327,7 @@ jour ; les réseaux et dépendances viendront avec l'inspection réseau.
    interne (`internal/live`) à chaque changement visible : jeton,
    enrôlement, connexion, signal, déconnexion, retrait ; création, ping,
    échéance dépassée, pause, reprise, suppression ; lot de mesures écrit ;
-   rapport de services écrit. Le bus ne porte que quatre sujets,
+   rapport de services ou de réseaux écrit. Le bus ne porte que quatre sujets,
    `machines`, `jobs`, `resources` et `services`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
@@ -327,3 +401,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 4 · direct | Le bus `internal/live`, le flux `/api/events`, la chaîne de middlewares et `X-Request-ID`, la clé `log_level` de la configuration |
 | 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*` et `machine_disks`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |
 | 6 · services | Le veilleur Docker de l'agent et de `serve`, la section `services` du signal, les commandes sur `/agent/stream` et `POST /agent/logs/{request}`, les tables `services`, `service_transitions`, `service_samples`, `machine_engines`, la clé `docker_socket` et le drapeau `-docker-socket`, les routes `/api/services…` et `/api/machines/{id}/services`, le sujet `services` |
+| 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |

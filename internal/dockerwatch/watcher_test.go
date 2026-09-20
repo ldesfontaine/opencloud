@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,7 +19,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
-const fixtureID = "0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513"
+const (
+	fixtureID   = "0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513"
+	networkedID = "0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346"
+)
 
 // Les fixtures sont celles du client, enregistrées sur un vrai démon.
 func fixture(t *testing.T, name string) []byte {
@@ -93,6 +97,8 @@ func newDaemon(t *testing.T, hold bool) *daemon {
 	})
 	d.mux.HandleFunc("GET /v1.41/containers/json", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(fixture(t, "containers.json")) })
 	d.mux.HandleFunc("GET /v1.41/containers/"+fixtureID+"/json", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(fixture(t, "inspect_running.json")) })
+	d.mux.HandleFunc("GET /v1.41/containers/"+networkedID+"/json", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(fixture(t, "inspect_networked.json")) })
+	d.mux.HandleFunc("GET /v1.41/networks", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(fixture(t, "networks.json")) })
 	d.mux.HandleFunc("GET /v1.41/containers/{id}/json", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"no such container"}`))
@@ -121,6 +127,7 @@ func newDaemon(t *testing.T, hold bool) *daemon {
 	})
 	d.mux.HandleFunc("GET /v1.41/events", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(fixture(t, "events.ndjson"))
+		_, _ = w.Write(fixture(t, "events_network.ndjson"))
 		if d.hold {
 			http.NewResponseController(w).Flush()
 			<-r.Context().Done()
@@ -178,8 +185,17 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 		t.Fatalf("engine = %+v", engine.Engine)
 	}
 	inventory := sink.waitFor(t, "inventory", func(r service.Report) bool { return r.Complete })
-	if len(inventory.Inventory) != 1 {
-		t.Fatalf("inventory = %+v", inventory.Inventory)
+	if len(inventory.Inventory) != 1 || !inventory.NetworksComplete || len(inventory.Networks) != 8 {
+		t.Fatalf("inventory = %+v networks = %d", inventory.Inventory, len(inventory.Networks))
+	}
+	var back service.NetworkReport
+	for _, network := range inventory.Networks {
+		if network.Name == "ocfix_back" {
+			back = network
+		}
+	}
+	if !back.Internal || back.Driver != "bridge" || back.Group != "ocfix" || len(back.NetworkID) != 64 {
+		t.Fatalf("back = %+v", back)
 	}
 	web := inventory.Inventory[0]
 	if web.Name != "web" || web.Group != "fixture" || web.Image != "alpine:3.20" || web.State != service.StateRunning || web.StartedAt == nil {
@@ -187,6 +203,9 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 	}
 	if len(web.Ports) != 1 || web.Ports[0] != (service.Port{IP: "127.0.0.1", HostPort: 18080, ContainerPort: 80, Protocol: "tcp"}) {
 		t.Fatalf("ports = %+v", web.Ports)
+	}
+	if web.NetworkMode != "bridge" || web.Privileged || len(web.Networks) != 1 || web.Networks[0].Name != "bridge" || web.Networks[0].IP != "172.17.0.2" || len(web.DependsOn) != 0 {
+		t.Fatalf("networking = %+v", web)
 	}
 	die := sink.waitFor(t, "die", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
 	event := die.Events[0]
@@ -198,6 +217,18 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 		t.Fatal("a destroyed container has no snapshot")
 	}
 	sink.waitFor(t, "pause", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].State == service.StatePaused })
+	// Puis la fixture réseau : un connect réinspecte le conteneur avec ses
+	// réseaux, un create ou un destroy de réseau relit la liste.
+	connect := sink.waitFor(t, "network connect", func(r service.Report) bool {
+		return len(r.Events) == 1 && r.Events[0].Action == service.ActionNetworkConnect && r.Events[0].ContainerID == networkedID
+	})
+	if connect.Events[0].State != "" || connect.Events[0].Container == nil || len(connect.Events[0].Container.Networks) != 2 {
+		t.Fatalf("connect = %+v", connect.Events[0])
+	}
+	relisted := sink.waitFor(t, "networks relisted", func(r service.Report) bool { return r.NetworksComplete && !r.Complete })
+	if len(relisted.Networks) != 8 {
+		t.Fatalf("relisted = %d", len(relisted.Networks))
+	}
 	// kill et stop ne font pas d'événement.
 	sink.mu.Lock()
 	defer sink.mu.Unlock()
@@ -284,6 +315,50 @@ func TestTranslate_MapsActionsToStates(t *testing.T) {
 		if wanted != expected.wanted || event.State != expected.state || event.Health != expected.health {
 			t.Errorf("%s → %+v wanted=%v", action, event, wanted)
 		}
+	}
+}
+
+func TestTranslate_NetworkEventsNameTheContainer(t *testing.T) {
+	connect := dockerapi.Event{Type: "network", Action: "connect"}
+	connect.Actor.ID = "net"
+	connect.Actor.Attributes = map[string]string{"container": networkedID, "name": "ocfix_back"}
+	event, wanted := translate(connect)
+	if !wanted || event.Action != service.ActionNetworkConnect || event.ContainerID != networkedID || event.State != "" {
+		t.Fatalf("connect → %+v %v", event, wanted)
+	}
+	create := dockerapi.Event{Type: "network", Action: "create"}
+	if _, wanted := translate(create); wanted {
+		t.Fatal("a network create is not a container event")
+	}
+}
+
+// Le conteneur Compose de la fixture : deux réseaux par nom, l'id court
+// retiré des alias, les dépendances du label dans l'ordre du label.
+func TestToContainer_ReadsNetworksAndDependencies(t *testing.T) {
+	var inspected dockerapi.Container
+	if err := json.Unmarshal(fixture(t, "inspect_networked.json"), &inspected); err != nil {
+		t.Fatal(err)
+	}
+	container := toContainer(inspected)
+	if container.NetworkMode != "ocfix_back" || container.Privileged || container.Group != "ocfix" || container.Name != "web" {
+		t.Fatalf("container = %+v", container)
+	}
+	if len(container.Networks) != 2 || container.Networks[0].Name != "ocfix_back" || container.Networks[1].Name != "ocfix_front" {
+		t.Fatalf("networks = %+v", container.Networks)
+	}
+	back := container.Networks[0]
+	if back.IP != "172.20.0.4" || len(back.NetworkID) != 64 || strings.Join(back.Aliases, ",") != "ocfix-web-1,web" {
+		t.Fatalf("back = %+v", back)
+	}
+	if len(container.DependsOn) != 2 || container.DependsOn[0] != (service.Dependency{Name: "cache", Source: service.DependencyCompose}) || container.DependsOn[1].Name != "db" {
+		t.Fatalf("depends = %+v", container.DependsOn)
+	}
+	if len(container.Ports) != 2 || !container.Ports[0].IsPublic() {
+		t.Fatalf("ports = %+v", container.Ports)
+	}
+	inspected.Host.Links = []string{"/legacy-db:/web/db"}
+	if deps := dependencies(inspected); len(deps) != 3 || deps[2] != (service.Dependency{Name: "legacy-db", Source: service.DependencyLink}) {
+		t.Fatalf("links = %+v", deps)
 	}
 }
 
