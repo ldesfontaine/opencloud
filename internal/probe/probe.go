@@ -254,6 +254,18 @@ type Result struct {
 	Replayed bool `json:"replayed,omitempty"`
 }
 
+// Certificates est ce que la vue d'ensemble compte : les certificats vus,
+// ceux dont l'échéance approche, et la plus proche de toutes. Une sonde en
+// pause n'y est pas : elle ne regarde plus, son certificat est une vieille
+// nouvelle.
+type Certificates struct {
+	Total    int
+	Expiring int
+	// Soonest est l'échéance la plus proche ; zéro quand aucun certificat
+	// n'a été vu. Le navigateur en tire les jours restants.
+	Soonest time.Time
+}
+
 // Day est l'agrégat d'un jour UTC : le compte des essais et des succès,
 // pas un pourcentage, pour que les fenêtres s'additionnent.
 type Day struct {

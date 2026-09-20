@@ -374,3 +374,81 @@ func TestRecord_PublishesOnTheBus(t *testing.T) {
 		t.Fatalf("le direct n'a pas été prévenu: %+v", fixture.changed)
 	}
 }
+
+// Le compteur de la vue d'ensemble : ce que la sonde a vu, ce qui approche
+// de sa fin, et l'échéance la plus proche.
+func TestCertificates_CountWhatIsSeenAndWhatIsClose(t *testing.T) {
+	fixture := newBench(t)
+	far := fixture.create(t, "loin", "https://loin.exemple.fr/")
+	soon := fixture.create(t, "bientot", "https://bientot.exemple.fr/")
+	fixture.create(t, "jamais sondé", "https://muet.exemple.fr/")
+
+	fixture.seeCertificate(t, far.ID, testNow.AddDate(0, 0, 80))
+	fixture.seeCertificate(t, soon.ID, testNow.AddDate(0, 0, 12))
+
+	counted, err := fixture.service.Certificates(context.Background())
+	if err != nil {
+		t.Fatalf("compter les certificats: %v", err)
+	}
+	if counted.Total != 2 {
+		t.Fatalf("deux sondes ont vu un certificat, comptées %d", counted.Total)
+	}
+	if counted.Expiring != 1 {
+		t.Fatalf("une seule échéance est sous le seuil, comptées %d", counted.Expiring)
+	}
+	if !counted.Soonest.Equal(testNow.AddDate(0, 0, 12)) {
+		t.Fatalf("la plus proche échéance attendue dans 12 jours, obtenue %s", counted.Soonest)
+	}
+}
+
+// Une sonde en pause ne regarde plus : ce qu'elle a vu ne dit plus rien de
+// la cible, et n'a donc rien à faire dans le compteur.
+func TestCertificates_IgnoreAPausedProbe(t *testing.T) {
+	fixture := newBench(t)
+	paused := fixture.create(t, "en pause", "https://pause.exemple.fr/")
+	fixture.seeCertificate(t, paused.ID, testNow.AddDate(0, 0, 3))
+	if err := fixture.service.Pause(context.Background(), paused.ID); err != nil {
+		t.Fatalf("mettre en pause: %v", err)
+	}
+
+	counted, err := fixture.service.Certificates(context.Background())
+	if err != nil {
+		t.Fatalf("compter les certificats: %v", err)
+	}
+	if counted.Total != 0 || counted.Expiring != 0 || !counted.Soonest.IsZero() {
+		t.Fatalf("une sonde en pause ne compte pas: %+v", counted)
+	}
+}
+
+// Un essai qui n'a vu aucun certificat n'efface pas celui qu'on avait : une
+// coupure ne fait pas disparaître ce que la cible sert.
+func TestCertificates_AFailedCheckKeepsTheLastOneSeen(t *testing.T) {
+	fixture := newBench(t)
+	site := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.seeCertificate(t, site.ID, testNow.AddDate(0, 0, 20))
+	fixture.record(t, site.ID, testNow.Add(time.Minute), probe.OutcomeDown)
+
+	found := fixture.get(t, site.ID)
+	if found.Certificate == nil {
+		t.Fatal("le certificat vu ne doit pas disparaître avec un essai muet")
+	}
+	if !found.Certificate.NotAfter.Equal(testNow.AddDate(0, 0, 20)) {
+		t.Fatalf("échéance attendue inchangée, obtenue %s", found.Certificate.NotAfter)
+	}
+}
+
+// seeCertificate rapporte un essai dégradé qui a vu un certificat
+// d'autorité interne : le nom correspond, la chaîne ne remonte à rien de
+// connu, et l'échéance reste parfaitement lisible.
+func (b *bench) seeCertificate(t *testing.T, id string, notAfter time.Time) {
+	t.Helper()
+	b.recordResult(t, probe.Result{
+		ProbeID: id, CheckedAt: b.now, Outcome: probe.OutcomeDegraded, DurationMs: 42,
+		Reason: probe.ReasonTLSUntrusted,
+		Certificate: &probe.Certificate{
+			Subject: "cloud.exemple.fr", Issuer: "Autorité interne",
+			NotBefore: b.now.AddDate(0, 0, -70), NotAfter: notAfter,
+			Fingerprint: "ab", HostnameMatch: true,
+		},
+	})
+}

@@ -41,6 +41,7 @@ type probeJSON struct {
 	ExpectedStatus    string           `json:"expected_status"`
 	ExpectedBody      string           `json:"expected_body"`
 	FollowRedirects   bool             `json:"follow_redirects"`
+	TLS               bool             `json:"tls"`
 	LastCheckedAt     *time.Time       `json:"last_checked_at"`
 	LastDurationMs    int64            `json:"last_duration_ms"`
 	LastCode          *int             `json:"last_code"`
@@ -49,14 +50,20 @@ type probeJSON struct {
 	CreatedAt         time.Time        `json:"created_at"`
 }
 
-// Ce que la sonde a vu de la chaîne présentée : la fonctionnalité
-// certificats le reprendra, l'interface n'en montre que l'échéance.
+// La chaîne présentée, réduite à des faits. Le serveur ne dit ni « valide »
+// ni « à renouveler » : il donne les dates et les deux vérifications, le
+// navigateur en tire l'état et la pastille.
 type certificateJSON struct {
-	Subject     string    `json:"subject"`
-	Issuer      string    `json:"issuer"`
-	NotBefore   time.Time `json:"not_before"`
-	NotAfter    time.Time `json:"not_after"`
-	Fingerprint string    `json:"fingerprint"`
+	Subject       string    `json:"subject"`
+	Issuer        string    `json:"issuer"`
+	NotBefore     time.Time `json:"not_before"`
+	NotAfter      time.Time `json:"not_after"`
+	Fingerprint   string    `json:"fingerprint"`
+	ChainValid    bool      `json:"chain_valid"`
+	HostnameMatch bool      `json:"hostname_match"`
+	// Vide quand la cible n'agrafe rien : openCloud ne contacte aucun
+	// répondeur pour le savoir.
+	OCSP string `json:"ocsp"`
 }
 
 type resultJSON struct {
@@ -111,6 +118,7 @@ type probeRequest struct {
 	ExpectedStatus    string `json:"expected_status"`
 	ExpectedBody      string `json:"expected_body"`
 	FollowRedirects   bool   `json:"follow_redirects"`
+	TLS               bool   `json:"tls"`
 }
 
 func probeToJSON(found probe.Probe, online bool) probeJSON {
@@ -133,6 +141,7 @@ func probeToJSON(found probe.Probe, online bool) probeJSON {
 		ExpectedStatus:    found.ExpectedStatus,
 		ExpectedBody:      found.ExpectedBody,
 		FollowRedirects:   found.FollowRedirects,
+		TLS:               found.TLS,
 		LastCheckedAt:     timeOrNil(found.LastCheckedAt),
 		LastDurationMs:    found.LastDurationMs,
 		LastCode:          found.LastCode,
@@ -147,11 +156,14 @@ func certificateToJSON(certificate *probe.Certificate) *certificateJSON {
 		return nil
 	}
 	return &certificateJSON{
-		Subject:     certificate.Subject,
-		Issuer:      certificate.Issuer,
-		NotBefore:   certificate.NotBefore.UTC(),
-		NotAfter:    certificate.NotAfter.UTC(),
-		Fingerprint: certificate.Fingerprint,
+		Subject:       certificate.Subject,
+		Issuer:        certificate.Issuer,
+		NotBefore:     certificate.NotBefore.UTC(),
+		NotAfter:      certificate.NotAfter.UTC(),
+		Fingerprint:   certificate.Fingerprint,
+		ChainValid:    certificate.ChainValid,
+		HostnameMatch: certificate.HostnameMatch,
+		OCSP:          string(certificate.OCSP),
 	}
 }
 
@@ -317,6 +329,7 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 		ExpectedStatus:    request.ExpectedStatus,
 		ExpectedBody:      request.ExpectedBody,
 		FollowRedirects:   request.FollowRedirects,
+		TLS:               request.TLS,
 	})
 	if key, refused := probeRefusalKey(err); refused {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
