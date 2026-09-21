@@ -154,6 +154,7 @@ body {
 .status-bar {
   grid-column: 1 / -1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .status-barmeta {
@@ -297,5 +298,14 @@ body {
 
   .status-timeline li {
     grid-template-columns: 1fr;
+  }
+
+  // Quatre-vingt-dix segments tiennent dans 343 px à un pixel chacun.
+  .status-bar {
+    gap: 1px;
+  }
+
+  .status-bar .ubar-seg {
+    min-width: 1px;
   }
 }

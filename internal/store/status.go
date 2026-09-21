@@ -311,7 +311,9 @@ func (db *DB) Transition(ctx context.Context, incident status.Incident, update s
 }
 
 // ListIncidents rend les incidents ouverts et ceux résolus depuis
-// l'instant donné, les plus récents d'abord ; zéro rend tout.
+// l'instant donné, les plus récents d'abord — à date égale, le dernier
+// écrit, pour que deux incidents ouverts dans la même seconde gardent un
+// ordre ; zéro rend tout.
 func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]status.Incident, error) {
 	query := `SELECT ` + incidentColumns + ` FROM incidents`
 	var args []any
@@ -319,7 +321,7 @@ func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]sta
 		query += ` WHERE status != 'resolved' OR resolved_at >= ?`
 		args = append(args, resolvedSince.Unix())
 	}
-	rows, err := db.sql.QueryContext(ctx, query+` ORDER BY created_at DESC, id`, args...)
+	rows, err := db.sql.QueryContext(ctx, query+` ORDER BY created_at DESC, rowid DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list incidents: %w", err)
 	}
