@@ -61,25 +61,24 @@ func (db *DB) UpdateComponent(ctx context.Context, component status.Component) e
 	return nil
 }
 
+// Une requête par genre d'objet : quatre colonnes, quatre instructions
+// entières, jamais une colonne collée à une requête.
+var memberInserts = map[status.MemberKind]string{
+	status.KindMachine:   `INSERT INTO status_component_members (component_id, machine_id) VALUES (?, ?)`,
+	status.KindService:   `INSERT INTO status_component_members (component_id, service_id) VALUES (?, ?)`,
+	status.KindHeartbeat: `INSERT INTO status_component_members (component_id, heartbeat_id) VALUES (?, ?)`,
+	status.KindProbe:     `INSERT INTO status_component_members (component_id, probe_id) VALUES (?, ?)`,
+}
+
 // insertMembers écrit chaque objet dans sa colonne ; un objet inconnu fait
 // échouer la clé étrangère, et c'est un refus.
 func insertMembers(ctx context.Context, tx *sql.Tx, component status.Component) error {
 	for _, member := range component.Members {
-		var column string
-		switch member.Kind {
-		case status.KindMachine:
-			column = "machine_id"
-		case status.KindService:
-			column = "service_id"
-		case status.KindHeartbeat:
-			column = "heartbeat_id"
-		case status.KindProbe:
-			column = "probe_id"
-		default:
+		insert, ok := memberInserts[member.Kind]
+		if !ok {
 			return status.ErrMemberInvalid
 		}
-		// column vient d'une liste fermée juste au-dessus : jamais une entrée.
-		_, err := tx.ExecContext(ctx, `INSERT INTO status_component_members (component_id, `+column+`) VALUES (?, ?)`, component.ID, member.ID)
+		_, err := tx.ExecContext(ctx, insert, component.ID, member.ID)
 		if isConstraintViolation(err) {
 			return status.ErrMemberInvalid
 		}
