@@ -34,6 +34,7 @@ const viewEntries: NavEntry[] = [
   { key: "domains", href: "/domaines", icon: "globe" },
   { key: "backups", href: "/sauvegardes", icon: "archive" },
   { key: "jobs", href: "/taches", icon: "clock" },
+  { key: "statuspage", href: "/page-statut", icon: "eye" },
   { key: "alerts", href: "/alertes", icon: "bell" },
 ];
 
@@ -114,8 +115,9 @@ interface Counter {
 
 // Les machines comptent toutes, en rouge dès qu'une est hors ligne ; les
 // tâches ne comptent que celles à traiter ; les services et les sondes
-// comptent tous, en rouge dès qu'un est défaillant ou hors ligne. Rien
-// tant que l'API n'a pas répondu, plutôt qu'un zéro inventé.
+// comptent tous, en rouge dès qu'un est défaillant ou hors ligne ; la page
+// de statut ne compte que les incidents ouverts. Rien tant que l'API n'a
+// pas répondu, plutôt qu'un zéro inventé.
 function counter(key: string, counts: Counts | null): Counter | null {
   if (!counts) {
     return null;
@@ -131,6 +133,9 @@ function counter(key: string, counts: Counts | null): Counter | null {
   }
   if (key === "domains" && counts.probes.total > 0) {
     return { value: counts.probes.total, hot: counts.probes.attention > 0 };
+  }
+  if (key === "statuspage" && counts.status.open_incidents > 0) {
+    return { value: counts.status.open_incidents, hot: true };
   }
   return null;
 }

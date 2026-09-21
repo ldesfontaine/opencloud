@@ -15,10 +15,17 @@ import (
 // Ouvre le direct d'un onglet et rend un lecteur d'événements nommés.
 func openEvents(t *testing.T, server *testServer, lastEventID string) (func() string, context.CancelFunc) {
 	t.Helper()
+	return openLive(t, server, "/api/events", lastEventID)
+}
+
+// openLive ouvre un flux SSE du serveur, celui de l'administration ou
+// le public, et rend un lecteur d'événements nommés.
+func openLive(t *testing.T, server *testServer, path, lastEventID string) (func() string, context.CancelFunc) {
+	t.Helper()
 	liveServer := httptest.NewServer(server.Server)
 	t.Cleanup(liveServer.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, liveServer.URL+"/api/events", nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, liveServer.URL+path, nil)
 	if lastEventID != "" {
 		request.Header.Set("Last-Event-ID", lastEventID)
 	}
