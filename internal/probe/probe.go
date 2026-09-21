@@ -72,6 +72,26 @@ func isReason(reason Reason) bool {
 	return false
 }
 
+// OCSP est ce que l'agrafe remise pendant la poignée de main a dit de la
+// révocation, par un mot d'une liste fermée. Vide : la cible n'agrafe
+// rien, et openCloud ne contacte aucun répondeur pour le savoir.
+type OCSP string
+
+const (
+	OCSPNone    OCSP = ""
+	OCSPGood    OCSP = "good"
+	OCSPRevoked OCSP = "revoked"
+	OCSPUnknown OCSP = "unknown"
+)
+
+func isOCSP(status OCSP) bool {
+	switch status {
+	case OCSPNone, OCSPGood, OCSPRevoked, OCSPUnknown:
+		return true
+	}
+	return false
+}
+
 const (
 	// Plus fin que l'intervalle du signal ne servirait à rien : les essais
 	// remontent avec lui.
@@ -109,6 +129,13 @@ const (
 	// Un essai daté d'après cette avance est refusé : horloge fausse.
 	maxFutureSkew = 5 * time.Minute
 
+	// Ce qu'il reste à un certificat avant qu'openCloud le signale. Deux
+	// seuils, pas cinq : sans destinataire, un seuil de plus ne fait
+	// qu'un ton de plus. Le navigateur les dérive, le serveur ne les
+	// applique pas.
+	CertificateWarning = 30
+	CertificateDanger  = 7
+
 	// Le brut sert la fenêtre de 24 h, l'agrégat journalier les autres :
 	// chaque fenêtre lit une table gardée strictement plus longtemps qu'elle.
 	ResultRetention = 7 * 24 * time.Hour
@@ -144,6 +171,11 @@ type Probe struct {
 	ExpectedStatus  string
 	ExpectedBody    string
 	FollowRedirects bool
+	// TLS demande à une sonde TCP une poignée de main plutôt qu'une
+	// simple connexion : c'est ce qui couvre un port chiffré qui ne parle
+	// pas HTTP, SMTP ou IMAP. Sans objet pour une sonde HTTP, dont l'URL
+	// dit déjà le protocole.
+	TLS bool
 
 	ConsecutiveFailures  int
 	ConsecutiveSuccesses int
@@ -152,8 +184,9 @@ type Probe struct {
 	// nil tant qu'aucun essai n'a rapporté de code HTTP.
 	LastCode   *int
 	LastReason Reason
-	// Le certificat vu au dernier essai HTTPS ; la fonctionnalité
-	// certificats le lira, la sonde ne le juge pas.
+	// Le certificat vu au dernier essai chiffré. Un essai qui n'en voit
+	// pas n'efface pas celui qu'on avait : une coupure ne fait pas
+	// disparaître ce que la cible sert.
 	Certificate *Certificate
 	CreatedAt   time.Time
 }
@@ -174,17 +207,36 @@ func (p Probe) Task() Task {
 		ExpectedStatus:  p.ExpectedStatus,
 		ExpectedBody:    p.ExpectedBody,
 		FollowRedirects: p.FollowRedirects,
+		TLS:             p.TLS,
 	}
 }
 
-// Certificate est ce que la sonde a vu de la chaîne présentée, sans la
-// juger : la fonctionnalité certificats s'en chargera.
+// Certificate est la chaîne que la cible a présentée, réduite à des faits.
+// L'échéance et la confiance en sont deux : un certificat d'autorité
+// interne a une date parfaitement lisible, et c'est justement le cas où
+// l'opérateur se fait avoir. Aucun de ces champs n'est déduit d'un autre
+// ni supposé vrai.
 type Certificate struct {
 	Subject     string    `json:"subject"`
 	Issuer      string    `json:"issuer"`
 	NotBefore   time.Time `json:"not_before"`
 	NotAfter    time.Time `json:"not_after"`
 	Fingerprint string    `json:"fingerprint"`
+	// ChainValid dit que la chaîne remonte à une autorité connue de la
+	// machine qui a sondé, dates comprises.
+	ChainValid bool `json:"chain_valid"`
+	// HostnameMatch dit que le certificat couvre bien le nom demandé :
+	// une chaîne impeccable peut servir le mauvais domaine.
+	HostnameMatch bool `json:"hostname_match"`
+	// OCSP est ce que l'agrafe a dit, quand la cible en a remis une.
+	OCSP OCSP `json:"ocsp,omitempty"`
+}
+
+// Expired dit si la date de fin est passée. C'est un fait du certificat,
+// pas un état de la sonde : un hôte qui sert un certificat expiré répond
+// parfaitement.
+func (c Certificate) Expired(now time.Time) bool {
+	return c.NotAfter.Before(now)
 }
 
 // Result est un essai, tel qu'il part dans le signal puis s'écrit dans
@@ -200,6 +252,20 @@ type Result struct {
 	// Replayed marque ce qui a attendu une reconnexion : écrit dans
 	// l'histoire, mais pas de quoi bouger l'état ni les compteurs.
 	Replayed bool `json:"replayed,omitempty"`
+}
+
+// Certificates est ce que la vue d'ensemble compte. Une sonde en pause n'y
+// est pas : elle ne regarde plus, son certificat est une vieille nouvelle.
+type Certificates struct {
+	Total int
+	// Expiring et Expired sont disjoints : ce qui approche de sa fin n'est
+	// pas ce qui l'a déjà passée, et l'opérateur n'a pas la même chose à
+	// faire dans les deux cas.
+	Expiring int
+	Expired  int
+	// Soonest est la plus proche échéance **à venir** ; zéro quand il n'y
+	// en a aucune. Le navigateur en tire les jours restants.
+	Soonest time.Time
 }
 
 // Day est l'agrégat d'un jour UTC : le compte des essais et des succès,
@@ -228,6 +294,7 @@ type Definition struct {
 	ExpectedStatus    string
 	ExpectedBody      string
 	FollowRedirects   bool
+	TLS               bool
 }
 
 var (
@@ -270,8 +337,12 @@ func (d Definition) Complete() Definition {
 			Name: d.Name, Kind: d.Kind, Target: d.Target, MachineID: d.MachineID, ServiceID: d.ServiceID,
 			Interval: d.Interval, Timeout: d.Timeout,
 			FailureThreshold: d.FailureThreshold, RecoveryThreshold: d.RecoveryThreshold,
+			TLS: d.TLS,
 		}
 	}
+	// L'URL d'une sonde HTTP dit déjà le protocole ; le drapeau ne vaut
+	// que pour un port que rien d'autre ne décrit.
+	d.TLS = false
 	d.Method = strings.ToUpper(strings.TrimSpace(d.Method))
 	if d.Method == "" {
 		d.Method = "GET"

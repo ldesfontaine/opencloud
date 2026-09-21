@@ -15,6 +15,9 @@ type Task struct {
 	ExpectedStatus  string `json:"expected_status,omitempty"`
 	ExpectedBody    string `json:"expected_body,omitempty"`
 	FollowRedirects bool   `json:"follow_redirects,omitempty"`
+	// TLS : une sonde TCP fait une poignée de main au lieu d'une simple
+	// connexion, pour lire le certificat d'un port qui ne parle pas HTTP.
+	TLS bool `json:"tls,omitempty"`
 }
 
 func (t Task) interval() time.Duration {

@@ -5,6 +5,7 @@ import { api, ApiError } from "../api/client";
 import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
+import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { Dot, ProbePill } from "../components/Pill";
@@ -12,7 +13,8 @@ import { Table } from "../components/Table";
 import { UptimeBar } from "../components/UptimeBar";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
-import { useI18n, useT, type Translate } from "../i18n/context";
+import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
+import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
 import { useRefresh } from "../lib/refresh";
 import { ago, formatClock, formatDuration } from "../lib/time";
@@ -107,7 +109,7 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
           {response.days.length > 0 ? <UptimeBar days={response.days} span={detailSpan} now={now} /> : <Empty text={t("probe.bar_empty")} />}
         </CardBody>
       </Card>
-      <div className={probe.kind === "http" ? "grid-2" : undefined}>
+      <div className={probe.kind === "http" || probe.tls ? "grid-2" : undefined}>
         <Card>
           <CardHeader title={t("tab.summary")} aside={t("probe.uptime_text")} />
           <CardBody gap={10}>
@@ -131,22 +133,9 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
             <KeyValue label={t("probe.field_created")} value={formatClock(probe.created_at)} mono />
           </CardBody>
         </Card>
-        {/* Une sonde TCP ne verra jamais de certificat : la carte ne se
-            pose que sur une sonde HTTP. */}
-        {probe.kind === "http" && (
-          <Card>
-            <CardHeader title={t("probe.cert_title")} aside={t("probe.cert_text")} />
-            {probe.certificate !== null ? (
-              <CardBody gap={10}>
-                <KeyValue label={t("probe.cert_subject")} value={probe.certificate.subject} mono />
-                <KeyValue label={t("probe.cert_issuer")} value={probe.certificate.issuer} mono />
-                <KeyValue label={t("probe.cert_until")} value={formatClock(probe.certificate.not_after)} mono />
-              </CardBody>
-            ) : (
-              <Empty text={t("probe.cert_none")} />
-            )}
-          </Card>
-        )}
+        {/* Une sonde TCP qui ne fait pas de poignée de main ne verra jamais
+            de certificat : la carte ne se pose que là où il peut y en avoir un. */}
+        {(probe.kind === "http" || probe.tls) && <CertificateCard probe={probe} />}
       </div>
       <Card className="scroll-x">
         <CardHeader title={t("probe.results_title")} aside={t("probe.results_text")} />
@@ -172,6 +161,51 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
         )}
       </Card>
     </>
+  );
+}
+
+// Le certificat vu : ce qu'il reste, et ce qu'on a pu vérifier. L'échéance
+// et la confiance se lisent séparément — un certificat d'autorité interne
+// garde une date parfaitement claire, et c'est le cas où l'on se fait avoir.
+function CertificateCard({ probe }: { probe: Probe }) {
+  const t = useT();
+  const now = useNow();
+  const thresholds = useCertificateThresholds();
+  const certificate = probe.certificate;
+  if (certificate === null) {
+    return (
+      <Card>
+        <CardHeader title={t("probe.cert_title")} aside={t("probe.cert_text")} />
+        <Empty text={t("probe.cert_none")} />
+      </Card>
+    );
+  }
+  const reading = read(certificate, thresholds, now);
+  return (
+    <Card>
+      <CardHeader title={t("probe.cert_title")} aside={t("probe.cert_text")} />
+      <CardBody gap={10}>
+        <div className="kv">
+          <span className="cluster">
+            <CertificatePill reading={reading} />
+            <TrustPill reading={reading} />
+          </span>
+          <Remaining reading={reading} />
+        </div>
+        <KeyValue label={t("probe.cert_subject")} value={certificate.subject} mono />
+        <KeyValue label={t("probe.cert_issuer")} value={certificate.issuer} mono />
+        <KeyValue label={t("probe.cert_since")} value={formatClock(certificate.not_before)} mono />
+        <KeyValue label={t("probe.cert_until")} value={formatClock(certificate.not_after)} mono />
+        <KeyValue label={t("cert.field_chain")} value={t(certificate.chain_valid ? "cert.chain_valid" : "cert.chain_invalid")} />
+        <KeyValue label={t("cert.field_name")} value={t(certificate.hostname_match ? "cert.name_match" : "cert.name_mismatch")} />
+        {/* Rien à dire quand la cible n'agrafe pas : personne n'a été
+            contacté pour le savoir. */}
+        {certificate.ocsp !== "" && <KeyValue label={t("cert.field_ocsp")} value={t(`cert.ocsp_${certificate.ocsp}`)} />}
+        <KeyValue label={t("cert.field_fingerprint")} value={certificate.fingerprint} mono />
+        {reading.untrusted && <Note tone="warn">{t("cert.untrusted_text")}</Note>}
+        {reading.revoked && <Note tone="danger">{t("cert.revoked_text")}</Note>}
+      </CardBody>
+    </Card>
   );
 }
 

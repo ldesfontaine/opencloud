@@ -10,10 +10,40 @@ import { StatePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
-import { useT } from "../i18n/context";
+import { useCertificateThresholds, useT } from "../i18n/context";
+import { daysUntil } from "../lib/certificates";
 import { machinesSubtitle } from "../lib/subtitles";
 import { seenAgo } from "../lib/time";
 import "./Overview.scss";
+
+// Le pied de la carte Domaines dit une chose à la fois, la plus pressante :
+// une sonde hors ligne, puis un certificat déjà expiré, puis un qui
+// approche de sa fin, puis que tout va bien. Un seul fait, celui qui
+// appelle une action.
+function DomainsFoot({ counts }: { counts: Counts }) {
+  const t = useT();
+  const now = useNow();
+  const thresholds = useCertificateThresholds();
+  const certificates = counts.certificates;
+  if (counts.probes.attention > 0) {
+    return <b className="danger">{t("overview.probes_attention", counts.probes.attention)}</b>;
+  }
+  if (certificates.expired > 0) {
+    const key = certificates.expired === 1 ? "overview.certificate_expired" : "overview.certificates_expired";
+    return <b className="danger">{t(key, certificates.expired)}</b>;
+  }
+  const soonest = certificates.soonest_expires_at;
+  if (certificates.expiring > 0 && soonest !== null) {
+    const days = daysUntil(soonest, now);
+    const key = certificates.expiring === 1 ? "overview.certificate_expiring" : "overview.certificates_expiring";
+    return (
+      <b className={days <= thresholds.danger ? "danger" : "warn"}>
+        {certificates.expiring === 1 ? t(key, days) : t(key, certificates.expiring, days)}
+      </b>
+    );
+  }
+  return <>{t("overview.probes_ok")}</>;
+}
 
 // La vue d'ensemble compte les machines, les services, les sondes et les
 // tâches, dessine le réseau de
@@ -65,13 +95,7 @@ export function Overview() {
               icon="globe"
               label={t("nav.domains")}
               value={counts.data?.probes.total ?? "–"}
-              foot={
-                counts.data && counts.data.probes.attention > 0 ? (
-                  <b className="danger">{t("overview.probes_attention", counts.data.probes.attention)}</b>
-                ) : (
-                  t("overview.probes_ok")
-                )
-              }
+              foot={counts.data ? <DomainsFoot counts={counts.data} /> : "–"}
             />
             <Stat
               icon="clock"

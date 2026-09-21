@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -52,7 +53,11 @@ type Options struct {
 	SampleInterval time.Duration
 	// DockerSocket est la socket du démon ; vide vaut celle de Docker.
 	DockerSocket string
-	Logger       *slog.Logger
+	// Roots est le magasin contre lequel les sondes de cette machine
+	// vérifient une chaîne. nil vaut le magasin du système : c'est la
+	// machine qui sonde qui juge, avec les autorités qu'elle connaît.
+	Roots  *x509.CertPool
+	Logger *slog.Logger
 }
 
 // Run enrôle l'agent si besoin, puis tient le flux ouvert jusqu'à ce que le
@@ -85,7 +90,7 @@ func Run(ctx context.Context, opts Options) error {
 	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
 	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
 	checked := &results{}
-	prober := probe.NewRunner(checked, opts.Logger)
+	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
 	go prober.Run(ctx)
 	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, logs: watcher, probes: prober}, opts)
 }

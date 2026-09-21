@@ -20,6 +20,9 @@ type Store interface {
 	ListProbes(ctx context.Context, machineID string) ([]Probe, error)
 	GetProbe(ctx context.Context, id string) (Probe, error)
 	CountProbes(ctx context.Context) (total, attention int, err error)
+	// CountProbeCertificates compte les certificats vus et ceux dont
+	// l'échéance tombe avant l'instant donné.
+	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
 	CountProbesOnMachine(ctx context.Context, machineID string) (int, error)
 	DeleteProbe(ctx context.Context, id string) error
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
@@ -136,6 +139,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 		ExpectedStatus:    definition.ExpectedStatus,
 		ExpectedBody:      definition.ExpectedBody,
 		FollowRedirects:   definition.FollowRedirects,
+		TLS:               definition.TLS,
 		CreatedAt:         s.now(),
 	}
 	if err := s.store.InsertProbe(ctx, created); err != nil {
@@ -164,6 +168,14 @@ func (s *Service) Count(ctx context.Context) (total, attention int, err error) {
 // Dégradé n'en est pas : la cible répond, c'est sa chaîne qui déplaît.
 func NeedsAttention(status Status) bool {
 	return status == StatusDown
+}
+
+// Certificates compte ce que la vue d'ensemble montre. Le seuil est celui
+// du produit, publié au navigateur par la session : un seul chiffre, une
+// seule source, et la même bascule à l'écran qu'au compteur.
+func (s *Service) Certificates(ctx context.Context) (Certificates, error) {
+	now := s.now()
+	return s.store.CountProbeCertificates(ctx, now, now.Add(CertificateWarning*24*time.Hour))
 }
 
 func (s *Service) Results(ctx context.Context, id string, limit int) ([]Result, error) {

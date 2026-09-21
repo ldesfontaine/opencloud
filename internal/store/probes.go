@@ -13,10 +13,11 @@ import (
 const probeColumns = `p.id, p.name, p.kind, p.target, p.machine_id, COALESCE(m.name, ''),
 	COALESCE(p.service_id, ''), COALESCE(s.name, ''), p.status,
 	p.interval_seconds, p.timeout_seconds, p.failure_threshold, p.recovery_threshold,
-	p.method, p.expected_status, p.expected_body, p.follow_redirects,
+	p.method, p.expected_status, p.expected_body, p.follow_redirects, p.tls,
 	p.consecutive_failures, p.consecutive_successes,
 	p.last_checked_at, p.last_duration_ms, p.last_code, p.last_reason,
 	p.cert_subject, p.cert_issuer, p.cert_not_before, p.cert_not_after, p.cert_fingerprint,
+	p.cert_chain_valid, p.cert_hostname_match, p.cert_ocsp,
 	p.created_at`
 
 const probeFrom = ` FROM probes p
@@ -27,13 +28,13 @@ func (db *DB) InsertProbe(ctx context.Context, item probe.Probe) error {
 	_, err := db.sql.ExecContext(ctx, `
 		INSERT INTO probes (id, name, kind, target, machine_id, service_id, status,
 			interval_seconds, timeout_seconds, failure_threshold, recovery_threshold,
-			method, expected_status, expected_body, follow_redirects, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			method, expected_status, expected_body, follow_redirects, tls, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID, item.Name, string(item.Kind), item.Target, item.MachineID, nullableString(item.ServiceID),
 		string(item.Status), int64(item.Interval.Seconds()), int64(item.Timeout.Seconds()),
 		item.FailureThreshold, item.RecoveryThreshold,
 		item.Method, item.ExpectedStatus, item.ExpectedBody, boolToInt(item.FollowRedirects),
-		item.CreatedAt.Unix())
+		boolToInt(item.TLS), item.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert probe: %w", err)
 	}
@@ -79,6 +80,29 @@ func (db *DB) CountProbes(ctx context.Context) (total, attention int, err error)
 		return 0, 0, fmt.Errorf("count probes: %w", err)
 	}
 	return total, attention, nil
+}
+
+// CountProbeCertificates compte les certificats vus, ceux dont l'échéance
+// tombe entre maintenant et l'instant donné, et ceux qui l'ont déjà
+// passée. La plus proche échéance rendue est à venir : celle d'un
+// certificat expiré ne dirait pas dans combien de jours il expire. Une
+// sonde en pause est écartée : ce qu'elle a vu ne dit plus rien.
+func (db *DB) CountProbeCertificates(ctx context.Context, now, before time.Time) (probe.Certificates, error) {
+	var counted probe.Certificates
+	var soonest sql.NullInt64
+	err := db.sql.QueryRowContext(ctx, `
+		SELECT COUNT(*),
+			COALESCE(SUM(cert_not_after >= ? AND cert_not_after < ?), 0),
+			COALESCE(SUM(cert_not_after < ?), 0),
+			MIN(CASE WHEN cert_not_after >= ? THEN cert_not_after END)
+		FROM probes WHERE cert_fingerprint != '' AND status != ?`,
+		now.Unix(), before.Unix(), now.Unix(), now.Unix(), string(probe.StatusPaused),
+	).Scan(&counted.Total, &counted.Expiring, &counted.Expired, &soonest)
+	if err != nil {
+		return probe.Certificates{}, fmt.Errorf("count probe certificates: %w", err)
+	}
+	counted.Soonest = timeOf(soonest)
+	return counted, nil
 }
 
 func (db *DB) CountProbesOnMachine(ctx context.Context, machineID string) (int, error) {
@@ -157,12 +181,14 @@ func updateProbeState(ctx context.Context, tx *sql.Tx, item probe.Probe) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE probes SET status = ?, consecutive_failures = ?, consecutive_successes = ?,
 			last_checked_at = ?, last_duration_ms = ?, last_code = ?, last_reason = ?,
-			cert_subject = ?, cert_issuer = ?, cert_not_before = ?, cert_not_after = ?, cert_fingerprint = ?
+			cert_subject = ?, cert_issuer = ?, cert_not_before = ?, cert_not_after = ?, cert_fingerprint = ?,
+			cert_chain_valid = ?, cert_hostname_match = ?, cert_ocsp = ?
 		WHERE id = ?`,
 		string(item.Status), item.ConsecutiveFailures, item.ConsecutiveSuccesses,
 		nullableTime(item.LastCheckedAt), item.LastDurationMs, nullableInt(item.LastCode), string(item.LastReason),
 		certificate.Subject, certificate.Issuer, nullableTime(certificate.NotBefore), nullableTime(certificate.NotAfter),
-		certificate.Fingerprint, item.ID)
+		certificate.Fingerprint, boolToInt(certificate.ChainValid), boolToInt(certificate.HostnameMatch),
+		string(certificate.OCSP), item.ID)
 	if err != nil {
 		return fmt.Errorf("update probe state: %w", err)
 	}
@@ -282,18 +308,20 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	var item probe.Probe
 	var kind, status, reason string
 	var intervalSeconds, timeoutSeconds int64
-	var followRedirects int
+	var followRedirects, useTLS, chainValid, hostnameMatch int
 	var lastCheckedAt, lastCode, notBefore, notAfter sql.NullInt64
 	var certificate probe.Certificate
+	var ocsp string
 	var createdAt int64
 	err := row.Scan(
 		&item.ID, &item.Name, &kind, &item.Target, &item.MachineID, &item.MachineName,
 		&item.ServiceID, &item.ServiceName, &status,
 		&intervalSeconds, &timeoutSeconds, &item.FailureThreshold, &item.RecoveryThreshold,
-		&item.Method, &item.ExpectedStatus, &item.ExpectedBody, &followRedirects,
+		&item.Method, &item.ExpectedStatus, &item.ExpectedBody, &followRedirects, &useTLS,
 		&item.ConsecutiveFailures, &item.ConsecutiveSuccesses,
 		&lastCheckedAt, &item.LastDurationMs, &lastCode, &reason,
 		&certificate.Subject, &certificate.Issuer, &notBefore, &notAfter, &certificate.Fingerprint,
+		&chainValid, &hostnameMatch, &ocsp,
 		&createdAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -307,6 +335,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	item.Interval = time.Duration(intervalSeconds) * time.Second
 	item.Timeout = time.Duration(timeoutSeconds) * time.Second
 	item.FollowRedirects = followRedirects != 0
+	item.TLS = useTLS != 0
 	item.LastCheckedAt = timeOf(lastCheckedAt)
 	item.LastCode = intPointer(lastCode)
 	item.LastReason = probe.Reason(reason)
@@ -314,6 +343,9 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	if certificate.Fingerprint != "" {
 		certificate.NotBefore = timeOf(notBefore)
 		certificate.NotAfter = timeOf(notAfter)
+		certificate.ChainValid = chainValid != 0
+		certificate.HostnameMatch = hostnameMatch != 0
+		certificate.OCSP = probe.OCSP(ocsp)
 		item.Certificate = &certificate
 	}
 	return item, nil

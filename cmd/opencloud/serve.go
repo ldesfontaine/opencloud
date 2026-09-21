@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -49,6 +50,12 @@ func runServe(args []string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	for _, warning := range warnings {
 		logger.Warn("config", "detail", warning)
+	}
+	// Les autorités avant tout le reste : un chemin faux doit arrêter le
+	// démarrage, jamais laisser les sondes juger sur un magasin vide.
+	roots, err := trust.Load(cfg.CAFile)
+	if err != nil {
+		return err
 	}
 	stateDir, err := openStateDir(cfg.StateDir)
 	if err != nil {
@@ -97,7 +104,7 @@ func runServe(args []string) error {
 	probes.SetWatcher(bus)
 	// La machine openCloud exécute aussi ses propres sondes, sans passer
 	// par le réseau : son jeu ne sort pas du processus.
-	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, logger)
+	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, probe.NewChecker(roots), logger)
 	probes.SetLocalRunner(machine.LocalID, prober)
 	// Sept boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la

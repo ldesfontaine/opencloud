@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agent"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -39,7 +40,14 @@ func runAgent(args []string) error {
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
+	caFile := flags.String("ca-file", "", "paquet PEM d'une autorité interne, ajouté au magasin du système pour les sondes")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	// Les autorités avant tout le reste : un chemin faux arrête l'agent
+	// plutôt que de lui faire refuser toutes les chaînes en silence.
+	roots, err := trust.Load(*caFile)
+	if err != nil {
 		return err
 	}
 	code, ok := lang.Parse(*language)
@@ -69,6 +77,7 @@ func runAgent(args []string) error {
 		Language:     code,
 		Version:      version.Number(),
 		DockerSocket: *dockerSocket,
+		Roots:        roots,
 		Logger:       logger,
 	})
 	if err == nil {

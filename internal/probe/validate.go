@@ -55,6 +55,9 @@ func validateCertificate(certificate *Certificate) error {
 	if len(certificate.Fingerprint) > 64 {
 		return ErrReportInvalid
 	}
+	if !isOCSP(certificate.OCSP) {
+		return ErrReportInvalid
+	}
 	// Un certificat que la sonde a vu porte forcément ses deux dates ; leur
 	// contenu, lui, est le fait de la cible, pas de l'agent.
 	if certificate.NotBefore.IsZero() || certificate.NotAfter.IsZero() {

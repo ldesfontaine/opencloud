@@ -37,6 +37,10 @@ export function ProbeNew() {
   const [expectedStatus, setExpectedStatus] = useState("2xx");
   const [expectedBody, setExpectedBody] = useState("");
   const [redirects, setRedirects] = useState("yes");
+  // Une sonde TCP peut faire une poignée de main plutôt qu'une simple
+  // connexion : c'est ce qui donne son certificat à un port chiffré qui ne
+  // parle pas HTTP, SMTP ou IMAP.
+  const [useTLS, setUseTLS] = useState("no");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [prefilled, setPrefilled] = useState(false);
@@ -86,6 +90,7 @@ export function ProbeNew() {
         expected_status: kind === "http" ? expectedStatus : "",
         expected_body: kind === "http" ? expectedBody : "",
         follow_redirects: kind === "http" && redirects === "yes",
+        tls: kind === "tcp" && useTLS === "yes",
       })
       .then((created) => {
         refresh();
@@ -189,6 +194,14 @@ export function ProbeNew() {
                 </Field>
               </div>
             </>
+          )}
+          {kind === "tcp" && (
+            <Field label={t("probe.tls_label")} htmlFor="probe-tls" help={t("probe.tls_help")}>
+              <Select id="probe-tls" value={useTLS} onChange={(event) => setUseTLS(event.target.value)}>
+                <option value="no">{t("probe.off")}</option>
+                <option value="yes">{t("probe.on")}</option>
+              </Select>
+            </Field>
           )}
           {error !== null && <Pill tone="danger">{t(error)}</Pill>}
           <div className="cluster">

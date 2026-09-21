@@ -18,8 +18,9 @@ type Sink interface {
 // son propre intervalle. Le serveur lui pousse le jeu complet ; une sonde
 // inchangée garde sa goroutine, et donc son horloge.
 type Runner struct {
-	sink   Sink
-	logger *slog.Logger
+	sink    Sink
+	checker Checker
+	logger  *slog.Logger
 	// now est remplaçable dans les tests : les essais sont datés par lui.
 	now func() time.Time
 
@@ -35,8 +36,8 @@ type probeLoop struct {
 	cancel context.CancelFunc
 }
 
-func NewRunner(sink Sink, logger *slog.Logger) *Runner {
-	return &Runner{sink: sink, logger: logger, now: time.Now, running: make(map[string]*probeLoop)}
+func NewRunner(sink Sink, checker Checker, logger *slog.Logger) *Runner {
+	return &Runner{sink: sink, checker: checker, logger: logger, now: time.Now, running: make(map[string]*probeLoop)}
 }
 
 func (r *Runner) SetClock(now func() time.Time) {
@@ -133,7 +134,7 @@ func (r *Runner) loop(ctx context.Context, task Task) {
 // once sonde et livre. Un essai interrompu par l'arrêt ne se livre pas :
 // ce n'est pas la cible qui n'a pas répondu, c'est nous qui sommes partis.
 func (r *Runner) once(ctx context.Context, task Task) {
-	result := Check(ctx, task, r.now())
+	result := r.checker.Check(ctx, task, r.now())
 	if ctx.Err() != nil {
 		return
 	}

@@ -38,6 +38,11 @@ type Config struct {
 	// Socket du démon Docker de cette machine. Absente : la machine
 	// openCloud n'a aucun service, ce n'est pas une erreur.
 	DockerSocket string `toml:"docker_socket" validate:"required"`
+	// Paquet PEM d'une autorité interne, ajouté au magasin du système pour
+	// vérifier les chaînes que les sondes voient. Vide : le magasin du
+	// système seul. À poser sur chaque machine qui sonde : c'est elle qui
+	// juge, pas le serveur à sa place.
+	CAFile string `toml:"ca_file"`
 }
 
 func Default() Config {

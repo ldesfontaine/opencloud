@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
-import type { Session } from "../api/types";
+import type { CertificateThresholds, Session } from "../api/types";
 import { format } from "./format";
 
 export type Translate = (key: string, ...args: (string | number)[]) => string;
@@ -12,6 +12,10 @@ interface I18n {
   version: string;
   language: string;
   languages: string[];
+  // Les seuils d'échéance viennent du serveur avec le reste de la session :
+  // le compteur de la vue d'ensemble et la couleur d'une ligne basculent
+  // ainsi sur le même chiffre, tenu à un seul endroit.
+  certificates: CertificateThresholds;
   t: Translate;
   setLanguage: (code: string) => Promise<void>;
 }
@@ -57,7 +61,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       }
       return args.length > 0 ? format(template, args) : template;
     };
-    return { version: session.version, language: session.language, languages: session.languages, t, setLanguage };
+    return {
+      version: session.version,
+      language: session.language,
+      languages: session.languages,
+      certificates: session.certificate_thresholds,
+      t,
+      setLanguage,
+    };
   }, [session, catalog, setLanguage]);
 
   if (unreachable) {
@@ -80,4 +91,9 @@ export function useI18n(): I18n {
 
 export function useT(): Translate {
   return useI18n().t;
+}
+
+// Les seuils d'échéance d'un certificat, tels que le serveur les tient.
+export function useCertificateThresholds(): CertificateThresholds {
+  return useI18n().certificates;
 }

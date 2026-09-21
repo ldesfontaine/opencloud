@@ -85,8 +85,9 @@ func (ts *testServer) seedJobs(t *testing.T) string {
 
 // Deux sondes pour des réponses parlantes : l'une sur le site de la
 // machine distante, déjà sondée trois fois et dégradée par un certificat
-// refusé, l'autre sur la base, portée par la machine openCloud et encore
-// neuve. Une seule a donc un agrégat journalier.
+// d'autorité interne qui approche de sa fin, l'autre sur la base, portée
+// par la machine openCloud et encore neuve. Une seule a donc un agrégat
+// journalier.
 func (ts *testServer) seedProbes(t *testing.T, serviceID string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -103,10 +104,14 @@ func (ts *testServer) seedProbes(t *testing.T, serviceID string) string {
 		t.Fatal(err)
 	}
 	code := 200
+	// Le cas que la direction artistique montre : le nom correspond, la
+	// chaîne remonte à une autorité que cette machine ne connaît pas, et
+	// l'échéance approche. Les deux faits se lisent séparément.
 	certificate := &probe.Certificate{
 		Subject: "cloud.exemple.fr", Issuer: "openCloud dev",
-		NotBefore: testNow.Add(-24 * time.Hour), NotAfter: testNow.Add(89 * 24 * time.Hour),
+		NotBefore: testNow.Add(-78 * 24 * time.Hour), NotAfter: testNow.Add(12 * 24 * time.Hour),
 		Fingerprint: strings.Repeat("e", 64),
+		ChainValid:  false, HostnameMatch: true,
 	}
 	results := []probe.Result{
 		{ProbeID: site.ID, CheckedAt: testNow.Add(-48 * time.Hour), Outcome: probe.OutcomeDown, DurationMs: 10_000, Reason: probe.ReasonTimeout},

@@ -56,6 +56,10 @@
 
   > :last-child {
     text-align: right;
+    // Sans cela, une valeur qui ne se coupe pas — une empreinte de 64
+    // caractères — pousse la page entière en défilement horizontal.
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -77,6 +81,10 @@
     b {
       color: var(--ink-2);
       font-weight: 500;
+
+      &.warn {
+        color: var(--warn);
+      }
 
       &.danger {
         color: var(--danger);

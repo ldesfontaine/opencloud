@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { Current, Machine, MachinesResponse, ProbesResponse, ServicesResponse, TokenResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { CertificateList } from "../components/Certificate";
 import { Failure } from "../components/Failure";
 import { MachineHead, machineTabs, Tabs } from "../components/MachineHead";
 import { NetworkView } from "../components/NetworkView";
@@ -88,8 +89,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
   );
 }
 
-// L'onglet Domaines et certificats : les sondes que cette machine exécute.
-// Les certificats viendront s'y poser avec leur fonctionnalité.
+// L'onglet Domaines et certificats : les sondes que cette machine exécute,
+// puis les certificats qu'elles ont vus, avec ce qu'il leur reste.
 function MachineProbes({ machineID }: { machineID: string }) {
   const t = useT();
   const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
@@ -103,9 +104,12 @@ function MachineProbes({ machineID }: { machineID: string }) {
         </Card>
       )}
       {probes.data && list.length > 0 && (
-        <Card className="scroll-x">
-          <ProbeTable probes={list} days={probes.data.days} />
-        </Card>
+        <>
+          <Card className="scroll-x">
+            <ProbeTable probes={list} days={probes.data.days} />
+          </Card>
+          <CertificateList probes={list} />
+        </>
       )}
     </>
   );

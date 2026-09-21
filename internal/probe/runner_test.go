@@ -52,7 +52,7 @@ func (s *collectingSink) waitFor(t *testing.T, wanted int) {
 func testRunner(t *testing.T, sink Sink) (*Runner, context.CancelFunc) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, logger)
+	runner := NewRunner(sink, NewChecker(nil), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -152,7 +152,7 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 	defer server.Close()
 	sink := newSink()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, logger)
+	runner := NewRunner(sink, NewChecker(nil), logger)
 	runner.Assign(Assignment{Probes: []Task{httpTask(server.URL)}})
 
 	ctx, cancel := context.WithCancel(context.Background())

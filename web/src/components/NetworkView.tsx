@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import type { NetworkResponse } from "../api/types";
+import type { NetworkResponse, ProbesResponse } from "../api/types";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { layoutNetwork, publicPorts } from "../lib/network";
@@ -18,6 +18,9 @@ import "./NetworkView.scss";
 export function NetworkView({ machineID }: { machineID: string }) {
   const t = useT();
   const network = useResource<NetworkResponse>(`/api/machines/${machineID}/network`);
+  // Les sondes de cette machine servent la ligne « Certificat » de
+  // l'inspecteur : le graphe dit les liens, la sonde dit ce qu'elle a vu.
+  const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
   const [filter, setFilter] = useServiceFilter();
   const [selected, setSelected] = useState<string | null>(null);
   const response = network.data;
@@ -51,7 +54,7 @@ export function NetworkView({ machineID }: { machineID: string }) {
       </div>
       <div className="network-body">
         <NetworkGraph layout={layout} ports={publicPorts(response.edges)} selected={selected} onSelect={setSelected} />
-        <NetworkInspector response={response} selected={selected} onSelect={setSelected} />
+        <NetworkInspector response={response} probes={probes.data?.probes ?? []} selected={selected} onSelect={setSelected} />
       </div>
     </div>
   );

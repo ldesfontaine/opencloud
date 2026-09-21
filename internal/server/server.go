@@ -83,6 +83,9 @@ type ProbeService interface {
 	List(ctx context.Context, machineID string) ([]probe.Probe, error)
 	Get(ctx context.Context, id string) (probe.Probe, error)
 	Count(ctx context.Context) (total, attention int, err error)
+	// Certificates compte les certificats vus et ceux qui approchent de
+	// leur fin, pour la vue d'ensemble.
+	Certificates(ctx context.Context) (probe.Certificates, error)
 	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
 	Delete(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
