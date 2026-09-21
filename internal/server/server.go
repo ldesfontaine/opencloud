@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/web"
 )
 
@@ -112,8 +113,30 @@ type HeartbeatService interface {
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
+// Ce que le serveur attend du composant statut : l'instantané public d'un
+// côté, l'administration des composants, des incidents et de la page de
+// l'autre.
+type StatusService interface {
+	Snapshot(ctx context.Context) (status.Snapshot, error)
+	Page() (status.Page, error)
+	SetPage(ctx context.Context, page status.Page) (status.Page, error)
+	Components(ctx context.Context) ([]status.Component, error)
+	GetComponent(ctx context.Context, id string) (status.Component, error)
+	CreateComponent(ctx context.Context, definition status.ComponentDefinition) (status.Component, error)
+	UpdateComponent(ctx context.Context, id string, definition status.ComponentDefinition) (status.Component, error)
+	DeleteComponent(ctx context.Context, id string) error
+	Incidents(ctx context.Context) ([]status.Incident, error)
+	GetIncident(ctx context.Context, id string) (status.Incident, error)
+	OpenIncident(ctx context.Context, definition status.IncidentDefinition) (status.Incident, error)
+	AddUpdate(ctx context.Context, id string, next status.IncidentStatus, message string) (status.Incident, error)
+	ChangeIncident(ctx context.Context, id string, change status.IncidentChange) (status.Incident, error)
+	DeleteIncident(ctx context.Context, id string) error
+	CountOpenIncidents(ctx context.Context) (int, error)
+}
+
 // Ce que le serveur attend du bus du direct : un abonnement par onglet, et
-// le compte pour plafonner.
+// le compte pour plafonner. Le bus public, qui ne porte que « status »,
+// est du même type.
 type Live interface {
 	Subscribe() *live.Subscription
 	Count() int
@@ -129,9 +152,12 @@ type Server struct {
 	resources      ResourceService
 	services       ServiceTracker
 	probes         ProbeService
+	status         StatusService
 	live           Live
+	publicLive     Live
 	logStreams     atomic.Int32
 	pingLimits     *pingLimits
+	statusLimits   *statusLimits
 	publicURL      string
 	trustedProxies []netip.Prefix
 	// Le front compilé, embarqué : voir spa.go.
@@ -153,7 +179,11 @@ type Options struct {
 	Resources  ResourceService
 	Services   ServiceTracker
 	Probes     ProbeService
+	Status     StatusService
 	Live       Live
+	// PublicLive est le bus des visiteurs de la page de statut : à part,
+	// pour que leurs connexions ne comptent pas parmi les onglets.
+	PublicLive Live
 	// Adresse publique d'openCloud pour la commande d'installation ; vide :
 	// déduite de la requête.
 	PublicURL      string
@@ -190,8 +220,11 @@ func New(opts Options) (*Server, error) {
 		resources:      opts.Resources,
 		services:       opts.Services,
 		probes:         opts.Probes,
+		status:         opts.Status,
 		live:           opts.Live,
+		publicLive:     opts.PublicLive,
 		pingLimits:     newPingLimits(),
+		statusLimits:   newStatusLimits(),
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		app:            app,
@@ -200,6 +233,7 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Clock != nil {
 		server.pingLimits.setClock(opts.Clock)
+		server.statusLimits.setClock(opts.Clock)
 	}
 	server.handler = server.chain(securityHeaders(server.mux()))
 	return server, nil
@@ -219,12 +253,21 @@ func (s *Server) language() lang.Code {
 	return s.current.Language
 }
 
+// saveLanguage relit le fichier avant d'écrire : la page de statut y tient
+// ses propres réglages, qu'une copie en mémoire écraserait.
 func (s *Server) saveLanguage(code lang.Code) error {
 	s.mu.Lock()
-	s.current.Language = code
-	snapshot := s.current
-	s.mu.Unlock()
-	return s.settings.Save(snapshot)
+	defer s.mu.Unlock()
+	current, err := s.settings.Load()
+	if err != nil {
+		return err
+	}
+	current.Language = code
+	if err := s.settings.Save(current); err != nil {
+		return err
+	}
+	s.current = current
+	return nil
 }
 
 // Command fait du serveur le commandeur des agents : c'est lui qui tient

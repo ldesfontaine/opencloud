@@ -18,7 +18,9 @@ type route struct {
 // c'est voulu. Sous /api, ce que le front appelle, en JSON : une route par
 // lecture, une route par action. Sous /agent, ce que l'agent d'une machine
 // appelle ; sous /ping, ce qu'un cron appelle, sans authentification : le
-// jeton est le secret. Tout le reste est le front, servi par spa.go.
+// jeton est le secret. Sous /statut, la page publique et ses trois routes,
+// sans authentification et limitées en débit. Tout le reste est le front,
+// servi par spa.go.
 func (s *Server) routes() []route {
 	return []route{
 		{"GET", "/api/session", s.session},
@@ -56,6 +58,19 @@ func (s *Server) routes() []route {
 		{"DELETE", "/api/jobs/{id}", s.deleteJob},
 		{"POST", "/api/jobs/{id}/actions/pause", s.pauseJob},
 		{"POST", "/api/jobs/{id}/actions/resume", s.resumeJob},
+		{"GET", "/api/status/components", s.listComponents},
+		{"POST", "/api/status/components", s.createComponent},
+		{"GET", "/api/status/components/{id}", s.getComponent},
+		{"PUT", "/api/status/components/{id}", s.updateComponent},
+		{"DELETE", "/api/status/components/{id}", s.deleteComponent},
+		{"GET", "/api/status/incidents", s.listIncidents},
+		{"POST", "/api/status/incidents", s.openIncident},
+		{"GET", "/api/status/incidents/{id}", s.getIncident},
+		{"PUT", "/api/status/incidents/{id}", s.changeIncident},
+		{"DELETE", "/api/status/incidents/{id}", s.deleteIncident},
+		{"POST", "/api/status/incidents/{id}/updates", s.addIncidentUpdate},
+		{"GET", "/api/status/page", s.getStatusPage},
+		{"PUT", "/api/status/page", s.setStatusPage},
 		{anyMethod, "/api/", s.apiUnknown},
 		{"POST", "/agent/enroll", s.agentEnroll},
 		{"POST", "/agent/challenge", s.agentChallenge},
@@ -68,6 +83,12 @@ func (s *Server) routes() []route {
 		{"POST", "/ping/{token}/start", s.pingStart},
 		{"GET", "/ping/{token}/{code}", s.pingExitCode},
 		{"POST", "/ping/{token}/{code}", s.pingExitCode},
+		{"GET", "/statut", s.limitPublic(s.statusPage)},
+		{"GET", "/statut/{$}", s.limitPublic(s.statusPage)},
+		{"GET", "/statut/api/status", s.limitPublic(s.publicStatus)},
+		{"GET", "/statut/api/i18n", s.limitPublic(s.publicCatalog)},
+		{"GET", "/statut/api/events", s.publicEvents},
+		{anyMethod, "/statut/", s.statusUnknown},
 		{anyMethod, "/", s.serveApp},
 	}
 }

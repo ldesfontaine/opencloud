@@ -38,6 +38,12 @@ type countsResponse struct {
 	// Les certificats vus par les sondes actives : combien, combien
 	// approchent de leur fin, et la plus proche échéance.
 	Certificates certificateCounts `json:"certificates"`
+	// Les incidents ouverts sur la page de statut.
+	Status statusCounts `json:"status"`
+}
+
+type statusCounts struct {
+	OpenIncidents int `json:"open_incidents"`
 }
 
 type certificateCounts struct {
@@ -134,12 +140,18 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	openIncidents, err := s.status.CountOpenIncidents(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	s.writeAPI(w, http.StatusOK, countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
 		Services:     jobCounts{Total: services, Attention: failing},
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
+		Status:       statusCounts{OpenIncidents: openIncidents},
 	})
 }
 
