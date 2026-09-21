@@ -1,1 +1,1 @@
-{"machines":{"total":2,"online":1},"jobs":{"total":2,"attention":1},"services":{"total":2,"attention":1},"probes":{"total":2,"attention":0},"certificates":{"total":1,"expiring":1,"expired":0,"soonest_expires_at":"2026-09-24T12:00:00Z"}}
+{"machines":{"total":2,"online":1},"jobs":{"total":2,"attention":1},"services":{"total":2,"attention":1},"probes":{"total":2,"attention":0},"certificates":{"total":1,"expiring":1,"expired":0,"soonest_expires_at":"2026-09-24T12:00:00Z"},"status":{"open_incidents":0}}

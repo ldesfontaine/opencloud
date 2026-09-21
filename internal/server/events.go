@@ -29,7 +29,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusServiceUnavailable, codeBusy)
 		return
 	}
-	subscription := s.live.Subscribe()
+	s.streamTopics(w, r, s.live)
+}
+
+// streamTopics tient une connexion SSE sur un bus jusqu'à ce que l'onglet
+// parte ; le direct public et celui de l'administration ont chacun leur
+// bus, la mécanique est la même.
+func (s *Server) streamTopics(w http.ResponseWriter, r *http.Request, bus Live) {
+	subscription := bus.Subscribe()
 	defer subscription.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")

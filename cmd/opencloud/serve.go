@@ -26,6 +26,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
@@ -106,10 +107,19 @@ func runServe(args []string) error {
 	// par le réseau : son jeu ne sort pas du processus.
 	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, probe.NewChecker(roots), logger)
 	probes.SetLocalRunner(machine.LocalID, prober)
-	// Sept boucles de fond : les échéances, le rollup et la purge des
+	// La page de statut publique : elle écoute le bus interne pour relire,
+	// et publie sur les deux bus quand quelque chose de visible change.
+	preferences := settings.New(stateDir)
+	publicBus := live.New()
+	statusPage := status.New(db, machines, preferences, logger)
+	statusPage.AddWatcher(bus)
+	statusPage.AddWatcher(publicBus)
+	statusPage.SetFeed(bus)
+	// Huit boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
-	// sondes, et leur moteur. Elles finissent avant que la base ne se ferme.
+	// sondes, leur moteur, et la page de statut. Elles finissent avant que
+	// la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
@@ -118,6 +128,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { watcher.Run(ctx) })
 	runLoop(&loops, func() { probes.Watch(ctx) })
 	runLoop(&loops, func() { prober.Run(ctx) })
+	runLoop(&loops, func() { statusPage.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
@@ -126,13 +137,15 @@ func runServe(args []string) error {
 	server, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
-		Settings:       settings.New(stateDir),
+		Settings:       preferences,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,
 		Services:       services,
 		Probes:         probes,
+		Status:         statusPage,
 		Live:           bus,
+		PublicLive:     publicBus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
 	})

@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 8, les sondes, le 19 septembre 2026.
+> fonctionnalité 10, la page de statut, le 21 septembre 2026.
 
 ## Les acteurs
 
@@ -15,6 +15,7 @@
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 | Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
+| Un visiteur | N'importe qui, dans un navigateur, sans compte | La page de statut publique sous `/statut` : un petit bundle à part, qui lit un instantané et un direct publics |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -28,6 +29,7 @@ flowchart LR
         ag["Machine gérée<br><code>opencloud agent</code>"]
         job["Tâche planifiée<br><code>curl /ping/…</code>"]
         tgt["Cible sondée<br>URL ou port"]
+        vis["Visiteur<br>navigateur, sans compte"]
     end
     subgraph oc["Machine openCloud"]
         tr["Traefik<br>:443 TLS"]
@@ -39,6 +41,7 @@ flowchart LR
     op == "HTTPS" ==> tr
     ag == "HTTPS<br>enrôlement, flux SSE, signal" ==> tr
     job == "HTTPS<br>ping, sans authentification" ==> tr
+    vis == "HTTPS<br>/statut, public" ==> tr
     ag -- "sonde HTTP ou TCP,<br>chiffrée si la cible l'est" --> tgt
     srv -- "sonde, pour ses<br>propres cibles" --> tgt
     ag --- id[("identity.json<br>clé privée, 0600")]
@@ -62,6 +65,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
+| Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
 la boucle locale de la machine openCloud, entre Traefik et le processus. Entre
@@ -80,7 +84,8 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface | Écriture atomique |
+| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut | Écriture atomique ; chaque écrivain relit le fichier avant d'écrire |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
 Le jeton en clair n'existe qu'à deux endroits, un instant : l'écran qui l'affiche
@@ -478,18 +483,104 @@ refusée **parce que** le certificat est expiré ne se compte pas deux fois :
 Une sonde en pause ne compte pas : elle ne regarde plus, et ce qu'elle a vu
 ne dit plus rien de la cible.
 
+## Comment la page de statut est publiée
+
+Un visiteur ne connaît pas openCloud. La page sous `/statut` est servie par
+le même binaire, sur le même port, derrière Traefik, sans compte : un
+bundle à part, sans une ligne de l'administration. Elle porte les jetons,
+la typographie et les pastilles de la direction artistique, sans la barre
+latérale, dans la langue que l'opérateur a réglée — un visiteur ne
+choisit pas —, en clair ou en sombre selon son système.
+
+1. **Un composant** a un nom public et regroupe des objets qu'openCloud
+   surveille déjà : une machine, un service, une tâche, une sonde. Le
+   certificat n'est pas un objet, c'est un fait de la sonde : rattacher
+   une sonde rattache son certificat. Le nom est le seul mot d'openCloud
+   qui sort en public.
+2. **Son état se dérive** de ses objets, à la lecture, jamais stocké : le
+   pire l'emporte. Un objet qui ne dit rien de la cible ne compte pas ;
+   un composant dont aucun objet ne compte est **caché du public** et
+   signalé à l'opérateur.
+3. **L'état global** est le pire des composants visibles. Sans composant,
+   la page dit « rien à afficher », jamais « tout fonctionne » à vide.
+4. **Un incident** est ce que l'opérateur dit au public : un titre, un
+   impact, un fil d'entrées datées qui portent chacune le statut qu'elles
+   donnent, et les composants touchés. **Tant qu'il est ouvert, son impact
+   remplace l'état dérivé de ses composants** : l'opérateur en sait plus
+   que la sonde, et dire « maintenance » quand la sonde dit « hors ligne »
+   est tout l'intérêt. Résolu, l'état dérivé reprend.
+5. **Une maintenance** est un incident d'impact « maintenance » avec une
+   fenêtre. Planifiée, elle s'affiche sans rien changer ; la boucle la
+   passe « en cours » à l'heure du début et la résout à l'heure de la fin,
+   en écrivant chaque passage dans le fil. Une fenêtre déjà ouverte à la
+   création commence tout de suite.
+6. **Le public voit** : le titre, l'annonce, l'état global, les composants
+   visibles avec leur état et, pour ceux qui ont une sonde, la somme des
+   jours de leurs sondes sur 90 jours ; les incidents ouverts, les
+   maintenances planifiées, et ce qui a été résolu dans les 14 derniers
+   jours. **Il ne voit jamais** un identifiant d'objet, un nom de machine,
+   de conteneur, d'image ou de sonde, une cible, une adresse, un port.
+7. **Le direct public** est un second bus, à part des onglets de
+   l'administration, qui ne porte que « status ». Le composant statut
+   écoute le bus interne : à chaque sujet, il relit son instantané public
+   et ne publie **que si quelque chose de visible a changé** — vingt sondes
+   à la minute ne font pas relire vingt fois chaque visiteur. Le même
+   sujet part sur le bus interne pour l'administration. Relecture à la
+   reconnexion, pas de rejeu. Cet abonnement interne occupe une des 64
+   places du bus.
+8. **La page se met dans un cadre** : seule la page HTML publique sert
+   `frame-ancestors *` sans `X-Frame-Options`, par une fonction testée ;
+   elle ne porte aucun bouton, il n'y a rien à y détourner. Son API et
+   tout le reste gardent la politique stricte.
+
+| Objet | Son état | Ce que le composant en fait |
+| --- | --- | --- |
+| Sonde | hors ligne | panne |
+| Sonde | dégradée, ou en ligne avec un certificat à renouveler ou expiré | dégradé |
+| Sonde | nouvelle, en pause | ne compte pas |
+| Tâche | en retard, en échec | dégradé |
+| Tâche | nouvelle, en pause | ne compte pas |
+| Service | arrêté, défaillant, mort, en pause, disparu | panne |
+| Service | redémarre, démarre | dégradé |
+| Service | créé sans avoir tourné | ne compte pas |
+| Machine | hors ligne | panne |
+
+Quatre états et pas cinq : un composant est une chose pour le visiteur,
+s'il est en panne il est en panne. Une maintenance passe devant un dégradé,
+jamais devant une panne.
+
+| Route publique | Sert à | Limite |
+| --- | --- | --- |
+| `GET /statut` | La page | 10 par seconde, rafale 20, par adresse résolue |
+| `GET /statut/api/status` | L'instantané public, en faits | la même |
+| `GET /statut/api/i18n` | Les seules clés `status.*` du catalogue, dans la langue de la page | la même |
+| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 256 visiteurs en direct au plus |
+
+Au-delà : `429` avec `Retry-After`. Les seaux sont balayés au passage,
+comme ceux de `/ping`, et l'adresse est celle que `trusted_proxies`
+résout : un en-tête forgé n'ouvre pas un seau neuf.
+
+L'administration vit dans la coquille, sous l'entrée « Statut », à
+l'adresse `/page-statut` : composants, incidents, réglages. Le compteur
+rouge de la barre latérale est le nombre d'incidents ouverts. Elle n'est
+protégée que par l'absence d'authentification, comme le reste ; la page
+publique, elle, est publique par conception. Un titre fait 120 caractères
+au plus, une annonce 500, un message 2 000, en texte brut échappé par le
+navigateur ; 64 composants au plus, 64 objets par composant.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource`, `service` et `probe` publient sur le
-   bus interne (`internal/live`) à chaque changement visible : jeton,
-   enrôlement, connexion, signal, déconnexion, retrait ; création, ping,
-   échéance dépassée, pause, reprise, suppression ; lot de mesures écrit ;
-   rapport de services ou de réseaux écrit ; essais de sondes écrits. Le bus
-   ne porte que cinq sujets, `machines`, `jobs`, `resources`, `services` et
-   `probes`.
+2. `machine`, `heartbeat`, `resource`, `service`, `probe` et `status`
+   publient sur le bus interne (`internal/live`) à chaque changement
+   visible : jeton, enrôlement, connexion, signal, déconnexion, retrait ;
+   création, ping, échéance dépassée, pause, reprise, suppression ; lot de
+   mesures écrit ; rapport de services ou de réseaux écrit ; essais de
+   sondes écrits ; instantané public changé. Le bus ne porte que six
+   sujets, `machines`, `jobs`, `resources`, `services`, `probes` et
+   `status`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
    voyage dans le flux.
@@ -524,7 +615,7 @@ tous les pings semblent venir de la boucle locale et partagent un seul seau.
 | 443 | Traefik | L'entrée publique, interface et agents sur le même nom |
 
 Un seul port derrière Traefik : les agents appellent `/agent/…`, les tâches
-`/ping/…`, l'opérateur le reste. Pas de port à part.
+`/ping/…`, les visiteurs `/statut`, l'opérateur le reste. Pas de port à part.
 
 ## Vérifié le 13 septembre 2026
 
@@ -560,6 +651,10 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas d'historique des certificats | Un renouvellement se reconnaît au changement d'empreinte, mais on ne sait pas quand il a eu lieu si openCloud était coupé, ni combien de fois | À décider |
 | Un domaine sans sonde n'est pas surveillé | Surveiller l'échéance d'un domaine impose de créer une sonde dessus ; pour un domaine qu'on ne veut pas sonder chaque minute, il faut régler l'intervalle à 24 h | À décider |
 | L'autorité interne se pose machine par machine | `ca_file` n'est pas distribuée par le serveur : chaque machine qui sonde porte la sienne | À décider |
+| Pas d'incident automatique | Une sonde qui tombe change l'état du composant ; personne n'ouvre l'incident ni ne le résout | Fonctionnalité 11, les alertes |
+| Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec le canal de notification, plus tard |
+| L'administration de la page de statut n'est pas protégée | Qui atteint le port ouvre un incident au nom de l'opérateur | Socle, avec l'authentification |
+| Pas de sous-domaine dédié | La page vit sous `/statut` du même nom ; Traefik peut réécrire la racine d'un `status.exemple.fr` vers elle | À décider, avec le proxy |
 
 ## Par fonctionnalité
 
@@ -574,3 +669,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
+| 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |

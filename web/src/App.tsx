@@ -16,6 +16,10 @@ import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
 import { Soon } from "./pages/Soon";
+import { StatusAdmin } from "./pages/StatusAdmin";
+import { StatusComponentForm } from "./pages/StatusComponentForm";
+import { StatusIncidentPage } from "./pages/StatusIncident";
+import { StatusIncidentNew } from "./pages/StatusIncidentNew";
 import { VisualSystem } from "./pages/VisualSystem";
 
 // Les adresses restent en français, comme l'opérateur les lit ; une route
@@ -39,6 +43,12 @@ export function App() {
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobNew />} />
         <Route path="taches/:id" element={<JobPage />} />
+        <Route path="page-statut" element={<StatusAdmin />} />
+        <Route path="page-statut/composants/nouveau" element={<StatusComponentForm />} />
+        <Route path="page-statut/composants/:id" element={<StatusComponentForm />} />
+        <Route path="page-statut/incidents/nouveau" element={<StatusIncidentNew />} />
+        <Route path="page-statut/incidents/:id" element={<StatusIncidentPage />} />
+        <Route path="page-statut/:tab" element={<StatusAdmin />} />
         <Route path="alertes" element={<Soon navKey="alerts" />} />
         <Route path="parametres" element={<Soon navKey="settings" />} />
         <Route path="systeme-visuel" element={<VisualSystem />} />

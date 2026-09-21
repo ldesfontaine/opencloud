@@ -54,7 +54,7 @@ export type SegmentTone = "ok" | "warn" | "danger" | "none";
 
 // Le ton d'un jour : un échec l'emporte, puis un essai dégradé, sinon
 // tout va bien ; sans essai, rien à dire.
-export function dayTone(day: ProbeDay | undefined): SegmentTone {
+export function dayTone(day: Pick<ProbeDay, "total" | "success" | "degraded"> | undefined): SegmentTone {
   if (day === undefined || day.total === 0) {
     return "none";
   }

@@ -21,6 +21,12 @@ const (
 type Settings struct {
 	// Langue de l'interface ; vide tant que l'opérateur n'a rien choisi.
 	Language lang.Code `toml:"language"`
+	// La page de statut publique : son titre, son annonce en texte brut,
+	// sa langue. Vides : pas de titre, pas d'annonce, la langue de
+	// l'interface.
+	StatusTitle        string    `toml:"status_title"`
+	StatusAnnouncement string    `toml:"status_announcement"`
+	StatusLanguage     lang.Code `toml:"status_language"`
 }
 
 // Store lit et écrit settings.toml sous le répertoire d'état.

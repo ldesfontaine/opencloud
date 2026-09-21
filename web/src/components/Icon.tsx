@@ -140,6 +140,18 @@ const paths: Record<string, ReactNode> = {
       <path d="M14 3v6h6M8 13h8M8 17h6" />
     </>
   ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  external: (
+    <>
+      <path d="M14 4h6v6M20 4l-9 9" />
+      <path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5" />
+    </>
+  ),
 };
 
 // Les tracés seuls, pour un SVG qui dessine l'icône lui-même : le graphe.

@@ -22,6 +22,8 @@ export interface Counts {
   services: { total: number; attention: number };
   probes: { total: number; attention: number };
   certificates: CertificateCounts;
+  // Les incidents ouverts sur la page de statut.
+  status: { open_incidents: number };
 }
 
 // Les certificats vus par les sondes actives. expiring et expired sont
@@ -422,4 +424,109 @@ export interface ProbeResponse {
   uptime: ProbeUptime[];
   days: ProbeDay[];
   results: ProbeResult[];
+}
+
+// La page de statut. Un état est un mot d'une liste fermée ; vide quand
+// rien ne compte. La pastille se dérive dans lib/status.
+export type StatusState = "operational" | "degraded" | "down" | "maintenance" | "";
+export type Impact = "degraded" | "down" | "maintenance";
+export type IncidentStatus = "scheduled" | "investigating" | "identified" | "monitoring" | "in_progress" | "resolved";
+export type MemberKind = "machine" | "service" | "heartbeat" | "probe";
+
+// Un jour d'uptime d'un composant : la somme des jours de ses sondes.
+export interface StatusDay {
+  day: string;
+  total: number;
+  success: number;
+  degraded: number;
+}
+
+export interface IncidentUpdate {
+  status: IncidentStatus;
+  message: string;
+  created_at: string;
+}
+
+// Un objet rattaché, tel que l'opérateur le voit : jamais servi au public.
+export interface StatusMember {
+  kind: MemberKind;
+  id: string;
+  name: string;
+  state: StatusState;
+  counts: boolean;
+  present: boolean;
+}
+
+export interface StatusComponent {
+  id: string;
+  name: string;
+  position: number;
+  members: StatusMember[];
+  derived: StatusState;
+  effective: StatusState;
+  created_at: string;
+}
+
+export interface StatusComponentsResponse {
+  public_url: string;
+  global: StatusState;
+  components: StatusComponent[];
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  impact: Impact;
+  status: IncidentStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  components: { id: string; name: string }[];
+  updates: IncidentUpdate[];
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface IncidentsResponse {
+  incidents: Incident[];
+}
+
+export interface StatusPageSettings {
+  title: string;
+  announcement: string;
+  language: string;
+  public_url: string;
+}
+
+// Ce que le public lit : les noms des composants, jamais les objets.
+export interface PublicComponent {
+  id: string;
+  name: string;
+  state: StatusState;
+  days: StatusDay[];
+}
+
+export interface PublicIncident {
+  id: string;
+  title: string;
+  impact: Impact;
+  status: IncidentStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  components: string[];
+  updates: IncidentUpdate[];
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface PublicStatus {
+  title: string;
+  announcement: string;
+  language: string;
+  generated_at: string;
+  global: StatusState;
+  components: PublicComponent[];
+  open: PublicIncident[];
+  history: PublicIncident[];
 }
