@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 11, les alertes, le 22 septembre 2026.
+> fonctionnalité 12, les mises à jour des images, le 22 septembre 2026.
 
 ## Les acteurs
 
@@ -17,6 +17,7 @@
 | Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
 | Un visiteur | N'importe qui, dans un navigateur, sans compte | La page de statut publique sous `/statut` : un petit bundle à part, qui lit un instantané et un direct publics |
 | Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi | Rien : il reçoit un POST signé quand une alerte s'ouvre, s'aggrave ou se résout |
+| Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -32,6 +33,7 @@ flowchart LR
         tgt["Cible sondée<br>URL ou port"]
         vis["Visiteur<br>navigateur, sans compte"]
         hook["Canal<br>webhook entrant"]
+        reg["Registre d'images<br>Docker Hub, ghcr.io, privé"]
     end
     subgraph oc["Machine openCloud"]
         tr["Traefik<br>:443 TLS"]
@@ -47,6 +49,8 @@ flowchart LR
     ag -- "sonde HTTP ou TCP,<br>chiffrée si la cible l'est" --> tgt
     srv -- "sonde, pour ses<br>propres cibles" --> tgt
     srv -- "alerte, POST signé,<br>chiffré si l'URL l'est" --> hook
+    ag == "HTTPS, lecture seule<br>tags et empreinte" ==> reg
+    srv == "idem, pour ses<br>propres images" ==> reg
     ag --- id[("identity.json<br>clé privée, 0600")]
 ```
 
@@ -69,6 +73,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
 | Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
+| Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
@@ -89,6 +94,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`) et la politique de l'opérateur (`update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, **secret en clair**, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut | Écriture atomique ; chaque écrivain relit le fichier avant d'écrire |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
@@ -256,11 +262,12 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
 | `GET /events?filters=container` | flux | action, id, instant, code de sortie |
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
+| `GET /images/{nom}/json` | inspect d'une image | `RepoDigests` : l'empreinte que la machine a tirée, pour les mises à jour |
 
 Pas de label `opencloud.*` : openCloud déclarera ses services plus tard,
-les labels viendront avec. Les ports publiés s'affichent dans la colonne
-Domaine en attendant les domaines ; l'empreinte d'image attend les mises à
-jour.
+les labels viendront avec. Les labels de Compose, eux, sont lus : le
+projet, le service, le dossier et le fichier du projet. Les ports publiés
+s'affichent dans la colonne Domaine en attendant les domaines.
 
 ## Comment le réseau des services se lit
 
@@ -335,6 +342,85 @@ du service, quand une sonde en surveille un. Une sonde se lit sur la fiche
 du service qu'elle surveille, pas encore sur le graphe ; les alertes
 d'exposition, à décider ; le bouton Redémarrer, les actions : le client
 Docker ne connaît aucun verbe qui écrit.
+
+## Comment une image est comparée à son registre
+
+openCloud dit quand l'image d'un service a quelque chose de plus récent à
+offrir. Il ne tire rien et ne relance rien : il fabrique la commande, et
+c'est l'opérateur qui la joue. Ce que le module d'origine faisait de plus,
+les CVE, le changelog, le score de risque, n'a pas été repris.
+
+1. **L'agent de chaque machine interroge lui-même** les registres de ses
+   images : il a le trousseau Docker de la machine, et un registre privé
+   joignable seulement depuis elle. La machine openCloud le fait dans
+   `opencloud serve`, sans réseau vers elle-même. Le premier passage
+   attend 2 min après le démarrage ; ensuite, toutes les 5 min, l'agent
+   liste ses conteneurs (arrêtés compris, jetables exclus) et vérifie les
+   images jamais vues ; chaque image se revérifie **toutes les 24 h**.
+   Une pause de 2 s sépare deux images.
+2. **Pour une image**, l'agent lit dans Docker l'empreinte tirée
+   (`RepoDigests`), demande au registre la liste des tags du dépôt
+   (`/v2/<dépôt>/tags/list`, 1 000 par page, 10 pages au plus) puis
+   l'empreinte que le tag courant pointe aujourd'hui (`HEAD
+   /v2/<dépôt>/manifests/<tag>`). Le jeton vient du `realm` que le registre
+   annonce, anonyme ou signé des `auths` en clair du `config.json` de
+   Docker ; les assistants (`credHelpers`) ne sont pas lus. Sur Docker
+   Hub, un `HEAD` ne compte pas dans le quota de pulls (100 par heure et
+   par adresse, anonyme) ; la liste des tags non plus. La cadence et la
+   pause tiennent ce quota loin.
+3. **La comparaison de versions tourne chez l'agent**, en fonction pure :
+   un tag se lit comme des composants numériques, un « v » facultatif et
+   une variante d'une liste fermée (`-alpine`, `-bookworm`, `-slim`…). Le
+   tag plus récent retenu est **écrit de la même façon** : même variante,
+   même « v », même nombre de composants. `3.20` va vers `3.24`, jamais
+   vers `3.22.1` ; `postgres:16` va vers `17` et se suit au digest en
+   attendant ; `latest`, `lts`, `1.2-rc1` ne sont pas des versions. Le
+   signal ne porte que des faits par image : issue, empreinte tirée,
+   empreinte publiée, tag plus récent et son empreinte ; jamais la liste
+   des tags, qui dépasse 10 000 entrées pour `node`.
+4. **Le serveur écrit le dernier constat** par (machine, image) et en
+   déduit le type : majeure, mineure ou correctif d'après le premier
+   composant qui bouge ; **digest** quand le même tag pointe une autre
+   empreinte que celle tirée. Comparer à l'empreinte tirée, et non à une
+   référence mémorisée, fait que le premier passage dit déjà la vérité.
+   Un rapport hors de mesure (plus de 256 résultats, une empreinte qui
+   n'en est pas une, une date dans le futur) est refusé en bloc.
+5. **La commande est fabriquée, jamais exécutée.** Sous Compose : `cd
+   <dossier> && docker compose pull <service> && docker compose up -d
+   <service>` ; pour un tag plus récent, l'interface dit de le changer
+   d'abord dans le fichier, la commande tire ce que le fichier écrit.
+   Pour un conteneur lancé à la main : `docker pull <image:tag>` seul, et
+   la fiche dit de le recréer avec ses options, qu'openCloud ne connaît
+   pas. Une rétrogradation est impossible par construction : seul un tag
+   strictement plus récent est nommé.
+6. **La politique se règle sur la fiche** : suivre (par défaut),
+   **épingler** (vérifié, ni montré ni compté), **exclure** (le registre
+   n'est jamais interrogé). Le serveur pousse à l'agent la liste des
+   images exclues par la commande `image_checks` du flux, à l'ouverture
+   et à chaque changement ; « Vérifier maintenant » pousse la même
+   commande avec `now`, et l'agent repasse sur toutes ses images. Une
+   machine hors ligne refuse, et l'interface le dit.
+7. **Les issues se lisent** : `ok` ; `local` (pas d'empreinte tirée, image
+   construite sur place) ; `unauthorized` (le registre refuse : image
+   privée, ou construite sur place et inconnue du Hub, qui répond 401 et
+   non 404) ; `not_found` ; `unreachable` ; `unsupported` (référence
+   illisible ou désignée par son empreinte). Un refus d'authentification
+   n'est pas une erreur : on passe.
+8. **Aucune alerte** : une version disponible n'est pas une panne. La
+   ligne du tableau porte une pastille accent dans la colonne Image (le
+   tag trouvé, ou « reconstruite »), la fiche une carte Mise à jour
+   (constat, empreintes, commande à copier, actions), la vue d'ensemble
+   compte les services à jour à faire, `/api/counts` porte le chiffre.
+   Un constat écrit publie le sujet `services` du direct.
+9. Un constat qu'aucun passage n'a rafraîchi depuis 30 jours est purgé,
+   au départ puis une fois par jour.
+
+| Ce que l'agent demande | Où | Ce qu'il en garde |
+| --- | --- | --- |
+| `GET /v2/<dépôt>/tags/list?n=1000` | le registre | les tags, page après page par l'en-tête `Link` |
+| `HEAD /v2/<dépôt>/manifests/<tag>` | le registre | `Docker-Content-Digest` : l'empreinte que le tag pointe, celle que Docker note en tirant ; en `GET` avec l'empreinte calculée si l'en-tête manque |
+| `GET <realm>?service&scope` | le serveur de jetons annoncé | un jeton Bearer, gardé le temps d'un dépôt |
+| `GET /images/<nom>/json` | Docker, sur la socket | `RepoDigests` |
 
 ## Comment une cible est sondée
 
@@ -669,12 +755,13 @@ tout. 200 alertes par liste, 32 canaux au plus.
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource`, `service`, `probe`, `status` et
-   `alert` publient sur le bus interne (`internal/live`) à chaque
+2. `machine`, `heartbeat`, `resource`, `service`, `update`, `probe`,
+   `status` et `alert` publient sur le bus interne (`internal/live`) à chaque
    changement visible : jeton, enrôlement, connexion, signal, déconnexion,
    retrait ; création, ping, échéance dépassée, pause, reprise,
    suppression ; lot de mesures écrit ; rapport de services ou de réseaux
-   écrit ; essais de sondes écrits ; instantané public changé ; alerte
+   écrit ; constat d'image écrit ou politique changée, sur le sujet des
+   services ; essais de sondes écrits ; instantané public changé ; alerte
    ouverte, aggravée, acquittée, résolue, canal ou silence changé. Le bus
    ne porte que sept sujets, `machines`, `jobs`, `resources`, `services`,
    `probes`, `status` et `alerts`.
@@ -755,6 +842,11 @@ refusés avant d'envoyer quoi que ce soit.
 | Sauvegarde en échec | Notée au catalogue, sans source : les sauvegardes sont dans le backlog | Avec les sauvegardes |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | L'administration de la page de statut n'est pas protégée | Qui atteint le port ouvre un incident au nom de l'opérateur | Socle, avec l'authentification |
+| Appliquer une mise à jour | openCloud fabrique la commande ; l'opérateur la joue dans un terminal, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien | Avec les actions : « Services : déployer et mettre à jour » |
+| Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
+| Pas d'assistant d'identifiants | Un registre dont les identifiants passent par `credHelpers` ou `credsStore` répond « refusé » ; seuls les `auths` en clair du `config.json` sont lus | À décider |
+| Dix mille tags au plus | Un dépôt qui en publie plus est lu jusqu'à la dixième page ; un tag plus récent au-delà n'est pas vu | À décider |
+| Pas de notification de mise à jour | Aucune alerte, aucun canal : la pastille, la carte et le compteur | À décider, si l'usage le demande |
 | Pas de sous-domaine dédié | La page vit sous `/statut` du même nom ; Traefik peut réécrire la racine d'un `status.exemple.fr` vers elle | À décider, avec le proxy |
 
 ## Par fonctionnalité
@@ -771,4 +863,5 @@ refusés avant d'envoyer quoi que ce soit.
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
 | 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `alert_silences`, les crochets `Alerter` des composants et le `Listener` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
+| 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `services`, la purge, les routes `PUT /api/services/{id}/update-policy` et `POST /api/machines/{id}/actions/check-updates`, le champ `image_check` des services et `services.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |

@@ -37,7 +37,7 @@ func TestCommand_ComposeOrPullOnly(t *testing.T) {
 // Le constat déduit le type ; un tag plus récent qui ne se compare pas au
 // courant est effacé, et un tag flottant reconstruit se lit au digest.
 func TestCheckOf_DeducesTheKind(t *testing.T) {
-	same := "sha256:" + string(make([]byte, 0)) + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	same := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	other := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	cases := []struct {
 		result   Result
