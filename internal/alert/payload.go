@@ -54,12 +54,13 @@ func plainText(title string, text Text) string {
 // Le corps d'openCloud : les faits, tels que l'API les rend, et les trois
 // lignes rendues dans la langue de l'interface.
 type payload struct {
-	Event    string       `json:"event"`
-	SentAt   time.Time    `json:"sent_at"`
-	Language string       `json:"language"`
-	Title    string       `json:"title"`
-	Text     payloadText  `json:"text"`
-	Alert    payloadAlert `json:"alert"`
+	Event    string      `json:"event"`
+	SentAt   time.Time   `json:"sent_at"`
+	Language string      `json:"language"`
+	Title    string      `json:"title"`
+	Text     payloadText `json:"text"`
+	// Alert manque au corps d'un test : il n'y a rien en alerte.
+	Alert *payloadAlert `json:"alert,omitempty"`
 }
 
 type payloadText struct {
@@ -87,21 +88,25 @@ type payloadObject struct {
 }
 
 func openCloudPayload(catalog lang.Catalog, title string, text Text, alert Alert, event Event, now time.Time) payload {
+	body := payload{
+		Event: string(event), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
+		Text: payloadText(text),
+	}
+	if event == EventTest {
+		return body
+	}
 	var resolvedAt *time.Time
 	if !alert.ResolvedAt.IsZero() {
 		at := alert.ResolvedAt.UTC()
 		resolvedAt = &at
 	}
-	return payload{
-		Event: string(event), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
-		Text: payloadText{Fact: text.Fact, Cause: text.Cause, Action: text.Action},
-		Alert: payloadAlert{
-			ID: alert.ID, Kind: alert.Kind, Severity: alert.Severity, Status: alert.Status,
-			Object:  payloadObject{Kind: string(alert.Object.Kind), ID: alert.Object.ID, Name: alert.Object.Name},
-			Machine: payloadObject{ID: alert.MachineID, Name: alert.MachineName},
-			Details: alert.Details, OpenedAt: alert.OpenedAt.UTC(), ResolvedAt: resolvedAt,
-		},
+	body.Alert = &payloadAlert{
+		ID: alert.ID, Kind: alert.Kind, Severity: alert.Severity, Status: alert.Status,
+		Object:  payloadObject{Kind: string(alert.Object.Kind), ID: alert.Object.ID, Name: alert.Object.Name},
+		Machine: payloadObject{ID: alert.MachineID, Name: alert.MachineName},
+		Details: alert.Details, OpenedAt: alert.OpenedAt.UTC(), ResolvedAt: resolvedAt,
 	}
+	return body
 }
 
 // Les couleurs des embeds et des attachements : celles de la direction

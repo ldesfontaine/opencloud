@@ -10,6 +10,11 @@
   .txt {
     flex: 1;
 
+    // Le fait se lit en encre, comme sur le canevas ; c'est un lien quand même.
+    a {
+      color: inherit;
+    }
+
     .action {
       color: var(--ink-2);
     }
