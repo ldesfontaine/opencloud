@@ -3,6 +3,7 @@ package service
 import (
 	"math"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 )
@@ -148,11 +149,7 @@ func isState(state State) bool {
 }
 
 func isHealth(health Health) bool {
-	switch health {
-	case "", HealthStarting, HealthHealthy, HealthUnhealthy:
-		return true
-	}
-	return false
+	return health == "" || slices.Contains(Healths(), health)
 }
 
 func isTooLate(at, now time.Time) bool {

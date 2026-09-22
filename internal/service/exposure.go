@@ -18,6 +18,10 @@ const (
 	FindingPortPublic         FindingKind = "port_public"
 )
 
+func FindingKinds() []FindingKind {
+	return []FindingKind{FindingHostNetwork, FindingPrivileged, FindingDatabasePortPublic, FindingPortPublic}
+}
+
 // Level dit ce que le front en fait : un point orange sur le nœud, ou une
 // ligne d'information seulement. Un port publié sur toutes les interfaces
 // est le cas normal d'un service web sans proxy : il s'écrit, sans alarmer.

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,6 +22,11 @@ const (
 	StatusPaused   Status = "paused"
 )
 
+// Statuses liste les états, dans l'ordre des écrans.
+func Statuses() []Status {
+	return []Status{StatusNew, StatusUp, StatusDegraded, StatusDown, StatusPaused}
+}
+
 // Kind est ce que la sonde parle.
 type Kind string
 
@@ -28,6 +34,10 @@ const (
 	KindHTTP Kind = "http"
 	KindTCP  Kind = "tcp"
 )
+
+func Kinds() []Kind {
+	return []Kind{KindHTTP, KindTCP}
+}
 
 // Outcome est ce qu'un essai a donné. Dégradé est un succès : l'hôte
 // répond et sert, seule sa chaîne de certificats est refusée. L'uptime
@@ -39,6 +49,10 @@ const (
 	OutcomeDegraded Outcome = "degraded"
 	OutcomeDown     Outcome = "down"
 )
+
+func Outcomes() []Outcome {
+	return []Outcome{OutcomeUp, OutcomeDegraded, OutcomeDown}
+}
 
 func (o Outcome) IsSuccess() bool {
 	return o == OutcomeUp || o == OutcomeDegraded
@@ -63,13 +77,17 @@ const (
 	ReasonTLSHostname  Reason = "tls_hostname"
 )
 
-func isReason(reason Reason) bool {
-	switch reason {
-	case ReasonNone, ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonAddress,
-		ReasonStatus, ReasonBody, ReasonRedirect, ReasonTLSUntrusted, ReasonTLSExpired, ReasonTLSHostname:
-		return true
+// Reasons liste les motifs d'échec ; le motif vide, celui d'un succès,
+// n'en est pas un.
+func Reasons() []Reason {
+	return []Reason{
+		ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonAddress,
+		ReasonStatus, ReasonBody, ReasonRedirect, ReasonTLSUntrusted, ReasonTLSExpired, ReasonTLSHostname,
 	}
-	return false
+}
+
+func isReason(reason Reason) bool {
+	return reason == ReasonNone || slices.Contains(Reasons(), reason)
 }
 
 // OCSP est ce que l'agrafe remise pendant la poignée de main a dit de la
@@ -84,12 +102,14 @@ const (
 	OCSPUnknown OCSP = "unknown"
 )
 
+// OCSPStatuses liste ce qu'une agrafe peut dire ; le vide, rien d'agrafé,
+// n'est pas un statut.
+func OCSPStatuses() []OCSP {
+	return []OCSP{OCSPGood, OCSPRevoked, OCSPUnknown}
+}
+
 func isOCSP(status OCSP) bool {
-	switch status {
-	case OCSPNone, OCSPGood, OCSPRevoked, OCSPUnknown:
-		return true
-	}
-	return false
+	return status == OCSPNone || slices.Contains(OCSPStatuses(), status)
 }
 
 const (
@@ -358,7 +378,7 @@ func (d Definition) Validate() error {
 	if d.Name == "" || utf8.RuneCountInString(d.Name) > MaxNameLength {
 		return ErrNameInvalid
 	}
-	if d.Kind != KindHTTP && d.Kind != KindTCP {
+	if !slices.Contains(Kinds(), d.Kind) {
 		return ErrKindInvalid
 	}
 	if d.MachineID == "" {

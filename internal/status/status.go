@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -27,6 +28,12 @@ const (
 	// caché du public, signalé à l'opérateur.
 	StateUnknown State = ""
 )
+
+// States liste les états qui se disent ; Unknown, celui d'un composant
+// caché, n'en est pas un.
+func States() []State {
+	return []State{StateOperational, StateDegraded, StateDown, StateMaintenance}
+}
 
 // rank ordonne les états du moins grave au plus grave : le pire l'emporte.
 // Une maintenance passe devant un dégradé, jamais devant une panne.
@@ -67,12 +74,12 @@ func (i Impact) State() State {
 	return State(i)
 }
 
+func Impacts() []Impact {
+	return []Impact{ImpactDegraded, ImpactDown, ImpactMaintenance}
+}
+
 func isImpact(impact Impact) bool {
-	switch impact {
-	case ImpactDegraded, ImpactDown, ImpactMaintenance:
-		return true
-	}
-	return false
+	return slices.Contains(Impacts(), impact)
 }
 
 // IncidentStatus suit le fil d'un incident : en cours d'analyse, cause
@@ -88,6 +95,12 @@ const (
 	StatusInProgress    IncidentStatus = "in_progress"
 	StatusResolved      IncidentStatus = "resolved"
 )
+
+// IncidentStatuses liste les statuts, dans l'ordre où l'opérateur les
+// parcourt.
+func IncidentStatuses() []IncidentStatus {
+	return []IncidentStatus{StatusScheduled, StatusInvestigating, StatusIdentified, StatusMonitoring, StatusInProgress, StatusResolved}
+}
 
 // allowedStatus dit si ce statut a un sens pour cet impact : une
 // maintenance se planifie et se déroule, un incident s'analyse.
@@ -112,12 +125,12 @@ const (
 	KindProbe     MemberKind = "probe"
 )
 
+func MemberKinds() []MemberKind {
+	return []MemberKind{KindMachine, KindService, KindHeartbeat, KindProbe}
+}
+
 func isKind(kind MemberKind) bool {
-	switch kind {
-	case KindMachine, KindService, KindHeartbeat, KindProbe:
-		return true
-	}
-	return false
+	return slices.Contains(MemberKinds(), kind)
 }
 
 // MemberRef désigne un objet à rattacher.

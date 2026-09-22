@@ -15,7 +15,8 @@ var frontKey = regexp.MustCompile(`\bt\("([a-z0-9_.]+)"`)
 
 // Chaque clé que le front demande en dur existe dans les deux catalogues :
 // une clé absente s'afficherait entre crochets. Les clés composées à
-// l'exécution (job.status_ + état) restent couvertes par le test de lang.
+// l'exécution (job.status_ + état) sont couvertes par
+// TestCatalog_HasAKeyForEveryValueOfEveryClosedList.
 func TestFrontend_UsesOnlyKnownKeys(t *testing.T) {
 	server := newTestServer(t)
 	found := 0
