@@ -116,8 +116,9 @@ interface Counter {
 // Les machines comptent toutes, en rouge dès qu'une est hors ligne ; les
 // tâches ne comptent que celles à traiter ; les services et les sondes
 // comptent tous, en rouge dès qu'un est défaillant ou hors ligne ; la page
-// de statut ne compte que les incidents ouverts. Rien tant que l'API n'a
-// pas répondu, plutôt qu'un zéro inventé.
+// de statut ne compte que les incidents ouverts ; les alertes comptent les
+// ouvertes, en rouge tant qu'une n'est pas acquittée. Rien tant que l'API
+// n'a pas répondu, plutôt qu'un zéro inventé.
 function counter(key: string, counts: Counts | null): Counter | null {
   if (!counts) {
     return null;
@@ -136,6 +137,9 @@ function counter(key: string, counts: Counts | null): Counter | null {
   }
   if (key === "statuspage" && counts.status.open_incidents > 0) {
     return { value: counts.status.open_incidents, hot: true };
+  }
+  if (key === "alerts" && counts.alerts.open > 0) {
+    return { value: counts.alerts.open, hot: counts.alerts.unacknowledged > 0 };
   }
   return null;
 }

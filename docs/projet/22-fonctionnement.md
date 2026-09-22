@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fonctionnalité 10, la page de statut, le 21 septembre 2026.
+> fonctionnalité 11, les alertes, le 22 septembre 2026.
 
 ## Les acteurs
 
@@ -16,6 +16,7 @@
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 | Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
 | Un visiteur | N'importe qui, dans un navigateur, sans compte | La page de statut publique sous `/statut` : un petit bundle à part, qui lit un instantané et un direct publics |
+| Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi | Rien : il reçoit un POST signé quand une alerte s'ouvre, s'aggrave ou se résout |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -30,6 +31,7 @@ flowchart LR
         job["Tâche planifiée<br><code>curl /ping/…</code>"]
         tgt["Cible sondée<br>URL ou port"]
         vis["Visiteur<br>navigateur, sans compte"]
+        hook["Canal<br>webhook entrant"]
     end
     subgraph oc["Machine openCloud"]
         tr["Traefik<br>:443 TLS"]
@@ -44,6 +46,7 @@ flowchart LR
     vis == "HTTPS<br>/statut, public" ==> tr
     ag -- "sonde HTTP ou TCP,<br>chiffrée si la cible l'est" --> tgt
     srv -- "sonde, pour ses<br>propres cibles" --> tgt
+    srv -- "alerte, POST signé,<br>chiffré si l'URL l'est" --> hook
     ag --- id[("identity.json<br>clé privée, 0600")]
 ```
 
@@ -66,6 +69,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
 | Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
+| Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
 la boucle locale de la machine openCloud, entre Traefik et le processus. Entre
@@ -85,6 +89,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, **secret en clair**, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut | Écriture atomique ; chaque écrivain relit le fichier avant d'écrire |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -284,8 +289,8 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
    remplace la précédente, les appartenances d'une fiche remplacent les
    siennes.
 4. Les constats d'exposition sont calculés à la lecture, jamais stockés,
-   jamais alertés : la fonctionnalité alertes les reprendra avec un diff
-   par type. Le mode `host` court-circuite l'analyse des ports. C'est le
+   jamais alertés : la fonctionnalité alertes ne les a pas repris, c'est à
+   décider. Le mode `host` court-circuite l'analyse des ports. C'est le
    port du conteneur qui compte, pas celui de l'hôte.
 5. La topologie se calcule à la lecture, sur `GET /api/machines/{id}/network`.
    Un groupe est un réseau créé par l'opérateur ou par Compose ; `bridge`,
@@ -328,8 +333,8 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
 Le nœud proxy attend le proxy ; l'inspecteur dit maintenant le certificat
 du service, quand une sonde en surveille un. Une sonde se lit sur la fiche
 du service qu'elle surveille, pas encore sur le graphe ; les alertes
-d'exposition, la 11 ; le bouton Redémarrer, les actions : le client Docker
-ne connaît aucun verbe qui écrit.
+d'exposition, à décider ; le bouton Redémarrer, les actions : le client
+Docker ne connaît aucun verbe qui écrit.
 
 ## Comment une cible est sondée
 
@@ -568,19 +573,111 @@ publique, elle, est publique par conception. Un titre fait 120 caractères
 au plus, une annonce 500, un message 2 000, en texte brut échappé par le
 navigateur ; 64 composants au plus, 64 objets par composant.
 
+## Comment une alerte naît, se tait et part
+
+Une alerte est un fait qu'un composant constate, gardé par objet : une
+seule ouverte par clé (type, objet). Elle dit le fait, la cause, puis ce
+qu'on peut faire, dans la langue de l'interface, à l'écran comme dans le
+canal. Rien n'est recalculé par un moteur qui relirait la base : c'est le
+composant qui sait, lui qui parle.
+
+1. **Chaque composant donne ses faits** au moteur, par une interface
+   déclarée chez lui (`machine.Alerter`, `service.Alerter`,
+   `probe.Alerter`, `heartbeat.Listener`, `resource.Alerter`) : après
+   chaque rapport écrit, chaque ping, chaque échéance, chaque passe des
+   machines perdues. Ce qui est **rejoué** après une reconnexion est de
+   l'histoire, jamais un fait neuf.
+2. **Le moteur déduplique** : un fait sur une clé déjà ouverte met à jour
+   ses détails sans prévenir personne ; une gravité qui monte **aggrave**
+   l'alerte, la renvoie aux canaux et annule l'acquittement ; une gravité
+   qui redescend ne change rien. Un fait sans objet est refusé et
+   journalisé : c'est une source qui oublie l'identifiant, et deux objets
+   se partageraient une alerte.
+3. **La reprise vient du même composant** : le service qui tourne, le ping
+   à l'heure, la sonde revenue au seuil, le volume sous le seuil de retour,
+   la machine qui rouvre son flux. Un objet supprimé, archivé ou mis en
+   pause **emporte ses alertes** ; une machine retirée, tout ce qui vivait
+   sur elle. Les clés étrangères passent à NULL et le balayage, toutes les
+   30 s et au démarrage, résout ce qui n'a plus d'objet.
+4. **Un silence** vise un type, un objet, ou un type sur un objet, pendant
+   une fenêtre de sept jours au plus ; une règle sans filtre est refusée.
+   Une alerte ouverte sous un silence, ou sur un objet rattaché à un
+   composant sous **maintenance en cours** de la page de statut, est
+   **silencieuse** : montrée, jamais envoyée, même quand le silence tombe.
+5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
+   ouverte jusqu'à sa reprise. Une aggravation la ré-arme.
+6. **Un canal est un webhook** : une URL, un format de corps, un secret de
+   signature facultatif, une gravité minimale, et s'il veut aussi la
+   résolution. Chaque envoi est un POST qui porte `OpenCloud-Event` et,
+   quand il y a un secret, `OpenCloud-Signature: sha256=<HMAC du corps>`.
+   La livraison est **réservée en base avant d'être envoyée** : une
+   coupure entre les deux laisse une ligne en attente que le démarrage
+   rejoue, et l'index unique (alerte, canal, événement) empêche d'envoyer
+   deux fois. Trois essais, après 5 s puis 30 s, 10 s par requête ; au-delà,
+   la livraison est en échec et la fiche de l'alerte le montre.
+7. **La sortie passe par la garde `internal/egress`**, la même que les
+   sondes : le nom est résolu par openCloud, le lien-local écarté, la
+   connexion faite sur l'adresse retenue, à chaque saut. Une redirection
+   n'est **jamais suivie** : un 3xx est un échec. La boucle locale et les
+   adresses privées restent ouvertes, un ntfy sur le LAN est l'usage voulu ;
+   une URL en `http://` est acceptée et l'interface l'écrit.
+8. **Le test d'un canal** part tout de suite, sans essai de plus ni ligne
+   en base, et rend le code reçu ou le motif d'échec.
+
+| Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
+| --- | --- | --- | --- | --- |
+| Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min** ; jamais la machine openCloud | l'agent rouvre son flux | danger |
+| Service arrêté sans qu'on l'ait demandé | `service`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou `dead` | il tourne de nouveau ; fiche archivée | danger |
+| Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue, ou arrêt | attention |
+| Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage | attention |
+| Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée | idem | danger |
+| Tâche en retard | `heartbeat` | échéance dépassée | prochain ping à l'heure ou en échec ; pause ; suppression | attention |
+| Tâche en échec | `heartbeat` | code de sortie hors 0 | prochain ping à l'heure ; pause ; suppression | danger |
+| Sonde hors ligne | `probe` | état passé à `down`, donc au seuil | état `up` ou `degraded` ; pause ; suppression | danger |
+| Certificat qui expire | `probe`, à chaque essai et toutes les 5 min | échéance à moins de **30 j** ; aggravée à **7 j** | renouvelé ; pause ; suppression | attention → danger |
+| Certificat expiré | `probe` | échéance passée | renouvelé | danger |
+| Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
+| Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** ; aggravée à **95 %** | sous **80 %**, ou volume disparu | attention → danger |
+| Sauvegarde en échec | aucune | **à venir** avec les sauvegardes | | |
+
+Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
+doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert` et
+servis au navigateur par `/api/session` pour le disque.
+
+| Ce qui part vers un canal | Ce qui n'en part jamais |
+| --- | --- |
+| L'ouverture, l'aggravation, et la résolution si le canal la veut ; le test | Une alerte silencieuse, sous silence ou sous maintenance |
+| Le fait, la cause et le geste rendus dans la langue de l'interface au moment de l'envoi | Un détail qui change sans aggravation : le disque qui passe de 86 à 88 % |
+| Les faits de l'alerte : type, gravité, objet et son identifiant, machine, chiffres, dates | Le secret du canal, ni dans l'API ni dans le journal : `has_secret` dit seulement qu'il y en a un |
+| L'en-tête `Title` et `Priority` pour le format texte, ce que ntfy lit | Une alerte sous la gravité minimale du canal, ou vers un canal désactivé |
+
+| Format | Corps | Pour |
+| --- | --- | --- |
+| `json` | `{event, sent_at, language, title, text{fact, cause, action}, alert{…}}` | Un récepteur à soi, Gotify par un relais, n'importe quoi qui lit du JSON |
+| `text` | Trois lignes : titre, cause, geste | ntfy, et tout ce qui affiche un texte |
+| `discord` | Un embed : titre, description, couleur de la gravité | Discord |
+| `slack` | `text` et un attachement coloré | Slack, Mattermost, Rocket.Chat |
+
+La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,
+puis Canaux et Silences. Le compteur de la barre latérale compte les
+ouvertes, en rouge tant qu'une n'est pas acquittée ; la carte de la vue
+d'ensemble montre les trois premières. Le sujet `alerts` du direct relit
+tout. 200 alertes par liste, 32 canaux au plus.
+
 ## Comment l'interface se met à jour sans recharger
 
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource`, `service`, `probe` et `status`
-   publient sur le bus interne (`internal/live`) à chaque changement
-   visible : jeton, enrôlement, connexion, signal, déconnexion, retrait ;
-   création, ping, échéance dépassée, pause, reprise, suppression ; lot de
-   mesures écrit ; rapport de services ou de réseaux écrit ; essais de
-   sondes écrits ; instantané public changé. Le bus ne porte que six
-   sujets, `machines`, `jobs`, `resources`, `services`, `probes` et
-   `status`.
+2. `machine`, `heartbeat`, `resource`, `service`, `probe`, `status` et
+   `alert` publient sur le bus interne (`internal/live`) à chaque
+   changement visible : jeton, enrôlement, connexion, signal, déconnexion,
+   retrait ; création, ping, échéance dépassée, pause, reprise,
+   suppression ; lot de mesures écrit ; rapport de services ou de réseaux
+   écrit ; essais de sondes écrits ; instantané public changé ; alerte
+   ouverte, aggravée, acquittée, résolue, canal ou silence changé. Le bus
+   ne porte que sept sujets, `machines`, `jobs`, `resources`, `services`,
+   `probes`, `status` et `alerts`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
    voyage dans le flux.
@@ -639,20 +736,24 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | Journaux lisibles sans authentification | Qui atteint le port lit les journaux de tous les conteneurs | Socle, avec l'authentification |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité systemd devra mettre le service dans le groupe `docker` ou en root | Avec l'unité systemd |
-| Alerte sur une ressource | Le disque à 86 % se voit en jauge orange, personne n'est prévenu | Fonctionnalité 11 |
-| Alerte sur une tâche | « En retard » et « En échec » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11, par l'interface `heartbeat.Listener` |
+| Alerte sur le processeur ou la mémoire | Seul le disque alerte ; une machine saturée se voit en jauge, personne n'est prévenu | À décider |
+| Seuils fixes | 2 min, 3 redémarrages en 10 min, 85 et 95 %, 30 et 7 jours : constantes du produit, sans réglage | À décider, avec un écran de réglages |
+| Pas d'e-mail ni de Telegram | Un canal est un webhook ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
+| Une livraison échouée trois fois est perdue | Le récepteur en panne plus d'une minute ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
+| Les canaux ne sont pas protégés | Qui atteint le port crée un canal vers l'URL de son choix et reçoit les alertes ; le secret ne sort pas, mais l'URL si | Socle, avec l'authentification |
 | Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer le moniteur | À décider |
 | Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
 | Pas d'édition d'une sonde | Changer une cadence impose de supprimer et recréer, ce qui perd l'historique | À décider |
-| Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée | Fonctionnalité 11, qui saura ce qu'est un incident |
+| Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée ; l'historique des alertes résolues le dit sur 90 jours | À décider |
 | Pas de spool des sondes | Un redémarrage de l'agent perd les essais en attente : un trou dans l'historique, et l'agrégat de ce jour le dit | Avec le spool des mesures |
-| Alerte sur un certificat | « À renouveler » et « Expiré » se voient dans les pages et se comptent, personne n'est prévenu | Fonctionnalité 11 |
 | Pas de renouvellement | openCloud observe un certificat, il ne le renouvelle pas et ne sait rien d'un renouvellement qui a échoué | À décider, avec le proxy |
 | Pas d'historique des certificats | Un renouvellement se reconnaît au changement d'empreinte, mais on ne sait pas quand il a eu lieu si openCloud était coupé, ni combien de fois | À décider |
 | Un domaine sans sonde n'est pas surveillé | Surveiller l'échéance d'un domaine impose de créer une sonde dessus ; pour un domaine qu'on ne veut pas sonder chaque minute, il faut régler l'intervalle à 24 h | À décider |
 | L'autorité interne se pose machine par machine | `ca_file` n'est pas distribuée par le serveur : chaque machine qui sonde porte la sienne | À décider |
-| Pas d'incident automatique | Une sonde qui tombe change l'état du composant ; personne n'ouvre l'incident ni ne le résout | Fonctionnalité 11, les alertes |
-| Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec le canal de notification, plus tard |
+| Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
+| Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
+| Sauvegarde en échec | Notée au catalogue, sans source : les sauvegardes sont dans le backlog | Avec les sauvegardes |
+| Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | L'administration de la page de statut n'est pas protégée | Qui atteint le port ouvre un incident au nom de l'opérateur | Socle, avec l'authentification |
 | Pas de sous-domaine dédié | La page vit sous `/statut` du même nom ; Traefik peut réécrire la racine d'un `status.exemple.fr` vers elle | À décider, avec le proxy |
 
@@ -669,4 +770,5 @@ refusés avant d'envoyer quoi que ce soit.
 | 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
+| 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `alert_silences`, les crochets `Alerter` des composants et le `Listener` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |

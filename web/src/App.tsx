@@ -1,6 +1,10 @@
 import { Route, Routes } from "react-router";
 
 import { Layout } from "./components/Layout";
+import { AlertPage } from "./pages/Alert";
+import { AlertChannelForm } from "./pages/AlertChannelForm";
+import { Alerts } from "./pages/Alerts";
+import { AlertSilenceNew } from "./pages/AlertSilenceNew";
 import { JobPage } from "./pages/Job";
 import { JobNew } from "./pages/JobNew";
 import { Jobs } from "./pages/Jobs";
@@ -49,7 +53,12 @@ export function App() {
         <Route path="page-statut/incidents/nouveau" element={<StatusIncidentNew />} />
         <Route path="page-statut/incidents/:id" element={<StatusIncidentPage />} />
         <Route path="page-statut/:tab" element={<StatusAdmin />} />
-        <Route path="alertes" element={<Soon navKey="alerts" />} />
+        <Route path="alertes" element={<Alerts />} />
+        <Route path="alertes/alerte/:id" element={<AlertPage />} />
+        <Route path="alertes/canaux/nouveau" element={<AlertChannelForm />} />
+        <Route path="alertes/canaux/:id" element={<AlertChannelForm />} />
+        <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
+        <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Soon navKey="settings" />} />
         <Route path="systeme-visuel" element={<VisualSystem />} />
         <Route path="*" element={<NotFound />} />

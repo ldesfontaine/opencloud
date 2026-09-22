@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
 // Address est où une sonde compose : l'hôte à joindre et à vérifier, et le
@@ -64,7 +66,7 @@ func isPort(port string) bool {
 
 // validateTarget refuse une cible qu'openCloud ne sait pas sonder, et
 // celle qui pointe déjà, en clair, vers une adresse interdite. Ce que le
-// nom résout se revérifie au moment de composer : voir guardedDial.
+// nom résout se revérifie au moment de composer : voir egress.Dial.
 func validateTarget(kind Kind, target string) error {
 	if target == "" || len(target) > MaxTargetLength || strings.ContainsAny(target, " \t\r\n") {
 		return ErrTargetInvalid
@@ -73,17 +75,8 @@ func validateTarget(kind Kind, target string) error {
 	if err != nil {
 		return err
 	}
-	if ip := net.ParseIP(address.Host); ip != nil && forbiddenIP(ip) {
+	if ip := net.ParseIP(address.Host); ip != nil && egress.Forbidden(ip) {
 		return ErrTargetForbidden
 	}
 	return nil
-}
-
-// forbiddenIP dit ce qu'une sonde ne doit jamais joindre : le lien-local,
-// qui contient l'adresse de métadonnées des hébergeurs (169.254.169.254),
-// laquelle livre les identifiants de l'instance à qui sait la demander.
-// La boucle locale et les adresses privées restent ouvertes : sonder un
-// service par l'agent de sa propre machine est l'usage voulu.
-func forbiddenIP(ip net.IP) bool {
-	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast()
 }

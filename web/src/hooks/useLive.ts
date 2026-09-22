@@ -16,6 +16,7 @@ export function useLive(): void {
     const onServices = () => refresh("services");
     const onProbes = () => refresh("probes");
     const onStatus = () => refresh("status");
+    const onAlerts = () => refresh("alerts");
     const onReconnected = () => refresh();
     source.addEventListener("machines", onMachines);
     source.addEventListener("jobs", onJobs);
@@ -23,6 +24,7 @@ export function useLive(): void {
     source.addEventListener("services", onServices);
     source.addEventListener("probes", onProbes);
     source.addEventListener("status", onStatus);
+    source.addEventListener("alerts", onAlerts);
     source.addEventListener("reconnected", onReconnected);
     return () => source.close();
   }, [refresh]);

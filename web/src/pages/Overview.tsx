@@ -1,12 +1,13 @@
 import { Link } from "react-router";
 
-import type { Counts, MachinesResponse, ResourcesResponse } from "../api/types";
+import type { AlertsResponse, Counts, MachinesResponse, ResourcesResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Empty, Stat } from "../components/Card";
+import { List } from "../components/Table";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { StatePill } from "../components/Pill";
+import { Pill, StatePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
@@ -14,7 +15,49 @@ import { useCertificateThresholds, useT } from "../i18n/context";
 import { daysUntil } from "../lib/certificates";
 import { machinesSubtitle } from "../lib/subtitles";
 import { seenAgo } from "../lib/time";
+import { AlertRow } from "./Alerts";
 import "./Overview.scss";
+
+const alertsShown = 3;
+
+// La carte Alertes : le compte des ouvertes en pastille, les trois
+// premières avec leur fait et leur cause, le reste par le lien.
+function AlertsCard() {
+  const t = useT();
+  const alerts = useResource<AlertsResponse>("/api/alerts");
+  if (!alerts.data) {
+    return null;
+  }
+  const open = alerts.data.counts.open;
+  return (
+    <div className="overview-machines overview-alerts">
+      <div className="overview-head">
+        <span className="cluster">
+          <span className="card-t">{t("alerts.title")}</span>
+          {open > 0 ? (
+            <Pill tone={alerts.data.counts.unacknowledged > 0 ? "danger" : "accent"} dot={false}>
+              {t("alerts.overview_open", open)}
+            </Pill>
+          ) : (
+            <Pill tone="ok" dot={false}>
+              {t("alerts.overview_none")}
+            </Pill>
+          )}
+        </span>
+        <Link to="/alertes">{t("alerts.overview_see_all")}</Link>
+      </div>
+      {open > 0 && (
+        <Card>
+          <List>
+            {alerts.data.alerts.slice(0, alertsShown).map((alert) => (
+              <AlertRow key={alert.id} alert={alert} compact />
+            ))}
+          </List>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 // Le pied de la carte Domaines dit une chose à la fois, la plus pressante :
 // une sonde hors ligne, puis un certificat déjà expiré, puis un qui
@@ -110,6 +153,7 @@ export function Overview() {
               }
             />
           </div>
+          <AlertsCard />
           <div className="overview-machines">
             <div className="overview-head">
               <span className="card-t">{t("tab.network")}</span>

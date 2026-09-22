@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -134,6 +135,29 @@ type StatusService interface {
 	CountOpenIncidents(ctx context.Context) (int, error)
 }
 
+// Ce que le serveur attend du moteur des alertes : la page, l'acquittement,
+// les canaux et les silences.
+type AlertService interface {
+	List(ctx context.Context, status alert.Status) ([]alert.Alert, error)
+	Get(ctx context.Context, id int64) (alert.Alert, error)
+	Deliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error)
+	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
+	Count(ctx context.Context) (alert.Counts, error)
+	Channels(ctx context.Context) ([]alert.Channel, error)
+	GetChannel(ctx context.Context, id int64) (alert.Channel, error)
+	CreateChannel(ctx context.Context, definition alert.ChannelDefinition) (alert.Channel, error)
+	UpdateChannel(ctx context.Context, id int64, definition alert.ChannelDefinition) (alert.Channel, error)
+	DeleteChannel(ctx context.Context, id int64) error
+	Silences(ctx context.Context) ([]alert.Silence, error)
+	CreateSilence(ctx context.Context, definition alert.SilenceDefinition) (alert.Silence, error)
+	DeleteSilence(ctx context.Context, id int64) error
+}
+
+// Ce que le serveur attend du notifieur : tester un canal, tout de suite.
+type Notifier interface {
+	Test(ctx context.Context, channel alert.Channel) (alert.Outcome, error)
+}
+
 // Ce que le serveur attend du bus du direct : un abonnement par onglet, et
 // le compte pour plafonner. Le bus public, qui ne porte que « status »,
 // est du même type.
@@ -153,6 +177,8 @@ type Server struct {
 	services       ServiceTracker
 	probes         ProbeService
 	status         StatusService
+	alerts         AlertService
+	notifier       Notifier
 	live           Live
 	publicLive     Live
 	logStreams     atomic.Int32
@@ -180,6 +206,8 @@ type Options struct {
 	Services   ServiceTracker
 	Probes     ProbeService
 	Status     StatusService
+	Alerts     AlertService
+	Notifier   Notifier
 	Live       Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
@@ -221,6 +249,8 @@ func New(opts Options) (*Server, error) {
 		services:       opts.Services,
 		probes:         opts.Probes,
 		status:         opts.Status,
+		alerts:         opts.Alerts,
+		notifier:       opts.Notifier,
 		live:           opts.Live,
 		publicLive:     opts.PublicLive,
 		pingLimits:     newPingLimits(),
@@ -241,6 +271,14 @@ func New(opts Options) (*Server, error) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
+}
+
+// now est l'horloge du serveur : celle des tests quand ils en donnent une.
+func (s *Server) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 // La langue de l'interface : celle du réglage, sinon le français.

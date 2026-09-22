@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
@@ -18,6 +19,14 @@ type sessionResponse struct {
 	// pour que le compteur de la vue d'ensemble et la couleur d'une ligne
 	// basculent sur le même chiffre, tenu à un seul endroit.
 	Certificates certificateThresholds `json:"certificate_thresholds"`
+	// Les pourcentages à partir desquels un volume alerte, puis s'aggrave :
+	// la phrase de l'alerte les cite, dans le navigateur comme au canal.
+	Disks diskThresholds `json:"disk_thresholds"`
+}
+
+type diskThresholds struct {
+	Attention int `json:"attention"`
+	Danger    int `json:"danger"`
 }
 
 type certificateThresholds struct {
@@ -40,6 +49,8 @@ type countsResponse struct {
 	Certificates certificateCounts `json:"certificates"`
 	// Les incidents ouverts sur la page de statut.
 	Status statusCounts `json:"status"`
+	// Les alertes ouvertes, et celles que personne n'a acquittées.
+	Alerts alertCountsJSON `json:"alerts"`
 }
 
 type statusCounts struct {
@@ -76,6 +87,7 @@ func (s *Server) session(w http.ResponseWriter, _ *http.Request) {
 		Language:     string(s.language()),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
+		Disks:        diskThresholds{Attention: alert.DiskAttentionPercent, Danger: alert.DiskDangerPercent},
 	})
 }
 
@@ -145,6 +157,11 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	alerts, err := s.alerts.Count(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	s.writeAPI(w, http.StatusOK, countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
@@ -152,6 +169,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},
+		Alerts:       alertCountsJSON{Open: alerts.Open, Unacknowledged: alerts.Unacknowledged},
 	})
 }
 

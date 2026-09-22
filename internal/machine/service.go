@@ -12,6 +12,10 @@ const (
 	TokenLifetime    = 24 * time.Hour
 	maxClockSkew     = 5 * time.Minute
 	localMachineName = "opencloud"
+	// Une machine sans flux est perdue passé ce délai depuis son dernier
+	// signal : quatre signaux manqués, pas un hoquet de réseau.
+	LostAfter       = 2 * time.Minute
+	lostCheckPeriod = 15 * time.Second
 )
 
 // Ce que le service attend de la base ; le package store le fournit.
@@ -46,11 +50,20 @@ type Listener interface {
 	MachineChanged(machineID string)
 }
 
+// Alerter reçoit ce qui mérite une alerte : une machine perdue, revenue,
+// retirée. Le moteur des alertes s'y branche ; nil est toléré.
+type Alerter interface {
+	MachineLost(ctx context.Context, machine Machine)
+	MachineBack(ctx context.Context, machineID string)
+	MachineRemoved(ctx context.Context, machineID string)
+}
+
 type Service struct {
 	store    Store
 	sessions *Sessions
 	nonces   *nonces
 	listener Listener
+	alerter  Alerter
 	logger   *slog.Logger
 	// now est remplaçable dans les tests : « vu il y a » se compare à lui.
 	now func() time.Time
@@ -73,6 +86,10 @@ func (s *Service) SetClock(now func() time.Time) {
 
 func (s *Service) SetListener(listener Listener) {
 	s.listener = listener
+}
+
+func (s *Service) SetAlerter(alerter Alerter) {
+	s.alerter = alerter
 }
 
 func (s *Service) changed(machineID string) {
@@ -209,8 +226,49 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	}
 	s.sessions.Close(id)
 	s.logger.Info("machine removed", "machine_id", id, "name", machine.Name)
+	if s.alerter != nil {
+		s.alerter.MachineRemoved(ctx, id)
+	}
 	s.changed(id)
 	return nil
+}
+
+// CheckLost signale au moteur des alertes chaque machine sans flux dont
+// le dernier signal date de plus de LostAfter. Sans état en mémoire :
+// le moteur déduplique, et une machine tombée pendant que le serveur
+// était éteint est vue au premier passage.
+func (s *Service) CheckLost(ctx context.Context) error {
+	if s.alerter == nil {
+		return nil
+	}
+	statuses, err := s.List(ctx)
+	if err != nil {
+		return err
+	}
+	limit := s.now().Add(-LostAfter)
+	for _, status := range statuses {
+		if status.Online || status.IsLocal() || status.LastSeenAt.After(limit) {
+			continue
+		}
+		s.alerter.MachineLost(ctx, status.Machine)
+	}
+	return nil
+}
+
+// Watch est la boucle de fond : les machines perdues, toutes les 15 s.
+func (s *Service) Watch(ctx context.Context) {
+	ticker := time.NewTicker(lostCheckPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.CheckLost(ctx); err != nil && ctx.Err() == nil {
+				s.logger.Error("check lost machines", "error", err)
+			}
+		}
+	}
 }
 
 // Enroll vérifie ce que l'agent envoie puis laisse la base consommer le jeton
@@ -305,6 +363,9 @@ func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion 
 		return nil, fmt.Errorf("open session: %w", err)
 	}
 	s.logger.Info("machine connected", "machine_id", machineID, "address", address)
+	if s.alerter != nil {
+		s.alerter.MachineBack(ctx, machineID)
+	}
 	s.changed(machineID)
 	return session, nil
 }

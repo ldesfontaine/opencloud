@@ -9,10 +9,17 @@ export interface Session {
   // tient : le compteur et la couleur d'une ligne basculent sur le même
   // chiffre.
   certificate_thresholds: CertificateThresholds;
+  // Les pourcentages à partir desquels un volume alerte, puis s'aggrave.
+  disk_thresholds: DiskThresholds;
 }
 
 export interface CertificateThresholds {
   warning: number;
+  danger: number;
+}
+
+export interface DiskThresholds {
+  attention: number;
   danger: number;
 }
 
@@ -24,6 +31,13 @@ export interface Counts {
   certificates: CertificateCounts;
   // Les incidents ouverts sur la page de statut.
   status: { open_incidents: number };
+  // Les alertes ouvertes, et celles que personne n'a acquittées.
+  alerts: AlertCounts;
+}
+
+export interface AlertCounts {
+  open: number;
+  unacknowledged: number;
 }
 
 // Les certificats vus par les sondes actives. expiring et expired sont
@@ -529,4 +543,139 @@ export interface PublicStatus {
   components: PublicComponent[];
   open: PublicIncident[];
   history: PublicIncident[];
+}
+
+// --- Alertes ---
+
+export type AlertKind =
+  | "machine_lost"
+  | "service_down"
+  | "service_unhealthy"
+  | "service_restart"
+  | "job_late"
+  | "job_failed"
+  | "probe_down"
+  | "cert_expiring"
+  | "cert_expired"
+  | "cert_untrusted"
+  | "disk_full";
+
+// Le catalogue fermé, dans l'ordre des écrans.
+export const alertKinds: readonly AlertKind[] = [
+  "machine_lost",
+  "service_down",
+  "service_unhealthy",
+  "service_restart",
+  "job_late",
+  "job_failed",
+  "probe_down",
+  "cert_expiring",
+  "cert_expired",
+  "cert_untrusted",
+  "disk_full",
+];
+
+export type AlertSeverity = "attention" | "danger";
+export type AlertStatus = "open" | "resolved";
+export type AlertObjectKind = "machine" | "service" | "heartbeat" | "probe" | "volume";
+
+export interface AlertObject {
+  kind: AlertObjectKind;
+  id: string;
+  name: string;
+}
+
+// Les chiffres du fait ; la phrase se fait ici avec les mêmes clés que le
+// canal.
+export interface AlertDetails {
+  count?: number;
+  percent?: number;
+  mount_point?: string;
+  exit_code?: number;
+  reason?: string;
+  target?: string;
+  not_after?: string;
+  since?: string;
+}
+
+export interface Alert {
+  id: number;
+  kind: AlertKind;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  // Ouverte sous un silence ou une maintenance : montrée, jamais envoyée.
+  silenced: boolean;
+  object: AlertObject;
+  machine_id: string;
+  machine_name: string;
+  details: AlertDetails;
+  opened_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+  acknowledged_at: string | null;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
+  counts: AlertCounts;
+}
+
+export type DeliveryEvent = "opened" | "aggravated" | "resolved";
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+
+export interface Delivery {
+  id: number;
+  channel_id: number;
+  event: DeliveryEvent;
+  status: DeliveryStatus;
+  attempts: number;
+  reason: string;
+  code: number;
+  updated_at: string;
+}
+
+export interface AlertResponse {
+  alert: Alert;
+  deliveries: Delivery[];
+}
+
+export type ChannelFormat = "json" | "text" | "discord" | "slack";
+
+export interface Channel {
+  id: number;
+  name: string;
+  url: string;
+  format: ChannelFormat;
+  has_secret: boolean;
+  min_severity: AlertSeverity;
+  notify_resolve: boolean;
+  enabled: boolean;
+  // L'URL est en http : le canal parle en clair.
+  plain: boolean;
+  created_at: string;
+}
+
+export interface ChannelsResponse {
+  channels: Channel[];
+}
+
+export interface ChannelTest {
+  ok: boolean;
+  reason: string;
+  code: number;
+}
+
+export interface Silence {
+  id: number;
+  kind: AlertKind | "";
+  object: { kind: AlertObjectKind | ""; id: string; name: string };
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface SilencesResponse {
+  silences: Silence[];
 }

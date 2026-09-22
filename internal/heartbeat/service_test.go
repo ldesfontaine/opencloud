@@ -28,12 +28,20 @@ type recordingListener struct {
 	events []string
 }
 
-func (l *recordingListener) Late(h heartbeat.Heartbeat) { l.events = append(l.events, "late:"+h.Name) }
-func (l *recordingListener) Recovered(h heartbeat.Heartbeat) {
+func (l *recordingListener) Late(_ context.Context, h heartbeat.Heartbeat) {
+	l.events = append(l.events, "late:"+h.Name)
+}
+func (l *recordingListener) Recovered(_ context.Context, h heartbeat.Heartbeat) {
 	l.events = append(l.events, "recovered:"+h.Name)
 }
-func (l *recordingListener) Failed(h heartbeat.Heartbeat, code int) {
+func (l *recordingListener) Failed(_ context.Context, h heartbeat.Heartbeat, code int) {
 	l.events = append(l.events, "failed:"+h.Name)
+}
+func (l *recordingListener) Paused(_ context.Context, h heartbeat.Heartbeat) {
+	l.events = append(l.events, "paused:"+h.Name)
+}
+func (l *recordingListener) Removed(_ context.Context, id string) {
+	l.events = append(l.events, "removed:"+id)
 }
 
 func newFixture(t *testing.T) *fixture {

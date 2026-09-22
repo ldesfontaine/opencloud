@@ -114,6 +114,49 @@ func (s *Service) SetFeed(feed Feed) {
 	s.feed = feed
 }
 
+// UnderMaintenance dit si un objet est rattaché à un composant sous un
+// incident de maintenance qui s'applique : le moteur des alertes ouvre
+// alors l'alerte sans la livrer. Un objet rattaché nulle part ne l'est
+// jamais.
+func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID string) (bool, error) {
+	ref := MemberRef{Kind: MemberKind(objectKind), ID: objectID}
+	if !isKind(ref.Kind) || ref.ID == "" {
+		return false, nil
+	}
+	components, err := s.store.ListComponents(ctx)
+	if err != nil {
+		return false, err
+	}
+	var touched []string
+	for _, component := range components {
+		for _, member := range component.Members {
+			if member.Kind == ref.Kind && member.ID == ref.ID {
+				touched = append(touched, component.ID)
+			}
+		}
+	}
+	if len(touched) == 0 {
+		return false, nil
+	}
+	incidents, err := s.store.ListIncidents(ctx, s.now())
+	if err != nil {
+		return false, err
+	}
+	for _, incident := range incidents {
+		if !incident.IsMaintenance() || !incident.Applies() {
+			continue
+		}
+		for _, component := range incident.Components {
+			for _, id := range touched {
+				if component.ID == id {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
 // --- Composants ---
 
 func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefinition) (Component, error) {

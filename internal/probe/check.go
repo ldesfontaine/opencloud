@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ocsp"
+
+	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
 // Ce que la cible lit de nous dans ses journaux.
@@ -62,7 +64,7 @@ func (c Checker) checkTCP(ctx context.Context, task Task, now time.Time) Result 
 
 	started := time.Now()
 	if !task.TLS {
-		conn, err := guardedDial(ctx, "tcp", address.String(), timeout)
+		conn, err := egress.Dial(ctx, "tcp", address.String(), timeout)
 		result.DurationMs = time.Since(started).Milliseconds()
 		if err != nil {
 			result.Outcome, result.Reason = OutcomeDown, reasonFor(err)
@@ -193,7 +195,7 @@ func (c Checker) degradedOrDown(ctx context.Context, result Result, address Addr
 func (c Checker) newClient(task Task, timeout time.Duration) *http.Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return guardedDial(ctx, network, address, timeout)
+			return egress.Dial(ctx, network, address, timeout)
 		},
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: c.roots},
 		ResponseHeaderTimeout: timeout,
@@ -217,7 +219,7 @@ func (c Checker) newClient(task Task, timeout time.Duration) *http.Client {
 // reasonFor traduit une erreur réseau en un mot du catalogue : le front ne
 // lit jamais le texte d'une erreur Go.
 func reasonFor(err error) Reason {
-	if errors.Is(err, errForbiddenAddress) {
+	if errors.Is(err, egress.ErrForbiddenAddress) {
 		return ReasonAddress
 	}
 	if errors.Is(err, errTooManyRedirects) {
