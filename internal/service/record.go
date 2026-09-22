@@ -50,11 +50,20 @@ type Watcher interface {
 	ServicesChanged(machineID string)
 }
 
+// Alerter reçoit chaque fiche qu'un rapport a touchée, avec les
+// transitions que ce rapport lui a notées : le moteur des alertes en fait
+// un arrêt non demandé, un redémarrage, une santé qui échoue. nil est
+// toléré.
+type Alerter interface {
+	ServiceChanged(ctx context.Context, service Service, transitions []Transition)
+}
+
 // Tracker est le composant : il suit les services que les agents
 // rapportent ; Service, lui, est une fiche.
 type Tracker struct {
 	store   Store
 	watcher Watcher
+	alerter Alerter
 	logger  *slog.Logger
 	relay   *Relay
 	now     func() time.Time
@@ -70,6 +79,10 @@ func (t *Tracker) SetClock(now func() time.Time) {
 
 func (t *Tracker) SetWatcher(watcher Watcher) {
 	t.watcher = watcher
+}
+
+func (t *Tracker) SetAlerter(alerter Alerter) {
+	t.alerter = alerter
 }
 
 // Record écrit ce qu'un agent rapporte de sa machine. Le rapport entier est
@@ -90,10 +103,28 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 	if err := t.store.ApplyChanges(ctx, changes); err != nil {
 		return err
 	}
+	t.alert(ctx, changes)
 	if t.watcher != nil {
 		t.watcher.ServicesChanged(machineID)
 	}
 	return nil
+}
+
+// alert donne au moteur chaque fiche touchée avec ses transitions, dans
+// l'ordre du rapport.
+func (t *Tracker) alert(ctx context.Context, changes Changes) {
+	if t.alerter == nil {
+		return
+	}
+	for _, touched := range changes.Services {
+		var transitions []Transition
+		for _, transition := range changes.Transitions {
+			if transition.ServiceID == touched.ID {
+				transitions = append(transitions, transition)
+			}
+		}
+		t.alerter.ServiceChanged(ctx, touched, transitions)
+	}
 }
 
 // planChanges traduit le rapport en écritures, dans l'ordre du rapport :

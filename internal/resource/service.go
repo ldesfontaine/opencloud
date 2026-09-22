@@ -38,9 +38,17 @@ type Watcher interface {
 	ResourcesChanged(machineID string)
 }
 
+// Alerter reçoit la dernière lecture de chaque lot écrit, avec ses
+// volumes : le moteur des alertes en fait un disque presque plein. nil
+// est toléré.
+type Alerter interface {
+	ReadingRecorded(ctx context.Context, machineID string, reading sampler.Reading)
+}
+
 type Service struct {
 	store   Store
 	watcher Watcher
+	alerter Alerter
 	logger  *slog.Logger
 	// now est remplaçable dans les tests : la fraîcheur se compare à lui.
 	now func() time.Time
@@ -56,6 +64,10 @@ func (s *Service) SetClock(now func() time.Time) {
 
 func (s *Service) SetWatcher(watcher Watcher) {
 	s.watcher = watcher
+}
+
+func (s *Service) SetAlerter(alerter Alerter) {
+	s.alerter = alerter
 }
 
 // Record écrit ce qu'une machine a mesuré. Le lot entier est refusé dès
@@ -75,6 +87,9 @@ func (s *Service) Record(ctx context.Context, machineID string, readings []sampl
 	}
 	if err := s.store.InsertSamples(ctx, machineID, readings); err != nil {
 		return err
+	}
+	if s.alerter != nil {
+		s.alerter.ReadingRecorded(ctx, machineID, readings[len(readings)-1])
 	}
 	if s.watcher != nil {
 		s.watcher.ResourcesChanged(machineID)

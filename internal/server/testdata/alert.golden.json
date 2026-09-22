@@ -1,0 +1,1 @@
+{"alert":{"id":1,"kind":"job_failed","severity":"danger","status":"open","silenced":false,"object":{"kind":"heartbeat","id":"ID","name":"certbot renew"},"machine_id":"","machine_name":"","details":{"exit_code":1},"opened_at":"2026-09-12T12:00:00Z","updated_at":"2026-09-12T12:00:00Z","resolved_at":null,"acknowledged_at":null},"deliveries":[]}

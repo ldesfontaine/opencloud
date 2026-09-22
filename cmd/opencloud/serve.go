@@ -13,11 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -115,11 +117,29 @@ func runServe(args []string) error {
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
 	statusPage.SetFeed(bus)
-	// Huit boucles de fond : les échéances, le rollup et la purge des
+	// Les alertes : chaque composant lui donne ses faits, la page de statut
+	// lui dit ce qui est sous maintenance, le notifieur livre aux canaux
+	// dans la langue de l'interface.
+	catalogs, err := lang.Load()
+	if err != nil {
+		return fmt.Errorf("load languages: %w", err)
+	}
+	alerts := alert.New(db, logger)
+	alerts.SetWatcher(bus)
+	alerts.SetMaintenance(statusPage)
+	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
+	alerts.SetSender(notifier)
+	machines.SetAlerter(alerts)
+	heartbeats.SetListener(alerts)
+	resources.SetAlerter(alerts)
+	services.SetAlerter(alerts)
+	probes.SetAlerter(alerts)
+	// Onze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
-	// sondes, leur moteur, et la page de statut. Elles finissent avant que
-	// la base ne se ferme.
+	// sondes, leur moteur, la page de statut, les machines perdues, le
+	// moteur des alertes et le notifieur. Elles finissent avant que la
+	// base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
@@ -129,6 +149,9 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { probes.Watch(ctx) })
 	runLoop(&loops, func() { prober.Run(ctx) })
 	runLoop(&loops, func() { statusPage.Watch(ctx) })
+	runLoop(&loops, func() { machines.Watch(ctx) })
+	runLoop(&loops, func() { alerts.Watch(ctx) })
+	runLoop(&loops, func() { notifier.Run(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
@@ -144,6 +167,8 @@ func runServe(args []string) error {
 		Services:       services,
 		Probes:         probes,
 		Status:         statusPage,
+		Alerts:         alerts,
+		Notifier:       notifier,
 		Live:           bus,
 		PublicLive:     publicBus,
 		PublicURL:      cfg.PublicURL,
@@ -161,6 +186,18 @@ func runServe(args []string) error {
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 	return listenUntilSignal(ctx, logger, httpServer, cfg)
+}
+
+// languageOf relit la langue de l'interface au moment d'envoyer : le
+// canal reçoit ce que l'opérateur lit.
+func languageOf(preferences *settings.Store) func() lang.Code {
+	return func() lang.Code {
+		current, err := preferences.Load()
+		if err != nil || current.Language == "" {
+			return lang.Default
+		}
+		return current.Language
+	}
 }
 
 func runLoop(loops *sync.WaitGroup, loop func()) {

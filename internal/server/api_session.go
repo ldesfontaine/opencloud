@@ -40,6 +40,8 @@ type countsResponse struct {
 	Certificates certificateCounts `json:"certificates"`
 	// Les incidents ouverts sur la page de statut.
 	Status statusCounts `json:"status"`
+	// Les alertes ouvertes, et celles que personne n'a acquittées.
+	Alerts alertCountsJSON `json:"alerts"`
 }
 
 type statusCounts struct {
@@ -145,6 +147,11 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	alerts, err := s.alerts.Count(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	s.writeAPI(w, http.StatusOK, countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
@@ -152,6 +159,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},
+		Alerts:       alertCountsJSON{Open: alerts.Open, Unacknowledged: alerts.Unacknowledged},
 	})
 }
 

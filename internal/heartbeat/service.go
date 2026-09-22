@@ -57,12 +57,15 @@ func closeOpenRun(before Heartbeat, now time.Time, outcome Outcome) *Run {
 	return &Run{HeartbeatID: before.ID, CompletedAt: now, Outcome: outcome}
 }
 
-// Listener reçoit ce qui mérite une alerte ou un direct. Les fonctionnalités
-// alertes et direct s'y brancheront ; nil est toléré.
+// Listener reçoit ce qui mérite une alerte : le moteur des alertes s'y
+// branche ; nil est toléré.
 type Listener interface {
-	Late(heartbeat Heartbeat)
-	Recovered(heartbeat Heartbeat)
-	Failed(heartbeat Heartbeat, exitCode int)
+	Late(ctx context.Context, heartbeat Heartbeat)
+	Recovered(ctx context.Context, heartbeat Heartbeat)
+	Failed(ctx context.Context, heartbeat Heartbeat, exitCode int)
+	// Paused et Removed : ce que le moniteur portait ne compte plus.
+	Paused(ctx context.Context, heartbeat Heartbeat)
+	Removed(ctx context.Context, heartbeatID string)
 }
 
 // Watcher reçoit chaque changement d'un moniteur, quel qu'il soit : le
@@ -159,6 +162,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat deleted", "heartbeat_id", id)
+	if s.listener != nil {
+		s.listener.Removed(ctx, id)
+	}
 	s.changed(id)
 	return nil
 }
@@ -167,17 +173,22 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 // Une exécution ouverte est close en dépassement, pas abandonnée.
 func (s *Service) Pause(ctx context.Context, id string) error {
 	now := s.now()
+	var paused Heartbeat
 	err := s.store.Transact(ctx, id, func(before Heartbeat) *Transition {
 		after := before
 		after.Status = StatusPaused
 		after.NextDeadlineAt = time.Time{}
 		after.RunStartedAt = time.Time{}
+		paused = after
 		return &Transition{Heartbeat: after, CloseRun: closeOpenRun(before, now, OutcomeTimeout)}
 	})
 	if err != nil {
 		return err
 	}
 	s.logger.Info("heartbeat paused", "heartbeat_id", id)
+	if s.listener != nil {
+		s.listener.Paused(ctx, paused)
+	}
 	s.changed(id)
 	return nil
 }
@@ -247,7 +258,7 @@ func (s *Service) Receive(ctx context.Context, token string, ping Ping) (Heartbe
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat ping", "heartbeat_id", after.ID, "kind", string(ping.Kind), "status", string(after.Status), "source", ping.Source)
-	s.notifyAfterPing(before, after, ping)
+	s.notifyAfterPing(ctx, before, after, ping)
 	s.changed(after.ID)
 	return after, nil
 }
@@ -298,16 +309,16 @@ func (s *Service) finishTransition(before Heartbeat, ping Ping, now time.Time) T
 	return transition
 }
 
-func (s *Service) notifyAfterPing(before, after Heartbeat, ping Ping) {
+func (s *Service) notifyAfterPing(ctx context.Context, before, after Heartbeat, ping Ping) {
 	if s.listener == nil {
 		return
 	}
 	if after.Status == StatusFailed {
-		s.listener.Failed(after, *ping.ExitCode)
+		s.listener.Failed(ctx, after, *ping.ExitCode)
 		return
 	}
 	if NeedsAttention(before.Status) && after.Status == StatusOnTime {
-		s.listener.Recovered(after)
+		s.listener.Recovered(ctx, after)
 	}
 }
 
@@ -349,7 +360,7 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 	}
 	s.logger.Warn("heartbeat late", "heartbeat_id", before.ID, "name", before.Name, "previous_status", string(before.Status))
 	if s.listener != nil {
-		s.listener.Late(after)
+		s.listener.Late(ctx, after)
 	}
 	s.changed(after.ID)
 	return nil

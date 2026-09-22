@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -32,6 +34,8 @@ type testServer struct {
 	services   *service.Tracker
 	probes     *probe.Service
 	status     *status.Service
+	alerts     *alert.Engine
+	notifier   *alert.Notifier
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -80,6 +84,22 @@ func newTestServer(t *testing.T) *testServer {
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
+	catalogs, err := lang.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alerts := alert.New(db, logger)
+	alerts.SetClock(func() time.Time { return testNow })
+	alerts.SetWatcher(bus)
+	alerts.SetMaintenance(statusPage)
+	notifier := alert.NewNotifier(db, catalogs, func() lang.Code { return lang.French }, logger)
+	notifier.SetClock(func() time.Time { return testNow })
+	alerts.SetSender(notifier)
+	machines.SetAlerter(alerts)
+	heartbeats.SetListener(alerts)
+	resources.SetAlerter(alerts)
+	services.SetAlerter(alerts)
+	probes.SetAlerter(alerts)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -90,6 +110,8 @@ func newTestServer(t *testing.T) *testServer {
 		Services:   services,
 		Probes:     probes,
 		Status:     statusPage,
+		Alerts:     alerts,
+		Notifier:   notifier,
 		Live:       bus,
 		PublicLive: publicBus,
 		Clock:      func() time.Time { return testNow },
@@ -100,7 +122,7 @@ func newTestServer(t *testing.T) *testServer {
 	// Le serveur commande les agents par leurs flux, comme dans serve.
 	services.SetCommander(server)
 	probes.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, status: statusPage, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, status: statusPage, alerts: alerts, notifier: notifier, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

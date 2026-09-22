@@ -1,0 +1,1 @@
+{"channels":[{"id":1,"name":"salon ops","url":"https://discord.com/api/webhooks/1/x","format":"discord","has_secret":true,"min_severity":"attention","notify_resolve":true,"enabled":true,"plain":false,"created_at":"2026-09-12T12:00:00Z"}]}

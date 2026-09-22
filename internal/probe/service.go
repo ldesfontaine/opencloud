@@ -62,9 +62,18 @@ type Watcher interface {
 	ProbesChanged(machineID string)
 }
 
+// Alerter reçoit chaque sonde dont l'état vient de bouger, ou dont le
+// certificat est à rejuger, et chaque sonde supprimée : le moteur des
+// alertes s'y branche. nil est toléré.
+type Alerter interface {
+	ProbeChanged(ctx context.Context, probe Probe)
+	ProbeRemoved(ctx context.Context, probeID string)
+}
+
 type Service struct {
 	store   Store
 	watcher Watcher
+	alerter Alerter
 	logger  *slog.Logger
 	now     func() time.Time
 
@@ -83,6 +92,10 @@ func (s *Service) SetClock(now func() time.Time) {
 
 func (s *Service) SetWatcher(watcher Watcher) {
 	s.watcher = watcher
+}
+
+func (s *Service) SetAlerter(alerter Alerter) {
+	s.alerter = alerter
 }
 
 func (s *Service) SetCommander(commander Commander) {
@@ -220,6 +233,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("probe deleted", "probe_id", id, "name", found.Name)
+	if s.alerter != nil {
+		s.alerter.ProbeRemoved(ctx, id)
+	}
 	s.Assign(ctx, found.MachineID)
 	s.changed(found.MachineID)
 	return nil
@@ -249,6 +265,10 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 		return err
 	}
 	s.logger.Info("probe status set", "probe_id", id, "status", string(status))
+	if s.alerter != nil {
+		found.Status = status
+		s.alerter.ProbeChanged(ctx, found)
+	}
 	s.Assign(ctx, found.MachineID)
 	s.changed(found.MachineID)
 	return nil
@@ -313,7 +333,31 @@ func (s *Service) Record(ctx context.Context, machineID string, report Report) e
 	if err := s.store.ApplyProbeResults(ctx, changes); err != nil {
 		return err
 	}
+	if s.alerter != nil {
+		for _, touched := range changes.Probes {
+			s.alerter.ProbeChanged(ctx, touched)
+		}
+	}
 	s.changed(machineID)
+	return nil
+}
+
+// ReviewCertificates redonne au moteur des alertes chaque sonde active qui
+// a vu un certificat : un seuil se franchit sans qu'aucun essai ne le dise,
+// et une sonde à 24 h d'intervalle le dirait trop tard.
+func (s *Service) ReviewCertificates(ctx context.Context) error {
+	if s.alerter == nil {
+		return nil
+	}
+	probes, err := s.store.ListProbes(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, found := range probes {
+		if found.Certificate != nil && found.Status != StatusPaused && found.Status != StatusNew {
+			s.alerter.ProbeChanged(ctx, found)
+		}
+	}
 	return nil
 }
 
@@ -339,8 +383,9 @@ func (s *Service) Purge(ctx context.Context) error {
 	return s.store.PurgeProbeHistory(ctx, now.Add(-ResultRetention), now.Add(-DayRetention))
 }
 
-// Watch est la boucle de fond : le rollup au départ puis toutes les 5 min,
-// la purge au départ puis une fois par jour. Elle s'arrête avec le contexte.
+// Watch est la boucle de fond : le rollup et la revue des certificats au
+// départ puis toutes les 5 min, la purge au départ puis une fois par jour.
+// Elle s'arrête avec le contexte.
 func (s *Service) Watch(ctx context.Context) {
 	s.rollupAndPurge(ctx, true)
 	rollup := time.NewTicker(rollupPeriod)
@@ -362,6 +407,9 @@ func (s *Service) Watch(ctx context.Context) {
 func (s *Service) rollupAndPurge(ctx context.Context, withPurge bool) {
 	if err := s.Rollup(ctx); err != nil && ctx.Err() == nil {
 		s.logger.Error("rollup probe days", "error", err)
+	}
+	if err := s.ReviewCertificates(ctx); err != nil && ctx.Err() == nil {
+		s.logger.Error("review certificates", "error", err)
 	}
 	if !withPurge {
 		return
