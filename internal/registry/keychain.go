@@ -30,6 +30,20 @@ func (s Static) Lookup(registry string) (Credentials, bool) {
 	return credentials, ok
 }
 
+// File est un trousseau relu à chaque demande : le fichier de Docker
+// peut changer après un « docker login », sans redémarrer l'agent.
+type File struct {
+	Path string
+}
+
+func (f File) Lookup(registry string) (Credentials, bool) {
+	keychain, err := LoadDockerConfig(f.Path)
+	if err != nil {
+		return Credentials{}, false
+	}
+	return keychain.Lookup(registry)
+}
+
 // DefaultConfigPath est le config.json de Docker pour l'utilisateur qui
 // fait tourner l'agent : root, donc /root/.docker, sauf DOCKER_CONFIG.
 func DefaultConfigPath() string {

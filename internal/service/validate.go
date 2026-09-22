@@ -51,6 +51,9 @@ func validateContainer(container Container, now time.Time) error {
 	if len(container.Group) > MaxNameLength || len(container.Image) > MaxImageLength || len(container.ImageID) > MaxImageLength {
 		return ErrReportInvalid
 	}
+	if len(container.ComposeService) > MaxNameLength || len(container.ComposeDir) > MaxPathLength || len(container.ComposeFile) > MaxPathLength {
+		return ErrReportInvalid
+	}
 	if !isState(container.State) || !isHealth(container.Health) || container.RestartCount < 0 {
 		return ErrReportInvalid
 	}

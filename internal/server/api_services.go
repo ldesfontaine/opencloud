@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 const (
@@ -25,15 +26,23 @@ const (
 // de la santé. La mesure courante est là si elle est fraîche ; les
 // constats d'exposition sont calculés à la lecture.
 type serviceJSON struct {
-	ID           string               `json:"id"`
-	MachineID    string               `json:"machine_id"`
-	MachineName  string               `json:"machine_name"`
-	Kind         string               `json:"kind"`
-	Name         string               `json:"name"`
-	Group        string               `json:"group"`
-	ContainerID  string               `json:"container_id"`
-	Image        string               `json:"image"`
-	ImageID      string               `json:"image_id"`
+	ID          string `json:"id"`
+	MachineID   string `json:"machine_id"`
+	MachineName string `json:"machine_name"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Group       string `json:"group"`
+	ContainerID string `json:"container_id"`
+	Image       string `json:"image"`
+	ImageID     string `json:"image_id"`
+	// Ce que Compose dit du service, de quoi lire la commande fabriquée.
+	ComposeService string `json:"compose_service"`
+	ComposeDir     string `json:"compose_dir"`
+	ComposeFile    string `json:"compose_file"`
+	// Ce que l'opérateur veut des mises à jour : "", pinned, excluded.
+	UpdatePolicy string `json:"update_policy"`
+	// Le dernier constat sur l'image ; absent tant que l'agent n'a rien dit.
+	ImageCheck   *imageCheckJSON      `json:"image_check"`
 	State        string               `json:"state"`
 	ExitCode     int                  `json:"exit_code"`
 	Health       string               `json:"health"`
@@ -51,6 +60,21 @@ type serviceJSON struct {
 	LastSeenAt   time.Time            `json:"last_seen_at"`
 	ArchivedAt   *time.Time           `json:"archived_at"`
 	Current      *sampleJSON          `json:"current"`
+}
+
+// Le constat de l'agent sur l'image, et ce que le serveur en fait : le
+// type de mise à jour, l'image à tirer, la commande à copier, jamais
+// exécutée. Une pastille se dérive de kind ; vide, l'image est à jour.
+type imageCheckJSON struct {
+	CheckedAt    time.Time `json:"checked_at"`
+	Outcome      string    `json:"outcome"`
+	LocalDigest  string    `json:"local_digest"`
+	RemoteDigest string    `json:"remote_digest"`
+	NewerTag     string    `json:"newer_tag"`
+	NewerDigest  string    `json:"newer_digest"`
+	Kind         string    `json:"kind"`
+	Target       string    `json:"target"`
+	Command      string    `json:"command"`
 }
 
 type sampleJSON struct {
@@ -143,9 +167,14 @@ func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID
 		s.apiInternalError(w, r, err)
 		return
 	}
+	checks, err := s.updates.Checks(r.Context(), machineID)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	response := servicesResponse{Services: make([]serviceJSON, 0, len(services)), Engines: []engineJSON{}}
 	for _, item := range services {
-		response.Services = append(response.Services, serviceToJSON(item, names[item.MachineID], currents[item.ID]))
+		response.Services = append(response.Services, serviceToJSON(item, names[item.MachineID], currents[item.ID], checks))
 	}
 	for _, engine := range engines {
 		if machineID == "" || engine.MachineID == machineID {
@@ -180,7 +209,12 @@ func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID]), Transitions: transitionsToJSON(transitions)}
+	checks, err := s.updates.Checks(r.Context(), item.MachineID)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
 	for _, engine := range engines {
 		if engine.MachineID == item.MachineID {
 			converted := engineToJSON(engine)
@@ -349,10 +383,12 @@ func tailOf(r *http.Request) int {
 	return tail
 }
 
-func serviceToJSON(item service.Service, machineName string, current service.Current) serviceJSON {
+func serviceToJSON(item service.Service, machineName string, current service.Current, checks map[string]update.Check) serviceJSON {
 	converted := serviceJSON{
 		ID: item.ID, MachineID: item.MachineID, MachineName: machineName, Kind: string(item.Kind),
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
+		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
+		UpdatePolicy: string(item.UpdatePolicy), ImageCheck: imageCheckToJSON(item, checks),
 		State: string(item.State), ExitCode: item.ExitCode, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: service.Exposure(item),
@@ -367,6 +403,23 @@ func serviceToJSON(item service.Service, machineName string, current service.Cur
 			SampledAt: current.Sample.SampledAt.UTC(), CPUPercent: current.Sample.CPUPercent,
 			MemUsed: current.Sample.MemUsed, MemLimit: current.Sample.MemLimit,
 		}
+	}
+	return converted
+}
+
+func imageCheckToJSON(item service.Service, checks map[string]update.Check) *imageCheckJSON {
+	check, ok := update.CheckFor(checks, item)
+	if !ok {
+		return nil
+	}
+	converted := &imageCheckJSON{
+		CheckedAt: check.CheckedAt.UTC(), Outcome: string(check.Outcome),
+		LocalDigest: check.LocalDigest, RemoteDigest: check.RemoteDigest,
+		NewerTag: check.NewerTag, NewerDigest: check.NewerDigest, Kind: string(check.Kind),
+	}
+	if check.HasUpdate() {
+		converted.Target = check.Target()
+		converted.Command = update.Command(item, check)
 	}
 	return converted
 }

@@ -5,7 +5,8 @@ import type { Service } from "../api/types";
 import { useI18n } from "../i18n/context";
 import { formatPorts, matchesFilter, type Filter } from "../lib/services";
 import { formatBytes, formatDecimal } from "../lib/units";
-import { ServicePill } from "./Pill";
+import { updateAvailable, updateLabel } from "../lib/updates";
+import { Pill, ServicePill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
 
@@ -31,7 +32,8 @@ export function useServiceFilter(): [Filter, (filter: Filter) => void] {
 }
 
 // Le tableau de la direction artistique : icône, nom et groupe, image en
-// mono, pastille, domaine (les ports publiés en attendant les domaines),
+// mono avec la pastille de mise à jour quand le registre en publie une,
+// pastille d'état, domaine (les ports publiés en attendant les domaines),
 // processeur et mémoire de la mesure courante, un tiret sans mesure.
 export function ServiceTable({ services, withMachine }: { services: Service[]; withMachine: boolean }) {
   const { t, language } = useI18n();
@@ -68,7 +70,16 @@ export function ServiceTable({ services, withMachine }: { services: Service[]; w
                   <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
                 </td>
               )}
-              <td className="num">{service.image}</td>
+              <td className="num">
+                <span className="image-cell">
+                  {service.image}
+                  {updateAvailable(service) && service.image_check !== null && (
+                    <Pill tone="accent" dot={false}>
+                      {updateLabel(t, service.image_check)}
+                    </Pill>
+                  )}
+                </span>
+              </td>
               <td>
                 <ServicePill service={service} />
               </td>

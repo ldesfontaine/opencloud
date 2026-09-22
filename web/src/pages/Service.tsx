@@ -10,6 +10,7 @@ import { modeText } from "../components/NetworkInspector";
 import { PageHead } from "../components/PageHead";
 import { Dot, ServicePill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
+import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
@@ -29,10 +30,10 @@ export function ServicePage() {
   if (!response.data) {
     return response.error ? <Failure error={response.error} /> : null;
   }
-  return <ServiceView response={response.data} />;
+  return <ServiceView response={response.data} reload={response.reload} />;
 }
 
-function ServiceView({ response }: { response: ServiceResponse }) {
+function ServiceView({ response, reload }: { response: ServiceResponse; reload: () => void }) {
   const { t, language } = useI18n();
   const now = useNow();
   const service = response.service;
@@ -75,6 +76,7 @@ function ServiceView({ response }: { response: ServiceResponse }) {
           </span>
         </CardBody>
       </Card>
+      <UpdateCard service={service} reload={reload} />
       <div className="grid-3">
         <Card>
           <CardHeader title={t("tab.summary")} />

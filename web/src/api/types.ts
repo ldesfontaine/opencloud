@@ -26,7 +26,8 @@ export interface DiskThresholds {
 export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
-  services: { total: number; attention: number };
+  // Les services qui vont mal, et ceux qui ont une image plus récente.
+  services: { total: number; attention: number; updates: number };
   probes: { total: number; attention: number };
   certificates: CertificateCounts;
   // Les incidents ouverts sur la page de statut.
@@ -250,6 +251,13 @@ export interface Service {
   container_id: string;
   image: string;
   image_id: string;
+  // Ce que Compose dit du service : de quoi lire la commande fabriquée.
+  compose_service: string;
+  compose_dir: string;
+  compose_file: string;
+  update_policy: UpdatePolicy;
+  // Le dernier constat de l'agent sur l'image ; nul tant qu'il n'a rien dit.
+  image_check: ImageCheck | null;
   state: ServiceState;
   exit_code: number;
   health: ServiceHealth;
@@ -268,6 +276,28 @@ export interface Service {
   last_seen_at: string;
   archived_at: string | null;
   current: ServiceSample | null;
+}
+
+// Ce que l'opérateur veut des mises à jour d'un service : les suivre,
+// les taire (épinglé), ne jamais interroger le registre (exclu).
+export type UpdatePolicy = "" | "pinned" | "excluded";
+
+export type UpdateKind = "" | "major" | "minor" | "patch" | "digest";
+
+export type CheckOutcome = "ok" | "local" | "unreachable" | "unauthorized" | "not_found" | "unsupported";
+
+// Le constat de l'agent sur une image, et ce que le serveur en déduit :
+// le type, l'image à tirer, la commande à copier, jamais exécutée.
+export interface ImageCheck {
+  checked_at: string;
+  outcome: CheckOutcome;
+  local_digest: string;
+  remote_digest: string;
+  newer_tag: string;
+  newer_digest: string;
+  kind: UpdateKind;
+  target: string;
+  command: string;
 }
 
 // Ce qu'une machine dit de son Docker.

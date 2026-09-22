@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 var updateGolden = flag.Bool("update", false, "réécrit les réponses de référence dans testdata/")
@@ -157,9 +158,10 @@ func (ts *testServer) seedResources(t *testing.T) {
 
 // Deux services sur la machine distante, le projet Compose de la planche
 // « Machine » : nextcloud actif, mesuré, publié sur toutes les interfaces
-// et sur le réseau interne du projet ; sa base sur ce réseau seul, avec son
-// port publié sur la boucle locale, arrêtée sur un crash ; et sur la
-// machine openCloud, un Docker absent.
+// et sur le réseau interne du projet, avec un correctif publié sur le
+// registre ; sa base sur ce réseau seul, avec son port publié sur la
+// boucle locale, arrêtée sur un crash, dont le tag a été reconstruit ; et
+// sur la machine openCloud, un Docker absent.
 func (ts *testServer) seedServices(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -168,6 +170,7 @@ func (ts *testServer) seedServices(t *testing.T) string {
 	internalNet, bridgeNet := strings.Repeat("c", 64), strings.Repeat("d", 64)
 	web := service.Container{
 		ContainerID: strings.Repeat("a", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4", ImageID: "sha256:" + strings.Repeat("1", 64),
+		ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml",
 		State: service.StateRunning, Health: service.HealthHealthy, RestartCount: 0,
 		Ports:       []service.Port{{IP: "0.0.0.0", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}, {IP: "::", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
 		NetworkMode: "nextcloud_internal",
@@ -177,6 +180,7 @@ func (ts *testServer) seedServices(t *testing.T) string {
 	}
 	db := service.Container{
 		ContainerID: strings.Repeat("b", 64), Name: "nextcloud-db", Group: "nextcloud", Image: "postgres:16.4", ImageID: "sha256:" + strings.Repeat("2", 64),
+		ComposeService: "nextcloud-db", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml",
 		State: service.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
 		Ports:       []service.Port{{IP: "127.0.0.1", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}},
 		NetworkMode: "nextcloud_internal",
@@ -201,6 +205,16 @@ func (ts *testServer) seedServices(t *testing.T) string {
 	}
 	absent := service.Report{Engine: &service.EngineReport{Present: false, Reason: service.ReasonNoSocket}}
 	if err := ts.services.Record(ctx, machine.LocalID, absent); err != nil {
+		t.Fatal(err)
+	}
+	checks := update.Report{Results: []update.Result{
+		{Image: "nextcloud:29.0.4", CheckedAt: testNow.Add(-3 * time.Hour), Outcome: update.OutcomeOK,
+			LocalDigest: "sha256:" + strings.Repeat("a", 64), RemoteDigest: "sha256:" + strings.Repeat("a", 64),
+			NewerTag: "29.0.6", NewerDigest: "sha256:" + strings.Repeat("b", 64)},
+		{Image: "postgres:16.4", CheckedAt: testNow.Add(-3 * time.Hour), Outcome: update.OutcomeOK,
+			LocalDigest: "sha256:" + strings.Repeat("c", 64), RemoteDigest: "sha256:" + strings.Repeat("d", 64)},
+	}}
+	if err := ts.updates.Record(ctx, remoteID, checks); err != nil {
 		t.Fatal(err)
 	}
 	return service.ID(remoteID, db.ContainerID)

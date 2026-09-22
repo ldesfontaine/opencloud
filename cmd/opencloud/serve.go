@@ -23,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
@@ -31,6 +32,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/trust"
+	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -109,6 +111,13 @@ func runServe(args []string) error {
 	// par le réseau : son jeu ne sort pas du processus.
 	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, probe.NewChecker(roots), logger)
 	probes.SetLocalRunner(machine.LocalID, prober)
+	// Et vérifie ses propres images contre leur registre, avec son
+	// trousseau Docker ; les constats s'écrivent sans passer par le réseau.
+	updates := update.New(db, logger)
+	updates.SetWatcher(bus)
+	docker := dockerapi.New(cfg.DockerSocket)
+	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: updates, logger: logger}, logger)
+	updates.SetLocalRunner(machine.LocalID, updater)
 	// La page de statut publique : elle écoute le bus interne pour relire,
 	// et publie sur les deux bus quand quelque chose de visible change.
 	preferences := settings.New(stateDir)
@@ -134,12 +143,13 @@ func runServe(args []string) error {
 	resources.SetAlerter(alerts)
 	services.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
-	// Onze boucles de fond : les échéances, le rollup et la purge des
+	// Treize boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
-	// sondes, leur moteur, la page de statut, les machines perdues, le
-	// moteur des alertes et le notifieur. Elles finissent avant que la
-	// base ne se ferme.
+	// sondes, leur moteur, la purge des constats d'images et leur
+	// vérificateur, la page de statut, les machines perdues, le moteur des
+	// alertes et le notifieur. Elles finissent avant que la base ne se
+	// ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
@@ -148,6 +158,8 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { watcher.Run(ctx) })
 	runLoop(&loops, func() { probes.Watch(ctx) })
 	runLoop(&loops, func() { prober.Run(ctx) })
+	runLoop(&loops, func() { updates.Watch(ctx) })
+	runLoop(&loops, func() { updater.Run(ctx) })
 	runLoop(&loops, func() { statusPage.Watch(ctx) })
 	runLoop(&loops, func() { machines.Watch(ctx) })
 	runLoop(&loops, func() { alerts.Watch(ctx) })
@@ -156,6 +168,7 @@ func runServe(args []string) error {
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
 	probes.Assign(ctx, machine.LocalID)
+	updates.Assign(ctx, machine.LocalID)
 
 	server, err := server.New(server.Options{
 		Logger:         logger,
@@ -166,6 +179,7 @@ func runServe(args []string) error {
 		Resources:      resources,
 		Services:       services,
 		Probes:         probes,
+		Updates:        updates,
 		Status:         statusPage,
 		Alerts:         alerts,
 		Notifier:       notifier,
@@ -180,6 +194,7 @@ func runServe(args []string) error {
 	// Le serveur tient les flux des agents : c'est lui qui leur commande.
 	services.SetCommander(server)
 	probes.SetCommander(server)
+	updates.SetCommander(server)
 	httpServer := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server,
@@ -252,6 +267,19 @@ type localSink struct {
 func (s localSink) Deliver(report service.Report) {
 	if err := s.services.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
 		s.logger.Error("record local services", "error", err)
+	}
+}
+
+// localImages écrit ce que la machine openCloud a constaté sur ses images.
+type localImages struct {
+	ctx     context.Context
+	updates *update.Service
+	logger  *slog.Logger
+}
+
+func (l localImages) Deliver(report update.Report) {
+	if err := l.updates.Record(l.ctx, machine.LocalID, report); err != nil && l.ctx.Err() == nil {
+		l.logger.Error("record local image checks", "error", err)
 	}
 }
 

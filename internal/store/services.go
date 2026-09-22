@@ -13,7 +13,8 @@ import (
 )
 
 const serviceColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
-	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at`
+	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
+	compose_service, compose_dir, compose_file, update_policy`
 
 // ListServices rend les fiches d'une machine, ou de toutes si machineID
 // est vide, archivées comprises, par groupe puis par nom.
@@ -150,19 +151,21 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO services (`+serviceColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, group_name = excluded.group_name, image = excluded.image,
 			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code,
 			health = excluded.health, restart_count = excluded.restart_count, ports = excluded.ports,
 			network_mode = excluded.network_mode, privileged = excluded.privileged, depends_on = excluded.depends_on,
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
-			last_seen_at = excluded.last_seen_at, archived_at = excluded.archived_at`,
+			last_seen_at = excluded.last_seen_at, archived_at = excluded.archived_at,
+			compose_service = excluded.compose_service, compose_dir = excluded.compose_dir, compose_file = excluded.compose_file`,
 		item.ID, item.MachineID, string(item.Kind), item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
 		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, ports,
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
-		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt))
+		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
+		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy))
 	if err != nil {
 		return fmt.Errorf("upsert service %s: %w", item.ID, err)
 	}
@@ -395,17 +398,19 @@ func (db *DB) PurgeServices(ctx context.Context, transitionsBefore, archivedBefo
 
 func scanService(row scanner) (service.Service, error) {
 	var item service.Service
-	var kind, state, health, ports, dependsOn string
+	var kind, state, health, ports, dependsOn, policy string
 	var privileged int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
-		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt)
+		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy)
 	if err != nil {
 		return service.Service{}, err
 	}
 	item.Kind, item.State, item.Health = service.Kind(kind), service.State(state), service.Health(health)
+	item.UpdatePolicy = service.UpdatePolicy(policy)
 	item.Privileged = privileged != 0
 	if err := json.Unmarshal([]byte(ports), &item.Ports); err != nil {
 		return service.Service{}, fmt.Errorf("decode ports of %s: %w", item.ID, err)

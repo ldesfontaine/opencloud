@@ -14,9 +14,22 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 type fakeLogs struct{ requests []service.LogRequest }
+
+// fakeUpdater note les exclusions que le serveur pousse.
+type fakeUpdater struct {
+	mu          sync.Mutex
+	assignments []update.Assignment
+}
+
+func (u *fakeUpdater) Assign(assignment update.Assignment) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.assignments = append(u.assignments, assignment)
+}
 
 // fakeProber note les jeux de sondes que le serveur pousse.
 type fakeProber struct {
@@ -115,7 +128,7 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 	logs := &fakeLogs{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := newCommandRunner(ctx, client, "session-1", logs, &fakeProber{}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	runner := newCommandRunner(ctx, client, "session-1", logs, &fakeProber{}, &fakeUpdater{}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	runner.handle(service.CommandLogs, `{"id":"one","container_id":"c1","tail":10}`)
 	posted.waitFor(t, "one", 2)
@@ -161,7 +174,8 @@ func TestCommandRunner_AssignsTheProbeSet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	prober := &fakeProber{}
-	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	updater := &fakeUpdater{}
+	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, updater, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	payload, err := json.Marshal(probe.Assignment{Probes: []probe.Task{{ID: "p1", Kind: probe.KindHTTP, Target: "https://a.fr/", IntervalSeconds: 60}}})
 	if err != nil {
@@ -175,5 +189,12 @@ func TestCommandRunner_AssignsTheProbeSet(t *testing.T) {
 	runner.handle(probe.CommandProbes, "{pas du json")
 	if len(prober.assignments) != 1 {
 		t.Fatalf("un contenu illisible a été transmis: %+v", prober.assignments)
+	}
+
+	// La commande « image_checks » règle les exclusions de la même façon.
+	runner.handle(update.CommandImages, `{"excluded":["portfolio:latest"],"now":true}`)
+	runner.handle(update.CommandImages, "{pas du json")
+	if len(updater.assignments) != 1 || !updater.assignments[0].Now || updater.assignments[0].Excluded[0] != "portfolio:latest" {
+		t.Fatalf("exclusions reçues: %+v", updater.assignments)
 	}
 }

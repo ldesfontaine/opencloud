@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 const (
@@ -118,9 +119,11 @@ func (s *Server) agentStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.machines.Disconnect(session)
-	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine : la
-	// commande attend dans la file que la boucle ci-dessous va lire.
+	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine et
+	// les images à ne pas interroger : les commandes attendent dans la
+	// file que la boucle ci-dessous va lire.
 	s.probes.Assign(r.Context(), authenticated.ID)
+	s.updates.Assign(r.Context(), authenticated.ID)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -231,8 +234,21 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, probe.ErrReportInvalid):
 		s.writeAgentError(w, http.StatusBadRequest, "bad_probes")
+		return
 	case err != nil:
 		s.logger.Error("record probes", "machine_id", machineID, "error", err)
+		s.writeAgentError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	// Ni de section images.
+	if request.Images != nil {
+		err = s.updates.Record(r.Context(), machineID, *request.Images)
+	}
+	switch {
+	case errors.Is(err, update.ErrReportInvalid):
+		s.writeAgentError(w, http.StatusBadRequest, "bad_images")
+	case err != nil:
+		s.logger.Error("record images", "machine_id", machineID, "error", err)
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
 	default:
 		w.WriteHeader(http.StatusNoContent)

@@ -16,9 +16,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
@@ -85,24 +87,33 @@ func Run(ctx context.Context, opts Options) error {
 	go sampleLoop(ctx, sampler.New(), readings, opts)
 	// Le veilleur Docker aussi ; ses rapports attendent dans le leur.
 	observed := &reports{}
-	watcher := dockerwatch.New(dockerapi.New(opts.DockerSocket), observed, dockerwatch.Options{Logger: opts.Logger})
+	docker := dockerapi.New(opts.DockerSocket)
+	watcher := dockerwatch.New(docker, observed, dockerwatch.Options{Logger: opts.Logger})
 	go watcher.Run(ctx)
+	// Les images de la machine se vérifient contre leur registre, avec le
+	// trousseau Docker de la machine ; les constats attendent aussi.
+	constated := &images{}
+	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), constated, opts.Logger)
+	go updater.Run(ctx)
 	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
 	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
 	checked := &results{}
 	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
 	go prober.Run(ctx)
-	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, logs: watcher, probes: prober}, opts)
+	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, images: constated, logs: watcher, probes: prober, updates: updater}, opts)
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les
-// journaux et les sondes quand le serveur les demande.
+// journaux, les sondes et les vérifications d'images quand le serveur
+// les demande.
 type pending struct {
 	readings *buffer
 	reports  *reports
 	results  *results
+	images   *images
 	logs     service.LogSource
 	probes   probe.Assignable
+	updates  update.Assignable
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -204,8 +215,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	opts.Logger.Info("connected", "server", identity.Server)
 	pending.reports.markReplayed()
 	pending.results.markReplayed()
+	pending.images.markReplayed()
 
-	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, opts.Logger)
+	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, opts.Logger)
 	lost := make(chan error, 1)
 	go func() { lost <- stream.Follow(commands.handle) }()
 
@@ -235,12 +247,14 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 		batch := pending.readings.take(resource.MaxReadingsPerSignal)
 		report := pending.reports.take()
 		checked := pending.results.take()
-		err := client.Signal(ctx, session, batch, report, checked)
+		constated := pending.images.take()
+		err := client.Signal(ctx, session, batch, report, checked, constated)
 		var refused *ServerError
 		if err != nil && !(errors.As(err, &refused) && refused.Status == http.StatusBadRequest) {
 			pending.readings.restore(batch)
 			pending.reports.restore(report)
 			pending.results.restore(checked)
+			pending.images.restore(constated)
 			return err
 		}
 		if len(batch) < resource.MaxReadingsPerSignal {

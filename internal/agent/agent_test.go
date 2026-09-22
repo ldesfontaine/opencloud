@@ -19,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // Un vrai serveur openCloud sur un port éphémère, et un vrai agent contre lui.
@@ -48,7 +49,8 @@ func newBench(t *testing.T) *bench {
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine : le
 	// serveur de test a donc besoin du composant, même vide.
 	probes := probe.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines, Resources: resources, Probes: probes})
+	updates := update.New(db, logger)
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(serverRoot), Machines: machines, Resources: resources, Probes: probes, Updates: updates})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +225,7 @@ func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = client.Signal(context.Background(), "session", nil, nil, nil)
+	err = client.Signal(context.Background(), "session", nil, nil, nil, nil)
 	if !errors.Is(err, ErrPinMismatch) {
 		t.Fatalf("got %v", err)
 	}
