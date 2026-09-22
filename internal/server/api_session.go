@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
@@ -18,6 +19,14 @@ type sessionResponse struct {
 	// pour que le compteur de la vue d'ensemble et la couleur d'une ligne
 	// basculent sur le même chiffre, tenu à un seul endroit.
 	Certificates certificateThresholds `json:"certificate_thresholds"`
+	// Les pourcentages à partir desquels un volume alerte, puis s'aggrave :
+	// la phrase de l'alerte les cite, dans le navigateur comme au canal.
+	Disks diskThresholds `json:"disk_thresholds"`
+}
+
+type diskThresholds struct {
+	Attention int `json:"attention"`
+	Danger    int `json:"danger"`
 }
 
 type certificateThresholds struct {
@@ -78,6 +87,7 @@ func (s *Server) session(w http.ResponseWriter, _ *http.Request) {
 		Language:     string(s.language()),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
+		Disks:        diskThresholds{Attention: alert.DiskAttentionPercent, Danger: alert.DiskDangerPercent},
 	})
 }
 

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
-import type { CertificateThresholds, Session } from "../api/types";
+import type { CertificateThresholds, DiskThresholds, Session } from "../api/types";
 import { format } from "./format";
 
 export type Translate = (key: string, ...args: (string | number)[]) => string;
@@ -16,6 +16,7 @@ interface I18n {
   // le compteur de la vue d'ensemble et la couleur d'une ligne basculent
   // ainsi sur le même chiffre, tenu à un seul endroit.
   certificates: CertificateThresholds;
+  disks: DiskThresholds;
   t: Translate;
   setLanguage: (code: string) => Promise<void>;
 }
@@ -66,6 +67,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       language: session.language,
       languages: session.languages,
       certificates: session.certificate_thresholds,
+      disks: session.disk_thresholds,
       t,
       setLanguage,
     };
@@ -96,4 +98,8 @@ export function useT(): Translate {
 // Les seuils d'échéance d'un certificat, tels que le serveur les tient.
 export function useCertificateThresholds(): CertificateThresholds {
   return useI18n().certificates;
+}
+
+export function useDiskThresholds(): DiskThresholds {
+  return useI18n().disks;
 }
