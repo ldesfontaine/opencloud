@@ -1,0 +1,11 @@
+{
+    "Id": "sha256:0b966deb3eab0b26100f6a45bb3b1d5bdf563bb22ac7314ff38ecca4bcb7e90e",
+    "RepoTags": [
+        "portfolio:latest"
+    ],
+    "RepoDigests": [],
+    "Created": "2026-07-02T10:12:00.000000000Z",
+    "Architecture": "amd64",
+    "Os": "linux",
+    "Size": 41943040
+}
