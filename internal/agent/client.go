@@ -25,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 const (
@@ -227,12 +228,12 @@ func (s *Stream) Follow(handle func(name, data string)) error {
 // Signal donne signe de vie et livre ce qui attendait : les lectures de la
 // machine, ce que Docker a montré et ce que les sondes ont donné ; sans
 // rien, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report, checked *probe.Report) error {
+func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report, checked *probe.Report, images *update.Report) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
-	if len(readings) > 0 || report != nil || checked != nil {
-		content, err := json.Marshal(machine.SignalRequest{Readings: readings, Services: report, Probes: checked})
+	if len(readings) > 0 || report != nil || checked != nil || images != nil {
+		content, err := json.Marshal(machine.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
 		if err != nil {
 			return err
 		}

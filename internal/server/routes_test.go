@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // L'horloge figée des tests : « vu il y a » se calcule depuis elle.
@@ -33,6 +34,7 @@ type testServer struct {
 	resources  *resource.Service
 	services   *service.Tracker
 	probes     *probe.Service
+	updates    *update.Service
 	status     *status.Service
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
@@ -78,6 +80,9 @@ func newTestServer(t *testing.T) *testServer {
 	probes := probe.New(db, logger)
 	probes.SetClock(func() time.Time { return testNow })
 	probes.SetWatcher(bus)
+	updates := update.New(db, logger)
+	updates.SetClock(func() time.Time { return testNow })
+	updates.SetWatcher(bus)
 	preferences := settings.New(root)
 	publicBus := live.New()
 	statusPage := status.New(db, machines, preferences, logger)
@@ -109,6 +114,7 @@ func newTestServer(t *testing.T) *testServer {
 		Resources:  resources,
 		Services:   services,
 		Probes:     probes,
+		Updates:    updates,
 		Status:     statusPage,
 		Alerts:     alerts,
 		Notifier:   notifier,
@@ -122,7 +128,8 @@ func newTestServer(t *testing.T) *testServer {
 	// Le serveur commande les agents par leurs flux, comme dans serve.
 	services.SetCommander(server)
 	probes.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, status: statusPage, alerts: alerts, notifier: notifier, bus: bus, publicBus: publicBus, db: db}
+	updates.SetCommander(server)
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

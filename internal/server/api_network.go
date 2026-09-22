@@ -93,12 +93,16 @@ func (s *Server) networkOf(r *http.Request, status machine.Status) (networkRespo
 	if err != nil {
 		return networkResponse{}, err
 	}
+	checks, err := s.updates.Checks(r.Context(), status.ID)
+	if err != nil {
+		return networkResponse{}, err
+	}
 	response := networkResponse{
 		MachineID: status.ID, MachineName: status.Name, Online: status.Online,
 		Services: make([]serviceJSON, 0, len(topology.Services)), Groups: []groupJSON{}, Edges: []edgeJSON{},
 	}
 	for _, item := range topology.Services {
-		response.Services = append(response.Services, serviceToJSON(item, status.Name, currents[item.ID]))
+		response.Services = append(response.Services, serviceToJSON(item, status.Name, currents[item.ID], checks))
 	}
 	for _, group := range topology.Groups {
 		response.Groups = append(response.Groups, groupJSON{NetworkID: group.NetworkID, Name: group.Name, Internal: group.Internal, Members: group.Members})

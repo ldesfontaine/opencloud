@@ -51,6 +51,7 @@ const (
 	MaxPortsPerContainer   = 64
 	MaxNameLength          = 255
 	MaxImageLength         = 512
+	MaxPathLength          = 4096
 	// Les réseaux d'une machine et ceux qu'un conteneur joint ; les alias
 	// et les dépendances déclarées d'un conteneur.
 	MaxNetworksPerMachine   = 256
@@ -71,22 +72,43 @@ const (
 	SampleRetention     = 48 * time.Hour
 )
 
+// UpdatePolicy est ce que l'opérateur veut des mises à jour d'un
+// service : les suivre, les taire (épinglé : vérifié, jamais montré), ou
+// ne jamais interroger le registre (exclu).
+type UpdatePolicy string
+
+const (
+	PolicyFollow   UpdatePolicy = ""
+	PolicyPinned   UpdatePolicy = "pinned"
+	PolicyExcluded UpdatePolicy = "excluded"
+)
+
+func IsUpdatePolicy(policy UpdatePolicy) bool {
+	return policy == PolicyFollow || policy == PolicyPinned || policy == PolicyExcluded
+}
+
 // Service est une fiche telle que la base la connaît. Les dates zéro
 // disent « jamais » ; ArchivedAt non nul dit que le conteneur est détruit.
 type Service struct {
-	ID           string
-	MachineID    string
-	Kind         Kind
-	Name         string
-	Group        string
-	ContainerID  string
-	Image        string
-	ImageID      string
-	State        State
-	ExitCode     int
-	Health       Health
-	RestartCount int
-	Ports        []Port
+	ID          string
+	MachineID   string
+	Kind        Kind
+	Name        string
+	Group       string
+	ContainerID string
+	Image       string
+	ImageID     string
+	// Ce que Compose dit du service : son nom dans le projet, le dossier
+	// et le fichier du projet. Vides hors Compose.
+	ComposeService string
+	ComposeDir     string
+	ComposeFile    string
+	UpdatePolicy   UpdatePolicy
+	State          State
+	ExitCode       int
+	Health         Health
+	RestartCount   int
+	Ports          []Port
 	// Le mode réseau tel que Docker le dit : bridge, host, none,
 	// container:<id>, ou le nom du premier réseau joint.
 	NetworkMode string

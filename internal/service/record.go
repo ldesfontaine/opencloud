@@ -250,26 +250,29 @@ func (p *planner) applyStat(stat Stat) {
 // savait déjà (première vue) est conservé.
 func (p *planner) fromContainer(container Container, previous Service, existed bool) Service {
 	service := Service{
-		ID:           ID(p.machineID, container.ContainerID),
-		MachineID:    p.machineID,
-		Kind:         KindContainer,
-		Name:         container.Name,
-		Group:        container.Group,
-		ContainerID:  container.ContainerID,
-		Image:        container.Image,
-		ImageID:      container.ImageID,
-		State:        container.State,
-		ExitCode:     container.ExitCode,
-		Health:       container.Health,
-		RestartCount: container.RestartCount,
-		Ports:        container.Ports,
-		NetworkMode:  container.NetworkMode,
-		Privileged:   container.Privileged,
-		Networks:     container.Networks,
-		DependsOn:    container.DependsOn,
-		CreatedAt:    container.CreatedAt.UTC(),
-		FirstSeenAt:  p.now,
-		LastSeenAt:   p.now,
+		ID:             ID(p.machineID, container.ContainerID),
+		MachineID:      p.machineID,
+		Kind:           KindContainer,
+		Name:           container.Name,
+		Group:          container.Group,
+		ContainerID:    container.ContainerID,
+		Image:          container.Image,
+		ImageID:        container.ImageID,
+		ComposeService: container.ComposeService,
+		ComposeDir:     container.ComposeDir,
+		ComposeFile:    container.ComposeFile,
+		State:          container.State,
+		ExitCode:       container.ExitCode,
+		Health:         container.Health,
+		RestartCount:   container.RestartCount,
+		Ports:          container.Ports,
+		NetworkMode:    container.NetworkMode,
+		Privileged:     container.Privileged,
+		Networks:       container.Networks,
+		DependsOn:      container.DependsOn,
+		CreatedAt:      container.CreatedAt.UTC(),
+		FirstSeenAt:    p.now,
+		LastSeenAt:     p.now,
 	}
 	if container.StartedAt != nil {
 		service.StartedAt = container.StartedAt.UTC()
@@ -278,7 +281,9 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		service.FinishedAt = container.FinishedAt.UTC()
 	}
 	if existed {
+		// Ce que l'opérateur a réglé sur la fiche survit à l'inventaire.
 		service.FirstSeenAt = previous.FirstSeenAt
+		service.UpdatePolicy = previous.UpdatePolicy
 	}
 	return service
 }

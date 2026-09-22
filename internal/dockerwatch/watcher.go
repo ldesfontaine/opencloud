@@ -452,6 +452,9 @@ func toContainer(inspected dockerapi.Container) service.Container {
 	}
 	if composeService := inspected.Config.Labels[dockerapi.LabelComposeService]; composeService != "" {
 		container.Name = composeService
+		container.ComposeService = composeService
+		container.ComposeDir = inspected.Config.Labels[dockerapi.LabelComposeWorkingDir]
+		container.ComposeFile, _, _ = strings.Cut(inspected.Config.Labels[dockerapi.LabelComposeConfigFiles], ",")
 	}
 	if inspected.State.Health != nil {
 		container.Health = service.Health(inspected.State.Health.Status)

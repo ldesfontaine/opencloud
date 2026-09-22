@@ -69,6 +69,12 @@ func fixtureMux(t *testing.T) *http.ServeMux {
 	mux.HandleFunc("GET /v1.41/containers/exited/json", serveFixture(t, "inspect_exited.json"))
 	mux.HandleFunc("GET /v1.41/containers/networked/json", serveFixture(t, "inspect_networked.json"))
 	mux.HandleFunc("GET /v1.41/networks", serveFixture(t, "networks.json"))
+	mux.HandleFunc("GET /v1.41/images/alpine:3.20/json", serveFixture(t, "image_alpine.json"))
+	mux.HandleFunc("GET /v1.41/images/portfolio:latest/json", serveFixture(t, "image_local.json"))
+	mux.HandleFunc("GET /v1.41/images/{name}/json", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"No such image: nope"}`))
+	})
 	mux.HandleFunc("GET /v1.41/containers/{id}/json", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(`{"message":"No such container: nope"}`))
@@ -438,5 +444,26 @@ func TestLogs_FollowStopsWithTheContext(t *testing.T) {
 	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
 	if _, err := reader.Next(); err == nil {
 		t.Fatal("expected the cancelled context to end the stream")
+	}
+}
+
+func TestInspectImage_ReadsThePulledDigest(t *testing.T) {
+	client := fakeDaemon(t, fixtureMux(t))
+	image, err := client.InspectImage(context.Background(), "alpine:3.20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.PulledDigest("alpine") != "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc" {
+		t.Fatalf("digest = %q", image.PulledDigest("alpine"))
+	}
+	if image.PulledDigest("nginx") != "" {
+		t.Fatal("another repository must not match")
+	}
+	local, err := client.InspectImage(context.Background(), "portfolio:latest")
+	if err != nil || local.PulledDigest("portfolio") != "" {
+		t.Fatalf("local image: %q %v", local.PulledDigest("portfolio"), err)
+	}
+	if _, err := client.InspectImage(context.Background(), "nope:1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing image: %v", err)
 	}
 }

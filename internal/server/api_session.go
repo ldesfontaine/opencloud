@@ -42,7 +42,7 @@ type languageRequest struct {
 type countsResponse struct {
 	Machines machineCounts `json:"machines"`
 	Jobs     jobCounts     `json:"jobs"`
-	Services jobCounts     `json:"services"`
+	Services serviceCounts `json:"services"`
 	Probes   jobCounts     `json:"probes"`
 	// Les certificats vus par les sondes actives : combien, combien
 	// approchent de leur fin, et la plus proche échéance.
@@ -75,6 +75,14 @@ type machineCounts struct {
 type jobCounts struct {
 	Total     int `json:"total"`
 	Attention int `json:"attention"`
+}
+
+// Les services : ceux qui vont mal, et ceux qui ont une image plus
+// récente à tirer, hors épinglés.
+type serviceCounts struct {
+	Total     int `json:"total"`
+	Attention int `json:"attention"`
+	Updates   int `json:"updates"`
 }
 
 func (s *Server) session(w http.ResponseWriter, _ *http.Request) {
@@ -152,6 +160,11 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	updates, err := s.updates.Count(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	openIncidents, err := s.status.CountOpenIncidents(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
@@ -165,7 +178,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
-		Services:     jobCounts{Total: services, Attention: failing},
+		Services:     serviceCounts{Total: services, Attention: failing, Updates: updates},
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},

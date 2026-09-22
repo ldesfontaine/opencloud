@@ -16,6 +16,10 @@ const (
 	LabelComposeService   = "com.docker.compose.service"
 	LabelComposeOneOff    = "com.docker.compose.oneoff"
 	LabelComposeDependsOn = "com.docker.compose.depends_on"
+	// Le dossier du projet et ses fichiers, séparés par des virgules : de
+	// quoi écrire la commande « docker compose » à jouer depuis là.
+	LabelComposeWorkingDir  = "com.docker.compose.project.working_dir"
+	LabelComposeConfigFiles = "com.docker.compose.project.config_files"
 )
 
 // Summary est une ligne de la liste ; seuls les champs lus sont déclarés.

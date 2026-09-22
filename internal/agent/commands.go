@@ -10,26 +10,29 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // commandRunner exécute ce que le serveur pousse par le flux : ouvrir et
-// fermer un suivi de journal, remplacer le jeu de sondes. Chaque suivi vit
-// dans sa propre goroutine et meurt avec le flux ; les sondes, elles,
-// survivent aux reconnexions, leur moteur vit avec l'agent.
+// fermer un suivi de journal, remplacer le jeu de sondes, régler les
+// vérifications d'images. Chaque suivi vit dans sa propre goroutine et
+// meurt avec le flux ; les sondes et les vérifications, elles, survivent
+// aux reconnexions, leurs boucles vivent avec l'agent.
 type commandRunner struct {
 	ctx     context.Context
 	client  *Client
 	session string
 	logs    service.LogSource
 	probes  probe.Assignable
+	updates update.Assignable
 	logger  *slog.Logger
 
 	mu   sync.Mutex
 	open map[string]context.CancelFunc
 }
 
-func newCommandRunner(ctx context.Context, client *Client, session string, logs service.LogSource, probes probe.Assignable, logger *slog.Logger) *commandRunner {
-	return &commandRunner{ctx: ctx, client: client, session: session, logs: logs, probes: probes, logger: logger, open: make(map[string]context.CancelFunc)}
+func newCommandRunner(ctx context.Context, client *Client, session string, logs service.LogSource, probes probe.Assignable, updates update.Assignable, logger *slog.Logger) *commandRunner {
+	return &commandRunner{ctx: ctx, client: client, session: session, logs: logs, probes: probes, updates: updates, logger: logger, open: make(map[string]context.CancelFunc)}
 }
 
 func (r *commandRunner) handle(name, data string) {
@@ -40,6 +43,8 @@ func (r *commandRunner) handle(name, data string) {
 		r.withLogRequest(name, data, func(request service.LogRequest) { r.stopLogs(request.ID) })
 	case probe.CommandProbes:
 		r.assignProbes(name, data)
+	case update.CommandImages:
+		r.assignImages(name, data)
 	default:
 		r.logger.Warn("unknown command", "name", name)
 	}
@@ -63,6 +68,18 @@ func (r *commandRunner) assignProbes(name, data string) {
 	}
 	r.logger.Info("probes assigned", "count", len(assignment.Probes))
 	r.probes.Assign(assignment)
+}
+
+// Les exclusions remplacent les précédentes ; « maintenant » lance un
+// passage complet.
+func (r *commandRunner) assignImages(name, data string) {
+	var assignment update.Assignment
+	if err := json.Unmarshal([]byte(data), &assignment); err != nil {
+		r.logger.Warn("bad command", "name", name)
+		return
+	}
+	r.logger.Info("image checks assigned", "excluded", len(assignment.Excluded), "now", assignment.Now)
+	r.updates.Assign(assignment)
 }
 
 func (r *commandRunner) startLogs(request service.LogRequest) {

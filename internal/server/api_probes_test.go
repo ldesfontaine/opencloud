@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 func (ts *testServer) createProbeVia(t *testing.T, request probeRequest) probeJSON {
@@ -129,6 +130,10 @@ func TestAgentStream_PushesTheProbeSetOnConnectAndOnChange(t *testing.T) {
 func nextAssignment(t *testing.T, stream *bufio.Reader) probe.Assignment {
 	t.Helper()
 	name, data := nextCommand(t, stream, 3*time.Second)
+	// Le flux qui s'ouvre porte aussi les exclusions d'images : on passe.
+	if name == update.CommandImages {
+		name, data = nextCommand(t, stream, 3*time.Second)
+	}
 	if name != probe.CommandProbes {
 		t.Fatalf("attendu la commande %q, obtenu %q", probe.CommandProbes, name)
 	}

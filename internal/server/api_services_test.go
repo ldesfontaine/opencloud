@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 func (ts *testServer) agentPost(session, path string, payload any) *httptest.ResponseRecorder {
@@ -36,7 +37,7 @@ func readCommand(t *testing.T, stream *bufio.Reader, want string) string {
 		if name == want {
 			return data
 		}
-		if name != probe.CommandProbes {
+		if name != probe.CommandProbes && name != update.CommandImages {
 			t.Fatalf("commande inattendue %q en attendant %q", name, want)
 		}
 	}

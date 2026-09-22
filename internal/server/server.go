@@ -24,6 +24,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/web"
 )
 
@@ -97,6 +98,18 @@ type ProbeService interface {
 	Uptimes(ctx context.Context, id string) ([]probe.Uptime, error)
 	Assign(ctx context.Context, machineID string)
 	Record(ctx context.Context, machineID string, report probe.Report) error
+}
+
+// Ce que le serveur attend du composant update : l'API lit et règle, le
+// signal de l'agent écrit, et le flux qui s'ouvre repart avec les
+// exclusions de sa machine.
+type UpdateService interface {
+	Record(ctx context.Context, machineID string, report update.Report) error
+	Checks(ctx context.Context, machineID string) (map[string]update.Check, error)
+	Count(ctx context.Context) (int, error)
+	SetPolicy(ctx context.Context, serviceID string, policy service.UpdatePolicy) error
+	CheckNow(ctx context.Context, machineID string) error
+	Assign(ctx context.Context, machineID string)
 }
 
 // Ce que le serveur attend du composant heartbeat : l'API d'un côté,
@@ -176,6 +189,7 @@ type Server struct {
 	resources      ResourceService
 	services       ServiceTracker
 	probes         ProbeService
+	updates        UpdateService
 	status         StatusService
 	alerts         AlertService
 	notifier       Notifier
@@ -205,6 +219,7 @@ type Options struct {
 	Resources  ResourceService
 	Services   ServiceTracker
 	Probes     ProbeService
+	Updates    UpdateService
 	Status     StatusService
 	Alerts     AlertService
 	Notifier   Notifier
@@ -248,6 +263,7 @@ func New(opts Options) (*Server, error) {
 		resources:      opts.Resources,
 		services:       opts.Services,
 		probes:         opts.Probes,
+		updates:        opts.Updates,
 		status:         opts.Status,
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,

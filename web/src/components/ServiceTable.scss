@@ -8,6 +8,13 @@
   }
 }
 
+// L'image et, à côté, la pastille de mise à jour.
+.image-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table .th-num,
 .table .td-num {
   text-align: right;
