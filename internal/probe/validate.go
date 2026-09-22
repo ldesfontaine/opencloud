@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"slices"
 	"time"
 	"unicode/utf8"
 )
@@ -28,9 +29,7 @@ func validateResult(result Result, now time.Time) error {
 	if result.CheckedAt.IsZero() || result.CheckedAt.After(now.Add(maxFutureSkew)) || result.CheckedAt.Before(now.Add(-ResultRetention)) {
 		return ErrReportInvalid
 	}
-	switch result.Outcome {
-	case OutcomeUp, OutcomeDegraded, OutcomeDown:
-	default:
+	if !slices.Contains(Outcomes(), result.Outcome) {
 		return ErrReportInvalid
 	}
 	if result.DurationMs < 0 || result.DurationMs > maxDurationMs {

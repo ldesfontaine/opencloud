@@ -1,6 +1,9 @@
 package update
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Assignment est ce que le serveur pousse à l'agent : les images de la
 // machine qu'il ne doit jamais interroger, et « maintenant » quand
@@ -33,12 +36,12 @@ const (
 	OutcomeUnsupported Outcome = "unsupported"
 )
 
+func Outcomes() []Outcome {
+	return []Outcome{OutcomeOK, OutcomeLocal, OutcomeUnreachable, OutcomeUnauthorized, OutcomeNotFound, OutcomeUnsupported}
+}
+
 func isOutcome(outcome Outcome) bool {
-	switch outcome {
-	case OutcomeOK, OutcomeLocal, OutcomeUnreachable, OutcomeUnauthorized, OutcomeNotFound, OutcomeUnsupported:
-		return true
-	}
-	return false
+	return slices.Contains(Outcomes(), outcome)
 }
 
 // Result est ce que l'agent a constaté sur une image : des faits, jamais

@@ -12,6 +12,10 @@ const (
 	EventTest       Event = "test"
 )
 
+func Events() []Event {
+	return []Event{EventOpened, EventAggravated, EventResolved, EventTest}
+}
+
 type DeliveryStatus string
 
 const (
@@ -19,6 +23,10 @@ const (
 	DeliveryDelivered DeliveryStatus = "delivered"
 	DeliveryFailed    DeliveryStatus = "failed"
 )
+
+func DeliveryStatuses() []DeliveryStatus {
+	return []DeliveryStatus{DeliveryPending, DeliveryDelivered, DeliveryFailed}
+}
 
 // Delivery est une livraison réservée en base avant d'être envoyée : si
 // le processus meurt entre les deux, la ligne restée en attente repart au
@@ -55,6 +63,12 @@ const (
 	ReasonStatus      Reason = "status"
 	ReasonTLS         Reason = "tls"
 )
+
+// Reasons liste les motifs d'échec ; le motif vide, celui d'une livraison
+// réussie, n'en est pas un.
+func Reasons() []Reason {
+	return []Reason{ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonForbidden, ReasonRedirect, ReasonStatus, ReasonTLS}
+}
 
 const (
 	// Trois essais : tout de suite, puis après ces attentes. Une panne du

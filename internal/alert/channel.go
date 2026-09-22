@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,12 +25,12 @@ const (
 	FormatSlack   Format = "slack"
 )
 
+func Formats() []Format {
+	return []Format{FormatJSON, FormatText, FormatDiscord, FormatSlack}
+}
+
 func isFormat(format Format) bool {
-	switch format {
-	case FormatJSON, FormatText, FormatDiscord, FormatSlack:
-		return true
-	}
-	return false
+	return slices.Contains(Formats(), format)
 }
 
 const (

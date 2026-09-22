@@ -19,6 +19,11 @@ const (
 	StatusPaused  Status = "paused"
 )
 
+// Statuses liste les états, dans l'ordre des écrans.
+func Statuses() []Status {
+	return []Status{StatusNew, StatusOnTime, StatusStarted, StatusLate, StatusFailed, StatusPaused}
+}
+
 // Les trois formes de ping : fini, démarré, fini avec un code de sortie.
 type Kind string
 
@@ -27,6 +32,10 @@ const (
 	KindStart    Kind = "start"
 	KindExitCode Kind = "exit_code"
 )
+
+func Kinds() []Kind {
+	return []Kind{KindFinish, KindStart, KindExitCode}
+}
 
 // Le résultat d'une exécution : ouverte par un start, close par une fin ou
 // par le dépassement de l'échéance.
@@ -38,6 +47,10 @@ const (
 	OutcomeFailure    Outcome = "failure"
 	OutcomeTimeout    Outcome = "timeout"
 )
+
+func Outcomes() []Outcome {
+	return []Outcome{OutcomeInProgress, OutcomeSuccess, OutcomeFailure, OutcomeTimeout}
+}
 
 const (
 	MinInterval   = time.Minute

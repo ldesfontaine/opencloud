@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -31,6 +32,12 @@ const (
 	HealthHealthy   Health = "healthy"
 	HealthUnhealthy Health = "unhealthy"
 )
+
+// Healths liste ce qu'un HEALTHCHECK peut dire ; le vide, pas de
+// HEALTHCHECK, n'est pas une santé.
+func Healths() []Health {
+	return []Health{HealthStarting, HealthHealthy, HealthUnhealthy}
+}
 
 const (
 	// L'agent mesure chaque conteneur toutes les 30 s : trois fois moins
@@ -83,8 +90,12 @@ const (
 	PolicyExcluded UpdatePolicy = "excluded"
 )
 
+func UpdatePolicies() []UpdatePolicy {
+	return []UpdatePolicy{PolicyFollow, PolicyPinned, PolicyExcluded}
+}
+
 func IsUpdatePolicy(policy UpdatePolicy) bool {
-	return policy == PolicyFollow || policy == PolicyPinned || policy == PolicyExcluded
+	return slices.Contains(UpdatePolicies(), policy)
 }
 
 // Service est une fiche telle que la base la connaît. Les dates zéro

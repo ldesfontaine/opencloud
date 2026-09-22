@@ -2,6 +2,7 @@ package alert
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -22,8 +23,12 @@ func rank(severity Severity) int {
 	return 1
 }
 
+func Severities() []Severity {
+	return []Severity{SeverityAttention, SeverityDanger}
+}
+
 func isSeverity(severity Severity) bool {
-	return severity == SeverityAttention || severity == SeverityDanger
+	return slices.Contains(Severities(), severity)
 }
 
 // Kind est le catalogue fermé du premier lot : chaque type a sa source, sa
@@ -84,12 +89,12 @@ const (
 	ObjectVolume    ObjectKind = "volume"
 )
 
+func ObjectKinds() []ObjectKind {
+	return []ObjectKind{ObjectMachine, ObjectService, ObjectHeartbeat, ObjectProbe, ObjectVolume}
+}
+
 func isObjectKind(kind ObjectKind) bool {
-	switch kind {
-	case ObjectMachine, ObjectService, ObjectHeartbeat, ObjectProbe, ObjectVolume:
-		return true
-	}
-	return false
+	return slices.Contains(ObjectKinds(), kind)
 }
 
 // Object désigne ce dont l'alerte parle. Le nom est gardé avec l'alerte :

@@ -14,6 +14,10 @@ const (
 	ReasonRevoked  = "revoked"
 )
 
+func UntrustReasons() []string {
+	return []string{ReasonChain, ReasonHostname, ReasonRevoked}
+}
+
 // Ce que le composant sonde constate : une sonde dont l'état vient de
 // bouger, ou dont le certificat est à rejuger. Une sonde nouvelle ou en
 // pause ne dit rien de la cible : tout ce qu'elle portait se résout.

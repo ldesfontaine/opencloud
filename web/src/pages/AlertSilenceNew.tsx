@@ -84,7 +84,7 @@ export function AlertSilenceNew() {
           <div className="grid-2">
             <Field label={t("silence.object_kind_label")} htmlFor="silence-object-kind">
               <Select id="silence-object-kind" value={objectKind} onChange={(event) => pickKind(asObjectKind(event.target.value))}>
-                {objectKinds.map((candidate) => (
+                {(objectKind === "volume" ? [...objectKinds, "volume" as const] : objectKinds).map((candidate) => (
                   <option key={candidate} value={candidate}>
                     {candidate === "" ? t("silence.object_kind_none") : t(`silence.object_kind_${candidate}`)}
                   </option>

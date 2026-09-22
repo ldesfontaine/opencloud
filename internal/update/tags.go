@@ -13,6 +13,10 @@ const (
 	KindDigest Kind = "digest"
 )
 
+func Kinds() []Kind {
+	return []Kind{KindMajor, KindMinor, KindPatch, KindDigest}
+}
+
 // Les suffixes de variante qu'un tag porte après sa version : l'OS de
 // base, pas une préversion. Du plus long au plus court, pour que
 // « -slim-bookworm » passe avant « -bookworm ». Liste fermée : un
