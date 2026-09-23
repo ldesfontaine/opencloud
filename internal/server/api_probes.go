@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -190,8 +191,8 @@ func resultToJSON(result probe.Result) resultJSON {
 // onlineMachines dit, par machine, si son flux est ouvert : c'est ce qui
 // permet à l'interface de distinguer « hors ligne » de « plus personne ne
 // sonde ».
-func (s *Server) onlineMachines(r *http.Request) (map[string]bool, error) {
-	machines, err := s.machines.List(r.Context())
+func (s *Server) onlineMachines(ctx context.Context) (map[string]bool, error) {
+	machines, err := s.machines.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +227,7 @@ func (s *Server) writeProbeList(w http.ResponseWriter, r *http.Request, machineI
 		s.apiInternalError(w, r, err)
 		return
 	}
-	online, err := s.onlineMachines(r)
+	online, err := s.onlineMachines(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -262,25 +263,32 @@ func (s *Server) getProbe(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	online, err := s.onlineMachines(r)
+	response, err := s.probeResponseOf(r.Context(), found)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	uptimes, err := s.probes.Uptimes(r.Context(), found.ID)
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+// probeResponseOf assemble la fiche d'une sonde ; l'API et l'outil MCP la
+// rendent telle quelle.
+func (s *Server) probeResponseOf(ctx context.Context, found probe.Probe) (probeResponse, error) {
+	online, err := s.onlineMachines(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return probeResponse{}, err
 	}
-	days, err := s.probes.Days(r.Context(), found.ID, probeDetailDays)
+	uptimes, err := s.probes.Uptimes(ctx, found.ID)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return probeResponse{}, err
 	}
-	results, err := s.probes.Results(r.Context(), found.ID, probeResultsShown)
+	days, err := s.probes.Days(ctx, found.ID, probeDetailDays)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return probeResponse{}, err
+	}
+	results, err := s.probes.Results(ctx, found.ID, probeResultsShown)
+	if err != nil {
+		return probeResponse{}, err
 	}
 	response := probeResponse{
 		Probe:   probeToJSON(found, online[found.MachineID]),
@@ -297,7 +305,7 @@ func (s *Server) getProbe(w http.ResponseWriter, r *http.Request) {
 	for _, result := range results {
 		response.Results = append(response.Results, resultToJSON(result))
 	}
-	s.writeAPI(w, http.StatusOK, response)
+	return response, nil
 }
 
 // L'opérateur nomme la sonde, dit ce qu'elle vise et quelle machine la
@@ -339,7 +347,7 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	online, err := s.onlineMachines(r)
+	online, err := s.onlineMachines(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return

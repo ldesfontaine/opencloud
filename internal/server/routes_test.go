@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -38,6 +39,7 @@ type testServer struct {
 	status     *status.Service
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
+	access     *mcp.Service
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -105,6 +107,8 @@ func newTestServer(t *testing.T) *testServer {
 	resources.SetAlerter(alerts)
 	services.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
+	access := mcp.New(db, logger)
+	access.SetClock(func() time.Time { return testNow })
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -118,8 +122,10 @@ func newTestServer(t *testing.T) *testServer {
 		Status:     statusPage,
 		Alerts:     alerts,
 		Notifier:   notifier,
+		MCP:        access,
 		Live:       bus,
 		PublicLive: publicBus,
+		ConfigPath: "/etc/opencloud/config.toml",
 		Clock:      func() time.Time { return testNow },
 	})
 	if err != nil {
@@ -129,7 +135,7 @@ func newTestServer(t *testing.T) *testServer {
 	services.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, access: access, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

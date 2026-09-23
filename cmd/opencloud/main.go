@@ -12,6 +12,7 @@ const usage = `Usage : opencloud <commande> [options]
 Commandes :
   serve     démarre le serveur web (option -config)
   agent     tourne sur une machine gérée (options -server -token -lang -pin -allow-plain -state)
+  mcp       parle MCP sur stdin/stdout à un client IA local, en lecture seule (option -config)
   version   affiche la version
 `
 
@@ -26,6 +27,8 @@ func main() {
 		err = runServe(os.Args[2:])
 	case "agent":
 		err = runAgent(os.Args[2:])
+	case "mcp":
+		err = runMCP(os.Args[2:])
 	case "version":
 		err = runVersion()
 	default:

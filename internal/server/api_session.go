@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -135,47 +136,49 @@ func (s *Server) catalogAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
-	total, online, err := s.machines.Count(r.Context())
+	response, err := s.countsOf(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	jobs, attention, err := s.heartbeats.Count(r.Context())
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+// countsOf assemble les compteurs ; l'API et l'outil MCP les rendent tels quels.
+func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
+	total, online, err := s.machines.Count(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	services, failing, err := s.services.Count(r.Context())
+	jobs, attention, err := s.heartbeats.Count(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	probes, down, err := s.probes.Count(r.Context())
+	services, failing, err := s.services.Count(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	certificates, err := s.probes.Certificates(r.Context())
+	probes, down, err := s.probes.Count(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	updates, err := s.updates.Count(r.Context())
+	certificates, err := s.probes.Certificates(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	openIncidents, err := s.status.CountOpenIncidents(r.Context())
+	updates, err := s.updates.Count(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	alerts, err := s.alerts.Count(r.Context())
+	openIncidents, err := s.status.CountOpenIncidents(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return countsResponse{}, err
 	}
-	s.writeAPI(w, http.StatusOK, countsResponse{
+	alerts, err := s.alerts.Count(ctx)
+	if err != nil {
+		return countsResponse{}, err
+	}
+	return countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
 		Services:     serviceCounts{Total: services, Attention: failing, Updates: updates},
@@ -183,7 +186,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},
 		Alerts:       alertCountsJSON{Open: alerts.Open, Unacknowledged: alerts.Unacknowledged},
-	})
+	}, nil
 }
 
 func certificatesToJSON(counted probe.Certificates) certificateCounts {

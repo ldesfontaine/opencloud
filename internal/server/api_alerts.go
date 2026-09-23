@@ -212,6 +212,12 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	s.writeAPI(w, http.StatusOK, alertResponseOf(found, deliveries))
+}
+
+// alertResponseOf assemble la fiche d'une alerte ; l'API et l'outil MCP la
+// rendent telle quelle.
+func alertResponseOf(found alert.Alert, deliveries []alert.Delivery) alertResponse {
 	response := alertResponse{Alert: alertToJSON(found), Deliveries: make([]deliveryJSON, 0, len(deliveries))}
 	for _, delivery := range deliveries {
 		response.Deliveries = append(response.Deliveries, deliveryJSON{
@@ -219,7 +225,7 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 			Attempts: delivery.Attempts, Reason: string(delivery.Reason), Code: delivery.Code, UpdatedAt: delivery.UpdatedAt.UTC(),
 		})
 	}
-	s.writeAPI(w, http.StatusOK, response)
+	return response
 }
 
 func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {

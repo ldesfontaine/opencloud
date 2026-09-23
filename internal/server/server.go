@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -180,24 +182,30 @@ type Live interface {
 }
 
 type Server struct {
-	logger         *slog.Logger
-	version        string
-	catalogs       lang.Catalogs
-	settings       SettingsStore
-	machines       MachineService
-	heartbeats     HeartbeatService
-	resources      ResourceService
-	services       ServiceTracker
-	probes         ProbeService
-	updates        UpdateService
-	status         StatusService
-	alerts         AlertService
-	notifier       Notifier
-	live           Live
-	publicLive     Live
-	logStreams     atomic.Int32
-	pingLimits     *pingLimits
-	statusLimits   *statusLimits
+	logger       *slog.Logger
+	version      string
+	catalogs     lang.Catalogs
+	settings     SettingsStore
+	machines     MachineService
+	heartbeats   HeartbeatService
+	resources    ResourceService
+	services     ServiceTracker
+	probes       ProbeService
+	updates      UpdateService
+	status       StatusService
+	alerts       AlertService
+	notifier     Notifier
+	mcp          MCPService
+	live         Live
+	publicLive   Live
+	logStreams   atomic.Int32
+	pingLimits   *pingLimits
+	statusLimits *statusLimits
+	mcpLimits    *mcpLimits
+	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
+	mcpServer      *gomcp.Server
+	mcpHandler     http.Handler
+	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
 	// Le front compilé, embarqué : voir spa.go.
@@ -223,6 +231,7 @@ type Options struct {
 	Status     StatusService
 	Alerts     AlertService
 	Notifier   Notifier
+	MCP        MCPService
 	Live       Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
@@ -231,6 +240,9 @@ type Options struct {
 	// déduite de la requête.
 	PublicURL      string
 	TrustedProxies []netip.Prefix
+	// ConfigPath est le fichier de configuration de ce serveur, cité dans
+	// la commande du client MCP local.
+	ConfigPath string
 	// Clock remplace l'horloge, pour les tests ; nil = time.Now.
 	Clock func() time.Time
 }
@@ -267,10 +279,13 @@ func New(opts Options) (*Server, error) {
 		status:         opts.Status,
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
+		mcp:            opts.MCP,
 		live:           opts.Live,
 		publicLive:     opts.PublicLive,
 		pingLimits:     newPingLimits(),
 		statusLimits:   newStatusLimits(),
+		mcpLimits:      newMCPLimits(),
+		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		app:            app,
@@ -280,7 +295,10 @@ func New(opts Options) (*Server, error) {
 	if opts.Clock != nil {
 		server.pingLimits.setClock(opts.Clock)
 		server.statusLimits.setClock(opts.Clock)
+		server.mcpLimits.setClock(opts.Clock)
 	}
+	server.mcpServer = server.newMCPServer(false)
+	server.mcpHandler = server.newMCPHandler()
 	server.handler = server.chain(securityHeaders(server.mux()))
 	return server, nil
 }

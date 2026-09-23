@@ -709,3 +709,46 @@ export interface Silence {
 export interface SilencesResponse {
   silences: Silence[];
 }
+
+// L'accès d'un agent IA par MCP, tel que Paramètres le lit. Un secret ou
+// un jeton n'y figure que masqué ; le clair ne sort qu'à sa création.
+export interface MCPState {
+  enabled: boolean;
+  client_id: string;
+  secret_masked: string;
+  redirect_uris: string[];
+  endpoint: string;
+  issuer: string;
+  url_local: boolean;
+  stdio_command: string;
+  tokens: MCPToken[];
+  sessions: MCPSession[];
+  limits: { tokens: number; redirect_uris: number };
+  lifetimes: { access_seconds: number; refresh_seconds: number };
+  tools: { reads: number; writes: number };
+  enabled_at: string | null;
+}
+
+export interface MCPToken {
+  id: string;
+  name: string;
+  masked: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface MCPSession {
+  id: string;
+  started_at: string;
+  last_used_at: string | null;
+  expires_at: string;
+}
+
+export interface MCPSecretResponse {
+  secret: string;
+}
+
+export interface MCPTokenResponse {
+  token: string;
+  item: MCPToken;
+}

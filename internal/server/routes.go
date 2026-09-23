@@ -19,8 +19,10 @@ type route struct {
 // lecture, une route par action. Sous /agent, ce que l'agent d'une machine
 // appelle ; sous /ping, ce qu'un cron appelle, sans authentification : le
 // jeton est le secret. Sous /statut, la page publique et ses trois routes,
-// sans authentification et limitées en débit. Tout le reste est le front,
-// servi par spa.go.
+// sans authentification et limitées en débit. Sous /oauth et /mcp, et les
+// deux métadonnées well-known, ce qu'un agent IA appelle : le seul accès
+// authentifié, par Bearer, fermé tant que MCP n'est pas activé. Tout le
+// reste est le front, servi par spa.go.
 func (s *Server) routes() []route {
 	return []route{
 		{"GET", "/api/session", s.session},
@@ -85,6 +87,14 @@ func (s *Server) routes() []route {
 		{"DELETE", "/api/alerts/silences/{id}", s.deleteSilence},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
+		{"GET", "/api/mcp", s.getMCP},
+		{"POST", "/api/mcp/actions/enable", s.enableMCP},
+		{"POST", "/api/mcp/actions/disable", s.disableMCP},
+		{"POST", "/api/mcp/actions/regenerate-secret", s.regenerateMCPSecret},
+		{"PUT", "/api/mcp/redirect-uris", s.setMCPRedirectURIs},
+		{"POST", "/api/mcp/tokens", s.createMCPToken},
+		{"DELETE", "/api/mcp/tokens/{id}", s.revokeMCPToken},
+		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
 		{anyMethod, "/api/", s.apiUnknown},
 		{"POST", "/agent/enroll", s.agentEnroll},
 		{"POST", "/agent/challenge", s.agentChallenge},
@@ -103,6 +113,12 @@ func (s *Server) routes() []route {
 		{"GET", "/statut/api/i18n", s.limitPublic(s.publicCatalog)},
 		{"GET", "/statut/api/events", s.publicEvents},
 		{anyMethod, "/statut/", s.statusUnknown},
+		{"GET", "/.well-known/oauth-authorization-server", s.oauthServerMetadata},
+		{"GET", "/.well-known/oauth-protected-resource", s.oauthResourceMetadata},
+		{"GET", "/.well-known/oauth-protected-resource/mcp", s.oauthResourceMetadata},
+		{"GET", "/oauth/authorize", s.oauthAuthorize},
+		{"POST", "/oauth/token", s.oauthToken},
+		{anyMethod, "/mcp", s.serveMCP},
 		{anyMethod, "/", s.serveApp},
 	}
 }
