@@ -223,8 +223,11 @@ func (ts *testServer) seedServices(t *testing.T) string {
 var (
 	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
 	shortID    = regexp.MustCompile(`"(id|machine_id)":"[0-9a-f]{16}"`)
-	tokenMask  = regexp.MustCompile(`oc_[a-z2-7]{6}…`)
-	tokenValue = regexp.MustCompile(`oc_[a-z2-7]{20,}`)
+	tokenMask  = regexp.MustCompile(`oc[skar]?_[a-z2-7]{6}…`)
+	tokenValue = regexp.MustCompile(`oc[skar]?_[a-z2-7]{20,}`)
+	// Les familles de jetons MCP sont des identifiants de 16 hexadécimaux
+	// sous leur propre clé.
+	sessionID = regexp.MustCompile(`"(id|family_id)":"[0-9a-f]{16}"`)
 	// Les jours d'une sonde sont rangés sous son identifiant, en clé.
 	probeKey = regexp.MustCompile(`"[0-9a-f]{16}":\[`)
 )
@@ -235,6 +238,7 @@ func normalize(body string) string {
 	body = pingToken.ReplaceAllString(body, "hb_TOKEN")
 	body = shortID.ReplaceAllString(body, `"$1":"ID"`)
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
+	body = sessionID.ReplaceAllString(body, `"$1":"ID"`)
 	body = probeKey.ReplaceAllString(body, `"ID":[`)
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -54,7 +55,7 @@ func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response, err := s.networkOf(r, status)
+	response, err := s.networkOf(r.Context(), status)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -70,7 +71,7 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 	}
 	response := overviewNetworkResponse{Machines: make([]networkResponse, 0, len(statuses))}
 	for _, status := range statuses {
-		network, err := s.networkOf(r, status)
+		network, err := s.networkOf(r.Context(), status)
 		if err != nil {
 			s.apiInternalError(w, r, err)
 			return
@@ -80,20 +81,20 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-func (s *Server) networkOf(r *http.Request, status machine.Status) (networkResponse, error) {
-	topology, err := s.services.Topology(r.Context(), status.ID)
+func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkResponse, error) {
+	topology, err := s.services.Topology(ctx, status.ID)
 	if err != nil {
 		return networkResponse{}, err
 	}
-	currents, err := s.currentByService(r)
+	currents, err := s.currentByService(ctx)
 	if err != nil {
 		return networkResponse{}, err
 	}
-	engines, err := s.services.Engines(r.Context())
+	engines, err := s.services.Engines(ctx)
 	if err != nil {
 		return networkResponse{}, err
 	}
-	checks, err := s.updates.Checks(r.Context(), status.ID)
+	checks, err := s.updates.Checks(ctx, status.ID)
 	if err != nil {
 		return networkResponse{}, err
 	}

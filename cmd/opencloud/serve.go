@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -143,13 +144,15 @@ func runServe(args []string) error {
 	resources.SetAlerter(alerts)
 	services.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
-	// Treize boucles de fond : les échéances, le rollup et la purge des
+	// L'accès d'un agent IA : le client OAuth, ses jetons, leur purge.
+	access := mcp.New(db, logger)
+	// Quatorze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
 	// sondes, leur moteur, la purge des constats d'images et leur
 	// vérificateur, la page de statut, les machines perdues, le moteur des
-	// alertes et le notifieur. Elles finissent avant que la base ne se
-	// ferme.
+	// alertes, le notifieur et la purge des jetons MCP. Elles finissent
+	// avant que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
@@ -164,6 +167,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { machines.Watch(ctx) })
 	runLoop(&loops, func() { alerts.Watch(ctx) })
 	runLoop(&loops, func() { notifier.Run(ctx) })
+	runLoop(&loops, func() { access.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
@@ -183,10 +187,12 @@ func runServe(args []string) error {
 		Status:         statusPage,
 		Alerts:         alerts,
 		Notifier:       notifier,
+		MCP:            access,
 		Live:           bus,
 		PublicLive:     publicBus,
 		PublicURL:      cfg.PublicURL,
 		TrustedProxies: cfg.TrustedPrefixes(),
+		ConfigPath:     *configPath,
 	})
 	if err != nil {
 		return err

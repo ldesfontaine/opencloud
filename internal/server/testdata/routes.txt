@@ -60,6 +60,14 @@ POST /api/alerts/silences
 DELETE /api/alerts/silences/{id}
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge
+GET /api/mcp
+POST /api/mcp/actions/enable
+POST /api/mcp/actions/disable
+POST /api/mcp/actions/regenerate-secret
+PUT /api/mcp/redirect-uris
+POST /api/mcp/tokens
+DELETE /api/mcp/tokens/{id}
+DELETE /api/mcp/sessions/{id}
 * /api/
 POST /agent/enroll
 POST /agent/challenge
@@ -78,4 +86,10 @@ GET /statut/api/status
 GET /statut/api/i18n
 GET /statut/api/events
 * /statut/
+GET /.well-known/oauth-authorization-server
+GET /.well-known/oauth-protected-resource
+GET /.well-known/oauth-protected-resource/mcp
+GET /oauth/authorize
+POST /oauth/token
+* /mcp
 * /

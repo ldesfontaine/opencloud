@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,12 +153,12 @@ func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID
 		s.apiInternalError(w, r, err)
 		return
 	}
-	names, err := s.machineNames(r)
+	names, err := s.machineNames(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	currents, err := s.currentByService(r)
+	currents, err := s.currentByService(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -189,30 +190,36 @@ func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	names, err := s.machineNames(r)
+	response, err := s.serviceResponseOf(r.Context(), item)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	currents, err := s.currentByService(r)
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+// serviceResponseOf assemble la fiche d'un service ; l'API et l'outil MCP
+// la rendent telle quelle.
+func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (serviceResponse, error) {
+	names, err := s.machineNames(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return serviceResponse{}, err
 	}
-	transitions, err := s.services.Transitions(r.Context(), item.ID, defaultTransitions)
+	currents, err := s.currentByService(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return serviceResponse{}, err
 	}
-	engines, err := s.services.Engines(r.Context())
+	transitions, err := s.services.Transitions(ctx, item.ID, defaultTransitions)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return serviceResponse{}, err
 	}
-	checks, err := s.updates.Checks(r.Context(), item.MachineID)
+	engines, err := s.services.Engines(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return serviceResponse{}, err
+	}
+	checks, err := s.updates.Checks(ctx, item.MachineID)
+	if err != nil {
+		return serviceResponse{}, err
 	}
 	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
 	for _, engine := range engines {
@@ -221,7 +228,7 @@ func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
 			response.Engine = &converted
 		}
 	}
-	s.writeAPI(w, http.StatusOK, response)
+	return response, nil
 }
 
 func (s *Server) listServiceTransitions(w http.ResponseWriter, r *http.Request) {
@@ -326,19 +333,29 @@ func writeJSONEvent(w http.ResponseWriter, name string, payload any) error {
 }
 
 func (s *Server) writeLogsError(w http.ResponseWriter, r *http.Request, err error) {
+	code, status, refused := logsRefusal(err)
+	if !refused {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.apiRefuse(w, status, code)
+}
+
+// logsRefusal classe un échec de lecture des journaux : la clé que le
+// front ou le modèle lit, et le statut HTTP qui va avec.
+func logsRefusal(err error) (string, int, bool) {
 	var failed *service.LogsError
 	switch {
 	case errors.Is(err, service.ErrMachineOffline):
-		s.apiRefuse(w, http.StatusServiceUnavailable, "service.machine_offline")
+		return "service.machine_offline", http.StatusServiceUnavailable, true
 	case errors.Is(err, service.ErrLogsBusy):
-		s.apiRefuse(w, http.StatusTooManyRequests, codeLogsBusy)
+		return codeLogsBusy, http.StatusTooManyRequests, true
 	case errors.Is(err, service.ErrLogsTimeout):
-		s.apiRefuse(w, http.StatusGatewayTimeout, "service.logs_timeout")
+		return "service.logs_timeout", http.StatusGatewayTimeout, true
 	case errors.As(err, &failed):
-		s.apiRefuse(w, http.StatusBadGateway, failed.Code)
-	default:
-		s.apiInternalError(w, r, err)
+		return failed.Code, http.StatusBadGateway, true
 	}
+	return "", 0, false
 }
 
 func (s *Server) serviceOr404(w http.ResponseWriter, r *http.Request) (service.Service, bool) {
@@ -354,8 +371,8 @@ func (s *Server) serviceOr404(w http.ResponseWriter, r *http.Request) (service.S
 	return item, true
 }
 
-func (s *Server) machineNames(r *http.Request) (map[string]string, error) {
-	statuses, err := s.machines.List(r.Context())
+func (s *Server) machineNames(ctx context.Context) (map[string]string, error) {
+	statuses, err := s.machines.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -366,8 +383,8 @@ func (s *Server) machineNames(r *http.Request) (map[string]string, error) {
 	return names, nil
 }
 
-func (s *Server) currentByService(r *http.Request) (map[string]service.Current, error) {
-	currents, err := s.services.CurrentAll(r.Context())
+func (s *Server) currentByService(ctx context.Context) (map[string]service.Current, error) {
+	currents, err := s.services.CurrentAll(ctx)
 	if err != nil {
 		return nil, err
 	}
