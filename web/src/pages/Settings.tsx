@@ -106,8 +106,9 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
       {state.enabled && (
         <>
           <Card className="form-card">
-            <CardHeader title={t("mcp.client_title")} aside={t("mcp.client_text")} />
+            <CardHeader title={t("mcp.client_title")} />
             <CardBody>
+              <p className="secondary">{t("mcp.client_text")}</p>
               <div className="field">
                 <span className="field-label">{t("mcp.endpoint_label")}</span>
                 <TokenBox value={state.endpoint} />
@@ -138,8 +139,9 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
           <Tokens tokens={state.tokens} limit={state.limits.tokens} reload={reload} now={now} />
           <Sessions sessions={state.sessions} reload={reload} now={now} />
           <Card className="form-card">
-            <CardHeader title={t("mcp.stdio_title")} aside={t("mcp.stdio_text")} />
+            <CardHeader title={t("mcp.stdio_title")} />
             <CardBody>
+              <p className="secondary">{t("mcp.stdio_text")}</p>
               <div className="field">
                 <span className="field-label">{t("mcp.stdio_label")}</span>
                 <TokenBox value={state.stdio_command} />
@@ -179,8 +181,9 @@ function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }
   };
   return (
     <Card className="form-card">
-      <CardHeader title={t("mcp.redirect_title")} aside={t("mcp.redirect_text")} />
+      <CardHeader title={t("mcp.redirect_title")} />
       <form className="card-b" onSubmit={submit}>
+        <p className="secondary">{t("mcp.redirect_text")}</p>
         <Field label={t("mcp.redirect_label")} htmlFor="mcp-redirects" help={t("mcp.redirect_help")}>
           <textarea id="mcp-redirects" className="input textarea mono" value={text} onChange={(event) => setText(event.target.value)} rows={3} />
         </Field>
@@ -230,7 +233,10 @@ function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: num
   };
   return (
     <Card className="form-card">
-      <CardHeader title={t("mcp.tokens_title")} aside={t("mcp.tokens_text")} />
+      <CardHeader title={t("mcp.tokens_title")} />
+      <CardBody>
+        <p className="secondary">{t("mcp.tokens_text")}</p>
+      </CardBody>
       {created !== null && (
         <CardBody>
           <Note tone="warn">{t("mcp.token_once")}</Note>
@@ -303,12 +309,11 @@ function Sessions({ sessions, reload, now }: { sessions: MCPSession[]; reload: (
   };
   return (
     <Card className="form-card">
-      <CardHeader title={t("mcp.sessions_title")} aside={t("mcp.sessions_text")} />
-      {error !== null && (
-        <CardBody>
-          <Pill tone="danger">{t(error)}</Pill>
-        </CardBody>
-      )}
+      <CardHeader title={t("mcp.sessions_title")} />
+      <CardBody>
+        <p className="secondary">{t("mcp.sessions_text")}</p>
+        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+      </CardBody>
       {sessions.length === 0 ? (
         <Empty text={t("mcp.sessions_empty")} />
       ) : (
