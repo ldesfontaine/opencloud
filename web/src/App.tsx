@@ -19,6 +19,7 @@ import { Probes } from "./pages/Probes";
 import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
+import { Settings } from "./pages/Settings";
 import { Soon } from "./pages/Soon";
 import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
@@ -59,7 +60,7 @@ export function App() {
         <Route path="alertes/canaux/:id" element={<AlertChannelForm />} />
         <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
-        <Route path="parametres" element={<Soon navKey="settings" />} />
+        <Route path="parametres" element={<Settings />} />
         <Route path="systeme-visuel" element={<VisualSystem />} />
         <Route path="*" element={<NotFound />} />
       </Route>
