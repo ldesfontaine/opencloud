@@ -190,7 +190,16 @@ changer le schéma.
    dans le futur ou plus vieille que le brut gardé, volume sans point de
    montage absolu ou compté deux fois, plus de 32 volumes) ; le signal de
    vie compte quand même. Une lecture déjà en base, rejouée, est ignorée,
-   ses volumes avec.
+   ses volumes avec. Chaque section du signal (lectures, services, sondes,
+   images) s'écrit seule : une section refusée n'emporte pas les autres.
+   Le serveur journalise le refus et répond `200` avec
+   `{"rejected":{"<section>":"<clé>"}}` ; l'agent jette la section refusée
+   et ne rejoue pas ce qui a été accepté. Seul un corps illisible vaut un
+   `400` global. Un agent plus vieux, qui ne pose pas l'en-tête
+   `OpenCloud-Signal-Sections`, reçoit toujours le `400` de la première
+   section refusée, les autres étant écrites ; face à un serveur plus
+   vieux, l'agent remet dans son tampon les sections qui suivaient la
+   refusée.
 6. Toutes les 5 min, le rollup rejoue tous les seaux horaires que le brut
    couvre encore, puis les seaux journaliers, en une instruction SQL par seau
    qui réécrit le seau s'il existe. Pas de curseur : un redémarrage ou un
@@ -253,9 +262,11 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
 6. openCloud refuse en bloc un rapport hors de mesure (plus de 256
    conteneurs, 512 événements ou 1 024 mesures, un id qui n'est pas un id
    Docker, un état inconnu, une date dans le futur, un port hors bornes) ;
-   le signal de vie compte quand même. Sinon il écrit tout en une
-   transaction : fiches, transitions (une par changement d'état ou de
-   santé, jamais par événement sans changement), mesures, état du Docker.
+   le signal de vie compte quand même, et les autres sections du signal
+   s'écrivent (« Comment une machine est mesurée », point 5). Sinon il
+   écrit tout en une transaction : fiches, transitions (une par changement
+   d'état ou de santé, jamais par événement sans changement), mesures, état
+   du Docker.
    La machine openCloud fait tout cela dans `opencloud serve`, sans réseau.
 7. Le serveur rend des faits : l'état Docker brut, le code de sortie, la
    santé. Le navigateur en fait les pastilles : Actif, Démarre,

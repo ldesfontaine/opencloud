@@ -15,6 +15,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -380,5 +381,55 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	server.probes.ResendUnsent(context.Background())
 	if len(session.Commands()) != 0 {
 		t.Fatal("a delivered set is resent again")
+	}
+}
+
+// Une lecture hors de mesure ne fait plus perdre les services du même
+// signal : chaque section s'écrit seule, la refusée est nommée dans la
+// réponse pour un agent qui sait la lire, en 400 pour un plus vieux.
+func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
+	defer resp.Body.Close()
+	defer cancel()
+
+	send := func(name string, sections bool) *httptest.ResponseRecorder {
+		report := service.Report{Complete: true, Inventory: []service.Container{{
+			ContainerID: strings.Repeat("c", 64), Name: name, Image: "nginx:1.27", State: service.StateRunning, CreatedAt: testNow,
+		}}}
+		var body bytes.Buffer
+		_ = json.NewEncoder(&body).Encode(machine.SignalRequest{Readings: []sampler.Reading{testReading(testNow, 250)}, Services: &report})
+		request := httptest.NewRequest(http.MethodPost, "/agent/signal", &body)
+		request.Header.Set("Authorization", "Bearer "+session)
+		request.Header.Set("Content-Type", "application/json")
+		if sections {
+			request.Header.Set(machine.HeaderSignalSections, "1")
+		}
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		return recorder
+	}
+	recordedName := func() string {
+		services, err := server.services.List(context.Background(), remoteID)
+		if err != nil || len(services) != 1 {
+			t.Fatalf("services = %+v %v", services, err)
+		}
+		return services[0].Name
+	}
+
+	got := send("web", true)
+	if got.Code != http.StatusOK || strings.TrimSpace(got.Body.String()) != `{"rejected":{"readings":"bad_readings"}}` {
+		t.Fatalf("agent récent: %d %s", got.Code, got.Body.String())
+	}
+	if name := recordedName(); name != "web" {
+		t.Fatalf("services perdus avec la lecture refusée: %q", name)
+	}
+	got = send("web-renamed", false)
+	if got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
+		t.Fatalf("agent ancien: %d %s", got.Code, got.Body.String())
+	}
+	if name := recordedName(); name != "web-renamed" {
+		t.Fatalf("agent ancien, services perdus: %q", name)
 	}
 }

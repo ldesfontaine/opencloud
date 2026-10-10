@@ -9,12 +9,14 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -251,7 +253,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 		case err := <-lost:
 			return err
 		case <-ticker.C:
-			if err := signal(ctx, client, stream.Session, pending); err != nil {
+			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
 				return err
 			}
 		}
@@ -260,28 +262,86 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 
 // signal livre le tampon par lots, tant qu'il reste de quoi faire un lot
 // plein : un rattrapage se vide en quelques signaux serrés. Une erreur
-// réseau remet le lot dans le tampon ; un refus du serveur le jette, ces
-// lectures ne passeront jamais. Les essais des sondes partent dans le
-// même corps, à côté des mesures et des services.
-func signal(ctx context.Context, client *Client, session string, pending *pending) error {
+// réseau remet le lot dans le tampon. Une section refusée est jetée, elle
+// ne passera jamais ; les autres sont écrites et ne repartent pas. Les
+// essais des sondes partent dans le même corps, à côté des mesures et des
+// services.
+func signal(ctx context.Context, client *Client, session string, pending *pending, logger *slog.Logger) error {
 	for {
-		batch := pending.readings.take(resource.MaxReadingsPerSignal)
-		report := pending.reports.take()
-		checked := pending.results.take()
-		constated := pending.images.take()
-		err := client.Signal(ctx, session, batch, report, checked, constated)
+		sent := signalBatch{
+			readings: pending.readings.take(resource.MaxReadingsPerSignal),
+			services: pending.reports.take(),
+			probes:   pending.results.take(),
+			images:   pending.images.take(),
+		}
+		rejected, err := client.Signal(ctx, session, sent.readings, sent.services, sent.probes, sent.images)
 		var refused *ServerError
-		if err != nil && !(errors.As(err, &refused) && refused.Status == http.StatusBadRequest) {
-			pending.readings.restore(batch)
-			pending.reports.restore(report)
-			pending.results.restore(checked)
-			pending.images.restore(constated)
+		switch {
+		case errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
+			// Un serveur plus vieux s'arrête à la première section refusée :
+			// celles d'avant sont écrites, celles d'après ne l'ont pas été.
+			logger.Warn("signal refused", "code", refused.Code)
+			sent.restoreAfter(pending, refusedSection(refused.Code))
+		case err != nil:
+			sent.restoreAfter(pending, "")
 			return err
 		}
-		if len(batch) < resource.MaxReadingsPerSignal {
-			return err
+		for section, code := range rejected {
+			logger.Warn("signal section refused", "section", section, "code", code)
+		}
+		if len(sent.readings) < resource.MaxReadingsPerSignal {
+			return nil
 		}
 	}
+}
+
+// Ce qu'un signal emporte, section par section.
+type signalBatch struct {
+	readings []sampler.Reading
+	services *service.Report
+	probes   *probe.Report
+	images   *update.Report
+}
+
+// restoreAfter remet dans le tampon les sections qui suivent celle
+// nommée, dans l'ordre où le serveur les écrit ; sans nom, tout le lot.
+// Une clé inconnue ne dit pas où le serveur s'est arrêté : rien ne revient.
+func (b signalBatch) restoreAfter(pending *pending, refused string) {
+	isUnwritten := refused == ""
+	if !isUnwritten && !slices.Contains(machine.SignalSections(), refused) {
+		return
+	}
+	for _, section := range machine.SignalSections() {
+		if isUnwritten {
+			b.restore(pending, section)
+		}
+		if section == refused {
+			isUnwritten = true
+		}
+	}
+}
+
+func (b signalBatch) restore(pending *pending, section string) {
+	switch section {
+	case machine.SectionReadings:
+		pending.readings.restore(b.readings)
+	case machine.SectionServices:
+		pending.reports.restore(b.services)
+	case machine.SectionProbes:
+		pending.results.restore(b.probes)
+	case machine.SectionImages:
+		pending.images.restore(b.images)
+	}
+}
+
+// refusedSection retrouve la section d'une clé de refus de l'ancien serveur.
+func refusedSection(code string) string {
+	for _, section := range machine.SignalSections() {
+		if machine.SectionRefusal(section) == code {
+			return section
+		}
+	}
+	return code
 }
 
 func jittered(delay time.Duration) time.Duration {

@@ -225,7 +225,7 @@ func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = client.Signal(context.Background(), "session", nil, nil, nil, nil)
+	_, err = client.Signal(context.Background(), "session", nil, nil, nil, nil)
 	if !errors.Is(err, ErrPinMismatch) {
 		t.Fatalf("got %v", err)
 	}
