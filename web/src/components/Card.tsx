@@ -101,6 +101,6 @@ export function Empty({
   );
 }
 
-export function Note({ tone, children }: { tone: "warn" | "danger"; children: ReactNode }) {
+export function Note({ tone, children }: { tone: "ok" | "warn" | "danger"; children: ReactNode }) {
   return <div className={`note note-${tone}`}>{children}</div>;
 }

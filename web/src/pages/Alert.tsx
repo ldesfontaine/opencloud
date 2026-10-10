@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
 
 import type { AlertResponse, ChannelsResponse } from "../api/types";
+import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
@@ -58,7 +59,7 @@ export function AlertPage() {
         <Card>
           <CardHeader title={t("alert.deliveries")} />
           {detail.data.deliveries.length === 0 ? (
-            <Empty text={t("alert.no_delivery")} />
+            <Empty text={t("alert.no_delivery")} action={<Button small icon="plus" to="/alertes/canaux/nouveau">{t("channel.add")}</Button>} />
           ) : (
             <List>
               {detail.data.deliveries.map((delivery) => (

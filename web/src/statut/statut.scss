@@ -25,22 +25,12 @@ body {
   justify-content: space-between;
   gap: 16px;
 
-  .wordmark {
+  // L'écart sépare le signe du mot, jamais « open » de « Cloud ».
+  .brand {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 15px;
-    letter-spacing: -0.02em;
     color: var(--ink);
-
-    span {
-      font-weight: 500;
-      color: var(--ink-2);
-    }
-
-    b {
-      font-weight: 600;
-    }
 
     .mark {
       display: inline-flex;
@@ -50,6 +40,21 @@ body {
     .mark svg {
       width: 20px;
       height: 20px;
+    }
+  }
+
+  .wordmark {
+    display: inline-flex;
+    font-size: 15px;
+    letter-spacing: -0.02em;
+
+    span {
+      font-weight: 500;
+      color: var(--ink-2);
+    }
+
+    b {
+      font-weight: 600;
     }
   }
 }

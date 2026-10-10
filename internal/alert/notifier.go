@@ -48,14 +48,15 @@ func (o Outcome) OK() bool {
 // aucune redirection : un 3xx est un échec, il n'y a rien à suivre chez
 // un récepteur de webhooks.
 type Notifier struct {
-	store    DeliveryStore
-	catalogs lang.Catalogs
-	language func() lang.Code
-	client   *http.Client
-	logger   *slog.Logger
-	now      func() time.Time
-	backoffs []time.Duration
-	jobs     chan Job
+	store     DeliveryStore
+	publicURL string
+	catalogs  lang.Catalogs
+	language  func() lang.Code
+	client    *http.Client
+	logger    *slog.Logger
+	now       func() time.Time
+	backoffs  []time.Duration
+	jobs      chan Job
 }
 
 func NewNotifier(store DeliveryStore, catalogs lang.Catalogs, language func() lang.Code, logger *slog.Logger) *Notifier {
@@ -78,6 +79,12 @@ func NewNotifier(store DeliveryStore, catalogs lang.Catalogs, language func() la
 		store: store, catalogs: catalogs, language: language, client: client, logger: logger,
 		now: time.Now, backoffs: Backoffs, jobs: make(chan Job, queueSize),
 	}
+}
+
+// SetPublicURL donne l'adresse sous laquelle on lit openCloud : chaque
+// envoi porte alors le lien vers la fiche de son alerte.
+func (n *Notifier) SetPublicURL(publicURL string) {
+	n.publicURL = publicURL
 }
 
 // SetBackoffs raccourcit les attentes, pour les tests.
@@ -170,7 +177,7 @@ func (n *Notifier) finish(ctx context.Context, delivery Delivery, outcome Outcom
 }
 
 func (n *Notifier) render(format Format, event Event, alert Alert) (Body, error) {
-	return Render(n.catalogs.For(n.language()), format, event, alert, n.now())
+	return Render(n.catalogs.For(n.language()), format, event, alert, n.now(), AlertLink(n.publicURL, event, alert))
 }
 
 // Test envoie un corps de test au canal, tout de suite et sans essai de
@@ -200,6 +207,9 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 		// ntfy lit le titre et la priorité en en-tête ; les autres n'en font rien.
 		request.Header.Set("Title", body.Title)
 		request.Header.Set("Priority", priorityOf(event))
+		if body.Link != "" {
+			request.Header.Set("Click", body.Link)
+		}
 	}
 	if channel.Secret != "" {
 		request.Header.Set("OpenCloud-Signature", "sha256="+sign(channel.Secret, body.Content))

@@ -12,6 +12,7 @@ import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { silenceDurations } from "../lib/alerts";
+import { nameWithMachine } from "../lib/objects";
 import { useRefresh } from "../lib/refresh";
 import "./StatusAdmin.scss";
 
@@ -154,7 +155,7 @@ interface Option {
   name: string;
 }
 
-// Les objets d'un genre, à choisir par leur nom ; une liste par genre,
+// Les objets d'un genre, à choisir par leur nom et leur machine ; une liste par genre,
 // lue seulement quand le genre est choisi.
 function useObjects(kind: PickKind): Option[] {
   const machines = useResource<MachinesResponse>(kind === "machine" ? "/api/machines" : null);
@@ -165,11 +166,11 @@ function useObjects(kind: PickKind): Option[] {
     case "machine":
       return (machines.data?.machines ?? []).map((machine) => ({ id: machine.id, name: machine.name }));
     case "service":
-      return (services.data?.services ?? []).map((service) => ({ id: service.id, name: `${service.name} · ${service.machine_name}` }));
+      return (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine(service) }));
     case "heartbeat":
-      return (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: job.name }));
+      return (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: nameWithMachine(job) }));
     case "probe":
-      return (probes.data?.probes ?? []).map((probe) => ({ id: probe.id, name: probe.name }));
+      return (probes.data?.probes ?? []).map((probe) => ({ id: probe.id, name: nameWithMachine(probe) }));
   }
   return [];
 }

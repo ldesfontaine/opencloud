@@ -55,6 +55,17 @@ p {
   font-size: 12px;
 }
 
+// Geist Mono fond « -- » et « -m 10 --retry » en ligatures contextuelles :
+// l'espace avant les deux tirets disparaît d'une commande à copier.
+.mono,
+pre,
+code {
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+}
+
 .muted {
   color: var(--muted);
 }
