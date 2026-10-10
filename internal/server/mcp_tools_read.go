@@ -97,7 +97,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getAlertTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_alert_channels",
-		Description: "List notification channels (webhooks): name, format (json, text, discord, slack, email), minimum severity, whether resolutions are sent, enabled, whether the URL is plain http, whether a signing secret is set. The url is reduced to its scheme and host: a webhook URL can itself be a secret.",
+		Description: "List notification channels (webhooks): name, format (json, text, discord, slack, email, matrix), minimum severity, whether resolutions are sent, enabled, whether the URL is plain http, whether a signing secret is set. The url is reduced to its scheme and host: a webhook URL can itself be a secret.",
 		Annotations: readOnlyHints(),
 	}, s.listAlertChannelsTool)
 }

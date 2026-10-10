@@ -8,10 +8,13 @@ import (
 // --- Canaux ---
 
 func (e *Engine) CreateChannel(ctx context.Context, definition ChannelDefinition) (Channel, error) {
+	definition = definition.normalized()
 	if err := definition.Validate(); err != nil {
 		return Channel{}, err
 	}
-	definition = definition.normalized()
+	if definition.Format == FormatMatrix && definition.Secret == "" {
+		return Channel{}, ErrChannelTokenMissing
+	}
 	channel := Channel{
 		Name: strings.TrimSpace(definition.Name), URL: definition.URL, Format: definition.Format, Destination: definition.Destination, Secret: definition.Secret,
 		MinSeverity: definition.MinSeverity, NotifyResolve: definition.NotifyResolve, Enabled: definition.Enabled, CreatedAt: e.now(),
@@ -41,10 +44,10 @@ func (e *Engine) insertChannelUnderCeiling(ctx context.Context, channel Channel)
 // UpdateChannel réécrit le canal ; un secret vide garde celui en place,
 // ClearSecret le retire.
 func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition ChannelDefinition) (Channel, error) {
+	definition = definition.normalized()
 	if err := definition.Validate(); err != nil {
 		return Channel{}, err
 	}
-	definition = definition.normalized()
 	channel, err := e.store.GetChannel(ctx, id)
 	if err != nil {
 		return Channel{}, err
@@ -61,6 +64,11 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 	}
 	if definition.Secret != "" {
 		channel.Secret = definition.Secret
+	}
+	// Un bot Matrix sans jeton ne peut rien écrire : le retirer, c'est
+	// supprimer le canal.
+	if channel.Format == FormatMatrix && channel.Secret == "" {
+		return Channel{}, ErrChannelTokenMissing
 	}
 	if err := e.store.UpdateChannel(ctx, channel); err != nil {
 		return Channel{}, err

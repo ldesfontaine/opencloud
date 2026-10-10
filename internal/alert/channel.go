@@ -18,7 +18,9 @@ import (
 // que Mattermost et Rocket.Chat lisent aussi. Un seul genre de canal, le
 // webhook : tout ce qui a une URL entrante se branche. L'e-mail n'a pas
 // d'URL : il part par le relais SMTP réglé sous Paramètres, vers les
-// adresses de sa destination.
+// adresses de sa destination. Matrix n'a pas de webhook entrant : un bot y
+// écrit par l'API client-serveur, avec son jeton d'accès, dans un salon où
+// il a été invité.
 type Format string
 
 const (
@@ -27,10 +29,11 @@ const (
 	FormatDiscord Format = "discord"
 	FormatSlack   Format = "slack"
 	FormatEmail   Format = "email"
+	FormatMatrix  Format = "matrix"
 )
 
 func Formats() []Format {
-	return []Format{FormatJSON, FormatText, FormatDiscord, FormatSlack, FormatEmail}
+	return []Format{FormatJSON, FormatText, FormatDiscord, FormatSlack, FormatEmail, FormatMatrix}
 }
 
 func isFormat(format Format) bool {
@@ -44,6 +47,8 @@ const (
 	MaxChannels      = 32
 	// Dix adresses de 254 caractères et leurs séparateurs.
 	MaxChannelDestination = 2600
+	// La taille maximale d'un identifiant Matrix, tous types confondus.
+	MaxMatrixRoomID = 255
 )
 
 // Channel est un canal tel que la base le connaît. Le secret sert à signer
@@ -98,6 +103,9 @@ var (
 	ErrChannelSecretInvalid   = errors.New("alert: channel secret invalid")
 	ErrChannelSeverityInvalid = errors.New("alert: channel severity invalid")
 	ErrChannelRecipients      = errors.New("alert: channel recipients invalid")
+	ErrChannelHomeserver      = errors.New("alert: matrix homeserver must be an https url")
+	ErrChannelRoomInvalid     = errors.New("alert: matrix room id invalid")
+	ErrChannelTokenMissing    = errors.New("alert: matrix access token missing")
 	ErrTooManyChannels        = errors.New("alert: too many channels")
 	ErrSilenceInvalid         = errors.New("alert: silence needs a kind or an object")
 	ErrSilenceDurationInvalid = errors.New("alert: silence duration invalid")
@@ -126,29 +134,51 @@ func (d ChannelDefinition) Validate() error {
 }
 
 // validateTarget vérifie où le canal envoie : l'URL d'un webhook, les
-// adresses d'un e-mail.
+// adresses d'un e-mail, le serveur d'accueil et le salon d'un canal Matrix.
 func (d ChannelDefinition) validateTarget() error {
-	if d.Format != FormatEmail {
-		return validateURL(d.URL)
+	switch d.Format {
+	case FormatEmail:
+		if len(d.Destination) > MaxChannelDestination || mail.ValidateRecipients(Recipients(d.Destination)) != nil {
+			return ErrChannelRecipients
+		}
+		return nil
+	case FormatMatrix:
+		if err := validateURL(d.URL); err != nil {
+			return err
+		}
+		return d.validateMatrix()
 	}
-	if len(d.Destination) > MaxChannelDestination || mail.ValidateRecipients(Recipients(d.Destination)) != nil {
-		return ErrChannelRecipients
+	return validateURL(d.URL)
+}
+
+// validateMatrix : le jeton voyage dans un en-tête, le serveur d'accueil
+// doit donc être en https, et le salon nommé par son identifiant.
+func (d ChannelDefinition) validateMatrix() error {
+	parsed, err := url.Parse(d.URL)
+	if err != nil || parsed.Scheme != "https" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return ErrChannelHomeserver
+	}
+	if !IsMatrixRoomID(d.Destination) {
+		return ErrChannelRoomInvalid
 	}
 	return nil
 }
 
 // normalized range la définition selon son format : un e-mail n'a ni URL
-// ni secret, ses adresses sont écrites d'une seule façon ; un webhook n'a
-// pas de destination.
+// ni secret, ses adresses sont écrites d'une seule façon ; un salon Matrix
+// est nommé sans espace autour ; un webhook n'a pas de destination.
 func (d ChannelDefinition) normalized() ChannelDefinition {
-	if d.Format != FormatEmail {
+	switch d.Format {
+	case FormatEmail:
+		d.URL = ""
+		d.Secret = ""
+		d.ClearSecret = true
+		d.Destination = strings.Join(Recipients(d.Destination), ", ")
+	case FormatMatrix:
+		d.Destination = strings.TrimSpace(d.Destination)
+	default:
 		d.Destination = ""
-		return d
 	}
-	d.URL = ""
-	d.Secret = ""
-	d.ClearSecret = true
-	d.Destination = strings.Join(Recipients(d.Destination), ", ")
 	return d
 }
 
@@ -166,6 +196,17 @@ func Recipients(destination string) []string {
 		}
 	}
 	return recipients
+}
+
+// IsMatrixRoomID admet « !opaque:serveur », ce que montrent les réglages
+// avancés d'un salon. Un alias « #salon:serveur » ne l'est pas : il se
+// résout, et peut changer de salon.
+func IsMatrixRoomID(raw string) bool {
+	if len(raw) < 4 || len(raw) > MaxMatrixRoomID || raw[0] != '!' || strings.ContainsAny(raw, " \t\r\n/?#") {
+		return false
+	}
+	opaque, server, found := strings.Cut(raw[1:], ":")
+	return found && opaque != "" && server != ""
 }
 
 func validateURL(raw string) error {

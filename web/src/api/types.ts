@@ -687,7 +687,7 @@ export interface AlertResponse {
   deliveries: Delivery[];
 }
 
-export type ChannelFormat = "json" | "text" | "discord" | "slack" | "email";
+export type ChannelFormat = "json" | "text" | "discord" | "slack" | "email" | "matrix";
 
 export interface Channel {
   id: number;

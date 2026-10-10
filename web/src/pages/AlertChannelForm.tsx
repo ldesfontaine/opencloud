@@ -16,12 +16,19 @@ import { useRefresh } from "../lib/refresh";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
 
-const formats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email"];
+const formats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email", "matrix"];
+
+// Le secret d'un webhook signe le corps ; celui d'un canal Matrix est le
+// jeton du bot. Même champ, mêmes règles, d'autres mots.
+const signingSecretKeys = { label: "channel.secret_label", help: "channel.secret_help", keep: "channel.secret_keep", onFile: "channel.secret_on_file" };
+const matrixTokenKeys = { label: "channel.matrix_token_label", help: "channel.matrix_token_help", keep: "channel.matrix_token_keep", onFile: "channel.matrix_token_on_file" };
 
 // Créer ou modifier un canal : un nom, une URL, un format, un secret de
 // signature facultatif, la gravité minimale, et deux cases. Le secret ne
 // revient jamais du serveur : on sait seulement qu'il y en a un. Un canal
-// e-mail remplace l'URL et le secret par ses destinataires.
+// e-mail remplace l'URL et le secret par ses destinataires. Un canal
+// Matrix nomme son serveur d'accueil, son salon, et le jeton du bot à la
+// place du secret.
 export function AlertChannelForm() {
   const { id } = useParams();
   const t = useT();
@@ -61,6 +68,8 @@ export function AlertChannelForm() {
   }
 
   const isEmail = format === "email";
+  const isMatrix = format === "matrix";
+  const hasSecret = existing.data?.has_secret ?? false;
   const body = { name, url, format, destination, secret, clear_secret: clearSecret, min_severity: minSeverity, notify_resolve: notifyResolve, enabled };
 
   const submit = (event: FormEvent) => {
@@ -143,13 +152,18 @@ export function AlertChannelForm() {
             </>
           ) : (
             <>
-              <Field label={t("channel.url_label")} htmlFor="channel-url" help={t("channel.url_help")}>
+              <Field label={t(isMatrix ? "channel.matrix_homeserver_label" : "channel.url_label")} htmlFor="channel-url" help={t(isMatrix ? "channel.matrix_homeserver_help" : "channel.url_help")}>
                 <Input id="channel-url" mono type="url" value={url} onChange={(event) => setURL(event.target.value)} maxLength={2048} autoComplete="off" required />
               </Field>
               {url.startsWith("http://") && <Note tone="warn">{t("channel.plain_warning")}</Note>}
+              {isMatrix && (
+                <Field label={t("channel.matrix_room_label")} htmlFor="channel-room" help={t("channel.matrix_room_help")}>
+                  <Input id="channel-room" mono type="text" value={destination} onChange={(event) => setDestination(event.target.value)} maxLength={255} placeholder="!abc123:matrix.org" autoComplete="off" required />
+                </Field>
+              )}
             </>
           )}
-          {!isEmail && <SecretField hasSecret={existing.data?.has_secret ?? false} secret={secret} setSecret={setSecret} clearSecret={clearSecret} setClearSecret={setClearSecret} />}
+          {!isEmail && <SecretField isMatrix={isMatrix} hasSecret={hasSecret} secret={secret} setSecret={setSecret} clearSecret={clearSecret} setClearSecret={setClearSecret} />}
           <div className="checks">
             <label>
               <input type="checkbox" checked={notifyResolve} onChange={(event) => setNotifyResolve(event.target.checked)} />
@@ -186,15 +200,18 @@ export function AlertChannelForm() {
   );
 }
 
-// Le secret de signature d'un webhook : jamais réaffiché, gardé quand le
-// champ reste vide, retiré par une case.
+// Le secret de signature d'un webhook, ou le jeton d'un bot Matrix :
+// jamais réaffiché, gardé quand le champ reste vide, retiré par une case
+// sauf pour Matrix.
 function SecretField({
+  isMatrix,
   hasSecret,
   secret,
   setSecret,
   clearSecret,
   setClearSecret,
 }: {
+  isMatrix: boolean;
   hasSecret: boolean;
   secret: string;
   setSecret: (secret: string) => void;
@@ -202,22 +219,26 @@ function SecretField({
   setClearSecret: (clear: boolean) => void;
 }) {
   const t = useT();
+  const keys = isMatrix ? matrixTokenKeys : signingSecretKeys;
   return (
     <>
-          <Field label={t("channel.secret_label")} htmlFor="channel-secret" help={hasSecret ? t("channel.secret_keep") : t("channel.secret_help")}>
-            <Input id="channel-secret" mono type="password" value={secret} onChange={(event) => setSecret(event.target.value)} maxLength={256} autoComplete="new-password" />
-          </Field>
-          {hasSecret && (
-            <div className="checks">
-              <Pill tone="ok" dot={false}>
-                {t("channel.secret_on_file")}
-              </Pill>
-              <label>
-                <input type="checkbox" checked={clearSecret} onChange={(event) => setClearSecret(event.target.checked)} />
-                {t("channel.secret_clear")}
-              </label>
-            </div>
+      <Field label={t(keys.label)} htmlFor="channel-secret" help={hasSecret ? t(keys.keep) : t(keys.help)}>
+        <Input id="channel-secret" mono type="password" value={secret} onChange={(event) => setSecret(event.target.value)} maxLength={256} autoComplete="new-password" required={isMatrix && !hasSecret} />
+      </Field>
+      {hasSecret && (
+        <div className="checks">
+          <Pill tone="ok" dot={false}>
+            {t(keys.onFile)}
+          </Pill>
+          {/* Un bot sans jeton ne peut rien écrire : on remplace le jeton, on ne le retire pas. */}
+          {!isMatrix && (
+            <label>
+              <input type="checkbox" checked={clearSecret} onChange={(event) => setClearSecret(event.target.checked)} />
+              {t("channel.secret_clear")}
+            </label>
           )}
+        </div>
+      )}
     </>
   );
 }
