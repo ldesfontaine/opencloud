@@ -28,6 +28,10 @@ type Settings struct {
 	StatusTitle        string    `toml:"status_title"`
 	StatusAnnouncement string    `toml:"status_announcement"`
 	StatusLanguage     lang.Code `toml:"status_language"`
+	// Les seuils d'alerte du disque, en pourcentage ; zéro tant que
+	// l'opérateur n'a rien réglé, et le moteur prend alors les siens.
+	DiskAttentionPercent int `toml:"disk_attention_percent"`
+	DiskDangerPercent    int `toml:"disk_danger_percent"`
 }
 
 // Store est le seul propriétaire de settings.toml : chaque écrivain y tient

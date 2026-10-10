@@ -96,6 +96,8 @@ func (s *Server) routes() []route {
 		{"POST", "/api/mcp/tokens", s.createMCPToken},
 		{"DELETE", "/api/mcp/tokens/{id}", s.revokeMCPToken},
 		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
+		{"GET", "/api/settings/disk", s.getDiskSettings},
+		{"PUT", "/api/settings/disk", s.setDiskSettings},
 		{"GET", "/api/auth", s.getAuth},
 		{"POST", "/api/auth/actions/enable", s.enableAuth},
 		{"POST", "/api/auth/actions/disable", s.disableAuth},

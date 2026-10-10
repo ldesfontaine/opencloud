@@ -27,6 +27,10 @@ function alert(overrides: Partial<Alert>): Alert {
 }
 
 describe("describeAlert", () => {
+  it("cite le seuil noté par la dernière lecture plutôt que celui de la session", () => {
+    const text = describeAlert(t, alert({ details: { mount_point: "/data", percent: 72, threshold: 70 } }), now, disks);
+    expect(text.cause).toBe("alert.cause_disk_full /data vps-lyon-2 70");
+  });
   it("dit le fait, la cause avec le seuil, puis le geste", () => {
     const text = describeAlert(t, alert({}), now, disks);
     expect(text.fact).toBe("alert.fact_disk_full 86");

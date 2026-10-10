@@ -1155,7 +1155,17 @@ disable = "Désactiver"
 disable_confirm = "Désactiver l'authentification ? L'interface sera ouverte à qui atteint ce port."
 
 [settings]
-subtitle = "Les réglages d'openCloud : l'accès à l'interface et celui d'un agent IA."
+subtitle = "Les réglages d'openCloud : l'accès à l'interface, les alertes disque et l'accès d'un agent IA."
+disk_title = "Alertes disque"
+disk_intro = "Un volume alerte au seuil d'attention, l'alerte s'aggrave au seuil de danger, et ne se résout que sous le seuil de retour. Les jauges de disque changent de couleur aux mêmes seuils."
+disk_attention_label = "Seuil d'attention"
+disk_danger_label = "Seuil de danger"
+disk_percent_help = "En pourcentage, de %d à %d %% ; l'attention reste sous le danger."
+disk_recovery = "Retour sous %d %% : cinq points sous l'attention, pour qu'un volume qui oscille ne fasse pas clignoter l'alerte."
+disk_applies = "Vaut dès la mesure suivante, sans redémarrage."
+disk_save = "Enregistrer"
+disk_saved = "Enregistré"
+disk_invalid = "Seuils refusés : 50 ≤ attention < danger ≤ 99."
 
 # L'accès d'un agent IA par MCP : le réglage sous Paramètres, et les refus
 # de son API. Les descriptions des outils sont en anglais, lues par un modèle.

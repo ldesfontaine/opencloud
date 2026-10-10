@@ -13,6 +13,16 @@ export interface Session {
   disk_thresholds: DiskThresholds;
 }
 
+// Les seuils d'alerte du disque réglés sous Paramètres ; le retour suit
+// l'attention, et les bornes disent la règle au formulaire.
+export interface DiskSettings {
+  attention: number;
+  danger: number;
+  recovery: number;
+  min_attention: number;
+  max_danger: number;
+}
+
 export interface CertificateThresholds {
   warning: number;
   danger: number;
@@ -627,6 +637,8 @@ export interface AlertDetails {
   count?: number;
   percent?: number;
   mount_point?: string;
+  // Le seuil d'attention en vigueur à l'ouverture : la phrase cite celui-là.
+  threshold?: number;
   exit_code?: number;
   reason?: string;
   target?: string;

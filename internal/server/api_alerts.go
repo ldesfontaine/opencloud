@@ -38,6 +38,7 @@ type detailsJSON struct {
 	Count      int        `json:"count,omitempty"`
 	Percent    int        `json:"percent,omitempty"`
 	MountPoint string     `json:"mount_point,omitempty"`
+	Threshold  int        `json:"threshold,omitempty"`
 	ExitCode   int        `json:"exit_code,omitempty"`
 	Reason     string     `json:"reason,omitempty"`
 	Target     string     `json:"target,omitempty"`
@@ -137,7 +138,7 @@ func alertToJSON(found alert.Alert) alertJSON {
 		Object:    objectJSON{Kind: string(found.Object.Kind), ID: found.Object.ID, Name: found.Object.Name},
 		MachineID: found.MachineID, MachineName: found.MachineName,
 		Details: detailsJSON{
-			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint,
+			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
 			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: found.Details.Target,
 			NotAfter: timeOrNil(found.Details.NotAfter), Since: timeOrNil(found.Details.Since),
 		},

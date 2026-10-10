@@ -1155,7 +1155,17 @@ disable = "Disable"
 disable_confirm = "Disable authentication? The interface will be open to anyone reaching this port."
 
 [settings]
-subtitle = "openCloud's settings: interface access and an AI agent's access."
+subtitle = "openCloud's settings: interface access, disk alerts and an AI agent's access."
+disk_title = "Disk alerts"
+disk_intro = "A volume alerts at the attention threshold, the alert worsens at the danger threshold, and only resolves below the recovery threshold. Disk gauges change colour at the same thresholds."
+disk_attention_label = "Attention threshold"
+disk_danger_label = "Danger threshold"
+disk_percent_help = "As a percentage, from %d to %d %%; attention stays below danger."
+disk_recovery = "Recovery below %d %%: five points under attention, so a volume hovering around the threshold does not make the alert flicker."
+disk_applies = "Applies from the next reading, no restart needed."
+disk_save = "Save"
+disk_saved = "Saved"
+disk_invalid = "Thresholds refused: 50 ≤ attention < danger ≤ 99."
 
 # An AI agent's access through MCP: the setting under Settings, and the
 # refusals of its API. Tool descriptions are English, read by a model.

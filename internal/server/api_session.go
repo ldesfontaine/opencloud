@@ -20,14 +20,19 @@ type sessionResponse struct {
 	// pour que le compteur de la vue d'ensemble et la couleur d'une ligne
 	// basculent sur le même chiffre, tenu à un seul endroit.
 	Certificates certificateThresholds `json:"certificate_thresholds"`
-	// Les pourcentages à partir desquels un volume alerte, puis s'aggrave :
-	// la phrase de l'alerte les cite, dans le navigateur comme au canal.
+	// Les pourcentages à partir desquels un volume alerte, puis s'aggrave,
+	// tels que réglés sous Paramètres : les jauges basculent sur le même
+	// chiffre que l'alerte.
 	Disks diskThresholds `json:"disk_thresholds"`
 }
 
 type diskThresholds struct {
 	Attention int `json:"attention"`
 	Danger    int `json:"danger"`
+}
+
+func diskThresholdsToJSON(thresholds alert.DiskThresholds) diskThresholds {
+	return diskThresholds{Attention: thresholds.Attention, Danger: thresholds.Danger}
 }
 
 type certificateThresholds struct {
@@ -96,7 +101,7 @@ func (s *Server) session(w http.ResponseWriter, _ *http.Request) {
 		Language:     string(s.language()),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
-		Disks:        diskThresholds{Attention: alert.DiskAttentionPercent, Danger: alert.DiskDangerPercent},
+		Disks:        diskThresholdsToJSON(s.diskThresholds()),
 	})
 }
 
