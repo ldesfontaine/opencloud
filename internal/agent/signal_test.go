@@ -1,0 +1,95 @@
+package agent
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
+)
+
+// Un serveur qui répond toujours la même chose au signal.
+func answeringServer(t *testing.T, status int, body string) *Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(machine.HeaderSignalSections) == "" {
+			t.Error("l'agent doit annoncer qu'il lit un refus par section")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(server.Close)
+	client, err := NewClient(server.URL, "", "v", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+// Un tampon avec de quoi remplir chaque section.
+func filledPending() *pending {
+	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}}
+	filled.readings.push(sampler.Reading{SampledAt: time.Now(), CPUPercent: 1})
+	filled.reports.Deliver(service.Report{Events: []service.Event{{Action: "start"}}})
+	filled.results.Deliver(probe.Report{Results: []probe.Result{{ProbeID: "p"}}})
+	filled.images.Deliver(update.Report{Results: []update.Result{{Image: "nginx:1.27"}}})
+	return filled
+}
+
+// leftover dit quelles sections sont restées dans le tampon.
+func leftover(left *pending) map[string]bool {
+	return map[string]bool{
+		machine.SectionReadings: len(left.readings.take(10)) > 0,
+		machine.SectionServices: left.reports.take() != nil,
+		machine.SectionProbes:   left.results.take() != nil,
+		machine.SectionImages:   left.images.take() != nil,
+	}
+}
+
+func TestSignal_SectionRefusedByTheServer_NothingIsReplayed(t *testing.T) {
+	client := answeringServer(t, http.StatusOK, `{"rejected":{"probes":"bad_probes"}}`)
+	left := filledPending()
+	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	for section, isLeft := range leftover(left) {
+		if isLeft {
+			t.Errorf("%s rejoué alors que le serveur l'a écrit ou refusé", section)
+		}
+	}
+}
+
+func TestSignal_OlderServerRefusesASection_OnlyWhatFollowsIsReplayed(t *testing.T) {
+	client := answeringServer(t, http.StatusBadRequest, `{"error":"bad_services"}`)
+	left := filledPending()
+	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{machine.SectionReadings: false, machine.SectionServices: false, machine.SectionProbes: true, machine.SectionImages: true}
+	if got := leftover(left); !maps.Equal(got, want) {
+		t.Fatalf("tampon = %v, attendu %v", got, want)
+	}
+}
+
+func TestSignal_ServerFails_EverythingIsReplayed(t *testing.T) {
+	client := answeringServer(t, http.StatusInternalServerError, `{"error":"internal"}`)
+	left := filledPending()
+	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err == nil {
+		t.Fatal("une panne du serveur doit remonter")
+	}
+	for section, isLeft := range leftover(left) {
+		if !isLeft {
+			t.Errorf("%s perdu sur une panne du serveur", section)
+		}
+	}
+}

@@ -246,34 +246,43 @@ func (s *Stream) Follow(handle func(name, data string)) error {
 // Signal donne signe de vie et livre ce qui attendait : les lectures de la
 // machine, ce que Docker a montré et ce que les sondes ont donné ; sans
 // rien, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report, checked *probe.Report, images *update.Report) error {
+func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report, checked *probe.Report, images *update.Report) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
 	if len(readings) > 0 || report != nil || checked != nil || images != nil {
 		content, err := json.Marshal(machine.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body = bytes.NewReader(content)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/signal", body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+session)
+	request.Header.Set(machine.HeaderSignalSections, "1")
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("signal: %w", err)
+		return nil, fmt.Errorf("signal: %w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("signal: %w", serverError(response))
+	switch response.StatusCode {
+	case http.StatusNoContent:
+		return nil, nil
+	case http.StatusOK:
+		var answer machine.SignalResponse
+		if err := json.NewDecoder(io.LimitReader(response.Body, maxErrorBody)).Decode(&answer); err != nil {
+			return nil, fmt.Errorf("decode signal answer: %w", err)
+		}
+		return answer.Rejected, nil
+	default:
+		return nil, fmt.Errorf("signal: %w", serverError(response))
 	}
-	return nil
 }
 
 // PostLogs livre un lot de journal pour une requête du serveur.

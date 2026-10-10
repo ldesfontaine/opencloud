@@ -183,8 +183,9 @@ func (s *Server) writeAuthError(w http.ResponseWriter, err error) {
 
 // Un signal de vie, authentifié par le jeton de la session ouverte. Son
 // corps, facultatif, porte les lectures de ressources faites depuis le
-// précédent ; un lot hors de ce qu'un agent peut mesurer est refusé en
-// bloc, le signal de vie compte quand même.
+// précédent, puis les sections services, sondes et images. Chaque section
+// s'écrit seule : une section hors de ce qu'un agent peut mesurer est
+// refusée sans emporter les autres, le signal de vie compte quand même.
 func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
@@ -209,55 +210,67 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	err = s.resources.Record(r.Context(), machineID, request.Readings)
+	rejected, failed := s.recordSignal(r, machineID, request)
 	switch {
-	case errors.Is(err, resource.ErrReadingInvalid), errors.Is(err, resource.ErrTooManyReadings):
-		s.writeAgentError(w, http.StatusBadRequest, "bad_readings")
-		return
-	case err != nil:
-		s.logger.Error("record readings", "machine_id", machineID, "error", err)
+	case failed:
+		// L'agent remet tout dans son tampon : une lecture rejouée est
+		// ignorée, un rapport rejoué ne crée pas de transition sans changement.
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	// Un agent plus vieux n'envoie pas de section services : rien à écrire.
-	if request.Services != nil {
-		err = s.services.Record(r.Context(), machineID, *request.Services)
-	}
-	switch {
-	case errors.Is(err, service.ErrReportInvalid):
-		s.writeAgentError(w, http.StatusBadRequest, "bad_services")
-		return
-	case err != nil:
-		s.logger.Error("record services", "machine_id", machineID, "error", err)
-		s.writeAgentError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	// Ni de section sondes : le serveur l'accepte aussi.
-	if request.Probes != nil {
-		err = s.probes.Record(r.Context(), machineID, *request.Probes)
-	}
-	switch {
-	case errors.Is(err, probe.ErrReportInvalid):
-		s.writeAgentError(w, http.StatusBadRequest, "bad_probes")
-		return
-	case err != nil:
-		s.logger.Error("record probes", "machine_id", machineID, "error", err)
-		s.writeAgentError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	// Ni de section images.
-	if request.Images != nil {
-		err = s.updates.Record(r.Context(), machineID, *request.Images)
-	}
-	switch {
-	case errors.Is(err, update.ErrReportInvalid):
-		s.writeAgentError(w, http.StatusBadRequest, "bad_images")
-	case err != nil:
-		s.logger.Error("record images", "machine_id", machineID, "error", err)
-		s.writeAgentError(w, http.StatusInternalServerError, "internal")
-	default:
+	case len(rejected) == 0:
 		w.WriteHeader(http.StatusNoContent)
+	case r.Header.Get(machine.HeaderSignalSections) == "":
+		// Un agent plus vieux ne connaît que le refus global : il jette son
+		// lot, ce qui a été accepté est déjà écrit.
+		s.writeAgentError(w, http.StatusBadRequest, firstRejected(rejected))
+	default:
+		s.writeJSON(w, http.StatusOK, machine.SignalResponse{Rejected: rejected})
 	}
+}
+
+// recordSignal écrit chaque section indépendamment. Il rend les sections
+// refusées avec leur clé, et dit si une écriture a échoué pour une raison
+// qui n'est pas un refus.
+func (s *Server) recordSignal(r *http.Request, machineID string, request machine.SignalRequest) (map[string]string, bool) {
+	ctx := r.Context()
+	rejected := map[string]string{}
+	failed := false
+	keep := func(section string, err error, refusals ...error) {
+		if err == nil {
+			return
+		}
+		for _, refusal := range refusals {
+			if errors.Is(err, refusal) {
+				s.logger.Warn("signal section refused", "machine_id", machineID, "section", section, "error", err)
+				rejected[section] = machine.SectionRefusal(section)
+				return
+			}
+		}
+		s.logger.Error("record "+section, "machine_id", machineID, "error", err)
+		failed = true
+	}
+	keep(machine.SectionReadings, s.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
+	// Un agent plus vieux n'envoie pas toutes les sections : rien à écrire.
+	if request.Services != nil {
+		keep(machine.SectionServices, s.services.Record(ctx, machineID, *request.Services), service.ErrReportInvalid)
+	}
+	if request.Probes != nil {
+		keep(machine.SectionProbes, s.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
+	}
+	if request.Images != nil {
+		keep(machine.SectionImages, s.updates.Record(ctx, machineID, *request.Images), update.ErrReportInvalid)
+	}
+	return rejected, failed
+}
+
+// firstRejected rend la clé de la première section refusée, dans l'ordre
+// où l'ancien serveur les lisait.
+func firstRejected(rejected map[string]string) string {
+	for _, section := range machine.SignalSections() {
+		if code, ok := rejected[section]; ok {
+			return code
+		}
+	}
+	return "bad_json"
 }
 
 // Un lot de journal livré par l'agent pour une requête que le serveur lui

@@ -16,6 +16,9 @@ const (
 	HeaderTimestamp    = "OpenCloud-Timestamp"
 	HeaderSignature    = "OpenCloud-Signature"
 	HeaderAgentVersion = "OpenCloud-Agent-Version"
+	// Posé par un agent qui sait lire un refus par section ; sans lui, le
+	// serveur répond comme avant, par un 400 global.
+	HeaderSignalSections = "OpenCloud-Signal-Sections"
 )
 
 type EnrollRequest struct {
@@ -51,4 +54,29 @@ type SignalRequest struct {
 	Services *service.Report   `json:"services,omitempty"`
 	Probes   *probe.Report     `json:"probes,omitempty"`
 	Images   *update.Report    `json:"images,omitempty"`
+}
+
+// Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
+// rendue quand l'une est refusée.
+const (
+	SectionReadings = "readings"
+	SectionServices = "services"
+	SectionProbes   = "probes"
+	SectionImages   = "images"
+)
+
+// SignalSections rend les sections dans l'ordre où le serveur les écrit.
+func SignalSections() []string {
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages}
+}
+
+// SectionRefusal rend la clé d'erreur d'une section refusée.
+func SectionRefusal(section string) string {
+	return "bad_" + section
+}
+
+// La réponse à un signal dont une section au moins a été refusée, pour un
+// agent qui a posé HeaderSignalSections : les autres sont écrites.
+type SignalResponse struct {
+	Rejected map[string]string `json:"rejected"`
 }

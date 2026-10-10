@@ -204,7 +204,7 @@ func nextCommand(t *testing.T, stream *bufio.Reader, within time.Duration) (stri
 }
 
 // Le signal porte les essais des sondes à côté des mesures ; un essai hors
-// de ce qu'un agent peut avoir observé refuse le lot entier.
+// de ce qu'un agent peut avoir observé refuse toute la section.
 func TestAgentSignal_CarriesProbeResultsAndRefusesBadOnes(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
