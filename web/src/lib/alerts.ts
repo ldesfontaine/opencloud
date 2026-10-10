@@ -64,7 +64,7 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
     case "cert_untrusted":
       return lines(t, alert.kind, [], [details.target ?? "", t(`alert.reason_${details.reason ?? "chain"}`)]);
     case "disk_full":
-      return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, disks.attention]);
+      return lines(t, alert.kind, [details.percent ?? 0], [details.mount_point ?? object, machine, details.threshold ?? disks.attention]);
   }
 }
 

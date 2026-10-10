@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, errorKey } from "../api/client";
-import type { AuthState, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
+import type { AuthState, DiskSettings, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
@@ -12,19 +12,22 @@ import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
-import { useT } from "../i18n/context";
+import { useI18n, useT } from "../i18n/context";
+import { diskSettingsError } from "../lib/disks";
 import { passwordFormError } from "../lib/auth";
 import { claudeCodeCommand, lifetimesOf, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
 import "./StatusAdmin.scss";
 
-// Paramètres : l'accès à l'interface, puis celui d'un agent IA. Un secret ou un
+// Paramètres : l'accès à l'interface, les seuils d'alerte du disque, puis
+// l'accès d'un agent IA. Un secret ou un
 // jeton ne s'affiche qu'une fois, à sa création, dans l'état de la page ;
 // rechargée, elle ne le montre plus.
 export function Settings() {
   const t = useT();
   const state = useResource<MCPState>("/api/mcp");
   const access = useResource<AuthState>("/api/auth");
+  const disks = useResource<DiskSettings>("/api/settings/disk");
   if (state.error) {
     return (
       <>
@@ -40,6 +43,7 @@ export function Settings() {
     <>
       <PageHead title={t("nav.settings")} subtitle={t("settings.subtitle")} />
       {access.data !== null && <AccessSection state={access.data} />}
+      {disks.data !== null && <DiskSection settings={disks.data} reload={disks.reload} />}
       <MCPSection state={state.data} reload={state.reload} />
     </>
   );
@@ -153,6 +157,66 @@ function CredentialsForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+// Les seuils d'alerte du disque. Le retour n'est pas un champ : il suit
+// l'attention, cinq points dessous, et la carte le dit.
+function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () => void }) {
+  const t = useT();
+  const { reloadSession } = useI18n();
+  const [attention, setAttention] = useState(String(settings.attention));
+  const [danger, setDanger] = useState(String(settings.danger));
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setAttention(String(settings.attention));
+    setDanger(String(settings.danger));
+  }, [settings.attention, settings.danger]);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setSaved(false);
+    const thresholds = { attention: Number(attention), danger: Number(danger) };
+    const refusal = diskSettingsError(thresholds, settings);
+    setError(refusal);
+    if (refusal !== null) {
+      return;
+    }
+    setBusy(true);
+    api
+      .put<DiskSettings>("/api/settings/disk", thresholds)
+      .then(() => {
+        setSaved(true);
+        reload();
+        return reloadSession();
+      })
+      .catch((failure: unknown) => setError(errorKey(failure)))
+      .finally(() => setBusy(false));
+  };
+  const help = t("settings.disk_percent_help", settings.min_attention, settings.max_danger);
+  return (
+    <Card className="form-card">
+      <CardHeader title={t("settings.disk_title")} />
+      <form className="card-b" onSubmit={submit}>
+        <p className="secondary">{t("settings.disk_intro")}</p>
+        <Field label={t("settings.disk_attention_label")} htmlFor="disk-attention" help={help}>
+          <Input id="disk-attention" type="number" inputMode="numeric" min={settings.min_attention} max={settings.max_danger - 1} value={attention} onChange={(event) => setAttention(event.target.value)} required />
+        </Field>
+        <Field label={t("settings.disk_danger_label")} htmlFor="disk-danger">
+          <Input id="disk-danger" type="number" inputMode="numeric" min={settings.min_attention + 1} max={settings.max_danger} value={danger} onChange={(event) => setDanger(event.target.value)} required />
+        </Field>
+        <p className="secondary">{t("settings.disk_recovery", settings.recovery)}</p>
+        <p className="secondary">{t("settings.disk_applies")}</p>
+        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <div className="cluster">
+          <Button type="submit" variant="primary" icon="check" disabled={busy}>
+            {t("settings.disk_save")}
+          </Button>
+          {saved && <Pill tone="ok">{t("settings.disk_saved")}</Pill>}
+        </div>
+      </form>
+    </Card>
   );
 }
 

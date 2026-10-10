@@ -80,8 +80,10 @@ type Engine struct {
 	sender      Sender
 	watcher     Watcher
 	maintenance Maintenance
-	logger      *slog.Logger
-	now         func() time.Time
+	// disks rend les seuils du disque réglés ; nil : ceux par défaut.
+	disks  func() DiskThresholds
+	logger *slog.Logger
+	now    func() time.Time
 	// mu sérialise lire-puis-écrire : deux sources ne se voient jamais un
 	// état périmé de la même clé.
 	mu sync.Mutex
@@ -108,6 +110,19 @@ func (e *Engine) SetWatcher(watcher Watcher) {
 
 func (e *Engine) SetMaintenance(maintenance Maintenance) {
 	e.maintenance = maintenance
+}
+
+// SetDiskThresholds branche la lecture des seuils réglés ; elle est
+// appelée à chaque lecture de ressources.
+func (e *Engine) SetDiskThresholds(disks func() DiskThresholds) {
+	e.disks = disks
+}
+
+func (e *Engine) diskThresholds() DiskThresholds {
+	if e.disks == nil {
+		return DefaultDiskThresholds()
+	}
+	return e.disks()
 }
 
 func (e *Engine) changed() {

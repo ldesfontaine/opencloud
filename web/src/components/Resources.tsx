@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { Current, Disk, HistoryResponse, Reading, WindowName } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
-import { useI18n } from "../i18n/context";
+import { useDiskThresholds, useI18n } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
 import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, percentOf, rateQuantity } from "../lib/units";
@@ -14,15 +14,14 @@ import { Dot } from "./Pill";
 import "./Resources.scss";
 
 // Une jauge passe en attention à 85 %, en danger à 95 % : le seuil de la
-// planche « Machine », en attendant que la feature alertes le règle.
-const warnAt = 85;
-const dangerAt = 95;
+// planche « Machine ». Le disque prend les seuils réglés de son alerte.
+const defaultThresholds = { attention: 85, danger: 95 };
 
-export function meterTone(percent: number): "ok" | "warn" | "danger" | undefined {
-  if (percent >= dangerAt) {
+export function meterTone(percent: number, thresholds = defaultThresholds): "ok" | "warn" | "danger" | undefined {
+  if (percent >= thresholds.danger) {
     return "danger";
   }
-  if (percent >= warnAt) {
+  if (percent >= thresholds.attention) {
     return "warn";
   }
   return undefined;
@@ -32,6 +31,7 @@ export function meterTone(percent: number): "ok" | "warn" | "danger" | undefined
 // réseau. Sans mesure fraîche, un tiret et la raison, jamais un zéro.
 export function ResourceStats({ current }: { current: Current | null }) {
   const { t, language } = useI18n();
+  const diskThresholds = useDiskThresholds();
   const now = useNow();
   const sample = current?.available ? current.sample : null;
   const foot = unavailableFoot(t, now, current);
@@ -64,7 +64,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.disk")}
         value={sample && disk ? bytesIn(language, sample.disk_used, sample.disk_total) : "–"}
         unit={disk ? `${disk.unit} / ${disk.value}` : undefined}
-        meter={volumes.length > 1 ? <DiskVolumes disks={volumes} /> : <Meter percent={diskPercent} tone={sample ? meterTone(diskPercent) : undefined} />}
+        meter={volumes.length > 1 ? <DiskVolumes disks={volumes} /> : <Meter percent={diskPercent} tone={sample ? meterTone(diskPercent, diskThresholds) : undefined} />}
         foot={diskFoot(t, sample, volumes.length, diskPercent, foot)}
       />
       <Stat
@@ -82,6 +82,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
 // montage ; le périphérique et les octets sont dans l'info-bulle.
 function DiskVolumes({ disks }: { disks: Disk[] }) {
   const { t, language } = useI18n();
+  const thresholds = useDiskThresholds();
   return (
     <div className="disk-volumes">
       {fullestFirst(disks).map((disk) => {
@@ -93,7 +94,7 @@ function DiskVolumes({ disks }: { disks: Disk[] }) {
               <span className="k mono">{disk.mount_point}</span>
               <span className="mono">{percent} %</span>
             </div>
-            <Meter percent={percent} tone={meterTone(percent)} />
+            <Meter percent={percent} tone={meterTone(percent, thresholds)} />
           </div>
         );
       })}
@@ -123,6 +124,7 @@ function unavailableFoot(t: ReturnType<typeof useI18n>["t"], now: number, curren
 // Les trois jauges d'une carte de machine, sur la vue d'ensemble.
 export function MachineMeters({ current }: { current: Current | undefined }) {
   const { t } = useI18n();
+  const diskThresholds = useDiskThresholds();
   const sample = current?.available ? current.sample : null;
   const rows: { key: string; percent: number }[] = sample
     ? [
@@ -143,7 +145,7 @@ export function MachineMeters({ current }: { current: Current | undefined }) {
             <span className="k">{t(row.key)}</span>
             <span className={sample ? "mono" : "muted"}>{sample ? `${row.percent} %` : t("resource.unavailable")}</span>
           </div>
-          <Meter percent={row.percent} tone={sample ? meterTone(row.percent) : undefined} />
+          <Meter percent={row.percent} tone={sample ? meterTone(row.percent, row.key === "resource.disk" ? diskThresholds : undefined) : undefined} />
         </div>
       ))}
     </div>

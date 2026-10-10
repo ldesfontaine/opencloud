@@ -106,7 +106,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, **secret en clair**, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; accès 1 h, rafraîchissement 30 j, API sans échéance ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu. Désactiver MCP efface le client et tous les jetons |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward` réservé), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. Désactiver efface identifiant et empreinte |
-| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut | Écriture atomique ; un seul propriétaire, `internal/settings`, qui relit, modifie sa clé et réécrit sous un verrou : la langue et la page de statut changées en même temps survivent toutes deux |
+| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, absents tant que rien n'est réglé) | Écriture atomique ; un seul propriétaire, `internal/settings`, qui relit, modifie sa clé et réécrit sous un verrou : la langue et la page de statut changées en même temps survivent toutes deux |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
 Le jeton en clair n'existe qu'à deux endroits, un instant : l'écran qui l'affiche
@@ -808,12 +808,27 @@ composant qui sait, lui qui parle.
 | Certificat qui expire | `probe`, à chaque essai et toutes les 5 min | échéance à moins de **30 j** ; aggravée à **7 j** | renouvelé ; pause ; suppression | attention → danger |
 | Certificat expiré | `probe` | échéance passée | renouvelé | danger |
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
-| Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** ; aggravée à **95 %** | sous **80 %**, ou volume disparu | attention → danger |
+| Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
 | Sauvegarde en échec | aucune | **à venir** avec les sauvegardes | | |
 
 Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
-doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert` et
-servis au navigateur par `/api/session` pour le disque.
+doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,
+sauf ceux du disque, réglables.
+
+**Les seuils du disque** se règlent sous Paramètres, carte « Alertes
+disque » (`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
+**50 ≤ attention < danger ≤ 99**, sinon refus `settings.disk_invalid`. Le
+retour n'est pas un champ : il suit l'attention, cinq points dessous, ce
+qui garde l'hystérésis sans troisième règle à valider. Ils vivent dans
+`settings.toml` ; le moteur les relit à chaque lecture de ressources, un
+changement vaut donc dès la mesure suivante, sans redémarrage. Une valeur
+hors bornes écrite à la main dans le fichier est ignorée : le moteur
+reprend 85 et 95. Chaque alerte note dans ses détails le seuil
+d'attention en vigueur à la dernière lecture qui l'a jugée (`threshold`),
+et la phrase « Seuil d'alerte fixé à … » cite celui-là, au navigateur
+comme au canal ; une alerte d'avant le réglage, sans ce détail, cite 85.
+`/api/session` sert les seuils réglés : les jauges de disque changent de
+couleur sur les mêmes chiffres que l'alerte.
 
 | Ce qui part vers un canal | Ce qui n'en part jamais |
 | --- | --- |
@@ -1127,7 +1142,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
 | Alerte sur le processeur ou la mémoire | Seul le disque alerte ; une machine saturée se voit en jauge, personne n'est prévenu | À décider |
-| Seuils fixes | 2 min, 3 redémarrages en 10 min, 85 et 95 %, 30 et 7 jours : constantes du produit, sans réglage | À décider, avec un écran de réglages |
+| Seuils fixes, hors disque | 2 min, 3 redémarrages en 10 min, 30 et 7 jours : constantes du produit, sans réglage ; seuls ceux du disque se règlent sous Paramètres | À décider |
 | Pas d'e-mail ni de Telegram | Un canal est un webhook ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
 | Une livraison échouée trois fois est perdue | Le récepteur en panne plus d'une minute ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
 | Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer la tâche | À décider |

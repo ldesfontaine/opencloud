@@ -121,6 +121,9 @@ type Details struct {
 	Percent int `json:"percent,omitempty"`
 	// Le point de montage d'un volume.
 	MountPoint string `json:"mount_point,omitempty"`
+	// Le seuil d'attention en vigueur quand le volume a été jugé : la
+	// phrase cite celui-là, celui qui a fait ouvrir ou tenir l'alerte.
+	Threshold int `json:"threshold,omitempty"`
 	// Le code de sortie d'un service ou d'une tâche ; 0 vaut « aucun »,
 	// une fin à 0 n'alerte jamais.
 	ExitCode int `json:"exit_code,omitempty"`
@@ -138,7 +141,7 @@ type Details struct {
 }
 
 func (d Details) Equal(other Details) bool {
-	return d.Count == other.Count && d.Percent == other.Percent && d.MountPoint == other.MountPoint &&
+	return d.Count == other.Count && d.Percent == other.Percent && d.MountPoint == other.MountPoint && d.Threshold == other.Threshold &&
 		d.ExitCode == other.ExitCode && d.Reason == other.Reason && d.Target == other.Target &&
 		d.NotAfter.Equal(other.NotAfter) && d.Since.Equal(other.Since)
 }
@@ -213,11 +216,10 @@ const (
 	// troisième, c'est une boucle. Le même délai de calme résout l'alerte.
 	RestartWindow        = 10 * time.Minute
 	RestartLoopThreshold = 3
-	// Un volume alerte au premier seuil, s'aggrave au second, et ne se
-	// résout que sous le seuil de retour : sinon ça clignote.
-	DiskAttentionPercent = 85
-	DiskDangerPercent    = 95
-	DiskRecoveryPercent  = 80
+	// Les seuils du disque tant que l'opérateur n'en a pas réglé d'autres :
+	// voir disk.go.
+	DefaultDiskAttentionPercent = 85
+	DefaultDiskDangerPercent    = 95
 	// Combien de temps une alerte résolue reste lisible.
 	ResolvedRetention = 90 * 24 * time.Hour
 	// Ce que la page liste d'un coup.

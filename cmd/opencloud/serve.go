@@ -144,6 +144,7 @@ func runServe(args []string) error {
 	alerts := alert.New(db, logger)
 	alerts.SetWatcher(bus)
 	alerts.SetMaintenance(statusPage)
+	alerts.SetDiskThresholds(diskThresholdsOf(preferences, logger))
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
 	notifier.SetPublicURL(cfg.PublicURL)
 	alerts.SetSender(notifier)
@@ -229,6 +230,20 @@ func languageOf(preferences *settings.Store) func() lang.Code {
 			return lang.Default
 		}
 		return current.Language
+	}
+}
+
+// diskThresholdsOf relit settings.toml à chaque appel : un seuil changé
+// sous Paramètres vaut à la lecture suivante. Un fichier illisible garde
+// l'alerte en marche, aux seuils par défaut.
+func diskThresholdsOf(preferences *settings.Store, logger *slog.Logger) func() alert.DiskThresholds {
+	return func() alert.DiskThresholds {
+		current, err := preferences.Load()
+		if err != nil {
+			logger.Warn("read disk thresholds", "error", err)
+			return alert.DefaultDiskThresholds()
+		}
+		return alert.DiskThresholdsOr(current.DiskAttentionPercent, current.DiskDangerPercent)
 	}
 }
 

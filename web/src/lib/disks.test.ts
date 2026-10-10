@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Disk } from "../api/types";
-import { fullestFirst } from "./disks";
+import { diskSettingsError, fullestFirst } from "./disks";
 
 const gib = 1024 ** 3;
 const root: Disk = { mount_point: "/", device: "/dev/vda1", used: 41 * gib, total: 80 * gib };
@@ -16,4 +16,24 @@ test("fullestFirst ne touche pas à la liste reçue", () => {
   const disks = [root, data];
   fullestFirst(disks);
   expect(disks[0]).toBe(root);
+});
+
+const bounds = { min_attention: 50, max_danger: 99 };
+
+test("diskSettingsError accepte 50 ≤ attention < danger ≤ 99", () => {
+  expect(diskSettingsError({ attention: 85, danger: 95 }, bounds)).toBeNull();
+  expect(diskSettingsError({ attention: 50, danger: 99 }, bounds)).toBeNull();
+});
+
+test("diskSettingsError refuse un seuil hors bornes, inversé, égal ou non entier", () => {
+  for (const thresholds of [
+    { attention: 49, danger: 95 },
+    { attention: 85, danger: 100 },
+    { attention: 90, danger: 90 },
+    { attention: 95, danger: 85 },
+    { attention: 85.5, danger: 95 },
+    { attention: Number(""), danger: 95 },
+  ]) {
+    expect(diskSettingsError(thresholds, bounds)).toBe("settings.disk_invalid");
+  }
 });

@@ -468,3 +468,59 @@ func TestResource_DiskAlertsWithHysteresis_AndForgetsAVanishedVolume(t *testing.
 		t.Fatalf("kinds %q", f.kinds(t))
 	}
 }
+
+// Les seuils réglés valent dès la lecture suivante, sans redémarrer le
+// moteur : la même lecture à 72 % n'alerte pas à 85, alerte à 70, et le
+// retour suit l'attention cinq points dessous.
+func TestResource_DiskThresholdsAreReadAtEachReading(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	thresholds := alert.DefaultDiskThresholds()
+	f.SetDiskThresholds(func() alert.DiskThresholds { return thresholds })
+	resources := resource.New(f.db, discardLogger())
+	resources.SetClock(func() time.Time { return f.clock })
+	resources.SetAlerter(f.Engine)
+	record := func(percent int) {
+		f.advance(10 * time.Second)
+		disks := []sampler.Disk{{MountPoint: "/data", Device: "/dev/vdb", Used: int64(percent) * 10, Total: 1000}}
+		reading := sampler.Reading{SampledAt: f.clock, CPUCores: 2, MemTotal: 1, DiskUsed: 1, DiskTotal: 2, Disks: disks}
+		if err := resources.Record(ctx, machine.LocalID, []sampler.Reading{reading}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(72)
+	if f.kinds(t) != "" {
+		t.Fatalf("72 %% under the default threshold: %q", f.kinds(t))
+	}
+	thresholds = alert.DiskThresholds{Attention: 70, Danger: 80}
+	record(72)
+	if f.kinds(t) != "disk_full:attention" || f.only(t, alert.StatusOpen).Details.Threshold != 70 {
+		t.Fatalf("72 %% over a 70 %% threshold: %q", f.kinds(t))
+	}
+	record(81)
+	if f.kinds(t) != "disk_full:danger" {
+		t.Fatalf("81 %% over a 80 %% danger: %q", f.kinds(t))
+	}
+	record(66)
+	if f.kinds(t) != "disk_full:danger" {
+		t.Fatal("66 % is above the 65 % recovery: nothing moves")
+	}
+	record(64)
+	if f.kinds(t) != "" {
+		t.Fatalf("64 %% under the recovery: %q", f.kinds(t))
+	}
+}
+
+func TestDiskThresholds_RefuseWhatMakesNoSense_AndFallBackToTheDefaults(t *testing.T) {
+	for _, thresholds := range []alert.DiskThresholds{{Attention: 49, Danger: 95}, {Attention: 85, Danger: 100}, {Attention: 90, Danger: 90}, {Attention: 95, Danger: 85}, {}} {
+		if thresholds.Validate() == nil {
+			t.Errorf("%+v accepted", thresholds)
+		}
+		if alert.DiskThresholdsOr(thresholds.Attention, thresholds.Danger) != alert.DefaultDiskThresholds() {
+			t.Errorf("%+v must fall back to the defaults", thresholds)
+		}
+	}
+	if got := alert.DiskThresholdsOr(50, 99); got.Validate() != nil || got.Recovery() != 45 {
+		t.Fatalf("50/99 refused: %+v", got)
+	}
+}

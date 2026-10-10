@@ -59,9 +59,18 @@ func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
 	case KindCertUntrusted:
 		return text(catalog, "cert_untrusted", nil, []any{details.Target, catalog.Get("alert.reason_" + details.Reason)})
 	case KindDiskFull:
-		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, DiskAttentionPercent})
+		return text(catalog, "disk_full", []any{details.Percent}, []any{details.MountPoint, machine, diskThresholdOf(details)})
 	}
 	return Text{Fact: string(alert.Kind), Cause: object}
+}
+
+// diskThresholdOf est le seuil que cite la phrase ; une alerte ouverte
+// avant que le seuil ne soit noté cite celui par défaut.
+func diskThresholdOf(details Details) int {
+	if details.Threshold == 0 {
+		return DefaultDiskAttentionPercent
+	}
+	return details.Threshold
 }
 
 func text(catalog lang.Catalog, kind string, factArgs, causeArgs []any) Text {

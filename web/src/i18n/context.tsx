@@ -19,6 +19,9 @@ interface I18n {
   disks: DiskThresholds;
   t: Translate;
   setLanguage: (code: string) => Promise<void>;
+  // Relit la session : après un réglage de seuil, les jauges suivent sans
+  // recharger la page.
+  reloadSession: () => Promise<void>;
 }
 
 const I18nContext = createContext<I18n | null>(null);
@@ -71,8 +74,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       disks: session.disk_thresholds,
       t,
       setLanguage,
+      reloadSession: load,
     };
-  }, [session, catalog, setLanguage]);
+  }, [session, catalog, setLanguage, load]);
 
   if (unreachable) {
     // Sans catalogue, pas de traduction possible : les deux langues d'un coup.
