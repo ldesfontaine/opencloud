@@ -13,6 +13,8 @@ import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
+import { ServicePill } from "../components/Pill";
+import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
@@ -24,7 +26,7 @@ import { NotFound } from "./NotFound";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
 // onglets, le résumé avec ses quatre chiffres clés et l'historique, les
-// services, les domaines, le réseau. Un onglet pas encore livré renvoie au
+// services, les domaines, le réseau, le raccourci des journaux. Un onglet pas encore livré renvoie au
 // résumé.
 export function MachinePage() {
   const { id = "", tab = "" } = useParams();
@@ -79,6 +81,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <MachineServices machineID={current.id} />
       ) : tab === "reseau" ? (
         <NetworkView machineID={current.id} />
+      ) : tab === "journaux" ? (
+        <MachineLogs machineID={current.id} />
       ) : (
         <MachineProbes machineID={current.id} />
       )}
@@ -138,6 +142,62 @@ function MachineServices({ machineID }: { machineID: string }) {
       {services.data && all.length === 0 && note === null && <Empty text={t("services.empty_title")} />}
       {shown.length > 0 && <ServiceTable services={shown} withMachine={false} />}
       {all.length > 0 && shown.length === 0 && <Empty text={t("services.empty_title")} />}
+    </Card>
+  );
+}
+
+// L'onglet Journaux : un raccourci. Les journaux se lisent sur la fiche
+// du service ; chaque ligne y mène, à l'ancre des journaux.
+function MachineLogs({ machineID }: { machineID: string }) {
+  const t = useT();
+  const services = useResource<ServicesResponse>(`/api/machines/${machineID}/services`);
+  const all = services.data?.services ?? [];
+  const note = services.data && all.length === 0 ? engineNote(t, services.data.engines[0]) : null;
+  return (
+    <Card>
+      <CardHeader title={t("tab.logs")} aside={services.data ? t("services.machine_subtitle", all.length) : ""} />
+      {services.error && <Failure error={services.error} />}
+      {note !== null && (
+        <CardBody>
+          <Note tone="warn">{note}</Note>
+        </CardBody>
+      )}
+      {services.data && all.length === 0 && note === null && <Empty icon="file" text={t("logs.machine_empty")} />}
+      {all.length > 0 && (
+        <Table>
+          <thead>
+            <tr>
+              <th>{t("services.col_service")}</th>
+              <th className="wide-only">{t("services.col_state")}</th>
+              <th className="th-end">{t("logs.col_action")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {all.map((service) => (
+              <tr key={service.id}>
+                <td>
+                  <Subject icon="box">
+                    <span className="svc-name">
+                      <span>{service.name}</span>
+                      <span className="narrow-only">
+                        <ServicePill service={service} />
+                      </span>
+                    </span>
+                  </Subject>
+                </td>
+                <td className="wide-only">
+                  <ServicePill service={service} />
+                </td>
+                <td className="td-end">
+                  <Button small icon="file" to={`/services/${service.id}#journaux`}>
+                    {t("logs.open")}
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
     </Card>
   );
 }

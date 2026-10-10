@@ -1070,8 +1070,12 @@ requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 La barre latérale et les onglets d'une machine ne montrent que des écrans
 qui marchent : ni page « Bientôt », ni onglet vide. Les adresses déjà
 connues restent valides et renvoient au parent : `/sauvegardes` à la vue
-d'ensemble ; `/machines/{id}/sauvegardes`, `/journaux` et `/reglages` au
-résumé de la machine. Les journaux d'un service se lisent sur sa fiche.
+d'ensemble ; `/machines/{id}/sauvegardes` et `/reglages` au résumé de la
+machine. L'onglet Journaux est un raccourci : les services de la machine
+(`/api/machines/{id}/services`), chacun avec son état et un bouton vers
+`/services/{id}#journaux`, la carte des journaux de sa fiche ; sans
+conteneur, il dit pourquoi (Docker absent, sans droit, arrêté). Aucune API
+de plus.
 
 ### Sur un téléphone
 
@@ -1175,7 +1179,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas d'incident automatique | Une sonde qui tombe change l'état du composant et ouvre une alerte ; personne n'ouvre l'incident public ni ne le résout | À décider, retouche après la 11 : ouvrir un incident public demande une règle, et une erreur se lit en public |
 | Constats d'exposition non alertés | Un port de base publié se voit sur le graphe, personne n'est prévenu | À décider |
 | Sauvegarde en échec | Notée au catalogue, sans source : les sauvegardes sont dans le backlog | Avec les sauvegardes |
-| Pas de Sauvegardes, ni d'onglets machine Sauvegardes, Journaux, Réglages | Entrées masquées tant qu'elles ne sont pas livrées ; leurs adresses mènent au parent. Les journaux se lisent service par service, sur la fiche | Une par une, sur décision |
+| Pas de Sauvegardes, ni d'onglets machine Sauvegardes, Réglages | Entrées masquées tant qu'elles ne sont pas livrées ; leurs adresses mènent au parent. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
 | Appliquer une mise à jour | openCloud fabrique la commande ; l'opérateur la joue dans un terminal, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien | Avec les actions : « Services : déployer et mettre à jour » |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |

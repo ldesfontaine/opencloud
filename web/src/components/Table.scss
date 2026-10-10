@@ -45,9 +45,19 @@
 
 // Les colonnes de confort d'une liste principale : sur téléphone, la ligne
 // garde le nom, l'état et le moment, le reste est sur la fiche.
+.table .narrow-only {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .table .wide-only {
     display: none;
+  }
+
+  // Ce qui change de colonne sur téléphone : l'état passe sous le nom.
+  .table .narrow-only {
+    display: block;
+    margin-top: 4px;
   }
 
   .table th,
