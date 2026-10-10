@@ -1,6 +1,6 @@
 module github.com/ldesfontaine/opencloud
 
-go 1.26.8
+go 1.26.9
 
 require (
 	github.com/go-playground/validator/v10 v10.30.4
