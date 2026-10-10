@@ -1,6 +1,4 @@
 # /etc/systemd/system/opencloud.service — le serveur openCloud.
-# Non testé sous systemd dans l'environnement de rédaction : vérifié par
-# systemd-analyze verify seulement.
 [Unit]
 Description=openCloud (serveur)
 Documentation=https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md

@@ -1,7 +1,5 @@
 # /etc/systemd/system/opencloud-agent.service — l'agent d'une machine.
 # À activer APRÈS le premier lancement (enrôlement) avec -server et -token.
-# Non testé sous systemd dans l'environnement de rédaction : vérifié par
-# systemd-analyze verify seulement.
 [Unit]
 Description=openCloud (agent)
 Documentation=https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md
