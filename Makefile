@@ -15,11 +15,18 @@ FRONT_DIR   := web
 
 export CGO_ENABLED = 0
 
-.PHONY: build run test ci fmt vet staticcheck vulncheck gosec front front-check clean
+.PHONY: build release run test ci fmt vet staticcheck vulncheck gosec front front-check clean
 
 # Le front compilé est embarqué par go:embed : il précède tout build ou test Go.
 build: front
 	go build -trimpath -ldflags '$(LDFLAGS)' -o bin/opencloud ./cmd/opencloud
+
+# Les binaires publiés : amd64 et arm64, statiques, avec leurs sommes.
+release: front
+	rm -rf dist-release && mkdir -p dist-release
+	GOARCH=amd64 go build -trimpath -ldflags '$(LDFLAGS)' -o dist-release/opencloud-linux-amd64 ./cmd/opencloud
+	GOARCH=arm64 go build -trimpath -ldflags '$(LDFLAGS)' -o dist-release/opencloud-linux-arm64 ./cmd/opencloud
+	cd dist-release && sha256sum opencloud-linux-* > SHA256SUMS
 
 # npm ci ne rejoue que si le verrou a changé ; le premier verrou se produit
 # avec npx npm@10 install si le npm de la machine (9.x) plante.
@@ -62,5 +69,5 @@ gosec:
 	go run $(GOSEC) -quiet ./...
 
 clean:
-	rm -rf bin/opencloud dist
+	rm -rf bin/opencloud dist dist-release
 	find $(FRONT_DIR)/dist -mindepth 1 -not -name .gitkeep -delete

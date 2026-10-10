@@ -19,17 +19,18 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 ## Sommaire
 
 1. [Prérequis](#prérequis)
-2. [Compiler](#compiler)
-3. [Installer le serveur](#installer-le-serveur)
-4. [Configuration](#configuration)
-5. [Traefik](#traefik)
-6. [Authentification](#authentification)
-7. [Envoi d'e-mails](#envoi-de-mails)
-8. [Ajouter une machine](#ajouter-une-machine)
-9. [Mettre à jour](#mettre-à-jour)
-10. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
-11. [Désinstaller](#désinstaller)
-12. [Dépannage](#dépannage)
+2. [Télécharger](#télécharger)
+3. [Compiler](#compiler)
+4. [Installer le serveur](#installer-le-serveur)
+5. [Configuration](#configuration)
+6. [Traefik](#traefik)
+7. [Authentification](#authentification)
+8. [Envoi d'e-mails](#envoi-de-mails)
+9. [Ajouter une machine](#ajouter-une-machine)
+10. [Mettre à jour](#mettre-à-jour)
+11. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
+12. [Désinstaller](#désinstaller)
+13. [Dépannage](#dépannage)
 
 Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 
@@ -55,7 +56,24 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | NTP | — | Les horloges du serveur et des machines à moins de 5 min l'une de l'autre |
 
 Le binaire est statique (`CGO_ENABLED=0`) : rien d'autre à installer sur le
-serveur ni sur les machines. Aucun binaire n'est publié pour l'instant.
+serveur ni sur les machines.
+
+## Télécharger
+
+Les binaires Linux amd64 et arm64 sont dans la
+[release v0.0.1](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
+avec leurs sommes SHA-256 :
+
+```sh
+base=https://github.com/ldesfontaine/opencloud/releases/download/v0.0.1
+curl -fLO "$base/opencloud-linux-amd64" -fLO "$base/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS
+mv opencloud-linux-amd64 opencloud && chmod +x opencloud
+./opencloud version        # opencloud v0.0.1 (<commit>)
+```
+
+La release se republie à la main (workflow `release`, onglet Actions) :
+elle garde le nom `v0.0.1`, le commit change. `opencloud version` le donne.
 
 ## Compiler
 

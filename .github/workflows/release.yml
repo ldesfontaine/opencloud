@@ -1,0 +1,57 @@
+# Publie les binaires d'openCloud (Linux amd64 et arm64) dans la release
+# v0.0.1 du dépôt. Lancement à la main seulement (onglet Actions → release →
+# Run workflow), sur la branche choisie : aucune exécution automatique de
+# plus. Chaque lancement remplace la release précédente, la version reste
+# v0.0.1 ; le commit est dans le nom et dans `opencloud version`.
+# Actions épinglées par SHA, comme ci.yml.
+name: release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  binaires:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # créer la release et y déposer les binaires
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: tests
+        run: make front-check test
+
+      - name: compiler amd64 et arm64
+        run: make release
+
+      - name: publier la release v0.0.1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          short="${COMMIT_SHA:0:7}"
+          gh release delete v0.0.1 --cleanup-tag --yes || true
+          gh release create v0.0.1 dist-release/* \
+            --target "$COMMIT_SHA" \
+            --title "v0.0.1 (${short})" \
+            --prerelease \
+            --notes "Binaires statiques Linux, commit ${short}. Vérifier avec : sha256sum -c SHA256SUMS. Installation : docs/installation.md."

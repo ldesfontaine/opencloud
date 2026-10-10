@@ -45,6 +45,10 @@ Le changement de version est une décision de Lucas.
 `web/package.json`. Le front se compile avant les tests Go, qui
 l'embarquent. Les actions GitHub sont épinglées par SHA de commit.
 
+`.github/workflows/release.yml` publie les binaires Linux amd64 et arm64
+(`make release`) dans la release `v0.0.1`, après les tests. **Lancement à
+la main seulement** ; chaque lancement remplace la release précédente.
+
 **Sobriété.** La CI tourne sur chaque pull request vers `dev` ou `main`, à
 la poussée sur `main`, et à la main (`workflow_dispatch`) ; plus à la fusion
 dans `dev`, que la PR vient de prouver. Un compte GitHub qui enchaîne un

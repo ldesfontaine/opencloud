@@ -10,8 +10,9 @@ by ping, alerts through signed webhooks, a public status page, detected image
 updates, and an MCP server for AI agents. One Go binary, with SQLite and the
 web interface embedded.
 
-> **Maturity.** Version `v0.0.1`, pre-release. No binary is published: you
-> build it. The interface is **open by default**: enable authentication
+> **Maturity.** Version `v0.0.1`, pre-release. Linux amd64 and arm64
+> binaries are in the [v0.0.1 release](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
+> or you build them. The interface is **open by default**: enable authentication
 > before exposing it beyond the machine.
 
 ![openCloud overview with example machines](docs/images/vue-ensemble.png)
