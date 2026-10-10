@@ -443,6 +443,11 @@ kind_finish = "Fin"
 kind_start = "Démarrage"
 kind_exit_code = "Fin, code"
 
+[logs]
+machine_empty = "Aucun conteneur sur cette machine"
+col_action = "Action"
+open = "Voir les journaux"
+
 [services]
 subtitle_none = "Aucun service découvert pour l'instant."
 subtitle_one = "1 service, actif."

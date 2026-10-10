@@ -1,4 +1,5 @@
-import { Link, useParams } from "react-router";
+import { useEffect, useRef } from "react";
+import { Link, useLocation, useParams } from "react-router";
 
 import { ApiError } from "../api/client";
 import type { ServiceResponse, Transition } from "../api/types";
@@ -144,11 +145,29 @@ function ServiceView({ response, reload }: { response: ServiceResponse; reload: 
           )}
         </Card>
       </div>
+      <LogsCard serviceID={service.id} />
+    </>
+  );
+}
+
+// La carte des journaux, ancre `#journaux` : un lien qui l'annonce amène
+// la carte à l'écran dès que la fiche est affichée.
+function LogsCard({ serviceID }: { serviceID: string }) {
+  const { t } = useI18n();
+  const { hash } = useLocation();
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (hash === "#journaux") {
+      card.current?.scrollIntoView({ block: "start" });
+    }
+  }, [hash]);
+  return (
+    <div id="journaux" ref={card}>
       <Card>
         <CardHeader title={t("service.logs_title")} />
-        <LogViewer serviceID={service.id} />
+        <LogViewer serviceID={serviceID} />
       </Card>
-    </>
+    </div>
   );
 }
 

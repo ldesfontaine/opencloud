@@ -85,8 +85,9 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   seule action principale par écran.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
-  les onglets : Résumé, Services, Domaines et certificats, Réseau, Sauvegardes,
-  Journaux, Réglages.
+  les onglets livrés : Résumé, Services, Domaines et certificats, Réseau,
+  Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
+  et Réglages viendront avec leur écran.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
   de contexte.
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
