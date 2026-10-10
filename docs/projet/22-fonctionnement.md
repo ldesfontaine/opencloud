@@ -67,7 +67,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | --- | --- | --- | --- |
 | Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, quand l'authentification est activée sous Paramètres (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. Mode `none` par défaut : personne, une ligne `WARN` au démarrage et une bannière dans l'interface le rappellent. Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` et sur `/oauth/authorize` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
-| Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, `503` au-delà |
+| Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
@@ -526,9 +526,12 @@ voyagent en un mot d'une liste fermée (`timeout`, `refused`, `dns`,
 jamais le texte d'une erreur Go.
 
 Une machine porte 64 sondes au plus ; au-delà, la création est refusée avec
-la clé du catalogue. L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s
-sans dépasser l'intervalle. Le service surveillé, quand il est donné, doit
-exister et tourner sur la machine qui sonde : sinon la création est refusée
+la clé du catalogue. Le compte et l'insertion se font sous un même verrou :
+deux créations simultanées ne passent pas toutes deux sur la dernière
+place, et il en va de même des composants, des canaux et des jetons d'API.
+L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s sans dépasser
+l'intervalle. Le service surveillé, quand il est donné, doit exister et
+tourner sur la machine qui sonde : sinon la création est refusée
 (`probe.service_invalid`, 422), jamais en erreur interne. Une sonde ne
 s'édite pas : on la supprime et on la recrée, comme un moniteur de tâche.
 
@@ -676,7 +679,7 @@ jamais devant une panne.
 | `GET /statut` | La page | 10 par seconde, rafale 20, par adresse résolue |
 | `GET /statut/api/status` | L'instantané public, en faits | la même |
 | `GET /statut/api/i18n` | Les seules clés `status.*` du catalogue, dans la langue de la page | la même |
-| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 256 visiteurs en direct au plus |
+| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 256 visiteurs en direct au plus, comptés à part |
 
 Au-delà : `429` avec `Retry-After`. Les seaux sont balayés au passage,
 comme ceux de `/ping`, et l'adresse est celle que `trusted_proxies`
@@ -862,8 +865,8 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    accès compris : celui qui l'a volé est coupé, qu'il ait rafraîchi le
    premier ou non. Les sessions se lisent et se coupent sous Paramètres.
 7. Un script ou un client sans OAuth passe par un **jeton d'API** créé sous
-   Paramètres, montré une fois, sans échéance, révocable. Régénérer le
-   secret coupe les familles OAuth et garde les jetons d'API.
+   Paramètres, montré une fois, sans échéance, révocable ; 16 au plus.
+   Régénérer le secret coupe les familles OAuth et garde les jetons d'API.
 8. Un client local (Claude Code, Claude Desktop) lance `opencloud mcp
    -config …` et lui parle en JSON-RPC sur stdin/stdout, les journaux sur
    stderr. Ce processus ouvre la même base, sans socket ni identifiant, et

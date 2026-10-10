@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -418,5 +419,38 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 	}
 	if f.bus.Count() != 0 {
 		t.Fatal("the subscription must close with the context")
+	}
+}
+
+// Des créations simultanées ne dépassent jamais le plafond de composants :
+// 64 passent, les suivantes sont refusées.
+func TestCreateComponent_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
+	f := newFixture(t)
+	attempts := status.MaxComponents + 16
+	results := make(chan error, attempts)
+	var creators sync.WaitGroup
+	for range attempts {
+		creators.Add(1)
+		go func() {
+			defer creators.Done()
+			_, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: "Site web"})
+			results <- err
+		}()
+	}
+	creators.Wait()
+	close(results)
+	accepted, tooMany := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			accepted++
+		case errors.Is(err, status.ErrTooMany):
+			tooMany++
+		default:
+			t.Fatalf("unexpected: %v", err)
+		}
+	}
+	if accepted != status.MaxComponents || tooMany != 16 {
+		t.Fatalf("accepted %d, refused %d", accepted, tooMany)
 	}
 }

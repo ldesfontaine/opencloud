@@ -275,9 +275,10 @@ func (s *Server) publicEvents(w http.ResponseWriter, r *http.Request) {
 		s.writeTooMany(w)
 		return
 	}
-	if s.publicLive.Count() >= maxPublicSubscribers {
+	if !s.publicTabs.take() {
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return
 	}
+	defer s.publicTabs.release()
 	s.streamTopics(w, r, s.publicLive)
 }

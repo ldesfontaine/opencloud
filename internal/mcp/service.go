@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,9 @@ type Service struct {
 	store  Store
 	logger *slog.Logger
 	now    func() time.Time
+	// creatingToken tient compter-puis-insérer d'un seul tenant : deux
+	// créations simultanées ne passent pas toutes deux sur la dernière place.
+	creatingToken sync.Mutex
 }
 
 func New(store Store, logger *slog.Logger) *Service {
@@ -134,23 +138,29 @@ func (s *Service) CreateAPIToken(ctx context.Context, name string) (string, Toke
 	if err := ValidateName(name); err != nil {
 		return "", Token{}, err
 	}
-	existing, err := s.store.ListMCPTokens(ctx, KindAPI)
-	if err != nil {
-		return "", Token{}, err
-	}
-	if len(existing) >= MaxAPITokens {
-		return "", Token{}, ErrTooManyTokens
-	}
 	secret, err := newSecret(apiScheme)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate api token: %w", err)
 	}
 	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: KindAPI, Name: strings.TrimSpace(name), CreatedAt: s.now()}
-	if err := s.store.InsertMCPToken(ctx, token); err != nil {
+	if err := s.insertAPITokenUnderCeiling(ctx, token); err != nil {
 		return "", Token{}, err
 	}
 	s.logger.Info("mcp api token created", "token_id", token.ID, "name", token.Name)
 	return secret.cleartext, token, nil
+}
+
+func (s *Service) insertAPITokenUnderCeiling(ctx context.Context, token Token) error {
+	s.creatingToken.Lock()
+	defer s.creatingToken.Unlock()
+	existing, err := s.store.ListMCPTokens(ctx, KindAPI)
+	if err != nil {
+		return err
+	}
+	if len(existing) >= MaxAPITokens {
+		return ErrTooManyTokens
+	}
+	return s.store.InsertMCPToken(ctx, token)
 }
 
 // APITokens liste les jetons d'API vivants, les plus récents d'abord.

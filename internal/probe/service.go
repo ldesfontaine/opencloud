@@ -88,6 +88,9 @@ type Service struct {
 	local     map[string]Assignable
 	// Les machines dont le dernier jeu n'est pas parti, file pleine.
 	unsent map[string]bool
+	// creating tient compter-puis-insérer d'un seul tenant : deux créations
+	// simultanées ne passent pas toutes deux sur la dernière place.
+	creating sync.Mutex
 }
 
 func New(store Store, logger *slog.Logger) *Service {
@@ -136,13 +139,6 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	if err := s.checkServiceBelongs(ctx, definition); err != nil {
 		return Probe{}, err
 	}
-	carried, err := s.store.CountProbesOnMachine(ctx, definition.MachineID)
-	if err != nil {
-		return Probe{}, err
-	}
-	if carried >= MaxProbesPerMachine {
-		return Probe{}, ErrTooMany
-	}
 	id, err := NewID()
 	if err != nil {
 		return Probe{}, fmt.Errorf("generate id: %w", err)
@@ -166,7 +162,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 		TLS:               definition.TLS,
 		CreatedAt:         s.now(),
 	}
-	if err := s.store.InsertProbe(ctx, created); err != nil {
+	if err := s.insertUnderCeiling(ctx, created); err != nil {
 		return Probe{}, err
 	}
 	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", created.Target)
@@ -190,6 +186,19 @@ func (s *Service) checkServiceBelongs(ctx context.Context, definition Definition
 		return ErrServiceInvalid
 	}
 	return nil
+}
+
+func (s *Service) insertUnderCeiling(ctx context.Context, created Probe) error {
+	s.creating.Lock()
+	defer s.creating.Unlock()
+	carried, err := s.store.CountProbesOnMachine(ctx, created.MachineID)
+	if err != nil {
+		return err
+	}
+	if carried >= MaxProbesPerMachine {
+		return ErrTooMany
+	}
+	return s.store.InsertProbe(ctx, created)
 }
 
 func (s *Service) List(ctx context.Context, machineID string) ([]Probe, error) {

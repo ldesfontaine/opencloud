@@ -94,6 +94,9 @@ type Service struct {
 	// que ce qui change de visible.
 	mu     sync.Mutex
 	digest string
+	// creating tient compter-puis-insérer d'un seul tenant : deux créations
+	// simultanées ne passent pas toutes deux sur la dernière place.
+	creating sync.Mutex
 }
 
 func New(store Store, machines Machines, settings Settings, logger *slog.Logger) *Service {
@@ -163,24 +166,30 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 	if err := definition.Validate(); err != nil {
 		return Component{}, err
 	}
-	count, err := s.store.CountComponents(ctx)
-	if err != nil {
-		return Component{}, err
-	}
-	if count >= MaxComponents {
-		return Component{}, ErrTooMany
-	}
 	id, err := NewID()
 	if err != nil {
 		return Component{}, fmt.Errorf("generate id: %w", err)
 	}
 	component := Component{ID: id, Name: strings.TrimSpace(definition.Name), Position: definition.Position, Members: membersOf(definition.Members), CreatedAt: s.now()}
-	if err := s.store.InsertComponent(ctx, component); err != nil {
+	if err := s.insertComponentUnderCeiling(ctx, component); err != nil {
 		return Component{}, err
 	}
 	s.logger.Info("status component created", "component_id", id, "name", component.Name)
 	s.Refresh(ctx)
 	return s.GetComponent(ctx, id)
+}
+
+func (s *Service) insertComponentUnderCeiling(ctx context.Context, component Component) error {
+	s.creating.Lock()
+	defer s.creating.Unlock()
+	count, err := s.store.CountComponents(ctx)
+	if err != nil {
+		return err
+	}
+	if count >= MaxComponents {
+		return ErrTooMany
+	}
+	return s.store.InsertComponent(ctx, component)
 }
 
 func (s *Service) UpdateComponent(ctx context.Context, id string, definition ComponentDefinition) (Component, error) {

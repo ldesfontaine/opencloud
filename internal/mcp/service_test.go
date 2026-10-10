@@ -466,3 +466,37 @@ func TestPurge_DropsExpiredAndKeepsRevokedUntilTheirEnd(t *testing.T) {
 		}
 	}
 }
+
+// Des créations simultanées ne dépassent jamais le plafond de jetons : 16
+// passent, les suivants sont refusés.
+func TestCreateAPIToken_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
+	f := newFixture(t)
+	f.enable(t)
+	attempts := mcp.MaxAPITokens + 16
+	results := make(chan error, attempts)
+	var creators sync.WaitGroup
+	for range attempts {
+		creators.Add(1)
+		go func() {
+			defer creators.Done()
+			_, _, err := f.CreateAPIToken(context.Background(), "n")
+			results <- err
+		}()
+	}
+	creators.Wait()
+	close(results)
+	accepted, tooMany := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			accepted++
+		case errors.Is(err, mcp.ErrTooManyTokens):
+			tooMany++
+		default:
+			t.Fatalf("unexpected: %v", err)
+		}
+	}
+	if accepted != mcp.MaxAPITokens || tooMany != 16 {
+		t.Fatalf("accepted %d, refused %d", accepted, tooMany)
+	}
+}

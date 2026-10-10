@@ -23,12 +23,15 @@ const (
 // Last-Event-ID : on lui dit alors « reconnected » et il relit tout, car rien
 // n'est rejoué. Un commentaire toutes les 15 s tient la connexion ouverte
 // derrière Traefik. Sans authentification, comme le reste de l'interface :
-// le plafond d'abonnés empêche seulement d'épuiser le serveur.
+// le plafond d'abonnés empêche seulement d'épuiser le serveur. Il compte
+// les onglets, pas les abonnés du bus : la page de statut y est abonnée
+// aussi, et prendrait sinon une place.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	if s.live.Count() >= maxEventSubscribers {
+	if !s.eventTabs.take() {
 		s.writeAPIError(w, http.StatusServiceUnavailable, codeBusy)
 		return
 	}
+	defer s.eventTabs.release()
 	s.streamTopics(w, r, s.live)
 }
 

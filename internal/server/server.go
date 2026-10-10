@@ -174,12 +174,10 @@ type Notifier interface {
 	Test(ctx context.Context, channel alert.Channel) (alert.Outcome, error)
 }
 
-// Ce que le serveur attend du bus du direct : un abonnement par onglet, et
-// le compte pour plafonner. Le bus public, qui ne porte que « status »,
-// est du même type.
+// Ce que le serveur attend du bus du direct : un abonnement par onglet. Le
+// bus public, qui ne porte que « status », est du même type.
 type Live interface {
 	Subscribe() *live.Subscription
-	Count() int
 }
 
 type Server struct {
@@ -206,6 +204,9 @@ type Server struct {
 	mcpLimits    *mcpLimits
 	agentLimits  *challengeLimits
 	authLimits   *authLimits
+	// Les onglets en direct, administration et page publique.
+	eventTabs  *slots
+	publicTabs *slots
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
 	mcpServer      *gomcp.Server
 	mcpHandler     http.Handler
@@ -297,6 +298,8 @@ func New(opts Options) (*Server, error) {
 		mcpLimits:      newMCPLimits(),
 		agentLimits:    newChallengeLimits(),
 		authLimits:     newAuthLimits(),
+		eventTabs:      newSlots(maxEventSubscribers),
+		publicTabs:     newSlots(maxPublicSubscribers),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,

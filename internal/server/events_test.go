@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,14 +122,77 @@ func TestEvents_RealChangesReachTheTab(t *testing.T) {
 	}
 }
 
-func TestEvents_RefusesBeyondTheCap(t *testing.T) {
+// Soixante-quatre onglets passent, même quand la page de statut est
+// abonnée au même bus ; le soixante-cinquième est refusé.
+func TestEvents_SixtyFourTabsPass_TheNextIsRefused(t *testing.T) {
 	server := newTestServer(t)
+	statusFeed := server.bus.Subscribe()
+	defer statusFeed.Close()
 	for range maxEventSubscribers {
-		server.bus.Subscribe()
+		next, _ := openEvents(t, server, "")
+		if got := next(); got != "connected" {
+			t.Fatalf("first event %q", got)
+		}
 	}
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/events", nil))
 	if recorder.Code != http.StatusServiceUnavailable || errorCode(t, recorder) != codeBusy {
+		t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// Un onglet parti rend sa place.
+func TestEvents_ClosedTab_GivesItsPlaceBack(t *testing.T) {
+	server := newTestServer(t)
+	for range maxEventSubscribers - 1 {
+		server.eventTabs.take()
+	}
+	next, cancel := openEvents(t, server, "")
+	next()
+	cancel()
+	waitFor(t, func() bool { return server.eventTabs.taken.Load() == maxEventSubscribers-1 })
+	next, _ = openEvents(t, server, "")
+	if got := next(); got != "connected" {
+		t.Fatalf("first event %q", got)
+	}
+}
+
+// Les places du direct se prennent d'un geste : sous la concurrence,
+// jamais une de plus que la borne.
+func TestSlots_ConcurrentTakers_NeverExceedTheLimit(t *testing.T) {
+	places := newSlots(maxEventSubscribers)
+	var taken atomic.Int32
+	var takers sync.WaitGroup
+	for range 500 {
+		takers.Add(1)
+		go func() {
+			defer takers.Done()
+			if places.take() {
+				taken.Add(1)
+			}
+		}()
+	}
+	takers.Wait()
+	if taken.Load() != maxEventSubscribers {
+		t.Fatalf("taken %d", taken.Load())
+	}
+}
+
+// Le direct public a son propre plafond, qui ne compte que ses visiteurs.
+func TestPublicEvents_RefusesBeyondItsCap(t *testing.T) {
+	server := newTestServer(t)
+	extra := server.publicBus.Subscribe()
+	defer extra.Close()
+	for range maxPublicSubscribers - 1 {
+		server.publicTabs.take()
+	}
+	next, _ := openLive(t, server, "/statut/api/events", "")
+	if got := next(); got != "connected" {
+		t.Fatalf("first event %q", got)
+	}
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/statut/api/events", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
 	}
 }

@@ -567,3 +567,38 @@ func (b *bench) seeCertificate(t *testing.T, id string, notAfter time.Time) {
 		},
 	})
 }
+
+// Des créations simultanées ne dépassent jamais le plafond : compter puis
+// insérer se fait d'un seul tenant.
+func TestCreate_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
+	fixture := newBench(t)
+	attempts := probe.MaxProbesPerMachine + 16
+	var created sync.WaitGroup
+	results := make(chan error, attempts)
+	for range attempts {
+		created.Add(1)
+		go func() {
+			defer created.Done()
+			_, err := fixture.service.Create(context.Background(), probe.Definition{
+				Name: "sonde", Kind: probe.KindHTTP, Target: "https://cloud.exemple.fr/", MachineID: machine.LocalID,
+			})
+			results <- err
+		}()
+	}
+	created.Wait()
+	close(results)
+	accepted, tooMany := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			accepted++
+		case errors.Is(err, probe.ErrTooMany):
+			tooMany++
+		default:
+			t.Fatalf("erreur inattendue: %v", err)
+		}
+	}
+	if accepted != probe.MaxProbesPerMachine || tooMany != 16 {
+		t.Fatalf("acceptées %d, refusées %d", accepted, tooMany)
+	}
+}

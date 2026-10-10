@@ -85,6 +85,9 @@ type Engine struct {
 	// mu sérialise lire-puis-écrire : deux sources ne se voient jamais un
 	// état périmé de la même clé.
 	mu sync.Mutex
+	// creatingChannel tient compter-puis-insérer d'un seul tenant : deux
+	// créations simultanées ne passent pas toutes deux sur la dernière place.
+	creatingChannel sync.Mutex
 }
 
 func New(store Store, logger *slog.Logger) *Engine {
