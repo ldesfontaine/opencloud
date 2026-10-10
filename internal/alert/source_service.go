@@ -21,13 +21,17 @@ func (e *Engine) ServiceChanged(ctx context.Context, found service.Service, tran
 }
 
 // judgeState lit l'état final : arrêté sans qu'on l'ait demandé (un code
-// hors 0, 137 et 143, ou mort), ou défaillant (le contrôle de santé
-// échoue). Tout le reste résout.
+// hors 0, 137 et 143, tué faute de mémoire, ou mort), ou défaillant (le
+// contrôle de santé échoue). Tout le reste résout.
 func (e *Engine) judgeState(ctx context.Context, found service.Service, object Object) {
-	if isUnexpectedStop(found.State, found.ExitCode) {
+	if isUnexpectedStop(found.State, found.ExitCode, found.OOMKilled) {
+		details := Details{ExitCode: found.ExitCode}
+		if found.OOMKilled {
+			details.Reason = ReasonOOM
+		}
 		e.Open(ctx, Fact{
 			Kind: KindServiceDown, Severity: SeverityDanger, Object: object, MachineID: found.MachineID,
-			Details: Details{ExitCode: found.ExitCode},
+			Details: details,
 		})
 	} else {
 		e.Resolve(ctx, KindServiceDown, object)
@@ -39,11 +43,20 @@ func (e *Engine) judgeState(ctx context.Context, found service.Service, object O
 	}
 }
 
-func isUnexpectedStop(state service.State, exitCode int) bool {
+// ReasonOOM est le motif d'un service arrêté faute de mémoire.
+const ReasonOOM = "oom"
+
+// ServiceDownReasons liste les motifs d'un arrêt non demandé qui ont leur
+// propre phrase ; sans motif, c'est le code de sortie qui parle.
+func ServiceDownReasons() []string {
+	return []string{ReasonOOM}
+}
+
+func isUnexpectedStop(state service.State, exitCode int, oomKilled bool) bool {
 	if state == service.StateDead {
 		return true
 	}
-	return state == service.StateExited && !service.IsCleanExit(exitCode)
+	return state == service.StateExited && !service.IsCleanStop(exitCode, oomKilled)
 }
 
 // judgeRestarts compte, dans l'ordre du rapport, les retours en marche
@@ -65,7 +78,7 @@ func (e *Engine) judgeRestarts(ctx context.Context, found service.Service, objec
 			if transition.ExitCode != nil {
 				code = *transition.ExitCode
 			}
-			pendingStop = isUnexpectedStop(transition.NewState, code)
+			pendingStop = isUnexpectedStop(transition.NewState, code, transition.OOMKilled)
 			exitCode = code
 		case service.StateRestarting:
 			pendingStop = true

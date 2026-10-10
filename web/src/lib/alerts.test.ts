@@ -48,6 +48,12 @@ describe("describeAlert", () => {
     const text = describeAlert(t, alert({ kind: "service_down", machine_name: "", details: { exit_code: 1 } }), now, disks);
     expect(text.cause).toBe("alert.cause_service_down /data alert.no_machine 1");
   });
+  it("dit un arrêt par manque de mémoire, pas un code de sortie", () => {
+    const oom = describeAlert(t, alert({ kind: "service_down", machine_name: "vps-lyon-2", details: { exit_code: 137, reason: "oom" } }), now, disks);
+    expect(oom.fact).toBe("alert.fact_service_down_oom");
+    expect(oom.cause).toBe("alert.cause_service_down_oom /data vps-lyon-2");
+    expect(oom.action).toBe("alert.action_service_down_oom");
+  });
 });
 
 describe("stateOf", () => {

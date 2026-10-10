@@ -25,6 +25,13 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
     case "machine_lost":
       return lines(t, alert.kind, [], [object, formatDuration(t, details.since ? since(details.since, now) : 0)]);
     case "service_down":
+      if (details.reason === "oom") {
+        return {
+          fact: t("alert.fact_service_down_oom"),
+          cause: t("alert.cause_service_down_oom", object, machine),
+          action: t("alert.action_service_down_oom"),
+        };
+      }
       return lines(t, alert.kind, [], [object, machine, details.exit_code ?? 0]);
     case "service_unhealthy":
       return lines(t, alert.kind, [], [object, machine]);
