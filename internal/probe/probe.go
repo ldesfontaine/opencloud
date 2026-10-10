@@ -324,6 +324,7 @@ var (
 	ErrTargetInvalid    = errors.New("probe target is not a valid url or host:port")
 	ErrTargetForbidden  = errors.New("probe target is a link-local address")
 	ErrMachineInvalid   = errors.New("probe machine is required")
+	ErrServiceInvalid   = errors.New("probe service must exist and run on the probe machine")
 	ErrIntervalInvalid  = errors.New("probe interval must be between 30 seconds and 24 hours")
 	ErrTimeoutInvalid   = errors.New("probe timeout must be between 1 second and the interval")
 	ErrThresholdInvalid = errors.New("probe thresholds must be between 1 and 10")

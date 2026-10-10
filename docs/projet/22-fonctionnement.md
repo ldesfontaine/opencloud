@@ -509,8 +509,10 @@ jamais le texte d'une erreur Go.
 
 Une machine porte 64 sondes au plus ; au-delà, la création est refusée avec
 la clé du catalogue. L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s
-sans dépasser l'intervalle. Une sonde ne s'édite pas : on la supprime et on
-la recrée, comme un moniteur de tâche.
+sans dépasser l'intervalle. Le service surveillé, quand il est donné, doit
+exister et tourner sur la machine qui sonde : sinon la création est refusée
+(`probe.service_invalid`, 422), jamais en erreur interne. Une sonde ne
+s'édite pas : on la supprime et on la recrée, comme un moniteur de tâche.
 
 ## Comment un certificat est jugé
 

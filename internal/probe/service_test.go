@@ -2,6 +2,8 @@ package probe_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"os"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -139,6 +142,95 @@ func TestCreate_RefusesMoreProbesThanAMachineCarries(t *testing.T) {
 	})
 	if !errors.Is(err, probe.ErrTooMany) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrTooMany, err)
+	}
+}
+
+const remoteMachineID = "11111111-2222-4333-8444-555555555555"
+
+// enrollRemote ajoute une seconde machine : un service ne peut être
+// surveillé que par une sonde de la machine qui le porte.
+func (b *bench) enrollRemote(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	machines := machine.New(b.db, machine.NewSessions(), logger)
+	token, _, err := machines.CreateToken(ctx, "vps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = machines.Enroll(ctx, machine.Enrollment{
+		MachineID: remoteMachineID, PublicKey: public, Token: token,
+		Hostname: "vps", Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// addService écrit la fiche d'un conteneur sur la machine donnée.
+func (b *bench) addService(t *testing.T, id, machineID string) {
+	t.Helper()
+	err := b.db.ApplyChanges(context.Background(), service.Changes{
+		MachineID: machineID,
+		Now:       testNow,
+		Services: []service.Service{{
+			ID: id, MachineID: machineID, Kind: service.KindContainer, Name: "nextcloud",
+			ContainerID: "abc", State: service.StateRunning,
+			CreatedAt: testNow, FirstSeenAt: testNow, LastSeenAt: testNow,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("écrire le service: %v", err)
+	}
+}
+
+func (b *bench) createWithService(machineID, serviceID string) (probe.Probe, error) {
+	return b.service.Create(context.Background(), probe.Definition{
+		Name: "site", Kind: probe.KindHTTP, Target: "https://cloud.exemple.fr/",
+		MachineID: machineID, ServiceID: serviceID,
+	})
+}
+
+func TestCreate_AttachesAServiceOfTheProbeMachine(t *testing.T) {
+	fixture := newBench(t)
+	fixture.addService(t, "svc-local", machine.LocalID)
+
+	created, err := fixture.createWithService(machine.LocalID, "svc-local")
+	if err != nil {
+		t.Fatalf("créer la sonde: %v", err)
+	}
+	if created.ServiceID != "svc-local" || created.ServiceName != "nextcloud" {
+		t.Fatalf("la sonde n'est pas rattachée: %+v", created)
+	}
+}
+
+func TestCreate_RefusesAServiceThatDoesNotExist(t *testing.T) {
+	fixture := newBench(t)
+
+	_, err := fixture.createWithService(machine.LocalID, "inexistant")
+	if !errors.Is(err, probe.ErrServiceInvalid) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrServiceInvalid, err)
+	}
+	if probes, _ := fixture.service.List(context.Background(), ""); len(probes) != 0 {
+		t.Fatalf("une sonde refusée a été écrite: %+v", probes)
+	}
+}
+
+func TestCreate_RefusesAServiceOfAnotherMachine(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	fixture.addService(t, "svc-remote", remoteMachineID)
+
+	_, err := fixture.createWithService(machine.LocalID, "svc-remote")
+	if !errors.Is(err, probe.ErrServiceInvalid) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrServiceInvalid, err)
+	}
+	if _, err := fixture.createWithService(remoteMachineID, "svc-remote"); err != nil {
+		t.Fatalf("le service de la machine doit passer: %v", err)
 	}
 }
 
