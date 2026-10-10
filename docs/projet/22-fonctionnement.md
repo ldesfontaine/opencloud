@@ -126,8 +126,12 @@ le client qui les garde.
 2. Sur la machine : `sudo opencloud agent -server https://… -token oc_…`. L'agent
    tire une clé Ed25519 et un identifiant, envoie sa clé publique et le jeton.
    Il joint l'empreinte (SHA-256, préfixée) de l'identifiant de la machine
-   (`/etc/machine-id`, sinon `/var/lib/dbus/machine-id`) ; jamais
-   l'identifiant brut, et rien s'il n'y en a pas.
+   (`/etc/machine-id`, sinon `/var/lib/dbus/machine-id`) **et** de
+   l'identifiant du démarrage (`/proc/sys/kernel/random/boot_id`) ; jamais
+   les identifiants bruts, et rien s'il en manque un. Le démarrage compte
+   parce qu'une image clonée (modèle de VPS, clone Proxmox) garde le
+   machine-id de son modèle : vérifié le 10 octobre 2026, deux clones
+   étaient pris l'un pour l'autre et le second refusé à tort.
 3. `opencloud serve` fait la même empreinte au démarrage. Même empreinte :
    l'agent tourne sur la machine openCloud, qui se supervise déjà (machine
    `local`) ; un agent doublerait services et alertes. Refus 409

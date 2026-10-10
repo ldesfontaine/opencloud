@@ -16,6 +16,11 @@ const osReleasePath = "/etc/os-release"
 // sans systemd.
 var machineIDPaths = []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}
 
+// L'identifiant du démarrage en cours, tiré par le noyau. Une image clonée
+// (modèle de VPS, clone Proxmox) garde le machine-id de son modèle ; deux
+// noyaux distincts n'ont jamais le même boot_id.
+const bootIDPath = "/proc/sys/kernel/random/boot_id"
+
 // L'empreinte est préfixée : elle ne se compare pas à une autre empreinte
 // du même identifiant faite par un autre logiciel.
 const fingerprintPrefix = "opencloud-host:"
@@ -25,8 +30,8 @@ type Info struct {
 	OS       string
 	Arch     string
 	Address  string
-	// Empreinte de l'identifiant de machine, jamais l'identifiant brut ;
-	// vide si la machine n'en a pas.
+	// Empreinte de l'identifiant de machine et du démarrage, jamais les
+	// identifiants bruts ; vide s'il en manque un.
 	HostFingerprint string
 }
 
@@ -43,25 +48,35 @@ func Collect() Info {
 	}
 }
 
-// HostFingerprint rend l'empreinte de l'identifiant de cette machine.
+// HostFingerprint rend l'empreinte de cette machine pour ce démarrage : le
+// machine-id seul confondrait deux clones d'une même image.
 func HostFingerprint() string {
-	return readHostFingerprint(machineIDPaths)
+	return readHostFingerprint(machineIDPaths, bootIDPath)
 }
 
-// readHostFingerprint lit le premier identifiant de machine présent et en
-// rend l'empreinte ; aucun, rien.
-func readHostFingerprint(paths []string) string {
+// readHostFingerprint lit le premier identifiant de machine présent et
+// l'identifiant de démarrage, et rend l'empreinte des deux ; s'il en manque
+// un, rien : mieux vaut ne pas reconnaître la machine openCloud que refuser
+// une autre machine à tort.
+func readHostFingerprint(machineIDPaths []string, bootIDPath string) string {
+	machineID := readFirstIdentifier(machineIDPaths)
+	bootID := readFirstIdentifier([]string{bootIDPath})
+	if machineID == "" || bootID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(fingerprintPrefix + machineID + "\n" + bootID))
+	return hex.EncodeToString(sum[:])
+}
+
+func readFirstIdentifier(paths []string) string {
 	for _, path := range paths {
 		content, err := os.ReadFile(path) // #nosec G304 -- chemins constants.
 		if err != nil {
 			continue
 		}
-		id := strings.TrimSpace(string(content))
-		if id == "" {
-			continue
+		if id := strings.TrimSpace(string(content)); id != "" {
+			return id
 		}
-		sum := sha256.Sum256([]byte(fingerprintPrefix + id))
-		return hex.EncodeToString(sum[:])
 	}
 	return ""
 }
