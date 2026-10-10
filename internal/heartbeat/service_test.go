@@ -20,6 +20,7 @@ var testNow = time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
 // qu'on avance à la main.
 type fixture struct {
 	*heartbeat.Service
+	db       *store.DB
 	clock    time.Time
 	listener *recordingListener
 }
@@ -56,7 +57,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	f := &fixture{Service: heartbeat.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil))), clock: testNow, listener: &recordingListener{}}
+	f := &fixture{db: db, Service: heartbeat.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil))), clock: testNow, listener: &recordingListener{}}
 	f.SetClock(func() time.Time { return f.clock })
 	f.SetListener(f.listener)
 	return f
@@ -88,17 +89,56 @@ func code(value int) *int {
 	return &value
 }
 
-func TestCreate_StartsNewWithATokenAndNoDeadline(t *testing.T) {
+func TestCreate_StartsNewWithATokenAndAFirstDeadline(t *testing.T) {
 	f := newFixture(t)
 	h := f.create(t, "sauvegarde nextcloud")
-	if h.Status != heartbeat.StatusNew || !h.NextDeadlineAt.IsZero() || !strings.HasPrefix(h.Token, "hb_") || len(h.ID) != 16 {
+	if h.Status != heartbeat.StatusNew || !h.NextDeadlineAt.Equal(testNow.Add(6*time.Minute)) || !strings.HasPrefix(h.Token, "hb_") || len(h.ID) != 16 {
 		t.Fatalf("created %+v", h)
 	}
+	f.advance(6*time.Minute - time.Second)
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusNew {
-		t.Fatalf("a never-pinged heartbeat must not become late: %s", got.Status)
+		t.Fatalf("before its first deadline a new heartbeat stays new: %s", got.Status)
+	}
+}
+
+func TestCheckDeadlines_NeverPinged_BecomesLateAndAlertsOnce(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "sauvegarde mal branchée")
+	f.advance(6*time.Minute + time.Second)
+	for range 2 {
+		if err := f.CheckDeadlines(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := f.Get(context.Background(), h.ID)
+	if got.Status != heartbeat.StatusLate || !got.NeverPinged() || !got.NextDeadlineAt.IsZero() {
+		t.Fatalf("a never-pinged heartbeat must become late: %+v", got)
+	}
+	if total, attention, _ := f.Count(context.Background()); total != 1 || attention != 1 {
+		t.Fatalf("count %d/%d", total, attention)
+	}
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	if want := "late:sauvegarde mal branchée,recovered:sauvegarde mal branchée"; strings.Join(f.listener.events, ",") != want {
+		t.Fatalf("events %v", f.listener.events)
+	}
+}
+
+func TestResume_NeverPinged_StaysNewWithAFreshDeadline(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	if err := f.Pause(context.Background(), h.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(time.Hour)
+	if err := f.Resume(context.Background(), h.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.Get(context.Background(), h.ID)
+	if got.Status != heartbeat.StatusNew || !got.NextDeadlineAt.Equal(f.clock.Add(6*time.Minute)) {
+		t.Fatalf("after resume %+v", got)
 	}
 }
 
@@ -273,6 +313,37 @@ func TestPauseAndResume_PausedNeverGetsLateAndAPingResumesIt(t *testing.T) {
 	}
 	if got := f.ping(t, h.Token, heartbeat.KindFinish, nil); got.Status != heartbeat.StatusOnTime {
 		t.Fatalf("a ping must resume a paused heartbeat, got %s", got.Status)
+	}
+}
+
+// Une tâche créée avant le correctif n'a pas d'échéance ; le rattrapage
+// du démarrage lui donne celle qu'elle aurait eue, une seule fois.
+func TestBackfillFirstDeadlines_GivesAnOldNeverPingedJobItsDeadline(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "ancienne")
+	if err := f.db.Transact(ctx, h.ID, func(before heartbeat.Heartbeat) *heartbeat.Transition {
+		after := before
+		after.NextDeadlineAt = time.Time{}
+		return &heartbeat.Transition{Heartbeat: after}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(time.Hour)
+	for range 2 {
+		if err := f.BackfillFirstDeadlines(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := f.Get(ctx, h.ID)
+	if got.Status != heartbeat.StatusNew || !got.NextDeadlineAt.Equal(h.CreatedAt.Add(6*time.Minute)) {
+		t.Fatalf("after backfill %+v", got)
+	}
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.Get(ctx, h.ID); got.Status != heartbeat.StatusLate {
+		t.Fatalf("an old deadline already passed must make it late: %s", got.Status)
 	}
 }
 

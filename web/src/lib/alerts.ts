@@ -52,6 +52,13 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
       }
       return lines(t, alert.kind, [], [object, machine, details.exit_code ?? 0]);
     case "job_late":
+      if (details.reason === "never_pinged") {
+        return {
+          fact: t("alert.fact_job_late_never"),
+          cause: t("alert.cause_job_late_never", object, formatDuration(t, details.since ? since(details.since, now) : 0)),
+          action: t("alert.action_job_late_never"),
+        };
+      }
       return lines(t, alert.kind, [], [object]);
     case "job_failed":
       return lines(t, alert.kind, [], [object, details.exit_code ?? 0]);

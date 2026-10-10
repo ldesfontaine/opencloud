@@ -77,7 +77,8 @@ type Heartbeat struct {
 	Grace       time.Duration
 	// Zéro tant qu'aucun ping n'est arrivé.
 	LastPingAt time.Time
-	// Zéro quand rien n'est attendu : nouveau, en pause, déjà en retard.
+	// Zéro quand rien n'est attendu : en pause, déjà en retard. Un moniteur
+	// nouveau en a une dès sa création.
 	NextDeadlineAt time.Time
 	// Zéro hors d'une exécution ouverte par un start.
 	RunStartedAt time.Time
@@ -90,6 +91,12 @@ type Heartbeat struct {
 
 func (h Heartbeat) IsPaused() bool {
 	return h.Status == StatusPaused
+}
+
+// NeverPinged dit qu'aucun ping n'est jamais arrivé : la commande de ping
+// n'est peut-être pas branchée.
+func (h Heartbeat) NeverPinged() bool {
+	return h.LastPingAt.IsZero()
 }
 
 // Ping est une requête reçue, telle quelle. Source est l'adresse résolue

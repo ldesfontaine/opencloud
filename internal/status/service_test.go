@@ -182,6 +182,23 @@ func TestDerive_ObjectsThatSayNothingDoNotCount(t *testing.T) {
 	}
 }
 
+func TestDerive_AJobThatNeverPingedDegradesOnceItsFirstDeadlinePasses(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	job, err := f.heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.now = f.now.Add(time.Hour + time.Minute)
+	if err := f.heartbeats.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	backup := f.component(t, "Sauvegardes", status.MemberRef{Kind: status.KindHeartbeat, ID: job.ID})
+	if backup.Derived != status.StateDegraded {
+		t.Fatalf("derived %q, want degraded", backup.Derived)
+	}
+}
+
 func TestDerive_CertificateAboutToExpireDegrades(t *testing.T) {
 	f := newFixture(t)
 	soon := &probe.Certificate{Subject: "site", NotBefore: f.now.Add(-60 * 24 * time.Hour), NotAfter: f.now.Add(10 * 24 * time.Hour), Fingerprint: strings.Repeat("e", 64), ChainValid: true, HostnameMatch: true}

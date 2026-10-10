@@ -107,7 +107,8 @@ func (s *Service) changed(heartbeatID string) {
 }
 
 // Create tire l'identifiant et le jeton, puis écrit le moniteur ; il naît
-// « Nouveau », sans échéance tant qu'aucun ping n'est arrivé.
+// « Nouveau » avec une première échéance : une tâche jamais branchée doit
+// finir en retard, pas rester nouvelle pour toujours.
 func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat, error) {
 	if err := definition.Validate(); err != nil {
 		return Heartbeat{}, err
@@ -120,15 +121,17 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 	if err != nil {
 		return Heartbeat{}, fmt.Errorf("generate token: %w", err)
 	}
+	now := s.now()
 	heartbeat := Heartbeat{
-		ID:        id,
-		Token:     token,
-		Name:      strings.TrimSpace(definition.Name),
-		MachineID: definition.MachineID,
-		Status:    StatusNew,
-		Interval:  definition.Interval,
-		Grace:     definition.Grace,
-		CreatedAt: s.now(),
+		ID:             id,
+		Token:          token,
+		Name:           strings.TrimSpace(definition.Name),
+		MachineID:      definition.MachineID,
+		Status:         StatusNew,
+		Interval:       definition.Interval,
+		Grace:          definition.Grace,
+		NextDeadlineAt: now.Add(definition.Interval + definition.Grace),
+		CreatedAt:      now,
 	}
 	if err := s.store.InsertHeartbeat(ctx, heartbeat); err != nil {
 		return Heartbeat{}, err
@@ -193,7 +196,8 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 	return nil
 }
 
-// Resume rouvre une échéance complète depuis maintenant.
+// Resume rouvre une échéance complète depuis maintenant ; une tâche qui
+// n'a jamais pingé redevient « Nouveau », avec cette échéance quand même.
 func (s *Service) Resume(ctx context.Context, id string) error {
 	now := s.now()
 	notPaused := false
@@ -204,6 +208,9 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 		}
 		after := before
 		after.Status = StatusOnTime
+		if before.NeverPinged() {
+			after.Status = StatusNew
+		}
 		after.NextDeadlineAt = now.Add(before.Interval + before.Grace)
 		return &Transition{Heartbeat: after}
 	})
@@ -366,15 +373,50 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 	return nil
 }
 
+// BackfillFirstDeadlines donne leur première échéance aux tâches créées
+// avant qu'elles n'en aient une dès la création : nouvelles, jamais
+// pingées, sans échéance. Celle-ci part de la création ; déjà dépassée,
+// le contrôle suivant les passe en retard. Rejouée à chaque démarrage,
+// elle ne trouve plus rien à faire.
+func (s *Service) BackfillFirstDeadlines(ctx context.Context) error {
+	heartbeats, err := s.store.ListHeartbeats(ctx)
+	if err != nil {
+		return err
+	}
+	for _, found := range heartbeats {
+		if found.Status != StatusNew || !found.NeverPinged() || !found.NextDeadlineAt.IsZero() {
+			continue
+		}
+		err := s.store.Transact(ctx, found.ID, func(current Heartbeat) *Transition {
+			if current.Status != StatusNew || !current.NeverPinged() || !current.NextDeadlineAt.IsZero() {
+				return nil
+			}
+			after := current
+			after.NextDeadlineAt = current.CreatedAt.Add(current.Interval + current.Grace)
+			return &Transition{Heartbeat: after}
+		})
+		if err != nil {
+			return fmt.Errorf("backfill first deadline: %w", err)
+		}
+		s.logger.Info("heartbeat first deadline backfilled", "heartbeat_id", found.ID, "name", found.Name)
+		s.changed(found.ID)
+	}
+	return nil
+}
+
 // Purge efface le brut et les exécutions au-delà de leur rétention.
 func (s *Service) Purge(ctx context.Context) error {
 	now := s.now()
 	return s.store.PurgeHistory(ctx, now.Add(-PingRetention), now.Add(-RunRetention))
 }
 
-// Watch est la boucle de fond : les échéances toutes les 15 s, la purge au
-// départ puis une fois par jour. Elle s'arrête avec le contexte.
+// Watch est la boucle de fond : le rattrapage des premières échéances au
+// départ, les échéances toutes les 15 s, la purge au départ puis une fois
+// par jour. Elle s'arrête avec le contexte.
 func (s *Service) Watch(ctx context.Context) {
+	if err := s.BackfillFirstDeadlines(ctx); err != nil {
+		s.logger.Error("backfill heartbeat first deadlines", "error", err)
+	}
 	if err := s.Purge(ctx); err != nil {
 		s.logger.Warn("purge heartbeat history", "error", err)
 	}

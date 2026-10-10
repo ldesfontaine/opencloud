@@ -47,6 +47,9 @@ func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
 		}
 		return text(catalog, "service_restart", nil, []any{object, machine, details.ExitCode})
 	case KindJobLate:
+		if details.Reason == ReasonNeverPinged {
+			return text(catalog, "job_late_never", nil, []any{object, formatAge(catalog, now.Sub(details.Since))})
+		}
 		return text(catalog, "job_late", nil, []any{object})
 	case KindJobFailed:
 		return text(catalog, "job_failed", nil, []any{object, details.ExitCode})
