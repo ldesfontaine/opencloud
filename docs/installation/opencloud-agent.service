@@ -1,0 +1,26 @@
+# /etc/systemd/system/opencloud-agent.service — l'agent d'une machine.
+# À activer APRÈS le premier lancement (enrôlement) avec -server et -token.
+# Non testé sous systemd dans l'environnement de rédaction : vérifié par
+# systemd-analyze verify seulement.
+[Unit]
+Description=openCloud (agent)
+Documentation=https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# root : l'agent lit /proc, chaque volume monté et la socket Docker.
+# -state doit être celui du premier lancement. Ajoutez ici -allow-plain,
+# -ca-file ou -docker-socket s'ils servaient au premier lancement : ils ne
+# sont pas retenus. -server, -token, -pin et -lang le sont, inutile de les
+# redonner.
+ExecStart=/usr/local/bin/opencloud agent -state /var/lib/opencloud/agent
+Restart=on-failure
+RestartSec=10
+# Code 2 : refus (machine retirée, identité refusée, pas enrôlée). Relancer
+# n'y changerait rien ; il faut un nouveau jeton.
+RestartPreventExitStatus=2
+
+[Install]
+WantedBy=multi-user.target

@@ -33,8 +33,8 @@ Trois dossiers hors git, pour trois raisons :
 
 | Dossier | Qui le crée | Contenu | `make clean` |
 |---|---|---|---|
-| `bin/` | `make build` | le binaire de dev, refait à chaque build, et l'outil plumber | jette le binaire, garde l'outil |
-| `dist/` | `make release` | ce qu'une release publie : binaire versionné, `.deb`, `SHA256SUMS` | jette tout |
+| `bin/` | `make build` | le binaire de dev, refait à chaque build | jette le binaire |
+| `dist/` | `make release`, **à venir** : la cible n'existe pas encore | ce qu'une release publiera : binaire versionné, `.deb`, `SHA256SUMS` | jette tout |
 | `dev/` | `make run` la première fois, puis toi | `config.toml` et `state/` : ton `/etc` et ton `/var/lib` locaux | n'y touche jamais |
 | `web/node_modules/`, `web/dist/` | `make front` | les paquets npm épinglés par le verrou, et le front compilé | vide `dist/`, garde `node_modules/` |
 
@@ -161,7 +161,7 @@ jamais d'état à moitié appliqué. Clé inconnue = avertissement au démarrage
 Le schéma de la base d'openCloud changera : une colonne ajoutée, une table
 nouvelle. Une installation existante doit **suivre sans perdre ses données**.
 Les migrations sont des fichiers SQL numérotés (`001_machines.sql`,
-`002_actions.sql`…), embarqués dans le binaire, appliqués **dans l'ordre au
+`002_heartbeats.sql`…), embarqués dans le binaire, appliqués **dans l'ordre au
 démarrage**, chacun noté dans une table `schema_migrations` pour ne jamais être
 rejoué. Même principe que `php artisan migrate`, sans commande à lancer : le
 binaire se met à niveau tout seul.
@@ -289,8 +289,9 @@ scripts relus.
 `go test`, `govulncheck`, `gosec`, `shellcheck`, scan des secrets. `permissions: read` par défaut, délais,
 `concurrency`. **Actions épinglées par SHA de commit**, et **Plumber** vérifie
 la politique CI/CD (`.plumber.yaml`) à chaque exécution — bloquant, 100 points
-exigés. `make ci` joue les mêmes commandes en local, `make plumber` la même
-politique.
+exigés. `make ci` joue les mêmes commandes en local ; `make plumber`, pour
+la même politique en local, est **à venir** : la cible n'existe pas encore,
+Plumber ne tourne qu'en CI.
 
 ## Les commits
 
