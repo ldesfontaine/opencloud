@@ -260,6 +260,7 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
         <CardBody>
           <p>{t("mcp.intro")}</p>
           <p className="secondary">{t("mcp.tools", state.tools.reads, state.tools.writes)}</p>
+          <p className="secondary">{t("mcp.never")}</p>
           {error !== null && <Pill tone="danger">{t(error)}</Pill>}
           {!state.enabled && (
             <>

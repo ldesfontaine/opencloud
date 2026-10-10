@@ -15,9 +15,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Les seize lectures : chacune rend les faits de l'API, sous le même JSON,
-// sans jamais un secret. Ni l'URL de ping d'une tâche, ni les jetons en
-// attente d'une machine, ni l'URL complète d'un canal ne sortent ici.
+// Les seize lectures : chacune rend les faits de l'API, sous le même JSON.
+// Aucun secret d'openCloud n'en sort : ni l'URL de ping d'une tâche, ni les
+// jetons en attente d'une machine, ni l'URL complète d'un canal. Les
+// journaux d'un conteneur, eux, sont bruts et peuvent en contenir un.
 func (s *Server) registerReadTools(server *gomcp.Server) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_overview",
@@ -46,12 +47,12 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.listServicesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_service",
-		Description: "One service with the Docker engine of its machine and its last 50 state transitions (start, die, health changes, with the log snippet captured on an abnormal exit).",
+		Description: "One service with the Docker engine of its machine and its last 50 state transitions (start, die, health changes, with the raw log snippet captured on an abnormal exit, which can contain secrets).",
 		Annotations: readOnlyHints(),
 	}, s.getServiceTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_service_logs",
-		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Over stdio (opencloud mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
+		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (opencloud mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
 		Annotations: readOnlyHints(),
 	}, s.getServiceLogsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
