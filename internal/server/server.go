@@ -33,7 +33,7 @@ import (
 // Ce que le serveur attend du composant qui mémorise les réglages.
 type SettingsStore interface {
 	Load() (settings.Settings, error)
-	Save(settings.Settings) error
+	Update(change func(*settings.Settings)) (settings.Settings, error)
 }
 
 // Ce que le serveur attend du composant machine : l'API d'un côté,
@@ -325,17 +325,15 @@ func (s *Server) language() lang.Code {
 	return s.current.Language
 }
 
-// saveLanguage relit le fichier avant d'écrire : la page de statut y tient
-// ses propres réglages, qu'une copie en mémoire écraserait.
+// saveLanguage ne touche que la langue : la page de statut tient ses
+// propres clés dans le même fichier, et Update les préserve.
 func (s *Server) saveLanguage(code lang.Code) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, err := s.settings.Load()
+	current, err := s.settings.Update(func(current *settings.Settings) {
+		current.Language = code
+	})
 	if err != nil {
-		return err
-	}
-	current.Language = code
-	if err := s.settings.Save(current); err != nil {
 		return err
 	}
 	s.current = current
