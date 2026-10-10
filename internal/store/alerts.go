@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
@@ -123,6 +124,33 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 		return fmt.Errorf("update alert: %w", err)
 	}
 	return alertNotFoundIfNoRow(result)
+}
+
+// AcknowledgeAlerts n'écrit qu'une instruction, donc une transaction :
+// toute la sélection passe, ou rien. Seules les ouvertes non acquittées
+// changent ; le reste est laissé tel quel.
+func (db *DB) AcknowledgeAlerts(ctx context.Context, ids []int64, at time.Time) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	// Seuls les « ? » s'assemblent ; les identifiants passent en paramètres,
+	// et leur nombre est borné par alert.MaxAcknowledgedAtOnce.
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", ")
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, at.Unix())
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	query := `UPDATE alerts SET acknowledged_at = ? WHERE status = 'open' AND acknowledged_at IS NULL AND id IN (` + placeholders + `)` // #nosec G202 -- des « ? » répétés, les valeurs sont liées.
+	result, err := db.sql.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("acknowledge alerts: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count acknowledged alerts: %w", err)
+	}
+	return int(changed), nil // #nosec G115 -- au plus alert.MaxAcknowledgedAtOnce lignes.
 }
 
 func (db *DB) CountAlerts(ctx context.Context) (alert.Counts, error) {

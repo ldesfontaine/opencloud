@@ -86,6 +86,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/alerts/silences", s.listSilences},
 		{"POST", "/api/alerts/silences", s.createSilence},
 		{"DELETE", "/api/alerts/silences/{id}", s.deleteSilence},
+		{"POST", "/api/alerts/actions/acknowledge", s.acknowledgeAlerts},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
 		{"GET", "/api/mcp", s.getMCP},

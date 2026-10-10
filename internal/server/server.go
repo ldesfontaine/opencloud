@@ -159,6 +159,7 @@ type AlertService interface {
 	Get(ctx context.Context, id int64) (alert.Alert, error)
 	Deliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error)
 	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
+	AcknowledgeMany(ctx context.Context, ids []int64) (int, error)
 	Count(ctx context.Context) (alert.Counts, error)
 	Channels(ctx context.Context) ([]alert.Channel, error)
 	GetChannel(ctx context.Context, id int64) (alert.Channel, error)

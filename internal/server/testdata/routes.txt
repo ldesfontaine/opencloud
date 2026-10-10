@@ -58,6 +58,7 @@ POST /api/alerts/channels/{id}/actions/test
 GET /api/alerts/silences
 POST /api/alerts/silences
 DELETE /api/alerts/silences/{id}
+POST /api/alerts/actions/acknowledge
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge
 GET /api/mcp

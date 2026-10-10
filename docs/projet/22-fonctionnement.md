@@ -773,7 +773,17 @@ composant qui sait, lui qui parle.
    composant sous **maintenance en cours** de la page de statut, est
    **silencieuse** : montrée, jamais envoyée, même quand le silence tombe.
 5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
-   ouverte jusqu'à sa reprise. Une aggravation la ré-arme.
+   ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
+   Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
+   porte une case par alerte, une par machine et « Tout sélectionner » ;
+   « Acquitter la sélection » ou « Acquitter tout ce qui est affiché »
+   partent en une requête, `POST /api/alerts/actions/acknowledge` avec
+   `{"ids":[…]}` : 200 identifiants au plus, une seule instruction SQL donc
+   une transaction, refus `alert.selection_empty` ou
+   `alert.selection_too_large`. Une alerte déjà acquittée, résolue ou
+   disparue entre l'affichage et le clic est passée sans refus ; la
+   réponse dit combien ont changé, et la page l'écrit (« 4 alertes
+   acquittées »). L'acquittement unitaire reste.
 6. **Un canal est un webhook** : une URL, un format de corps, un secret de
    signature facultatif, une gravité minimale, et s'il veut aussi la
    résolution. Chaque envoi est un POST qui porte `OpenCloud-Event` et,
