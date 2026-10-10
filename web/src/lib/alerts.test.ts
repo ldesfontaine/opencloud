@@ -90,8 +90,8 @@ describe("deliveryReason", () => {
 describe("silenceTargets", () => {
   const silence = { id: 1, kind: "" as const, object: { kind: "" as const, id: "", name: "" }, reason: "", starts_at: "", ends_at: "", active: true, created_at: "" };
   it("nomme le type, l'objet, ou les deux", () => {
-    expect(silenceTargets(t, { ...silence, kind: "job_late" })).toBe("silence.targets_kind alert.fact_job_late 0");
+    expect(silenceTargets(t, { ...silence, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
     expect(silenceTargets(t, { ...silence, object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
-    expect(silenceTargets(t, { ...silence, kind: "disk_full", object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.fact_disk_full 0 vps");
+    expect(silenceTargets(t, { ...silence, kind: "disk_full", object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
   });
 });

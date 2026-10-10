@@ -49,6 +49,8 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "update.kind_", values: names(update.Kinds())},
 		{prefix: "update.available_", values: names(update.Kinds())},
 		{prefix: "resource.window_", values: resourceWindowNames()},
+		// Le libellé d'un type, sans chiffre : liste des silences, sélecteur.
+		{prefix: "alert.kind_", values: names(alert.Kinds())},
 		{prefix: "alert.fact_", values: names(alert.Kinds())},
 		{prefix: "alert.cause_", values: names(alert.Kinds())},
 		{prefix: "alert.action_", values: names(alert.Kinds())},

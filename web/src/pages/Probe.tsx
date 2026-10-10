@@ -17,7 +17,7 @@ import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n
 import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
 import { useRefresh } from "../lib/refresh";
-import { ago, formatClock, formatDuration } from "../lib/time";
+import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 import { NotFound } from "./NotFound";
 
@@ -63,7 +63,11 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
               )}
               <span className="sep" />
               <span>
-                {t("probe.every")} <span className="mono">{formatDuration(t, probe.interval_seconds * 1000)}</span>
+                {everyOnce(t, probe.interval_seconds * 1000) ?? (
+                  <>
+                    {t("time.every")} <span className="mono">{formatDuration(t, probe.interval_seconds * 1000)}</span>
+                  </>
+                )}
               </span>
               <span className="sep" />
               <span>

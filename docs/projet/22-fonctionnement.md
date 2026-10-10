@@ -94,7 +94,7 @@ réseau est déjà chiffré.
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les moniteurs de tâches et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer un moniteur |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer une tâche |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
@@ -140,9 +140,9 @@ le client qui les garde.
 
 ## Comment une tâche est surveillée
 
-1. L'opérateur crée un moniteur : un nom, un intervalle, une grâce, une
+1. L'opérateur crée une tâche : un nom, un intervalle, une grâce, une
    machine facultative. openCloud tire un identifiant pour la page et un
-   jeton `hb_…` pour l'URL de ping. Le moniteur est « Nouveau » : rien n'est
+   jeton `hb_…` pour l'URL de ping. Son état est « Nouveau » : rien n'est
    attendu tant qu'aucun ping n'est arrivé.
 2. La tâche appelle l'URL, en GET ou en POST, sans authentification :
    `/ping/{jeton}` quand elle a fini, `/ping/{jeton}/start` quand elle
@@ -150,14 +150,14 @@ le client qui les garde.
    Chaque ping repousse l'échéance à maintenant + intervalle + grâce.
 3. Un `start` ouvre une exécution ; la fin la clôt avec sa durée et son code.
    Un `start` sans fin est clos en « Dépassée » par le `start` suivant ou par
-   l'échéance. Un code de sortie autre que 0 met le moniteur « En échec ».
-4. Toutes les 15 s, une boucle passe « En retard » les moniteurs dont
+   l'échéance. Un code de sortie autre que 0 met la tâche « En échec ».
+4. Toutes les 15 s, une boucle passe « En retard » les tâches dont
    l'échéance est dépassée. Le prochain ping les remet « À l'heure ».
-5. En pause, un moniteur n'a plus d'échéance ; un ping le reprend. Supprimé,
+5. En pause, une tâche n'a plus d'échéance ; un ping le reprend. Supprimé,
    son URL répond 404 et son historique disparaît avec lui.
 
-Le ping est écrit en une seule transaction : ping brut, exécution, état du
-moniteur. La source notée est l'adresse résolue par `trusted_proxies` ; un
+Le ping est écrit en une seule transaction : ping brut, exécution, état de la
+tâche. La source notée est l'adresse résolue par `trusted_proxies` ; un
 relais par l'agent, s'il vient un jour, y écrira `agent:<machine>` sans
 changer le schéma.
 
@@ -549,7 +549,7 @@ L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s sans dépasser
 l'intervalle. Le service surveillé, quand il est donné, doit exister et
 tourner sur la machine qui sonde : sinon la création est refusée
 (`probe.service_invalid`, 422), jamais en erreur interne. Une sonde ne
-s'édite pas : on la supprime et on la recrée, comme un moniteur de tâche.
+s'édite pas : on la supprime et on la recrée, comme une tâche.
 
 ## Comment un certificat est jugé
 
@@ -701,7 +701,7 @@ Au-delà : `429` avec `Retry-After`. Les seaux sont balayés au passage,
 comme ceux de `/ping`, et l'adresse est celle que `trusted_proxies`
 résout : un en-tête forgé n'ouvre pas un seau neuf.
 
-L'administration vit dans la coquille, sous l'entrée « Statut », à
+L'administration vit dans la coquille, sous l'entrée « Page de statut », à
 l'adresse `/page-statut` : composants, incidents, réglages. Le compteur
 rouge de la barre latérale est le nombre d'incidents ouverts. Elle est
 protégée par l'authentification de l'interface quand elle est activée,
@@ -813,7 +813,10 @@ requête : `none` (par défaut), `basic`, et `forward`, réservé.
   Paramètres, carte « Accès à l'interface » : identifiant (64 caractères,
   sans `:`), mot de passe de 12 caractères au moins et 72 octets au plus
   (au-delà, bcrypt ne lit plus). Sans identifiants justes, `401` avec
-  `WWW-Authenticate` ; le navigateur demande alors dans sa propre fenêtre
+  `WWW-Authenticate` ; hors `/api/`, le corps dit en une ligne (français si
+  `Accept-Language` commence par `fr`, anglais sinon) que le mot de passe
+  perdu se lève par `opencloud auth disable -config <chemin de la config>`,
+  ce que le navigateur montre si l'on annule sa fenêtre. Le navigateur demande alors dans sa propre fenêtre
   et renvoie seul les identifiants, `EventSource` compris. La barre
   latérale dit « Accès protégé · identifiant ».
 - **`forward`** : plus tard, openCloud derrière un mandataire qui
@@ -852,7 +855,7 @@ MCP, *Model Context Protocol*, est ce qu'un client IA parle pour appeler des
 outils. openCloud en sert un, sur le SDK officiel épinglé
 (`github.com/modelcontextprotocol/go-sdk`), avec deux transports.
 
-1. L'opérateur active MCP sous Paramètres. Activer tire le secret du
+1. L'opérateur active MCP sous Paramètres. Activer crée le secret du
    client OAuth, montré une seule fois : il n'existe pas d'état « activé
    sans identifiants », donc pas d'échappatoire à protéger. Tant que MCP
    est désactivé, `/mcp`, `/oauth/…` et les deux métadonnées répondent `404`.
@@ -1077,7 +1080,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Seuils fixes | 2 min, 3 redémarrages en 10 min, 85 et 95 %, 30 et 7 jours : constantes du produit, sans réglage | À décider, avec un écran de réglages |
 | Pas d'e-mail ni de Telegram | Un canal est un webhook ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
 | Une livraison échouée trois fois est perdue | Le récepteur en panne plus d'une minute ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
-| Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer le moniteur | À décider |
+| Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer la tâche | À décider |
 | Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
 | Pas d'édition d'une sonde | Changer une cadence impose de supprimer et recréer, ce qui perd l'historique | À décider |
 | Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée ; l'historique des alertes résolues le dit sur 90 jours | À décider |

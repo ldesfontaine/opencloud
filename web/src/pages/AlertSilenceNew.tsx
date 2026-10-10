@@ -76,7 +76,7 @@ export function AlertSilenceNew() {
               <option value="">{t("silence.kind_any")}</option>
               {alertKinds.map((candidate) => (
                 <option key={candidate} value={candidate}>
-                  {t(`alert.fact_${candidate}`, 0)}
+                  {t(`alert.kind_${candidate}`)}
                 </option>
               ))}
             </Select>

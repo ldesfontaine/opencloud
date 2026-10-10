@@ -45,7 +45,7 @@ export function ServiceTable({ services, withMachine }: { services: Service[]; w
           {withMachine && <th>{t("services.col_machine")}</th>}
           <th>{t("services.col_image")}</th>
           <th>{t("services.col_state")}</th>
-          <th>{t("services.col_domain")}</th>
+          <th>{t("services.col_exposure")}</th>
           <th className="th-num">{t("services.col_cpu")}</th>
           <th className="th-num th-end">{t("services.col_memory")}</th>
         </tr>

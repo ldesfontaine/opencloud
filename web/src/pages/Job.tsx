@@ -15,7 +15,7 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { lastResult, preview, runTones } from "../lib/jobs";
 import { useRefresh } from "../lib/refresh";
-import { ago, deadlineIn, formatClock, formatDuration, lastPing } from "../lib/time";
+import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 import { NotFound } from "./NotFound";
 
 // La page d'une tâche : son état, l'URL de ping et les extraits à coller,
@@ -52,7 +52,11 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
                 </>
               )}
               <span>
-                {t("job.every")} <span className="mono">{formatDuration(t, job.interval_seconds * 1000)}</span>
+                {everyOnce(t, job.interval_seconds * 1000) ?? (
+                  <>
+                    {t("time.every")} <span className="mono">{formatDuration(t, job.interval_seconds * 1000)}</span>
+                  </>
+                )}
               </span>
               <span className="sep" />
               <span>
