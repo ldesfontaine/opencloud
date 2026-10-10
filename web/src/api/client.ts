@@ -12,9 +12,11 @@ export class ApiError extends Error {
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "same-origin" };
-  if (body !== undefined) {
+  // Toute écriture part en JSON, même sans rien à dire : le serveur refuse
+  // une écriture qui n'en porte pas, c'est sa garde même-origine.
+  if (method !== "GET") {
     init.headers = { "Content-Type": "application/json" };
-    init.body = JSON.stringify(body);
+    init.body = JSON.stringify(body ?? {});
   }
   const response = await fetch(path, init);
   if (response.status === 204) {

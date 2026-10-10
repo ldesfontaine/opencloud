@@ -126,7 +126,10 @@ func newTestServer(t *testing.T) *testServer {
 		Live:       bus,
 		PublicLive: publicBus,
 		ConfigPath: "/etc/opencloud/config.toml",
-		Clock:      func() time.Time { return testNow },
+		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
+		// d'écoute de ce serveur, donc un Host reconnu.
+		Listen: "example.com:80",
+		Clock:  func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)

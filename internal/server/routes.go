@@ -116,7 +116,7 @@ func (s *Server) routes() []route {
 		{"GET", "/.well-known/oauth-authorization-server", s.oauthServerMetadata},
 		{"GET", "/.well-known/oauth-protected-resource", s.oauthResourceMetadata},
 		{"GET", "/.well-known/oauth-protected-resource/mcp", s.oauthResourceMetadata},
-		{"GET", "/oauth/authorize", s.oauthAuthorize},
+		{"GET", mcpAuthorizePath, s.oauthAuthorize},
 		{"POST", "/oauth/token", s.oauthToken},
 		{anyMethod, "/mcp", s.serveMCP},
 		{anyMethod, "/", s.serveApp},
@@ -124,13 +124,19 @@ func (s *Server) routes() []route {
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
-// et les routes de l'agent et des pings n'en ont pas besoin.
+// et les routes de l'agent et des pings n'en ont pas besoin. Ce qu'un
+// navigateur appelle avec l'état d'openCloud, /api et l'autorisation
+// OAuth, exige en plus un Host reconnu, jugé avant tout le reste.
 func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, route := range s.routes() {
 		handler := route.handler
-		if strings.HasPrefix(route.pattern, "/api/") && route.method != http.MethodGet {
+		isAPI := strings.HasPrefix(route.pattern, "/api/")
+		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)
+		}
+		if isAPI || route.pattern == mcpAuthorizePath {
+			handler = s.requireKnownHost(handler)
 		}
 		pattern := route.pattern
 		if route.method != anyMethod {

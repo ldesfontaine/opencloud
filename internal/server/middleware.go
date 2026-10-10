@@ -16,6 +16,8 @@ const (
 	requestIDBytes     = 8
 	requestIDHeader    = "X-Request-ID"
 	panicResponseTitle = "internal server error"
+	pingPrefix         = "/ping/"
+	redacted           = "[redacted]"
 )
 
 // La chaîne, de l'extérieur vers l'intérieur : panique, identifiant,
@@ -70,7 +72,7 @@ func (s *Server) recoverPanic(next http.Handler) http.Handler {
 			if recovered == nil {
 				return
 			}
-			s.logger.Error("panic", "error", recovered, "method", r.Method, "path", r.URL.Path, "request_id", w.Header().Get(requestIDHeader))
+			s.logger.Error("panic", "error", recovered, "method", r.Method, "path", loggedPath(r), "request_id", w.Header().Get(requestIDHeader))
 			if writer.written {
 				return
 			}
@@ -118,12 +120,31 @@ func (s *Server) logRequest(next http.Handler) http.Handler {
 		}
 		s.logger.Log(r.Context(), level, "http request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", loggedPath(r),
 			"status", writer.status,
 			"duration_ms", time.Since(started).Milliseconds(),
 			"request_id", w.Header().Get(requestIDHeader),
 		)
 	})
+}
+
+// loggedPath tait ce qui est un secret dans l'adresse : le jeton d'un
+// ping, qui suffit à faire passer une tâche pour faite, et la requête de
+// l'autorisation OAuth, qui porte state et le défi PKCE. Le reste du
+// chemin garde ce qu'il faut pour suivre une requête.
+func loggedPath(r *http.Request) string {
+	path := r.URL.Path
+	if rest, ok := strings.CutPrefix(path, pingPrefix); ok {
+		_, after, hasMore := strings.Cut(rest, "/")
+		if hasMore {
+			return pingPrefix + redacted + "/" + after
+		}
+		return pingPrefix + redacted
+	}
+	if path == mcpAuthorizePath && r.URL.RawQuery != "" {
+		return path + "?" + redacted
+	}
+	return path
 }
 
 func limitBody(next http.Handler) http.Handler {

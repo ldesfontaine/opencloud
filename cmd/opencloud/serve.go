@@ -191,6 +191,7 @@ func runServe(args []string) error {
 		Live:           bus,
 		PublicLive:     publicBus,
 		PublicURL:      cfg.PublicURL,
+		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),
 		ConfigPath:     *configPath,
 	})

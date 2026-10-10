@@ -16,9 +16,20 @@ var ErrForbiddenAddress = errors.New("forbidden egress address")
 // les identifiants de l'instance à qui sait la demander. La boucle locale
 // et les adresses privées restent ouvertes : sonder un service par l'agent
 // de sa propre machine, ou prévenir un ntfy sur le LAN, est l'usage voulu.
+// Deux hébergeurs servent leurs métadonnées hors du lien-local, et sont
+// nommés un par un : AWS en IPv6 sur fd00:ec2::254, Alibaba Cloud sur
+// 100.100.100.200 ; le reste de leurs plages reste ouvert.
 func Forbidden(ip net.IP) bool {
-	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast()
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() {
+		return true
+	}
+	return ip.Equal(net.ParseIP(awsMetadataIPv6)) || ip.Equal(net.ParseIP(alibabaMetadata))
 }
+
+const (
+	awsMetadataIPv6 = "fd00:ec2::254"
+	alibabaMetadata = "100.100.100.200"
+)
 
 // Dial résout le nom lui-même, écarte ce qu'on ne doit pas joindre, puis
 // compose vers l'adresse retenue. Composer sur l'adresse déjà résolue ferme

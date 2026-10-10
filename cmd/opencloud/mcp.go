@@ -95,6 +95,7 @@ func runMCP(args []string) error {
 		Live:           live.New(),
 		PublicLive:     live.New(),
 		PublicURL:      cfg.PublicURL,
+		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),
 		ConfigPath:     *configPath,
 	})

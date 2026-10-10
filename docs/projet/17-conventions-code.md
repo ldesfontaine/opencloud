@@ -212,10 +212,18 @@ pings (`/ping/`) ne changent pas.
   l'opérateur doit le lire, c'est une **clé du catalogue** et le front la
   traduit ; sinon un code court (`not_found`, `bad_json`, `internal`). Le front
   ne lit jamais un texte anglais du serveur.
-- Toute écriture sous `/api/` passe la garde même-origine : `Sec-Fetch-Site`
-  autre que `same-origin` ou `none` refusé, corps autre que
-  `application/json` refusé. C'est ce qui remplace le jeton anti-CSRF des
-  formulaires, et ce qui vaut tant qu'il n'y a pas d'authentification.
+- Toute écriture sous `/api/` (POST, PUT, PATCH, DELETE) passe la garde
+  même-origine : `Content-Type: application/json` exigé, **corps vide
+  compris** (le front envoie `{}` pour une action sans corps), et un
+  `Sec-Fetch-Site` présent autre que `same-origin` ou `none` refusé ; un
+  `Sec-Fetch-Site` absent ne suffit pas à refuser. Refus : `403 bad_origin`.
+  C'est ce qui remplace le jeton anti-CSRF des formulaires, et ce qui vaut
+  tant qu'il n'y a pas d'authentification.
+- Toute requête sous `/api/` et sur `/oauth/authorize` exige un `Host`
+  reconnu : l'hôte de `public_url`, `localhost`, une IP littérale (v4 ou v6,
+  avec ou sans port), l'hôte de `listen` ; derrière un mandataire de
+  `trusted_proxies`, `X-Forwarded-Host` est jugé de même. Refus :
+  `403 bad_host`, et une ligne de journal qui dit de régler `public_url`.
 - CSP stricte inchangée : le front compilé n'a ni script ni style en ligne,
   un test le vérifie. Rien ne se charge depuis Internet.
 - **Le direct** : `GET /api/events` en SSE, **une seule connexion par onglet**,

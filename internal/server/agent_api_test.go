@@ -261,3 +261,30 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 		t.Fatalf("bad json: %d", got.Code)
 	}
 }
+
+// /agent/challenge est ouvert à tous : son débit est borné par adresse,
+// pour qu'on ne devine pas les identifiants de machine à la chaîne ni ne
+// remplisse la table des défis. Une autre adresse passe encore.
+func TestAgentChallenge_IsRateLimitedBySource(t *testing.T) {
+	server := newTestServer(t)
+	unknown := machine.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
+	for i := range challengePerSourceBurst {
+		if got := postJSON(server.Server, "/agent/challenge", unknown); got.Code != http.StatusNotFound {
+			t.Fatalf("request %d: %d", i+1, got.Code)
+		}
+	}
+	got := postJSON(server.Server, "/agent/challenge", unknown)
+	if got.Code != http.StatusTooManyRequests || got.Header().Get("Retry-After") == "" {
+		t.Fatalf("over the burst: %d %v", got.Code, got.Header())
+	}
+	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
+	body, _ := json.Marshal(unknown)
+	request := httptest.NewRequest(http.MethodPost, "/agent/challenge", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Forwarded-For", "203.0.113.50")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("another source: %d", recorder.Code)
+	}
+}
