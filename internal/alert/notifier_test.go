@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -147,6 +148,86 @@ func TestNotifier_DeliversASignedBodyInTheInterfaceLanguage(t *testing.T) {
 	}
 	if !strings.HasPrefix(payload.Title, "Alerte · ") {
 		t.Fatalf("title %q", payload.Title)
+	}
+}
+
+// Avec public_url, chaque format mène à la fiche de l'alerte : un champ
+// url dans le JSON, le titre cliquable chez Discord et Slack, l'en-tête
+// Click pour ntfy ; la signature couvre toujours le corps envoyé.
+func TestNotifier_LinksToTheAlertPageWhenThePublicURLIsKnown(t *testing.T) {
+	f := newFixture(t)
+	notifier := f.notifier(t, lang.French)
+	notifier.SetPublicURL("https://oc.example.fr/")
+	targets := map[alert.Format]*receiver{}
+	for _, format := range alert.Formats() {
+		targets[format] = newReceiver(http.StatusNoContent)
+		defer targets[format].Close()
+		f.webhook(t, targets[format].URL, format, "s3cret")
+	}
+	f.Open(context.Background(), volumeFact(alert.SeverityAttention, 86))
+	opened := f.only(t, alert.StatusOpen)
+	want := "https://oc.example.fr/alertes/alerte/" + strconv.FormatInt(opened.ID, 10)
+	deadline := time.Now().Add(5 * time.Second)
+	for _, target := range targets {
+		for target.count() == 0 && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	for format, target := range targets {
+		if target.count() == 0 {
+			t.Fatalf("%s: nothing received", format)
+		}
+		got := target.last()
+		if !alert.Verify("s3cret", got.body, got.headers.Get("OpenCloud-Signature")) {
+			t.Errorf("%s: signature does not match the body", format)
+		}
+		switch format {
+		case alert.FormatText:
+			if got.headers.Get("Click") != want {
+				t.Errorf("text: Click %q, want %q", got.headers.Get("Click"), want)
+			}
+		case alert.FormatJSON:
+			var payload struct {
+				Alert struct {
+					URL string `json:"url"`
+				} `json:"alert"`
+			}
+			if err := json.Unmarshal(got.body, &payload); err != nil || payload.Alert.URL != want {
+				t.Errorf("json: url %q, want %q (%v)", payload.Alert.URL, want, err)
+			}
+		default:
+			if !strings.Contains(string(got.body), want) || !strings.Contains(string(got.body), "Ouvrir dans openCloud") {
+				t.Errorf("%s: body %s lacks the link", format, got.body)
+			}
+		}
+	}
+}
+
+// Sans public_url, aucun lien : openCloud ne sait pas sous quelle adresse
+// on le lit, et une adresse devinée mènerait ailleurs.
+func TestNotifier_SendsNoLinkWithoutAPublicURL(t *testing.T) {
+	f := newFixture(t)
+	f.notifier(t, lang.French)
+	target := newReceiver(http.StatusNoContent)
+	defer target.Close()
+	f.webhook(t, target.URL, alert.FormatJSON, "")
+	f.Open(context.Background(), volumeFact(alert.SeverityAttention, 86))
+	f.waitDelivery(t, f.only(t, alert.StatusOpen).ID)
+	if strings.Contains(string(target.last().body), `"url"`) {
+		t.Fatalf("body %s carries a url", target.last().body)
+	}
+}
+
+func TestAlertLink_NeedsAPublicURLAndARealAlert(t *testing.T) {
+	opened := alert.Alert{ID: 42}
+	if got := alert.AlertLink("https://oc.example.fr", alert.EventOpened, opened); got != "https://oc.example.fr/alertes/alerte/42" {
+		t.Fatalf("link %q", got)
+	}
+	if got := alert.AlertLink("", alert.EventOpened, opened); got != "" {
+		t.Fatalf("no public_url, link %q", got)
+	}
+	if got := alert.AlertLink("https://oc.example.fr", alert.EventTest, alert.Alert{}); got != "" {
+		t.Fatalf("test, link %q", got)
 	}
 }
 

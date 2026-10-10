@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link, NavLink, useParams } from "react-router";
 
-import { api } from "../api/client";
-import type { Alert, AlertsResponse, Channel, ChannelsResponse, Silence, SilencesResponse } from "../api/types";
+import { api, errorKey } from "../api/client";
+import type { Alert, AlertsResponse, Channel, ChannelsResponse, ChannelTest, Silence, SilencesResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -11,7 +12,7 @@ import { List, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
-import { alertsSubtitle, describeAlert, objectPath, severityTones, silenceTargets, stateOf, stateTones } from "../lib/alerts";
+import { alertsSubtitle, channelTestResult, describeAlert, objectPath, severityTones, silenceTargets, stateOf, stateTones } from "../lib/alerts";
 import { useRefresh } from "../lib/refresh";
 import { ago, formatClock } from "../lib/time";
 import { NotFound } from "./NotFound";
@@ -201,6 +202,7 @@ function ChannelsTab() {
             <th>{t("channel.col_format")}</th>
             <th>{t("channel.col_severity")}</th>
             <th className="th-end">{t("channel.col_state")}</th>
+            <th className="th-end"></th>
           </tr>
         </thead>
         <tbody>
@@ -213,8 +215,23 @@ function ChannelsTab() {
   );
 }
 
+// Une ligne de canal : son nom, son URL, et un essai qui répond sur place,
+// le même que celui de sa fiche.
 function ChannelRow({ channel }: { channel: Channel }) {
   const t = useT();
+  const [test, setTest] = useState<ChannelTest | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const runTest = () => {
+    setBusy(true);
+    setTest(null);
+    setError(null);
+    api
+      .post<ChannelTest>(`/api/alerts/channels/${channel.id}/actions/test`)
+      .then(setTest)
+      .catch((failure: unknown) => setError(errorKey(failure)))
+      .finally(() => setBusy(false));
+  };
   return (
     <tr>
       <td>
@@ -229,6 +246,15 @@ function ChannelRow({ channel }: { channel: Channel }) {
       <td className="secondary">{t(`channel.receives_${channel.min_severity}`)}</td>
       <td className="td-end">
         <Pill tone={channel.enabled ? "ok" : "neutral"}>{t(channel.enabled ? "channel.state_enabled" : "channel.state_disabled")}</Pill>
+      </td>
+      <td className="td-end">
+        <span className="channel-test">
+          {test !== null && <Pill tone={test.ok ? "ok" : "danger"}>{channelTestResult(t, test)}</Pill>}
+          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Button small icon="refresh" onClick={runTest} disabled={busy}>
+            {t("channel.test")}
+          </Button>
+        </span>
       </td>
     </tr>
   );

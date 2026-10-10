@@ -184,6 +184,11 @@
   font-size: 13px;
 }
 
+.note-ok {
+  background: var(--ok-wash);
+  color: var(--ok);
+}
+
 .note-warn {
   background: var(--warn-wash);
   color: var(--warn);

@@ -2,45 +2,62 @@ package alert
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
-// Body est ce qu'un canal reçoit : le corps, son type, et le titre que
-// certains récepteurs lisent en en-tête.
+// Body est ce qu'un canal reçoit : le corps, son type, le titre et le
+// lien que certains récepteurs lisent en en-tête.
 type Body struct {
 	Content     []byte
 	ContentType string
 	Title       string
+	Link        string
+}
+
+// alertPath est la fiche d'une alerte dans l'interface, sous public_url.
+const alertPath = "/alertes/alerte/"
+
+// AlertLink est l'adresse de la fiche de l'alerte, ou rien : sans
+// public_url, openCloud ne sait pas sous quelle adresse on le lit, et un
+// test n'a pas de fiche.
+func AlertLink(publicURL string, event Event, alert Alert) string {
+	if publicURL == "" || event == EventTest || alert.ID == 0 {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + alertPath + strconv.FormatInt(alert.ID, 10)
 }
 
 // Render fait le corps d'un événement pour un format. Le titre porte
 // l'événement : « Alerte », « Alerte aggravée », « Résolu », « Test ».
-func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now time.Time) (Body, error) {
+// Le lien, quand il y en a un, mène à la fiche de l'alerte.
+func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now time.Time, link string) (Body, error) {
 	text := Describe(catalog, alert, now)
 	if event == EventTest {
 		text = Text{Fact: catalog.Get("alert.test_fact"), Cause: catalog.Get("alert.test_cause"), Action: ""}
 	}
 	title := catalog.Get("alert.notify_"+string(event)) + " · " + text.Fact
+	openLabel := catalog.Get("alert.open_in_opencloud")
 	switch format {
 	case FormatText:
-		return Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title}, nil
+		return Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title, Link: link}, nil
 	case FormatDiscord:
-		return jsonBody(title, discordPayload(title, text, alert, event, now))
+		return jsonBody(title, link, discordPayload(title, text, alert, event, now, link, openLabel))
 	case FormatSlack:
-		return jsonBody(title, slackPayload(title, text, alert, event))
+		return jsonBody(title, link, slackPayload(title, text, alert, event, link, openLabel))
 	}
-	return jsonBody(title, openCloudPayload(catalog, title, text, alert, event, now))
+	return jsonBody(title, link, openCloudPayload(catalog, title, text, alert, event, now, link))
 }
 
-func jsonBody(title string, payload any) (Body, error) {
+func jsonBody(title, link string, payload any) (Body, error) {
 	content, err := json.Marshal(payload)
 	if err != nil {
 		return Body{}, err
 	}
-	return Body{Content: content, ContentType: "application/json", Title: title}, nil
+	return Body{Content: content, ContentType: "application/json", Title: title, Link: link}, nil
 }
 
 func plainText(title string, text Text) string {
@@ -79,6 +96,8 @@ type payloadAlert struct {
 	Details    Details       `json:"details"`
 	OpenedAt   time.Time     `json:"opened_at"`
 	ResolvedAt *time.Time    `json:"resolved_at"`
+	// URL manque sans public_url.
+	URL string `json:"url,omitempty"`
 }
 
 type payloadObject struct {
@@ -87,7 +106,7 @@ type payloadObject struct {
 	Name string `json:"name"`
 }
 
-func openCloudPayload(catalog lang.Catalog, title string, text Text, alert Alert, event Event, now time.Time) payload {
+func openCloudPayload(catalog lang.Catalog, title string, text Text, alert Alert, event Event, now time.Time, link string) payload {
 	body := payload{
 		Event: string(event), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
 		Text: payloadText(text),
@@ -105,6 +124,7 @@ func openCloudPayload(catalog lang.Catalog, title string, text Text, alert Alert
 		Object:  payloadObject{Kind: string(alert.Object.Kind), ID: alert.Object.ID, Name: alert.Object.Name},
 		Machine: payloadObject{ID: alert.MachineID, Name: alert.MachineName},
 		Details: alert.Details, OpenedAt: alert.OpenedAt.UTC(), ResolvedAt: resolvedAt,
+		URL: link,
 	}
 	return body
 }
@@ -123,27 +143,38 @@ func color(alert Alert, event Event) (int, string) {
 	return 0xd78d0c, "#d78d0c"
 }
 
-func discordPayload(title string, text Text, alert Alert, event Event, now time.Time) map[string]any {
+// Discord rend le titre cliquable par url, et le lien Markdown en fin de
+// description pour qui ne pense pas à cliquer le titre.
+func discordPayload(title string, text Text, alert Alert, event Event, now time.Time, link, openLabel string) map[string]any {
 	decimal, _ := color(alert, event)
 	description := text.Cause
 	if text.Action != "" {
 		description += "\n" + text.Action
 	}
-	return map[string]any{
-		"embeds": []map[string]any{{
-			"title": title, "description": description, "color": decimal, "timestamp": now.UTC().Format(time.RFC3339),
-		}},
+	embed := map[string]any{
+		"title": title, "description": description, "color": decimal, "timestamp": now.UTC().Format(time.RFC3339),
 	}
+	if link != "" {
+		embed["url"] = link
+		embed["description"] = description + "\n[" + openLabel + "](" + link + ")"
+	}
+	return map[string]any{"embeds": []map[string]any{embed}}
 }
 
-func slackPayload(title string, text Text, alert Alert, event Event) map[string]any {
+// Slack et Mattermost lisent tous deux title et title_link d'un attachement.
+func slackPayload(title string, text Text, alert Alert, event Event, link, openLabel string) map[string]any {
 	_, hex := color(alert, event)
 	body := text.Cause
 	if text.Action != "" {
 		body += "\n" + text.Action
 	}
+	attachment := map[string]any{"color": hex, "text": body}
+	if link != "" {
+		attachment["title"] = openLabel
+		attachment["title_link"] = link
+	}
 	return map[string]any{
 		"text":        title,
-		"attachments": []map[string]any{{"color": hex, "text": body}},
+		"attachments": []map[string]any{attachment},
 	}
 }

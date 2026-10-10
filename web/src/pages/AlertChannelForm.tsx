@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
 import type { AlertSeverity, Channel, ChannelFormat, ChannelTest } from "../api/types";
@@ -11,7 +11,7 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { deliveryReason } from "../lib/alerts";
+import { channelTestResult } from "../lib/alerts";
 import { useRefresh } from "../lib/refresh";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
@@ -25,6 +25,8 @@ export function AlertChannelForm() {
   const { id } = useParams();
   const t = useT();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const justCreated = id !== undefined && params.get("cree") === "1";
   const { refresh } = useRefresh();
   const existing = useResource<Channel>(id !== undefined ? `/api/alerts/channels/${id}` : null);
   const [name, setName] = useState("");
@@ -61,9 +63,10 @@ export function AlertChannelForm() {
     setBusy(true);
     const request = id === undefined ? api.post<Channel>("/api/alerts/channels", body) : api.put<Channel>(`/api/alerts/channels/${id}`, body);
     request
-      .then(() => {
+      .then((saved) => {
         refresh("alerts");
-        void navigate("/alertes/canaux");
+        // Un canal neuf n'a encore rien reçu : sa fiche propose de l'essayer.
+        void navigate(id === undefined ? `/alertes/canaux/${saved.id}?cree=1` : "/alertes/canaux");
       })
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));
@@ -99,6 +102,7 @@ export function AlertChannelForm() {
     <>
       <PageHead title={id === undefined ? t("channel.new_title") : t("channel.edit_title")} subtitle={t("channel.new_subtitle")} />
       {existing.error && <Failure error={existing.error} />}
+      {justCreated && <Note tone="ok">{t("channel.created")}</Note>}
       <Card className="form-card">
         <form className="card-b" onSubmit={submit}>
           <Field label={t("channel.name_label")} htmlFor="channel-name" help={t("channel.name_help")}>
@@ -150,7 +154,7 @@ export function AlertChannelForm() {
             </label>
           </div>
           {error !== null && <Pill tone="danger">{t(error)}</Pill>}
-          {test !== null && <Pill tone={test.ok ? "ok" : "danger"}>{test.ok ? t("channel.test_ok", test.code) : t("channel.test_failed", deliveryReason(t, test))}</Pill>}
+          {test !== null && <Pill tone={test.ok ? "ok" : "danger"}>{channelTestResult(t, test)}</Pill>}
           <div className="cluster">
             <Button type="submit" variant="primary" icon={id === undefined ? "plus" : "check"} disabled={busy}>
               {id === undefined ? t("channel.create") : t("channel.save")}

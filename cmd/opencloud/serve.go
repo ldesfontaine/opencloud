@@ -144,6 +144,7 @@ func runServe(args []string) error {
 	alerts.SetWatcher(bus)
 	alerts.SetMaintenance(statusPage)
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
+	notifier.SetPublicURL(cfg.PublicURL)
 	alerts.SetSender(notifier)
 	machines.SetAlerter(alerts)
 	heartbeats.SetListener(alerts)

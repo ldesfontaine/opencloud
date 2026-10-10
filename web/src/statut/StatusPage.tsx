@@ -87,12 +87,14 @@ function StatusView({ data, t }: { data: PublicStatus; t: Translate }) {
   return (
     <main className="status-page">
       <header className="status-top">
-        <span className="wordmark">
+        <span className="brand">
           <span className="mark">
             <Mark />
           </span>
-          <span>open</span>
-          <b>Cloud</b>
+          <span className="wordmark">
+            <span>open</span>
+            <b>Cloud</b>
+          </span>
         </span>
         <span className="status-updated">{updatedAgo(t, data.generated_at, now)}</span>
       </header>

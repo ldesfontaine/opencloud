@@ -11,6 +11,7 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
+import { nameWithMachine } from "../lib/objects";
 import { useRefresh } from "../lib/refresh";
 import { NotFound } from "./NotFound";
 import { StatePill } from "./StatusAdmin";
@@ -60,9 +61,9 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
 
   const candidates: Record<MemberKind, Candidate[]> = {
     machine: machines.data?.machines ?? [],
-    service: services.data?.services ?? [],
-    heartbeat: jobs.data?.jobs ?? [],
-    probe: probes.data?.probes ?? [],
+    service: (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine(service) })),
+    heartbeat: (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: nameWithMachine(job) })),
+    probe: (probes.data?.probes ?? []).map((probe) => ({ id: probe.id, name: nameWithMachine(probe) })),
   };
   const known = new Map<string, StatusMember>((existing?.members ?? []).map((member) => [`${member.kind}:${member.id}`, member]));
   const nameOf = (draft: Draft) => candidates[draft.kind].find((candidate) => candidate.id === draft.id)?.name ?? known.get(`${draft.kind}:${draft.id}`)?.name ?? t("component.missing");

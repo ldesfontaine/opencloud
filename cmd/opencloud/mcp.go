@@ -82,6 +82,7 @@ func runMCP(args []string) error {
 	}
 	alerts := alert.New(db, logger)
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
+	notifier.SetPublicURL(cfg.PublicURL)
 	access, err := auth.New(db, logger)
 	if err != nil {
 		return err

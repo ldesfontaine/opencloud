@@ -1,4 +1,4 @@
-import type { Alert, AlertKind, AlertObject, AlertSeverity, Delivery, DiskThresholds, Silence } from "../api/types";
+import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, DiskThresholds, Silence } from "../api/types";
 import type { Tone } from "../components/Pill";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
@@ -118,6 +118,11 @@ export function deliveryReason(t: Translate, delivery: Pick<Delivery, "reason" |
     return t("alert.delivery_reason_status", delivery.code);
   }
   return t(`alert.delivery_reason_${delivery.reason}`);
+}
+
+// Ce qu'a donné l'envoi d'essai d'un canal : le code reçu, ou le motif.
+export function channelTestResult(t: Translate, test: ChannelTest): string {
+  return test.ok ? t("channel.test_ok", test.code) : t("channel.test_failed", deliveryReason(t, test));
 }
 
 export const deliveryTones: Record<Delivery["status"], Tone> = {

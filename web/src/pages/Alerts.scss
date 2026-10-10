@@ -40,6 +40,13 @@
   padding: 10px 20px;
 }
 
+.channel-test {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .channel-url {
   max-width: 320px;
   overflow: hidden;

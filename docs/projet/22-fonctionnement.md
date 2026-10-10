@@ -764,7 +764,10 @@ composant qui sait, lui qui parle.
    adresses privées restent ouvertes, un ntfy sur le LAN est l'usage voulu ;
    une URL en `http://` est acceptée et l'interface l'écrit.
 8. **Le test d'un canal** part tout de suite, sans essai de plus ni ligne
-   en base, et rend le code reçu ou le motif d'échec.
+   en base, et rend le code reçu ou le motif d'échec. Il se lance depuis la
+   fiche du canal ou depuis sa ligne dans la liste, qui affiche le résultat
+   sur place ; un canal tout juste créé ouvre sa fiche, qui invite à
+   l'essayer.
 
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
@@ -792,13 +795,14 @@ servis au navigateur par `/api/session` pour le disque.
 | Le fait, la cause et le geste rendus dans la langue de l'interface au moment de l'envoi | Un détail qui change sans aggravation : le disque qui passe de 86 à 88 % |
 | Les faits de l'alerte : type, gravité, objet et son identifiant, machine, chiffres, dates | Le secret du canal, ni dans l'API ni dans le journal : `has_secret` dit seulement qu'il y en a un |
 | L'en-tête `Title` et `Priority` pour le format texte, ce que ntfy lit | Une alerte sous la gravité minimale du canal, ou vers un canal désactivé |
+| Quand `public_url` est renseigné, le lien vers la fiche de l'alerte, `<public_url>/alertes/alerte/<id>` : `alert.url` en JSON, titre cliquable et lien « Ouvrir dans openCloud » pour Discord, Slack et Mattermost, en-tête `Click` pour ntfy ; la signature couvre le corps qui le porte | Un lien deviné : sans `public_url`, aucun lien ; un test n'en porte jamais |
 
 | Format | Corps | Pour |
 | --- | --- | --- |
-| `json` | `{event, sent_at, language, title, text{fact, cause, action}, alert{…}}` | Un récepteur à soi, Gotify par un relais, n'importe quoi qui lit du JSON |
-| `text` | Trois lignes : titre, cause, geste | ntfy, et tout ce qui affiche un texte |
-| `discord` | Un embed : titre, description, couleur de la gravité | Discord |
-| `slack` | `text` et un attachement coloré | Slack, Mattermost, Rocket.Chat |
+| `json` | `{event, sent_at, language, title, text{fact, cause, action}, alert{…, url}}` | Un récepteur à soi, Gotify par un relais, n'importe quoi qui lit du JSON |
+| `text` | Trois lignes : titre, cause, geste ; le lien dans l'en-tête `Click` | ntfy, et tout ce qui affiche un texte |
+| `discord` | Un embed : titre (cliquable), description, couleur de la gravité | Discord |
+| `slack` | `text` et un attachement coloré, `title_link` vers la fiche | Slack, Mattermost, Rocket.Chat |
 
 La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,
 puis Canaux et Silences. Le compteur de la barre latérale compte les
