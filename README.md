@@ -86,9 +86,11 @@ openCloud affiche une commande à coller sur la machine, en root :
 sudo opencloud agent -server https://opencloud.example.org -token oc_…
 ```
 
-Le jeton sert une fois et expire en 24 h. Sur la même machine, pour essayer,
-`-server http://127.0.0.1:8080` suffit ; vers une autre machine, l'agent exige
-HTTPS. La suite (proxy, service, `-pin`) est dans
+Le jeton sert une fois et expire en 24 h. N'enrôlez pas d'agent sur la
+machine openCloud : elle est déjà supervisée, un agent dessus doublerait ses
+services et ses alertes. Pour essayer, prenez une autre machine ou une VM ;
+l'agent exige HTTPS vers openCloud, sauf `-allow-plain` sur un réseau déjà
+chiffré (WireGuard). La suite (proxy, service, `-pin`) est dans
 [docs/installation.md](docs/installation.md#ajouter-une-machine).
 
 Mot de passe perdu : `opencloud auth disable -config dev/config.toml`.

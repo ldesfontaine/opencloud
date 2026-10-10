@@ -128,7 +128,7 @@ export const deliveryTones: Record<Delivery["status"], Tone> = {
 
 // Ce qu'un silence vise, en une phrase : le type, l'objet, ou les deux.
 export function silenceTargets(t: Translate, silence: Silence): string {
-  const kind = silence.kind !== "" ? t(`alert.fact_${silence.kind}`, 0) : "";
+  const kind = silence.kind !== "" ? t(`alert.kind_${silence.kind}`) : "";
   const object = silence.object.id !== "" ? silence.object.name : "";
   if (kind !== "" && object !== "") {
     return t("silence.targets_both", kind, object);

@@ -31,6 +31,21 @@ export function formatDuration(t: Translate, ms: number, rounding: Rounding = "e
   return t("time.days", round(ms / day));
 }
 
+// « chaque minute » plutôt que « toutes les 1 min » : une période d'une
+// seule unité a son propre mot ; les autres se lisent « toutes les 5 min ».
+export function everyOnce(t: Translate, ms: number): string | null {
+  switch (ms) {
+    case second:
+      return t("time.every_second");
+    case minute:
+      return t("time.every_minute");
+    case hour:
+      return t("time.every_hour");
+    default:
+      return null;
+  }
+}
+
 export function formatRemaining(t: Translate, ms: number): string {
   return formatDuration(t, ms, "remaining");
 }

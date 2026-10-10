@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 )
 
@@ -177,7 +178,20 @@ func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "authentication required", http.StatusUnauthorized)
+	// Le navigateur affiche ce texte quand l'opérateur annule la fenêtre :
+	// c'est là qu'il faut dire comment rouvrir l'accès.
+	catalog := s.catalogs.For(browserLanguage(r))
+	http.Error(w, catalog.Get("auth.unauthorized"), http.StatusUnauthorized)
+}
+
+// La langue du navigateur, faute de session : le français s'il le demande
+// en premier, l'anglais sinon.
+func browserLanguage(r *http.Request) lang.Code {
+	preferred := strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language")))
+	if strings.HasPrefix(preferred, "fr") {
+		return lang.French
+	}
+	return lang.English
 }
 
 // --- API : la carte « Accès à l'interface » de Paramètres ---

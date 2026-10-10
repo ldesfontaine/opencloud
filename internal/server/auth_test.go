@@ -164,6 +164,30 @@ func TestAuthBasic_StatusPageAssetsStayPublic(t *testing.T) {
 	}
 }
 
+// Le refus d'une page, affiché quand l'opérateur annule la fenêtre du
+// navigateur, dit comment rouvrir l'accès, dans la langue du navigateur.
+func TestAuthBasic_RefusedPageSaysHowToRecoverALostPassword(t *testing.T) {
+	server := newTestServer(t)
+	server.enableBasic(t)
+	cases := map[string]string{
+		"fr-FR,fr;q=0.9,en;q=0.8": "Identifiants requis. Mot de passe perdu : opencloud auth disable -config <chemin de la config>",
+		"en-US,en;q=0.9":          "Credentials required. Lost password: opencloud auth disable -config <config path>",
+		"":                        "Credentials required. Lost password: opencloud auth disable -config <config path>",
+	}
+	for acceptLanguage, want := range cases {
+		request := httptest.NewRequest(http.MethodGet, "/machines", nil)
+		request.Header.Set("Accept-Language", acceptLanguage)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("%q: status %d, want 401", acceptLanguage, recorder.Code)
+		}
+		if got := strings.TrimSpace(recorder.Body.String()); got != want {
+			t.Errorf("%q: body %q, want %q", acceptLanguage, got, want)
+		}
+	}
+}
+
 // Les échecs comptent par adresse : au-delà de la rafale, 429, même avec
 // le bon mot de passe ; une autre adresse n'est pas touchée.
 func TestAuthBasic_FailuresAreRateLimitedPerAddress(t *testing.T) {

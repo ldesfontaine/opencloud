@@ -77,7 +77,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 
 ## Composants
 
-- **Barre latérale** : marque en haut, sections « Vue » et « Réglages »,
+- **Barre latérale** : marque en haut, sections « Vue » et « Administration »,
   compteurs en mono à droite (rouge quand il y a une alerte), en bas le
   commutateur clair/sombre puis le compte.
 - **En-tête de page** : titre, sous-titre d'une phrase, actions à droite. Une
