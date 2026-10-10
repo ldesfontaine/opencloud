@@ -42,8 +42,11 @@ import (
 
 const (
 	readHeaderTimeout = 10 * time.Second
-	shutdownTimeout   = 10 * time.Second
-	stateDirMode      = 0o700
+	// Une connexion gardée ouverte sans requête se ferme au bout de deux
+	// minutes ; un flux en direct n'est pas concerné, il a une requête.
+	idleTimeout     = 2 * time.Minute
+	shutdownTimeout = 10 * time.Second
+	stateDirMode    = 0o700
 )
 
 func runServe(args []string) error {
@@ -212,12 +215,7 @@ func runServe(args []string) error {
 	services.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	httpServer := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           server,
-		ReadHeaderTimeout: readHeaderTimeout,
-	}
-	return listenUntilSignal(ctx, logger, httpServer, cfg)
+	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), cfg)
 }
 
 // languageOf relit la langue de l'interface au moment d'envoyer : le
@@ -285,6 +283,30 @@ func openStateDir(path string) (*os.Root, error) {
 		return nil, fmt.Errorf("open state dir: %w", err)
 	}
 	return root, nil
+}
+
+// newHTTPServer prépare le serveur HTTP. Les flux en direct (agents,
+// interface, journaux, statut, MCP) ne finissent qu'avec le contexte de
+// leur requête : il dérive d'un contexte de base annulé dès l'arrêt, sans
+// quoi Shutdown les attendrait jusqu'à son délai. Une requête courte en
+// cours au même instant voit aussi son contexte annulé : sa transaction
+// est annulée, l'agent ou le navigateur la rejoue.
+//
+// Pas de ReadTimeout : net/http annule le contexte d'une requête dont la
+// lecture expire, même une fois le corps lu, ce qui couperait tous les
+// flux. Un corps lent reste borné en taille (1 Mio) et Traefik, devant,
+// tient ses propres délais de lecture.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	base, cancelBase := context.WithCancel(context.Background())
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
+		BaseContext:       func(net.Listener) context.Context { return base },
+	}
+	httpServer.RegisterOnShutdown(cancelBase)
+	return httpServer
 }
 
 func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, cfg config.Config) error {
