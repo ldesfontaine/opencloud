@@ -43,6 +43,13 @@ type LocalInfo struct {
 	Version  string
 }
 
+// Presence dit si l'agent d'une machine est joint. Le service ne sait pas
+// d'où vient la réponse : serve la lit dans les flux ouverts, opencloud mcp,
+// qui n'en tient aucun, dans le dernier signal de la base.
+type Presence interface {
+	IsOnline(machine Machine, now time.Time) bool
+}
+
 // Listener reçoit chaque changement qui se voit dans l'interface : une
 // machine qui entre, se connecte, signale, part ; un jeton émis ou annulé.
 // Le direct s'y branche ; nil est toléré.
@@ -61,6 +68,7 @@ type Alerter interface {
 type Service struct {
 	store    Store
 	sessions *Sessions
+	presence Presence
 	nonces   *nonces
 	listener Listener
 	alerter  Alerter
@@ -73,6 +81,7 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 	return &Service{
 		store:    store,
 		sessions: sessions,
+		presence: openStreams{sessions: sessions},
 		nonces:   newNonces(),
 		logger:   logger,
 		now:      time.Now,
@@ -82,6 +91,12 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
 func (s *Service) SetClock(now func() time.Time) {
 	s.now = now
+}
+
+// SetPresence remplace la façon de savoir qu'une machine est en ligne : les
+// flux ouverts par défaut.
+func (s *Service) SetPresence(presence Presence) {
+	s.presence = presence
 }
 
 func (s *Service) SetListener(listener Listener) {
@@ -141,13 +156,13 @@ func (s *Service) Get(ctx context.Context, id string) (Status, error) {
 }
 
 // La machine openCloud est en ligne tant que ce processus tourne ; les autres
-// le sont tant que leur agent tient son flux.
+// le sont selon la présence installée : leur flux ouvert, ou leur dernier signal.
 func (s *Service) status(machine Machine) Status {
 	if machine.IsLocal() {
 		machine.LastSeenAt = s.now()
 		return Status{Machine: machine, Online: true}
 	}
-	return Status{Machine: machine, Online: s.sessions.IsOnline(machine.ID)}
+	return Status{Machine: machine, Online: s.presence.IsOnline(machine, s.now())}
 }
 
 // Count renvoie le nombre de machines et celles en ligne.

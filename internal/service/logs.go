@@ -78,7 +78,7 @@ func (r *Relay) openRemote(ctx context.Context, machineID string, request LogReq
 	r.mu.Lock()
 	if r.commander == nil {
 		r.mu.Unlock()
-		return nil, ErrMachineOffline
+		return nil, ErrLogsUnavailableLocally
 	}
 	if r.open[machineID] >= MaxFollowsPerMachine {
 		r.mu.Unlock()

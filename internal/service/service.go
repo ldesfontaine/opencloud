@@ -268,3 +268,8 @@ var (
 	ErrLogsTimeout    = errors.New("logs did not arrive in time")
 	ErrLogsFailed     = errors.New("logs unavailable")
 )
+
+// Ce processus ne tient pas les flux des agents (opencloud mcp) : la
+// machine n'est pas forcément hors ligne, on ne peut simplement pas lui
+// parler d'ici.
+var ErrLogsUnavailableLocally = errors.New("logs unavailable in this process")

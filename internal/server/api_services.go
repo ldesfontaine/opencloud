@@ -348,6 +348,8 @@ func logsRefusal(err error) (string, int, bool) {
 	switch {
 	case errors.Is(err, service.ErrMachineOffline):
 		return "service.machine_offline", http.StatusServiceUnavailable, true
+	case errors.Is(err, service.ErrLogsUnavailableLocally):
+		return "service.logs_unavailable_locally", http.StatusServiceUnavailable, true
 	case errors.Is(err, service.ErrLogsBusy):
 		return codeLogsBusy, http.StatusTooManyRequests, true
 	case errors.Is(err, service.ErrLogsTimeout):

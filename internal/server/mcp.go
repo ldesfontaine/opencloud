@@ -74,7 +74,9 @@ const mcpInstructions = "openCloud is a self-hosted dashboard that watches machi
 	"(not_found, internal) or a catalog key such as probe.not_paused."
 
 const mcpReadOnlyInstructions = " This session runs over stdio and is read-only: write tools answer " +
-	"{\"error\":\"mcp.read_only\"}; use the HTTP transport to write."
+	"{\"error\":\"mcp.read_only\"}; use the HTTP transport to write. Online means a signal from the " +
+	"agent within the last 2 minutes, and get_service_logs answers {\"error\":\"service.logs_unavailable_locally\"}: " +
+	"use the HTTP transport for container logs."
 
 type mcpLimits struct {
 	bySource *ratelimit.Limiter

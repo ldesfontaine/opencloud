@@ -26,7 +26,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getOverviewTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_machines",
-		Description: "List every machine openCloud manages: id, name, kind (local is the openCloud host itself), hostname, address, OS, architecture, agent version, whether its agent is connected (online) and when it was last seen.",
+		Description: "List every machine openCloud manages: id, name, kind (local is the openCloud host itself), hostname, address, OS, architecture, agent version, whether its agent is connected (online) and when it was last seen. Over stdio (opencloud mcp), online means a signal within the last 2 minutes.",
 		Annotations: readOnlyHints(),
 	}, s.listMachinesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -51,7 +51,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getServiceTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_service_logs",
-		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected.",
+		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Over stdio (opencloud mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
 		Annotations: readOnlyHints(),
 	}, s.getServiceLogsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
