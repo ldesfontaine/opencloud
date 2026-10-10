@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,10 @@ func (l *authLimits) allowAttempt(source string) bool {
 // redémarrer.
 func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s.isCompiledAsset(r) {
+			next(w, r)
+			return
+		}
 		state, err := s.auth.State(r.Context())
 		if err != nil {
 			s.apiInternalError(w, r, err)
@@ -121,6 +126,22 @@ func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "authentication mode not supported", http.StatusServiceUnavailable)
 		}
 	}
+}
+
+// isCompiledAsset dit si la requête lit un fichier du front compilé, hors
+// index.html : la page de statut publique charge ses scripts, ses styles et
+// ses polices par le même fourre-tout que l'interface, et un visiteur sans
+// identifiants verrait une page vide. Ces fichiers sont le même code pour
+// tous, embarqué dans le binaire : les données restent derrière /api.
+func (s *Server) isCompiledAsset(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if name == legacyFavicon {
+		name = brandFavicon
+	}
+	return name != "" && name != indexFile && s.isAppFile(name)
 }
 
 // checkBasic répond lui-même 401 ou 429 quand il refuse.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -138,6 +139,28 @@ func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 	}
 	if got := callAs(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)
+	}
+}
+
+// La page de statut charge ses scripts, styles et icône par le fourre-tout
+// de l'interface : ils restent lisibles sans identifiants, la page de
+// l'interface elle-même non.
+func TestAuthBasic_StatusPageAssetsStayPublic(t *testing.T) {
+	server := newTestServer(t)
+	server.enableBasic(t)
+	assets, err := fs.Glob(server.app, "assets/*")
+	if err != nil || len(assets) == 0 {
+		t.Fatalf("no compiled assets: %v", err)
+	}
+	for _, asset := range append(assets, "theme.js", "favicon.svg") {
+		if got := callAs(server.Server, http.MethodGet, "/"+asset, "", ""); got.Code != http.StatusOK {
+			t.Fatalf("/%s: status %d", asset, got.Code)
+		}
+	}
+	for _, page := range []string{"/", "/index.html", "/machines"} {
+		if got := callAs(server.Server, http.MethodGet, page, "", ""); got.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status %d, want 401", page, got.Code)
+		}
 	}
 }
 
