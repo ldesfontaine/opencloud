@@ -15,7 +15,7 @@ import (
 // --- Alertes ---
 
 const alertColumns = `a.id, a.kind, a.severity, a.status, a.silenced, a.object_kind, a.object_id, a.object_name,
-	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at`
+	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at, a.clear_since`
 
 const alertFrom = ` FROM alerts a LEFT JOIN machines m ON m.id = a.machine_id`
 
@@ -41,12 +41,12 @@ func (db *DB) InsertAlert(ctx context.Context, found alert.Alert) (int64, error)
 	serviceID, heartbeatID, probeID := objectColumns(found)
 	result, err := db.sql.ExecContext(ctx, `
 		INSERT INTO alerts (kind, severity, status, silenced, object_kind, object_id, object_name,
-			machine_id, service_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			machine_id, service_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(found.Kind), string(found.Severity), string(found.Status), found.Silenced,
 		string(found.Object.Kind), found.Object.ID, found.Object.Name,
 		nullableString(found.MachineID), serviceID, heartbeatID, probeID, string(details),
-		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt))
+		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince))
 	if err != nil {
 		return 0, fmt.Errorf("insert alert: %w", err)
 	}
@@ -88,6 +88,10 @@ func (db *DB) ListAlerts(ctx context.Context, filter alert.Filter) ([]alert.Aler
 		query += ` AND a.machine_id = ?`
 		args = append(args, filter.MachineID)
 	}
+	if !filter.ClearBefore.IsZero() {
+		query += ` AND a.clear_since IS NOT NULL AND a.clear_since <= ?`
+		args = append(args, filter.ClearBefore.Unix())
+	}
 	if !filter.UpdatedBefore.IsZero() {
 		query += ` AND a.updated_at < ?`
 		args = append(args, filter.UpdatedBefore.Unix())
@@ -116,10 +120,11 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 		return fmt.Errorf("encode alert details: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alerts SET severity = ?, status = ?, object_name = ?, details = ?, updated_at = ?, resolved_at = ?, acknowledged_at = ?
+		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, details = ?, updated_at = ?, resolved_at = ?, acknowledged_at = ?,
+			clear_since = ?
 		WHERE id = ?`,
-		string(found.Severity), string(found.Status), found.Object.Name, string(details),
-		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), found.ID)
+		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, string(details),
+		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince), found.ID)
 	if err != nil {
 		return fmt.Errorf("update alert: %w", err)
 	}
@@ -191,9 +196,9 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	var found alert.Alert
 	var details string
 	var openedAt, updatedAt int64
-	var resolvedAt, acknowledgedAt sql.NullInt64
+	var resolvedAt, acknowledgedAt, clearSince sql.NullInt64
 	err := row.Scan(&found.ID, &found.Kind, &found.Severity, &found.Status, &found.Silenced, &found.Object.Kind, &found.Object.ID, &found.Object.Name,
-		&found.MachineID, &found.MachineName, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt)
+		&found.MachineID, &found.MachineName, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt, &clearSince)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Alert{}, alert.ErrNotFound
 	}
@@ -207,6 +212,7 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	found.UpdatedAt = time.Unix(updatedAt, 0)
 	found.ResolvedAt = timeOf(resolvedAt)
 	found.AcknowledgedAt = timeOf(acknowledgedAt)
+	found.ClearSince = timeOf(clearSince)
 	return found, nil
 }
 

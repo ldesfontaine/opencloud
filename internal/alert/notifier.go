@@ -129,7 +129,7 @@ func (n *Notifier) Run(ctx context.Context) {
 
 // process joue les essais d'une livraison et note l'issue en base.
 func (n *Notifier) process(ctx context.Context, job Job) {
-	body, err := n.render(job.Channel.Format, job.Delivery.Event, job.Alert)
+	body, err := n.renderJob(job)
 	if err != nil {
 		n.logger.Error("render alert body", "delivery_id", job.Delivery.ID, "error", err)
 		n.finish(ctx, job.Delivery, Outcome{Reason: ReasonUnreachable})
@@ -161,6 +161,13 @@ func (n *Notifier) wait(ctx context.Context, delay time.Duration) bool {
 }
 
 func (n *Notifier) finish(ctx context.Context, delivery Delivery, outcome Outcome) {
+	// Un résumé n'a pas de ligne en base : il n'appartient à aucune alerte.
+	if delivery.Event == EventSummary {
+		if !outcome.OK() {
+			n.logger.Warn("alert summary not delivered", "channel_id", delivery.ChannelID, "reason", string(outcome.Reason), "code", outcome.Code)
+		}
+		return
+	}
 	delivery.Status = DeliveryDelivered
 	if !outcome.OK() {
 		delivery.Status = DeliveryFailed
@@ -174,6 +181,13 @@ func (n *Notifier) finish(ctx context.Context, delivery Delivery, outcome Outcom
 	if delivery.Status == DeliveryDelivered {
 		n.logger.Info("alert delivered", "delivery_id", delivery.ID, "channel_id", delivery.ChannelID, "attempts", delivery.Attempts)
 	}
+}
+
+func (n *Notifier) renderJob(job Job) (Body, error) {
+	if job.Delivery.Event == EventSummary {
+		return RenderSummary(n.catalogs.For(n.language()), job.Channel.Format, job.Held, n.now(), AlertsLink(n.publicURL))
+	}
+	return n.render(job.Channel.Format, job.Delivery.Event, job.Alert)
 }
 
 func (n *Notifier) render(format Format, event Event, alert Alert) (Body, error) {
@@ -230,7 +244,7 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 }
 
 func priorityOf(event Event) string {
-	if event == EventResolved || event == EventTest {
+	if event == EventResolved || event == EventTest || event == EventSummary {
 		return "default"
 	}
 	return "high"

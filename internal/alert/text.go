@@ -24,6 +24,14 @@ func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
 	}
 	object := alert.Object.Name
 	details := alert.Details
+	// Arrêté ou relancé, un service qui plante en boucle se dit pareil.
+	if alert.IsLoop() {
+		return Text{
+			Fact:   catalog.Get("alert.fact_service_restart_loop"),
+			Cause:  catalog.Format("alert.cause_service_restart_loop", object, machine, details.Count, details.ExitCode),
+			Action: catalog.Get("alert.action_service_restart"),
+		}
+	}
 	switch alert.Kind {
 	case KindMachineLost:
 		return text(catalog, "machine_lost", []any{}, []any{object, formatAge(catalog, now.Sub(details.Since))})
@@ -38,13 +46,6 @@ func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
 	case KindServiceUnhealthy:
 		return text(catalog, "service_unhealthy", nil, []any{object, machine})
 	case KindServiceRestart:
-		if alert.Severity == SeverityDanger {
-			return Text{
-				Fact:   catalog.Get("alert.fact_service_restart_loop"),
-				Cause:  catalog.Format("alert.cause_service_restart_loop", object, machine, details.Count, details.ExitCode),
-				Action: catalog.Get("alert.action_service_restart"),
-			}
-		}
 		return text(catalog, "service_restart", nil, []any{object, machine, details.ExitCode})
 	case KindJobLate:
 		if details.Reason == ReasonNeverPinged {

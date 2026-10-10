@@ -10,10 +10,13 @@ const (
 	EventAggravated Event = "aggravated"
 	EventResolved   Event = "resolved"
 	EventTest       Event = "test"
+	// EventSummary dit combien d'envois la limite de débit a retenus ; il
+	// n'est la livraison d'aucune alerte.
+	EventSummary Event = "summary"
 )
 
 func Events() []Event {
-	return []Event{EventOpened, EventAggravated, EventResolved, EventTest}
+	return []Event{EventOpened, EventAggravated, EventResolved, EventTest, EventSummary}
 }
 
 type DeliveryStatus string
@@ -22,10 +25,13 @@ const (
 	DeliveryPending   DeliveryStatus = "pending"
 	DeliveryDelivered DeliveryStatus = "delivered"
 	DeliveryFailed    DeliveryStatus = "failed"
+	// Retenue par la limite de débit du canal : jamais envoyée, comptée
+	// dans le message groupé qui suit.
+	DeliveryHeld DeliveryStatus = "held"
 )
 
 func DeliveryStatuses() []DeliveryStatus {
-	return []DeliveryStatus{DeliveryPending, DeliveryDelivered, DeliveryFailed}
+	return []DeliveryStatus{DeliveryPending, DeliveryDelivered, DeliveryFailed, DeliveryHeld}
 }
 
 // Delivery est une livraison réservée en base avant d'être envoyée : si

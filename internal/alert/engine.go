@@ -23,7 +23,7 @@ type Store interface {
 	ListAlerts(ctx context.Context, filter Filter) ([]Alert, error)
 	// ListOrphanAlerts rend les alertes ouvertes dont l'objet n'existe plus.
 	ListOrphanAlerts(ctx context.Context) ([]Alert, error)
-	// UpdateAlert réécrit ce qui bouge : gravité, détails, nom, dates.
+	// UpdateAlert réécrit ce qui bouge : type, gravité, détails, nom, dates.
 	UpdateAlert(ctx context.Context, alert Alert) error
 	// AcknowledgeAlerts acquitte d'un seul tenant celles des alertes nommées
 	// qui sont ouvertes et pas encore acquittées ; rend combien.
@@ -76,6 +76,8 @@ type Job struct {
 	Delivery Delivery
 	Alert    Alert
 	Channel  Channel
+	// Held : pour un résumé, combien d'envois la limite a retenus.
+	Held int
 }
 
 type Engine struct {
@@ -93,10 +95,12 @@ type Engine struct {
 	// creatingChannel tient compter-puis-insérer d'un seul tenant : deux
 	// créations simultanées ne passent pas toutes deux sur la dernière place.
 	creatingChannel sync.Mutex
+	// limits tient la limite de débit de chaque canal ; sous mu.
+	limits map[int64]*channelLimit
 }
 
 func New(store Store, logger *slog.Logger) *Engine {
-	return &Engine{store: store, logger: logger, now: time.Now}
+	return &Engine{store: store, logger: logger, now: time.Now, limits: map[int64]*channelLimit{}}
 }
 
 func (e *Engine) SetClock(now func() time.Time) {
@@ -162,7 +166,7 @@ func (e *Engine) open(ctx context.Context, fact Fact) {
 	alert := Alert{
 		Kind: fact.Kind, Severity: fact.Severity, Status: StatusOpen,
 		Object: fact.Object, MachineID: fact.MachineID, Details: fact.Details,
-		OpenedAt: now, UpdatedAt: now,
+		OpenedAt: now, UpdatedAt: now, ClearSince: fact.ClearSince,
 	}
 	silenced, err := e.silenced(ctx, fact, now)
 	if err != nil {
@@ -189,20 +193,32 @@ func (e *Engine) open(ctx context.Context, fact Fact) {
 	}
 }
 
+// update ne baisse jamais la gravité, sauf celle d'un plantage, qui suit
+// l'état : arrêté, relancé, en boucle. Une alerte s'aggrave quand sa
+// gravité monte ; un plantage, seulement quand il devient une boucle,
+// sinon chaque arrêt d'une boucle naissante préviendrait. Au plus une
+// aggravation par canal, l'index des livraisons y veille.
 func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 	aggravated := rank(fact.Severity) > rank(existing.Severity)
+	if isCrash(fact.Kind) {
+		aggravated = isLoop(fact.Kind, fact.Details) && !existing.IsLoop()
+	}
 	renamed := existing.Object.Name != fact.Object.Name
-	if !aggravated && !renamed && existing.Details.Equal(fact.Details) {
+	if !aggravated && !renamed && existing.Kind == fact.Kind && existing.Details.Equal(fact.Details) && existing.ClearSince.Equal(fact.ClearSince) {
 		return
 	}
 	if renamed {
 		e.logger.Warn("alert object renamed", "alert_id", existing.ID, "from", existing.Object.Name, "to", fact.Object.Name)
 	}
+	existing.Kind = fact.Kind
 	existing.Object.Name = fact.Object.Name
 	existing.Details = fact.Details
+	existing.ClearSince = fact.ClearSince
 	existing.UpdatedAt = e.now()
-	if aggravated {
+	if isCrash(fact.Kind) || rank(fact.Severity) > rank(existing.Severity) {
 		existing.Severity = fact.Severity
+	}
+	if aggravated {
 		// Ce que l'opérateur avait acquitté n'est plus la même chose.
 		existing.AcknowledgedAt = time.Time{}
 	}
@@ -402,12 +418,19 @@ func (e *Engine) deliver(ctx context.Context, alert Alert, event Event) {
 		e.fail(ctx, "list channels", err)
 		return
 	}
+	told := e.toldChannels(ctx, alert, event)
 	now := e.now()
 	for _, channel := range channels {
-		if !channel.Wants(alert, event) {
+		if !channel.Wants(alert, event) && !(told[channel.ID] && channel.Enabled && channel.NotifyResolve) {
 			continue
 		}
+		limit := e.limitOf(channel.ID)
+		e.flushSummary(limit, channel, now)
 		delivery := Delivery{AlertID: alert.ID, ChannelID: channel.ID, Event: event, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}
+		allowed := limit.allow(now)
+		if !allowed {
+			delivery.Status = DeliveryHeld
+		}
 		id, err := e.store.InsertDelivery(ctx, delivery)
 		if errors.Is(err, ErrDeliveryExists) {
 			continue
@@ -416,9 +439,106 @@ func (e *Engine) deliver(ctx context.Context, alert Alert, event Event) {
 			e.fail(ctx, "reserve delivery", err)
 			continue
 		}
+		if !allowed {
+			limit.held++
+			e.logger.Warn("alert delivery held by the channel rate limit", "alert_id", alert.ID, "channel_id", channel.ID, "event", string(event))
+			continue
+		}
 		delivery.ID = id
 		e.sender.Enqueue(Job{Delivery: delivery, Alert: alert, Channel: channel})
 	}
+}
+
+// toldChannels rend, pour une résolution, les canaux à qui l'alerte a été
+// annoncée : ils apprennent sa fin même si sa gravité est redescendue sous
+// leur seuil, un plantage relancé n'étant plus qu'une attention.
+func (e *Engine) toldChannels(ctx context.Context, alert Alert, event Event) map[int64]bool {
+	told := map[int64]bool{}
+	if event != EventResolved {
+		return told
+	}
+	deliveries, err := e.store.ListDeliveries(ctx, alert.ID)
+	if err != nil {
+		e.fail(ctx, "list deliveries", err)
+		return told
+	}
+	for _, delivery := range deliveries {
+		if delivery.Status != DeliveryHeld {
+			told[delivery.ChannelID] = true
+		}
+	}
+	return told
+}
+
+func (e *Engine) limitOf(channelID int64) *channelLimit {
+	limit, found := e.limits[channelID]
+	if !found {
+		limit = &channelLimit{}
+		e.limits[channelID] = limit
+	}
+	return limit
+}
+
+// flushSummary envoie le résumé de ce que la limite a retenu, dès que la
+// fenêtre du canal a de la place : un message, quel que soit le nombre.
+// Il n'est la livraison d'aucune alerte, rien n'en reste en base.
+func (e *Engine) flushSummary(limit *channelLimit, channel Channel, now time.Time) {
+	if limit.held == 0 || !limit.allow(now) {
+		return
+	}
+	held := limit.held
+	limit.held = 0
+	e.logger.Info("alert deliveries summarized", "channel_id", channel.ID, "held", held)
+	e.sender.Enqueue(Job{Delivery: Delivery{ChannelID: channel.ID, Event: EventSummary, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}, Channel: channel, Held: held})
+}
+
+// flushSummaries passe sur chaque canal qui a retenu des envois ; le
+// balayage l'appelle, une tempête finie se résume sans attendre une
+// nouvelle alerte.
+func (e *Engine) flushSummaries(ctx context.Context) {
+	if e.sender == nil {
+		return
+	}
+	pending := false
+	for _, limit := range e.limits {
+		pending = pending || limit.held > 0
+	}
+	if !pending {
+		return
+	}
+	channels, err := e.store.ListChannels(ctx)
+	if err != nil {
+		e.fail(ctx, "list channels", err)
+		return
+	}
+	now := e.now()
+	for _, channel := range channels {
+		if limit, found := e.limits[channel.ID]; found && channel.Enabled {
+			e.flushSummary(limit, channel, now)
+		}
+	}
+}
+
+// channelLimit compte les envois d'un canal sur une fenêtre glissante.
+type channelLimit struct {
+	sent []time.Time
+	held int
+}
+
+// allow prend une place dans la fenêtre s'il en reste une.
+func (l *channelLimit) allow(now time.Time) bool {
+	kept := l.sent[:0]
+	for _, at := range l.sent {
+		if at.After(now.Add(-ChannelRateWindow)) {
+			kept = append(kept, at)
+		}
+	}
+	l.sent = kept
+	if len(l.sent) >= ChannelRateLimit {
+		return false
+	}
+	l.sent = append(l.sent, now)
+	return true
 }
 
 // Requeue rejoue au démarrage les livraisons restées en attente : une
@@ -449,13 +569,18 @@ func (e *Engine) Requeue(ctx context.Context) error {
 }
 
 // Sweep fait ce que le temps seul change : les alertes d'un objet disparu
-// se résolvent, et un redémarrage non demandé sans suite depuis la fenêtre
-// de calme aussi.
+// se résolvent ; celles d'un service redevenu bon aussi, passé leur délai
+// de calme : RestartWindow après un redémarrage, ServiceClearDelay pour un
+// arrêt ou une santé qui échouait. Puis les résumés des envois retenus.
 func (e *Engine) Sweep(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	now := e.now()
 	e.resolveOrphans(ctx)
-	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceRestart, UpdatedBefore: e.now().Add(-RestartWindow)})
+	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceRestart, ClearBefore: now.Add(-RestartWindow)})
+	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceDown, ClearBefore: now.Add(-ServiceClearDelay)})
+	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceUnhealthy, ClearBefore: now.Add(-ServiceClearDelay)})
+	e.flushSummaries(ctx)
 }
 
 func (e *Engine) Purge(ctx context.Context) error {

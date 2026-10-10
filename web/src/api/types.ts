@@ -669,7 +669,7 @@ export interface AlertsResponse {
 }
 
 export type DeliveryEvent = "opened" | "aggravated" | "resolved";
-export type DeliveryStatus = "pending" | "delivered" | "failed";
+export type DeliveryStatus = "pending" | "delivered" | "failed" | "held";
 
 export interface Delivery {
   id: number;
