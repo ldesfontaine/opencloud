@@ -45,21 +45,23 @@ type Container struct {
 	ImageID     string `json:"image_id,omitempty"`
 	// Ce que Compose pose en labels : le nom du service, le dossier et le
 	// fichier du projet.
-	ComposeService string       `json:"compose_service,omitempty"`
-	ComposeDir     string       `json:"compose_dir,omitempty"`
-	ComposeFile    string       `json:"compose_file,omitempty"`
-	State          State        `json:"state"`
-	ExitCode       int          `json:"exit_code"`
-	Health         Health       `json:"health,omitempty"`
-	RestartCount   int          `json:"restart_count"`
-	Ports          []Port       `json:"ports,omitempty"`
-	NetworkMode    string       `json:"network_mode,omitempty"`
-	Privileged     bool         `json:"privileged,omitempty"`
-	Networks       []Attachment `json:"networks,omitempty"`
-	DependsOn      []Dependency `json:"depends_on,omitempty"`
-	CreatedAt      time.Time    `json:"created_at"`
-	StartedAt      *time.Time   `json:"started_at,omitempty"`
-	FinishedAt     *time.Time   `json:"finished_at,omitempty"`
+	ComposeService string `json:"compose_service,omitempty"`
+	ComposeDir     string `json:"compose_dir,omitempty"`
+	ComposeFile    string `json:"compose_file,omitempty"`
+	State          State  `json:"state"`
+	ExitCode       int    `json:"exit_code"`
+	// Tué par le noyau faute de mémoire ; un agent plus vieux ne le dit pas.
+	OOMKilled    bool         `json:"oom_killed,omitempty"`
+	Health       Health       `json:"health,omitempty"`
+	RestartCount int          `json:"restart_count"`
+	Ports        []Port       `json:"ports,omitempty"`
+	NetworkMode  string       `json:"network_mode,omitempty"`
+	Privileged   bool         `json:"privileged,omitempty"`
+	Networks     []Attachment `json:"networks,omitempty"`
+	DependsOn    []Dependency `json:"depends_on,omitempty"`
+	CreatedAt    time.Time    `json:"created_at"`
+	StartedAt    *time.Time   `json:"started_at,omitempty"`
+	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
 }
 
 // Event est un événement Docker traduit par l'agent : l'action, l'état et

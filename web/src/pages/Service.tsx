@@ -154,7 +154,7 @@ function ServiceView({ response, reload }: { response: ServiceResponse; reload: 
 
 function TransitionRow({ transition, now }: { transition: Transition; now: number }) {
   const t = useI18n().t;
-  const tone = transition.new_state === "" ? "neutral" : servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health }).tone;
+  const tone = transition.new_state === "" ? "neutral" : servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed }).tone;
   return (
     <div className="row">
       <Dot tone={tone} />

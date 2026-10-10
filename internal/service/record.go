@@ -230,6 +230,10 @@ func (p *planner) applyEvent(event Event) {
 	if event.ExitCode != nil {
 		next.ExitCode = *event.ExitCode
 	}
+	if next.State == StateRunning {
+		// Docker oublie le manque de mémoire au redémarrage.
+		next.OOMKilled = false
+	}
 	next.ArchivedAt = time.Time{}
 	next.LastSeenAt = p.now
 	p.record(next, previous, existed, transition)
@@ -263,6 +267,7 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		ComposeFile:    container.ComposeFile,
 		State:          container.State,
 		ExitCode:       container.ExitCode,
+		OOMKilled:      container.OOMKilled,
 		Health:         container.Health,
 		RestartCount:   container.RestartCount,
 		Ports:          container.Ports,
@@ -296,6 +301,7 @@ func (p *planner) record(next, previous Service, existed bool, transition Transi
 		transition.ServiceID = next.ID
 		transition.NewState = next.State
 		transition.NewHealth = next.Health
+		transition.OOMKilled = next.OOMKilled && (next.State == StateExited || next.State == StateDead)
 		if existed {
 			transition.PreviousState = previous.State
 			transition.PreviousHealth = previous.Health
@@ -393,7 +399,7 @@ func NeedsAttention(service Service) bool {
 	case StateRestarting, StateDead:
 		return true
 	case StateExited:
-		return !IsCleanExit(service.ExitCode)
+		return !IsCleanStop(service.ExitCode, service.OOMKilled)
 	}
 	return false
 }
@@ -402,6 +408,12 @@ func NeedsAttention(service Service) bool {
 // (SIGKILL et SIGTERM, ce que docker stop envoie).
 func IsCleanExit(code int) bool {
 	return code == 0 || code == 137 || code == 143
+}
+
+// IsCleanStop : un code propre ne suffit pas, le noyau qui tue faute de
+// mémoire envoie aussi SIGKILL (137) ; Docker le dit par OOMKilled.
+func IsCleanStop(code int, oomKilled bool) bool {
+	return !oomKilled && IsCleanExit(code)
 }
 
 // Count rend le nombre de services vivants et ceux qui demandent attention.

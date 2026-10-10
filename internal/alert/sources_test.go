@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -186,6 +187,42 @@ func TestService_ReplayedAndCleanStopsAreNotAlerts_UnhealthyIs_ArchivedResolves(
 	}
 	if f.kinds(t) != "" {
 		t.Fatalf("an archived service takes its alerts with it: %q", f.kinds(t))
+	}
+}
+
+// Un conteneur tué faute de mémoire sort en 137, comme un docker stop :
+// c'est OOMKilled qui ouvre l'alerte, avec son motif ; relancé, elle se
+// résout et le redémarrage compte.
+func TestService_OutOfMemoryKill_OpensADangerAlert(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	tracker := f.tracker(t)
+	killed := f.event("die", service.StateExited, 137, "", false)
+	killed.Container.OOMKilled = true
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{killed}}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := tracker.List(ctx, machine.LocalID)
+	if err != nil || len(listed) != 1 || !listed[0].OOMKilled || !service.NeedsAttention(listed[0]) {
+		t.Fatalf("la fiche doit garder le manque de mémoire: %+v %v", listed, err)
+	}
+	opened := f.only(t, alert.StatusOpen)
+	if f.kinds(t) != "service_down:danger" || opened.Details.Reason != alert.ReasonOOM || opened.Details.ExitCode != 137 {
+		t.Fatalf("kinds %q, %+v", f.kinds(t), opened.Details)
+	}
+	catalogs, err := lang.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := alert.Describe(catalogs.For(lang.French), opened, f.clock); text.Fact != "Service arrêté par manque de mémoire" {
+		t.Fatalf("fact %q", text.Fact)
+	}
+	f.advance(20 * time.Second)
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.kinds(t) != "service_restart:attention" {
+		t.Fatalf("restart after an out-of-memory kill: %q", f.kinds(t))
 	}
 }
 

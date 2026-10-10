@@ -97,7 +97,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les moniteurs de tâches et leur jeton de ping, **en clair** : la page doit le réafficher | Une copie de la base donne les URL de ping ; on peut supprimer et recréer un moniteur |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -238,8 +238,9 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    `health_status`, `rename` ; `kill` et `stop` ne changent rien par
    eux-mêmes, le `die` qui suit porte l'état et le code de sortie. Chaque
    événement repart avec le conteneur réinspecté. Sur un `die` à code hors
-   0, 137 ou 143, l'agent capture les 50 dernières lignes du journal. Une
-   coupure du flux repart de l'horodatage du dernier événement reçu.
+   0, 137 ou 143, ou tué faute de mémoire, l'agent capture les 50
+   dernières lignes du journal. Une coupure du flux repart de l'horodatage
+   du dernier événement reçu.
 4. Toutes les 30 s, l'agent mesure chaque conteneur qui tourne en un appel
    (`stats?one-shot`) : le processeur est un delta entre deux mesures, en
    pourcentage d'un cœur (200 % = deux cœurs), la mémoire est l'usage moins
@@ -258,9 +259,13 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    santé, jamais par événement sans changement), mesures, état du Docker.
    La machine openCloud fait tout cela dans `opencloud serve`, sans réseau.
 7. Le serveur rend des faits : l'état Docker brut, le code de sortie, la
-   santé. Le navigateur en fait les pastilles : Actif, Démarre,
-   Défaillant, Redémarre, En pause, Arrêté ; un `exited` à 0, 137 ou 143
-   est « Arrêté », tout autre code « Défaillant ». Le compteur de la barre
+   santé, et `oom_killed`. Le navigateur en fait les pastilles : Actif,
+   Démarre, Défaillant, Manque de mémoire, Redémarre, En pause, Arrêté ; un
+   `exited` à 0, 137 ou 143 est « Arrêté », tout autre code « Défaillant ».
+   Un conteneur tué par le noyau faute de mémoire sort aussi en 137 :
+   Docker le dit par `State.OOMKilled`, l'agent le remonte avec l'état
+   (`oom_killed`, absent chez un agent plus vieux, lu comme faux), et la
+   pastille est « Manque de mémoire », jamais « Arrêté ». Le compteur de la barre
    latérale passe en rouge dès qu'un service est défaillant ou redémarre.
 8. Les journaux : l'opérateur ouvre une fiche, le serveur tire un
    identifiant de requête et pousse `logs` sur le flux de l'agent ; l'agent
@@ -283,7 +288,7 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
 | --- | --- | --- |
 | `GET /_ping` | en-têtes `Api-Version`, `Server` | présent, version, version d'API |
 | `GET /containers/json?all=1` | liste | id, labels Compose, état |
-| `GET /containers/{id}/json` | inspect | nom, image et son empreinte, état, code de sortie, santé, redémarrages, ports publiés, dates |
+| `GET /containers/{id}/json` | inspect | nom, image et son empreinte, état, code de sortie, `OOMKilled`, santé, redémarrages, ports publiés, dates |
 | `GET /events?filters=container` | flux | action, id, instant, code de sortie |
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
@@ -744,7 +749,7 @@ composant qui sait, lui qui parle.
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
 | Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min** ; jamais la machine openCloud | l'agent rouvre son flux | danger |
-| Service arrêté sans qu'on l'ait demandé | `service`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou `dead` | il tourne de nouveau ; fiche archivée | danger |
+| Service arrêté sans qu'on l'ait demandé | `service`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou `dead` | il tourne de nouveau ; fiche archivée | danger |
 | Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue, ou arrêt | attention |
 | Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage | attention |
 | Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée | idem | danger |

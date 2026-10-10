@@ -279,14 +279,15 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 		w.sink.Deliver(service.Report{Events: []service.Event{event}})
 		return
 	}
-	if event.Action == "die" && event.ExitCode != nil && !service.IsCleanExit(*event.ExitCode) {
-		event.Snippet = w.snippet(ctx, event.ContainerID)
-	}
 	container, err := w.inspect(ctx, event.ContainerID)
 	if err == nil {
 		event.Container = &container
 	} else if !errors.Is(err, dockerapi.ErrNotFound) {
 		w.logger.Warn("inspect after event", "action", raw.Action, "error", err)
+	}
+	// Le manque de mémoire ne se lit qu'à l'inspection : elle passe avant.
+	if event.Action == "die" && event.ExitCode != nil && !service.IsCleanStop(*event.ExitCode, container.OOMKilled) {
+		event.Snippet = w.snippet(ctx, event.ContainerID)
 	}
 	w.sink.Deliver(service.Report{Events: []service.Event{event}})
 }
@@ -442,6 +443,7 @@ func toContainer(inspected dockerapi.Container) service.Container {
 		ImageID:      inspected.Image,
 		State:        service.State(inspected.State.Status),
 		ExitCode:     inspected.State.ExitCode,
+		OOMKilled:    inspected.State.OOMKilled,
 		RestartCount: inspected.RestartCount,
 		Ports:        publishedPorts(inspected.Network.Ports),
 		NetworkMode:  inspected.Host.NetworkMode,

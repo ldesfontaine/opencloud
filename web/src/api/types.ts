@@ -260,6 +260,8 @@ export interface Service {
   image_check: ImageCheck | null;
   state: ServiceState;
   exit_code: number;
+  // Tué par le noyau faute de mémoire : 137 comme un docker stop, mais pas demandé.
+  oom_killed: boolean;
   health: ServiceHealth;
   restart_count: number;
   ports: Port[];
@@ -324,6 +326,7 @@ export interface Transition {
   previous_health: ServiceHealth;
   new_health: ServiceHealth;
   exit_code: number | null;
+  oom_killed: boolean;
   replayed: boolean;
   snippet: string;
 }

@@ -21,6 +21,7 @@ function service(id: string, name: string, extra: Partial<Service> = {}): Servic
     image_check: null,
     state: "running",
     exit_code: 0,
+    oom_killed: false,
     health: "",
     restart_count: 0,
     ports: [],

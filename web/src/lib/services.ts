@@ -5,7 +5,7 @@ import type { Translate } from "../i18n/context";
 // Les pastilles de la direction artistique, dérivées des faits : l'état
 // Docker, le code de sortie, la santé. La même règle que le serveur pour
 // « demande attention ».
-export type PillKey = "active" | "starting" | "failing" | "restarting" | "paused" | "stopped" | "created";
+export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "restarting" | "paused" | "stopped" | "created";
 
 export interface ServicePillInfo {
   key: PillKey;
@@ -17,7 +17,11 @@ export function isCleanExit(code: number): boolean {
   return code === 0 || code === 137 || code === 143;
 }
 
-export function servicePill(service: Pick<Service, "state" | "exit_code" | "health">): ServicePillInfo {
+// Les faits dont la pastille dépend ; oom_killed manque sur une fiche
+// d'avant le correctif.
+export type PillFacts = Pick<Service, "state" | "exit_code" | "health"> & { oom_killed?: boolean };
+
+export function servicePill(service: PillFacts): ServicePillInfo {
   switch (service.state) {
     case "running":
       if (service.health === "unhealthy") {
@@ -35,15 +39,20 @@ export function servicePill(service: Pick<Service, "state" | "exit_code" | "heal
       return { key: "failing", tone: "danger" };
     case "exited":
     case "removing":
+      // Le noyau tue en SIGKILL : 137 comme un docker stop, seul oom_killed
+      // les distingue.
+      if (service.oom_killed === true) {
+        return { key: "out_of_memory", tone: "danger" };
+      }
       return isCleanExit(service.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
     default:
       return { key: "created", tone: "neutral" };
   }
 }
 
-export function needsAttention(service: Pick<Service, "state" | "exit_code" | "health">): boolean {
+export function needsAttention(service: PillFacts): boolean {
   const key = servicePill(service).key;
-  return key === "failing" || key === "restarting";
+  return key === "failing" || key === "out_of_memory" || key === "restarting";
 }
 
 // Le filtre de la planche « Machine » : Tous, Actifs, Arrêtés.
@@ -122,7 +131,7 @@ export function needsCaution(service: Pick<Service, "exposure">): boolean {
 
 // Le point d'un nœud : le danger d'abord, puis l'attention d'un constat ou
 // d'un redémarrage, puis l'état.
-export function nodeTone(service: Pick<Service, "state" | "exit_code" | "health" | "exposure">): Tone {
+export function nodeTone(service: PillFacts & Pick<Service, "exposure">): Tone {
   const tone = servicePill(service).tone;
   if (tone === "danger" || tone === "warn") {
     return tone;
@@ -194,5 +203,5 @@ export function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "health_status" || (transition.new_state === transition.previous_state && transition.new_health !== transition.previous_health)) {
     return t(`service.health_${transition.new_health || "healthy"}`);
   }
-  return t(`service.state_${servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health }).key}`);
+  return t(`service.state_${servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed }).key}`);
 }

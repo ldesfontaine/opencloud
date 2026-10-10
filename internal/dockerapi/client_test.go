@@ -67,6 +67,7 @@ func fixtureMux(t *testing.T) *http.ServeMux {
 	mux.HandleFunc("GET /v1.41/containers/json", serveFixture(t, "containers.json"))
 	mux.HandleFunc("GET /v1.41/containers/0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513/json", serveFixture(t, "inspect_running.json"))
 	mux.HandleFunc("GET /v1.41/containers/exited/json", serveFixture(t, "inspect_exited.json"))
+	mux.HandleFunc("GET /v1.41/containers/oom/json", serveFixture(t, "inspect_oom.json"))
 	mux.HandleFunc("GET /v1.41/containers/networked/json", serveFixture(t, "inspect_networked.json"))
 	mux.HandleFunc("GET /v1.41/networks", serveFixture(t, "networks.json"))
 	mux.HandleFunc("GET /v1.41/images/alpine:3.20/json", serveFixture(t, "image_alpine.json"))
@@ -199,8 +200,21 @@ func TestInspect_RunningAndExited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if exited.State.Status != "exited" || ParseTime(exited.State.FinishedAt).IsZero() {
+	if exited.State.Status != "exited" || ParseTime(exited.State.FinishedAt).IsZero() || exited.State.OOMKilled {
 		t.Fatalf("exited = %+v", exited.State)
+	}
+}
+
+// Un conteneur tué faute de mémoire sort en 137, comme un docker stop :
+// seul OOMKilled le distingue.
+func TestInspect_ReadsOutOfMemoryKill(t *testing.T) {
+	client := fakeDaemon(t, fixtureMux(t))
+	killed, err := client.Inspect(context.Background(), "oom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if killed.State.Status != "exited" || killed.State.ExitCode != 137 || !killed.State.OOMKilled {
+		t.Fatalf("oom = %+v", killed.State)
 	}
 }
 

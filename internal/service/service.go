@@ -117,6 +117,7 @@ type Service struct {
 	UpdatePolicy   UpdatePolicy
 	State          State
 	ExitCode       int
+	OOMKilled      bool
 	Health         Health
 	RestartCount   int
 	Ports          []Port
@@ -218,6 +219,7 @@ type Transition struct {
 	PreviousHealth Health
 	NewHealth      Health
 	ExitCode       *int
+	OOMKilled      bool
 	Replayed       bool
 	Snippet        string
 }
