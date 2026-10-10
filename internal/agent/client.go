@@ -43,10 +43,28 @@ func (e *ServerError) Error() string {
 	return fmt.Sprintf("server answered %d %s", e.Status, e.Code)
 }
 
-// Permanent dit si réessayer ne servira à rien : l'identité est refusée ou
-// la machine n'existe plus.
+// Les codes du serveur que l'agent traite à part.
+const (
+	codeMachineNotFound = "machine_not_found"
+	codeBadProof        = "bad_proof"
+	codeNoSession       = "no_session"
+	codeClockSkew       = "clock_skew"
+)
+
+// Permanent dit si réessayer ne servira à rien : la machine n'existe plus,
+// sa clé n'est plus celle enrôlée, ou l'enrôlement est refusé. Un autre 401
+// ou 404 n'arrête rien : une horloge décalée se règle, une session perdue
+// se rouvre, un proxy en plein redéploiement revient.
 func (e *ServerError) Permanent() bool {
-	return e.Status == http.StatusUnauthorized || e.Status == http.StatusNotFound || e.Status == http.StatusConflict
+	switch e.Status {
+	case http.StatusNotFound:
+		return e.Code == codeMachineNotFound
+	case http.StatusUnauthorized:
+		return e.Code == codeBadProof
+	case http.StatusConflict:
+		return true
+	}
+	return false
 }
 
 var (

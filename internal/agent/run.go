@@ -79,6 +79,12 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	// Ce que l'opérateur doit régler sans que l'agent s'arrête s'écrit au
+	// journal dans sa langue.
+	catalogs, err := lang.Load()
+	if err != nil {
+		return err
+	}
 	if opts.DockerSocket == "" {
 		opts.DockerSocket = dockerapi.DefaultSocket
 	}
@@ -100,7 +106,7 @@ func Run(ctx context.Context, opts Options) error {
 	checked := &results{}
 	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
 	go prober.Run(ctx)
-	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, images: constated, logs: watcher, probes: prober, updates: updater}, opts)
+	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, images: constated, logs: watcher, probes: prober, updates: updater}, catalogs.For(identity.Language), opts)
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les
@@ -175,7 +181,7 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	return identity, nil
 }
 
-func keepConnected(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
+func keepConnected(ctx context.Context, client *Client, identity Identity, pending *pending, text lang.Catalog, opts Options) error {
 	delay := minBackoff
 	for {
 		startedAt := time.Now()
@@ -184,13 +190,28 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, pendi
 			return nil
 		}
 		var refused *ServerError
-		if errors.As(err, &refused) && refused.Permanent() {
+		isRefused := errors.As(err, &refused)
+		if isRefused && refused.Permanent() {
 			return fmt.Errorf("%w: %w", ErrIdentityRefused, err)
+		}
+		// Le serveur a oublié la session, en redémarrant le plus souvent : un
+		// nouveau défi suffit. Pas de boucle serrée, une session ne se perd
+		// qu'au signal, un intervalle après l'ouverture du flux.
+		if isRefused && refused.Code == codeNoSession {
+			opts.Logger.Info("session expired, reconnecting now")
+			continue
 		}
 		if time.Since(startedAt) > stableStream {
 			delay = minBackoff
 		}
-		opts.Logger.Warn("stream lost, reconnecting", "error", err, "delay", delay.Round(time.Millisecond))
+		// L'horloge décalée ne se règle pas seule : l'opérateur doit lire
+		// pourquoi la machine reste hors ligne, l'agent continue d'essayer.
+		if isRefused && refused.Code == codeClockSkew {
+			message, _ := Explain(err, text)
+			opts.Logger.Warn("clock skew, reconnecting", "message", message, "delay", delay.Round(time.Millisecond))
+		} else {
+			opts.Logger.Warn("stream lost, reconnecting", "error", err, "delay", delay.Round(time.Millisecond))
+		}
 		select {
 		case <-ctx.Done():
 			return nil

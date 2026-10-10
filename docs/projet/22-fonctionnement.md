@@ -125,8 +125,17 @@ le client qui les garde.
    ouvert. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,
    envoyé toutes les 30 s.
 5. Flux coupé : l'agent revient avec un délai croissant, 1 s à 60 s. Machine
-   retirée : l'agent s'arrête et le dit. Ré-enrôler garde l'identifiant et
-   l'historique, seule la clé change.
+   retirée (`machine_not_found`) ou clé qui n'est plus celle enrôlée
+   (`bad_proof`) : l'agent s'arrête et le dit. Ré-enrôler garde
+   l'identifiant et l'historique, seule la clé change.
+6. Serveur redémarré avant que l'agent ait vu la coupure : son signal arrive
+   avec une session que le serveur ne connaît plus (`no_session`), l'agent
+   relève aussitôt un nouveau défi. Horloge de la machine à plus de 5 min de
+   celle d'openCloud (`clock_skew`) : la preuve est refusée, la machine reste
+   hors ligne, l'agent écrit dans son journal, dans la langue de l'opérateur,
+   de régler l'heure par NTP, et réessaie avec le même délai croissant. Tout
+   autre refus (un 404 d'un proxy en plein redéploiement, un 5xx) se réessaie
+   aussi ; seul un refus d'enrôlement arrête l'agent au premier lancement.
 
 ## Comment une tâche est surveillée
 
