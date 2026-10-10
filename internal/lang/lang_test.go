@@ -39,6 +39,31 @@ func TestLoad_FormatStringsUseTheSameVerbs(t *testing.T) {
 	}
 }
 
+// Les catalogues sont des formats Go lus aussi par le navigateur : un « % »
+// se double, sans quoi fmt.Sprintf y voit un verbe (« % u ») et le front l'ignore.
+func TestLoad_EveryPercentIsAVerbOrEscaped(t *testing.T) {
+	catalogs, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range Codes() {
+		catalog := catalogs[code]
+		for _, key := range catalog.Keys() {
+			value := catalog.Get(key)
+			for i := 0; i < len(value); i++ {
+				if value[i] != '%' {
+					continue
+				}
+				if i+1 >= len(value) || !strings.ContainsRune("sd%", rune(value[i+1])) {
+					t.Errorf("%s: %s has a lone %% in %q", code, key, value)
+					break
+				}
+				i++
+			}
+		}
+	}
+}
+
 func TestGet_MissingKey_IsVisibleNotSilent(t *testing.T) {
 	catalog := Catalog{code: French, strings: map[string]string{}}
 	if got := catalog.Get("nav.nowhere"); got != "[nav.nowhere]" {

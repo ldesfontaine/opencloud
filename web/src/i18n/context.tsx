@@ -60,7 +60,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       if (template === undefined) {
         return `[${key}]`;
       }
-      return args.length > 0 ? format(template, args) : template;
+      // Toujours formaté, même sans argument : « %% » doit y devenir « % ».
+      return format(template, args);
     };
     return {
       version: session.version,
