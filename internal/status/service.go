@@ -66,7 +66,7 @@ type Machines interface {
 // de la page y vivent, à côté de la langue de l'interface.
 type Settings interface {
 	Load() (settings.Settings, error)
-	Save(settings.Settings) error
+	Update(change func(*settings.Settings)) (settings.Settings, error)
 }
 
 // Watcher reçoit « la page a changé » : le bus interne pour l'administration,
@@ -486,20 +486,18 @@ func pageOf(current settings.Settings) Page {
 	return Page{Title: current.StatusTitle, Announcement: current.StatusAnnouncement, Language: language}
 }
 
-// SetPage relit les réglages avant d'écrire : la langue de l'interface, que
-// le serveur tient, n'est jamais écrasée par une copie périmée.
+// SetPage ne touche que les clés de la page : la langue de l'interface, que
+// le serveur tient dans le même fichier, est préservée par Update.
 func (s *Service) SetPage(ctx context.Context, page Page) (Page, error) {
 	if err := page.Validate(); err != nil {
 		return Page{}, err
 	}
-	current, err := s.settings.Load()
+	current, err := s.settings.Update(func(current *settings.Settings) {
+		current.StatusTitle = strings.TrimSpace(page.Title)
+		current.StatusAnnouncement = strings.TrimSpace(page.Announcement)
+		current.StatusLanguage = page.Language
+	})
 	if err != nil {
-		return Page{}, err
-	}
-	current.StatusTitle = strings.TrimSpace(page.Title)
-	current.StatusAnnouncement = strings.TrimSpace(page.Announcement)
-	current.StatusLanguage = page.Language
-	if err := s.settings.Save(current); err != nil {
 		return Page{}, err
 	}
 	s.Refresh(ctx)

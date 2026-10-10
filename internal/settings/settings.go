@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -29,9 +30,14 @@ type Settings struct {
 	StatusLanguage     lang.Code `toml:"status_language"`
 }
 
-// Store lit et écrit settings.toml sous le répertoire d'état.
+// Store est le seul propriétaire de settings.toml : chaque écrivain y tient
+// ses propres clés, et passe par Update pour ne pas écraser celles des autres.
+// Un seul Store par répertoire d'état et par processus.
 type Store struct {
 	root *os.Root
+	// Sérialise relire-modifier-écrire : sans lui, deux écrivains relisent
+	// le même fichier et le dernier efface la clé du premier.
+	mu sync.Mutex
 }
 
 func New(root *os.Root) *Store {
@@ -41,6 +47,29 @@ func New(root *os.Root) *Store {
 // Load renvoie les réglages du fichier, ou des réglages vides s'il n'existe
 // pas encore : la première installation n'a rien à lire.
 func (s *Store) Load() (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.load()
+}
+
+// Update relit le fichier, applique change et réécrit, sans qu'un autre
+// écrivain puisse se glisser entre la lecture et l'écriture. change ne
+// touche que ses propres clés. Renvoie les réglages écrits.
+func (s *Store) Update(change func(*Settings)) (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	change(&current)
+	if err := s.save(current); err != nil {
+		return Settings{}, err
+	}
+	return current, nil
+}
+
+func (s *Store) load() (Settings, error) {
 	content, err := s.root.ReadFile(fileName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Settings{}, nil
@@ -55,7 +84,7 @@ func (s *Store) Load() (Settings, error) {
 	return settings, nil
 }
 
-func (s *Store) Save(settings Settings) error {
+func (s *Store) save(settings Settings) error {
 	content, err := toml.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("encode settings: %w", err)
