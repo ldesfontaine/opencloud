@@ -1,8 +1,8 @@
 # Extrait docker-compose pour un Traefik v3 en conteneur devant openCloud,
 # qui tourne sur l'hôte (unité systemd). Seuls les points utiles à openCloud
 # sont montrés ; gardez votre configuration Traefik pour le reste.
-# Non testé avec Traefik dans l'environnement de rédaction ; le joint
-# host.docker.internal → serve sur 172.17.0.1, lui, a été vérifié.
+# Vérifié avec Traefik v3.5.3 lancé par `docker run` avec les mêmes options
+# (réseau 172.18.0.0/16, host-gateway, provider file) ; ACME non testé.
 services:
   traefik:
     image: traefik:v3.5

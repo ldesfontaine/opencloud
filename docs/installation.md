@@ -4,12 +4,17 @@ Installer openCloud sur un VPS Debian derrière Traefik, ajouter des machines,
 le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 [`docs/projet/22-fonctionnement.md`](projet/22-fonctionnement.md).
 
-> **Ce qui a été vérifié, et où.** Les commandes `opencloud`, la
-> configuration, l'enrôlement, l'authentification, les refus et la
-> sauvegarde à chaud ont été joués sur Linux amd64 (Ubuntu 24.04, Docker 29)
-> le 10 octobre 2026. **Non testé ici** : systemd en fonctionnement (les
-> unités passent `systemd-analyze verify`, sans plus), Traefik, Debian 13,
-> une machine arm64 réelle. Ces parties sont marquées.
+> **Ce qui a été vérifié, et où.** Le 10 octobre 2026, ce guide a été
+> suivi tel quel sur deux VPS simulés : un système Ubuntu 24.04 minimal
+> (debootstrap), amd64, sous **systemd 255** en PID 1, Docker 24. Ont tourné :
+> les deux unités systemd, le redémarrage des VPS, **Traefik v3.5.3** en mode
+> host puis en conteneur (`host.docker.internal`), `trusted_proxies`,
+> l'authentification, les flux en direct, l'enrôlement, une sonde, une
+> tâche, l'alerte d'un `docker kill`, le retrait d'une machine, la mise à
+> jour, la sauvegarde avec le client `sqlite3` et la restauration.
+> **Non testé ici** : Debian 13 lui-même, un certificat Let's Encrypt
+> (ACME ; le certificat était auto-signé, ajouté au magasin des machines),
+> une machine arm64 réelle.
 
 ## Sommaire
 
@@ -87,8 +92,8 @@ Les sous-commandes :
 
 ## Installer le serveur
 
-Sur le VPS, en root. Les unités systemd n'ont **pas été testées sous
-systemd ici**.
+Sur le VPS, en root. Un Debian minimal n'a pas `sudo` : les commandes
+« sous le compte du service » passent par `runuser`, toujours présent.
 
 ```sh
 # Le binaire
@@ -130,7 +135,7 @@ en dehors de Docker.
 **Les commandes `auth` et `mcp` se lancent sous le compte du service** :
 
 ```sh
-sudo -u opencloud opencloud auth status -config /etc/opencloud/config.toml
+runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
 ```
 
 Lancées en root, elles peuvent créer `opencloud.db-wal` au nom de root si
@@ -198,8 +203,10 @@ se lit de la droite : ce qu'un client écrit lui-même à gauche ne compte pas.
 
 openCloud écoute en HTTP ; Traefik termine TLS devant lui. Un seul routeur
 suffit : interface, API, agents, pings, statut et MCP passent par le même
-nom et le même port. **Non testé avec Traefik ici** ; un essai antérieur
-(Traefik v3 en Docker, certificat auto-signé, `-pin`) est noté dans
+nom et le même port. Vérifié avec Traefik v3.5.3, en mode host et en
+conteneur : interface, API, agent, pings, statut et flux en direct passent,
+et openCloud voit la vraie adresse des clients. Un essai antérieur avec
+`-pin` est noté dans
 [22-fonctionnement.md](projet/22-fonctionnement.md#vérifié-le-13-septembre-2026).
 
 openCloud tourne sur l'hôte, pas dans un conteneur : les **labels Docker ne
@@ -317,8 +324,8 @@ jusqu'à sa fermeture. HTTP Basic renvoie le mot de passe à chaque requête :
 **Mot de passe perdu** :
 
 ```sh
-sudo -u opencloud opencloud auth disable -config /etc/opencloud/config.toml
-sudo -u opencloud opencloud auth status  -config /etc/opencloud/config.toml
+runuser -u opencloud -- opencloud auth disable -config /etc/opencloud/config.toml
+runuser -u opencloud -- opencloud auth status  -config /etc/opencloud/config.toml
 # mode : none — interface ouverte, sans authentification
 ```
 
@@ -380,6 +387,9 @@ Pas d'agent sur la machine openCloud elle-même : elle se supervise déjà.
 Lancé là, l'agent est refusé (« cette machine est déjà supervisée par
 openCloud lui-même ») et le jeton reste valable pour une autre machine.
 
+Connecté en root sans `sudo` (Debian minimal) : collez la commande sans le
+mot `sudo`.
+
 Le jeton sert **une fois** et expire en **24 h**. L'adresse vient de
 `public_url` : vérifiez-la avant de coller. `-lang en` s'ajoute si
 l'interface est en anglais.
@@ -427,8 +437,8 @@ systemctl enable --now opencloud-agent
 journalctl -u opencloud-agent -f
 ```
 
-L'unité ([`opencloud-agent.service`](installation/opencloud-agent.service),
-non testée sous systemd ici) lance `opencloud agent -state
+L'unité ([`opencloud-agent.service`](installation/opencloud-agent.service))
+lance `opencloud agent -state
 /var/lib/opencloud/agent`, sans `-server` ni `-token` : l'agent relit son
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
@@ -436,7 +446,8 @@ chaque volume monté et la socket Docker.
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
 reconnecte seul, avec un délai de 1 à 60 s. Il s'arrête, code de sortie 2,
 quand openCloud refuse son identité (machine retirée) : l'unité ne le
-relance pas (`RestartPreventExitStatus=2`).
+relance pas (`RestartPreventExitStatus=2`) et `systemctl status` la montre
+`failed`, code 2. C'est voulu : il faut un nouveau jeton.
 
 ### Sans domaine : `-pin`
 
@@ -486,7 +497,7 @@ de retour arrière : **sauvegardez avant**.
 git pull && make build
 
 # Sur le serveur : sauvegarder, puis remplacer et redémarrer
-sudo -u opencloud sqlite3 /var/lib/opencloud/opencloud.db ".backup '/var/lib/opencloud/avant-maj.db'"
+runuser -u opencloud -- sqlite3 /var/lib/opencloud/opencloud.db ".backup '/var/lib/opencloud/avant-maj.db'"
 install -m 0755 opencloud /usr/local/bin/opencloud
 systemctl restart opencloud
 
@@ -540,14 +551,13 @@ tourne donne une copie incomplète. Deux façons sûres.
 compte du service :
 
 ```sh
-sudo -u opencloud sqlite3 /var/lib/opencloud/opencloud.db \
+runuser -u opencloud -- sqlite3 /var/lib/opencloud/opencloud.db \
   ".backup '/var/lib/opencloud/opencloud-$(date +%F).db'"
 cp /var/lib/opencloud/settings.toml /var/lib/opencloud/settings-$(date +%F).toml
 ```
 
-Vérifié ici par l'API de sauvegarde de SQLite (celle qu'utilise
-`.backup`), service en marche : copie cohérente, `PRAGMA integrity_check`
-à `ok`. Le client `sqlite3` lui-même n'était pas installé.
+Vérifié avec le client `sqlite3` 3.45, service en marche : copie
+cohérente, `PRAGMA integrity_check` à `ok`, puis restaurée comme ci-dessous.
 
 **À froid** :
 
@@ -621,4 +631,5 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | `serve: listen tcp 172.17.0.1:8080: bind: cannot assign requested address` | `docker0` pas encore là au démarrage | L'unité redémarre seule ; vérifier `After=docker.service` |
 | `serve: listen tcp …: bind: address already in use` | Un autre processus tient le port | `ss -ltnp` ; changer `listen` |
 | Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs | Attendre ; mot de passe perdu : `opencloud auth disable` |
+| `sudo: command not found` | Debian minimal, installé sans `sudo` | En root, retirer `sudo` ; sous le compte du service, `runuser -u opencloud -- …` |
 | Tous les utilisateurs bloqués ensemble en `429` | `trusted_proxies` absent : tout le monde a l'adresse de Traefik | Déclarer Traefik dans `trusted_proxies` |

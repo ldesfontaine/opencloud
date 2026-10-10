@@ -2,7 +2,7 @@
 # openCloud n'est pas un conteneur : les labels Docker ne s'appliquent pas,
 # d'où ce fichier. Adaptez le nom, l'entrypoint, le résolveur de
 # certificats et l'adresse du serveur.
-# Non testé avec Traefik dans l'environnement de rédaction.
+# Vérifié avec Traefik v3.5.3, en mode host et en conteneur.
 http:
   routers:
     opencloud:
