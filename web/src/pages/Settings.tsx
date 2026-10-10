@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, errorKey } from "../api/client";
-import type { AuthState, DiskSettings, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
+import type { AuthState, DiskSettings, MailSettings, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
@@ -17,10 +17,11 @@ import { diskSettingsError } from "../lib/disks";
 import { passwordFormError } from "../lib/auth";
 import { claudeCodeCommand, lifetimesOf, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
+import { MailSection } from "./SettingsMail";
 import "./StatusAdmin.scss";
 
-// Paramètres : l'accès à l'interface, les seuils d'alerte du disque, puis
-// l'accès d'un agent IA. Un secret ou un
+// Paramètres : l'accès à l'interface, les seuils d'alerte du disque, le
+// relais d'e-mails, puis l'accès d'un agent IA. Un secret ou un
 // jeton ne s'affiche qu'une fois, à sa création, dans l'état de la page ;
 // rechargée, elle ne le montre plus.
 export function Settings() {
@@ -28,6 +29,7 @@ export function Settings() {
   const state = useResource<MCPState>("/api/mcp");
   const access = useResource<AuthState>("/api/auth");
   const disks = useResource<DiskSettings>("/api/settings/disk");
+  const mail = useResource<MailSettings>("/api/settings/mail");
   if (state.error) {
     return (
       <>
@@ -44,6 +46,7 @@ export function Settings() {
       <PageHead title={t("nav.settings")} subtitle={t("settings.subtitle")} />
       {access.data !== null && <AccessSection state={access.data} />}
       {disks.data !== null && <DiskSection settings={disks.data} reload={disks.reload} />}
+      {mail.data !== null && <MailSection settings={mail.data} reload={mail.reload} />}
       <MCPSection state={state.data} reload={state.reload} />
     </>
   );

@@ -104,6 +104,8 @@ describe("deliveryReason", () => {
   it("porte le code HTTP quand il y en a un", () => {
     expect(deliveryReason(t, { reason: "status", code: 503 })).toBe("alert.delivery_reason_status 503");
     expect(deliveryReason(t, { reason: "timeout", code: 0 })).toBe("alert.delivery_reason_timeout");
+    expect(deliveryReason(t, { reason: "smtp_auth_failed", code: 535 })).toBe("alert.smtp_code alert.delivery_reason_smtp_auth_failed 535");
+    expect(deliveryReason(t, { reason: "smtp_tls", code: 0 })).toBe("alert.delivery_reason_smtp_tls");
   });
 });
 

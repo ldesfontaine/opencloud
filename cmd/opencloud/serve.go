@@ -25,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
@@ -147,6 +148,7 @@ func runServe(args []string) error {
 	alerts.SetDiskThresholds(diskThresholdsOf(preferences, logger))
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
 	notifier.SetPublicURL(cfg.PublicURL)
+	notifier.SetMail(mailRelayOf(preferences), mail.NewSender(alert.MailTimeout))
 	alerts.SetSender(notifier)
 	machines.SetAlerter(alerts)
 	heartbeats.SetListener(alerts)
@@ -230,6 +232,19 @@ func languageOf(preferences *settings.Store) func() lang.Code {
 			return lang.Default
 		}
 		return current.Language
+	}
+}
+
+// mailRelayOf relit le relais au moment d'envoyer : un réglage changé
+// sous Paramètres vaut dès l'alerte suivante. Un fichier illisible laisse
+// le relais vide, et l'envoi le dit par son motif.
+func mailRelayOf(preferences *settings.Store) func() mail.Relay {
+	return func() mail.Relay {
+		current, err := preferences.Load()
+		if err != nil {
+			return mail.Relay{}
+		}
+		return current.MailRelay()
 	}
 }
 

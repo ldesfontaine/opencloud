@@ -2,6 +2,7 @@ package alert
 
 import (
 	"encoding/json"
+	"html"
 	"strconv"
 	"strings"
 	"time"
@@ -10,12 +11,14 @@ import (
 )
 
 // Body est ce qu'un canal reçoit : le corps, son type, le titre et le
-// lien que certains récepteurs lisent en en-tête.
+// lien que certains récepteurs lisent en en-tête. HTML est la variante
+// d'un e-mail, à côté du texte brut.
 type Body struct {
 	Content     []byte
 	ContentType string
 	Title       string
 	Link        string
+	HTML        string
 }
 
 // alertPath est la fiche d'une alerte dans l'interface, sous public_url.
@@ -78,6 +81,8 @@ func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now t
 		return jsonBody(title, link, discordPayload(title, text, alert, event, now, link, openLabel))
 	case FormatSlack:
 		return jsonBody(title, link, slackPayload(title, text, alert, event, link, openLabel))
+	case FormatEmail:
+		return emailBody(title, text, link, openLabel), nil
 	}
 	return jsonBody(title, link, openCloudPayload(catalog, title, text, alert, event, now, link))
 }
@@ -96,6 +101,24 @@ func plainText(title string, text Text) string {
 		lines = append(lines, text.Action)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// emailBody fait le texte brut, le lien en dernière ligne, et un HTML
+// sans style ni image : un client de messagerie l'affiche tel quel.
+func emailBody(title string, text Text, link, openLabel string) Body {
+	plain := plainText(title, text)
+	paragraphs := []string{"<p><strong>" + html.EscapeString(title) + "</strong></p>", "<p>" + html.EscapeString(text.Cause) + "</p>"}
+	if text.Action != "" {
+		paragraphs = append(paragraphs, "<p>"+html.EscapeString(text.Action)+"</p>")
+	}
+	if link != "" {
+		plain += "\n\n" + openLabel + " : " + link
+		paragraphs = append(paragraphs, `<p><a href="`+html.EscapeString(link)+`">`+html.EscapeString(openLabel)+"</a></p>")
+	}
+	return Body{
+		Content: []byte(plain), ContentType: "text/plain; charset=utf-8", Title: title, Link: link,
+		HTML: "<!doctype html><html><body>" + strings.Join(paragraphs, "") + "</body></html>",
+	}
 }
 
 // Le corps d'openCloud : les faits, tels que l'API les rend, et les trois

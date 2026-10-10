@@ -11,8 +11,9 @@ func (e *Engine) CreateChannel(ctx context.Context, definition ChannelDefinition
 	if err := definition.Validate(); err != nil {
 		return Channel{}, err
 	}
+	definition = definition.normalized()
 	channel := Channel{
-		Name: strings.TrimSpace(definition.Name), URL: definition.URL, Format: definition.Format, Secret: definition.Secret,
+		Name: strings.TrimSpace(definition.Name), URL: definition.URL, Format: definition.Format, Destination: definition.Destination, Secret: definition.Secret,
 		MinSeverity: definition.MinSeverity, NotifyResolve: definition.NotifyResolve, Enabled: definition.Enabled, CreatedAt: e.now(),
 	}
 	id, err := e.insertChannelUnderCeiling(ctx, channel)
@@ -43,6 +44,7 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 	if err := definition.Validate(); err != nil {
 		return Channel{}, err
 	}
+	definition = definition.normalized()
 	channel, err := e.store.GetChannel(ctx, id)
 	if err != nil {
 		return Channel{}, err
@@ -50,6 +52,7 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 	channel.Name = strings.TrimSpace(definition.Name)
 	channel.URL = definition.URL
 	channel.Format = definition.Format
+	channel.Destination = definition.Destination
 	channel.MinSeverity = definition.MinSeverity
 	channel.NotifyResolve = definition.NotifyResolve
 	channel.Enabled = definition.Enabled

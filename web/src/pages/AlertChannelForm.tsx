@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { AlertSeverity, Channel, ChannelFormat, ChannelTest } from "../api/types";
+import type { AlertSeverity, Channel, ChannelFormat, ChannelTest, MailSettings } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -16,11 +16,12 @@ import { useRefresh } from "../lib/refresh";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
 
-const formats: readonly ChannelFormat[] = ["json", "text", "discord", "slack"];
+const formats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email"];
 
 // Créer ou modifier un canal : un nom, une URL, un format, un secret de
 // signature facultatif, la gravité minimale, et deux cases. Le secret ne
-// revient jamais du serveur : on sait seulement qu'il y en a un.
+// revient jamais du serveur : on sait seulement qu'il y en a un. Un canal
+// e-mail remplace l'URL et le secret par ses destinataires.
 export function AlertChannelForm() {
   const { id } = useParams();
   const t = useT();
@@ -29,8 +30,10 @@ export function AlertChannelForm() {
   const justCreated = id !== undefined && params.get("cree") === "1";
   const { refresh } = useRefresh();
   const existing = useResource<Channel>(id !== undefined ? `/api/alerts/channels/${id}` : null);
+  const mail = useResource<MailSettings>("/api/settings/mail");
   const [name, setName] = useState("");
   const [url, setURL] = useState("");
+  const [destination, setDestination] = useState("");
   const [format, setFormat] = useState<ChannelFormat>("json");
   const [secret, setSecret] = useState("");
   const [clearSecret, setClearSecret] = useState(false);
@@ -45,6 +48,7 @@ export function AlertChannelForm() {
     if (existing.data) {
       setName(existing.data.name);
       setURL(existing.data.url);
+      setDestination(existing.data.destination ?? "");
       setFormat(existing.data.format);
       setMinSeverity(existing.data.min_severity);
       setNotifyResolve(existing.data.notify_resolve);
@@ -56,7 +60,8 @@ export function AlertChannelForm() {
     return <NotFound />;
   }
 
-  const body = { name, url, format, secret, clear_secret: clearSecret, min_severity: minSeverity, notify_resolve: notifyResolve, enabled };
+  const isEmail = format === "email";
+  const body = { name, url, format, destination, secret, clear_secret: clearSecret, min_severity: minSeverity, notify_resolve: notifyResolve, enabled };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -108,10 +113,6 @@ export function AlertChannelForm() {
           <Field label={t("channel.name_label")} htmlFor="channel-name" help={t("channel.name_help")}>
             <Input id="channel-name" type="text" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="off" autoFocus required />
           </Field>
-          <Field label={t("channel.url_label")} htmlFor="channel-url" help={t("channel.url_help")}>
-            <Input id="channel-url" mono type="url" value={url} onChange={(event) => setURL(event.target.value)} maxLength={2048} autoComplete="off" required />
-          </Field>
-          {url.startsWith("http://") && <Note tone="warn">{t("channel.plain_warning")}</Note>}
           <div className="grid-2">
             <Field label={t("channel.format_label")} htmlFor="channel-format" help={t("channel.format_help")}>
               <Select id="channel-format" value={format} onChange={(event) => setFormat(event.target.value as ChannelFormat)}>
@@ -129,20 +130,26 @@ export function AlertChannelForm() {
               </Select>
             </Field>
           </div>
-          <Field label={t("channel.secret_label")} htmlFor="channel-secret" help={existing.data?.has_secret ? t("channel.secret_keep") : t("channel.secret_help")}>
-            <Input id="channel-secret" mono type="password" value={secret} onChange={(event) => setSecret(event.target.value)} maxLength={256} autoComplete="new-password" />
-          </Field>
-          {existing.data?.has_secret && (
-            <div className="checks">
-              <Pill tone="ok" dot={false}>
-                {t("channel.secret_on_file")}
-              </Pill>
-              <label>
-                <input type="checkbox" checked={clearSecret} onChange={(event) => setClearSecret(event.target.checked)} />
-                {t("channel.secret_clear")}
-              </label>
-            </div>
+          {isEmail ? (
+            <>
+              <Field label={t("channel.recipients_label")} htmlFor="channel-recipients" help={t("channel.recipients_help")}>
+                <Input id="channel-recipients" mono type="text" value={destination} onChange={(event) => setDestination(event.target.value)} maxLength={2600} autoComplete="off" required />
+              </Field>
+              {mail.data !== null && !mail.data.configured && (
+                <Note tone="warn">
+                  {t("channel.mail_relay_missing")} <Link to="/parametres">{t("channel.mail_relay_link")}</Link>
+                </Note>
+              )}
+            </>
+          ) : (
+            <>
+              <Field label={t("channel.url_label")} htmlFor="channel-url" help={t("channel.url_help")}>
+                <Input id="channel-url" mono type="url" value={url} onChange={(event) => setURL(event.target.value)} maxLength={2048} autoComplete="off" required />
+              </Field>
+              {url.startsWith("http://") && <Note tone="warn">{t("channel.plain_warning")}</Note>}
+            </>
           )}
+          {!isEmail && <SecretField hasSecret={existing.data?.has_secret ?? false} secret={secret} setSecret={setSecret} clearSecret={clearSecret} setClearSecret={setClearSecret} />}
           <div className="checks">
             <label>
               <input type="checkbox" checked={notifyResolve} onChange={(event) => setNotifyResolve(event.target.checked)} />
@@ -175,6 +182,42 @@ export function AlertChannelForm() {
           </div>
         </form>
       </Card>
+    </>
+  );
+}
+
+// Le secret de signature d'un webhook : jamais réaffiché, gardé quand le
+// champ reste vide, retiré par une case.
+function SecretField({
+  hasSecret,
+  secret,
+  setSecret,
+  clearSecret,
+  setClearSecret,
+}: {
+  hasSecret: boolean;
+  secret: string;
+  setSecret: (secret: string) => void;
+  clearSecret: boolean;
+  setClearSecret: (clear: boolean) => void;
+}) {
+  const t = useT();
+  return (
+    <>
+          <Field label={t("channel.secret_label")} htmlFor="channel-secret" help={hasSecret ? t("channel.secret_keep") : t("channel.secret_help")}>
+            <Input id="channel-secret" mono type="password" value={secret} onChange={(event) => setSecret(event.target.value)} maxLength={256} autoComplete="new-password" />
+          </Field>
+          {hasSecret && (
+            <div className="checks">
+              <Pill tone="ok" dot={false}>
+                {t("channel.secret_on_file")}
+              </Pill>
+              <label>
+                <input type="checkbox" checked={clearSecret} onChange={(event) => setClearSecret(event.target.checked)} />
+                {t("channel.secret_clear")}
+              </label>
+            </div>
+          )}
     </>
   );
 }

@@ -229,13 +229,13 @@ func alertNotFoundIfNoRow(result sql.Result) error {
 
 // --- Canaux ---
 
-const channelColumns = `id, name, url, format, secret, min_severity, notify_resolve, enabled, created_at`
+const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at`
 
 func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, error) {
 	result, err := db.sql.ExecContext(ctx, `
-		INSERT INTO alert_channels (name, url, format, secret, min_severity, notify_resolve, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		channel.Name, channel.URL, string(channel.Format), channel.Secret, string(channel.MinSeverity),
+		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		channel.Name, channel.URL, string(channel.Format), channel.Destination, channel.Secret, string(channel.MinSeverity),
 		channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
 	if err != nil {
 		return 0, fmt.Errorf("insert channel: %w", err)
@@ -266,8 +266,8 @@ func (db *DB) GetChannel(ctx context.Context, id int64) (alert.Channel, error) {
 
 func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alert_channels SET name = ?, url = ?, format = ?, secret = ?, min_severity = ?, notify_resolve = ?, enabled = ? WHERE id = ?`,
-		channel.Name, channel.URL, string(channel.Format), channel.Secret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
+		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, enabled = ? WHERE id = ?`,
+		channel.Name, channel.URL, string(channel.Format), channel.Destination, channel.Secret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -285,7 +285,7 @@ func (db *DB) DeleteChannel(ctx context.Context, id int64) error {
 func scanChannel(row scanner) (alert.Channel, error) {
 	var channel alert.Channel
 	var createdAt int64
-	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Secret, &channel.MinSeverity,
+	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Destination, &channel.Secret, &channel.MinSeverity,
 		&channel.NotifyResolve, &channel.Enabled, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Channel{}, alert.ErrNotFound

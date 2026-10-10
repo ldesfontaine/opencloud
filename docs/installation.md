@@ -19,11 +19,12 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 4. [Configuration](#configuration)
 5. [Traefik](#traefik)
 6. [Authentification](#authentification)
-7. [Ajouter une machine](#ajouter-une-machine)
-8. [Mettre à jour](#mettre-à-jour)
-9. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
-10. [Désinstaller](#désinstaller)
-11. [Dépannage](#dépannage)
+7. [Envoi d'e-mails](#envoi-de-mails)
+8. [Ajouter une machine](#ajouter-une-machine)
+9. [Mettre à jour](#mettre-à-jour)
+10. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
+11. [Désinstaller](#désinstaller)
+12. [Dépannage](#dépannage)
 
 Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 
@@ -327,6 +328,42 @@ Paramètres.
 **À venir** : un mode où openCloud fait confiance à un mandataire qui
 authentifie (Authelia). Il n'existe pas encore ; seul Basic est disponible.
 
+## Envoi d'e-mails
+
+Le canal d'alerte e-mail passe par **un relais SMTP que vous fournissez**.
+openCloud n'est pas un serveur de courrier : il ne signe rien en DKIM, ne
+publie aucun SPF et ne gère aucune réputation d'envoi. Qu'un message arrive
+en boîte de réception plutôt qu'en indésirables dépend du relais et du
+domaine de l'expéditeur, pas d'openCloud.
+
+**Paramètres → Envoi d'e-mails** : serveur, port, chiffrement, identifiant,
+mot de passe, adresse d'expéditeur, puis « Envoyer un e-mail de test » vers
+une adresse saisie. Ensuite **Alertes → Canaux → Ajouter un canal**, format
+« E-mail », jusqu'à 10 destinataires.
+
+| Chiffrement | Port | Quand |
+| --- | --- | --- |
+| `starttls` (défaut) | 587 | Le cas courant. Un relais qui ne propose pas STARTTLS est refusé, jamais contourné en clair |
+| `tls` | 465 | Le relais attend TLS dès la connexion |
+| `none` | 25 ou autre | Seulement un relais sur la boucle locale ou un réseau privé (Postfix local, relais du LAN). L'adresse jointe est vérifiée à chaque envoi |
+
+| Relais | Serveur | Port, chiffrement | Identifiant | Mot de passe | Expéditeur |
+| --- | --- | --- | --- | --- | --- |
+| Gmail, Google Workspace | `smtp.gmail.com` | 587, `starttls` | l'adresse Gmail | un **mot de passe d'application** (compte Google → Sécurité → validation en deux étapes → mots de passe des applications) ; le mot de passe du compte est refusé | l'adresse Gmail elle-même |
+| Brevo | `smtp-relay.brevo.com` | 587, `starttls` | l'identifiant SMTP affiché dans Brevo → SMTP & API | la clé SMTP générée au même endroit | une adresse d'un domaine ou d'un expéditeur validé dans Brevo |
+| Le relais de l'hébergeur | celui qu'il indique | celui qu'il indique | souvent la boîte du domaine | celui de la boîte | une adresse de la boîte |
+| Postfix sur la machine | `127.0.0.1` | 25, `none` | vide | vide | une adresse du domaine que Postfix relaie |
+
+Les quotas d'envoi sont ceux du relais : Gmail limite le nombre de messages
+par jour, Brevo selon l'offre. Un refus du relais se lit dans l'historique
+des envois de l'alerte : « le relais refuse l'identifiant ou le mot de passe »
+(code SMTP 535 en général), « le relais refuse le message ou un
+destinataire », « chiffrement refusé avec le relais ».
+
+Le relais vit dans `settings.toml`, **mot de passe compris, en clair** :
+le fichier est en `0600` sous `state_dir`, comme la base ; l'interface et
+l'API ne le réaffichent jamais.
+
 ## Ajouter une machine
 
 ### 1. Le jeton
@@ -484,12 +521,13 @@ machine donne le commit.
 | Où | Quoi | Perte |
 | --- | --- | --- |
 | Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages MCP et d'authentification |
-| Serveur, `state_dir` | `settings.toml` | La langue de l'interface, le titre et l'annonce de la page de statut |
+| Serveur, `state_dir` | `settings.toml` | La langue de l'interface, le titre et l'annonce de la page de statut, les seuils du disque, le relais d'e-mails (mot de passe compris) |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |
 
 **La base contient des secrets en clair** : les jetons de ping et les
-secrets de signature des canaux d'alerte. Protégez la sauvegarde (`0600`,
+secrets de signature des canaux d'alerte ; `settings.toml`, le mot de passe
+du relais d'e-mails. Protégez la sauvegarde (`0600`,
 chiffrée hors de la machine). Les jetons d'enrôlement, les jetons MCP et le
 mot de passe y sont hachés.
 

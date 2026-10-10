@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 )
 
 const (
@@ -32,6 +33,39 @@ type Settings struct {
 	// l'opérateur n'a rien réglé, et le moteur prend alors les siens.
 	DiskAttentionPercent int `toml:"disk_attention_percent"`
 	DiskDangerPercent    int `toml:"disk_danger_percent"`
+	// Le relais SMTP du canal e-mail. Le mot de passe vit ici, dans un
+	// fichier en 0600 comme la base : l'API ne le renvoie jamais.
+	MailHost     string `toml:"mail_host,omitempty"`
+	MailPort     int    `toml:"mail_port,omitempty"`
+	MailTLS      string `toml:"mail_tls,omitempty"`
+	MailUsername string `toml:"mail_username,omitempty"`
+	MailPassword string `toml:"mail_password,omitempty"`
+	MailFrom     string `toml:"mail_from,omitempty"`
+}
+
+// MailRelay rend le relais réglé ; un port absent suit le mode, un mode
+// absent est STARTTLS.
+func (s Settings) MailRelay() mail.Relay {
+	mode := mail.TLSMode(s.MailTLS)
+	if mode == "" {
+		mode = mail.TLSStartTLS
+	}
+	port := s.MailPort
+	if port == 0 {
+		port = mail.DefaultPortFor(mode)
+	}
+	return mail.Relay{
+		Host: s.MailHost, Port: port, TLS: mode, Username: s.MailUsername, Password: s.MailPassword, From: s.MailFrom,
+	}
+}
+
+// SetMailRelay écrit le relais ; un relais sans hôte efface tout.
+func (s *Settings) SetMailRelay(relay mail.Relay) {
+	if relay.Host == "" {
+		relay = mail.Relay{}
+	}
+	s.MailHost, s.MailPort, s.MailTLS = relay.Host, relay.Port, string(relay.TLS)
+	s.MailUsername, s.MailPassword, s.MailFrom = relay.Username, relay.Password, relay.From
 }
 
 // Store est le seul propriétaire de settings.toml : chaque écrivain y tient
