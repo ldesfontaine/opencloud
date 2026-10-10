@@ -66,14 +66,14 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
 | Interface | navigateur → Traefik | TLS de Traefik | Personne encore : pas d'authentification dans le socle, c'est un trou connu. Le front charge la page, puis parle à `/api/…` en JSON |
-| Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige la même origine : `Sec-Fetch-Site` et un corps `application/json`. Pas de cookie : rien à voler tant qu'il n'y a pas de session |
+| Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` et sur `/oauth/authorize` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie : rien à voler tant qu'il n'y a pas de session |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet, plafonnée à 16 |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
-| Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies` |
+| Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
@@ -466,7 +466,9 @@ marche derrière un NAT.
    goroutine et son horloge quand le jeu est repoussé.
 4. La sonde résout le nom elle-même, écarte les adresses de **lien-local**
    (dont `169.254.169.254`, celle des métadonnées d'hébergeur, qui livre
-   les identifiants de l'instance), puis compose vers l'adresse retenue :
+   les identifiants de l'instance) et les deux adresses de métadonnées qui
+   n'en sont pas, `fd00:ec2::254` (AWS en IPv6) et `100.100.100.200`
+   (Alibaba Cloud), puis compose vers l'adresse retenue :
    ce que le nom répondrait au deuxième appel ne change pas la
    destination. La boucle locale et les adresses privées restent ouvertes,
    c'est l'usage voulu.
@@ -877,7 +879,8 @@ ou une clé de catalogue ; le détail d'une erreur reste au journal.
 
 Au-delà : `429` avec `Retry-After`. La protection du SDK contre le DNS
 rebinding est levée : derrière Traefik, la requête arrive sur la boucle
-locale avec l'hôte public, et c'est le Bearer qui garde.
+locale avec l'hôte public, et c'est le Bearer qui garde. `/oauth/authorize`,
+appelé par le navigateur, exige en revanche un `Host` reconnu, comme `/api/…`.
 
 ### Ce qui vient du module d'étude, et ce qui n'en vient pas
 
@@ -935,6 +938,22 @@ requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
 Au-delà : `429` avec `Retry-After`. Derrière Traefik sans `trusted_proxies`,
 tous les pings semblent venir de la boucle locale et partagent un seul seau.
+
+Le journal des requêtes, en `log_level = "debug"`, écrit `/ping/[redacted]`
+au lieu du jeton, et `/oauth/authorize?[redacted]` au lieu de sa requête
+(`state`, défi PKCE) : un secret n'entre pas dans les journaux.
+
+### Limitation de débit sur `/agent/challenge`
+
+| Clé | Débit continu | Rafale | Sert à |
+| --- | --- | --- | --- |
+| Adresse source résolue | 1 par seconde | 10 | Qu'on ne devine pas les identifiants de machine à la chaîne |
+
+Au-delà : `429 too_many_requests` avec `Retry-After`. La table des défis
+reste bornée : une machine garde au plus quatre défis en attente, un
+nouveau remplace le plus ancien, et les défis expirés (deux minutes) sont
+balayés toutes les trente secondes au plus. Derrière Traefik sans
+`trusted_proxies`, tous les agents partagent un seul seau.
 
 ## Ports
 

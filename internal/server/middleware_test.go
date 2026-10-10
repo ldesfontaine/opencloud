@@ -101,3 +101,29 @@ func TestChain_KeepsTheFlusherForBothStreams(t *testing.T) {
 		t.Fatal("statusWriter must implement http.Flusher")
 	}
 }
+
+// Le jeton d'un ping et la requête d'une autorisation OAuth sont des
+// secrets : le journal des requêtes ne les écrit jamais, même en debug.
+func TestLogRequest_HidesThePingTokenAndTheAuthorizeQuery(t *testing.T) {
+	var journal bytes.Buffer
+	server := newTestServer(t)
+	server.logger = slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	handler := server.chain(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	for _, target := range []string{
+		"/ping/hb_SECRETTOKEN",
+		"/ping/hb_SECRETTOKEN/start",
+		"/ping/hb_SECRETTOKEN/3",
+		"/oauth/authorize?code_challenge=SECRETCHALLENGE&state=SECRETSTATE&client_id=oc",
+	} {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
+	}
+	logged := journal.String()
+	if strings.Contains(logged, "SECRET") {
+		t.Fatalf("a secret reached the journal:\n%s", logged)
+	}
+	for _, want := range []string{"path=/ping/[redacted] ", "path=/ping/[redacted]/start", "path=/ping/[redacted]/3", "path=/oauth/authorize?[redacted]"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("journal lacks %q:\n%s", want, logged)
+		}
+	}
+}

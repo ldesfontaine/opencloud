@@ -22,6 +22,7 @@ const (
 	codeBadJSON  = "bad_json"
 	codeInternal = "internal"
 	codeOrigin   = "bad_origin"
+	codeHost     = "bad_host"
 )
 
 func (s *Server) readAPI(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -76,9 +77,10 @@ func (s *Server) finishAPIAction(w http.ResponseWriter, r *http.Request, err err
 	}
 }
 
-// requireSameOrigin remplace le jeton anti-CSRF des formulaires : un POST
-// venu d'un autre site porte Sec-Fetch-Site: cross-site, et il ne peut pas
-// envoyer application/json sans une pré-requête CORS que rien n'accepte.
+// requireSameOrigin remplace le jeton anti-CSRF des formulaires : toute
+// écriture porte application/json, corps vide compris, et un navigateur ne
+// peut pas l'envoyer à un autre site sans une pré-requête CORS que rien
+// n'accepte. Un Sec-Fetch-Site présent dit en plus d'où vient la requête.
 // Les deux garde-fous se cumulent ; les GET ne changent rien et passent.
 func (s *Server) requireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +89,7 @@ func (s *Server) requireSameOrigin(next http.HandlerFunc) http.HandlerFunc {
 				s.writeAPIError(w, http.StatusForbidden, codeOrigin)
 				return
 			}
-			if r.ContentLength != 0 && !isJSON(r.Header.Get("Content-Type")) {
+			if !isJSON(r.Header.Get("Content-Type")) {
 				s.writeAPIError(w, http.StatusForbidden, codeOrigin)
 				return
 			}

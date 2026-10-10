@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,7 +35,8 @@ func callAPI(server *Server, method, path string, payload any) *httptest.Respons
 	}
 	request := httptest.NewRequest(method, path, &body)
 	request.Header.Set("Sec-Fetch-Site", "same-origin")
-	if payload != nil {
+	// Comme le front : toute écriture part en JSON, même sans corps.
+	if payload != nil || method != http.MethodGet {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	recorder := httptest.NewRecorder()
@@ -379,6 +381,106 @@ func TestAPI_Writes_RequireTheSameOrigin(t *testing.T) {
 	}
 	if saved, _ := server.settings.Load(); saved.Language == "en" {
 		t.Fatal("a refused write must not be applied")
+	}
+}
+
+// Une écriture sans Content-Type JSON est refusée, corps vide compris :
+// c'est ce qu'un formulaire ou un fetch « simple » d'un autre site enverrait,
+// sans pré-requête CORS. Le même appel en JSON passe.
+func TestAPI_Writes_WithoutJSONContentType_AreRefusedEvenWithoutBody(t *testing.T) {
+	server := newTestServer(t)
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		request := httptest.NewRequest(method, "/api/mcp/actions/enable", nil)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusForbidden || errorCode(t, recorder) != codeOrigin {
+			t.Errorf("%s without type: %d %s", method, recorder.Code, recorder.Body.String())
+		}
+	}
+	plain := httptest.NewRequest(http.MethodPost, "/api/mcp/actions/enable", strings.NewReader("{}"))
+	plain.Header.Set("Content-Type", "text/plain")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, plain)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("text/plain: %d", recorder.Code)
+	}
+	if _, enabled, _ := server.access.Client(context.Background()); enabled {
+		t.Fatal("a refused write must not enable MCP")
+	}
+	none := httptest.NewRequest(http.MethodPost, "/api/mcp/actions/enable", strings.NewReader("{}"))
+	none.Header.Set("Content-Type", "application/json; charset=utf-8")
+	none.Header.Set("Sec-Fetch-Site", "none")
+	recorder = httptest.NewRecorder()
+	server.ServeHTTP(recorder, none)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("json write: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// Un nom qui pointe soudain sur openCloud (DNS rebinding) arrive avec un
+// Host qui n'est pas le nôtre : refusé sous /api et sur l'autorisation
+// OAuth, avec une ligne de journal qui dit quoi régler. Les autres routes
+// ne sont pas concernées.
+func TestHost_UnknownIsRefusedOnTheAPIAndTheAuthorization(t *testing.T) {
+	var journal bytes.Buffer
+	server := newTestServer(t)
+	server.logger = slog.New(slog.NewTextHandler(&journal, nil))
+	server.publicURL = "https://cloud.exemple.fr"
+	accepted := []string{"cloud.exemple.fr", "CLOUD.exemple.fr:443", "localhost:8080", "127.0.0.1", "10.8.0.1:8080", "[::1]:8080", "::1", "example.com"}
+	for _, host := range accepted {
+		request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+		request.Host = host
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Errorf("%s: %d", host, recorder.Code)
+		}
+	}
+	for _, target := range []string{"/api/session", "/api/nope", "/oauth/authorize?client_id=x"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		request.Host = "autre.exemple"
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusForbidden || errorCode(t, recorder) != codeHost {
+			t.Errorf("%s: %d %s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+	if !strings.Contains(journal.String(), "public_url") || !strings.Contains(journal.String(), "autre.exemple") {
+		t.Fatalf("the journal must say which Host and what to set:\n%s", journal.String())
+	}
+	elsewhere := httptest.NewRequest(http.MethodGet, "/ping/hb_unknown", nil)
+	elsewhere.Host = "autre.exemple"
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, elsewhere)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("ping with another Host: %d", recorder.Code)
+	}
+}
+
+// Derrière Traefik, le Host peut être l'adresse de la boucle et le vrai nom
+// dans X-Forwarded-Host : ce nom est jugé aussi, mais seulement s'il vient
+// d'un mandataire de confiance.
+func TestHost_ForwardedHostIsJudgedFromATrustedProxy(t *testing.T) {
+	server := newTestServer(t)
+	server.publicURL = "https://cloud.exemple.fr"
+	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
+	call := func(forwardedHost string) int {
+		request := httptest.NewRequest(http.MethodGet, "/api/session", nil)
+		request.Host = "127.0.0.1:8080"
+		request.Header.Set("X-Forwarded-Host", forwardedHost)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	if got := call("cloud.exemple.fr"); got != http.StatusOK {
+		t.Fatalf("public host forwarded: %d", got)
+	}
+	if got := call("autre.exemple"); got != http.StatusForbidden {
+		t.Fatalf("foreign host forwarded: %d", got)
+	}
+	server.trustedProxies = nil
+	if got := call("autre.exemple"); got != http.StatusOK {
+		t.Fatalf("an untrusted X-Forwarded-Host is ignored: %d", got)
 	}
 }
 

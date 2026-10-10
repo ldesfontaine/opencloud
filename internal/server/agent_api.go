@@ -80,6 +80,11 @@ func (s *Server) writeEnrollError(w http.ResponseWriter, r *http.Request, err er
 }
 
 func (s *Server) agentChallenge(w http.ResponseWriter, r *http.Request) {
+	if !s.agentLimits.allow(s.clientAddress(r)) {
+		w.Header().Set("Retry-After", retryAfterSeconds)
+		s.writeAgentError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
 	var request machine.ChallengeRequest
 	if !s.readJSON(w, r, &request) {
 		return

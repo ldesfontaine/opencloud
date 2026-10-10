@@ -202,12 +202,14 @@ type Server struct {
 	pingLimits   *pingLimits
 	statusLimits *statusLimits
 	mcpLimits    *mcpLimits
+	agentLimits  *challengeLimits
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
 	mcpServer      *gomcp.Server
 	mcpHandler     http.Handler
 	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
+	listen         string
 	// Le front compilé, embarqué : voir spa.go.
 	app     fs.FS
 	handler http.Handler
@@ -240,6 +242,8 @@ type Options struct {
 	// déduite de la requête.
 	PublicURL      string
 	TrustedProxies []netip.Prefix
+	// Listen est l'adresse d'écoute : son hôte est un Host reconnu.
+	Listen string
 	// ConfigPath est le fichier de configuration de ce serveur, cité dans
 	// la commande du client MCP local.
 	ConfigPath string
@@ -285,9 +289,11 @@ func New(opts Options) (*Server, error) {
 		pingLimits:     newPingLimits(),
 		statusLimits:   newStatusLimits(),
 		mcpLimits:      newMCPLimits(),
+		agentLimits:    newChallengeLimits(),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
+		listen:         opts.Listen,
 		app:            app,
 		clock:          opts.Clock,
 		current:        current,
@@ -296,6 +302,7 @@ func New(opts Options) (*Server, error) {
 		server.pingLimits.setClock(opts.Clock)
 		server.statusLimits.setClock(opts.Clock)
 		server.mcpLimits.setClock(opts.Clock)
+		server.agentLimits.setClock(opts.Clock)
 	}
 	server.mcpServer = server.newMCPServer(false)
 	server.mcpHandler = server.newMCPHandler()
