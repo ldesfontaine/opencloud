@@ -42,12 +42,12 @@ export function ServiceTable({ services, withMachine }: { services: Service[]; w
       <thead>
         <tr>
           <th>{t("services.col_service")}</th>
-          {withMachine && <th>{t("services.col_machine")}</th>}
-          <th>{t("services.col_image")}</th>
+          {withMachine && <th className="wide-only">{t("services.col_machine")}</th>}
+          <th className="wide-only">{t("services.col_image")}</th>
           <th>{t("services.col_state")}</th>
-          <th>{t("services.col_exposure")}</th>
-          <th className="th-num">{t("services.col_cpu")}</th>
-          <th className="th-num th-end">{t("services.col_memory")}</th>
+          <th className="wide-only">{t("services.col_exposure")}</th>
+          <th className="th-num wide-only">{t("services.col_cpu")}</th>
+          <th className="th-num th-end wide-only">{t("services.col_memory")}</th>
         </tr>
       </thead>
       <tbody>
@@ -66,11 +66,11 @@ export function ServiceTable({ services, withMachine }: { services: Service[]; w
                 </Link>
               </td>
               {withMachine && (
-                <td>
+                <td className="wide-only">
                   <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
                 </td>
               )}
-              <td className="num">
+              <td className="num wide-only">
                 <span className="image-cell">
                   {service.image}
                   {updateAvailable(service) && service.image_check !== null && (
@@ -83,9 +83,9 @@ export function ServiceTable({ services, withMachine }: { services: Service[]; w
               <td>
                 <ServicePill service={service} />
               </td>
-              <td className="num">{ports !== "" ? ports : <span className="muted">{t("service.internal")}</span>}</td>
-              <td className="num td-num">{service.current ? `${formatDecimal(language, service.current.cpu_percent, 0)} %` : "–"}</td>
-              <td className="num td-num td-end">{service.current ? formatBytes(t, language, service.current.mem_used) : "–"}</td>
+              <td className="num wide-only">{ports !== "" ? ports : <span className="muted">{t("service.internal")}</span>}</td>
+              <td className="num td-num wide-only">{service.current ? `${formatDecimal(language, service.current.cpu_percent, 0)} %` : "–"}</td>
+              <td className="num td-num td-end wide-only">{service.current ? formatBytes(t, language, service.current.mem_used) : "–"}</td>
             </tr>
           );
         })}

@@ -41,12 +41,12 @@ export function Machines() {
               <thead>
                 <tr>
                   <th>{t("machines.col_machine")}</th>
-                  <th>{t("machines.col_address")}</th>
-                  <th>{t("machines.col_os")}</th>
-                  <th>{t("machines.col_agent")}</th>
+                  <th className="wide-only">{t("machines.col_address")}</th>
+                  <th className="wide-only">{t("machines.col_os")}</th>
+                  <th className="wide-only">{t("machines.col_agent")}</th>
                   <th>{t("machines.col_state")}</th>
                   <th>{t("machines.col_seen")}</th>
-                  <th className="th-end" />
+                  <th className="th-end wide-only" />
                 </tr>
               </thead>
               <tbody>
@@ -64,14 +64,14 @@ export function Machines() {
                         </Subject>
                       </Link>
                     </td>
-                    <td className="num">{machine.address}</td>
-                    <td>{machine.os}</td>
-                    <td className="num">{machine.agent_version}</td>
+                    <td className="num wide-only">{machine.address}</td>
+                    <td className="wide-only">{machine.os}</td>
+                    <td className="num wide-only">{machine.agent_version}</td>
                     <td>
                       <StatePill online={machine.online} />
                     </td>
-                    <td className="secondary">{seenAgo(t, machine.last_seen_at, now)}</td>
-                    <td className="td-end">
+                    <td className="secondary nowrap">{seenAgo(t, machine.last_seen_at, now)}</td>
+                    <td className="td-end wide-only">
                       <Button variant="ghost" small to={`/machines/${machine.id}`}>
                         {t("machines.open")}
                       </Button>

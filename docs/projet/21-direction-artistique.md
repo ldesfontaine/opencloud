@@ -72,6 +72,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 | Contrôle (bouton, champ, sélecteur) | hauteur 36, rayon 8 ; petit : 30, rayon 7 |
 | Pastille d'état | hauteur 24, rayon 999, point 6 px |
 | Barre latérale | 232 px, item 34 px de haut, rayon 8 |
+| Sous 860 px | barre latérale en tiroir (280 px au plus, derrière un voile `--scrim`), en-tête de 56 px ; contrôle 44, petit 40 ; marge de page 20 / 16 |
 | Icônes | trait 1,6 ; 16 px en ligne, 18 px dans le graphe |
 | Ombres | aucune sur les cartes ; `0 1px 2px` sur boutons secondaires et items actifs ; portée sur menus et info-bulles |
 

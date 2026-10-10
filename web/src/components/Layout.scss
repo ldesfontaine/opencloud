@@ -307,12 +307,110 @@ h1 {
   align-items: center;
 }
 
+// L'en-tête du téléphone n'existe qu'en dessous de 860 px.
+.topbar {
+  display: none;
+}
+
+.menu-button {
+  width: 44px;
+  height: 44px;
+  margin-right: -6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--surface-2);
+  }
+
+  .icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: var(--scrim);
+}
+
+// Sous 860 px, la barre latérale devient un tiroir posé par-dessus la
+// page, derrière un voile : la page garde toute la largeur.
 @media (max-width: 860px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 16px 0 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  .side {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: min(280px, 85vw);
+    height: auto;
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow-2);
+    transform: translateX(-100%);
+    visibility: hidden;
+    // Fermé, il ne disparaît qu'une fois sorti de l'écran ; ouvert, il est
+    // visible tout de suite, sans quoi il ne recevrait pas le focus.
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+
+    // La marque est déjà dans l'en-tête.
+    > .brand {
+      display: none;
+    }
+
+    .nav-item {
+      height: 44px;
+    }
+  }
+
+  .drawer-open .side {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease;
+  }
+
   .content {
     padding: 20px 16px;
   }
 
   .page-head {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .actions {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side {
+    transition: none;
   }
 }

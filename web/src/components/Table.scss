@@ -38,8 +38,29 @@
   }
 }
 
-.scroll-x {
+.scroll-x,
+.table-scroll {
   overflow-x: auto;
+}
+
+// Les colonnes de confort d'une liste principale : sur téléphone, la ligne
+// garde le nom, l'état et le moment, le reste est sur la fiche.
+@media (max-width: 860px) {
+  .table .wide-only {
+    display: none;
+  }
+
+  .table th,
+  .table td {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  // Un nom long passe à la ligne plutôt que de pousser l'état hors cadre.
+  .table .svc {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .svc {

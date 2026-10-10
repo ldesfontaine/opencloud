@@ -134,3 +134,11 @@ code {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+// Un téléphone : les tuiles par quatre passent sur une colonne, sans quoi
+// une jauge et ses volumes se lisent lettre par lettre.
+@media (max-width: 520px) {
+  .grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -24,6 +24,15 @@
     color: var(--ink-2);
   }
 
+  // Chaque fait tient sur sa ligne : écrasé, il s'écrirait lettre par
+  // lettre ; trop long, il se coupe d'une ellipse.
+  > :not(.sep) {
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .sep {
     width: 3px;
     height: 3px;

@@ -234,3 +234,13 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+// Sur téléphone, une commande garde ses lignes : elle défile dans son bloc
+// plutôt que de se couper au milieu d'un argument.
+@media (max-width: 860px) {
+  .snippet {
+    white-space: pre;
+    overflow-wrap: normal;
+    overflow-x: auto;
+  }
+}
