@@ -32,11 +32,14 @@ type mcpResponse struct {
 	EnabledAt    *time.Time        `json:"enabled_at"`
 }
 
+// ExpiresAt est nul pour un jeton créé sans échéance.
 type mcpTokenJSON struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`
 	Masked     string     `json:"masked"`
+	Scope      string     `json:"scope"`
 	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
@@ -52,10 +55,13 @@ type mcpLimitsJSON struct {
 	RedirectURIs int `json:"redirect_uris"`
 }
 
-// Les durées du produit, en secondes : le front les dit à l'opérateur.
+// Les durées du produit, en secondes : le front les dit à l'opérateur. Les
+// durées offertes à un jeton d'API sont en jours, 0 pour sans échéance.
 type mcpLifetimesJSON struct {
-	AccessSeconds  int `json:"access_seconds"`
-	RefreshSeconds int `json:"refresh_seconds"`
+	AccessSeconds  int   `json:"access_seconds"`
+	RefreshSeconds int   `json:"refresh_seconds"`
+	APITokenDays   []int `json:"api_token_days"`
+	DefaultDays    int   `json:"api_token_default_days"`
 }
 
 type mcpToolCountsJSON struct {
@@ -73,8 +79,12 @@ type mcpTokenResponse struct {
 	Item  mcpTokenJSON `json:"item"`
 }
 
+// Une portée absente vaut read ; une durée absente, 90 jours ; 0 veut dire
+// sans échéance.
 type mcpTokenRequest struct {
-	Name string `json:"name"`
+	Name          string `json:"name"`
+	Scope         string `json:"scope,omitempty"`
+	ExpiresInDays *int   `json:"expires_in_days,omitempty"`
 }
 
 type mcpRedirectURIsRequest struct {
@@ -107,8 +117,11 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 		Tokens:       []mcpTokenJSON{},
 		Sessions:     []mcpSessionJSON{},
 		Limits:       mcpLimitsJSON{Tokens: mcp.MaxAPITokens, RedirectURIs: mcp.MaxRedirectURIs},
-		Lifetimes:    mcpLifetimesJSON{AccessSeconds: int(mcp.AccessTTL.Seconds()), RefreshSeconds: int(mcp.RefreshTTL.Seconds())},
-		Tools:        mcpToolCountsJSON{Reads: mcpReadToolCount, Writes: mcpWriteToolCount},
+		Lifetimes: mcpLifetimesJSON{
+			AccessSeconds: int(mcp.AccessTTL.Seconds()), RefreshSeconds: int(mcp.RefreshTTL.Seconds()),
+			APITokenDays: mcp.APITokenDays(), DefaultDays: mcp.DefaultAPITokenDays,
+		},
+		Tools: mcpToolCountsJSON{Reads: mcpReadToolCount, Writes: mcpWriteToolCount},
 	}
 	if !enabled {
 		return response, nil
@@ -136,7 +149,10 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 }
 
 func mcpTokenToJSON(token mcp.Token) mcpTokenJSON {
-	return mcpTokenJSON{ID: token.ID, Name: token.Name, Masked: token.Masked(), CreatedAt: token.CreatedAt.UTC(), LastUsedAt: timeOrNil(token.LastUsedAt)}
+	return mcpTokenJSON{
+		ID: token.ID, Name: token.Name, Masked: token.Masked(), Scope: string(token.Scope),
+		CreatedAt: token.CreatedAt.UTC(), ExpiresAt: timeOrNil(token.ExpiresAt), LastUsedAt: timeOrNil(token.LastUsedAt),
+	}
 }
 
 // enableMCP tire le secret et le montre une seule fois.
@@ -199,13 +215,21 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	cleartext, token, err := s.mcp.CreateAPIToken(r.Context(), request.Name)
+	cleartext, token, err := s.mcp.CreateAPIToken(r.Context(), mcp.APITokenRequest{
+		Name: request.Name, Scope: mcp.Scope(request.Scope), Days: request.ExpiresInDays,
+	})
 	switch {
 	case errors.Is(err, mcp.ErrDisabled):
 		s.apiRefuse(w, http.StatusConflict, "mcp.disabled")
 		return
 	case errors.Is(err, mcp.ErrNameInvalid):
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.name_invalid")
+		return
+	case errors.Is(err, mcp.ErrScopeInvalid):
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.scope_invalid")
+		return
+	case errors.Is(err, mcp.ErrLifetimeInvalid):
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.lifetime_invalid")
 		return
 	case errors.Is(err, mcp.ErrTooManyTokens):
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.too_many_tokens")

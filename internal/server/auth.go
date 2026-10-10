@@ -205,6 +205,18 @@ type authResponse struct {
 	PasswordMinLength int `json:"password_min_length"`
 }
 
+// Activer l'authentification révoque tous les jetons MCP : la réponse dit
+// combien sont tombés, l'interface le montre.
+type authEnableResponse struct {
+	authResponse
+	MCPRevoked mcpRevokedJSON `json:"mcp_revoked"`
+}
+
+type mcpRevokedJSON struct {
+	APITokens int `json:"api_tokens"`
+	Sessions  int `json:"sessions"`
+}
+
 type authEnableRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -244,7 +256,18 @@ func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
 	if s.refuseAuth(w, r, err) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, authToJSON(state))
+	// Tant que l'interface était ouverte, n'importe qui pouvait tirer un
+	// jeton MCP : aucun ne survit à l'activation. Après elle, et non avant,
+	// pour qu'un rafraîchissement OAuth glissé entre les deux tombe aussi.
+	revoked, err := s.mcp.RevokeAll(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, authEnableResponse{
+		authResponse: authToJSON(state),
+		MCPRevoked:   mcpRevokedJSON{APITokens: revoked.APITokens, Sessions: revoked.Sessions},
+	})
 }
 
 func (s *Server) changeAuthPassword(w http.ResponseWriter, r *http.Request) {

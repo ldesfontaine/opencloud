@@ -757,16 +757,23 @@ export interface MCPState {
   tokens: MCPToken[];
   sessions: MCPSession[];
   limits: { tokens: number; redirect_uris: number };
-  lifetimes: { access_seconds: number; refresh_seconds: number };
+  // Les échéances offertes à un jeton d'API, en jours ; 0 pour sans échéance.
+  lifetimes: { access_seconds: number; refresh_seconds: number; api_token_days: number[]; api_token_default_days: number };
   tools: { reads: number; writes: number };
   enabled_at: string | null;
 }
+
+// read : les lectures seules ; write : les lectures et les écritures.
+export type MCPScope = "read" | "write";
 
 export interface MCPToken {
   id: string;
   name: string;
   masked: string;
+  scope: MCPScope;
   created_at: string;
+  // Nul pour un jeton créé sans échéance.
+  expires_at: string | null;
   last_used_at: string | null;
 }
 
@@ -795,4 +802,10 @@ export interface AuthState {
   username: string;
   enabled_at: string | null;
   password_min_length: number;
+}
+
+// Activer l'authentification révoque tous les jetons MCP : la réponse dit
+// combien sont tombés.
+export interface AuthEnableResponse extends AuthState {
+  mcp_revoked: { api_tokens: number; sessions: number };
 }

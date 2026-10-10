@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ type Store interface {
 	RevokeMCPToken(ctx context.Context, id string, at time.Time) error
 	RevokeMCPFamily(ctx context.Context, familyID string, at time.Time) error
 	RevokeMCPOAuthTokens(ctx context.Context, at time.Time) error
+	RevokeAllMCPTokens(ctx context.Context, at time.Time) (Revoked, error)
 	DeleteAllMCPTokens(ctx context.Context) error
 	ListMCPTokens(ctx context.Context, kind Kind) ([]Token, error)
 	ListMCPSessions(ctx context.Context, now time.Time) ([]Session, error)
@@ -128,32 +130,45 @@ func (s *Service) SetRedirectURIs(ctx context.Context, uris []string) (Client, e
 	return s.store.GetMCPClient(ctx)
 }
 
-// CreateAPIToken tire un jeton sans échéance, rendu en clair une fois.
-func (s *Service) CreateAPIToken(ctx context.Context, name string) (string, Token, error) {
+// CreateAPIToken tire un jeton d'API de la portée et de la durée
+// demandées, rendu en clair une fois.
+func (s *Service) CreateAPIToken(ctx context.Context, request APITokenRequest) (string, Token, error) {
 	if _, enabled, err := s.Client(ctx); err != nil {
 		return "", Token{}, err
 	} else if !enabled {
 		return "", Token{}, ErrDisabled
 	}
-	if err := ValidateName(name); err != nil {
+	if err := ValidateName(request.Name); err != nil {
+		return "", Token{}, err
+	}
+	scope, err := scopeOf(request.Scope)
+	if err != nil {
+		return "", Token{}, err
+	}
+	now := s.now()
+	expiresAt, err := expiryOf(request.Days, now)
+	if err != nil {
 		return "", Token{}, err
 	}
 	secret, err := newSecret(apiScheme)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate api token: %w", err)
 	}
-	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: KindAPI, Name: strings.TrimSpace(name), CreatedAt: s.now()}
+	token := Token{
+		ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: KindAPI, Scope: scope,
+		Name: strings.TrimSpace(request.Name), CreatedAt: now, ExpiresAt: expiresAt,
+	}
 	if err := s.insertAPITokenUnderCeiling(ctx, token); err != nil {
 		return "", Token{}, err
 	}
-	s.logger.Info("mcp api token created", "token_id", token.ID, "name", token.Name)
+	s.logger.Info("mcp api token created", "token_id", token.ID, "name", token.Name, "scope", string(scope), "expires_at", expiresAt)
 	return secret.cleartext, token, nil
 }
 
 func (s *Service) insertAPITokenUnderCeiling(ctx context.Context, token Token) error {
 	s.creatingToken.Lock()
 	defer s.creatingToken.Unlock()
-	existing, err := s.store.ListMCPTokens(ctx, KindAPI)
+	existing, err := s.APITokens(ctx)
 	if err != nil {
 		return err
 	}
@@ -163,9 +178,27 @@ func (s *Service) insertAPITokenUnderCeiling(ctx context.Context, token Token) e
 	return s.store.InsertMCPToken(ctx, token)
 }
 
-// APITokens liste les jetons d'API vivants, les plus récents d'abord.
+// APITokens liste les jetons d'API vivants, les plus récents d'abord. Un
+// jeton échu que la purge n'a pas encore effacé n'y figure plus.
 func (s *Service) APITokens(ctx context.Context) ([]Token, error) {
-	return s.store.ListMCPTokens(ctx, KindAPI)
+	tokens, err := s.store.ListMCPTokens(ctx, KindAPI)
+	if err != nil {
+		return nil, err
+	}
+	now := s.now()
+	return slices.DeleteFunc(tokens, func(token Token) bool { return token.IsExpired(now) }), nil
+}
+
+// RevokeAll coupe tous les jetons vivants, d'API et OAuth, et dit combien.
+// Le client et son secret restent : une nouvelle autorisation passe par
+// /oauth/authorize, que l'authentification de l'interface garde désormais.
+func (s *Service) RevokeAll(ctx context.Context) (Revoked, error) {
+	revoked, err := s.store.RevokeAllMCPTokens(ctx, s.now())
+	if err != nil {
+		return Revoked{}, err
+	}
+	s.logger.Warn("mcp tokens revoked", "api_tokens", revoked.APITokens, "sessions", revoked.Sessions)
+	return revoked, nil
 }
 
 func (s *Service) RevokeToken(ctx context.Context, id string) error {

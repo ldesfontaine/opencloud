@@ -185,7 +185,7 @@ func (s *Service) insertToken(ctx context.Context, scheme string, kind Kind, fam
 	if err != nil {
 		return "", fmt.Errorf("generate %s token: %w", kind, err)
 	}
-	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: kind, FamilyID: familyID, CreatedAt: now, ExpiresAt: expiresAt}
+	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: kind, Scope: ScopeWrite, FamilyID: familyID, CreatedAt: now, ExpiresAt: expiresAt}
 	if err := s.store.InsertMCPToken(ctx, token); err != nil {
 		return "", err
 	}

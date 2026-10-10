@@ -3,19 +3,22 @@ package server
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
-// Les sept écritures : ce que l'interface fait déjà, et qui ne touche
+// Les neuf écritures : ce que l'interface fait déjà, et qui ne touche
 // jamais une machine. Chacune rend l'objet tel que l'API le relit, et
 // refuse avec la même clé que l'API.
 func (s *Server) registerWriteTools(server *gomcp.Server, readOnly bool) {
@@ -66,15 +69,32 @@ func (s *Server) registerWriteTools(server *gomcp.Server, readOnly bool) {
 	}, guarded(readOnly, s.setUpdatePolicyTool))
 }
 
-// guarded ferme une écriture en lecture seule, avec la clé que le modèle
-// lit ; sinon elle passe telle quelle.
+// guarded ferme une écriture, avec la clé que le modèle lit, quand la
+// session est en lecture seule (stdio) ou que le jeton présenté pour cette
+// requête n'a pas la portée write ; sinon elle passe telle quelle.
 func guarded[In any](readOnly bool, handler func(context.Context, In) (*gomcp.CallToolResult, any, error)) gomcp.ToolHandlerFor[In, any] {
-	return func(ctx context.Context, _ *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
-		if readOnly {
+	return func(ctx context.Context, request *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
+		if readOnly || !mayWrite(ctx, request) {
 			return toolRefuse(codeReadOnly)
 		}
 		return handler(ctx, input)
 	}
+}
+
+// mayWrite lit la portée du jeton que verifyBearer a posé sur la requête.
+// Faute de jeton, c'est non : une écriture ne passe jamais par défaut.
+func mayWrite(ctx context.Context, request *gomcp.CallToolRequest) bool {
+	info := tokenInfoOf(ctx, request)
+	return info != nil && slices.Contains(info.Scopes, string(mcp.ScopeWrite))
+}
+
+// tokenInfoOf prend le jeton là où le transport HTTP le dépose : dans les
+// extras de la requête JSON-RPC, ou à défaut dans le contexte.
+func tokenInfoOf(ctx context.Context, request *gomcp.CallToolRequest) *auth.TokenInfo {
+	if request != nil && request.Extra != nil && request.Extra.TokenInfo != nil {
+		return request.Extra.TokenInfo
+	}
+	return auth.TokenInfoFromContext(ctx)
 }
 
 // --- Entrées ---

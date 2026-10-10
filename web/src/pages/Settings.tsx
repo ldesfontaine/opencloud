@@ -1,12 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, errorKey } from "../api/client";
-import type { AuthState, DiskSettings, MailSettings, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
+import type {
+  AuthEnableResponse,
+  AuthState,
+  DiskSettings,
+  MailSettings,
+  MCPScope,
+  MCPSecretResponse,
+  MCPSession,
+  MCPState,
+  MCPToken,
+  MCPTokenResponse,
+} from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
 import { Failure } from "../components/Failure";
-import { Field, Input } from "../components/Field";
+import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
@@ -15,7 +26,7 @@ import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { diskSettingsError } from "../lib/disks";
 import { passwordFormError } from "../lib/auth";
-import { claudeCodeCommand, lifetimesOf, redirectLines } from "../lib/mcp";
+import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
 import { MailSection } from "./SettingsMail";
 import "./StatusAdmin.scss";
@@ -54,12 +65,14 @@ export function Settings() {
 
 // L'accès à l'interface. Activer ou changer le mot de passe rend caducs
 // les identifiants du navigateur : la page se recharge, et le navigateur
-// les demande dans sa propre fenêtre.
+// les demande dans sa propre fenêtre. Activer révoque aussi tous les
+// jetons MCP : la carte dit combien avant de recharger.
 function AccessSection({ state }: { state: AuthState }) {
   const t = useT();
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [revoked, setRevoked] = useState<AuthEnableResponse["mcp_revoked"] | null>(null);
   const enabled = state.mode !== "none";
 
   const run = (action: Promise<unknown>) => {
@@ -77,6 +90,37 @@ function AccessSection({ state }: { state: AuthState }) {
       run(api.post("/api/auth/actions/disable", {}));
     }
   };
+  const enable = (username: string, password: string) => {
+    if (!window.confirm(t("auth.enable_confirm"))) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    api
+      .post<AuthEnableResponse>("/api/auth/actions/enable", { username, password })
+      .then((response) => setRevoked(response.mcp_revoked))
+      .catch((failure: unknown) => {
+        setError(errorKey(failure));
+        setBusy(false);
+      });
+  };
+
+  if (revoked !== null) {
+    return (
+      <Card className="form-card">
+        <CardHeader title={t("auth.title")} aside={<Pill tone="ok">{t("auth.state_basic")}</Pill>} />
+        <CardBody>
+          <Note tone="warn">{t("auth.mcp_revoked", revoked.api_tokens, revoked.sessions)}</Note>
+          <p className="secondary">{t("auth.browser_prompt")}</p>
+          <div className="cluster">
+            <Button variant="primary" icon="check" onClick={() => window.location.reload()}>
+              {t("auth.continue")}
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  }
 
   return (
     <Card className="form-card">
@@ -104,9 +148,7 @@ function AccessSection({ state }: { state: AuthState }) {
         withUsername={!enabled}
         minLength={state.password_min_length}
         busy={busy}
-        onSubmit={(username, password) =>
-          run(enabled ? api.put("/api/auth/password", { password }) : api.post("/api/auth/actions/enable", { username, password }))
-        }
+        onSubmit={(username, password) => (enabled ? run(api.put("/api/auth/password", { password })) : enable(username, password))}
       />
     </Card>
   );
@@ -318,7 +360,14 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
             </CardBody>
           </Card>
           <RedirectURIs state={state} reload={reload} />
-          <Tokens tokens={state.tokens} limit={state.limits.tokens} reload={reload} now={now} />
+          <Tokens
+            tokens={state.tokens}
+            limit={state.limits.tokens}
+            lifetimes={state.lifetimes.api_token_days}
+            defaultDays={state.lifetimes.api_token_default_days}
+            reload={reload}
+            now={now}
+          />
           <Sessions sessions={state.sessions} reload={reload} now={now} />
           <Card className="form-card">
             <CardHeader title={t("mcp.stdio_title")} />
@@ -381,9 +430,25 @@ function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }
   );
 }
 
-function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: number; reload: () => void; now: number }) {
+function Tokens({
+  tokens,
+  limit,
+  lifetimes,
+  defaultDays,
+  reload,
+  now,
+}: {
+  tokens: MCPToken[];
+  limit: number;
+  lifetimes: number[];
+  defaultDays: number;
+  reload: () => void;
+  now: number;
+}) {
   const t = useT();
   const [name, setName] = useState("");
+  const [scope, setScope] = useState<MCPScope>("read");
+  const [days, setDays] = useState(defaultDays);
   const [created, setCreated] = useState<MCPTokenResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -391,11 +456,13 @@ function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: num
     event.preventDefault();
     setBusy(true);
     api
-      .post<MCPTokenResponse>("/api/mcp/tokens", { name })
+      .post<MCPTokenResponse>("/api/mcp/tokens", { name, scope, expires_in_days: days })
       .then((response) => {
         setError(null);
         setCreated(response);
         setName("");
+        setScope("read");
+        setDays(defaultDays);
         reload();
       })
       .catch((failure: unknown) => setError(errorKey(failure)))
@@ -437,7 +504,9 @@ function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: num
           <thead>
             <tr>
               <th>{t("mcp.col_token")}</th>
+              <th>{t("mcp.col_scope")}</th>
               <th>{t("mcp.col_created")}</th>
+              <th>{t("mcp.col_expires")}</th>
               <th>{t("mcp.col_last_used")}</th>
               <th className="th-end" />
             </tr>
@@ -448,7 +517,11 @@ function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: num
                 <td>
                   {token.name} <span className="mono secondary">{token.masked}</span>
                 </td>
+                <td>
+                  <Pill tone={token.scope === "write" ? "warn" : "neutral"}>{t(`mcp.scope_${token.scope}`)}</Pill>
+                </td>
                 <td className="secondary">{formatClock(token.created_at)}</td>
+                <td className="secondary">{expiryLabel(t, token.expires_at, formatClock)}</td>
                 <td className="secondary">{token.last_used_at === null ? t("mcp.never_used") : ago(t, token.last_used_at, now)}</td>
                 <td className="td-end">
                   <Button variant="ghost" small onClick={() => revoke(token)}>
@@ -464,6 +537,24 @@ function Tokens({ tokens, limit, reload, now }: { tokens: MCPToken[]; limit: num
         <form className="card-b" onSubmit={submit}>
           <Field label={t("mcp.token_name_label")} htmlFor="mcp-token-name" help={t("mcp.token_name_help")}>
             <Input id="mcp-token-name" type="text" value={name} onChange={(event) => setName(event.target.value)} maxLength={80} autoComplete="off" required />
+          </Field>
+          <Field label={t("mcp.scope_label")} htmlFor="mcp-token-scope" help={t("mcp.scope_help")}>
+            <Select id="mcp-token-scope" value={scope} onChange={(event) => setScope(event.target.value as MCPScope)}>
+              {mcpScopes.map((value) => (
+                <option key={value} value={value}>
+                  {t(`mcp.scope_${value}`)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label={t("mcp.lifetime_label")} htmlFor="mcp-token-lifetime" help={t("mcp.lifetime_help")}>
+            <Select id="mcp-token-lifetime" value={String(days)} onChange={(event) => setDays(Number(event.target.value))}>
+              {lifetimes.map((value) => (
+                <option key={value} value={value}>
+                  {lifetimeLabel(t, value)}
+                </option>
+              ))}
+            </Select>
           </Field>
           {error !== null && <Pill tone="danger">{t(error)}</Pill>}
           <div className="cluster">

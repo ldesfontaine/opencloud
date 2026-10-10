@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -78,6 +79,7 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "incident.impact_", values: names(status.Impacts())},
 		{prefix: "component.kind_", values: names(status.MemberKinds())},
 		{prefix: "language.", values: names(lang.Codes())},
+		{prefix: "mcp.scope_", values: names(mcp.Scopes())},
 	}
 	for _, list := range lists {
 		if len(list.values) == 0 {

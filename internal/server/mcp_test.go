@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
 // Le catalogue, fermé : seize lectures, neuf écritures. Un outil ajouté
@@ -49,6 +51,21 @@ func connectMCP(t *testing.T, server *gomcp.Server) *gomcp.ClientSession {
 	}
 	t.Cleanup(func() { _ = session.Close() })
 	return session
+}
+
+// mcpServerAs rend un serveur d'outils dont chaque requête porte un jeton
+// de cette portée, comme verifyBearer le pose sur le transport HTTP.
+func (ts *testServer) mcpServerAs(scope mcp.Scope) *gomcp.Server {
+	server := ts.newMCPServer(false)
+	server.AddReceivingMiddleware(func(next gomcp.MethodHandler) gomcp.MethodHandler {
+		return func(ctx context.Context, method string, request gomcp.Request) (gomcp.Result, error) {
+			if call, ok := request.(*gomcp.CallToolRequest); ok {
+				call.Extra = &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{Scopes: []string{string(scope)}}}
+			}
+			return next(ctx, method, request)
+		}
+	})
+	return server
 }
 
 // callTool appelle un outil et rend son texte et s'il a refusé.
@@ -252,7 +269,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	probeID := server.seedProbes(t, serviceID)
 	componentID, incidentID := server.seedStatus(t, serviceID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
-	session := connectMCP(t, server.mcpServer)
+	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
 	ctx := context.Background()
 
 	text, isError := callTool(t, session, "acknowledge_alert", map[string]any{"alert_id": alertID})
@@ -369,7 +386,12 @@ func (ts *testServer) enableMCP(t *testing.T) string {
 
 func (ts *testServer) createAPIToken(t *testing.T, name string) string {
 	t.Helper()
-	recorder := callAPI(ts.Server, http.MethodPost, "/api/mcp/tokens", mcpTokenRequest{Name: name})
+	return ts.createScopedToken(t, mcpTokenRequest{Name: name})
+}
+
+func (ts *testServer) createScopedToken(t *testing.T, request mcpTokenRequest) string {
+	t.Helper()
+	recorder := callAPI(ts.Server, http.MethodPost, "/api/mcp/tokens", request)
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("create token: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -408,6 +430,80 @@ func listToolsOverHTTP(t *testing.T, endpoint, token string) (int, error) {
 		return 0, err
 	}
 	return len(listed.Tools), nil
+}
+
+// connectOverHTTP ouvre une session MCP réelle sur /mcp avec ce jeton.
+func connectOverHTTP(t *testing.T, endpoint, token string) *gomcp.ClientSession {
+	t.Helper()
+	client := gomcp.NewClient(&gomcp.Implementation{Name: "test", Version: "0"}, nil)
+	transport := &gomcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: &http.Client{Transport: bearerTransport{token: token, next: http.DefaultTransport}}}
+	session, err := client.Connect(context.Background(), transport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+// La portée se juge à chaque requête, d'après le jeton présenté : un jeton
+// read lit et se voit refuser toute écriture, un jeton write écrit, et un
+// jeton OAuth écrit aussi.
+func TestMCP_HTTPWritesNeedAWriteToken(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	jobID := server.seedJobs(t)
+	liveServer := httptest.NewServer(server.Server)
+	t.Cleanup(liveServer.Close)
+	endpoint := liveServer.URL + mcpPath
+	secret := server.enableMCP(t)
+	reader := connectOverHTTP(t, endpoint, server.createScopedToken(t, mcpTokenRequest{Name: "lecteur"}))
+	writeScope := string(mcp.ScopeWrite)
+	writer := connectOverHTTP(t, endpoint, server.createScopedToken(t, mcpTokenRequest{Name: "écrivain", Scope: writeScope}))
+
+	if text, isError := callTool(t, reader, "list_jobs", nil); isError || !strings.Contains(text, `"total":2`) {
+		t.Fatalf("read with a read token: %s", text)
+	}
+	refused := map[string]map[string]any{
+		"pause_job":         {"job_id": jobID},
+		"acknowledge_alert": {"alert_id": 9999},
+		"create_silence":    {"kind": "job_late", "duration_minutes": 30},
+	}
+	for write, args := range refused {
+		if text, isError := callTool(t, reader, write, args); !isError || toolErrorCode(t, text) != codeReadOnly {
+			t.Fatalf("%s with a read token: %v %s", write, isError, text)
+		}
+	}
+	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
+		t.Fatal("the refused write was applied")
+	}
+	if text, isError := callTool(t, writer, "pause_job", map[string]any{"job_id": jobID}); isError || !strings.Contains(text, `"status":"paused"`) {
+		t.Fatalf("pause with a write token: %s", text)
+	}
+	if text, _ := callTool(t, writer, "acknowledge_alert", map[string]any{"alert_id": 9999}); toolErrorCode(t, text) != codeNotFound {
+		t.Fatalf("write token passes the guard: %s", text)
+	}
+
+	oauth := connectOverHTTP(t, endpoint, server.oauthGrant(t, secret).AccessToken)
+	if text, _ := callTool(t, oauth, "acknowledge_alert", map[string]any{"alert_id": 9999}); toolErrorCode(t, text) != codeNotFound {
+		t.Fatalf("oauth token passes the guard: %s", text)
+	}
+}
+
+// Un jeton d'API échu ne passe plus le Bearer.
+func TestMCP_HTTPRefusesAnExpiredAPIToken(t *testing.T) {
+	server := newTestServer(t)
+	liveServer := httptest.NewServer(server.Server)
+	defer liveServer.Close()
+	server.enableMCP(t)
+	thirty := 30
+	token := server.createScopedToken(t, mcpTokenRequest{Name: "court", ExpiresInDays: &thirty})
+	if _, err := listToolsOverHTTP(t, liveServer.URL+mcpPath, token); err != nil {
+		t.Fatalf("fresh token: %v", err)
+	}
+	server.access.SetClock(func() time.Time { return testNow.AddDate(0, 0, 30) })
+	if _, err := listToolsOverHTTP(t, liveServer.URL+mcpPath, token); err == nil {
+		t.Fatal("an expired token connected")
+	}
 }
 
 func TestMCP_HTTPIsClosedWhenDisabledAndNeedsABearerWhenEnabled(t *testing.T) {
@@ -504,6 +600,15 @@ func TestMCPAPI_EnableCreateTokensRedirectsDisable(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPost, "/api/mcp/tokens", mcpTokenRequest{Name: " "}); got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "mcp.name_invalid" {
 		t.Fatalf("bad name: %d", got.Code)
 	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/mcp/tokens", mcpTokenRequest{Name: "x", Scope: "admin"}); got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "mcp.scope_invalid" {
+		t.Fatalf("bad scope: %d", got.Code)
+	}
+	for _, days := range []int{7, -1, 366} {
+		got := callAPI(server.Server, http.MethodPost, "/api/mcp/tokens", map[string]any{"name": "x", "expires_in_days": days})
+		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "mcp.lifetime_invalid" {
+			t.Fatalf("%d days: %d %s", days, got.Code, got.Body.String())
+		}
+	}
 	server.createAPIToken(t, "inspecteur")
 	if got := callAPI(server.Server, http.MethodPut, "/api/mcp/redirect-uris", mcpRedirectURIsRequest{RedirectURIs: []string{"claude.ai/cb"}}); got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "mcp.redirect_uri_invalid" {
 		t.Fatalf("bad redirect: %d %s", got.Code, got.Body.String())
@@ -515,6 +620,10 @@ func TestMCPAPI_EnableCreateTokensRedirectsDisable(t *testing.T) {
 	decodeAPI(t, got, &state)
 	if !state.Enabled || !strings.HasPrefix(state.SecretMasked, secret[:10]) || len(state.RedirectURIs) != 1 || len(state.Tokens) != 1 || state.Tokens[0].Name != "inspecteur" {
 		t.Fatalf("state %+v", state)
+	}
+	// Sans précision, un jeton est en lecture seule et vit 90 jours.
+	if state.Tokens[0].Scope != "read" || state.Tokens[0].ExpiresAt == nil || !state.Tokens[0].ExpiresAt.Equal(testNow.AddDate(0, 0, 90)) {
+		t.Fatalf("token %+v", state.Tokens[0])
 	}
 	if strings.Contains(got.Body.String(), secret) {
 		t.Fatal("the secret must never be read back")
@@ -670,14 +779,20 @@ func TestOAuth_TokenEndpointIsRateLimitedBySource(t *testing.T) {
 }
 
 // Les sessions se coupent depuis Paramètres.
-func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
-	server := newTestServer(t)
-	secret := server.enableMCP(t)
-	got := get(server.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
+// oauthGrant joue l'autorisation et l'échange, et rend la paire de jetons.
+func (ts *testServer) oauthGrant(t *testing.T, secret string) grantResponse {
+	t.Helper()
+	got := get(ts.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
 	location := got.Header().Get("Location")
 	code := location[strings.Index(location, "code=")+5:]
 	var grant grantResponse
-	decodeAPI(t, postForm(server.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": secret, "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{}), &grant)
+	decodeAPI(t, postForm(ts.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": secret, "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{}), &grant)
+	return grant
+}
+
+func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
+	server := newTestServer(t)
+	grant := server.oauthGrant(t, server.enableMCP(t))
 	var state mcpResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/mcp", nil), &state)
 	if len(state.Sessions) != 1 {
@@ -701,7 +816,7 @@ func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
 // Un silence créé par MCP se lit ensuite par l'API, comme tout le reste.
 func TestMCP_ChangesAreVisibleToTheAPI(t *testing.T) {
 	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServer)
+	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
 	if _, isError := callTool(t, session, "create_silence", map[string]any{"kind": string(alert.KindJobLate), "duration_minutes": 30}); isError {
 		t.Fatal("silence refused")
 	}

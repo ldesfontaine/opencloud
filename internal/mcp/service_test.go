@@ -117,7 +117,7 @@ func TestDisable_RemovesTheClientAndEveryToken(t *testing.T) {
 	ctx := context.Background()
 	secret := f.enable(t)
 	grant := f.exchange(t, secret, f.authorize(t))
-	apiToken, _, err := f.CreateAPIToken(ctx, "script")
+	apiToken, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "script"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,18 +145,20 @@ func TestDisable_RemovesTheClientAndEveryToken(t *testing.T) {
 func TestAPIToken_CreateVerifyRevoke(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	if _, _, err := f.CreateAPIToken(ctx, "script"); !errors.Is(err, mcp.ErrDisabled) {
+	if _, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "script"}); !errors.Is(err, mcp.ErrDisabled) {
 		t.Fatalf("create while disabled: %v", err)
 	}
 	f.enable(t)
-	if _, _, err := f.CreateAPIToken(ctx, "  "); !errors.Is(err, mcp.ErrNameInvalid) {
+	if _, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "  "}); !errors.Is(err, mcp.ErrNameInvalid) {
 		t.Fatalf("empty name: %v", err)
 	}
-	cleartext, token, err := f.CreateAPIToken(ctx, " sauvegarde ")
+	cleartext, token, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: " sauvegarde "})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(cleartext, "ock_") || token.Name != "sauvegarde" || token.Kind != mcp.KindAPI || !token.ExpiresAt.IsZero() {
+	// Sans précision : lecture seule, 90 jours.
+	if !strings.HasPrefix(cleartext, "ock_") || token.Name != "sauvegarde" || token.Kind != mcp.KindAPI ||
+		token.Scope != mcp.ScopeRead || !token.ExpiresAt.Equal(testNow.AddDate(0, 0, 90)) {
 		t.Fatalf("token %+v", token)
 	}
 	f.clock = f.clock.Add(time.Hour)
@@ -184,11 +186,11 @@ func TestAPIToken_CreateVerifyRevoke(t *testing.T) {
 		t.Fatalf("revoked token still listed: %+v", listed)
 	}
 	for range mcp.MaxAPITokens {
-		if _, _, err := f.CreateAPIToken(ctx, "n"); err != nil {
+		if _, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "n"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := f.CreateAPIToken(ctx, "one too many"); !errors.Is(err, mcp.ErrTooManyTokens) {
+	if _, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "one too many"}); !errors.Is(err, mcp.ErrTooManyTokens) {
 		t.Fatalf("cap: %v", err)
 	}
 }
@@ -396,7 +398,7 @@ func TestRegenerateSecret_RevokesOAuthAndKeepsAPITokens(t *testing.T) {
 	ctx := context.Background()
 	secret := f.enable(t)
 	grant := f.exchange(t, secret, f.authorize(t))
-	apiToken, _, err := f.CreateAPIToken(ctx, "script")
+	apiToken, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "script"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +481,7 @@ func TestCreateAPIToken_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
 		creators.Add(1)
 		go func() {
 			defer creators.Done()
-			_, _, err := f.CreateAPIToken(context.Background(), "n")
+			_, _, err := f.CreateAPIToken(context.Background(), mcp.APITokenRequest{Name: "n"})
 			results <- err
 		}()
 	}
@@ -499,4 +501,131 @@ func TestCreateAPIToken_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
 	if accepted != mcp.MaxAPITokens || tooMany != 16 {
 		t.Fatalf("accepted %d, refused %d", accepted, tooMany)
 	}
+}
+
+func days(n int) *int {
+	return &n
+}
+
+// La portée et l'échéance se choisissent dans une liste fermée ; elles se
+// relisent telles quelles, et Verify les rend à qui juge l'écriture.
+func TestCreateAPIToken_ScopeAndLifetimeAreChosenFromClosedLists(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enable(t)
+	for _, refused := range []mcp.APITokenRequest{
+		{Name: "x", Scope: "admin"},
+		{Name: "x", Days: days(7)},
+		{Name: "x", Days: days(-1)},
+	} {
+		if _, _, err := f.CreateAPIToken(ctx, refused); !errors.Is(err, mcp.ErrScopeInvalid) && !errors.Is(err, mcp.ErrLifetimeInvalid) {
+			t.Fatalf("%+v: %v", refused, err)
+		}
+	}
+	cases := []struct {
+		request mcp.APITokenRequest
+		scope   mcp.Scope
+		expires time.Time
+	}{
+		{mcp.APITokenRequest{Name: "lecteur", Scope: mcp.ScopeRead, Days: days(30)}, mcp.ScopeRead, testNow.AddDate(0, 0, 30)},
+		{mcp.APITokenRequest{Name: "écrivain", Scope: mcp.ScopeWrite, Days: days(365)}, mcp.ScopeWrite, testNow.AddDate(0, 0, 365)},
+		{mcp.APITokenRequest{Name: "éternel", Scope: mcp.ScopeWrite, Days: days(0)}, mcp.ScopeWrite, time.Time{}},
+	}
+	for _, c := range cases {
+		cleartext, _, err := f.CreateAPIToken(ctx, c.request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verified, err := f.Verify(ctx, cleartext)
+		if err != nil || verified.Scope != c.scope || !verified.ExpiresAt.Equal(c.expires) || verified.CanWrite() != (c.scope == mcp.ScopeWrite) {
+			t.Fatalf("%s: %+v %v", c.request.Name, verified, err)
+		}
+	}
+}
+
+// Un jeton d'API échu est refusé, sort de la liste, puis la purge l'efface.
+func TestAPIToken_ExpiredIsRefusedHiddenAndPurged(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enable(t)
+	short, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "court", Days: days(30)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forever, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "éternel", Days: days(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.clock = testNow.AddDate(0, 0, 30)
+	if _, err := f.Verify(ctx, short); !errors.Is(err, mcp.ErrTokenInvalid) {
+		t.Fatalf("expired token: %v", err)
+	}
+	if listed, _ := f.APITokens(ctx); len(listed) != 1 || listed[0].Name != "éternel" {
+		t.Fatalf("listed %+v", listed)
+	}
+	if err := f.Purge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if listed, _ := f.db.ListMCPTokens(ctx, mcp.KindAPI); len(listed) != 1 {
+		t.Fatalf("after purge %+v", listed)
+	}
+	f.clock = testNow.AddDate(10, 0, 0)
+	if _, err := f.Verify(ctx, forever); err != nil {
+		t.Fatalf("token without expiry: %v", err)
+	}
+}
+
+// Un jeton OAuth a toujours la portée write : l'opérateur l'a obtenu
+// derrière /oauth/authorize.
+func TestExchange_OAuthTokensCanWrite(t *testing.T) {
+	f := newFixture(t)
+	grant := f.exchange(t, f.enable(t), f.authorize(t))
+	verified, err := f.Verify(context.Background(), grant.AccessToken)
+	if err != nil || !verified.CanWrite() {
+		t.Fatalf("%+v %v", verified, err)
+	}
+}
+
+// RevokeAll coupe les jetons d'API et les familles OAuth vivants, les
+// compte, et garde le client : on peut s'autoriser de nouveau.
+func TestRevokeAll_CutsEveryLiveTokenAndKeepsTheClient(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	secret := f.enable(t)
+	grant := f.exchange(t, secret, f.authorize(t))
+	reader, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "lecteur"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, _, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "écrivain", Scope: mcp.ScopeWrite, Days: days(0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Un jeton déjà révoqué ne compte pas une seconde fois.
+	_, gone, err := f.CreateAPIToken(ctx, mcp.APITokenRequest{Name: "parti"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.RevokeToken(ctx, gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := f.RevokeAll(ctx)
+	if err != nil || revoked != (mcp.Revoked{APITokens: 2, Sessions: 1}) {
+		t.Fatalf("revoked %+v %v", revoked, err)
+	}
+	for _, bearer := range []string{grant.AccessToken, reader, writer} {
+		if _, err := f.Verify(ctx, bearer); !errors.Is(err, mcp.ErrTokenInvalid) {
+			t.Fatalf("token survived: %v", err)
+		}
+	}
+	if _, err := f.Refresh(ctx, mcp.RefreshRequest{ClientID: mcp.ClientID, ClientSecret: secret, RefreshToken: grant.RefreshToken}); err == nil {
+		t.Fatal("the refresh token survived")
+	}
+	if sessions, _ := f.Sessions(ctx); len(sessions) != 0 {
+		t.Fatalf("sessions %+v", sessions)
+	}
+	if again, err := f.RevokeAll(ctx); err != nil || again != (mcp.Revoked{}) {
+		t.Fatalf("twice %+v %v", again, err)
+	}
+	f.exchange(t, secret, f.authorize(t))
 }

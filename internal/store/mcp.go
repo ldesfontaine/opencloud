@@ -112,13 +112,13 @@ func (db *DB) ConsumeMCPCode(ctx context.Context, hash string, now time.Time) (m
 
 // --- Jetons ---
 
-const mcpTokenColumns = `id, token_hash, token_prefix, kind, name, family_id, created_at, expires_at, last_used_at, revoked_at` // #nosec G101 -- des noms de colonnes.
+const mcpTokenColumns = `id, token_hash, token_prefix, kind, scope, name, family_id, created_at, expires_at, last_used_at, revoked_at` // #nosec G101 -- des noms de colonnes.
 
 func (db *DB) InsertMCPToken(ctx context.Context, token mcp.Token) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO mcp_tokens (id, token_hash, token_prefix, kind, name, family_id, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		token.ID, token.Hash, token.Prefix, string(token.Kind), token.Name, token.FamilyID, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt))
+		INSERT INTO mcp_tokens (id, token_hash, token_prefix, kind, scope, name, family_id, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		token.ID, token.Hash, token.Prefix, string(token.Kind), string(token.Scope), token.Name, token.FamilyID, token.CreatedAt.Unix(), nullableTime(token.ExpiresAt))
 	if err != nil {
 		return fmt.Errorf("insert mcp token: %w", err)
 	}
@@ -206,6 +206,34 @@ func (db *DB) RevokeMCPOAuthTokens(ctx context.Context, at time.Time) error {
 	return nil
 }
 
+// RevokeAllMCPTokens révoque, en une transaction, tout jeton vivant : non
+// révoqué et non échu. Rend combien de jetons d'API et combien de familles
+// OAuth tombent ; un jeton déjà échu ne compte pas, il ne servait plus.
+func (db *DB) RevokeAllMCPTokens(ctx context.Context, at time.Time) (mcp.Revoked, error) {
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return mcp.Revoked{}, fmt.Errorf("begin revoke mcp tokens: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	const alive = `revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
+	var revoked mcp.Revoked
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mcp_tokens WHERE kind = ? AND `+alive, string(mcp.KindAPI), at.Unix()).Scan(&revoked.APITokens)
+	if err != nil {
+		return mcp.Revoked{}, fmt.Errorf("count mcp api tokens: %w", err)
+	}
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(DISTINCT family_id) FROM mcp_tokens WHERE family_id != '' AND `+alive, at.Unix()).Scan(&revoked.Sessions)
+	if err != nil {
+		return mcp.Revoked{}, fmt.Errorf("count mcp sessions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE mcp_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, at.Unix()); err != nil {
+		return mcp.Revoked{}, fmt.Errorf("revoke mcp tokens: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return mcp.Revoked{}, fmt.Errorf("commit revoke mcp tokens: %w", err)
+	}
+	return revoked, nil
+}
+
 func (db *DB) DeleteAllMCPTokens(ctx context.Context) error {
 	if _, err := db.sql.ExecContext(ctx, `DELETE FROM mcp_tokens`); err != nil {
 		return fmt.Errorf("delete mcp tokens: %w", err)
@@ -281,14 +309,15 @@ func (db *DB) PurgeMCPExpired(ctx context.Context, before time.Time) error {
 
 func scanMCPToken(row scanner) (mcp.Token, error) {
 	var token mcp.Token
-	var kind string
+	var kind, scope string
 	var createdAt int64
 	var expiresAt, lastUsedAt, revokedAt sql.NullInt64
-	err := row.Scan(&token.ID, &token.Hash, &token.Prefix, &kind, &token.Name, &token.FamilyID, &createdAt, &expiresAt, &lastUsedAt, &revokedAt)
+	err := row.Scan(&token.ID, &token.Hash, &token.Prefix, &kind, &scope, &token.Name, &token.FamilyID, &createdAt, &expiresAt, &lastUsedAt, &revokedAt)
 	if err != nil {
 		return mcp.Token{}, err
 	}
 	token.Kind = mcp.Kind(kind)
+	token.Scope = mcp.Scope(scope)
 	token.CreatedAt = time.Unix(createdAt, 0)
 	token.ExpiresAt = timeOf(expiresAt)
 	token.LastUsedAt = timeOf(lastUsedAt)

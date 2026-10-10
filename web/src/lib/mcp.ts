@@ -1,3 +1,4 @@
+import type { MCPScope } from "../api/types";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -20,4 +21,17 @@ export function lifetimesOf(t: Translate, accessSeconds: number, refreshSeconds:
 // local que le serveur fabrique.
 export function claudeCodeCommand(stdioCommand: string): string {
   return `claude mcp add opencloud -- ${stdioCommand}`;
+}
+
+// Les portées, lecture seule d'abord : c'est le choix par défaut.
+export const mcpScopes: MCPScope[] = ["read", "write"];
+
+// Une échéance offerte, en jours : « 90 jours », ou « Sans échéance » pour 0.
+export function lifetimeLabel(t: Translate, days: number): string {
+  return days === 0 ? t("mcp.lifetime_never") : t("mcp.lifetime_days", days);
+}
+
+// L'échéance d'un jeton dans la liste : sa date, ou « jamais ».
+export function expiryLabel(t: Translate, expiresAt: string | null, formatDate: (iso: string) => string): string {
+  return expiresAt === null ? t("mcp.expires_never") : formatDate(expiresAt);
 }
