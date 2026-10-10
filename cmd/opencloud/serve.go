@@ -92,6 +92,7 @@ func runServe(args []string) error {
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetListener(bus)
 	info := hostinfo.Collect()
+	machines.SetLocalFingerprint(info.HostFingerprint)
 	if err := machines.EnsureLocal(ctx, machine.LocalInfo{
 		Hostname: info.Hostname,
 		Address:  info.Address,

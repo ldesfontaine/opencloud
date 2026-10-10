@@ -73,6 +73,9 @@ type Service struct {
 	listener Listener
 	alerter  Alerter
 	logger   *slog.Logger
+	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
+	// présente la même tourne sur elle. Vide, pas de contrôle.
+	localFingerprint string
 	// now est remplaçable dans les tests : « vu il y a » se compare à lui.
 	now func() time.Time
 }
@@ -86,6 +89,29 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 		logger:   logger,
 		now:      time.Now,
 	}
+}
+
+// SetLocalFingerprint retient l'empreinte de la machine openCloud, lue au
+// démarrage de serve.
+func (s *Service) SetLocalFingerprint(fingerprint string) {
+	s.localFingerprint = fingerprint
+}
+
+// isOpenCloudHost dit si une empreinte d'agent est celle de la machine
+// openCloud : elle se supervise déjà, un agent doublerait services et
+// alertes.
+func (s *Service) isOpenCloudHost(fingerprint string) bool {
+	return s.localFingerprint != "" && fingerprint == s.localFingerprint
+}
+
+// WarnIfOpenCloudHost journalise un agent enrôlé avant le refus et qui
+// tourne sur la machine openCloud : rien ne casse, mais tout est en double.
+func (s *Service) WarnIfOpenCloudHost(machine Machine, fingerprint string) {
+	if !s.isOpenCloudHost(fingerprint) {
+		return
+	}
+	s.logger.Warn("agent runs on the openCloud machine itself: services and alerts are doubled; remove this machine and uninstall its agent",
+		"machine_id", machine.ID, "name", machine.Name)
 }
 
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
@@ -294,6 +320,11 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	}
 	if len(request.PublicKey) != ed25519.PublicKeySize {
 		return Machine{}, ErrBadKey
+	}
+	// Avant la base : le jeton n'est pas consommé, il servira ailleurs.
+	if s.isOpenCloudHost(request.HostFingerprint) {
+		s.logger.Warn("enrollment refused: the agent runs on the openCloud machine itself", "hostname", request.Hostname)
+		return Machine{}, ErrIsOpenCloud
 	}
 	now := s.now()
 	candidate := Machine{

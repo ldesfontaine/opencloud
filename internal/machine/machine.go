@@ -67,6 +67,9 @@ type Enrollment struct {
 	OS           string
 	Arch         string
 	AgentVersion string
+	// Empreinte de l'identifiant de machine de l'agent ; vide, pas de
+	// contrôle.
+	HostFingerprint string
 }
 
 var (
@@ -84,6 +87,7 @@ var (
 	ErrBadSignature  = errors.New("invalid signature")
 	ErrNotConnected  = errors.New("machine not connected")
 	ErrBusy          = errors.New("machine command queue full")
+	ErrIsOpenCloud   = errors.New("the agent runs on the openCloud machine itself")
 )
 
 // Un nom de machine se lit comme une étiquette DNS : il servira dans des

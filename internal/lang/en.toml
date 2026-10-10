@@ -351,6 +351,7 @@ token_not_found = "Token refused: openCloud does not know it. Create a new one f
 token_consumed = "Token refused: it has already been used. A token enrolls one machine, create a new one."
 token_expired = "Token refused: it has expired. Create a new one from the Machines page."
 name_taken = "Enrollment refused: a machine already has this name. Remove it or pick another name."
+machine_is_opencloud = "Enrollment refused: this machine is already watched by openCloud itself, no agent needed here. The token stays valid for another machine."
 identity_refused = "openCloud no longer recognises this machine: it was removed or re-enrolled elsewhere. Create a new token and run the install again."
 plain_refused = "Address refused: openCloud is on http:// and not on this machine, the token would travel in clear. Use https://, or -allow-plain if the network is already encrypted (WireGuard)."
 pin_mismatch = "Certificate refused: it is not the one whose fingerprint was pinned. The openCloud certificate changed, or someone is impersonating it. Check the fingerprint before replacing it."

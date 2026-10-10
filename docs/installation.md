@@ -339,6 +339,10 @@ minuscules, chiffres et tirets. openCloud affiche une seule fois la commande
 sudo opencloud agent -server https://opencloud.example.org -token oc_…
 ```
 
+Pas d'agent sur la machine openCloud elle-même : elle se supervise déjà.
+Lancé là, l'agent est refusé (« cette machine est déjà supervisée par
+openCloud lui-même ») et le jeton reste valable pour une autre machine.
+
 Le jeton sert **une fois** et expire en **24 h**. L'adresse vient de
 `public_url` : vérifiez-la avant de coller. `-lang en` s'ajoute si
 l'interface est en anglais.

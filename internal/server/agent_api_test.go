@@ -37,6 +37,28 @@ func postJSON(server *Server, path string, payload any) *httptest.ResponseRecord
 	return recorder
 }
 
+// Un agent sur la machine openCloud présente la même empreinte qu'elle :
+// refusé, et le jeton sert encore à une autre machine.
+func TestAgentEnroll_OnTheOpenCloudMachine_IsRefusedAndKeepsTheToken(t *testing.T) {
+	server := newTestServer(t)
+	server.machines.SetLocalFingerprint("f00d")
+	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _, _ := ed25519.GenerateKey(nil)
+	request := machine.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "opencloud", HostFingerprint: "f00d"}
+
+	refused := postJSON(server.Server, "/agent/enroll", request)
+	if refused.Code != http.StatusConflict || !strings.Contains(refused.Body.String(), "machine_is_opencloud") {
+		t.Fatalf("status %d: %s", refused.Code, refused.Body.String())
+	}
+	request.HostFingerprint = "beef"
+	if accepted := postJSON(server.Server, "/agent/enroll", request); accepted.Code != http.StatusCreated {
+		t.Fatalf("the token stays valid: %d %s", accepted.Code, accepted.Body.String())
+	}
+}
+
 func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 	server := newTestServer(t)
 	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1")
