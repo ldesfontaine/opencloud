@@ -48,6 +48,12 @@ describe("describeAlert", () => {
     const once = describeAlert(t, alert({ kind: "service_restart", details: { count: 1, exit_code: 2 } }), now, disks);
     expect(once.fact).toBe("alert.fact_service_restart");
   });
+  it("dit qu'une tâche n'a jamais pingé depuis sa création", () => {
+    const never = describeAlert(t, alert({ kind: "job_late", details: { reason: "never_pinged", since: "2026-09-22T09:57:00Z" } }), now, disks);
+    expect(never.fact).toBe("alert.fact_job_late_never");
+    expect(never.action).toBe("alert.action_job_late_never");
+    expect(never.cause).toContain("alert.cause_job_late_never /data");
+  });
   it("met un tiret à la place d'une machine absente", () => {
     const text = describeAlert(t, alert({ kind: "service_down", machine_name: "", details: { exit_code: 1 } }), now, disks);
     expect(text.cause).toBe("alert.cause_service_down /data alert.no_machine 1");

@@ -18,10 +18,10 @@ const heartbeatFrom = ` FROM heartbeats h LEFT JOIN machines m ON m.id = h.machi
 
 func (db *DB) InsertHeartbeat(ctx context.Context, h heartbeat.Heartbeat) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO heartbeats (id, token, name, machine_id, status, interval_seconds, grace_seconds, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO heartbeats (id, token, name, machine_id, status, interval_seconds, grace_seconds, next_deadline_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, h.Token, h.Name, nullableString(h.MachineID), string(h.Status),
-		int64(h.Interval.Seconds()), int64(h.Grace.Seconds()), h.CreatedAt.Unix())
+		int64(h.Interval.Seconds()), int64(h.Grace.Seconds()), nullableTime(h.NextDeadlineAt), h.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert heartbeat: %w", err)
 	}

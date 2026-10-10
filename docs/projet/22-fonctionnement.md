@@ -155,8 +155,17 @@ le client qui les garde.
 
 1. L'opérateur crée une tâche : un nom, un intervalle, une grâce, une
    machine facultative. openCloud tire un identifiant pour la page et un
-   jeton `hb_…` pour l'URL de ping. Son état est « Nouveau » : rien n'est
-   attendu tant qu'aucun ping n'est arrivé.
+   jeton `hb_…` pour l'URL de ping. Son état est « Nouveau », avec déjà une
+   première échéance : création + intervalle + grâce. Passé ce délai sans
+   aucun ping, elle passe « En retard » et l'alerte « Tâche en retard »
+   s'ouvre, avec sa propre phrase : « n'a jamais signalé de passage depuis sa
+   création il y a … : vérifiez que la commande de ping est bien branchée ».
+   Une sauvegarde mal branchée ne reste donc pas « Nouveau » pour toujours.
+   Les tâches créées avant ce correctif reçoivent la même échéance au
+   démarrage de la boucle des tâches (un rattrapage dans le composant, pas
+   une migration : la règle reste en Go, à un seul endroit, et se rejoue
+   sans effet) ; déjà dépassée, elles passent en retard au premier
+   contrôle.
 2. La tâche appelle l'URL, en GET ou en POST, sans authentification :
    `/ping/{jeton}` quand elle a fini, `/ping/{jeton}/start` quand elle
    démarre, `/ping/{jeton}/{code}` quand elle finit avec ce code de sortie.
@@ -166,7 +175,9 @@ le client qui les garde.
    l'échéance. Un code de sortie autre que 0 met la tâche « En échec ».
 4. Toutes les 15 s, une boucle passe « En retard » les tâches dont
    l'échéance est dépassée. Le prochain ping les remet « À l'heure ».
-5. En pause, une tâche n'a plus d'échéance ; un ping le reprend. Supprimé,
+5. En pause, une tâche n'a plus d'échéance ; un ping le reprend. La reprise
+   rouvre une échéance complète ; une tâche qui n'a jamais pingé redevient
+   « Nouveau » avec cette échéance. Supprimé,
    son URL répond 404 et son historique disparaît avec lui.
 
 Le ping est écrit en une seule transaction : ping brut, exécution, état de la
@@ -812,7 +823,7 @@ composant qui sait, lui qui parle.
 | Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue, ou arrêt | attention |
 | Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage | attention |
 | Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée | idem | danger |
-| Tâche en retard | `heartbeat` | échéance dépassée | prochain ping à l'heure ou en échec ; pause ; suppression | attention |
+| Tâche en retard | `heartbeat` | échéance dépassée, la première comprise pour une tâche qui n'a jamais pingé (motif `never_pinged`, avec sa date de création) | prochain ping à l'heure ou en échec ; pause ; suppression | attention |
 | Tâche en échec | `heartbeat` | code de sortie hors 0 | prochain ping à l'heure ; pause ; suppression | danger |
 | Sonde hors ligne | `probe` | état passé à `down`, donc au seuil | état `up` ou `degraded` ; pause ; suppression | danger |
 | Certificat qui expire | `probe`, à chaque essai et toutes les 5 min | échéance à moins de **30 j** ; aggravée à **7 j** | renouvelé ; pause ; suppression | attention → danger |

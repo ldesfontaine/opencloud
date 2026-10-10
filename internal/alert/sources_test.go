@@ -428,6 +428,30 @@ func TestHeartbeat_LateThenFailedThenRecovered(t *testing.T) {
 	}
 }
 
+func TestHeartbeat_NeverPinged_OpensTheLateAlertWithItsAge(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	heartbeats := heartbeat.New(f.db, discardLogger())
+	heartbeats.SetClock(func() time.Time { return f.clock })
+	heartbeats.SetListener(f.Engine)
+	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := f.clock
+	f.advance(2 * time.Minute)
+	if err := heartbeats.CheckDeadlines(ctx); err != nil || f.kinds(t) != "job_late:attention" {
+		t.Fatalf("kinds %q, %v", f.kinds(t), err)
+	}
+	details := f.only(t, alert.StatusOpen).Details
+	if details.Reason != alert.ReasonNeverPinged || !details.Since.Equal(created) {
+		t.Fatalf("details %+v", details)
+	}
+	if _, err := heartbeats.Receive(ctx, job.Token, heartbeat.Ping{Kind: heartbeat.KindFinish}); err != nil || f.kinds(t) != "" {
+		t.Fatalf("the first ping resolves it: %q, %v", f.kinds(t), err)
+	}
+}
+
 // --- Ressources ---
 
 func TestResource_DiskAlertsWithHysteresis_AndForgetsAVanishedVolume(t *testing.T) {

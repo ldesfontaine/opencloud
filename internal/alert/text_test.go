@@ -25,6 +25,13 @@ func TestDescribe_EveryKindInEveryLanguage(t *testing.T) {
 					found.Details.Reason = alert.ReasonChain
 				}
 				text := alert.Describe(catalogs.For(code), found, testNow)
+				if kind == alert.KindJobLate {
+					found.Details.Reason = alert.ReasonNeverPinged
+					never := alert.Describe(catalogs.For(code), found, testNow)
+					if never.Cause == text.Cause || !strings.Contains(never.Cause, "3 min") {
+						t.Errorf("%s never pinged: %q", code, never.Cause)
+					}
+				}
 				for _, line := range []string{text.Fact, text.Cause, text.Action} {
 					if line == "" || strings.Contains(line, "[") || strings.Contains(line, "%d") || strings.Contains(line, "%s") || strings.Contains(line, "%!") {
 						t.Errorf("%s %s %s: %q", code, kind, severity, line)
