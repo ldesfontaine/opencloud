@@ -407,6 +407,17 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) (string, erro
 	return session.MachineID, nil
 }
 
+// SessionMachine rend la machine d'une session ouverte, sans rien écrire
+// ni publier : un lot de journaux n'est pas un signe de vie, le signal des
+// 30 s s'en charge.
+func (s *Service) SessionMachine(sessionToken string) (string, error) {
+	session, ok := s.sessions.Lookup(sessionToken)
+	if !ok {
+		return "", ErrNotConnected
+	}
+	return session.MachineID, nil
+}
+
 // Command pousse une commande à l'agent d'une machine par son flux ouvert.
 func (s *Service) Command(machineID, name string, payload any) error {
 	return s.sessions.Command(machineID, Command{Name: name, Payload: payload})

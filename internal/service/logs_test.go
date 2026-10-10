@@ -71,20 +71,20 @@ func TestRelay_RemoteCommandsTheAgentAndRelaysItsBatches(t *testing.T) {
 	if commander.commands[0] != "vps:logs" {
 		t.Fatalf("commands = %v", commander.commands)
 	}
-	if !relay.Deliver(context.Background(), "req-1", LogBatch{Lines: []LogLine{{Text: "a"}}}) {
+	if !relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Lines: []LogLine{{Text: "a"}}}) {
 		t.Fatal("delivery refused")
 	}
 	if batch := <-batches; batch.Lines[0].Text != "a" {
 		t.Fatalf("batch = %+v", batch)
 	}
-	relay.Deliver(context.Background(), "req-1", LogBatch{Done: true})
+	relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Done: true})
 	if batch := <-batches; !batch.Done {
 		t.Fatalf("batch = %+v", batch)
 	}
 	if _, open := <-batches; open {
 		t.Fatal("channel should close after Done")
 	}
-	if relay.Deliver(context.Background(), "req-1", LogBatch{}) {
+	if relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}) {
 		t.Fatal("a finished request accepts nothing")
 	}
 }
@@ -138,5 +138,53 @@ func TestRelay_WithoutCommander_SaysLogsAreUnavailableHere(t *testing.T) {
 	relay := NewRelay()
 	if _, err := relay.Open(context.Background(), "vps", LogRequest{}); !errors.Is(err, ErrLogsUnavailableLocally) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRelay_BatchForAnotherMachine_IsRefused(t *testing.T) {
+	relay := NewRelay()
+	relay.setIDs(func() string { return "req-1" })
+	relay.SetCommander(&fakeCommander{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if _, err := relay.Open(ctx, "vps", LogRequest{Follow: true}); err != nil {
+		t.Fatal(err)
+	}
+	if relay.Deliver(context.Background(), "other", "req-1", LogBatch{Lines: []LogLine{{Text: "intrus"}}}) {
+		t.Fatal("another machine delivered into this request")
+	}
+	if !relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}) {
+		t.Fatal("the machine that was asked is refused")
+	}
+}
+
+// Des livraisons en rafale pendant que le lecteur s'en va : aucune ne doit
+// envoyer sur le canal fermé. Sous -race, ou par la panique sans.
+func TestRelay_DeliveriesWhileTheReaderLeaves_NeverSendOnAClosedChannel(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		relay := NewRelay()
+		relay.SetCommander(&fakeCommander{})
+		var requestID string
+		relay.setIDs(func() string { requestID = newRequestID(); return requestID })
+		ctx, cancel := context.WithCancel(context.Background())
+		batches, err := relay.Open(ctx, "vps", LogRequest{Follow: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var senders sync.WaitGroup
+		for sender := 0; sender < 8; sender++ {
+			senders.Add(1)
+			go func() {
+				defer senders.Done()
+				for range batchBacklog * 2 {
+					relay.Deliver(context.Background(), "vps", requestID, LogBatch{Lines: []LogLine{{Text: "x"}}})
+				}
+			}()
+		}
+		<-batches
+		cancel()
+		for range batches {
+		}
+		senders.Wait()
 	}
 }

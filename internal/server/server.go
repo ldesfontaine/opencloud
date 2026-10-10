@@ -53,6 +53,7 @@ type MachineService interface {
 	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
+	SessionMachine(sessionToken string) (machineID string, err error)
 	Command(machineID, name string, payload any) error
 }
 
@@ -69,7 +70,7 @@ type ServiceTracker interface {
 	Count(ctx context.Context) (total, attention int, err error)
 	FollowLogs(ctx context.Context, serviceID string, tail int) (<-chan service.LogBatch, error)
 	FetchLogs(ctx context.Context, serviceID string, tail int) ([]service.LogLine, error)
-	DeliverLogs(ctx context.Context, requestID string, batch service.LogBatch) bool
+	DeliverLogs(ctx context.Context, machineID, requestID string, batch service.LogBatch) bool
 }
 
 // Ce que le serveur attend du composant resource : l'API lit, le signal de
@@ -348,11 +349,17 @@ func (s *Server) saveLanguage(code lang.Code) error {
 }
 
 // Command fait du serveur le commandeur des agents : c'est lui qui tient
-// leurs flux. Une machine sans flux est hors ligne pour le relais.
+// leurs flux. Une machine sans flux est hors ligne pour le relais ; une
+// file pleine est un refus, pas une panne.
 func (s *Server) Command(machineID, name string, payload any) error {
 	err := s.machines.Command(machineID, name, payload)
 	if errors.Is(err, machine.ErrNotConnected) {
 		return service.ErrMachineOffline
+	}
+	if errors.Is(err, machine.ErrBusy) {
+		// Les sondes lisent leur propre sentinelle : elles n'importent pas
+		// machine, qui les importe.
+		return fmt.Errorf("command %s: %w: %w", name, machine.ErrBusy, probe.ErrCommandBusy)
 	}
 	return err
 }

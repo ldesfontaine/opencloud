@@ -38,11 +38,18 @@ type Relay struct {
 }
 
 type follow struct {
-	machineID    string
-	batches      chan LogBatch
-	done         chan struct{}
-	closeDone    sync.Once
-	closeBatches sync.Once
+	machineID string
+	batches   chan LogBatch
+	done      chan struct{}
+	closeDone sync.Once
+	// Un envoi sur batches se fait sous verrou partagé, la fermeture sous
+	// verrou exclusif : jamais d'envoi sur un canal fermé.
+	sending  sync.RWMutex
+	isClosed bool
+}
+
+func (f *follow) markDone() {
+	f.closeDone.Do(func() { close(f.done) })
 }
 
 func NewRelay() *Relay {
@@ -107,7 +114,13 @@ func (r *Relay) stopWhenDone(ctx context.Context, requestID, machineID string, p
 	case <-pending.done:
 	}
 	r.forget(requestID)
-	pending.closeBatches.Do(func() { close(pending.batches) })
+	// done d'abord : un Deliver bloqué sur un lecteur parti lâche son
+	// verrou partagé, sans quoi la fermeture l'attendrait.
+	pending.markDone()
+	pending.sending.Lock()
+	pending.isClosed = true
+	close(pending.batches)
+	pending.sending.Unlock()
 }
 
 func (r *Relay) forget(requestID string) {
@@ -122,26 +135,39 @@ func (r *Relay) forget(requestID string) {
 }
 
 // Deliver fait suivre un lot livré par l'agent ; faux si personne ne
-// l'attend plus. Un lecteur qui ne lit pas fait attendre l'agent, jusqu'au
-// contexte de son POST.
-func (r *Relay) Deliver(ctx context.Context, requestID string, batch LogBatch) bool {
+// l'attend plus, ou si la requête n'a pas été poussée à cette machine. Un
+// lecteur qui ne lit pas fait attendre l'agent, jusqu'au contexte de son
+// POST.
+func (r *Relay) Deliver(ctx context.Context, machineID, requestID string, batch LogBatch) bool {
 	r.mu.Lock()
 	pending, ok := r.pending[requestID]
 	r.mu.Unlock()
-	if !ok {
+	if !ok || pending.machineID != machineID {
 		return false
 	}
-	select {
-	case pending.batches <- batch:
-	case <-ctx.Done():
-		return false
-	case <-pending.done:
+	if !pending.send(ctx, batch) {
 		return false
 	}
 	if batch.Done || batch.Error != "" {
-		pending.closeDone.Do(func() { close(pending.done) })
+		pending.markDone()
 	}
 	return true
+}
+
+func (f *follow) send(ctx context.Context, batch LogBatch) bool {
+	f.sending.RLock()
+	defer f.sending.RUnlock()
+	if f.isClosed {
+		return false
+	}
+	select {
+	case f.batches <- batch:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-f.done:
+		return false
+	}
 }
 
 func newRequestID() string {
@@ -205,9 +231,10 @@ func (t *Tracker) FetchLogs(ctx context.Context, serviceID string, tail int) ([]
 	}
 }
 
-// DeliverLogs reçoit un lot de l'agent ; faux si la requête est inconnue.
-func (t *Tracker) DeliverLogs(ctx context.Context, requestID string, batch LogBatch) bool {
-	return t.relay.Deliver(ctx, requestID, batch)
+// DeliverLogs reçoit un lot de l'agent ; faux si la requête est inconnue
+// ou appartient à une autre machine.
+func (t *Tracker) DeliverLogs(ctx context.Context, machineID, requestID string, batch LogBatch) bool {
+	return t.relay.Deliver(ctx, machineID, requestID, batch)
 }
 
 // LogsError est le refus d'un agent, avec son code.

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -16,10 +17,12 @@ import (
 const (
 	defaultTransitions = 50
 	maxTransitions     = 500
-	// Les suivis de journaux ouverts par des onglets, en tout : chaque
-	// suivi est une seconde connexion, hors du plafond du direct.
-	maxLogStreams = 16
-	codeLogsBusy  = "service.logs_busy"
+	// Les lectures de journaux en cours, en tout : suivis des onglets,
+	// tirages uniques et outil MCP. Chaque suivi est une seconde connexion,
+	// hors du plafond du direct.
+	maxLogStreams   = 16
+	codeLogsBusy    = "service.logs_busy"
+	codeMachineBusy = "service.machine_busy"
 )
 
 // Un service tel que le front le lit : des faits, jamais une pastille. Le
@@ -254,6 +257,11 @@ func (s *Server) getServiceLogs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.takeLogSlot() {
+		s.apiRefuse(w, http.StatusServiceUnavailable, codeLogsBusy)
+		return
+	}
+	defer s.releaseLogSlot()
 	lines, err := s.services.FetchLogs(r.Context(), item.ID, tailOf(r))
 	if err != nil {
 		s.writeLogsError(w, r, err)
@@ -274,12 +282,11 @@ func (s *Server) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.logStreams.Load() >= maxLogStreams {
-		s.writeAPIError(w, http.StatusServiceUnavailable, codeLogsBusy)
+	if !s.takeLogSlot() {
+		s.apiRefuse(w, http.StatusServiceUnavailable, codeLogsBusy)
 		return
 	}
-	s.logStreams.Add(1)
-	defer s.logStreams.Add(-1)
+	defer s.releaseLogSlot()
 	batches, err := s.services.FollowLogs(r.Context(), item.ID, tailOf(r))
 	if err != nil {
 		s.writeLogsError(w, r, err)
@@ -319,6 +326,25 @@ func (s *Server) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// takeLogSlot réserve une des seize lectures de journaux ; faux quand
+// elles sont toutes prises. La comparaison et l'incrément se font d'un
+// seul geste, sans quoi deux demandes passeraient sur la dernière place.
+func (s *Server) takeLogSlot() bool {
+	for {
+		taken := s.logStreams.Load()
+		if taken >= maxLogStreams {
+			return false
+		}
+		if s.logStreams.CompareAndSwap(taken, taken+1) {
+			return true
+		}
+	}
+}
+
+func (s *Server) releaseLogSlot() {
+	s.logStreams.Add(-1)
+}
+
 // writeJSONEvent pousse un événement SSE dont le contenu est du JSON sur
 // une ligne : une ligne de journal est du texte, jamais de balises.
 func writeJSONEvent(w http.ResponseWriter, name string, payload any) error {
@@ -350,6 +376,8 @@ func logsRefusal(err error) (string, int, bool) {
 		return "service.machine_offline", http.StatusServiceUnavailable, true
 	case errors.Is(err, service.ErrLogsUnavailableLocally):
 		return "service.logs_unavailable_locally", http.StatusServiceUnavailable, true
+	case errors.Is(err, machine.ErrBusy):
+		return codeMachineBusy, http.StatusServiceUnavailable, true
 	case errors.Is(err, service.ErrLogsBusy):
 		return codeLogsBusy, http.StatusTooManyRequests, true
 	case errors.Is(err, service.ErrLogsTimeout):

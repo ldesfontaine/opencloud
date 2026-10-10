@@ -2,6 +2,7 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -11,6 +12,8 @@ import (
 const (
 	rollupPeriod = 5 * time.Minute
 	purgePeriod  = 24 * time.Hour
+	// Un jeu refusé par une file pleine repart à ce rythme.
+	resendPeriod = 30 * time.Second
 )
 
 // Ce que le service attend de la base ; le paquet store le fournit.
@@ -47,7 +50,8 @@ type Store interface {
 
 // Commander pousse une commande à l'agent d'une machine par son flux ; il
 // refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
-// son jeu en revenant.
+// son jeu en revenant. Une file pleine rend ErrCommandBusy : le jeu est
+// renvoyé au cycle suivant.
 type Commander interface {
 	Command(machineID, name string, payload any) error
 }
@@ -82,10 +86,12 @@ type Service struct {
 	mu        sync.RWMutex
 	commander Commander
 	local     map[string]Assignable
+	// Les machines dont le dernier jeu n'est pas parti, file pleine.
+	unsent map[string]bool
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, now: time.Now, local: make(map[string]Assignable)}
+	return &Service{store: store, logger: logger, now: time.Now, local: make(map[string]Assignable), unsent: make(map[string]bool)}
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -324,8 +330,38 @@ func (s *Service) Assign(ctx context.Context, machineID string) {
 	if commander == nil {
 		return
 	}
-	if err := commander.Command(machineID, CommandProbes, assignment); err != nil {
+	err = commander.Command(machineID, CommandProbes, assignment)
+	if errors.Is(err, ErrCommandBusy) {
+		s.logger.Warn("assign probes later, command queue full", "machine_id", machineID, "probes", len(tasks))
+		s.setUnsent(machineID, true)
+		return
+	}
+	if err != nil {
 		s.logger.Debug("assign probes", "machine_id", machineID, "probes", len(tasks), "error", err)
+	}
+	s.setUnsent(machineID, false)
+}
+
+func (s *Service) setUnsent(machineID string, isUnsent bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if isUnsent {
+		s.unsent[machineID] = true
+		return
+	}
+	delete(s.unsent, machineID)
+}
+
+// ResendUnsent repousse le jeu des machines dont la file était pleine.
+func (s *Service) ResendUnsent(ctx context.Context) {
+	s.mu.RLock()
+	machineIDs := make([]string, 0, len(s.unsent))
+	for machineID := range s.unsent {
+		machineIDs = append(machineIDs, machineID)
+	}
+	s.mu.RUnlock()
+	for _, machineID := range machineIDs {
+		s.Assign(ctx, machineID)
 	}
 }
 
@@ -414,10 +450,14 @@ func (s *Service) Watch(ctx context.Context) {
 	defer rollup.Stop()
 	purge := time.NewTicker(purgePeriod)
 	defer purge.Stop()
+	resend := time.NewTicker(resendPeriod)
+	defer resend.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-resend.C:
+			s.ResendUnsent(ctx)
 		case <-rollup.C:
 			s.rollupAndPurge(ctx, false)
 		case <-purge.C:

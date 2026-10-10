@@ -334,6 +334,7 @@ var (
 	ErrTooMany          = errors.New("this machine already carries the maximum number of probes")
 	ErrNotPaused        = errors.New("probe is not paused")
 	ErrReportInvalid    = errors.New("probe report out of range")
+	ErrCommandBusy      = errors.New("machine command queue full")
 )
 
 // Complete pose ce que l'opérateur n'a pas dit : les valeurs par défaut,

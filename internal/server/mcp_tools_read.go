@@ -343,6 +343,10 @@ func (s *Server) getServiceLogsTool(ctx context.Context, _ *gomcp.CallToolReques
 	if err != nil {
 		return s.toolInternal("get_service_logs", err)
 	}
+	if !s.takeLogSlot() {
+		return toolRefuse(codeLogsBusy)
+	}
+	defer s.releaseLogSlot()
 	lines, err := s.services.FetchLogs(ctx, item.ID, input.Tail)
 	if err != nil {
 		if code, _, refused := logsRefusal(err); refused {
