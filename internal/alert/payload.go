@@ -12,13 +12,15 @@ import (
 
 // Body est ce qu'un canal reçoit : le corps, son type, le titre et le
 // lien que certains récepteurs lisent en en-tête. HTML est la variante
-// d'un e-mail, à côté du texte brut.
+// d'un e-mail, à côté du texte brut ; TransactionID nomme l'envoi chez
+// Matrix.
 type Body struct {
-	Content     []byte
-	ContentType string
-	Title       string
-	Link        string
-	HTML        string
+	Content       []byte
+	ContentType   string
+	Title         string
+	Link          string
+	HTML          string
+	TransactionID string
 }
 
 // alertPath est la fiche d'une alerte dans l'interface, sous public_url.
@@ -83,6 +85,8 @@ func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now t
 		return jsonBody(title, link, slackPayload(title, text, alert, event, link, openLabel))
 	case FormatEmail:
 		return emailBody(title, text, link, openLabel), nil
+	case FormatMatrix:
+		return matrixBody(title, text, link, openLabel)
 	}
 	return jsonBody(title, link, openCloudPayload(catalog, title, text, alert, event, now, link))
 }

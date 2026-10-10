@@ -456,6 +456,12 @@ func alertRefusalKey(err error) (string, bool) {
 		return "channel.secret_invalid", true
 	case errors.Is(err, alert.ErrChannelRecipients):
 		return "channel.recipients_invalid", true
+	case errors.Is(err, alert.ErrChannelHomeserver):
+		return "channel.matrix_homeserver_invalid", true
+	case errors.Is(err, alert.ErrChannelRoomInvalid):
+		return "channel.matrix_room_invalid", true
+	case errors.Is(err, alert.ErrChannelTokenMissing):
+		return "channel.matrix_token_missing", true
 	case errors.Is(err, alert.ErrChannelSeverityInvalid):
 		return "channel.severity_invalid", true
 	case errors.Is(err, alert.ErrTooManyChannels):

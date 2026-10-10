@@ -140,6 +140,11 @@ func (n *Notifier) process(ctx context.Context, job Job) {
 		n.finish(ctx, job.Delivery, Outcome{Reason: ReasonUnreachable})
 		return
 	}
+	if body.TransactionID, err = matrixTransactionID(job.Delivery); err != nil {
+		n.logger.Error("draw matrix transaction id", "delivery_id", job.Delivery.ID, "error", err)
+		n.finish(ctx, job.Delivery, Outcome{Reason: ReasonUnreachable})
+		return
+	}
 	var outcome Outcome
 	for attempt := 0; attempt < MaxAttempts; attempt++ {
 		if attempt > 0 && !n.wait(ctx, n.backoffs[min(attempt-1, len(n.backoffs)-1)]) {
@@ -206,15 +211,21 @@ func (n *Notifier) Test(ctx context.Context, channel Channel) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, err
 	}
+	if body.TransactionID, err = matrixTransactionID(Delivery{}); err != nil {
+		return Outcome{}, err
+	}
 	return n.Send(ctx, channel, EventTest, body), nil
 }
 
-// Send fait un envoi : un e-mail par le relais, ou un POST du corps, signé par le secret du canal quand
-// il y en a un. Un 2xx suffit ; tout autre code est un échec qui porte
-// son code.
+// Send fait un envoi : un e-mail par le relais, un PUT dans un salon
+// Matrix, ou un POST du corps, signé par le secret du canal quand il y en
+// a un. Un 2xx suffit ; tout autre code est un échec qui porte son code.
 func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body Body) Outcome {
-	if channel.Format == FormatEmail {
+	switch channel.Format {
+	case FormatEmail:
 		return n.sendMail(ctx, channel, body)
+	case FormatMatrix:
+		return n.sendMatrix(ctx, channel, body)
 	}
 	ctx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
@@ -242,13 +253,17 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 	}
 	defer func() { _ = response.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxErrorBytes))
+	return outcomeOf(response.StatusCode)
+}
+
+func outcomeOf(statusCode int) Outcome {
 	switch {
-	case response.StatusCode >= 200 && response.StatusCode < 300:
-		return Outcome{Code: response.StatusCode}
-	case response.StatusCode >= 300 && response.StatusCode < 400:
-		return Outcome{Reason: ReasonRedirect, Code: response.StatusCode}
+	case statusCode >= 200 && statusCode < 300:
+		return Outcome{Code: statusCode}
+	case statusCode >= 300 && statusCode < 400:
+		return Outcome{Reason: ReasonRedirect, Code: statusCode}
 	}
-	return Outcome{Reason: ReasonStatus, Code: response.StatusCode}
+	return Outcome{Reason: ReasonStatus, Code: statusCode}
 }
 
 func priorityOf(event Event) string {
