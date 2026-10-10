@@ -68,6 +68,10 @@ PUT /api/mcp/redirect-uris
 POST /api/mcp/tokens
 DELETE /api/mcp/tokens/{id}
 DELETE /api/mcp/sessions/{id}
+GET /api/auth
+POST /api/auth/actions/enable
+POST /api/auth/actions/disable
+PUT /api/auth/password
 * /api/
 POST /agent/enroll
 POST /agent/challenge

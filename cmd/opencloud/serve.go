@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
@@ -146,6 +149,12 @@ func runServe(args []string) error {
 	probes.SetAlerter(alerts)
 	// L'accès d'un agent IA : le client OAuth, ses jetons, leur purge.
 	access := mcp.New(db, logger)
+	// L'accès de l'opérateur à l'interface : relu à chaque requête.
+	operator, err := auth.New(db, logger)
+	if err != nil {
+		return err
+	}
+	warnIfOpen(ctx, logger, operator, cfg.Listen)
 	// Quatorze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
@@ -188,6 +197,7 @@ func runServe(args []string) error {
 		Alerts:         alerts,
 		Notifier:       notifier,
 		MCP:            access,
+		Auth:           operator,
 		Live:           bus,
 		PublicLive:     publicBus,
 		PublicURL:      cfg.PublicURL,
@@ -220,6 +230,40 @@ func languageOf(preferences *settings.Store) func() lang.Code {
 		}
 		return current.Language
 	}
+}
+
+// warnIfOpen dit au journal que l'interface n'est pas protégée, plus fort
+// quand elle écoute ailleurs que sur la boucle locale.
+func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service, listen string) {
+	state, err := operator.State(ctx)
+	if err != nil {
+		logger.Warn("read interface authentication", "error", err)
+		return
+	}
+	if state.Mode != auth.ModeNone {
+		logger.Info("interface authentication", "mode", string(state.Mode), "username", state.Username)
+		return
+	}
+	if isLoopbackListen(listen) {
+		logger.Warn("interface authentication disabled: anyone reaching the port is the operator; enable it under Settings", "listen", listen)
+		return
+	}
+	logger.Warn("INTERFACE OPEN TO THE NETWORK WITHOUT AUTHENTICATION: anyone reaching this address can enroll machines, read logs and enable MCP; enable it under Settings now",
+		"listen", listen)
+}
+
+// isLoopbackListen : « 127.0.0.1:8080 », « [::1]:8080 », « localhost:8080 ».
+// Une adresse vide (« :8080 ») écoute partout.
+func isLoopbackListen(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	address, err := netip.ParseAddr(host)
+	return err == nil && address.IsLoopback()
 }
 
 func runLoop(loops *sync.WaitGroup, loop func()) {

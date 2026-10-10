@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { api, errorKey } from "../api/client";
-import type { MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
+import type { AuthState, MCPSecretResponse, MCPSession, MCPState, MCPToken, MCPTokenResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
@@ -13,16 +13,18 @@ import { Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
+import { passwordFormError } from "../lib/auth";
 import { claudeCodeCommand, lifetimesOf, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
 import "./StatusAdmin.scss";
 
-// Paramètres : pour l'instant, l'accès d'un agent IA. Un secret ou un
+// Paramètres : l'accès à l'interface, puis celui d'un agent IA. Un secret ou un
 // jeton ne s'affiche qu'une fois, à sa création, dans l'état de la page ;
 // rechargée, elle ne le montre plus.
 export function Settings() {
   const t = useT();
   const state = useResource<MCPState>("/api/mcp");
+  const access = useResource<AuthState>("/api/auth");
   if (state.error) {
     return (
       <>
@@ -37,8 +39,120 @@ export function Settings() {
   return (
     <>
       <PageHead title={t("nav.settings")} subtitle={t("settings.subtitle")} />
+      {access.data !== null && <AccessSection state={access.data} />}
       <MCPSection state={state.data} reload={state.reload} />
     </>
+  );
+}
+
+// L'accès à l'interface. Activer ou changer le mot de passe rend caducs
+// les identifiants du navigateur : la page se recharge, et le navigateur
+// les demande dans sa propre fenêtre.
+function AccessSection({ state }: { state: AuthState }) {
+  const t = useT();
+  const now = useNow();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const enabled = state.mode !== "none";
+
+  const run = (action: Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    action
+      .then(() => window.location.reload())
+      .catch((failure: unknown) => {
+        setError(errorKey(failure));
+        setBusy(false);
+      });
+  };
+  const disable = () => {
+    if (window.confirm(t("auth.disable_confirm"))) {
+      run(api.post("/api/auth/actions/disable", {}));
+    }
+  };
+
+  return (
+    <Card className="form-card">
+      <CardHeader
+        title={t("auth.title")}
+        aside={<Pill tone={enabled ? "ok" : "warn"}>{t(enabled ? "auth.state_basic" : "auth.state_none")}</Pill>}
+      />
+      <CardBody>
+        <p>{t("auth.intro")}</p>
+        {!enabled && <Note tone="warn">{t("auth.open_text")}</Note>}
+        {enabled && (
+          <>
+            <KeyValue label={t("auth.username_label")} value={state.username} mono />
+            <div className="cluster">
+              <span className="secondary">{state.enabled_at !== null && t("auth.enabled_since", ago(t, state.enabled_at, now))}</span>
+              <Button variant="danger" icon="x" onClick={disable} disabled={busy}>
+                {t("auth.disable")}
+              </Button>
+            </div>
+          </>
+        )}
+        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+      </CardBody>
+      <CredentialsForm
+        withUsername={!enabled}
+        minLength={state.password_min_length}
+        busy={busy}
+        onSubmit={(username, password) =>
+          run(enabled ? api.put("/api/auth/password", { password }) : api.post("/api/auth/actions/enable", { username, password }))
+        }
+      />
+    </Card>
+  );
+}
+
+// Le formulaire d'activation (identifiant, mot de passe, confirmation) ou
+// de changement (mot de passe, confirmation).
+function CredentialsForm({
+  withUsername,
+  minLength,
+  busy,
+  onSubmit,
+}: {
+  withUsername: boolean;
+  minLength: number;
+  busy: boolean;
+  onSubmit: (username: string, password: string) => void;
+}) {
+  const t = useT();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const refusal = passwordFormError(password, confirmation, minLength);
+    setError(refusal);
+    if (refusal === null) {
+      onSubmit(username, password);
+    }
+  };
+  return (
+    <form className="card-b" onSubmit={submit}>
+      <p className="field-label">{t(withUsername ? "auth.enable_title" : "auth.change_title")}</p>
+      {withUsername && (
+        <Field label={t("auth.username_label")} htmlFor="auth-username" help={t("auth.username_help")}>
+          <Input id="auth-username" type="text" value={username} onChange={(event) => setUsername(event.target.value)} maxLength={64} autoComplete="username" required />
+        </Field>
+      )}
+      <Field label={t("auth.password_label")} htmlFor="auth-password" help={t("auth.password_help", minLength)}>
+        <Input id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required />
+      </Field>
+      <Field label={t("auth.confirm_label")} htmlFor="auth-confirm">
+        <Input id="auth-confirm" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required />
+      </Field>
+      <p className="secondary">{t("auth.browser_prompt")}</p>
+      {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+      <div className="cluster">
+        <Button type="submit" variant="primary" icon={withUsername ? "shield" : "check"} disabled={busy}>
+          {t(withUsername ? "auth.enable" : "auth.change")}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -57,16 +171,16 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
       reload();
     });
   };
-  const enable = () => run(api.post<MCPSecretResponse>("/api/mcp/actions/enable").then((response) => setSecret(response.secret)));
+  const enable = () => run(api.post<MCPSecretResponse>("/api/mcp/actions/enable", {}).then((response) => setSecret(response.secret)));
   const regenerate = () => {
     if (window.confirm(t("mcp.regenerate_confirm"))) {
-      run(api.post<MCPSecretResponse>("/api/mcp/actions/regenerate-secret").then((response) => setSecret(response.secret)));
+      run(api.post<MCPSecretResponse>("/api/mcp/actions/regenerate-secret", {}).then((response) => setSecret(response.secret)));
     }
   };
   const disable = () => {
     if (window.confirm(t("mcp.disable_confirm"))) {
       setSecret(null);
-      run(api.post("/api/mcp/actions/disable"));
+      run(api.post("/api/mcp/actions/disable", {}));
     }
   };
 

@@ -752,3 +752,14 @@ export interface MCPTokenResponse {
   token: string;
   item: MCPToken;
 }
+
+// L'accès de l'opérateur à l'interface : GET /api/auth. « forward » est
+// réservé au mode futur derrière un mandataire (Authelia).
+export type AuthMode = "none" | "basic" | "forward";
+
+export interface AuthState {
+  mode: AuthMode;
+  username: string;
+  enabled_at: string | null;
+  password_min_length: number;
+}

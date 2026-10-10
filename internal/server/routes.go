@@ -20,9 +20,10 @@ type route struct {
 // appelle ; sous /ping, ce qu'un cron appelle, sans authentification : le
 // jeton est le secret. Sous /statut, la page publique et ses trois routes,
 // sans authentification et limitées en débit. Sous /oauth et /mcp, et les
-// deux métadonnées well-known, ce qu'un agent IA appelle : le seul accès
-// authentifié, par Bearer, fermé tant que MCP n'est pas activé. Tout le
-// reste est le front, servi par spa.go.
+// deux métadonnées well-known, ce qu'un agent IA appelle, par Bearer,
+// fermé tant que MCP n'est pas activé. Tout le reste est le front, servi
+// par spa.go. Ce qui revient à l'opérateur passe par son authentification
+// quand elle est activée : voir auth.go.
 func (s *Server) routes() []route {
 	return []route{
 		{"GET", "/api/session", s.session},
@@ -95,6 +96,10 @@ func (s *Server) routes() []route {
 		{"POST", "/api/mcp/tokens", s.createMCPToken},
 		{"DELETE", "/api/mcp/tokens/{id}", s.revokeMCPToken},
 		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
+		{"GET", "/api/auth", s.getAuth},
+		{"POST", "/api/auth/actions/enable", s.enableAuth},
+		{"POST", "/api/auth/actions/disable", s.disableAuth},
+		{"PUT", "/api/auth/password", s.changeAuthPassword},
 		{anyMethod, "/api/", s.apiUnknown},
 		{"POST", "/agent/enroll", s.agentEnroll},
 		{"POST", "/agent/challenge", s.agentChallenge},
@@ -124,9 +129,10 @@ func (s *Server) routes() []route {
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
-// et les routes de l'agent et des pings n'en ont pas besoin. Ce qu'un
-// navigateur appelle avec l'état d'openCloud, /api et l'autorisation
-// OAuth, exige en plus un Host reconnu, jugé avant tout le reste.
+// et les routes de l'agent et des pings n'en ont pas besoin. L'accès de
+// l'opérateur enveloppe le tout, avant la garde. Ce qu'un navigateur appelle
+// avec l'état d'openCloud, /api et l'autorisation OAuth, exige en plus un
+// Host reconnu, jugé avant tout le reste, authentification comprise.
 func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, route := range s.routes() {
@@ -134,6 +140,9 @@ func (s *Server) mux() *http.ServeMux {
 		isAPI := strings.HasPrefix(route.pattern, "/api/")
 		if isAPI && route.method != http.MethodGet {
 			handler = s.requireSameOrigin(handler)
+		}
+		if isOperatorRoute(route.pattern) {
+			handler = s.requireOperator(handler)
 		}
 		if isAPI || route.pattern == mcpAuthorizePath {
 			handler = s.requireKnownHost(handler)

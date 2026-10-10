@@ -10,6 +10,8 @@ export class ApiError extends Error {
   }
 }
 
+// Toute écriture part en JSON avec un corps, {} quand elle n'a rien à
+// dire : le serveur peut ainsi exiger ce type sans exception.
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "same-origin" };
   // Toute écriture part en JSON, même sans rien à dire : le serveur refuse

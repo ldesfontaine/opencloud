@@ -25,10 +25,6 @@ label = "Language"
 fr = "Français"
 en = "English"
 
-[account]
-name = "Administrator"
-role = "Local account"
-
 [overview]
 online = "%d online"
 see_all = "See all"
@@ -1097,8 +1093,41 @@ targets_object = "%s"
 targets_both = "%s on %s"
 until = "until %s"
 
+# The operator's access to the interface: the Settings card, the sidebar,
+# the banner while it is open, and its API's refusals.
+[auth]
+username_invalid = "The username must be 1 to 64 characters, without \":\" or surrounding spaces."
+password_too_short = "The password must be at least 12 characters."
+password_too_long = "The password must not exceed 72 bytes."
+password_mismatch = "The two passwords do not match."
+already_enabled = "Request refused: authentication is already enabled."
+disabled = "Request refused: authentication is not enabled."
+side_protected = "Protected access"
+side_open = "Open access"
+side_open_hint = "no authentication"
+banner = "The interface is open: anyone reaching this port can enroll a machine, read logs and enable MCP."
+banner_link = "Protect access"
+title = "Interface access"
+intro = "A username and a password guard the interface and its API. The status page, pings, agents and MCP keep their own access."
+state_none = "Open"
+state_basic = "Protected"
+open_text = "Nobody is checked: whoever reaches this port is the operator. Enable authentication before exposing openCloud beyond this machine."
+username_label = "Username"
+username_help = "Up to 64 characters, without \":\"."
+password_label = "Password"
+password_help = "At least %d characters; a sentence is easier to remember than a word."
+confirm_label = "Confirmation"
+enable_title = "Enable authentication"
+change_title = "Change the password"
+enable = "Enable"
+change = "Change the password"
+browser_prompt = "Afterwards, the browser will ask for the username and password in its own window."
+enabled_since = "enabled %s"
+disable = "Disable"
+disable_confirm = "Disable authentication? The interface will be open to anyone reaching this port."
+
 [settings]
-subtitle = "openCloud's settings. For now: an AI agent's access."
+subtitle = "openCloud's settings: interface access and an AI agent's access."
 
 # An AI agent's access through MCP: the setting under Settings, and the
 # refusals of its API. Tool descriptions are English, read by a model.
