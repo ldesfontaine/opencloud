@@ -70,7 +70,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | Personne : le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
-| Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet, plafonnée à 16 |
+| Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | Personne : qui atteint le port lit les journaux de n'importe quel conteneur. C'est le même trou que l'interface, en plus lourd. Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
@@ -266,9 +266,13 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    identifiant de requête et pousse `logs` sur le flux de l'agent ; l'agent
    ouvre le journal (100 lignes par défaut, 500 au plus) et livre des lots
    toutes les secondes ou toutes les 64 lignes par `POST /agent/logs/{id}`,
-   que le serveur relaie au navigateur en SSE. L'onglet fermé, le serveur
-   pousse `logs_stop`. Quatre suivis par machine, seize en tout ; au-delà,
-   refusé avec la clé du catalogue. Le navigateur garde 1 200 lignes et
+   que le serveur relaie au navigateur en SSE. Un lot n'est accepté que
+   de la machine à qui la requête a été poussée, et ne compte pas comme
+   signe de vie : seul le signal publie `machines`. L'onglet fermé, le
+   serveur pousse `logs_stop`. Quatre suivis par machine ; seize lectures
+   en tout, suivis, tirages uniques et `get_service_logs` confondus ;
+   au-delà, refusé avec la clé du catalogue. Une file de commandes pleine
+   est refusée aussi (`service.machine_busy`, 503). Le navigateur garde 1 200 lignes et
    retombe sur un tirage unique si le direct échoue avant la première
    ligne. Une machine hors ligne le dit, sans attendre.
 9. La purge, au départ puis une fois par jour, efface les transitions de
@@ -460,8 +464,10 @@ marche derrière un NAT.
 2. Le serveur pousse à cette machine **le jeu complet de ses sondes**, sur
    le flux déjà ouvert, à chaque changement et à chaque connexion. Le jeu
    remplace le précédent ; une sonde en pause n'y est pas. Une machine
-   hors ligne le reçoit en revenant. La machine openCloud reçoit le sien
-   sans passer par le réseau : c'est son rôle d'agent.
+   hors ligne le reçoit en revenant. Une file de commandes pleine (16 en
+   attente) le dit au journal et le jeu repart dans les 30 s. La machine
+   openCloud reçoit le sien sans passer par le réseau : c'est son rôle
+   d'agent.
 3. L'agent tient une goroutine par sonde. Une sonde part tout de suite,
    puis suit son intervalle ; une sonde dont rien n'a changé garde sa
    goroutine et son horloge quand le jeu est repoussé.

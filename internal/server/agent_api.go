@@ -261,15 +261,16 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 // Un lot de journal livré par l'agent pour une requête que le serveur lui
-// a poussée. Une requête que personne n'attend plus répond 404 : l'agent
-// arrête de suivre.
+// a poussée. Une requête que personne n'attend plus, ou poussée à une autre
+// machine, répond 404 : l'agent arrête de suivre.
 func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
-	if _, err := s.machines.Signal(r.Context(), token); err != nil {
+	machineID, err := s.machines.SessionMachine(token)
+	if err != nil {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
@@ -279,7 +280,7 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusBadRequest, "bad_json")
 		return
 	}
-	if !s.services.DeliverLogs(r.Context(), r.PathValue("request"), batch) {
+	if !s.services.DeliverLogs(r.Context(), machineID, r.PathValue("request"), batch) {
 		s.writeAgentError(w, http.StatusNotFound, "request_unknown")
 		return
 	}

@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -238,5 +241,144 @@ func TestServiceLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
 	decodeAPI(t, got, &response)
 	if len(response.Lines) != 1 || response.Lines[0].Text != "local line dddd" || response.Lines[0].At == nil {
 		t.Fatalf("lines = %+v", response.Lines)
+	}
+}
+
+// Une machine ne livre pas dans la requête poussée à une autre : sans quoi
+// un agent enrôlé écrirait dans les journaux qu'un onglet lit ailleurs.
+func TestServiceLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	resp, session, agentStream, cancel := openStream(t, server, enrolled.ID, private)
+	defer resp.Body.Close()
+	defer cancel()
+	intruder, intruderKey := server.enroll(t, "vps-lyon-1", "22222222-3333-4444-8555-666666666666")
+	intruderResp, intruderSession, _, intruderCancel := openStream(t, server, intruder.ID, intruderKey)
+	defer intruderResp.Body.Close()
+	defer intruderCancel()
+	serviceID := server.seedServices(t)
+
+	live := httptest.NewServer(server.Server)
+	defer live.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/services/"+serviceID+"/logs/stream", nil)
+	browser, err := live.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer browser.Body.Close()
+	requestID := jsonID(t, readCommand(t, agentStream, service.CommandLogs))
+
+	if got := server.agentPost(intruderSession, "/agent/logs/"+requestID, service.LogBatch{Lines: []service.LogLine{{Text: "intrus"}}}); got.Code != http.StatusNotFound {
+		t.Fatalf("intruder: %d %s", got.Code, got.Body.String())
+	}
+	if got := server.agentPost(session, "/agent/logs/"+requestID, service.LogBatch{}); got.Code != http.StatusNoContent {
+		t.Fatalf("owner: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Un lot de journaux n'est pas un signe de vie : il ne publie pas
+// « machines », sans quoi un suivi bavard ferait relire la liste à chaque
+// onglet toutes les secondes.
+func TestAgentLogs_DoesNotPublishMachines(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
+	defer resp.Body.Close()
+	defer cancel()
+	subscription := server.bus.Subscribe()
+	defer subscription.Close()
+	if got := server.agentPost(session, "/agent/logs/unknown", service.LogBatch{}); got.Code != http.StatusNotFound {
+		t.Fatalf("deliver: %d", got.Code)
+	}
+	ctx, stop := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer stop()
+	if topics, err := subscription.Next(ctx); err == nil {
+		t.Fatalf("published %v", topics)
+	}
+}
+
+// Les seize places sont prises d'un geste : sous la concurrence, jamais
+// une de plus.
+func TestLogSlots_ConcurrentTakers_NeverExceedTheCeiling(t *testing.T) {
+	server := newTestServer(t)
+	var taken atomic.Int32
+	var takers sync.WaitGroup
+	for range 200 {
+		takers.Add(1)
+		go func() {
+			defer takers.Done()
+			if server.takeLogSlot() {
+				taken.Add(1)
+			}
+		}()
+	}
+	takers.Wait()
+	if taken.Load() != maxLogStreams {
+		t.Fatalf("taken = %d", taken.Load())
+	}
+}
+
+// Le tirage unique et l'outil MCP comptent dans les mêmes seize places que
+// les suivis : au-delà, la clé du catalogue.
+func TestServiceLogs_FetchAndToolShareTheCeiling(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	serviceID := server.seedServices(t)
+	for range maxLogStreams {
+		server.takeLogSlot()
+	}
+	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
+	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
+		t.Fatalf("fetch: %d %s", got.Code, got.Body.String())
+	}
+	got = callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs/stream", nil)
+	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
+		t.Fatalf("stream: %d %s", got.Code, got.Body.String())
+	}
+	session := connectMCP(t, server.mcpServer)
+	text, isError := callTool(t, session, "get_service_logs", map[string]any{"service_id": serviceID})
+	if !isError || toolErrorCode(t, text) != codeLogsBusy {
+		t.Fatalf("tool: %v %s", isError, text)
+	}
+	server.releaseLogSlot()
+	got = callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
+	if errorCode(t, got) != "service.machine_offline" {
+		t.Fatalf("a freed slot lets the next one through: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// File de commandes pleine : les journaux refusent avec une clé, pas un
+// 500 ; le jeu de sondes refusé repart au cycle suivant.
+func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	serviceID := server.seedServices(t)
+	// Une session sans boucle de flux : personne ne vide la file.
+	session, err := server.machines.Connect(context.Background(), remoteID, "51.15.20.114", "v0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.machines.Disconnect(session)
+	for server.Command(remoteID, "filler", nil) == nil {
+	}
+
+	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
+	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeMachineBusy {
+		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
+	}
+
+	server.probes.Assign(context.Background(), remoteID)
+	for len(session.Commands()) > 0 {
+		<-session.Commands()
+	}
+	server.probes.ResendUnsent(context.Background())
+	if len(session.Commands()) != 1 || (<-session.Commands()).Name != probe.CommandProbes {
+		t.Fatal("the probe set was not resent")
+	}
+	server.probes.ResendUnsent(context.Background())
+	if len(session.Commands()) != 0 {
+		t.Fatal("a delivered set is resent again")
 	}
 }
