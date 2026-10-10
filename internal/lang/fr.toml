@@ -25,10 +25,6 @@ label = "Langue"
 fr = "Français"
 en = "English"
 
-[account]
-name = "Administrateur"
-role = "Compte local"
-
 [overview]
 online = "%d en ligne"
 see_all = "Tout voir"
@@ -1097,8 +1093,41 @@ targets_object = "%s"
 targets_both = "%s sur %s"
 until = "jusqu'à %s"
 
+# L'accès de l'opérateur à l'interface : la carte de Paramètres, la barre
+# latérale, la bannière tant qu'elle est ouverte, et les refus de son API.
+[auth]
+username_invalid = "L'identifiant doit faire entre 1 et 64 caractères, sans « : », sans espace en bord."
+password_too_short = "Le mot de passe doit faire au moins 12 caractères."
+password_too_long = "Le mot de passe ne doit pas dépasser 72 octets."
+password_mismatch = "Les deux mots de passe ne sont pas identiques."
+already_enabled = "Requête refusée : l'authentification est déjà activée."
+disabled = "Requête refusée : l'authentification n'est pas activée."
+side_protected = "Accès protégé"
+side_open = "Accès ouvert"
+side_open_hint = "sans authentification"
+banner = "L'interface est ouverte : qui atteint ce port peut enrôler une machine, lire les journaux et activer MCP."
+banner_link = "Protéger l'accès"
+title = "Accès à l'interface"
+intro = "Un identifiant et un mot de passe gardent l'interface et son API. La page de statut, les pings, les agents et MCP gardent leur propre accès."
+state_none = "Ouvert"
+state_basic = "Protégé"
+open_text = "Personne n'est vérifié : qui atteint ce port est l'opérateur. Activez l'authentification avant d'exposer openCloud hors de cette machine."
+username_label = "Identifiant"
+username_help = "Jusqu'à 64 caractères, sans « : »."
+password_label = "Mot de passe"
+password_help = "Au moins %d caractères ; une phrase se retient mieux qu'un mot."
+confirm_label = "Confirmation"
+enable_title = "Activer l'authentification"
+change_title = "Changer le mot de passe"
+enable = "Activer"
+change = "Changer le mot de passe"
+browser_prompt = "Ensuite, le navigateur demandera l'identifiant et le mot de passe dans sa propre fenêtre."
+enabled_since = "activée %s"
+disable = "Désactiver"
+disable_confirm = "Désactiver l'authentification ? L'interface sera ouverte à qui atteint ce port."
+
 [settings]
-subtitle = "Les réglages d'openCloud. Pour l'instant : l'accès d'un agent IA."
+subtitle = "Les réglages d'openCloud : l'accès à l'interface et celui d'un agent IA."
 
 # L'accès d'un agent IA par MCP : le réglage sous Paramètres, et les refus
 # de son API. Les descriptions des outils sont en anglais, lues par un modèle.

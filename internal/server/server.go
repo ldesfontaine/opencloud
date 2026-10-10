@@ -196,6 +196,7 @@ type Server struct {
 	alerts       AlertService
 	notifier     Notifier
 	mcp          MCPService
+	auth         AuthService
 	live         Live
 	publicLive   Live
 	logStreams   atomic.Int32
@@ -203,6 +204,7 @@ type Server struct {
 	statusLimits *statusLimits
 	mcpLimits    *mcpLimits
 	agentLimits  *challengeLimits
+	authLimits   *authLimits
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
 	mcpServer      *gomcp.Server
 	mcpHandler     http.Handler
@@ -234,7 +236,9 @@ type Options struct {
 	Alerts     AlertService
 	Notifier   Notifier
 	MCP        MCPService
-	Live       Live
+	// Auth garde l'interface de l'opérateur ; voir auth.go.
+	Auth AuthService
+	Live Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
 	PublicLive Live
@@ -284,12 +288,14 @@ func New(opts Options) (*Server, error) {
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
 		mcp:            opts.MCP,
+		auth:           opts.Auth,
 		live:           opts.Live,
 		publicLive:     opts.PublicLive,
 		pingLimits:     newPingLimits(),
 		statusLimits:   newStatusLimits(),
 		mcpLimits:      newMCPLimits(),
 		agentLimits:    newChallengeLimits(),
+		authLimits:     newAuthLimits(),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
@@ -303,6 +309,7 @@ func New(opts Options) (*Server, error) {
 		server.statusLimits.setClock(opts.Clock)
 		server.mcpLimits.setClock(opts.Clock)
 		server.agentLimits.setClock(opts.Clock)
+		server.authLimits.setClock(opts.Clock)
 	}
 	server.mcpServer = server.newMCPServer(false)
 	server.mcpHandler = server.newMCPHandler()

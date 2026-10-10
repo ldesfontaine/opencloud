@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -81,6 +82,10 @@ func runMCP(args []string) error {
 	}
 	alerts := alert.New(db, logger)
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
+	access, err := auth.New(db, logger)
+	if err != nil {
+		return err
+	}
 	srv, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
@@ -95,6 +100,7 @@ func runMCP(args []string) error {
 		Alerts:         alerts,
 		Notifier:       notifier,
 		MCP:            mcp.New(db, logger),
+		Auth:           access,
 		Live:           live.New(),
 		PublicLive:     live.New(),
 		PublicURL:      cfg.PublicURL,

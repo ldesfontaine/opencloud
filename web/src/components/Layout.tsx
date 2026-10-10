@@ -1,19 +1,24 @@
-import { NavLink, Outlet } from "react-router";
+import { Link, NavLink, Outlet } from "react-router";
 
-import type { Counts } from "../api/types";
+import type { AuthState, Counts } from "../api/types";
 import { useLive } from "../hooks/useLive";
 import { useResource } from "../hooks/useResource";
-import { useI18n } from "../i18n/context";
+import { useI18n, useT } from "../i18n/context";
+import { accessLabel, isInterfaceOpen } from "../lib/auth";
 import { Icon, Mark, type IconName } from "./Icon";
 import "./Layout.scss";
 
+// L'état de l'accès est lu une fois ici : la barre latérale le dit, la
+// bannière le rappelle tant que l'interface est ouverte.
 export function Layout() {
   useLive();
+  const access = useResource<AuthState>("/api/auth").data;
   return (
     <div className="app">
-      <Sidebar />
+      <Sidebar access={access} />
       <main className="main" id="main">
         <div className="content">
+          {isInterfaceOpen(access) && <OpenBanner />}
           <Outlet />
         </div>
       </main>
@@ -42,8 +47,9 @@ const settingsEntries: NavEntry[] = [{ key: "settings", href: "/parametres", ico
 
 // Barre latérale : marque, sections Vue et Réglages avec leurs compteurs en
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.
-function Sidebar() {
+function Sidebar({ access }: { access: AuthState | null }) {
   const { t, language, languages, setLanguage } = useI18n();
+  const label = accessLabel(access);
   const counts = useResource<Counts>("/api/counts").data;
   return (
     <aside className="side">
@@ -94,15 +100,17 @@ function Sidebar() {
             ))}
           </div>
         </div>
-        <div className="account">
-          <span className="avatar" aria-hidden="true">
-            A
-          </span>
-          <span className="who">
-            <b>{t("account.name")}</b>
-            <span>{t("account.role")}</span>
-          </span>
-        </div>
+        {label !== null && (
+          <NavLink className={label.username === null ? "account account-open" : "account"} to="/parametres">
+            <span className="avatar" aria-hidden="true">
+              <Icon name="shield" />
+            </span>
+            <span className="who">
+              <b>{t(label.key)}</b>
+              <span>{label.username ?? t("auth.side_open_hint")}</span>
+            </span>
+          </NavLink>
+        )}
       </div>
     </aside>
   );
@@ -152,5 +160,18 @@ function NavItem({ entry, counter }: { entry: NavEntry; counter: Counter | null 
       <span>{t(`nav.${entry.key}`)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}
     </NavLink>
+  );
+}
+
+// Rappel tant que personne n'est vérifié : qui atteint le port est
+// l'opérateur. Le lien mène à la carte qui y remédie.
+function OpenBanner() {
+  const t = useT();
+  return (
+    <div className="note note-warn access-banner" role="status">
+      <Icon name="shield" />
+      <span>{t("auth.banner")}</span>
+      <Link to="/parametres">{t("auth.banner_link")}</Link>
+    </div>
   );
 }

@@ -10,7 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -40,6 +43,7 @@ type testServer struct {
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
 	access     *mcp.Service
+	operator   *auth.Service
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -109,6 +113,13 @@ func newTestServer(t *testing.T) *testServer {
 	probes.SetAlerter(alerts)
 	access := mcp.New(db, logger)
 	access.SetClock(func() time.Time { return testNow })
+	operator, err := auth.New(db, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator.SetClock(func() time.Time { return testNow })
+	// Le coût minimal de bcrypt : le coût réel ferait durer chaque test.
+	operator.SetHashCost(bcrypt.MinCost)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -123,6 +134,7 @@ func newTestServer(t *testing.T) *testServer {
 		Alerts:     alerts,
 		Notifier:   notifier,
 		MCP:        access,
+		Auth:       operator,
 		Live:       bus,
 		PublicLive: publicBus,
 		ConfigPath: "/etc/opencloud/config.toml",
@@ -138,7 +150,7 @@ func newTestServer(t *testing.T) *testServer {
 	services.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, access: access, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
