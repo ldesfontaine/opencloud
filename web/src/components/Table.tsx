@@ -4,9 +4,14 @@ import { Icon, type IconName } from "./Icon";
 import "./Table.scss";
 
 // Tableau : en-têtes en étiquette de section, lignes de 44 px, valeurs en
-// mono, action en fin de ligne.
+// mono, action en fin de ligne. Il défile dans son propre cadre : trop
+// large pour un téléphone, il ne pousse jamais la page.
 export function Table({ children }: { children: ReactNode }) {
-  return <table className="table">{children}</table>;
+  return (
+    <div className="table-scroll">
+      <table className="table">{children}</table>
+    </div>
+  );
 }
 
 // Un nom avec son icône dans une tuile, en tête de ligne.

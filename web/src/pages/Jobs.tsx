@@ -43,11 +43,11 @@ export function Jobs() {
             <thead>
               <tr>
                 <th>{t("jobs.col_job")}</th>
-                <th>{t("jobs.col_machine")}</th>
-                <th>{t("jobs.col_interval")}</th>
+                <th className="wide-only">{t("jobs.col_machine")}</th>
+                <th className="wide-only">{t("jobs.col_interval")}</th>
                 <th>{t("jobs.col_state")}</th>
                 <th>{t("jobs.col_last_ping")}</th>
-                <th className="th-end">{t("jobs.col_result")}</th>
+                <th className="th-end wide-only">{t("jobs.col_result")}</th>
               </tr>
             </thead>
             <tbody>
@@ -60,13 +60,13 @@ export function Jobs() {
                         <Subject icon="clock">{job.name}</Subject>
                       </Link>
                     </td>
-                    <td>{job.machine_id !== "" ? <Link to={`/machines/${job.machine_id}`}>{job.machine_name}</Link> : <span className="muted">—</span>}</td>
-                    <td className="num">{formatDuration(t, job.interval_seconds * 1000)}</td>
+                    <td className="wide-only">{job.machine_id !== "" ? <Link to={`/machines/${job.machine_id}`}>{job.machine_name}</Link> : <span className="muted">—</span>}</td>
+                    <td className="num wide-only">{formatDuration(t, job.interval_seconds * 1000)}</td>
                     <td>
                       <JobPill status={job.status} />
                     </td>
                     <td className="secondary nowrap">{lastPing(t, job.last_ping_at, now)}</td>
-                    <td className="num td-end">{result && <span className={`result result-${result.tone}`}>{result.text}</span>}</td>
+                    <td className="num td-end wide-only">{result && <span className={`result result-${result.tone}`}>{result.text}</span>}</td>
                   </tr>
                 );
               })}

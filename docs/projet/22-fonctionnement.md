@@ -1014,6 +1014,20 @@ troisième flux, `/api/services/{id}/logs/stream`, un par fiche ouverte.
 Tous traversent la même chaîne de middlewares (panique, identifiant de
 requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
+### Sur un téléphone
+
+Sous 860 px de large, la barre latérale devient un tiroir : un en-tête
+compact porte la marque et le bouton menu, le tiroir s'ouvre par-dessus la
+page derrière un voile et se ferme au clic sur le voile, sur `Échap`, à
+chaque navigation et au retour en écran large ; fermé par l'utilisateur, il
+rend le focus au bouton. Aucune page ne déborde en largeur : les listes
+principales (machines, services, sondes, tâches) ne gardent que le nom,
+l'état et le dernier moment, les autres tableaux défilent dans leur carte,
+une commande à coller défile dans son bloc, les tuiles passent sur une
+colonne. Les boutons y font 44 px de haut (40 px dans une ligne), pour
+acquitter ou faire taire une alerte au pouce. La page de statut publique a
+sa propre mise en page et n'est pas concernée.
+
 ### Limitation de débit sur `/ping`
 
 | Clé | Débit continu | Rafale | Sert à |

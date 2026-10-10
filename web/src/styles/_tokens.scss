@@ -25,6 +25,7 @@
   --primary-hover: #2a2e38;
   --shadow-1: 0 1px 2px rgba(16, 18, 22, 0.05);
   --shadow-2: 0 1px 2px rgba(16, 18, 22, 0.05), 0 8px 24px rgba(16, 18, 22, 0.08);
+  --scrim: rgba(16, 18, 22, 0.4);
   --sans: "Geist", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --side-width: 232px;
@@ -55,4 +56,5 @@
   --primary-hover: #d5d9e2;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.6);
 }

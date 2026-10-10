@@ -88,3 +88,24 @@
     width: 30px;
   }
 }
+
+// Au pouce : sous 860 px, un bouton fait 44 px de haut, la cible tactile
+// courante ; les petits boutons des lignes, 40 px.
+@media (max-width: 860px) {
+  .btn {
+    height: 44px;
+  }
+
+  .btn-sm {
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .btn-icon {
+    width: 44px;
+
+    &.btn-sm {
+      width: 40px;
+    }
+  }
+}

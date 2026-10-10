@@ -1,10 +1,12 @@
-import { Link, NavLink, Outlet } from "react-router";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 
 import type { AuthState, Counts } from "../api/types";
 import { useLive } from "../hooks/useLive";
 import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { accessLabel, isInterfaceOpen } from "../lib/auth";
+import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
 import { Icon, Mark, type IconName } from "./Icon";
 import "./Layout.scss";
 
@@ -13,16 +15,120 @@ import "./Layout.scss";
 export function Layout() {
   useLive();
   const access = useResource<AuthState>("/api/auth").data;
+  const drawer = useDrawer();
   return (
-    <div className="app">
-      <Sidebar access={access} />
-      <main className="main" id="main">
+    <div className={drawer.open ? "app drawer-open" : "app"}>
+      <TopBar drawer={drawer} />
+      {drawer.narrow && drawer.open && <div className="scrim" aria-hidden="true" onClick={() => drawer.close("backdrop")} />}
+      <Sidebar access={access} inert={drawer.narrow && !drawer.open} />
+      <main className="main" id="main" inert={drawer.narrow && drawer.open}>
         <div className="content">
           {isInterfaceOpen(access) && <OpenBanner />}
           <Outlet />
         </div>
       </main>
     </div>
+  );
+}
+
+// Même seuil que Layout.scss : sous 860 px, la barre latérale devient un
+// tiroir.
+const narrowQuery = "(max-width: 860px)";
+
+interface Drawer {
+  open: boolean;
+  narrow: boolean;
+  toggle: () => void;
+  close: (event: DrawerEvent) => void;
+  button: RefObject<HTMLButtonElement | null>;
+}
+
+// L'état du tiroir et ce qui le ferme : le voile, Échap, chaque navigation,
+// le retour en écran large. Ouvert, le focus entre dans le tiroir ; fermé
+// par l'utilisateur, il revient au bouton menu.
+function useDrawer(): Drawer {
+  const [open, setOpen] = useState(false);
+  const [narrow, setNarrow] = useState(() => window.matchMedia(narrowQuery).matches);
+  const button = useRef<HTMLButtonElement>(null);
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
+  const close = useCallback((event: DrawerEvent) => {
+    const wasOpen = openRef.current;
+    setOpen((current) => nextDrawer(current, event));
+    if (returnsFocus(wasOpen, event)) {
+      button.current?.focus();
+    }
+  }, []);
+  const toggle = useCallback(() => setOpen((current) => nextDrawer(current, "toggle")), []);
+
+  const { pathname } = useLocation();
+  useEffect(() => close("navigate"), [pathname, close]);
+
+  useEffect(() => {
+    const media = window.matchMedia(narrowQuery);
+    const onChange = () => {
+      setNarrow(media.matches);
+      if (!media.matches) {
+        close("wide");
+      }
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [close]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    document.querySelector<HTMLElement>("#side .nav-item")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close("escape");
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, close]);
+
+  return { open, narrow, toggle, close, button };
+}
+
+// L'en-tête du téléphone : la marque et le bouton du menu. Caché en écran
+// large, où la barre latérale reste en place.
+function TopBar({ drawer }: { drawer: Drawer }) {
+  const t = useT();
+  return (
+    <header className="topbar">
+      <Brand />
+      <button
+        ref={drawer.button}
+        type="button"
+        className="menu-button"
+        aria-label={t(drawer.open ? "nav.menu_close" : "nav.menu_open")}
+        aria-expanded={drawer.open}
+        aria-controls="side"
+        onClick={drawer.toggle}
+      >
+        <Icon name={drawer.open ? "x" : "menu"} />
+      </button>
+    </header>
+  );
+}
+
+function Brand() {
+  return (
+    <NavLink className="brand" to="/">
+      <span className="mark">
+        <Mark />
+      </span>
+      <span className="wordmark">
+        <span>open</span>
+        <b>Cloud</b>
+      </span>
+    </NavLink>
   );
 }
 
@@ -45,23 +151,15 @@ const viewEntries: NavEntry[] = [
 
 const settingsEntries: NavEntry[] = [{ key: "settings", href: "/parametres", icon: "settings" }];
 
-// Barre latérale : marque, sections Vue et Réglages avec leurs compteurs en
+// Barre latérale : marque, sections Vue et Administration avec leurs compteurs en
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.
-function Sidebar({ access }: { access: AuthState | null }) {
+function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }) {
   const { t, language, languages, setLanguage } = useI18n();
   const label = accessLabel(access);
   const counts = useResource<Counts>("/api/counts").data;
   return (
-    <aside className="side">
-      <NavLink className="brand" to="/">
-        <span className="mark">
-          <Mark />
-        </span>
-        <span className="wordmark">
-          <span>open</span>
-          <b>Cloud</b>
-        </span>
-      </NavLink>
+    <aside className="side" id="side" inert={inert}>
+      <Brand />
       <div className="side-label">{t("nav.section_view")}</div>
       <nav className="nav">
         {viewEntries.map((entry) => (
