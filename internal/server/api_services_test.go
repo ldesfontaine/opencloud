@@ -91,7 +91,7 @@ func TestAgentSignal_CarriesServicesAndRefusesBadReports(t *testing.T) {
 	if err != nil || len(services) != 1 || services[0].Name != "web" {
 		t.Fatalf("services = %+v %v", services, err)
 	}
-	bad := service.Report{Complete: true, Inventory: []service.Container{{ContainerID: "short", Name: "x", State: service.StateRunning, CreatedAt: testNow}}}
+	bad := service.Report{Engine: &service.EngineReport{Present: false}}
 	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Services: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_services") {
 		t.Fatalf("bad report: %d %s", got.Code, got.Body.String())
 	}

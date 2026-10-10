@@ -372,3 +372,16 @@ func TestPublishedPorts_SortsAndSkipsUnpublished(t *testing.T) {
 		t.Fatalf("ports = %+v", ports)
 	}
 }
+
+// Docker ne donne pas encore d'identifiant de réseau à un conteneur tout
+// juste créé : le rattachement est écarté, le conteneur reste.
+func TestToContainer_SkipsANetworkWithoutIdentifier(t *testing.T) {
+	var inspected dockerapi.Container
+	if err := json.Unmarshal(fixture(t, "inspect_created.json"), &inspected); err != nil {
+		t.Fatal(err)
+	}
+	container := toContainer(inspected)
+	if container.Name != "rd-test" || container.State != service.StateCreated || len(container.Networks) != 0 {
+		t.Fatalf("container = %+v", container)
+	}
+}

@@ -85,15 +85,20 @@ func (t *Tracker) SetAlerter(alerter Alerter) {
 	t.alerter = alerter
 }
 
-// Record écrit ce qu'un agent rapporte de sa machine. Le rapport entier est
-// refusé dès qu'un élément est hors de ce qu'un agent peut observer.
+// Record écrit ce qu'un agent rapporte de sa machine. Un élément hors de ce
+// qu'un agent peut observer est écarté et journalisé ; le reste du rapport
+// passe. Seule une forme d'ensemble absurde refuse le rapport entier.
 func (t *Tracker) Record(ctx context.Context, machineID string, report Report) error {
 	if report.IsEmpty() {
 		return nil
 	}
 	now := t.now()
-	if err := validate(report, now); err != nil {
+	report, discards, err := validate(report, now)
+	if err != nil {
 		return err
+	}
+	for _, dropped := range discards {
+		t.logger.Warn("discard invalid service report element", "machine", machineID, "element", dropped.what, "reason", dropped.reason)
 	}
 	stored, err := t.store.ListServices(ctx, machineID)
 	if err != nil {

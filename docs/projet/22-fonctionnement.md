@@ -260,11 +260,17 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    attendait est marqué **rejoué** : le serveur l'écrit, mais la feature
    alertes n'y verra pas du neuf. Un agent plus vieux n'envoie pas de
    section : le serveur l'accepte.
-6. openCloud refuse en bloc un rapport hors de mesure (plus de 256
-   conteneurs, 512 événements ou 1 024 mesures, un id qui n'est pas un id
-   Docker, un état inconnu, une date dans le futur, un port hors bornes) ;
-   le signal de vie compte quand même, et les autres sections du signal
-   s'écrivent (« Comment une machine est mesurée », point 5). Sinon il
+6. openCloud refuse en bloc un rapport de forme absurde (plus de 256
+   conteneurs, 512 événements ou 1 024 mesures, un Docker absent sans
+   raison) ; le signal de vie compte quand même, et les autres sections du
+   signal s'écrivent (« Comment une machine est mesurée », point 5). Un
+   élément seul hors de mesure (un id qui n'est pas un id Docker, un état
+   inconnu, une date dans le futur, un port hors bornes, un rattachement
+   réseau sans id : Docker n'en donne pas encore à un conteneur tout juste
+   créé) est écarté, avec une ligne de journal qui le nomme et dit
+   pourquoi ; le reste du rapport passe. Un conteneur écarté d'un
+   inventaire complet est archivé comme absent, il revient au rapport
+   suivant. Sinon il
    écrit tout en une transaction : fiches, transitions (une par changement
    d'état ou de santé, jamais par événement sans changement), mesures, état
    du Docker.

@@ -8,119 +8,195 @@ import (
 	"time"
 )
 
-// validate refuse en bloc un rapport hors de ce qu'un agent peut avoir
-// observé : trop de conteneurs, un nom vide, une date absurde, une mesure
-// négative. Le signal de vie compte quand même : c'est le serveur qui
-// répond, pas ce package.
-func validate(report Report, now time.Time) error {
+// discard dit un élément écarté d'un rapport, et pourquoi : une ligne de
+// journal par élément, pour que l'opérateur sache ce qui manque.
+type discard struct {
+	what   string
+	reason string
+}
+
+// invalidError porte le motif d'un élément hors de ce qu'un agent peut
+// observer ; errors.Is le rapproche de ErrReportInvalid.
+type invalidError struct{ reason string }
+
+func (e invalidError) Error() string { return e.reason }
+
+func (e invalidError) Unwrap() error { return ErrReportInvalid }
+
+func invalid(reason string) error { return invalidError{reason: reason} }
+
+// validate refuse en bloc un rapport dont la forme d'ensemble est absurde
+// (trop d'éléments, un moteur absent sans raison) ; le signal de vie compte
+// quand même : c'est le serveur qui répond, pas ce package. Un élément
+// invalide (un conteneur, un réseau, un événement, une mesure, un
+// rattachement) est écarté du rapport rendu et dit dans les écarts : un seul
+// fautif ne doit pas faire perdre l'inventaire des autres.
+func validate(report Report, now time.Time) (Report, []discard, error) {
 	if len(report.Inventory) > MaxContainersPerReport || len(report.Events) > MaxEventsPerReport || len(report.Stats) > MaxStatsPerReport {
-		return ErrReportInvalid
+		return Report{}, nil, ErrReportInvalid
 	}
 	if len(report.Networks) > MaxNetworksPerMachine {
-		return ErrReportInvalid
-	}
-	for _, network := range report.Networks {
-		if !isContainerID(network.NetworkID) || network.Name == "" || len(network.Name) > MaxNameLength || network.Driver == "" || len(network.Driver) > MaxNameLength || len(network.Group) > MaxNameLength {
-			return ErrReportInvalid
-		}
+		return Report{}, nil, ErrReportInvalid
 	}
 	if report.Engine != nil && !report.Engine.Present && report.Engine.Reason == "" {
-		return ErrReportInvalid
+		return Report{}, nil, ErrReportInvalid
 	}
+	var discards []discard
+	kept := report
+	kept.Networks = nil
+	for _, network := range report.Networks {
+		if err := validateNetwork(network); err != nil {
+			discards = append(discards, discard{"network " + network.Name, err.Error()})
+			continue
+		}
+		kept.Networks = append(kept.Networks, network)
+	}
+	kept.Inventory = nil
 	for _, container := range report.Inventory {
-		if err := validateContainer(container, now); err != nil {
-			return err
+		cleaned, dropped, err := validateContainer(container, now)
+		discards = append(discards, dropped...)
+		if err != nil {
+			discards = append(discards, discard{"container " + container.Name, err.Error()})
+			continue
 		}
+		kept.Inventory = append(kept.Inventory, cleaned)
 	}
+	kept.Events = nil
 	for _, event := range report.Events {
-		if err := validateEvent(event, now); err != nil {
-			return err
+		cleaned, dropped, err := validateEvent(event, now)
+		discards = append(discards, dropped...)
+		if err != nil {
+			discards = append(discards, discard{"event " + event.Action, err.Error()})
+			continue
 		}
+		kept.Events = append(kept.Events, cleaned)
 	}
+	kept.Stats = nil
 	for _, stat := range report.Stats {
 		if err := validateStat(stat, now); err != nil {
-			return err
+			discards = append(discards, discard{"stat " + stat.ContainerID, err.Error()})
+			continue
 		}
+		kept.Stats = append(kept.Stats, stat)
+	}
+	return kept, discards, nil
+}
+
+func validateNetwork(network NetworkReport) error {
+	if !isContainerID(network.NetworkID) || network.Name == "" || len(network.Name) > MaxNameLength {
+		return invalid("identifiant ou nom du réseau")
+	}
+	if network.Driver == "" || len(network.Driver) > MaxNameLength || len(network.Group) > MaxNameLength {
+		return invalid("pilote ou groupe du réseau")
 	}
 	return nil
 }
 
-func validateContainer(container Container, now time.Time) error {
+// validateContainer rend le conteneur sans ses rattachements réseau
+// invalides (un conteneur tout juste créé n'a pas encore d'identifiant de
+// réseau), ou une erreur si c'est le conteneur lui-même qui l'est.
+func validateContainer(container Container, now time.Time) (Container, []discard, error) {
+	var discards []discard
+	container.Networks, discards = keepAttachments(container)
+	return container, discards, checkContainer(container, now)
+}
+
+func checkContainer(container Container, now time.Time) error {
 	if !isContainerID(container.ContainerID) || container.Name == "" || len(container.Name) > MaxNameLength {
-		return ErrReportInvalid
+		return invalid("identifiant, nom ou longueur du nom")
 	}
 	if len(container.Group) > MaxNameLength || len(container.Image) > MaxImageLength || len(container.ImageID) > MaxImageLength {
-		return ErrReportInvalid
+		return invalid("longueur d'un champ de groupe ou d'image")
 	}
 	if len(container.ComposeService) > MaxNameLength || len(container.ComposeDir) > MaxPathLength || len(container.ComposeFile) > MaxPathLength {
-		return ErrReportInvalid
+		return invalid("longueur d'un champ Compose")
 	}
 	if !isState(container.State) || !isHealth(container.Health) || container.RestartCount < 0 {
-		return ErrReportInvalid
+		return invalid("état ou santé inconnus, ou redémarrages négatifs")
 	}
 	if len(container.Ports) > MaxPortsPerContainer {
-		return ErrReportInvalid
+		return invalid("trop de ports")
 	}
 	for _, port := range container.Ports {
 		if port.HostPort <= 0 || port.HostPort > 65535 || port.ContainerPort <= 0 || port.ContainerPort > 65535 || port.Protocol == "" {
-			return ErrReportInvalid
+			return invalid("port hors limites")
 		}
 	}
 	if container.CreatedAt.IsZero() || isTooLate(container.CreatedAt, now) {
-		return ErrReportInvalid
+		return invalid("date de création absente ou dans le futur")
 	}
 	return validateNetworking(container)
 }
 
-func validateNetworking(container Container) error {
-	if len(container.NetworkMode) > MaxNameLength || len(container.Networks) > MaxNetworksPerContainer || len(container.DependsOn) > MaxDependencies {
-		return ErrReportInvalid
-	}
+// keepAttachments écarte les rattachements réseau qu'un agent n'a pas pu
+// observer : sans identifiant de réseau (Docker n'en donne pas encore à un
+// conteneur tout juste créé), sans nom, ou illisibles.
+func keepAttachments(container Container) ([]Attachment, []discard) {
+	var kept []Attachment
+	var discards []discard
 	for _, attachment := range container.Networks {
-		if !isContainerID(attachment.NetworkID) || attachment.Name == "" || len(attachment.Name) > MaxNameLength || len(attachment.Aliases) > MaxAliasesPerNetwork {
-			return ErrReportInvalid
+		if err := checkAttachment(attachment); err != nil {
+			discards = append(discards, discard{"network attachment " + attachment.Name + " of container " + container.Name, err.Error()})
+			continue
 		}
-		if attachment.IP != "" {
-			if _, err := netip.ParseAddr(attachment.IP); err != nil {
-				return ErrReportInvalid
-			}
-		}
-		for _, alias := range attachment.Aliases {
-			if alias == "" || len(alias) > MaxNameLength {
-				return ErrReportInvalid
-			}
+		kept = append(kept, attachment)
+	}
+	return kept, discards
+}
+
+func checkAttachment(attachment Attachment) error {
+	if !isContainerID(attachment.NetworkID) || attachment.Name == "" || len(attachment.Name) > MaxNameLength || len(attachment.Aliases) > MaxAliasesPerNetwork {
+		return invalid("rattachement réseau sans identifiant valide, sans nom ou avec trop d'alias")
+	}
+	if attachment.IP != "" {
+		if _, err := netip.ParseAddr(attachment.IP); err != nil {
+			return invalid("adresse IP du rattachement illisible")
 		}
 	}
-	for _, dependency := range container.DependsOn {
-		if dependency.Name == "" || len(dependency.Name) > MaxNameLength || (dependency.Source != DependencyCompose && dependency.Source != DependencyLink) {
-			return ErrReportInvalid
+	for _, alias := range attachment.Aliases {
+		if alias == "" || len(alias) > MaxNameLength {
+			return invalid("alias vide ou trop long")
 		}
 	}
 	return nil
 }
 
-func validateEvent(event Event, now time.Time) error {
+func validateNetworking(container Container) error {
+	if len(container.NetworkMode) > MaxNameLength || len(container.Networks) > MaxNetworksPerContainer || len(container.DependsOn) > MaxDependencies {
+		return invalid("mode réseau, réseaux ou dépendances en trop")
+	}
+	for _, dependency := range container.DependsOn {
+		if dependency.Name == "" || len(dependency.Name) > MaxNameLength || (dependency.Source != DependencyCompose && dependency.Source != DependencyLink) {
+			return invalid("dépendance sans nom ou de source inconnue")
+		}
+	}
+	return nil
+}
+
+func validateEvent(event Event, now time.Time) (Event, []discard, error) {
 	if !isContainerID(event.ContainerID) || event.Action == "" || event.At.IsZero() || isTooLate(event.At, now) {
-		return ErrReportInvalid
+		return event, nil, invalid("identifiant, action ou date de l'événement")
 	}
 	if !isState(event.State) || !isHealth(event.Health) || len(event.Snippet) > MaxSnippetBytes {
-		return ErrReportInvalid
+		return event, nil, invalid("état, santé ou extrait de l'événement")
 	}
 	if event.Container != nil {
 		if event.Container.ContainerID != event.ContainerID {
-			return ErrReportInvalid
+			return event, nil, invalid("identifiant du conteneur de l'événement différent")
 		}
-		return validateContainer(*event.Container, now)
+		cleaned, discards, err := validateContainer(*event.Container, now)
+		event.Container = &cleaned
+		return event, discards, err
 	}
-	return nil
+	return event, nil, nil
 }
 
 func validateStat(stat Stat, now time.Time) error {
 	if !isContainerID(stat.ContainerID) || stat.SampledAt.IsZero() || isTooLate(stat.SampledAt, now) || stat.SampledAt.Before(now.Add(-SampleRetention)) {
-		return ErrReportInvalid
+		return invalid("identifiant, date ou ancienneté de la mesure")
 	}
 	if math.IsNaN(stat.CPUPercent) || math.IsInf(stat.CPUPercent, 0) || stat.CPUPercent < 0 || stat.MemUsed < 0 || stat.MemLimit < 0 {
-		return ErrReportInvalid
+		return invalid("mesure négative ou non finie")
 	}
 	return nil
 }
