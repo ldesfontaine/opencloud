@@ -4,10 +4,17 @@
 # n'existent qu'à un seul endroit.
 name: ci
 
+# Une exécution par pull request, pas une de plus : la fusion dans dev ne
+# rejoue pas ce que la PR vient de prouver (trop d'exécutions automatiques
+# peuvent faire suspendre un compte GitHub). main est rejouée à la poussée,
+# et l'exécution manuelle reste possible.
 on:
   push:
-    branches: [dev, main]
+    branches: [main]
   pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions:
   contents: read

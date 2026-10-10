@@ -44,3 +44,11 @@ Le changement de version est une décision de Lucas.
 `vitest`, `vite build` — épinglées par version dans le Makefile et
 `web/package.json`. Le front se compile avant les tests Go, qui
 l'embarquent. Les actions GitHub sont épinglées par SHA de commit.
+
+**Sobriété.** La CI tourne sur chaque pull request vers `dev` ou `main`, à
+la poussée sur `main`, et à la main (`workflow_dispatch`) ; plus à la fusion
+dans `dev`, que la PR vient de prouver. Un compte GitHub qui enchaîne un
+nombre inhabituel d'exécutions automatiques peut être suspendu en attente de
+vérification : un agent pousse une branche quand elle est prête (tests locaux
+verts), regroupe ses corrections avant de repousser, et n'ouvre pas plus de
+quelques PR à la fois.
