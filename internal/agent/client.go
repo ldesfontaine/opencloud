@@ -81,6 +81,8 @@ type Client struct {
 	server  string
 	http    *http.Client
 	version string
+	// L'empreinte de la machine, présentée à l'ouverture du flux.
+	hostFingerprint string
 }
 
 // NewClient refuse http:// vers autre chose que la boucle locale, sauf si
@@ -102,7 +104,7 @@ func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
-	return &Client{server: server, http: &http.Client{Transport: transport}, version: version}, nil
+	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, hostFingerprint: hostinfo.HostFingerprint()}, nil
 }
 
 func isLoopback(server string) bool {
@@ -154,6 +156,8 @@ func (c *Client) Enroll(ctx context.Context, identity Identity, token string, in
 		OS:           info.OS,
 		Arch:         info.Arch,
 		AgentVersion: c.version,
+
+		HostFingerprint: info.HostFingerprint,
 	}
 	var response machine.EnrollResponse
 	if err := c.postJSON(ctx, "/agent/enroll", request, &response); err != nil {
@@ -205,6 +209,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
 	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
 	request.Header.Set(machine.HeaderAgentVersion, c.version)
+	if c.hostFingerprint != "" {
+		request.Header.Set(machine.HeaderHostFingerprint, c.hostFingerprint)
+	}
 	request.Header.Set("Accept", "text/event-stream")
 
 	response, err := c.http.Do(request)

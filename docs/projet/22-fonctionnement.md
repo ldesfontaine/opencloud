@@ -120,7 +120,20 @@ le client qui les garde.
    affiche le clair une seule fois avec la commande à coller.
 2. Sur la machine : `sudo opencloud agent -server https://… -token oc_…`. L'agent
    tire une clé Ed25519 et un identifiant, envoie sa clé publique et le jeton.
-3. openCloud consomme le jeton et crée la machine dans une seule transaction :
+   Il joint l'empreinte (SHA-256, préfixée) de l'identifiant de la machine
+   (`/etc/machine-id`, sinon `/var/lib/dbus/machine-id`) ; jamais
+   l'identifiant brut, et rien s'il n'y en a pas.
+3. `opencloud serve` fait la même empreinte au démarrage. Même empreinte :
+   l'agent tourne sur la machine openCloud, qui se supervise déjà (machine
+   `local`) ; un agent doublerait services et alertes. Refus 409
+   `machine_is_opencloud`, avant la base : **le jeton n'est pas consommé**,
+   il sert à une autre machine. Sans empreinte d'un côté ou de l'autre
+   (agent plus vieux, machine sans identifiant), pas de contrôle. Un agent
+   enrôlé avant ce refus présente l'empreinte à l'ouverture du flux
+   (en-tête `OpenCloud-Host-Fingerprint`) : openCloud l'accepte mais écrit
+   un avertissement au journal, qui dit de retirer la machine et
+   de désinstaller l'agent. Rien n'est stocké.
+   Sinon, openCloud consomme le jeton et crée la machine dans une seule transaction :
    deux agents avec le même jeton, un seul passe. Le jeton ne sert plus jamais.
 4. À chaque connexion, l'agent demande un défi, le signe, ouvre un flux qui reste
    ouvert. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,

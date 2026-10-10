@@ -3,6 +3,7 @@ package agent
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -22,6 +23,10 @@ func TestExplain_SpeaksTheOperatorLanguageAndTellsRefusalsApart(t *testing.T) {
 	message, _ = Explain(&ServerError{Status: 409, Code: "token_consumed"}, english)
 	if message != english.Get("agent.token_consumed") || message == french.Get("agent.token_consumed") {
 		t.Fatalf("en consumed: %q", message)
+	}
+	message, refused = Explain(&ServerError{Status: 409, Code: "machine_is_opencloud"}, french)
+	if !refused || !strings.Contains(message, "déjà supervisée par openCloud lui-même") {
+		t.Fatalf("fr opencloud host: %q %v", message, refused)
 	}
 	if message, refused := Explain(fmt.Errorf("%w: %w", ErrIdentityRefused, errors.New("x")), french); !refused || message != french.Get("agent.identity_refused") {
 		t.Fatalf("identity: %q %v", message, refused)

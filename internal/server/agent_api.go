@@ -53,6 +53,8 @@ func (s *Server) agentEnroll(w http.ResponseWriter, r *http.Request) {
 		OS:           request.OS,
 		Arch:         request.Arch,
 		AgentVersion: request.AgentVersion,
+
+		HostFingerprint: request.HostFingerprint,
 	})
 	if err != nil {
 		s.writeEnrollError(w, r, err)
@@ -73,6 +75,8 @@ func (s *Server) writeEnrollError(w http.ResponseWriter, r *http.Request, err er
 		s.writeAgentError(w, http.StatusConflict, "token_expired")
 	case errors.Is(err, machine.ErrNameTaken):
 		s.writeAgentError(w, http.StatusConflict, "name_taken")
+	case errors.Is(err, machine.ErrIsOpenCloud):
+		s.writeAgentError(w, http.StatusConflict, "machine_is_opencloud")
 	default:
 		s.logger.Error("enroll", "path", r.URL.Path, "error", err)
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")
@@ -124,6 +128,7 @@ func (s *Server) agentStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.machines.Disconnect(session)
+	s.machines.WarnIfOpenCloudHost(authenticated, r.Header.Get(machine.HeaderHostFingerprint))
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine et
 	// les images à ne pas interroger : les commandes attendent dans la
 	// file que la boucle ci-dessous va lire.

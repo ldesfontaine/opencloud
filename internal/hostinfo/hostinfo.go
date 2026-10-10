@@ -2,6 +2,8 @@ package hostinfo
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"net"
 	"os"
 	"runtime"
@@ -10,11 +12,22 @@ import (
 
 const osReleasePath = "/etc/os-release"
 
+// L'identifiant de machine de systemd, puis celui de dbus sur un système
+// sans systemd.
+var machineIDPaths = []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}
+
+// L'empreinte est préfixée : elle ne se compare pas à une autre empreinte
+// du même identifiant faite par un autre logiciel.
+const fingerprintPrefix = "opencloud-host:"
+
 type Info struct {
 	Hostname string
 	OS       string
 	Arch     string
 	Address  string
+	// Empreinte de l'identifiant de machine, jamais l'identifiant brut ;
+	// vide si la machine n'en a pas.
+	HostFingerprint string
 }
 
 // Collect ne renvoie jamais d'erreur : ce qu'on ne sait pas reste vide.
@@ -25,7 +38,32 @@ func Collect() Info {
 		OS:       readOSName(osReleasePath),
 		Arch:     runtime.GOARCH,
 		Address:  primaryAddress(),
+
+		HostFingerprint: HostFingerprint(),
 	}
+}
+
+// HostFingerprint rend l'empreinte de l'identifiant de cette machine.
+func HostFingerprint() string {
+	return readHostFingerprint(machineIDPaths)
+}
+
+// readHostFingerprint lit le premier identifiant de machine présent et en
+// rend l'empreinte ; aucun, rien.
+func readHostFingerprint(paths []string) string {
+	for _, path := range paths {
+		content, err := os.ReadFile(path) // #nosec G304 -- chemins constants.
+		if err != nil {
+			continue
+		}
+		id := strings.TrimSpace(string(content))
+		if id == "" {
+			continue
+		}
+		sum := sha256.Sum256([]byte(fingerprintPrefix + id))
+		return hex.EncodeToString(sum[:])
+	}
+	return ""
 }
 
 // readOSName compose « Debian 12 » depuis NAME et VERSION_ID d'os-release,

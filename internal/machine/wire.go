@@ -16,6 +16,10 @@ const (
 	HeaderTimestamp    = "OpenCloud-Timestamp"
 	HeaderSignature    = "OpenCloud-Signature"
 	HeaderAgentVersion = "OpenCloud-Agent-Version"
+	// L'empreinte de l'identifiant de la machine de l'agent : à
+	// l'ouverture du flux, elle dit si un agent tourne sur la machine
+	// openCloud elle-même.
+	HeaderHostFingerprint = "OpenCloud-Host-Fingerprint"
 	// Posé par un agent qui sait lire un refus par section ; sans lui, le
 	// serveur répond comme avant, par un 400 global.
 	HeaderSignalSections = "OpenCloud-Signal-Sections"
@@ -29,6 +33,9 @@ type EnrollRequest struct {
 	OS           string `json:"os"`
 	Arch         string `json:"arch"`
 	AgentVersion string `json:"agent_version"`
+	// Absente chez un agent plus vieux ou sur une machine sans
+	// identifiant : pas de contrôle.
+	HostFingerprint string `json:"host_fingerprint,omitempty"`
 }
 
 type EnrollResponse struct {
