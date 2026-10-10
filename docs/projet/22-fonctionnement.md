@@ -968,6 +968,14 @@ l'opérateur le reste. Pas de port à part. `/mcp` est un flux SSE aussi :
 Traefik doit le laisser durer et ne pas le mettre en tampon, comme
 `/agent/stream`.
 
+À l'arrêt (`SIGTERM`, `SIGINT`), `opencloud serve` annule le contexte de
+toutes les requêtes en cours : les flux en direct (`/agent/stream`,
+`/api/events`, journaux, `/statut/api/events`, `/mcp`) se ferment aussitôt,
+l'agent et le navigateur se reconnectent au retour, et le processus sort en
+`0`. Une connexion gardée ouverte sans requête se ferme après 2 min. Pas de
+délai de lecture du corps : net/http couperait aussi les flux ; un corps
+reste borné à 1 Mio et Traefik tient ses propres délais.
+
 ## Vérifié le 13 septembre 2026
 
 Traefik v3 en Docker, certificat auto-signé, agent lancé avec `-pin` : enrôlement,
