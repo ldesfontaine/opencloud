@@ -140,12 +140,20 @@ export function deliveryReason(t: Translate, delivery: Pick<Delivery, "reason" |
   if (delivery.reason === "status") {
     return t("alert.delivery_reason_status", delivery.code);
   }
+  // Un refus du relais porte son code SMTP : c'est lui qu'on cherche dans la doc du relais.
+  if (delivery.reason.startsWith("smtp_") && delivery.code > 0) {
+    return t("alert.smtp_code", t(`alert.delivery_reason_${delivery.reason}`), delivery.code);
+  }
   return t(`alert.delivery_reason_${delivery.reason}`);
 }
 
 // Ce qu'a donné l'envoi d'essai d'un canal : le code reçu, ou le motif.
 export function channelTestResult(t: Translate, test: ChannelTest): string {
-  return test.ok ? t("channel.test_ok", test.code) : t("channel.test_failed", deliveryReason(t, test));
+  if (!test.ok) {
+    return t("channel.test_failed", deliveryReason(t, test));
+  }
+  // Un e-mail n'a pas de code HTTP : le relais l'a accepté, c'est tout ce qu'on sait.
+  return test.code > 0 ? t("channel.test_ok", test.code) : t("channel.test_accepted");
 }
 
 export const deliveryTones: Record<Delivery["status"], Tone> = {

@@ -68,12 +68,21 @@ const (
 	ReasonRedirect    Reason = "redirect"
 	ReasonStatus      Reason = "status"
 	ReasonTLS         Reason = "tls"
+	// Les refus d'un relais SMTP ; Code porte alors le code SMTP reçu.
+	ReasonMailNotConfigured Reason = "mail_not_configured"
+	ReasonSMTPAuthFailed    Reason = "smtp_auth_failed"
+	ReasonSMTPRefused       Reason = "smtp_refused"
+	ReasonSMTPTLS           Reason = "smtp_tls"
+	ReasonSMTPPlain         Reason = "smtp_plain"
 )
 
 // Reasons liste les motifs d'échec ; le motif vide, celui d'une livraison
 // réussie, n'en est pas un.
 func Reasons() []Reason {
-	return []Reason{ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonForbidden, ReasonRedirect, ReasonStatus, ReasonTLS}
+	return []Reason{
+		ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonForbidden, ReasonRedirect, ReasonStatus, ReasonTLS,
+		ReasonMailNotConfigured, ReasonSMTPAuthFailed, ReasonSMTPRefused, ReasonSMTPTLS, ReasonSMTPPlain,
+	}
 }
 
 const (
@@ -81,6 +90,9 @@ const (
 	// récepteur plus longue perd la livraison, et la page le montre.
 	MaxAttempts    = 3
 	RequestTimeout = 10 * time.Second
+	// Un relais SMTP dialogue plus longtemps qu'un webhook : connexion,
+	// STARTTLS, AUTH, enveloppe et corps tiennent dans ce délai.
+	MailTimeout = 20 * time.Second
 	// Une livraison restée en attente plus longtemps que cela au démarrage
 	// est rejouée une fois, puis abandonnée si elle échoue.
 	PendingRetryAfter = 5 * time.Minute

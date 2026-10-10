@@ -159,7 +159,8 @@ func TestNotifier_LinksToTheAlertPageWhenThePublicURLIsKnown(t *testing.T) {
 	notifier := f.notifier(t, lang.French)
 	notifier.SetPublicURL("https://oc.example.fr/")
 	targets := map[alert.Format]*receiver{}
-	for _, format := range alert.Formats() {
+	// Les formats webhook : ceux qui ne passent pas par un POST ont leur test.
+	for _, format := range []alert.Format{alert.FormatJSON, alert.FormatText, alert.FormatDiscord, alert.FormatSlack} {
 		targets[format] = newReceiver(http.StatusNoContent)
 		defer targets[format].Close()
 		f.webhook(t, targets[format].URL, format, "s3cret")

@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -83,6 +84,7 @@ func runMCP(args []string) error {
 	alerts := alert.New(db, logger)
 	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
 	notifier.SetPublicURL(cfg.PublicURL)
+	notifier.SetMail(mailRelayOf(preferences), mail.NewSender(alert.MailTimeout))
 	access, err := auth.New(db, logger)
 	if err != nil {
 		return err

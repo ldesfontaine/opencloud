@@ -171,9 +171,11 @@ type AlertService interface {
 	DeleteSilence(ctx context.Context, id int64) error
 }
 
-// Ce que le serveur attend du notifieur : tester un canal, tout de suite.
+// Ce que le serveur attend du notifieur : tester un canal, ou le relais
+// d'e-mails, tout de suite.
 type Notifier interface {
 	Test(ctx context.Context, channel alert.Channel) (alert.Outcome, error)
+	TestMail(ctx context.Context, recipient string) (alert.Outcome, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet. Le

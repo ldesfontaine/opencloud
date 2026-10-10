@@ -7,6 +7,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -67,6 +68,7 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "alert.delivery_reason_", values: names(alert.Reasons())},
 		{prefix: "alert.reason_", values: alert.UntrustReasons()},
 		{prefix: "channel.format_", values: names(alert.Formats())},
+		{prefix: "settings.mail_tls_", values: names(mail.TLSModes())},
 		{prefix: "status.state_", values: names(status.States())},
 		// Le public lit « unknown » là où le serveur ne dit rien.
 		{prefix: "status.global_", values: append(names(status.States()), "unknown")},

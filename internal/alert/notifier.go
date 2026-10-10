@@ -18,6 +18,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/egress"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 )
 
 const (
@@ -57,6 +58,10 @@ type Notifier struct {
 	now       func() time.Time
 	backoffs  []time.Duration
 	jobs      chan Job
+	// L'e-mail, branché par SetMail ; sans lui, un canal e-mail échoue
+	// avec un motif qui dit de régler le relais.
+	mailRelay  func() mail.Relay
+	mailSender MailSender
 }
 
 func NewNotifier(store DeliveryStore, catalogs lang.Catalogs, language func() lang.Code, logger *slog.Logger) *Notifier {
@@ -204,10 +209,13 @@ func (n *Notifier) Test(ctx context.Context, channel Channel) (Outcome, error) {
 	return n.Send(ctx, channel, EventTest, body), nil
 }
 
-// Send fait un envoi : POST du corps, signé par le secret du canal quand
+// Send fait un envoi : un e-mail par le relais, ou un POST du corps, signé par le secret du canal quand
 // il y en a un. Un 2xx suffit ; tout autre code est un échec qui porte
 // son code.
 func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body Body) Outcome {
+	if channel.Format == FormatEmail {
+		return n.sendMail(ctx, channel, body)
+	}
 	ctx, cancel := context.WithTimeout(ctx, RequestTimeout)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, channel.URL, bytes.NewReader(body.Content))

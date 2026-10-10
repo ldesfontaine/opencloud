@@ -10,12 +10,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/egress"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 )
 
 // Format est la forme du corps envoyé : celle d'openCloud, structurée ;
 // du texte brut, ce que lit ntfy ; un embed Discord ; un message Slack,
 // que Mattermost et Rocket.Chat lisent aussi. Un seul genre de canal, le
-// webhook : tout ce qui a une URL entrante se branche.
+// webhook : tout ce qui a une URL entrante se branche. L'e-mail n'a pas
+// d'URL : il part par le relais SMTP réglé sous Paramètres, vers les
+// adresses de sa destination.
 type Format string
 
 const (
@@ -23,10 +26,11 @@ const (
 	FormatText    Format = "text"
 	FormatDiscord Format = "discord"
 	FormatSlack   Format = "slack"
+	FormatEmail   Format = "email"
 )
 
 func Formats() []Format {
-	return []Format{FormatJSON, FormatText, FormatDiscord, FormatSlack}
+	return []Format{FormatJSON, FormatText, FormatDiscord, FormatSlack, FormatEmail}
 }
 
 func isFormat(format Format) bool {
@@ -38,6 +42,8 @@ const (
 	MaxChannelURL    = 2048
 	MaxChannelSecret = 256
 	MaxChannels      = 32
+	// Dix adresses de 254 caractères et leurs séparateurs.
+	MaxChannelDestination = 2600
 )
 
 // Channel est un canal tel que la base le connaît. Le secret sert à signer
@@ -48,7 +54,9 @@ type Channel struct {
 	Name   string
 	URL    string
 	Format Format
-	Secret string
+	// Destination dit où le message arrive quand l'URL ne le dit pas.
+	Destination string
+	Secret      string
 	// HasSecret est dérivé à la lecture, jamais stocké.
 	HasSecret bool
 	// MinSeverity : le canal ne reçoit que ce qui atteint cette gravité.
@@ -74,6 +82,7 @@ type ChannelDefinition struct {
 	Name          string
 	URL           string
 	Format        Format
+	Destination   string
 	Secret        string
 	ClearSecret   bool
 	MinSeverity   Severity
@@ -88,6 +97,7 @@ var (
 	ErrChannelFormatInvalid   = errors.New("alert: channel format invalid")
 	ErrChannelSecretInvalid   = errors.New("alert: channel secret invalid")
 	ErrChannelSeverityInvalid = errors.New("alert: channel severity invalid")
+	ErrChannelRecipients      = errors.New("alert: channel recipients invalid")
 	ErrTooManyChannels        = errors.New("alert: too many channels")
 	ErrSilenceInvalid         = errors.New("alert: silence needs a kind or an object")
 	ErrSilenceDurationInvalid = errors.New("alert: silence duration invalid")
@@ -100,11 +110,11 @@ func (d ChannelDefinition) Validate() error {
 	if name == "" || !utf8.ValidString(name) || utf8.RuneCountInString(name) > MaxChannelName {
 		return ErrChannelNameInvalid
 	}
-	if err := validateURL(d.URL); err != nil {
-		return err
-	}
 	if !isFormat(d.Format) {
 		return ErrChannelFormatInvalid
+	}
+	if err := d.validateTarget(); err != nil {
+		return err
 	}
 	if len(d.Secret) > MaxChannelSecret || !utf8.ValidString(d.Secret) {
 		return ErrChannelSecretInvalid
@@ -113,6 +123,49 @@ func (d ChannelDefinition) Validate() error {
 		return ErrChannelSeverityInvalid
 	}
 	return nil
+}
+
+// validateTarget vérifie où le canal envoie : l'URL d'un webhook, les
+// adresses d'un e-mail.
+func (d ChannelDefinition) validateTarget() error {
+	if d.Format != FormatEmail {
+		return validateURL(d.URL)
+	}
+	if len(d.Destination) > MaxChannelDestination || mail.ValidateRecipients(Recipients(d.Destination)) != nil {
+		return ErrChannelRecipients
+	}
+	return nil
+}
+
+// normalized range la définition selon son format : un e-mail n'a ni URL
+// ni secret, ses adresses sont écrites d'une seule façon ; un webhook n'a
+// pas de destination.
+func (d ChannelDefinition) normalized() ChannelDefinition {
+	if d.Format != FormatEmail {
+		d.Destination = ""
+		return d
+	}
+	d.URL = ""
+	d.Secret = ""
+	d.ClearSecret = true
+	d.Destination = strings.Join(Recipients(d.Destination), ", ")
+	return d
+}
+
+// Recipients lit les adresses d'un canal e-mail, séparées par des
+// virgules, des points-virgules ou des espaces ; un doublon ne compte
+// qu'une fois.
+func Recipients(destination string) []string {
+	fields := strings.FieldsFunc(destination, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	recipients := []string{}
+	for _, field := range fields {
+		if !slices.Contains(recipients, field) {
+			recipients = append(recipients, field)
+		}
+	}
+	return recipients
 }
 
 func validateURL(raw string) error {

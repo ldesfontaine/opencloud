@@ -687,13 +687,15 @@ export interface AlertResponse {
   deliveries: Delivery[];
 }
 
-export type ChannelFormat = "json" | "text" | "discord" | "slack";
+export type ChannelFormat = "json" | "text" | "discord" | "slack" | "email";
 
 export interface Channel {
   id: number;
   name: string;
   url: string;
   format: ChannelFormat;
+  // Où le message arrive quand l'URL ne le dit pas ; absent pour un webhook.
+  destination?: string;
   has_secret: boolean;
   min_severity: AlertSeverity;
   notify_resolve: boolean;
@@ -701,6 +703,19 @@ export interface Channel {
   // L'URL est en http : le canal parle en clair.
   plain: boolean;
   created_at: string;
+}
+
+export type MailTLSMode = "starttls" | "tls" | "none";
+
+// Le relais SMTP du canal e-mail ; le mot de passe ne revient jamais.
+export interface MailSettings {
+  configured: boolean;
+  host: string;
+  port: number;
+  tls: MailTLSMode;
+  username: string;
+  has_password: boolean;
+  from: string;
 }
 
 export interface ChannelsResponse {
