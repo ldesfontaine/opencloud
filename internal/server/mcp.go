@@ -70,7 +70,9 @@ const mcpInstructions = "openCloud is a self-hosted dashboard that watches machi
 	"scheduled jobs (heartbeats), HTTP/TCP probes with their TLS certificates, a public status page and alerts. " +
 	"Every read tool returns the same JSON facts as the web API: instants are ISO 8601 in UTC, durations are in " +
 	"seconds or milliseconds, states are closed lists of lowercase words. Nothing here can act on a machine: " +
-	"no restart, no deploy, no command. Errors come back as {\"error\":\"<code>\"} where the code is stable " +
+	"no restart, no deploy, no command, and openCloud's own secrets (passwords, channel secrets, ping URLs) are " +
+	"never returned; container logs are raw and can contain anything. open_incident and add_incident_update " +
+	"publish on the public status page. Errors come back as {\"error\":\"<code>\"} where the code is stable " +
 	"(not_found, internal) or a catalog key such as probe.not_paused."
 
 const mcpReadOnlyInstructions = " This session runs over stdio and is read-only: write tools answer " +

@@ -18,7 +18,7 @@
 | Un visiteur | N'importe qui, dans un navigateur, sans compte | La page de statut publique sous `/statut` : un petit bundle à part, qui lit un instantané et un direct publics |
 | Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi | Rien : il reçoit un POST signé quand une alerte s'ouvre, s'aggrave ou se résout |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
-| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : seize lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà. Jamais une action sur une machine, jamais un secret |
+| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : seize lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà, dont la publication d'un incident sur la page de statut publique. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -983,7 +983,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | --- | --- | --- |
 | `get_overview` | La version et les compteurs de `/api/counts` | |
 | `list_machines`, `get_machine`, `get_machine_network` | Les machines sans leurs jetons en attente ; une machine avec sa dernière mesure et son Docker ; la topologie et les constats d'exposition | |
-| `list_services`, `get_service`, `get_service_logs` | Les services, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux tirés de l'agent, mêmes bornes que l'interface | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
+| `list_services`, `get_service`, `get_service_logs` | Les services, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
@@ -1001,9 +1001,9 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 commande, aucun redémarrage, aucun déploiement), créer ou modifier un
 canal (une URL de webhook y passerait), tester un canal (un envoi réseau
 déclenché par un modèle), créer ou supprimer une machine, un jeton, une
-sonde, une tâche, un composant, changer un réglage, lire un secret : ni
+sonde, une tâche, un composant, changer un réglage, lire un secret d'openCloud : ni
 l'URL de ping, ni le secret d'un canal, ni un jeton, ni le secret du
-client. Un refus est le même mot que dans l'API, `not_found`, `internal`
+client. Les journaux d'un conteneur, eux, sortent bruts et peuvent en contenir un ; la carte Paramètres le dit, comme elle dit que `open_incident` et `add_incident_update` publient pour le public. Un refus est le même mot que dans l'API, `not_found`, `internal`
 ou une clé de catalogue ; le détail d'une erreur reste au journal.
 
 ### Limitation de débit sur `/mcp` et `/oauth/…`

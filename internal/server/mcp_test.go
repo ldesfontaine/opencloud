@@ -109,6 +109,29 @@ func TestMCP_ListsSixteenReadsAndNineWritesWithHonestHints(t *testing.T) {
 	}
 }
 
+// Ce qu'un agent lit et publie se dit sans détour : les journaux de
+// conteneur sont bruts, un incident ouvert est public, et aucune promesse
+// de « jamais un secret » ne couvre ce que les journaux peuvent contenir.
+func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
+	server := newTestServer(t)
+	session := connectMCP(t, server.mcpServer)
+	instructions := session.InitializeResult().Instructions
+	for _, want := range []string{"container logs are raw", "public status page", "openCloud's own secrets"} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("instructions lack %q: %s", want, instructions)
+		}
+	}
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name == "get_service_logs" && !strings.Contains(tool.Description, "can contain secrets") {
+			t.Errorf("get_service_logs does not warn about secrets: %s", tool.Description)
+		}
+	}
+}
+
 // Chaque lecture est figée dans testdata/mcp_<outil>.golden.json sur les
 // mêmes données que l'API ; `go test ./internal/server -update` les
 // réécrit après vérification. Aucun secret n'y passe.
