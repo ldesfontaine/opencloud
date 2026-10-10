@@ -248,6 +248,34 @@ func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type acknowledgeAlertsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+// Combien d'alertes de la sélection sont passées à acquittées ; les autres
+// l'étaient déjà, ou se sont résolues entre-temps.
+type acknowledgeAlertsResponse struct {
+	Acknowledged int `json:"acknowledged"`
+}
+
+func (s *Server) acknowledgeAlerts(w http.ResponseWriter, r *http.Request) {
+	var request acknowledgeAlertsRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	acknowledged, err := s.alerts.AcknowledgeMany(r.Context(), request.IDs)
+	switch {
+	case errors.Is(err, alert.ErrSelectionEmpty):
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_empty")
+	case errors.Is(err, alert.ErrSelectionTooLarge):
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_too_large")
+	case err != nil:
+		s.apiInternalError(w, r, err)
+	default:
+		s.writeAPI(w, http.StatusOK, acknowledgeAlertsResponse{Acknowledged: acknowledged})
+	}
+}
+
 // --- Canaux ---
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {

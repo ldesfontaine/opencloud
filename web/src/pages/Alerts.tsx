@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
@@ -12,6 +12,7 @@ import { List, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
+import { acknowledgedMessage, coverage, groupByMachine, groupCountLabel, keepSelectable, selectableIDs, selectedLabel, toggleAll } from "../lib/alertSelection";
 import { alertsSubtitle, channelTestResult, describeAlert, objectPath, severityTones, silenceTargets, stateOf, stateTones } from "../lib/alerts";
 import { useRefresh } from "../lib/refresh";
 import { ago, formatClock } from "../lib/time";
@@ -78,6 +79,9 @@ export function Alerts() {
 function AlertsTab({ status, acknowledged }: { status: "open" | "resolved"; acknowledged: boolean | null }) {
   const t = useT();
   const alerts = useResource<AlertsResponse>(status === "resolved" ? "/api/alerts?status=resolved" : "/api/alerts");
+  // Le retour d'un acquittement groupé vit ici : il reste lisible même
+  // quand la liste s'est vidée.
+  const [notice, setNotice] = useState<string | null>(null);
   if (alerts.error) {
     return <Failure error={alerts.error} />;
   }
@@ -89,9 +93,17 @@ function AlertsTab({ status, acknowledged }: { status: "open" | "resolved"; ackn
     const text = status === "resolved" ? "alerts.empty_resolved_text" : acknowledged ? "alerts.empty_acknowledged_text" : "alerts.empty_open_text";
     return (
       <Card>
+        {notice !== null && (
+          <div className="alert-bulk-result" role="status">
+            <Pill tone="ok">{notice}</Pill>
+          </div>
+        )}
         {status === "open" && !acknowledged ? <Empty icon="bell" title={t("alerts.empty_open_title")} text={t(text)} /> : <Empty icon="bell" text={t(text)} />}
       </Card>
     );
+  }
+  if (status === "open" && !acknowledged) {
+    return <SelectableAlerts alerts={list} notice={notice} setNotice={setNotice} />;
   }
   return (
     <Card>
@@ -104,9 +116,112 @@ function AlertsTab({ status, acknowledged }: { status: "open" | "resolved"; ackn
   );
 }
 
+// Les ouvertes à acquitter : une case par alerte, une par machine, « tout
+// sélectionner », et l'acquittement groupé en une requête. La sélection se
+// vide d'elle-même de ce qui a été acquitté ou résolu en direct.
+function SelectableAlerts({ alerts, notice: message, setNotice: setMessage }: { alerts: Alert[]; notice: string | null; setNotice: (notice: string | null) => void }) {
+  const t = useT();
+  const { refresh } = useRefresh();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setSelected((current) => keepSelectable(current, alerts)), [alerts]);
+  const all = selectableIDs(alerts);
+  const toggle = (ids: number[]) => {
+    setMessage(null);
+    setSelected((current) => toggleAll(current, ids));
+  };
+  const acknowledge = (ids: number[]) => {
+    setBusy(true);
+    setMessage(null);
+    setError(null);
+    api
+      .post<{ acknowledged: number }>("/api/alerts/actions/acknowledge", { ids })
+      .then((response) => {
+        setMessage(acknowledgedMessage(t, response.acknowledged));
+        setSelected(new Set());
+      })
+      .catch((failure: unknown) => setError(errorKey(failure)))
+      .finally(() => {
+        setBusy(false);
+        refresh("alerts");
+      });
+  };
+  const groups = groupByMachine(alerts);
+  return (
+    <Card>
+      <div className="alert-bulk">
+        <label className="alert-check">
+          <SelectBox state={coverage(selected, all)} onChange={() => toggle(all)} />
+          <span>{t("alerts.select_all")}</span>
+        </label>
+        <span className="secondary" aria-live="polite">
+          {selected.size > 0 && selectedLabel(t, selected.size)}
+        </span>
+        <span className="alert-bulk-actions">
+          <Button small variant="primary" icon="check" onClick={() => acknowledge([...selected])} disabled={busy || selected.size === 0}>
+            {t("alerts.acknowledge_selection")}
+          </Button>
+          <Button small icon="check" onClick={() => acknowledge(all)} disabled={busy || all.length === 0}>
+            {t("alerts.acknowledge_all")}
+          </Button>
+        </span>
+      </div>
+      {(message !== null || error !== null) && (
+        <div className="alert-bulk-result" role="status">
+          {message !== null && <Pill tone="ok">{message}</Pill>}
+          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        </div>
+      )}
+      {groups.map((group) => {
+        const ids = selectableIDs(group.alerts);
+        const name = group.machineName === "" ? t("alert.no_machine") : group.machineName;
+        return (
+          <section className="alert-group" key={group.machineID || "none"}>
+            <div className="alert-group-head">
+              <label className="alert-check">
+                <SelectBox state={coverage(selected, ids)} onChange={() => toggle(ids)} label={t("alerts.select_machine", name)} />
+                <b>{name}</b>
+              </label>
+              <span className="secondary">{groupCountLabel(t, group.alerts.length)}</span>
+            </div>
+            <List>
+              {group.alerts.map((alert) => (
+                <AlertRow key={alert.id} alert={alert} selected={selected.has(alert.id)} onSelect={() => toggle([alert.id])} />
+              ))}
+            </List>
+          </section>
+        );
+      })}
+    </Card>
+  );
+}
+
+// Une case qui couvre un ensemble : cochée, vide, ou indéterminée quand une
+// partie seulement l'est ; l'état indéterminé ne se pose que par le DOM.
+function SelectBox({ state, onChange, label }: { state: "all" | "some" | "none"; onChange: () => void; label?: string }) {
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) {
+      box.current.indeterminate = state === "some";
+    }
+  }, [state]);
+  return <input ref={box} type="checkbox" checked={state === "all"} onChange={onChange} aria-label={label} />;
+}
+
 // Une alerte : le point de sa gravité, le fait, la cause, le geste ; à
 // droite sa machine, son état, son moment, et ce qu'on peut en faire.
-export function AlertRow({ alert, compact = false }: { alert: Alert; compact?: boolean }) {
+export function AlertRow({
+  alert,
+  compact = false,
+  selected,
+  onSelect,
+}: {
+  alert: Alert;
+  compact?: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
+}) {
   const t = useT();
   const now = useNow();
   const disks = useDiskThresholds();
@@ -123,6 +238,9 @@ export function AlertRow({ alert, compact = false }: { alert: Alert; compact?: b
   const silenceHref = `/alertes/silences/nouveau?kind=${alert.kind}&object_kind=${alert.object.kind}&object_id=${encodeURIComponent(alert.object.id)}&object_name=${encodeURIComponent(alert.object.name)}`;
   return (
     <div className="row alert-row">
+      {onSelect !== undefined && (
+        <input className="alert-row-check" type="checkbox" checked={selected === true} onChange={onSelect} aria-label={t("alerts.select_alert", `${text.fact} · ${alert.object.name}`)} />
+      )}
       <Dot tone={severityTones[alert.severity]} />
       <span className="txt">
         <Link to={`/alertes/alerte/${alert.id}`}>

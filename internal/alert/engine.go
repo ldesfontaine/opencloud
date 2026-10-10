@@ -25,6 +25,9 @@ type Store interface {
 	ListOrphanAlerts(ctx context.Context) ([]Alert, error)
 	// UpdateAlert réécrit ce qui bouge : gravité, détails, nom, dates.
 	UpdateAlert(ctx context.Context, alert Alert) error
+	// AcknowledgeAlerts acquitte d'un seul tenant celles des alertes nommées
+	// qui sont ouvertes et pas encore acquittées ; rend combien.
+	AcknowledgeAlerts(ctx context.Context, ids []int64, at time.Time) (int, error)
 	CountAlerts(ctx context.Context) (Counts, error)
 	PurgeAlerts(ctx context.Context, resolvedBefore time.Time) error
 
@@ -307,6 +310,44 @@ func (e *Engine) Acknowledge(ctx context.Context, id int64) (Alert, error) {
 	e.logger.Info("alert acknowledged", "alert_id", id)
 	e.changed()
 	return alert, nil
+}
+
+// AcknowledgeMany acquitte une sélection en une écriture. Une alerte
+// résolue, déjà acquittée ou disparue entre l'affichage et le clic est
+// passée sans refus : l'opérateur voulait qu'elle ne compte plus, c'est le
+// cas. Rend le nombre d'alertes réellement acquittées.
+func (e *Engine) AcknowledgeMany(ctx context.Context, ids []int64) (int, error) {
+	unique := uniqueIDs(ids)
+	if len(unique) == 0 {
+		return 0, ErrSelectionEmpty
+	}
+	if len(unique) > MaxAcknowledgedAtOnce {
+		return 0, ErrSelectionTooLarge
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	acknowledged, err := e.store.AcknowledgeAlerts(ctx, unique, e.now())
+	if err != nil {
+		return 0, err
+	}
+	e.logger.Info("alerts acknowledged", "requested", len(unique), "acknowledged", acknowledged)
+	if acknowledged > 0 {
+		e.changed()
+	}
+	return acknowledged, nil
+}
+
+func uniqueIDs(ids []int64) []int64 {
+	seen := make(map[int64]bool, len(ids))
+	unique := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 func (e *Engine) Get(ctx context.Context, id int64) (Alert, error) {

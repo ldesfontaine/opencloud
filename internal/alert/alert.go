@@ -224,12 +224,18 @@ const (
 	ResolvedRetention = 90 * 24 * time.Hour
 	// Ce que la page liste d'un coup.
 	MaxListed = 200
+	// Un acquittement groupé couvre au plus ce que la page affiche.
+	MaxAcknowledgedAtOnce = MaxListed
 )
 
 var (
 	ErrNotFound      = errors.New("alert: not found")
 	ErrAlreadyClosed = errors.New("alert: already resolved")
 	ErrFactInvalid   = errors.New("alert: fact invalid")
+	// Un acquittement groupé sans alerte, ou au-delà de ce que la page
+	// affiche.
+	ErrSelectionEmpty    = errors.New("alert: selection empty")
+	ErrSelectionTooLarge = errors.New("alert: selection too large")
 )
 
 // Validate refuse un fait sans objet : la clé de dédup serait vide et deux
