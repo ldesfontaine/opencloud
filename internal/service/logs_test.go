@@ -134,9 +134,9 @@ func TestRelay_OfflineMachineAndBusyMachine(t *testing.T) {
 	}
 }
 
-func TestRelay_WithoutCommander_IsOffline(t *testing.T) {
+func TestRelay_WithoutCommander_SaysLogsAreUnavailableHere(t *testing.T) {
 	relay := NewRelay()
-	if _, err := relay.Open(context.Background(), "vps", LogRequest{}); !errors.Is(err, ErrMachineOffline) {
+	if _, err := relay.Open(context.Background(), "vps", LogRequest{}); !errors.Is(err, ErrLogsUnavailableLocally) {
 		t.Fatalf("err = %v", err)
 	}
 }

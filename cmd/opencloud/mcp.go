@@ -65,6 +65,9 @@ func runMCP(args []string) error {
 	// Les mêmes composants que serve, sans aucune boucle ni écouteur : ils
 	// ne servent qu'à lire. Le bus n'a pas d'abonné, les flux pas d'agent.
 	machines := machine.New(db, machine.NewSessions(), logger)
+	// Les flux des agents vivent dans serve : ici, une machine est en ligne
+	// si son dernier signal est récent.
+	machines.SetPresence(machine.RecentSignal{})
 	heartbeats := heartbeat.New(db, logger)
 	resources := resource.New(db, logger)
 	services := service.New(db, logger)

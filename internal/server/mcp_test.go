@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // Le catalogue, fermé : seize lectures, neuf écritures. Un outil ajouté
@@ -173,6 +175,48 @@ func TestMCP_ServiceLogsRefuseLikeTheAPI(t *testing.T) {
 	}
 	text, isError = callTool(t, session, "get_service_logs", map[string]any{"service_id": "nope"})
 	if !isError || toolErrorCode(t, text) != codeNotFound {
+		t.Fatalf("%v %s", isError, text)
+	}
+}
+
+// opencloud mcp ne tient pas les flux des agents : « en ligne » vient du
+// dernier signal en base, et les journaux disent qu'ils passent par HTTP.
+func TestMCPStdio_OnlineComesFromTheLastSignal(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	server.machines.SetPresence(machine.RecentSignal{})
+	session := connectMCP(t, server.newMCPServer(true))
+	ctx := context.Background()
+
+	for _, seen := range []struct {
+		ago    time.Duration
+		online bool
+	}{{10 * time.Second, true}, {5 * time.Minute, false}} {
+		if err := server.db.TouchMachine(ctx, remoteID, testNow.Add(-seen.ago)); err != nil {
+			t.Fatal(err)
+		}
+		text, isError := callTool(t, session, "list_machines", nil)
+		if isError {
+			t.Fatalf("refused: %s", text)
+		}
+		var listed machinesToolResponse
+		if err := json.Unmarshal([]byte(text), &listed); err != nil {
+			t.Fatal(err)
+		}
+		if got := listed.Machines[1]; got.ID != remoteID || got.Online != seen.online {
+			t.Errorf("seen %s ago: %+v", seen.ago, got)
+		}
+	}
+}
+
+func TestMCPStdio_ServiceLogsPointToTheHTTPTransport(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	serviceID := server.seedServices(t)
+	server.services.SetCommander(nil)
+	session := connectMCP(t, server.newMCPServer(true))
+	text, isError := callTool(t, session, "get_service_logs", map[string]any{"service_id": serviceID})
+	if !isError || toolErrorCode(t, text) != "service.logs_unavailable_locally" {
 		t.Fatalf("%v %s", isError, text)
 	}
 }

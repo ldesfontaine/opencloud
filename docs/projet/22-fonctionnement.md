@@ -807,6 +807,23 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    **lecture seule**, les écritures restent listées et répondent
    `mcp.read_only`.
 
+### Ce que le mode local voit
+
+L'état en ligne d'une machine vient des flux que **serve** tient en mémoire ;
+`opencloud mcp` n'en a aucun. Il lit donc la même présence autrement : le
+dernier signal en base, que serve y écrit toutes les 30 s.
+
+| Question | Réponse en mode local |
+| --- | --- |
+| Une machine est-elle en ligne ? | Oui si son dernier signal date de moins de 2 minutes (`machine.OnlineWindow`, la règle qui la déclare perdue), non sinon ou si elle n'a jamais signalé |
+| La machine openCloud ? | Toujours en ligne : c'est l'hôte qui fait tourner le processus |
+| `machine_online` des sondes, état de `get_status_page` | Dérivés de la même règle, pas d'une panne fantôme |
+| `get_service_logs` | `service.logs_unavailable_locally` : les journaux passent par l'agent, que ce processus ne tient pas ; utiliser le MCP HTTP |
+
+Le coût : si serve est arrêté, les signaux cessent et les machines passent
+hors ligne au bout de 2 minutes, ce qui est vrai. Un signal tout juste manqué
+laisse une machine en ligne jusqu'à 2 minutes de trop.
+
 ### Le catalogue
 
 Chaque lecture rend les faits de l'API, sous le même JSON, par les mêmes

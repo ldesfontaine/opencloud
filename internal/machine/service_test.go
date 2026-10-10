@@ -311,3 +311,74 @@ func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 		t.Fatal("still online")
 	}
 }
+
+// opencloud mcp ne tient aucun flux : la présence se lit dans le dernier signal.
+func TestRecentSignal_SeenTenSecondsAgo_IsOnline(t *testing.T) {
+	h := newHarness(t)
+	h.service.SetPresence(RecentSignal{})
+	m, _ := h.enroll(t, "vps-paris-1")
+	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	status, err := h.service.Get(context.Background(), m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Online {
+		t.Fatalf("seen 10 s ago: %+v", status)
+	}
+}
+
+func TestRecentSignal_SeenFiveMinutesAgo_IsOffline(t *testing.T) {
+	h := newHarness(t)
+	h.service.SetPresence(RecentSignal{})
+	m, _ := h.enroll(t, "vps-paris-1")
+	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	status, err := h.service.Get(context.Background(), m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Online {
+		t.Fatalf("seen 5 min ago: %+v", status)
+	}
+}
+
+func TestRecentSignal_NeverSeen_IsOffline(t *testing.T) {
+	h := newHarness(t)
+	h.service.SetPresence(RecentSignal{})
+	m, _ := h.enroll(t, "vps-paris-1")
+	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
+		t.Fatalf("never seen: %+v", status)
+	}
+}
+
+func TestRecentSignal_StopsBeingOnlineWhereTheMachineIsDeclaredLost(t *testing.T) {
+	h := newHarness(t)
+	h.service.SetPresence(RecentSignal{})
+	m, _ := h.enroll(t, "vps-paris-1")
+	lastSignal := h.now
+	if err := h.store.TouchMachine(context.Background(), m.ID, lastSignal); err != nil {
+		t.Fatal(err)
+	}
+	h.now = lastSignal.Add(LostAfter - time.Second)
+	if status, _ := h.service.Get(context.Background(), m.ID); !status.Online {
+		t.Fatal("offline before the lost delay")
+	}
+	h.now = lastSignal.Add(LostAfter)
+	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
+		t.Fatal("still online at the lost delay")
+	}
+}
+
+func TestRecentSignal_LocalMachine_StaysOnline(t *testing.T) {
+	h := newHarness(t)
+	h.service.SetPresence(RecentSignal{})
+	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc"}); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := h.service.Get(context.Background(), LocalID); !status.Online {
+		t.Fatal("the local machine is the host running this process")
+	}
+}
