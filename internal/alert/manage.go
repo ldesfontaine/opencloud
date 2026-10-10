@@ -11,24 +11,30 @@ func (e *Engine) CreateChannel(ctx context.Context, definition ChannelDefinition
 	if err := definition.Validate(); err != nil {
 		return Channel{}, err
 	}
-	existing, err := e.store.ListChannels(ctx)
-	if err != nil {
-		return Channel{}, err
-	}
-	if len(existing) >= MaxChannels {
-		return Channel{}, ErrTooManyChannels
-	}
 	channel := Channel{
 		Name: strings.TrimSpace(definition.Name), URL: definition.URL, Format: definition.Format, Secret: definition.Secret,
 		MinSeverity: definition.MinSeverity, NotifyResolve: definition.NotifyResolve, Enabled: definition.Enabled, CreatedAt: e.now(),
 	}
-	id, err := e.store.InsertChannel(ctx, channel)
+	id, err := e.insertChannelUnderCeiling(ctx, channel)
 	if err != nil {
 		return Channel{}, err
 	}
 	e.logger.Info("alert channel created", "channel_id", id, "name", channel.Name, "format", string(channel.Format))
 	e.changed()
 	return e.store.GetChannel(ctx, id)
+}
+
+func (e *Engine) insertChannelUnderCeiling(ctx context.Context, channel Channel) (int64, error) {
+	e.creatingChannel.Lock()
+	defer e.creatingChannel.Unlock()
+	existing, err := e.store.ListChannels(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if len(existing) >= MaxChannels {
+		return 0, ErrTooManyChannels
+	}
+	return e.store.InsertChannel(ctx, channel)
 }
 
 // UpdateChannel réécrit le canal ; un secret vide garde celui en place,

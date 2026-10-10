@@ -3,6 +3,7 @@ package alert_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -219,8 +220,8 @@ func TestCount_AcknowledgedLeavesTheRedCounter(t *testing.T) {
 	if err != nil || counts.Open != 1 || counts.Unacknowledged != 0 {
 		t.Fatalf("counts %+v, %v", counts, err)
 	}
-	if f.watcher.changes < 2 {
-		t.Fatalf("the live should have been told twice, got %d", f.watcher.changes)
+	if f.watcher.changes.Load() < 2 {
+		t.Fatalf("the live should have been told twice, got %d", f.watcher.changes.Load())
 	}
 }
 
@@ -275,5 +276,40 @@ func TestChannel_SecretStaysAndCanBeCleared(t *testing.T) {
 	_, err = f.CreateChannel(ctx, alert.ChannelDefinition{Name: "ftp", URL: "ftp://example.org/", Format: alert.FormatJSON, MinSeverity: alert.SeverityAttention})
 	if !errors.Is(err, alert.ErrChannelURLInvalid) {
 		t.Fatalf("ftp url: %v", err)
+	}
+}
+
+// Des créations simultanées ne dépassent jamais le plafond de canaux : 32
+// passent, les suivants sont refusés.
+func TestCreateChannel_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
+	f := newFixture(t)
+	attempts := alert.MaxChannels + 16
+	results := make(chan error, attempts)
+	var creators sync.WaitGroup
+	for range attempts {
+		creators.Add(1)
+		go func() {
+			defer creators.Done()
+			_, err := f.CreateChannel(context.Background(), alert.ChannelDefinition{
+				Name: "ops", URL: "http://127.0.0.1:9/hook", Format: alert.FormatJSON, MinSeverity: alert.SeverityAttention, Enabled: true,
+			})
+			results <- err
+		}()
+	}
+	creators.Wait()
+	close(results)
+	accepted, tooMany := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			accepted++
+		case errors.Is(err, alert.ErrTooManyChannels):
+			tooMany++
+		default:
+			t.Fatalf("unexpected: %v", err)
+		}
+	}
+	if accepted != alert.MaxChannels || tooMany != 16 {
+		t.Fatalf("accepted %d, refused %d", accepted, tooMany)
 	}
 }

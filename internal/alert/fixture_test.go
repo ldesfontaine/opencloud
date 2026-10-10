@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,9 +52,9 @@ func (s *recordingSender) events() string {
 	return strings.Join(events, ",")
 }
 
-type countingWatcher struct{ changes int }
+type countingWatcher struct{ changes atomic.Int32 }
 
-func (w *countingWatcher) AlertsChanged() { w.changes++ }
+func (w *countingWatcher) AlertsChanged() { w.changes.Add(1) }
 
 type fakeMaintenance struct{ under map[string]bool }
 
