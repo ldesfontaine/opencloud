@@ -352,6 +352,7 @@ name_taken = "Enrollment refused: a machine already has this name. Remove it or 
 identity_refused = "openCloud no longer recognises this machine: it was removed or re-enrolled elsewhere. Create a new token and run the install again."
 plain_refused = "Address refused: openCloud is on http:// and not on this machine, the token would travel in clear. Use https://, or -allow-plain if the network is already encrypted (WireGuard)."
 pin_mismatch = "Certificate refused: it is not the one whose fingerprint was pinned. The openCloud certificate changed, or someone is impersonating it. Check the fingerprint before replacing it."
+clock_skew = "The clock of this machine and the clock of openCloud differ by more than 5 minutes: openCloud refuses its proof and the machine stays offline. Set the time on both with NTP (timedatectl set-ntp true); the agent keeps retrying."
 server_failed = "openCloud answered with error %d. Check its logs."
 failed = "The agent stopped: %s"
 
