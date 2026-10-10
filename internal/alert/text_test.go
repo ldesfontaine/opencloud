@@ -46,6 +46,10 @@ func TestDescribe_ReadsLikeTheCanvas(t *testing.T) {
 	if disk.Fact != "Disque à 86 %" || disk.Cause != "/data sur vps-lyon-2. Seuil d'alerte fixé à 85 %." {
 		t.Fatalf("disk %+v", disk)
 	}
+	en := alert.Describe(catalogs.For(lang.English), alert.Alert{Kind: alert.KindDiskFull, Severity: alert.SeverityAttention, Object: alert.Object{Name: "/data"}, MachineName: "vps-lyon-2", Details: alert.Details{MountPoint: "/data", Percent: 91}}, testNow)
+	if en.Fact != "Disk at 91 %" || en.Cause != "/data on vps-lyon-2. Alert threshold set at 85 %." {
+		t.Fatalf("disk en %+v", en)
+	}
 	expiring := alert.Describe(fr, alert.Alert{Kind: alert.KindCertExpiring, Severity: alert.SeverityAttention, Details: alert.Details{Target: "blog.desfontaine.fr", NotAfter: testNow.Add(12*24*time.Hour - time.Hour)}}, testNow)
 	if expiring.Fact != "Certificat qui expire" || expiring.Cause != "blog.desfontaine.fr, dans 12 jours." {
 		t.Fatalf("expiring %+v", expiring)

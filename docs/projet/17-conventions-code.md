@@ -241,6 +241,8 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
 - **Aucune chaîne visible en dur** : tout passe par `t("clé")` et les
   catalogues TOML servis par `/api/i18n/{code}` ; un test Go vérifie que
   chaque clé demandée existe dans les deux langues.
+  Les chaînes sont des formats Go (`%s`, `%d`), lus par le serveur et par le
+  front : un pourcentage s'écrit `%%`, un test refuse un `%` seul.
 - Une page lit ses données par `useResource("/api/…")` et relit sur le signal
   de `useRefresh()` : c'est là que le direct se branchera.
 - Pas de bibliothèque d'état ni de requêtes tant que `fetch` et quelques hooks
