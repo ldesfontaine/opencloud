@@ -154,6 +154,22 @@ type Fact struct {
 	Object    Object
 	MachineID string
 	Details   Details
+	// ClearSince : depuis quand l'état est redevenu bon ; zéro tant que le
+	// problème dure. Seuls les services s'en servent.
+	ClearSince time.Time
+}
+
+// isCrash dit si le type est l'un des deux visages d'un service qui
+// plante : arrêté, ou relancé après un arrêt. Un service n'a qu'une
+// alerte vivante de cette nature, dont le type suit l'état du moment.
+func isCrash(kind Kind) bool {
+	return kind == KindServiceDown || kind == KindServiceRestart
+}
+
+// isLoop dit qu'un plantage est devenu une boucle : le seuil de
+// redémarrages est atteint dans la fenêtre.
+func isLoop(kind Kind, details Details) bool {
+	return isCrash(kind) && details.Count >= RestartLoopThreshold
 }
 
 // Alert est une alerte telle que la base la connaît. Les dates zéro
@@ -173,15 +189,21 @@ type Alert struct {
 	MachineName string
 	Details     Details
 	OpenedAt    time.Time
-	// UpdatedAt bouge à chaque aggravation ou détail nouveau : c'est sur
-	// lui qu'un redémarrage non demandé finit par se résoudre.
+	// UpdatedAt bouge à chaque aggravation ou détail nouveau.
 	UpdatedAt      time.Time
 	ResolvedAt     time.Time
 	AcknowledgedAt time.Time
+	// ClearSince : depuis quand l'état d'un service est redevenu bon. Zéro
+	// tant que le problème dure ; l'alerte se résout passé ServiceClearDelay.
+	ClearSince time.Time
 }
 
 func (a Alert) IsOpen() bool {
 	return a.Status == StatusOpen
+}
+
+func (a Alert) IsLoop() bool {
+	return isLoop(a.Kind, a.Details)
 }
 
 func (a Alert) IsAcknowledged() bool {
@@ -197,7 +219,10 @@ type Filter struct {
 	MachineID  string
 	// UpdatedBefore ne garde que ce qui n'a pas bougé depuis.
 	UpdatedBefore time.Time
-	Limit         int
+	// ClearBefore ne garde que ce qui est redevenu bon depuis au moins cet
+	// instant.
+	ClearBefore time.Time
+	Limit       int
 }
 
 // Counts est ce que la barre latérale et la vue d'ensemble comptent.
@@ -216,6 +241,14 @@ const (
 	// troisième, c'est une boucle. Le même délai de calme résout l'alerte.
 	RestartWindow        = 10 * time.Minute
 	RestartLoopThreshold = 3
+	// Un service arrêté ou défaillant ne se résout qu'après être resté bon
+	// ce temps-là : un conteneur qui repart pour retomber garde la même
+	// alerte, au lieu d'en ouvrir et d'en résoudre une à chaque tour.
+	ServiceClearDelay = 2 * time.Minute
+	// Un canal reçoit au plus ChannelRateLimit envois sur ChannelRateWindow ;
+	// le surplus est retenu et résumé en un seul message.
+	ChannelRateLimit  = 10
+	ChannelRateWindow = 5 * time.Minute
 	// Les seuils du disque tant que l'opérateur n'en a pas réglé d'autres :
 	// voir disk.go.
 	DefaultDiskAttentionPercent = 85

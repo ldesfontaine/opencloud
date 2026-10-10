@@ -31,6 +31,36 @@ func AlertLink(publicURL string, event Event, alert Alert) string {
 	return strings.TrimRight(publicURL, "/") + alertPath + strconv.FormatInt(alert.ID, 10)
 }
 
+// AlertsLink est l'adresse de la page des alertes, ou rien sans public_url.
+func AlertsLink(publicURL string) string {
+	if publicURL == "" {
+		return ""
+	}
+	return strings.TrimRight(publicURL, "/") + "/alertes"
+}
+
+// RenderSummary fait le message qui remplace ce que la limite de débit
+// d'un canal a retenu : « N alertes de plus, voir openCloud ».
+func RenderSummary(catalog lang.Catalog, format Format, held int, now time.Time, link string) (Body, error) {
+	text := Text{Fact: catalog.Format("alert.summary_fact", held), Cause: catalog.Get("alert.summary_cause")}
+	title := catalog.Get("alert.notify_summary") + " · " + text.Fact
+	openLabel := catalog.Get("alert.open_in_opencloud")
+	alert := Alert{Severity: SeverityAttention}
+	switch format {
+	case FormatText:
+		return Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title, Link: link}, nil
+	case FormatDiscord:
+		return jsonBody(title, link, discordPayload(title, text, alert, EventSummary, now, link, openLabel))
+	case FormatSlack:
+		return jsonBody(title, link, slackPayload(title, text, alert, EventSummary, link, openLabel))
+	}
+	body := payload{
+		Event: string(EventSummary), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
+		Text: payloadText(text), Held: held, URL: link,
+	}
+	return jsonBody(title, link, body)
+}
+
 // Render fait le corps d'un événement pour un format. Le titre porte
 // l'événement : « Alerte », « Alerte aggravée », « Résolu », « Test ».
 // Le lien, quand il y en a un, mène à la fiche de l'alerte.
@@ -76,8 +106,11 @@ type payload struct {
 	Language string      `json:"language"`
 	Title    string      `json:"title"`
 	Text     payloadText `json:"text"`
-	// Alert manque au corps d'un test : il n'y a rien en alerte.
+	// Alert manque au corps d'un test et d'un résumé : il n'y a rien en alerte.
 	Alert *payloadAlert `json:"alert,omitempty"`
+	// Held : ce qu'un résumé remplace ; URL : la page des alertes.
+	Held int    `json:"held,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 type payloadText struct {

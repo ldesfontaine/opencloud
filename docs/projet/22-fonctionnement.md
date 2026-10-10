@@ -103,7 +103,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`) et la politique de l'opérateur (`update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, **secret en clair**, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, **secret en clair**, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; accès 1 h, rafraîchissement 30 j, API sans échéance ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu. Désactiver MCP efface le client et tous les jetons |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward` réservé), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. Désactiver efface identifiant et empreinte |
 | Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, absents tant que rien n'est réglé) | Écriture atomique ; un seul propriétaire, `internal/settings`, qui relit, modifie sa clé et réécrit sous un verrou : la langue et la page de statut changées en même temps survivent toutes deux |
@@ -802,8 +802,20 @@ composant qui sait, lui qui parle.
    La livraison est **réservée en base avant d'être envoyée** : une
    coupure entre les deux laisse une ligne en attente que le démarrage
    rejoue, et l'index unique (alerte, canal, événement) empêche d'envoyer
-   deux fois. Trois essais, après 5 s puis 30 s, 10 s par requête ; au-delà,
-   la livraison est en échec et la fiche de l'alerte le montre.
+   deux fois. Une alerte fait donc au plus **une ouverture, une
+   aggravation, une résolution** par canal. Trois essais, après 5 s puis
+   30 s, 10 s par requête ; au-delà, la livraison est en échec et la fiche
+   de l'alerte le montre. Un canal qui a reçu l'ouverture reçoit aussi la
+   résolution s'il la veut, même quand la gravité est redescendue sous son
+   seuil entre-temps.
+   **Limite de débit** : un canal reçoit au plus **10 envois sur 5 min**
+   glissantes (`ChannelRateLimit`, `ChannelRateWindow`). Au-delà, la
+   livraison est notée « Retenu (limite du canal) » sur la fiche de son
+   alerte et n'est jamais envoyée ; dès que la fenêtre a de la place, à la
+   livraison suivante ou au balayage de 30 s, un seul message part :
+   « N alertes de plus, voir openCloud » (événement `summary`, lien vers
+   la page des alertes, aucune ligne en base). La limite vit en mémoire :
+   un redémarrage d'openCloud la remet à zéro et perd un résumé en attente.
 7. **La sortie passe par la garde `internal/egress`**, la même que les
    sondes : le nom est résolu par openCloud, le lien-local écarté, la
    connexion faite sur l'adresse retenue, à chaque saut. Une redirection
@@ -819,10 +831,10 @@ composant qui sait, lui qui parle.
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
 | Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min** ; jamais la machine openCloud | l'agent rouvre son flux | danger |
-| Service arrêté sans qu'on l'ait demandé | `service`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137) et le 143 (SIGTERM) restent des arrêts demandés | il tourne de nouveau ; fiche archivée | danger |
-| Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue, ou arrêt | attention |
-| Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage | attention |
-| Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée | idem | danger |
+| Service arrêté sans qu'on l'ait demandé | `service`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137) et le 143 (SIGTERM) restent des arrêts demandés | il tourne de nouveau depuis **2 min**, ou devient « redémarrage non demandé » s'il a été relancé (la même alerte) ; fiche archivée | danger |
+| Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue depuis **2 min**, ou arrêt ; un échec qui revient avant reprend la même alerte | attention |
+| Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage ; un nouvel arrêt la repasse en « arrêté » sans en ouvrir une autre | attention |
+| Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée une seule fois, le compteur dans ses détails ; à l'arrêt comme relancé, elle se dit « Boucle de redémarrage » | idem | danger |
 | Tâche en retard | `heartbeat` | échéance dépassée, la première comprise pour une tâche qui n'a jamais pingé (motif `never_pinged`, avec sa date de création) | prochain ping à l'heure ou en échec ; pause ; suppression | attention |
 | Tâche en échec | `heartbeat` | code de sortie hors 0 | prochain ping à l'heure ; pause ; suppression | danger |
 | Sonde hors ligne | `probe` | état passé à `down`, donc au seuil | état `up` ou `degraded` ; pause ; suppression | danger |
@@ -831,6 +843,27 @@ composant qui sait, lui qui parle.
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
 | Sauvegarde en échec | aucune | **à venir** avec les sauvegardes | | |
+
+**L'anti-rebond des services.** Un conteneur en boucle de redémarrage
+(mémoire épuisée, tué, code d'erreur) n'ouvre et ne résout plus une alerte
+à chaque tour : un service n'a **qu'une alerte vivante de plantage**, dont
+le type suit l'état du moment, « arrêté » tant qu'il est à l'arrêt,
+« redémarrage non demandé » une fois relancé. Elle compte les
+redémarrages de la fenêtre de 10 min dans ses détails (`count`) et
+s'aggrave en « Boucle de redémarrage » au troisième, une seule fois ; le
+dernier code et le motif (`oom`, `killed`) restent dans ses détails.
+L'état redevenu bon ne résout pas tout de suite : la date est notée
+(`clear_since`) et le balayage résout après **2 min** de calme
+(`ServiceClearDelay`) pour un arrêt ou une santé qui échouait, après
+**10 min** pour un redémarrage. Si le problème revient avant, c'est la même
+alerte qui continue. Mesuré sur un vrai conteneur limité à 8 Mio en
+`--restart always` pendant 3 min : **25 webhooks avant** (12 ouvertures,
+12 résolutions, 1 aggravation), **2 après** (ouverture, aggravation), puis
+la résolution une fois la boucle finie. Les alertes ouvertes avant cette
+version gardent leur comportement : un redémarrage ouvert prend son
+`updated_at` comme début de calme (migration 016), et si une base porte à
+la fois un arrêt et un redémarrage ouverts pour un service, le plus récent
+reste et l'autre est résolu au rapport suivant.
 
 Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
 doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,

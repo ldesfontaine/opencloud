@@ -17,10 +17,26 @@ export const severityTones: Record<AlertSeverity, Tone> = {
   danger: "danger",
 };
 
+// Le seuil d'alert.RestartLoopThreshold : trois redémarrages dans la fenêtre.
+const restartLoopThreshold = 3;
+
+function isRestartLoop(alert: Alert): boolean {
+  return (alert.kind === "service_down" || alert.kind === "service_restart") && (alert.details.count ?? 0) >= restartLoopThreshold;
+}
+
 export function describeAlert(t: Translate, alert: Alert, now: number, disks: DiskThresholds): AlertText {
   const machine = alert.machine_name !== "" ? alert.machine_name : t("alert.no_machine");
   const object = alert.object.name;
   const details = alert.details;
+  // Arrêté ou relancé, un service qui plante en boucle se dit pareil :
+  // c'est la même alerte, dont le type suit l'état du moment.
+  if (isRestartLoop(alert)) {
+    return {
+      fact: t("alert.fact_service_restart_loop"),
+      cause: t("alert.cause_service_restart_loop", object, machine, details.count ?? 0, details.exit_code ?? 0),
+      action: t("alert.action_service_restart"),
+    };
+  }
   switch (alert.kind) {
     case "machine_lost":
       return lines(t, alert.kind, [], [object, formatDuration(t, details.since ? since(details.since, now) : 0)]);
@@ -43,13 +59,6 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
     case "service_unhealthy":
       return lines(t, alert.kind, [], [object, machine]);
     case "service_restart":
-      if (alert.severity === "danger") {
-        return {
-          fact: t("alert.fact_service_restart_loop"),
-          cause: t("alert.cause_service_restart_loop", object, machine, details.count ?? 0, details.exit_code ?? 0),
-          action: t("alert.action_service_restart"),
-        };
-      }
       return lines(t, alert.kind, [], [object, machine, details.exit_code ?? 0]);
     case "job_late":
       if (details.reason === "never_pinged") {
@@ -143,6 +152,7 @@ export const deliveryTones: Record<Delivery["status"], Tone> = {
   pending: "neutral",
   delivered: "ok",
   failed: "danger",
+  held: "warn",
 };
 
 // Ce qu'un silence vise, en une phrase : le type, l'objet, ou les deux.

@@ -61,7 +61,7 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "channel.receives_", values: names(alert.Severities())},
 		{prefix: "silence.object_kind_", values: names(alert.ObjectKinds())},
 		// Un envoi d'essai n'est jamais une livraison de la fiche.
-		{prefix: "alert.event_", values: without(names(alert.Events()), string(alert.EventTest))},
+		{prefix: "alert.event_", values: without(without(names(alert.Events()), string(alert.EventTest)), string(alert.EventSummary))},
 		{prefix: "alert.notify_", values: names(alert.Events())},
 		{prefix: "alert.delivery_", values: names(alert.DeliveryStatuses())},
 		{prefix: "alert.delivery_reason_", values: names(alert.Reasons())},

@@ -54,6 +54,12 @@ describe("describeAlert", () => {
     expect(never.action).toBe("alert.action_job_late_never");
     expect(never.cause).toContain("alert.cause_job_late_never /data");
   });
+
+  it("dit une boucle même quand le service est à l'arrêt", () => {
+    const loop = describeAlert(t, alert({ kind: "service_down", severity: "danger", machine_name: "vps-lyon-2", details: { count: 3, exit_code: 137, reason: "oom" } }), now, disks);
+    expect(loop.fact).toBe("alert.fact_service_restart_loop");
+    expect(loop.cause).toBe("alert.cause_service_restart_loop /data vps-lyon-2 3 137");
+  });
   it("met un tiret à la place d'une machine absente", () => {
     const text = describeAlert(t, alert({ kind: "service_down", machine_name: "", details: { exit_code: 1 } }), now, disks);
     expect(text.cause).toBe("alert.cause_service_down /data alert.no_machine 1");
