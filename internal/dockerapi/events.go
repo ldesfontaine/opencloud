@@ -56,6 +56,17 @@ func (e Event) ExitCode() int {
 	return code
 }
 
+// signalKill est le numéro de SIGKILL tel qu'un « kill » le porte.
+const signalKill = "9"
+
+// IsStopSignal dit si un « kill » envoie autre chose que SIGKILL : c'est
+// ainsi que docker stop commence, même avec un délai nul, avec le signal
+// d'arrêt du conteneur. docker kill envoie SIGKILL d'emblée.
+func (e Event) IsStopSignal() bool {
+	signal := e.Actor.Attributes["signal"]
+	return e.Action == "kill" && signal != "" && signal != signalKill
+}
+
 // EventStream est le flux ouvert ; Next bloque jusqu'au prochain événement
 // ou à la fin du flux, Close raccroche.
 type EventStream struct {

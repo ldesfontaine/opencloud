@@ -125,8 +125,9 @@ type Details struct {
 	// une fin à 0 n'alerte jamais.
 	ExitCode int `json:"exit_code,omitempty"`
 	// Un mot d'une liste fermée : le motif d'échec d'une sonde, ce qui rend
-	// un certificat non vérifié (chain, hostname, revoked), ou oom pour un
-	// service tué faute de mémoire.
+	// un certificat non vérifié (chain, hostname, revoked), oom pour un
+	// service tué faute de mémoire, killed pour un service tué sans arrêt
+	// demandé.
 	Reason string `json:"reason,omitempty"`
 	// La cible d'une sonde, ou l'hôte d'un certificat.
 	Target string `json:"target,omitempty"`

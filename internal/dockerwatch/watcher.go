@@ -25,6 +25,12 @@ const (
 	// Les lots attendent ici si le lecteur est lent ; au-delà, la lecture
 	// du journal attend le lecteur.
 	batchBacklog = 16
+	// Le délai de docker stop quand le conteneur n'en fixe pas : celui du
+	// démon.
+	defaultStopTimeout = 10 * time.Second
+	// Ce qu'on laisse en plus du délai entre la demande d'arrêt et le
+	// « die » : un -t passé à docker stop ou à compose down peut l'allonger.
+	stopRequestMargin = time.Minute
 )
 
 // Sink reçoit chaque rapport, dans l'ordre où le veilleur l'observe.
@@ -56,6 +62,9 @@ type Watcher struct {
 	// change.
 	engine  *service.EngineReport
 	follows int
+	// L'instant de la dernière demande d'arrêt vue par conteneur : un
+	// « die » 137 sans elle est un conteneur tué brutalement.
+	stopRequests map[string]time.Time
 }
 
 type cpuCounters struct {
@@ -73,7 +82,7 @@ func New(client *dockerapi.Client, sink Sink, opts Options) *Watcher {
 	if opts.ProbeInterval <= 0 {
 		opts.ProbeInterval = DefaultProbeInterval
 	}
-	return &Watcher{client: client, sink: sink, logger: opts.Logger, opts: opts, previous: make(map[string]cpuCounters)}
+	return &Watcher{client: client, sink: sink, logger: opts.Logger, opts: opts, previous: make(map[string]cpuCounters), stopRequests: make(map[string]time.Time)}
 }
 
 // Run veille jusqu'à l'arrêt du contexte : sonde, puis inventaire, flux
@@ -270,26 +279,83 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 		w.deliverNetworks(ctx)
 		return
 	}
+	w.noteStopRequest(raw)
 	event, wanted := translate(raw)
 	if !wanted {
 		return
 	}
 	if event.Action == service.ActionDestroy {
 		w.forgetCounters(event.ContainerID)
+		w.forgetStopRequest(event.ContainerID)
 		w.sink.Deliver(service.Report{Events: []service.Event{event}})
 		return
 	}
-	container, err := w.inspect(ctx, event.ContainerID)
+	inspected, err := w.client.Inspect(ctx, event.ContainerID)
+	isGone := errors.Is(err, dockerapi.ErrNotFound)
+	var container service.Container
 	if err == nil {
+		container = toContainer(inspected)
 		event.Container = &container
-	} else if !errors.Is(err, dockerapi.ErrNotFound) {
+	} else if !isGone {
 		w.logger.Warn("inspect after event", "action", raw.Action, "error", err)
 	}
+	if event.Action == "die" {
+		// Un conteneur qu'on retire (rm -f, compose down) est tué en
+		// SIGKILL sans « stop » : c'est demandé aussi.
+		isRemoved := isGone || inspected.State.Status == string(service.StateRemoving)
+		event.Killed = event.ExitCode != nil && *event.ExitCode == exitCodeKilled &&
+			!container.OOMKilled && !isRemoved && !w.takeStopRequest(event.ContainerID, event.At, stopTimeout(inspected))
+	}
 	// Le manque de mémoire ne se lit qu'à l'inspection : elle passe avant.
-	if event.Action == "die" && event.ExitCode != nil && !service.IsCleanStop(*event.ExitCode, container.OOMKilled) {
+	if event.Action == "die" && event.ExitCode != nil && !service.IsCleanStop(*event.ExitCode, container.OOMKilled, event.Killed) {
 		event.Snippet = w.snippet(ctx, event.ContainerID)
 	}
 	w.sink.Deliver(service.Report{Events: []service.Event{event}})
+}
+
+// exitCodeKilled est le code d'un processus tué par SIGKILL (128 + 9).
+const exitCodeKilled = 137
+
+// noteStopRequest retient une demande d'arrêt : docker stop, restart et
+// compose down envoient d'abord le signal d'arrêt du conteneur, puis
+// SIGKILL au bout du délai, et Docker émet « stop ». docker kill n'envoie
+// que SIGKILL. Un conteneur qui repart n'a plus d'arrêt en attente.
+func (w *Watcher) noteStopRequest(raw dockerapi.Event) {
+	if raw.Type != "container" && raw.Type != "" {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch {
+	case raw.IsStopSignal(), raw.Action == "stop":
+		w.stopRequests[raw.Actor.ID] = raw.At()
+	case raw.Action == "start":
+		delete(w.stopRequests, raw.Actor.ID)
+	}
+}
+
+// takeStopRequest dit si un arrêt a été demandé assez peu de temps avant
+// ce « die », et l'efface : il ne vaut que pour un arrêt.
+func (w *Watcher) takeStopRequest(id string, diedAt time.Time, timeout time.Duration) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	requestedAt, ok := w.stopRequests[id]
+	delete(w.stopRequests, id)
+	return ok && diedAt.Sub(requestedAt) <= timeout+stopRequestMargin
+}
+
+func (w *Watcher) forgetStopRequest(id string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.stopRequests, id)
+}
+
+// stopTimeout rend le délai de docker stop du conteneur.
+func stopTimeout(inspected dockerapi.Container) time.Duration {
+	if inspected.Config.StopTimeout == nil || *inspected.Config.StopTimeout < 0 {
+		return defaultStopTimeout
+	}
+	return time.Duration(*inspected.Config.StopTimeout) * time.Second
 }
 
 // translate dit quel état ou quelle santé une action implique. Un

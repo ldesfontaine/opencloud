@@ -262,6 +262,8 @@ export interface Service {
   exit_code: number;
   // Tué par le noyau faute de mémoire : 137 comme un docker stop, mais pas demandé.
   oom_killed: boolean;
+  // Tué en SIGKILL sans arrêt demandé : 137 aussi, mais à signaler.
+  killed: boolean;
   health: ServiceHealth;
   restart_count: number;
   ports: Port[];
@@ -327,6 +329,7 @@ export interface Transition {
   new_health: ServiceHealth;
   exit_code: number | null;
   oom_killed: boolean;
+  killed: boolean;
   replayed: boolean;
   snippet: string;
 }

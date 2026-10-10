@@ -53,6 +53,10 @@ describe("describeAlert", () => {
     expect(oom.fact).toBe("alert.fact_service_down_oom");
     expect(oom.cause).toBe("alert.cause_service_down_oom /data vps-lyon-2");
     expect(oom.action).toBe("alert.action_service_down_oom");
+    const killed = describeAlert(t, alert({ kind: "service_down", machine_name: "vps-lyon-2", details: { exit_code: 137, reason: "killed" } }), now, disks);
+    expect(killed.fact).toBe("alert.fact_service_down_killed");
+    expect(killed.cause).toBe("alert.cause_service_down_killed /data vps-lyon-2");
+    expect(killed.action).toBe("alert.action_service_down_killed");
   });
 });
 

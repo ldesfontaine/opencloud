@@ -69,15 +69,18 @@ type Container struct {
 // conteneur réinspecté, absent quand il est détruit. Replayed marque ce
 // qui a attendu une reconnexion : écrit, mais pas de quoi alerter.
 type Event struct {
-	At          time.Time  `json:"at"`
-	Action      string     `json:"action"`
-	ContainerID string     `json:"container_id"`
-	State       State      `json:"state,omitempty"`
-	Health      Health     `json:"health,omitempty"`
-	ExitCode    *int       `json:"exit_code,omitempty"`
-	Replayed    bool       `json:"replayed,omitempty"`
-	Snippet     string     `json:"snippet,omitempty"`
-	Container   *Container `json:"container,omitempty"`
+	At          time.Time `json:"at"`
+	Action      string    `json:"action"`
+	ContainerID string    `json:"container_id"`
+	State       State     `json:"state,omitempty"`
+	Health      Health    `json:"health,omitempty"`
+	ExitCode    *int      `json:"exit_code,omitempty"`
+	// Tué en SIGKILL sans arrêt demandé juste avant ; un agent plus vieux
+	// ne le dit pas, et 137 reste alors un arrêt propre.
+	Killed    bool       `json:"killed,omitempty"`
+	Replayed  bool       `json:"replayed,omitempty"`
+	Snippet   string     `json:"snippet,omitempty"`
+	Container *Container `json:"container,omitempty"`
 }
 
 // ActionDestroy est la seule action qui ferme une fiche. Les actions de

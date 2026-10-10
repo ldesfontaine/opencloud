@@ -118,9 +118,11 @@ type Service struct {
 	State          State
 	ExitCode       int
 	OOMKilled      bool
-	Health         Health
-	RestartCount   int
-	Ports          []Port
+	// Tué en SIGKILL sans arrêt demandé : docker kill, un kill -9.
+	Killed       bool
+	Health       Health
+	RestartCount int
+	Ports        []Port
 	// Le mode réseau tel que Docker le dit : bridge, host, none,
 	// container:<id>, ou le nom du premier réseau joint.
 	NetworkMode string
@@ -220,6 +222,7 @@ type Transition struct {
 	NewHealth      Health
 	ExitCode       *int
 	OOMKilled      bool
+	Killed         bool
 	Replayed       bool
 	Snippet        string
 }

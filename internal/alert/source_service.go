@@ -21,13 +21,16 @@ func (e *Engine) ServiceChanged(ctx context.Context, found service.Service, tran
 }
 
 // judgeState lit l'état final : arrêté sans qu'on l'ait demandé (un code
-// hors 0, 137 et 143, tué faute de mémoire, ou mort), ou défaillant (le
+// hors 0, 137 et 143, tué faute de mémoire ou sans arrêt demandé, ou mort), ou défaillant (le
 // contrôle de santé échoue). Tout le reste résout.
 func (e *Engine) judgeState(ctx context.Context, found service.Service, object Object) {
-	if isUnexpectedStop(found.State, found.ExitCode, found.OOMKilled) {
+	if isUnexpectedStop(found.State, found.ExitCode, found.OOMKilled, found.Killed) {
 		details := Details{ExitCode: found.ExitCode}
-		if found.OOMKilled {
+		switch {
+		case found.OOMKilled:
 			details.Reason = ReasonOOM
+		case found.Killed:
+			details.Reason = ReasonKilled
 		}
 		e.Open(ctx, Fact{
 			Kind: KindServiceDown, Severity: SeverityDanger, Object: object, MachineID: found.MachineID,
@@ -43,20 +46,24 @@ func (e *Engine) judgeState(ctx context.Context, found service.Service, object O
 	}
 }
 
-// ReasonOOM est le motif d'un service arrêté faute de mémoire.
-const ReasonOOM = "oom"
+// Les motifs d'un service arrêté sans qu'on l'ait demandé : faute de
+// mémoire, ou tué en SIGKILL sans demande d'arrêt.
+const (
+	ReasonOOM    = "oom"
+	ReasonKilled = "killed"
+)
 
 // ServiceDownReasons liste les motifs d'un arrêt non demandé qui ont leur
 // propre phrase ; sans motif, c'est le code de sortie qui parle.
 func ServiceDownReasons() []string {
-	return []string{ReasonOOM}
+	return []string{ReasonOOM, ReasonKilled}
 }
 
-func isUnexpectedStop(state service.State, exitCode int, oomKilled bool) bool {
+func isUnexpectedStop(state service.State, exitCode int, oomKilled, killed bool) bool {
 	if state == service.StateDead {
 		return true
 	}
-	return state == service.StateExited && !service.IsCleanStop(exitCode, oomKilled)
+	return state == service.StateExited && !service.IsCleanStop(exitCode, oomKilled, killed)
 }
 
 // judgeRestarts compte, dans l'ordre du rapport, les retours en marche
@@ -78,7 +85,7 @@ func (e *Engine) judgeRestarts(ctx context.Context, found service.Service, objec
 			if transition.ExitCode != nil {
 				code = *transition.ExitCode
 			}
-			pendingStop = isUnexpectedStop(transition.NewState, code, transition.OOMKilled)
+			pendingStop = isUnexpectedStop(transition.NewState, code, transition.OOMKilled, transition.Killed)
 			exitCode = code
 		case service.StateRestarting:
 			pendingStop = true

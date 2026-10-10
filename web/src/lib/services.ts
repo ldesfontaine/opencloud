@@ -5,7 +5,7 @@ import type { Translate } from "../i18n/context";
 // Les pastilles de la direction artistique, dérivées des faits : l'état
 // Docker, le code de sortie, la santé. La même règle que le serveur pour
 // « demande attention ».
-export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "restarting" | "paused" | "stopped" | "created";
+export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created";
 
 export interface ServicePillInfo {
   key: PillKey;
@@ -17,9 +17,9 @@ export function isCleanExit(code: number): boolean {
   return code === 0 || code === 137 || code === 143;
 }
 
-// Les faits dont la pastille dépend ; oom_killed manque sur une fiche
-// d'avant le correctif.
-export type PillFacts = Pick<Service, "state" | "exit_code" | "health"> & { oom_killed?: boolean };
+// Les faits dont la pastille dépend ; oom_killed et killed manquent sur
+// une fiche d'avant leur correctif.
+export type PillFacts = Pick<Service, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean };
 
 export function servicePill(service: PillFacts): ServicePillInfo {
   switch (service.state) {
@@ -44,6 +44,10 @@ export function servicePill(service: PillFacts): ServicePillInfo {
       if (service.oom_killed === true) {
         return { key: "out_of_memory", tone: "danger" };
       }
+      // docker kill aussi, sans arrêt demandé : l'agent le dit par killed.
+      if (service.killed === true) {
+        return { key: "killed", tone: "danger" };
+      }
       return isCleanExit(service.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
     default:
       return { key: "created", tone: "neutral" };
@@ -52,7 +56,7 @@ export function servicePill(service: PillFacts): ServicePillInfo {
 
 export function needsAttention(service: PillFacts): boolean {
   const key = servicePill(service).key;
-  return key === "failing" || key === "out_of_memory" || key === "restarting";
+  return key === "failing" || key === "out_of_memory" || key === "killed" || key === "restarting";
 }
 
 // Le filtre de la planche « Machine » : Tous, Actifs, Arrêtés.
@@ -203,5 +207,5 @@ export function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "health_status" || (transition.new_state === transition.previous_state && transition.new_health !== transition.previous_health)) {
     return t(`service.health_${transition.new_health || "healthy"}`);
   }
-  return t(`service.state_${servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed }).key}`);
+  return t(`service.state_${servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
 }
