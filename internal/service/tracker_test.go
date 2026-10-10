@@ -339,14 +339,46 @@ func TestRecord_NetworksReplaceTheListAndTheAttachments(t *testing.T) {
 	}
 }
 
-func TestRecord_RefusesBadNetworking(t *testing.T) {
+func TestRecord_KeepsAContainerWhoseNetworkHasNoIdentifier(t *testing.T) {
 	b := newBench(t)
-	bad := func(mutate func(container *service.Container)) service.Report {
+	web := running(webID, "web", "fixture")
+	web.Networks = []service.Attachment{{NetworkID: "", Name: "bridge"}}
+	b.record(t, inventory(web, running(dbID, "db", "fixture")))
+	if got := b.get(t, webID); got.Name != "web" || len(got.Networks) != 0 {
+		t.Fatalf("web = %+v", got)
+	}
+	if got := b.get(t, dbID); got.Name != "db" {
+		t.Fatalf("db = %+v", got)
+	}
+}
+
+func TestRecord_DiscardsTheInvalidContainerAndKeepsTheOthers(t *testing.T) {
+	b := newBench(t)
+	broken := running("short", "broken", "fixture")
+	report := inventory(running(webID, "web", "fixture"), broken)
+	report.NetworksComplete = true
+	report.Networks = []service.NetworkReport{{NetworkID: dbID, Name: "", Driver: "bridge"}, {NetworkID: dbID, Name: "back", Driver: "bridge"}}
+	b.record(t, report)
+	if got := b.get(t, webID); got.Name != "web" {
+		t.Fatalf("web = %+v", got)
+	}
+	services, _ := b.tracker.List(context.Background(), machine.LocalID)
+	if len(services) != 1 {
+		t.Fatalf("services = %+v", services)
+	}
+	networks, _ := b.db.ListNetworks(context.Background(), machine.LocalID)
+	if len(networks) != 1 || networks[0].Name != "back" {
+		t.Fatalf("networks = %+v", networks)
+	}
+}
+
+func TestRecord_DiscardsWhatMakesBadNetworking(t *testing.T) {
+	bad := func(mutate func(container *service.Container)) service.Container {
 		web := running(webID, "web", "fixture")
 		mutate(&web)
-		return inventory(web)
+		return web
 	}
-	cases := map[string]service.Report{
+	cases := map[string]service.Container{
 		"network id": bad(func(c *service.Container) { c.Networks = []service.Attachment{{NetworkID: "short", Name: "x"}} }),
 		"network ip": bad(func(c *service.Container) {
 			c.Networks = []service.Attachment{{NetworkID: dbID, Name: "x", IP: "not-an-ip"}}
@@ -354,24 +386,30 @@ func TestRecord_RefusesBadNetworking(t *testing.T) {
 		"empty alias": bad(func(c *service.Container) {
 			c.Networks = []service.Attachment{{NetworkID: dbID, Name: "x", Aliases: []string{""}}}
 		}),
-		"dependency": bad(func(c *service.Container) { c.DependsOn = []service.Dependency{{Name: "db", Source: "guess"}} }),
 	}
-	machineNetworks := inventory()
-	machineNetworks.NetworksComplete = true
-	machineNetworks.Networks = []service.NetworkReport{{NetworkID: dbID, Name: "", Driver: "bridge"}}
-	cases["machine network"] = machineNetworks
-	for name, report := range cases {
-		if err := b.tracker.Record(context.Background(), machine.LocalID, report); !errors.Is(err, service.ErrReportInvalid) {
-			t.Errorf("%s: err = %v", name, err)
+	for name, container := range cases {
+		b := newBench(t)
+		b.record(t, inventory(container))
+		if got := b.get(t, webID); len(got.Networks) != 0 {
+			t.Errorf("%s: networks = %+v", name, got.Networks)
 		}
+	}
+	b := newBench(t)
+	dependency := bad(func(c *service.Container) { c.DependsOn = []service.Dependency{{Name: "db", Source: "guess"}} })
+	b.record(t, inventory(dependency, running(dbID, "db", "fixture")))
+	services, _ := b.tracker.List(context.Background(), machine.LocalID)
+	if len(services) != 1 || services[0].Name != "db" {
+		t.Fatalf("services = %+v", services)
 	}
 }
 
 func TestRecord_RefusesAnOutOfRangeReport(t *testing.T) {
 	b := newBench(t)
-	bad := running("short", "web", "")
-	err := b.tracker.Record(context.Background(), machine.LocalID, inventory(bad))
-	if !errors.Is(err, service.ErrReportInvalid) {
+	var crowd []service.Container
+	for range service.MaxContainersPerReport + 1 {
+		crowd = append(crowd, running(webID, "web", ""))
+	}
+	if err := b.tracker.Record(context.Background(), machine.LocalID, inventory(crowd...)); !errors.Is(err, service.ErrReportInvalid) {
 		t.Fatalf("err = %v", err)
 	}
 	absent := service.Report{Engine: &service.EngineReport{Present: false}}

@@ -500,6 +500,12 @@ func attachments(inspected dockerapi.Container) []service.Attachment {
 	}
 	var joined []service.Attachment
 	for name, endpoint := range inspected.Network.Networks {
+		// Un conteneur tout juste créé n'a pas encore d'identifiant de réseau :
+		// ce rattachement-là n'est pas encore un fait, le prochain inventaire
+		// le donnera.
+		if endpoint.NetworkID == "" {
+			continue
+		}
 		names := endpoint.DNSNames
 		if len(names) == 0 {
 			names = endpoint.Aliases
