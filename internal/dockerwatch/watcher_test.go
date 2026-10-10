@@ -209,7 +209,8 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 	}
 	die := sink.waitFor(t, "die", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
 	event := die.Events[0]
-	if event.State != service.StateExited || event.ExitCode == nil || *event.ExitCode != 137 || event.Snippet != "" || event.Container == nil {
+	// La fixture est un docker stop dont le délai expire : 137, mais demandé.
+	if event.State != service.StateExited || event.ExitCode == nil || *event.ExitCode != 137 || event.Killed || event.Snippet != "" || event.Container == nil {
 		t.Fatalf("die = %+v", event)
 	}
 	destroy := sink.waitFor(t, "destroy", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == service.ActionDestroy })
@@ -241,6 +242,80 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 	}
 	if watcher.since == "" {
 		t.Fatal("since should follow the last event")
+	}
+}
+
+// dockerEvent fait un événement de conteneur comme le démon le pousse.
+func dockerEvent(id, action string, at time.Time, attributes map[string]string) dockerapi.Event {
+	event := dockerapi.Event{Type: "container", Action: action, TimeNano: at.UnixNano()}
+	event.Actor.ID = id
+	event.Actor.Attributes = attributes
+	return event
+}
+
+// Ce que Docker émet réellement : docker kill envoie SIGKILL d'emblée ;
+// docker stop envoie d'abord le signal d'arrêt, puis SIGKILL au bout du
+// délai, puis « stop ». compose down et rm -f retirent le conteneur.
+func TestHandleEvent_A137WithoutAStopRequestIsKilled(t *testing.T) {
+	start := time.Date(2026, 10, 10, 16, 0, 0, 0, time.UTC)
+	killSignal := map[string]string{"signal": "9"}
+	termSignal := map[string]string{"signal": "15"}
+	died := map[string]string{"exitCode": "137"}
+	cases := []struct {
+		name   string
+		id     string
+		events []dockerapi.Event
+		killed bool
+	}{
+		{"docker kill", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, killSignal),
+			dockerEvent(fixtureID, "die", start, died),
+		}, true},
+		{"docker stop -t 0", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, termSignal),
+			dockerEvent(fixtureID, "kill", start, killSignal),
+			dockerEvent(fixtureID, "stop", start, nil),
+			dockerEvent(fixtureID, "die", start, died),
+		}, false},
+		{"docker stop whose delay expires", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "kill", start, termSignal),
+			dockerEvent(fixtureID, "kill", start.Add(10*time.Second), killSignal),
+			dockerEvent(fixtureID, "die", start.Add(10*time.Second), died),
+		}, false},
+		{"a stop long ago does not cover a later kill", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "stop", start, nil),
+			dockerEvent(fixtureID, "kill", start.Add(time.Hour), killSignal),
+			dockerEvent(fixtureID, "die", start.Add(time.Hour), died),
+		}, true},
+		{"a stop before a restart does not cover the next kill", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "stop", start, nil),
+			dockerEvent(fixtureID, "start", start, nil),
+			dockerEvent(fixtureID, "kill", start, killSignal),
+			dockerEvent(fixtureID, "die", start, died),
+		}, true},
+		{"docker rm -f, the container is gone", "removed", []dockerapi.Event{
+			dockerEvent("removed", "kill", start, killSignal),
+			dockerEvent("removed", "die", start, died),
+		}, false},
+		{"SIGTERM is a clean stop", fixtureID, []dockerapi.Event{
+			dockerEvent(fixtureID, "die", start, map[string]string{"exitCode": "143"}),
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := newSink()
+			watcher := newWatcher(serve(t, newDaemon(t, false).mux), sink)
+			for _, raw := range tc.events {
+				watcher.handleEvent(context.Background(), raw)
+			}
+			die := sink.waitFor(t, "die", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
+			if die.Events[0].Killed != tc.killed {
+				t.Fatalf("killed = %v, want %v", die.Events[0].Killed, tc.killed)
+			}
+			if tc.killed && die.Events[0].Snippet == "" {
+				t.Fatal("a brutal kill keeps the end of the log")
+			}
+		})
 	}
 }
 

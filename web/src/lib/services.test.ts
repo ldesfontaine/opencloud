@@ -15,6 +15,9 @@ test("servicePill dérive la pastille des faits", () => {
   expect(servicePill({ state: "exited", exit_code: 1, health: "" }).key).toBe("failing");
   expect(servicePill({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toEqual({ key: "out_of_memory", tone: "danger" });
   expect(servicePill({ state: "exited", exit_code: 137, health: "", oom_killed: false }).key).toBe("stopped");
+  // docker kill sans arrêt demandé : 137 aussi, mais « Tué » ; sans le fait (agent ancien), « Arrêté ».
+  expect(servicePill({ state: "exited", exit_code: 137, health: "", killed: true })).toEqual({ key: "killed", tone: "danger" });
+  expect(servicePill({ state: "exited", exit_code: 137, health: "" }).key).toBe("stopped");
   expect(servicePill({ state: "restarting", exit_code: 1, health: "" }).key).toBe("restarting");
   expect(servicePill({ state: "paused", exit_code: 0, health: "" }).key).toBe("paused");
   expect(servicePill({ state: "dead", exit_code: 0, health: "" }).tone).toBe("danger");
@@ -25,6 +28,7 @@ test("needsAttention suit la règle du serveur", () => {
   expect(needsAttention({ state: "exited", exit_code: 1, health: "" })).toBe(true);
   expect(needsAttention({ state: "exited", exit_code: 137, health: "" })).toBe(false);
   expect(needsAttention({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toBe(true);
+  expect(needsAttention({ state: "exited", exit_code: 137, health: "", killed: true })).toBe(true);
   expect(needsAttention({ state: "running", exit_code: 0, health: "unhealthy" })).toBe(true);
   expect(needsAttention({ state: "restarting", exit_code: 0, health: "" })).toBe(true);
 });

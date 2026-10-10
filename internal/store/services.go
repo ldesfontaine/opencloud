@@ -14,7 +14,7 @@ import (
 
 const serviceColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
-	compose_service, compose_dir, compose_file, update_policy, oom_killed`
+	compose_service, compose_dir, compose_file, update_policy, oom_killed, killed`
 
 // ListServices rend les fiches d'une machine, ou de toutes si machineID
 // est vide, archivées comprises, par groupe puis par nom.
@@ -163,10 +163,10 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO services (`+serviceColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, group_name = excluded.group_name, image = excluded.image,
-			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code, oom_killed = excluded.oom_killed,
+			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code, oom_killed = excluded.oom_killed, killed = excluded.killed,
 			health = excluded.health, restart_count = excluded.restart_count, ports = excluded.ports,
 			network_mode = excluded.network_mode, privileged = excluded.privileged, depends_on = excluded.depends_on,
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
@@ -177,7 +177,7 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
-		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy), boolToInt(item.OOMKilled))
+		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy), boolToInt(item.OOMKilled), boolToInt(item.Killed))
 	if err != nil {
 		return fmt.Errorf("upsert service %s: %w", item.ID, err)
 	}
@@ -279,10 +279,10 @@ func archiveMissing(ctx context.Context, tx *sql.Tx, machineID string, keep []st
 
 func insertTransition(ctx context.Context, tx *sql.Tx, t service.Transition) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO service_transitions (service_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, replayed, snippet)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO service_transitions (service_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, replayed, snippet)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ServiceID, t.At.Unix(), t.Action, string(t.PreviousState), string(t.NewState),
-		string(t.PreviousHealth), string(t.NewHealth), nullableInt(t.ExitCode), boolToInt(t.OOMKilled), boolToInt(t.Replayed), t.Snippet)
+		string(t.PreviousHealth), string(t.NewHealth), nullableInt(t.ExitCode), boolToInt(t.OOMKilled), boolToInt(t.Killed), boolToInt(t.Replayed), t.Snippet)
 	if err != nil {
 		return fmt.Errorf("insert transition: %w", err)
 	}
@@ -317,7 +317,7 @@ func saveEngine(ctx context.Context, tx *sql.Tx, engine service.Engine) error {
 // ListTransitions rend les plus récentes d'abord.
 func (db *DB) ListTransitions(ctx context.Context, serviceID string, limit int) ([]service.Transition, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT id, service_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, replayed, snippet
+		SELECT id, service_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, replayed, snippet
 		FROM service_transitions WHERE service_id = ? ORDER BY at DESC, id DESC LIMIT ?`, serviceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list transitions: %w", err)
@@ -328,13 +328,14 @@ func (db *DB) ListTransitions(ctx context.Context, serviceID string, limit int) 
 		var t service.Transition
 		var at int64
 		var exitCode sql.NullInt64
-		var oomKilled, replayed int
-		if err := rows.Scan(&t.ID, &t.ServiceID, &at, &t.Action, &t.PreviousState, &t.NewState, &t.PreviousHealth, &t.NewHealth, &exitCode, &oomKilled, &replayed, &t.Snippet); err != nil {
+		var oomKilled, killed, replayed int
+		if err := rows.Scan(&t.ID, &t.ServiceID, &at, &t.Action, &t.PreviousState, &t.NewState, &t.PreviousHealth, &t.NewHealth, &exitCode, &oomKilled, &killed, &replayed, &t.Snippet); err != nil {
 			return nil, err
 		}
 		t.At = time.Unix(at, 0).UTC()
 		t.ExitCode = intPointer(exitCode)
 		t.OOMKilled = oomKilled != 0
+		t.Killed = killed != 0
 		t.Replayed = replayed != 0
 		transitions = append(transitions, t)
 	}
@@ -412,17 +413,18 @@ func (db *DB) PurgeServices(ctx context.Context, transitionsBefore, archivedBefo
 func scanService(row scanner) (service.Service, error) {
 	var item service.Service
 	var kind, state, health, ports, dependsOn, policy string
-	var privileged, oomKilled int
+	var privileged, oomKilled, killed int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
-		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy, &oomKilled)
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy, &oomKilled, &killed)
 	if err != nil {
 		return service.Service{}, err
 	}
 	item.OOMKilled = oomKilled != 0
+	item.Killed = killed != 0
 	item.Kind, item.State, item.Health = service.Kind(kind), service.State(state), service.Health(health)
 	item.UpdatePolicy = service.UpdatePolicy(policy)
 	item.Privileged = privileged != 0

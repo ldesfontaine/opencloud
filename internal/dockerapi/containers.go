@@ -96,6 +96,9 @@ type ContainerConfig struct {
 	Tty         bool
 	Labels      map[string]string
 	Healthcheck *Healthcheck
+	// Le délai de docker stop propre au conteneur, en secondes ; absent,
+	// c'est celui du démon.
+	StopTimeout *int
 }
 
 type Healthcheck struct {

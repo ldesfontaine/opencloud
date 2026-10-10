@@ -28,8 +28,11 @@ func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
 	case KindMachineLost:
 		return text(catalog, "machine_lost", []any{}, []any{object, formatAge(catalog, now.Sub(details.Since))})
 	case KindServiceDown:
-		if details.Reason == ReasonOOM {
+		switch details.Reason {
+		case ReasonOOM:
 			return text(catalog, "service_down_oom", nil, []any{object, machine})
+		case ReasonKilled:
+			return text(catalog, "service_down_killed", nil, []any{object, machine})
 		}
 		return text(catalog, "service_down", nil, []any{object, machine, details.ExitCode})
 	case KindServiceUnhealthy:

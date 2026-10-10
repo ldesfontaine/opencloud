@@ -226,6 +226,59 @@ func TestService_OutOfMemoryKill_OpensADangerAlert(t *testing.T) {
 	}
 }
 
+// Un docker kill sort en 137 comme un docker stop : c'est l'agent, qui
+// n'a pas vu de demande d'arrêt, qui le dit tué ; l'alerte porte son motif.
+// Sans ce fait (agent ancien, ou arrêt demandé), 137 reste propre.
+func TestService_KilledWithoutAStopRequest_OpensADangerAlert(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	tracker := f.tracker(t)
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("die", service.StateExited, 137, "", false)}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.kinds(t) != "" {
+		t.Fatalf("a stop asked for opens nothing: %q", f.kinds(t))
+	}
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+		t.Fatal(err)
+	}
+	killed := f.event("die", service.StateExited, 137, "", false)
+	killed.Killed = true
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{killed}}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := tracker.List(ctx, machine.LocalID)
+	if err != nil || len(listed) != 1 || !listed[0].Killed || !service.NeedsAttention(listed[0]) {
+		t.Fatalf("la fiche doit garder l'arrêt brutal: %+v %v", listed, err)
+	}
+	opened := f.only(t, alert.StatusOpen)
+	if f.kinds(t) != "service_down:danger" || opened.Details.Reason != alert.ReasonKilled || opened.Details.ExitCode != 137 {
+		t.Fatalf("kinds %q, %+v", f.kinds(t), opened.Details)
+	}
+	catalogs, err := lang.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := alert.Describe(catalogs.For(lang.French), opened, f.clock)
+	if text.Fact != "Service arrêté brutalement" || !strings.Contains(text.Cause, "arrêté brutalement (signal KILL), sans arrêt demandé") {
+		t.Fatalf("text %+v", text)
+	}
+	// L'inventaire suivant ne sait rien du kill : l'arrêt reste brutal.
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Complete: true, Inventory: []service.Container{*killed.Container}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.kinds(t) != "service_down:danger" {
+		t.Fatalf("an inventory keeps the brutal stop: %q", f.kinds(t))
+	}
+	f.advance(20 * time.Second)
+	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+		t.Fatal(err)
+	}
+	if f.kinds(t) != "service_restart:attention" {
+		t.Fatalf("restart after a kill: %q", f.kinds(t))
+	}
+}
+
 // --- Sondes ---
 
 func (f *fixture) prober(t *testing.T) (*probe.Service, probe.Probe) {

@@ -235,9 +235,13 @@ func (p *planner) applyEvent(event Event) {
 	if event.ExitCode != nil {
 		next.ExitCode = *event.ExitCode
 	}
+	if event.Killed {
+		next.Killed = true
+	}
 	if next.State == StateRunning {
 		// Docker oublie le manque de mémoire au redémarrage.
 		next.OOMKilled = false
+		next.Killed = false
 	}
 	next.ArchivedAt = time.Time{}
 	next.LastSeenAt = p.now
@@ -291,6 +295,9 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		service.FinishedAt = container.FinishedAt.UTC()
 	}
 	if existed {
+		// Docker ne sait pas qu'un arrêt était brutal : l'inventaire le
+		// garde tant que c'est le même arrêt.
+		service.Killed = previous.Killed && service.State == previous.State && service.FinishedAt.Equal(previous.FinishedAt)
 		// Ce que l'opérateur a réglé sur la fiche survit à l'inventaire.
 		service.FirstSeenAt = previous.FirstSeenAt
 		service.UpdatePolicy = previous.UpdatePolicy
@@ -307,6 +314,7 @@ func (p *planner) record(next, previous Service, existed bool, transition Transi
 		transition.NewState = next.State
 		transition.NewHealth = next.Health
 		transition.OOMKilled = next.OOMKilled && (next.State == StateExited || next.State == StateDead)
+		transition.Killed = next.Killed && next.State == StateExited
 		if existed {
 			transition.PreviousState = previous.State
 			transition.PreviousHealth = previous.Health
@@ -404,7 +412,7 @@ func NeedsAttention(service Service) bool {
 	case StateRestarting, StateDead:
 		return true
 	case StateExited:
-		return !IsCleanStop(service.ExitCode, service.OOMKilled)
+		return !IsCleanStop(service.ExitCode, service.OOMKilled, service.Killed)
 	}
 	return false
 }
@@ -415,10 +423,12 @@ func IsCleanExit(code int) bool {
 	return code == 0 || code == 137 || code == 143
 }
 
-// IsCleanStop : un code propre ne suffit pas, le noyau qui tue faute de
-// mémoire envoie aussi SIGKILL (137) ; Docker le dit par OOMKilled.
-func IsCleanStop(code int, oomKilled bool) bool {
-	return !oomKilled && IsCleanExit(code)
+// IsCleanStop : un code propre ne suffit pas. Le noyau qui tue faute de
+// mémoire envoie aussi SIGKILL (137), Docker le dit par OOMKilled ; un
+// docker kill aussi, l'agent le dit par killed quand aucun arrêt n'a été
+// demandé juste avant.
+func IsCleanStop(code int, oomKilled, killed bool) bool {
+	return !oomKilled && !killed && IsCleanExit(code)
 }
 
 // Count rend le nombre de services vivants et ceux qui demandent attention.

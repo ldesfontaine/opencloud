@@ -50,6 +50,7 @@ type serviceJSON struct {
 	State        string               `json:"state"`
 	ExitCode     int                  `json:"exit_code"`
 	OOMKilled    bool                 `json:"oom_killed"`
+	Killed       bool                 `json:"killed"`
 	Health       string               `json:"health"`
 	RestartCount int                  `json:"restart_count"`
 	Ports        []service.Port       `json:"ports"`
@@ -114,6 +115,7 @@ type transitionJSON struct {
 	NewHealth      string    `json:"new_health"`
 	ExitCode       *int      `json:"exit_code"`
 	OOMKilled      bool      `json:"oom_killed"`
+	Killed         bool      `json:"killed"`
 	Replayed       bool      `json:"replayed"`
 	Snippet        string    `json:"snippet"`
 }
@@ -438,7 +440,7 @@ func serviceToJSON(item service.Service, machineName string, current service.Cur
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
 		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
 		UpdatePolicy: string(item.UpdatePolicy), ImageCheck: imageCheckToJSON(item, checks),
-		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Health: string(item.Health), RestartCount: item.RestartCount,
+		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: service.Exposure(item),
 		CreatedAt: item.CreatedAt.UTC(), StartedAt: timeOrNil(item.StartedAt), FinishedAt: timeOrNil(item.FinishedAt),
@@ -493,7 +495,7 @@ func transitionsToJSON(transitions []service.Transition) []transitionJSON {
 	for _, t := range transitions {
 		converted = append(converted, transitionJSON{
 			ID: t.ID, At: t.At.UTC(), Action: t.Action, PreviousState: string(t.PreviousState), NewState: string(t.NewState),
-			PreviousHealth: string(t.PreviousHealth), NewHealth: string(t.NewHealth), ExitCode: t.ExitCode, OOMKilled: t.OOMKilled, Replayed: t.Replayed, Snippet: t.Snippet,
+			PreviousHealth: string(t.PreviousHealth), NewHealth: string(t.NewHealth), ExitCode: t.ExitCode, OOMKilled: t.OOMKilled, Killed: t.Killed, Replayed: t.Replayed, Snippet: t.Snippet,
 		})
 	}
 	return converted
