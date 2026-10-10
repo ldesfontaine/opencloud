@@ -138,12 +138,13 @@ interface NavEntry {
   icon: IconName;
 }
 
+// Seul ce qui est livré a son entrée : les Sauvegardes reviendront avec
+// leur fonctionnalité.
 const viewEntries: NavEntry[] = [
   { key: "overview", href: "/", icon: "grid" },
   { key: "machines", href: "/machines", icon: "server" },
   { key: "services", href: "/services", icon: "box" },
   { key: "domains", href: "/domaines", icon: "globe" },
-  { key: "backups", href: "/sauvegardes", icon: "archive" },
   { key: "jobs", href: "/taches", icon: "clock" },
   { key: "statuspage", href: "/page-statut", icon: "eye" },
   { key: "alerts", href: "/alertes", icon: "bell" },

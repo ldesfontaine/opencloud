@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router";
 import type { Machine } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
+import { machineTabs } from "../lib/machineTabs";
 import { seenAgo } from "../lib/time";
 import { Select } from "./Field";
 import { StatePill } from "./Pill";
@@ -44,22 +45,6 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
     </div>
   );
 }
-
-export interface Tab {
-  slug: string;
-  key: string;
-}
-
-// Les onglets d'une machine : segment d'URL → clé de libellé.
-export const machineTabs: Tab[] = [
-  { slug: "", key: "tab.summary" },
-  { slug: "services", key: "tab.services" },
-  { slug: "domaines", key: "tab.domains" },
-  { slug: "reseau", key: "tab.network" },
-  { slug: "sauvegardes", key: "tab.backups" },
-  { slug: "journaux", key: "tab.logs" },
-  { slug: "reglages", key: "tab.settings" },
-];
 
 export function Tabs({ machineID }: { machineID: string }) {
   const t = useT();

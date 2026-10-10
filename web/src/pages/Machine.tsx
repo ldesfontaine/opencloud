@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Navigate, useNavigate, useParams } from "react-router";
 
 import { api } from "../api/client";
 import type { Current, Machine, MachinesResponse, ProbesResponse, ServicesResponse, TokenResponse } from "../api/types";
@@ -7,16 +7,16 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
 import { Failure } from "../components/Failure";
-import { MachineHead, machineTabs, Tabs } from "../components/MachineHead";
+import { MachineHead, Tabs } from "../components/MachineHead";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
-import { Pill } from "../components/Pill";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
+import { resolveMachineTab } from "../lib/machineTabs";
 import { useRefresh } from "../lib/refresh";
 import { engineNote } from "../lib/services";
 import { seenAgo } from "../lib/time";
@@ -24,11 +24,19 @@ import { NotFound } from "./NotFound";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
 // onglets, le résumé avec ses quatre chiffres clés et l'historique, les
-// services, le réseau ; les autres onglets attendent leur fonctionnalité.
+// services, les domaines, le réseau. Un onglet pas encore livré renvoie au
+// résumé.
 export function MachinePage() {
   const { id = "", tab = "" } = useParams();
+  const resolved = resolveMachineTab(tab);
+  if (resolved === "summary") {
+    return <Navigate to={`/machines/${id}`} replace />;
+  }
+  return <KnownMachinePage id={id} tab={tab} known={resolved === "shown"} />;
+}
+
+function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: boolean }) {
   const machines = useResource<MachinesResponse>("/api/machines");
-  const known = machineTabs.some((candidate) => candidate.slug === tab);
   const current = machines.data?.machines.find((machine) => machine.id === id);
   if (!known || (machines.data && !current)) {
     return <NotFound />;
@@ -71,19 +79,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <MachineServices machineID={current.id} />
       ) : tab === "reseau" ? (
         <NetworkView machineID={current.id} />
-      ) : tab === "domaines" ? (
-        <MachineProbes machineID={current.id} />
       ) : (
-        <Card>
-          <Empty
-            text={t("machine.tab_soon")}
-            action={
-              <Pill tone="neutral" dot={false}>
-                {t("soon.badge")}
-              </Pill>
-            }
-          />
-        </Card>
+        <MachineProbes machineID={current.id} />
       )}
     </>
   );

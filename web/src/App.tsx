@@ -1,4 +1,4 @@
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 
 import { Layout } from "./components/Layout";
 import { AlertPage } from "./pages/Alert";
@@ -20,7 +20,6 @@ import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
 import { Settings } from "./pages/Settings";
-import { Soon } from "./pages/Soon";
 import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
@@ -44,7 +43,8 @@ export function App() {
         <Route path="domaines" element={<Probes />} />
         <Route path="domaines/nouvelle" element={<ProbeNew />} />
         <Route path="domaines/:id" element={<ProbePage />} />
-        <Route path="sauvegardes" element={<Soon navKey="backups" />} />
+        {/* Pas encore livrée : l'adresse mène à la vue d'ensemble. */}
+        <Route path="sauvegardes" element={<Navigate to="/" replace />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobNew />} />
         <Route path="taches/:id" element={<JobPage />} />
