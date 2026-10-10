@@ -63,6 +63,18 @@ func (db *DB) GetService(ctx context.Context, id string) (service.Service, error
 	return services[0], nil
 }
 
+// IsServiceOnMachine dit si la fiche existe et appartient à la machine.
+func (db *DB) IsServiceOnMachine(ctx context.Context, serviceID, machineID string) (bool, error) {
+	var isOnMachine bool
+	err := db.sql.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM services WHERE id = ? AND machine_id = ?)`, serviceID, machineID,
+	).Scan(&isOnMachine)
+	if err != nil {
+		return false, fmt.Errorf("check service machine: %w", err)
+	}
+	return isOnMachine, nil
+}
+
 // attachNetworks lit en une requête les appartenances des fiches que la
 // clause désigne et les pose sur chacune, par nom de réseau.
 func (db *DB) attachNetworks(ctx context.Context, where string, args []any, services []service.Service) error {

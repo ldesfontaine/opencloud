@@ -367,6 +367,8 @@ func probeRefusalKey(err error) (string, bool) {
 		return "probe.target_forbidden", true
 	case errors.Is(err, probe.ErrMachineInvalid):
 		return "probe.machine_invalid", true
+	case errors.Is(err, probe.ErrServiceInvalid):
+		return "probe.service_invalid", true
 	case errors.Is(err, probe.ErrIntervalInvalid):
 		return "probe.interval_invalid", true
 	case errors.Is(err, probe.ErrTimeoutInvalid):

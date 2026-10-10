@@ -24,6 +24,8 @@ type Store interface {
 	// l'échéance tombe avant l'instant donné.
 	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
 	CountProbesOnMachine(ctx context.Context, machineID string) (int, error)
+	// IsServiceOnMachine dit si la fiche existe et appartient à la machine.
+	IsServiceOnMachine(ctx context.Context, serviceID, machineID string) (bool, error)
 	DeleteProbe(ctx context.Context, id string) error
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
 	// pause, ce que la sonde valait ne vaut plus rien.
@@ -125,6 +127,9 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	if err := definition.Validate(); err != nil {
 		return Probe{}, err
 	}
+	if err := s.checkServiceBelongs(ctx, definition); err != nil {
+		return Probe{}, err
+	}
 	carried, err := s.store.CountProbesOnMachine(ctx, definition.MachineID)
 	if err != nil {
 		return Probe{}, err
@@ -162,6 +167,23 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	s.Assign(ctx, created.MachineID)
 	s.changed(created.MachineID)
 	return s.store.GetProbe(ctx, id)
+}
+
+// Le rattachement est facultatif, mais s'il est donné il doit être vrai :
+// la clé étrangère le refuserait en erreur brute, et un service d'une autre
+// machine passerait sans bruit.
+func (s *Service) checkServiceBelongs(ctx context.Context, definition Definition) error {
+	if definition.ServiceID == "" {
+		return nil
+	}
+	belongs, err := s.store.IsServiceOnMachine(ctx, definition.ServiceID, definition.MachineID)
+	if err != nil {
+		return err
+	}
+	if !belongs {
+		return ErrServiceInvalid
+	}
+	return nil
 }
 
 func (s *Service) List(ctx context.Context, machineID string) ([]Probe, error) {

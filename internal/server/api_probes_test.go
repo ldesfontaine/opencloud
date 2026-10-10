@@ -63,6 +63,28 @@ func TestAPI_CreateProbe_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testin
 	}
 }
 
+func TestAPI_CreateProbe_RefusesAServiceUnknownOrOfAnotherMachine(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	serviceID := server.seedServices(t)
+
+	cases := map[string]probeRequest{
+		"service inconnu":             {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: "inexistant"},
+		"service d'une autre machine": {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: serviceID},
+	}
+	for name, request := range cases {
+		got := callAPI(server.Server, http.MethodPost, "/api/probes", request)
+		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "probe.service_invalid" {
+			t.Errorf("%s: %d %s", name, got.Code, got.Body.String())
+		}
+	}
+
+	request := probeRequest{Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: remoteID, ServiceID: serviceID}
+	if created := server.createProbeVia(t, request); created.ServiceID != serviceID {
+		t.Fatalf("le service de la machine devait se rattacher: %+v", created)
+	}
+}
+
 func TestAPI_ProbeActions_PauseResumeDelete(t *testing.T) {
 	server := newTestServer(t)
 	created := server.createProbeVia(t, probeRequest{Name: "site", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID})
