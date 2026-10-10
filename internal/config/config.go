@@ -25,7 +25,7 @@ const (
 type Config struct {
 	// Adresse d'écoute du serveur web, hôte:port.
 	Listen string `toml:"listen" validate:"required,hostname_port"`
-	// Répertoire d'état : base, certificats, sauvegardes locales.
+	// Répertoire d'état : la base SQLite et settings.toml.
 	StateDir string `toml:"state_dir" validate:"required"`
 	// Adresse à laquelle les machines joignent openCloud, mise dans la
 	// commande d'installation. Vide : déduite de la requête.

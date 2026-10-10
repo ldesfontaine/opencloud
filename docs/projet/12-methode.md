@@ -17,7 +17,7 @@
 |---|---|
 | `dev` | Le tronc. Rien ne s'y pousse directement. |
 | `feat/<nom-court>`, `fix/…`, `docs/…`, `ci/…`, `chore/…` | Une branche par fonctionnalité, le même préfixe que le commit, en minuscules avec des tirets. |
-| `main` | Reçoit `dev` quand Lucas juge l'état stable. Toujours installable. |
+| `main` | N'existe pas encore. Elle viendra recevoir `dev` quand Lucas jugera l'état stable, et sera alors toujours installable. |
 | `production` | Créée le jour où Lucas le décide, pour les versions livrées. |
 
 - **Une pull request vers `dev`.** CI verte, relecture, puis **fusion par
@@ -27,8 +27,8 @@
   commits de fusion dans la branche.
 - Deux travaux en parallèle ne se gênent pas : chacun sa branche, le conflit
   se règle dans la PR.
-- Tant que le dépôt est privé sur un plan gratuit, GitHub n'applique pas ces
-  règles : c'est une discipline.
+- Le dépôt est public, mais aucune règle de protection n'est posée sur
+  `dev` : GitHub n'applique rien, c'est une discipline.
 
 ## Les versions
 

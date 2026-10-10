@@ -1,0 +1,27 @@
+# Extrait docker-compose pour un Traefik v3 en conteneur devant openCloud,
+# qui tourne sur l'hôte (unité systemd). Seuls les points utiles à openCloud
+# sont montrés ; gardez votre configuration Traefik pour le reste.
+# Non testé avec Traefik dans l'environnement de rédaction ; le joint
+# host.docker.internal → serve sur 172.17.0.1, lui, a été vérifié.
+services:
+  traefik:
+    image: traefik:v3.5
+    command:
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=vous@example.org
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --providers.file.directory=/etc/traefik/dynamic
+    ports:
+      - "443:443"
+    # host-gateway vaut l'IP du pont docker0 (172.17.0.1 par défaut), quel
+    # que soit le réseau du conteneur : c'est l'adresse que `listen` vise.
+    # openCloud voit alors arriver Traefik depuis l'IP de son réseau à lui
+    # (172.18.0.0/16 pour un réseau créé par Compose…) : c'est ce
+    # sous-réseau qui va dans trusted_proxies.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./dynamic:/etc/traefik/dynamic:ro     # y poser traefik-opencloud.yml
+      - ./letsencrypt:/letsencrypt
+    restart: unless-stopped

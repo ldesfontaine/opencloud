@@ -1,0 +1,28 @@
+# Configuration dynamique Traefik v3 (provider « file ») pour openCloud.
+# openCloud n'est pas un conteneur : les labels Docker ne s'appliquent pas,
+# d'où ce fichier. Adaptez le nom, l'entrypoint, le résolveur de
+# certificats et l'adresse du serveur.
+# Non testé avec Traefik dans l'environnement de rédaction.
+http:
+  routers:
+    opencloud:
+      rule: "Host(`opencloud.example.org`)"
+      entryPoints: ["websecure"]
+      service: opencloud
+      tls:
+        certResolver: letsencrypt
+      # Pas de middleware `buffering` ni `compress` ici : /agent/stream,
+      # /api/events, les journaux, /statut/api/events et /mcp sont des
+      # flux SSE qui doivent partir tels quels et durer.
+
+  services:
+    opencloud:
+      loadBalancer:
+        # Traefik en conteneur, avec extra_hosts host.docker.internal:host-gateway
+        # et listen = "172.17.0.1:8080" : http://host.docker.internal:8080.
+        # Traefik en mode host (network_mode: host) : http://127.0.0.1:8080.
+        servers:
+          - url: "http://host.docker.internal:8080"
+        # Le Host d'origine part vers openCloud (défaut de Traefik) : il doit
+        # être celui de public_url, sinon l'API répond 403 bad_host.
+        passHostHeader: true

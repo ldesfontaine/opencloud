@@ -1,0 +1,29 @@
+# /etc/systemd/system/opencloud.service — le serveur openCloud.
+# Non testé sous systemd dans l'environnement de rédaction : vérifié par
+# systemd-analyze verify seulement.
+[Unit]
+Description=openCloud (serveur)
+Documentation=https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md
+# Docker d'abord : si `listen` vise l'IP du pont docker0, elle doit exister.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=opencloud
+Group=opencloud
+# Lire la socket Docker. Sans Docker sur la machine, supprimez cette ligne.
+SupplementaryGroups=docker
+ExecStart=/usr/local/bin/opencloud serve -config /etc/opencloud/config.toml
+Restart=on-failure
+RestartSec=5
+# Crée /var/lib/opencloud en 0700, propriété de opencloud.
+StateDirectory=opencloud
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
