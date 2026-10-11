@@ -1,5 +1,6 @@
 /bin/
 /dist/
+/dist-release/
 /dev/
 # Arbres de travail et fichiers de session des agents.
 /.claude/

@@ -10,8 +10,9 @@ vos tâches planifiées par ping, des alertes par webhook signé, une page de
 statut publique, les mises à jour d'images détectées, et un serveur MCP pour
 les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 
-> **Maturité.** Version `v0.0.1`, pré-version. Aucun binaire n'est publié :
-> il faut compiler. L'interface est **ouverte par défaut** : activez
+> **Maturité.** Version `v0.0.1`, pré-version. Les binaires Linux amd64 et
+> arm64 sont dans la [release v0.0.1](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
+> ou se compilent. L'interface est **ouverte par défaut** : activez
 > l'authentification avant de l'exposer hors de la machine.
 
 ![Vue d'ensemble d'openCloud, avec des machines d'exemple](docs/images/vue-ensemble.png)
