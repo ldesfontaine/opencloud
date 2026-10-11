@@ -3,6 +3,7 @@ package mcp
 import (
 	"errors"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,8 +13,9 @@ const (
 	// Le seul client OAuth : openCloud a un opérateur, pas des tenants.
 	ClientID = "opencloud"
 	// Un code d'autorisation vit dix minutes ; un accès une heure ; un
-	// rafraîchissement trente jours. Un jeton d'API n'a pas d'échéance :
-	// l'opérateur le révoque.
+	// rafraîchissement trente jours. Un jeton d'API vit la durée choisie à
+	// sa création (APITokenDays), sans échéance seulement si l'opérateur
+	// le demande.
 	CodeTTL    = 10 * time.Minute
 	AccessTTL  = time.Hour
 	RefreshTTL = 30 * 24 * time.Hour
@@ -26,7 +28,27 @@ const (
 	MaxRedirectURILen  = 512
 	// La seule méthode PKCE acceptée.
 	ChallengeMethod = "S256"
+	// L'échéance d'un jeton d'API quand la demande n'en dit rien.
+	DefaultAPITokenDays = 90
 )
+
+// APITokenDays sont les durées de vie offertes à un jeton d'API, en jours ;
+// 0 veut dire sans échéance, un choix explicite.
+func APITokenDays() []int {
+	return []int{30, 90, 365, 0}
+}
+
+// Scope est ce qu'un jeton peut faire : lire seulement, ou lire et écrire.
+type Scope string
+
+const (
+	ScopeRead  Scope = "read"
+	ScopeWrite Scope = "write"
+)
+
+func Scopes() []Scope {
+	return []Scope{ScopeRead, ScopeWrite}
+}
 
 // Kind est la sorte d'un jeton.
 type Kind string
@@ -64,12 +86,14 @@ type Code struct {
 
 // Token est un jeton stocké haché. FamilyID lie les rotations d'une même
 // autorisation OAuth ; vide pour un jeton d'API. ExpiresAt est zéro pour
-// un jeton d'API.
+// un jeton d'API créé sans échéance. Un jeton OAuth a toujours la portée
+// write : l'opérateur l'a obtenu derrière /oauth/authorize.
 type Token struct {
 	ID         string
 	Hash       string
 	Prefix     string
 	Kind       Kind
+	Scope      Scope
 	Name       string
 	FamilyID   string
 	CreatedAt  time.Time
@@ -80,6 +104,10 @@ type Token struct {
 
 func (t Token) IsRevoked() bool {
 	return !t.RevokedAt.IsZero()
+}
+
+func (t Token) CanWrite() bool {
+	return t.Scope == ScopeWrite
 }
 
 func (t Token) IsExpired(now time.Time) bool {
@@ -98,6 +126,21 @@ type Session struct {
 	StartedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
+}
+
+// Revoked compte ce qu'une révocation générale a coupé : les jetons
+// d'API et les autorisations OAuth (une famille par client connecté).
+type Revoked struct {
+	APITokens int
+	Sessions  int
+}
+
+// APITokenRequest est ce que l'opérateur choisit en créant un jeton d'API.
+// Une portée vide vaut read ; Days nil vaut DefaultAPITokenDays.
+type APITokenRequest struct {
+	Name  string
+	Scope Scope
+	Days  *int
 }
 
 // Grant est ce que le point de jeton répond : les deux clairs, une fois.
@@ -123,7 +166,38 @@ var (
 	ErrNameInvalid         = errors.New("mcp: token name invalid")
 	ErrTooManyTokens       = errors.New("mcp: too many api tokens")
 	ErrTooManyRedirectURIs = errors.New("mcp: too many redirect uris")
+	ErrScopeInvalid        = errors.New("mcp: token scope invalid")
+	ErrLifetimeInvalid     = errors.New("mcp: token lifetime invalid")
 )
+
+// scopeOf lit la portée demandée : vide vaut lecture seule.
+func scopeOf(requested Scope) (Scope, error) {
+	if requested == "" {
+		return ScopeRead, nil
+	}
+	if slices.Contains(Scopes(), requested) {
+		return requested, nil
+	}
+	return "", ErrScopeInvalid
+}
+
+// expiryOf rend l'échéance d'un jeton créé maintenant : zéro pour 0 jour,
+// sans échéance ; une durée hors de la liste est refusée.
+func expiryOf(requested *int, now time.Time) (time.Time, error) {
+	days := DefaultAPITokenDays
+	if requested != nil {
+		days = *requested
+	}
+	if !slices.Contains(APITokenDays(), days) {
+		return time.Time{}, ErrLifetimeInvalid
+	}
+	if days == 0 {
+		return time.Time{}, nil
+	}
+	// Des jours de 24 h, pas des jours du calendrier local : un passage à
+	// l'heure d'hiver ne décale pas l'échéance.
+	return now.Add(time.Duration(days) * 24 * time.Hour), nil
+}
 
 // ValidateName borne le nom d'un jeton d'API : un mot pour le reconnaître.
 func ValidateName(name string) error {

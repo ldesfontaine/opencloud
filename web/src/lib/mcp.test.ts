@@ -1,12 +1,15 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { claudeCodeCommand, lifetimesOf, redirectLines } from "./mcp";
+import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "./mcp";
 
 const french: Record<string, string> = {
   "time.hours": "%d h",
   "time.days": "%d j",
   "mcp.lifetimes": "Un accès vaut %s, renouvelé jusqu'à %s sans nouvelle autorisation.",
+  "mcp.lifetime_days": "%d jours",
+  "mcp.lifetime_never": "Sans échéance",
+  "mcp.expires_never": "jamais",
 };
 
 const t: Translate = (key, ...args) => {
@@ -33,4 +36,18 @@ test("claudeCodeCommand enveloppe la commande du client local", () => {
   expect(claudeCodeCommand("opencloud mcp -config /etc/opencloud/config.toml")).toBe(
     "claude mcp add opencloud -- opencloud mcp -config /etc/opencloud/config.toml",
   );
+});
+
+test("lifetimeLabel dit une durée en jours, ou sans échéance pour 0", () => {
+  expect(lifetimeLabel(t, 90)).toBe("90 jours");
+  expect(lifetimeLabel(t, 0)).toBe("Sans échéance");
+});
+
+test("expiryLabel dit la date, ou jamais pour un jeton sans échéance", () => {
+  expect(expiryLabel(t, null, () => "x")).toBe("jamais");
+  expect(expiryLabel(t, "2026-12-22T10:00:00Z", (iso) => `le ${iso}`)).toBe("le 2026-12-22T10:00:00Z");
+});
+
+test("la lecture seule est la première portée, celle par défaut", () => {
+  expect(mcpScopes).toEqual(["read", "write"]);
 });

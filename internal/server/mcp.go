@@ -24,7 +24,8 @@ type MCPService interface {
 	Disable(ctx context.Context) error
 	RegenerateSecret(ctx context.Context) (string, error)
 	SetRedirectURIs(ctx context.Context, uris []string) (mcp.Client, error)
-	CreateAPIToken(ctx context.Context, name string) (string, mcp.Token, error)
+	CreateAPIToken(ctx context.Context, request mcp.APITokenRequest) (string, mcp.Token, error)
+	RevokeAll(ctx context.Context) (mcp.Revoked, error)
 	APITokens(ctx context.Context) ([]mcp.Token, error)
 	RevokeToken(ctx context.Context, id string) error
 	Sessions(ctx context.Context) ([]mcp.Session, error)
@@ -72,7 +73,7 @@ const mcpInstructions = "openCloud is a self-hosted dashboard that watches machi
 	"seconds or milliseconds, states are closed lists of lowercase words. Nothing here can act on a machine: " +
 	"no restart, no deploy, no command, and openCloud's own secrets (passwords, channel secrets, ping URLs) are " +
 	"never returned; container logs are raw and can contain anything. open_incident and add_incident_update " +
-	"publish on the public status page. Errors come back as {\"error\":\"<code>\"} where the code is stable " +
+	"publish on the public status page. A read-only token gets {\"error\":\"mcp.read_only\"} from write tools. Errors come back as {\"error\":\"<code>\"} where the code is stable " +
 	"(not_found, internal) or a catalog key such as probe.not_paused."
 
 const mcpReadOnlyInstructions = " This session runs over stdio and is read-only: write tools answer " +
@@ -178,8 +179,12 @@ func (s *Server) verifyBearer(ctx context.Context, bearer string, _ *http.Reques
 		return nil, err
 	}
 	// L'échéance a été jugée par Verify, sur l'horloge du serveur ; le SDK
-	// n'a pas à la rejuger sur la sienne, d'où AllowMissingExpiration.
-	return &auth.TokenInfo{Extra: map[string]any{"token_id": token.ID, "kind": string(token.Kind)}}, nil
+	// n'a pas à la rejuger sur la sienne, d'où AllowMissingExpiration. La
+	// portée suit la requête jusqu'aux écritures, qui la jugent (guarded).
+	return &auth.TokenInfo{
+		Scopes: []string{string(token.Scope)},
+		Extra:  map[string]any{"token_id": token.ID, "kind": string(token.Kind)},
+	}, nil
 }
 
 // mcpEnabled répond 404 quand MCP n'est pas activé : rien à découvrir.

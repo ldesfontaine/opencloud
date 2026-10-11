@@ -310,7 +310,7 @@ curl -X POST -H 'Content-Type: application/json' \
 | Identifiant | 1 à 64 caractères, sans `:` |
 | Mot de passe | 12 caractères au moins, 72 octets au plus ; haché en bcrypt |
 | Échecs | 10 d'un coup, puis un toutes les 6 s par adresse, `429` au-delà |
-| Effet | Immédiat, sans redémarrage |
+| Effet | Immédiat, sans redémarrage. Activer révoque tous les jetons MCP (jetons d'API et sessions OAuth) : recréez ceux qui servent |
 
 Ce qui reste ouvert : la liste du [tableau ci-dessus](#une-authentification-basic-au-niveau-de-traefik).
 Le reste — l'interface, `/api/…`, le direct, les journaux,

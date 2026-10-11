@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
 const (
@@ -293,6 +294,62 @@ func TestAuthAPI_EnableChangeDisable(t *testing.T) {
 	changeOff := callAPI(server.Server, http.MethodPut, "/api/auth/password", authPasswordRequest{Password: newPassword})
 	if changeOff.Code != http.StatusConflict || errorCode(t, changeOff) != "auth.disabled" {
 		t.Fatalf("change while disabled: %d %s", changeOff.Code, changeOff.Body.String())
+	}
+}
+
+// Activer l'authentification révoque tous les jetons MCP, d'API et OAuth,
+// et dit combien ; le client OAuth reste. Changer le mot de passe ou
+// désactiver ne révoque rien.
+func TestAuthAPI_EnableRevokesEveryMCPTokenAndPasswordChangeDoesNot(t *testing.T) {
+	server := newTestServer(t)
+	liveServer := httptest.NewServer(server.Server)
+	t.Cleanup(liveServer.Close)
+	endpoint := liveServer.URL + mcpPath
+	secret := server.enableMCP(t)
+	reader := server.createAPIToken(t, "lecteur")
+	writer := server.createScopedToken(t, mcpTokenRequest{Name: "écrivain", Scope: string(mcp.ScopeWrite)})
+	grant := server.oauthGrant(t, secret)
+
+	enabled := callAPI(server.Server, http.MethodPost, "/api/auth/actions/enable", authEnableRequest{Username: testUsername, Password: testPassword})
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body.String())
+	}
+	var response authEnableResponse
+	decodeAPI(t, enabled, &response)
+	if response.Mode != "basic" || response.MCPRevoked != (mcpRevokedJSON{APITokens: 2, Sessions: 1}) {
+		t.Fatalf("response %+v", response)
+	}
+	for _, bearer := range []string{reader, writer, grant.AccessToken} {
+		if _, err := listToolsOverHTTP(t, endpoint, bearer); err == nil {
+			t.Fatal("a token survived the activation")
+		}
+	}
+	// Le client OAuth reste : une nouvelle autorisation passe, désormais
+	// derrière les identifiants.
+	if _, enabled, err := server.access.Client(context.Background()); err != nil || !enabled {
+		t.Fatalf("client gone: %v %v", enabled, err)
+	}
+
+	// Un jeton créé après l'activation survit au changement de mot de
+	// passe et à la désactivation.
+	created := callBasicJSON(server.Server, http.MethodPost, "/api/mcp/tokens", `{"name":"après"}`, testPassword)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create after: %d %s", created.Code, created.Body.String())
+	}
+	var after mcpTokenResponse
+	decodeAPI(t, created, &after)
+	const newPassword = "another long passphrase"
+	if got := callBasicJSON(server.Server, http.MethodPut, "/api/auth/password", `{"password":"`+newPassword+`"}`, testPassword); got.Code != http.StatusOK {
+		t.Fatalf("change: %d %s", got.Code, got.Body.String())
+	}
+	if _, err := listToolsOverHTTP(t, endpoint, after.Token); err != nil {
+		t.Fatalf("password change revoked a token: %v", err)
+	}
+	if got := callBasicJSON(server.Server, http.MethodPost, "/api/auth/actions/disable", `{}`, newPassword); got.Code != http.StatusOK {
+		t.Fatalf("disable: %d %s", got.Code, got.Body.String())
+	}
+	if _, err := listToolsOverHTTP(t, endpoint, after.Token); err != nil {
+		t.Fatalf("disabling revoked a token: %v", err)
 	}
 }
 
