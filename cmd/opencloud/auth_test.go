@@ -91,6 +91,50 @@ func TestAuthCommand_StatusThenDisableReopensTheInterface(t *testing.T) {
 	}
 }
 
+func TestAuthCommand_StatusShowsTheForwardHeaderAndDisableReopens(t *testing.T) {
+	configPath, stateDir := writeConfig(t)
+	root, err := openStateDir(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := store.Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := auth.New(db, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.EnableForward(context.Background(), "X-Forwarded-User"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	root.Close()
+
+	var out bytes.Buffer
+	if err := authCommand([]string{"status", "-config", configPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "mode : forward") || !strings.Contains(out.String(), "en-tête d'identité : X-Forwarded-User") {
+		t.Fatalf("status: %q", out.String())
+	}
+	if strings.Contains(out.String(), "identifiant :") {
+		t.Fatalf("forward mode has no stored username: %q", out.String())
+	}
+
+	out.Reset()
+	if err := authCommand([]string{"disable", "-config", configPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := authCommand([]string{"status", "-config", configPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "mode : none") {
+		t.Fatalf("status after disable: %q", out.String())
+	}
+}
+
 func TestAuthCommand_RefusesAnUnknownSubcommand(t *testing.T) {
 	var out bytes.Buffer
 	if err := authCommand([]string{"enable"}, &out); err == nil {

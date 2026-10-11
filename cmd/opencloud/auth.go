@@ -17,7 +17,8 @@ import (
 
 const authUsage = `Usage : opencloud auth <status|disable> [-config chemin]
 
-  status    dit si l'interface est protégée, et par quel identifiant
+  status    dit si l'interface est protégée, par quel identifiant ou
+            derrière quel en-tête d'identité du mandataire
   disable   coupe l'authentification de l'interface (mot de passe oublié) ;
             serve la suit à la requête suivante, sans redémarrer
 `
@@ -89,11 +90,17 @@ func printAuthStatus(ctx context.Context, access *auth.Service, out io.Writer) e
 	if err != nil {
 		return err
 	}
-	if state.Mode == auth.ModeNone {
+	enabledAt := state.EnabledAt.UTC().Format(time.RFC3339)
+	switch state.Mode {
+	case auth.ModeNone:
 		_, err = fmt.Fprintln(out, "mode : none — interface ouverte, sans authentification")
+		return err
+	case auth.ModeForward:
+		_, err = fmt.Fprintf(out, "mode : forward — derrière un mandataire d'authentification\nen-tête d'identité : %s\nactivée le : %s\n",
+			state.Header, enabledAt)
 		return err
 	}
 	_, err = fmt.Fprintf(out, "mode : %s\nidentifiant : %s\nactivée le : %s\n",
-		state.Mode, state.Username, state.EnabledAt.UTC().Format(time.RFC3339))
+		state.Mode, state.Username, enabledAt)
 	return err
 }

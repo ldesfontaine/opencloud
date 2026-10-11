@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +106,62 @@ func TestVerify_RemembersUntilThePasswordChanges(t *testing.T) {
 	}
 	if store.state.Mode != ModeNone || store.state.PasswordHash != "" || store.state.Username != "" {
 		t.Fatalf("disable must erase the credentials: %+v", store.state)
+	}
+}
+
+func TestEnableForward_StoresTheHeaderAndNoCredentials(t *testing.T) {
+	service, store := newTestService(t)
+	ctx := context.Background()
+	state, err := service.EnableForward(ctx, DefaultForwardHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Mode != ModeForward || state.Header != "Remote-User" || state.EnabledAt.IsZero() {
+		t.Fatalf("returned %+v", state)
+	}
+	if store.state.Mode != ModeForward || store.state.Header != "Remote-User" || store.state.Username != "" || store.state.PasswordHash != "" {
+		t.Fatalf("stored %+v", store.state)
+	}
+	if _, err := service.EnableForward(ctx, "X-Forwarded-User"); !errors.Is(err, ErrAlreadyEnabled) {
+		t.Fatalf("enable twice: %v", err)
+	}
+	if _, err := service.EnableBasic(ctx, "lucas", "correct horse battery"); !errors.Is(err, ErrAlreadyEnabled) {
+		t.Fatalf("basic over forward: %v", err)
+	}
+	if _, err := service.ChangePassword(ctx, "another long passphrase"); !errors.Is(err, ErrNoPassword) {
+		t.Fatalf("change password in forward mode: %v", err)
+	}
+	if service.Verify(store.state, "", "") {
+		t.Fatal("no credentials verify in forward mode")
+	}
+	if err := service.Disable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if store.state.Mode != ModeNone || store.state.Header != "" {
+		t.Fatalf("disable must erase the header: %+v", store.state)
+	}
+}
+
+func TestEnableForward_RefusesAnInvalidHeaderName(t *testing.T) {
+	service, store := newTestService(t)
+	for _, header := range []string{"", "Remote User", "Remote-User:", "Remote_User", "Rémote-User", strings.Repeat("a", 65)} {
+		if _, err := service.EnableForward(context.Background(), header); !errors.Is(err, ErrHeaderInvalid) {
+			t.Errorf("%q: %v, want ErrHeaderInvalid", header, err)
+		}
+	}
+	if store.state.Mode != "" {
+		t.Fatalf("a refused header changed the state: %+v", store.state)
+	}
+	for _, header := range []string{"Remote-User", "X-Forwarded-User", "X-Auth-Request-Email", strings.Repeat("a", 64)} {
+		if err := ValidateHeader(header); err != nil {
+			t.Errorf("%q must pass: %v", header, err)
+		}
+	}
+}
+
+func TestModes_ListsEveryModeTheStoreAccepts(t *testing.T) {
+	want := []Mode{ModeNone, ModeBasic, ModeForward}
+	if got := Modes(); !slices.Equal(got, want) {
+		t.Fatalf("modes %v, want %v", got, want)
 	}
 }

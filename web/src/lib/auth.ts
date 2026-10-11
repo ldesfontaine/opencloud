@@ -1,7 +1,8 @@
 import type { AuthState } from "../api/types";
 
 // Ce que la barre latérale dit de l'accès : protégé par tel identifiant,
-// ou ouvert à qui atteint le port. Rien tant que l'API n'a pas répondu.
+// par le mandataire pour telle identité, ou ouvert à qui atteint le port.
+// Rien tant que l'API n'a pas répondu.
 export interface AccessLabel {
   key: string;
   username: string | null;
@@ -13,6 +14,9 @@ export function accessLabel(state: AuthState | null): AccessLabel | null {
   }
   if (state.mode === "none") {
     return { key: "auth.side_open", username: null };
+  }
+  if (state.mode === "forward") {
+    return { key: "auth.side_protected_forward", username: state.username };
   }
   return { key: "auth.side_protected", username: state.username };
 }

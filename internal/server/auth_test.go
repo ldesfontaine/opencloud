@@ -90,18 +90,25 @@ func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) 
 			t.Errorf("%s %s: an open route asked for the operator's password", route.method, route.pattern)
 		}
 	}
-	// La liste des ouvertes est une décision : la voici, entière.
-	want := []string{
-		"/agent/enroll", "/agent/challenge", "/agent/stream", "/agent/signal", "/agent/logs/{request}",
-		"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
-		"/statut", "/statut/{$}", "/statut/api/status", "/statut/api/i18n", "/statut/api/events", "/statut/",
-		"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
-		"/oauth/token", "/mcp",
+	checkOpenRoutes(t, open)
+}
+
+// La liste des ouvertes est une décision : la voici, entière, la même pour
+// chaque mode.
+var wantOpenRoutes = []string{
+	"/agent/enroll", "/agent/challenge", "/agent/stream", "/agent/signal", "/agent/logs/{request}",
+	"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
+	"/statut", "/statut/{$}", "/statut/api/status", "/statut/api/i18n", "/statut/api/events", "/statut/",
+	"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
+	"/oauth/token", "/mcp",
+}
+
+func checkOpenRoutes(t *testing.T, open map[string]bool) {
+	t.Helper()
+	if len(open) != len(wantOpenRoutes) {
+		t.Errorf("open routes %v, want %v", open, wantOpenRoutes)
 	}
-	if len(open) != len(want) {
-		t.Errorf("open routes %v, want %v", open, want)
-	}
-	for _, pattern := range want {
+	for _, pattern := range wantOpenRoutes {
 		if !open[pattern] {
 			t.Errorf("%s should stay open", pattern)
 		}
@@ -410,16 +417,248 @@ func TestAuthBasic_LiveStreamOpensWithCredentials(t *testing.T) {
 	}
 }
 
-func TestAuth_ForwardModeIsReservedAndClosesTheInterface(t *testing.T) {
-	server := newTestServer(t)
-	if err := server.db.SaveAuthState(context.Background(), auth.State{Mode: auth.ModeForward}, testNow); err != nil {
+// Les pairs des requêtes du mode forward : httptest donne 192.0.2.1, et le
+// mandataire déclaré est son réseau ; l'autre est un conteneur voisin.
+const (
+	trustedPeer   = "192.0.2.1"
+	untrustedPeer = "203.0.113.9"
+)
+
+// enableForward passe le serveur en mode forward derrière un mandataire
+// déclaré, l'en-tête par défaut.
+func (ts *testServer) enableForward(t *testing.T) {
+	t.Helper()
+	ts.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
+	if _, err := ts.operator.EnableForward(context.Background(), auth.DefaultForwardHeader); err != nil {
 		t.Fatal(err)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusServiceUnavailable {
-		t.Fatalf("forward mode not written yet must close, got %d", got.Code)
+}
+
+// callForwarded joue une requête depuis peer, avec l'identité dans
+// Remote-User quand elle n'est pas vide, comme le poserait Authelia.
+func callForwarded(server *Server, method, path, peer, identity string) *httptest.ResponseRecorder {
+	return callForwardedWithin(context.Background(), server, method, path, peer, identity)
+}
+
+func callForwardedWithin(ctx context.Context, server *Server, method, path, peer, identity string) *httptest.ResponseRecorder {
+	request := httptest.NewRequestWithContext(ctx, method, path, nil)
+	request.RemoteAddr = peer + ":4000"
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	if identity != "" {
+		request.Header.Set(auth.DefaultForwardHeader, identity)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/statut", "", ""); got.Code != http.StatusOK {
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// callForwardedJSON : une écriture de l'API comme le front derrière le
+// mandataire, avec un en-tête choisi.
+func callForwardedJSON(server *Server, method, path, body, peer, header, identity string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.RemoteAddr = peer + ":4000"
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	request.Header.Set("Content-Type", "application/json")
+	if identity != "" {
+		request.Header.Set(header, identity)
+	}
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// Le jumeau du test basic : depuis le mandataire mais sans identité, chaque
+// route de l'opérateur répond 401 sans défi Basic ; les ouvertes répondent
+// exactement ce qu'elles répondent sans authentification.
+func TestAuthForward_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) {
+	reference := newTestServer(t)
+	server := newTestServer(t)
+	server.enableForward(t)
+	open := map[string]bool{}
+	for _, route := range server.routes() {
+		path := concretePath(route.pattern)
+		method := concreteMethod(route.method)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		recorder := callForwardedWithin(ctx, server.Server, method, path, trustedPeer, "")
+		cancel()
+		if isOperatorRoute(route.pattern) {
+			if recorder.Code != http.StatusUnauthorized {
+				t.Errorf("%s %s: status %d, want 401", route.method, route.pattern, recorder.Code)
+			}
+			if got := recorder.Header().Get("WWW-Authenticate"); got != "" {
+				t.Errorf("%s %s: forward mode must not challenge, got %q", route.method, route.pattern, got)
+			}
+			continue
+		}
+		open[route.pattern] = true
+		ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+		unguarded := callForwardedWithin(ctx, reference.Server, method, path, trustedPeer, "")
+		cancel()
+		if recorder.Code != unguarded.Code {
+			t.Errorf("%s %s: status %d in forward mode, %d without authentication", route.method, route.pattern, recorder.Code, unguarded.Code)
+		}
+	}
+	checkOpenRoutes(t, open)
+}
+
+// Seul un mandataire déclaré qui porte l'identité passe : ni le mandataire
+// sans identité, ni un conteneur voisin qui écrit l'en-tête lui-même.
+func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
+	server := newTestServer(t)
+	server.enableForward(t)
+	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusOK {
+		t.Fatalf("trusted proxy with identity: status %d", got.Code)
+	}
+	if got := callForwarded(server.Server, http.MethodGet, "/machines", trustedPeer, testUsername); got.Code != http.StatusOK {
+		t.Fatalf("front through the proxy: status %d", got.Code)
+	}
+	missing := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, "")
+	if missing.Code != http.StatusUnauthorized || errorCode(t, missing) != codeUnauthorized {
+		t.Fatalf("trusted proxy without identity: status %d %s", missing.Code, missing.Body.String())
+	}
+	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, "   "); got.Code != http.StatusUnauthorized {
+		t.Fatalf("blank identity: status %d", got.Code)
+	}
+	forged := callForwarded(server.Server, http.MethodGet, "/api/counts", untrustedPeer, testUsername)
+	if forged.Code != http.StatusUnauthorized || errorCode(t, forged) != codeUnauthorized {
+		t.Fatalf("untrusted peer with identity: status %d %s", forged.Code, forged.Body.String())
+	}
+	if got := forged.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("no Basic challenge in forward mode, got %q", got)
+	}
+	// Basic ne rouvre rien : il n'y a pas de mot de passe en forward.
+	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusUnauthorized {
+		t.Fatalf("basic credentials in forward mode: status %d", got.Code)
+	}
+	if got := callForwarded(server.Server, http.MethodGet, "/statut", untrustedPeer, ""); got.Code != http.StatusOK {
 		t.Fatalf("/statut stays public: %d", got.Code)
+	}
+	if got := callForwarded(server.Server, http.MethodGet, "/ping/hb_unknown", untrustedPeer, ""); got.Code != http.StatusNotFound {
+		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)
+	}
+}
+
+// Le refus d'une page dit de passer par le mandataire, et comment rouvrir
+// l'accès, dans la langue du navigateur.
+func TestAuthForward_RefusedPageSaysToGoThroughTheProxy(t *testing.T) {
+	server := newTestServer(t)
+	server.enableForward(t)
+	cases := map[string]string{
+		"fr-FR,fr;q=0.9": "Accès refusé : passez par le mandataire d'authentification. Pour rouvrir l'accès : opencloud auth disable -config <chemin de la config>",
+		"en-US,en;q=0.9": "Access denied: go through the authentication proxy. To reopen access: opencloud auth disable -config <config path>",
+	}
+	for acceptLanguage, want := range cases {
+		request := httptest.NewRequest(http.MethodGet, "/machines", nil)
+		request.RemoteAddr = untrustedPeer + ":4000"
+		request.Header.Set("Accept-Language", acceptLanguage)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("%q: status %d, want 401", acceptLanguage, recorder.Code)
+		}
+		if got := strings.TrimSpace(recorder.Body.String()); got != want {
+			t.Errorf("%q: body %q, want %q", acceptLanguage, got, want)
+		}
+	}
+}
+
+// Le garde-fou : on n'active forward que depuis une requête qui porte déjà
+// l'identité d'un mandataire de confiance, sans quoi on s'enfermerait dehors.
+func TestAuthAPI_EnableForwardRequiresTheIdentityFromATrustedProxy(t *testing.T) {
+	server := newTestServer(t)
+	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
+	const enable = "/api/auth/actions/enable"
+	const remoteUser = auth.DefaultForwardHeader
+
+	missing := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward"}`, trustedPeer, remoteUser, "")
+	if missing.Code != http.StatusUnprocessableEntity || errorCode(t, missing) != "auth.forward_header_missing" {
+		t.Fatalf("without the header: %d %s", missing.Code, missing.Body.String())
+	}
+	forged := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward"}`, untrustedPeer, remoteUser, testUsername)
+	if forged.Code != http.StatusUnprocessableEntity || errorCode(t, forged) != "auth.forward_header_missing" {
+		t.Fatalf("from an untrusted peer: %d %s", forged.Code, forged.Body.String())
+	}
+	other := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward","header":"X-Forwarded-User"}`, trustedPeer, remoteUser, testUsername)
+	if other.Code != http.StatusUnprocessableEntity || errorCode(t, other) != "auth.forward_header_missing" {
+		t.Fatalf("carrying another header than the one asked: %d %s", other.Code, other.Body.String())
+	}
+	invalid := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward","header":"Remote User"}`, trustedPeer, remoteUser, testUsername)
+	if invalid.Code != http.StatusUnprocessableEntity || errorCode(t, invalid) != "auth.header_invalid" {
+		t.Fatalf("invalid header name: %d %s", invalid.Code, invalid.Body.String())
+	}
+	unknown := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"none"}`, trustedPeer, remoteUser, testUsername)
+	if unknown.Code != http.StatusUnprocessableEntity || errorCode(t, unknown) != "auth.mode_invalid" {
+		t.Fatalf("unknown mode: %d %s", unknown.Code, unknown.Body.String())
+	}
+	var state authResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/auth", nil), &state)
+	if state.Mode != "none" {
+		t.Fatalf("a refused activation changed the mode: %+v", state)
+	}
+
+	enabled := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward"}`, trustedPeer, remoteUser, testUsername)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body.String())
+	}
+	var response authEnableResponse
+	decodeAPI(t, enabled, &response)
+	if response.Mode != "forward" || response.Header != remoteUser || response.Username != testUsername ||
+		response.EnabledAt == nil || !response.EnabledAt.Equal(testNow) {
+		t.Fatalf("enabled %+v", response)
+	}
+
+	read := callForwarded(server.Server, http.MethodGet, "/api/auth", trustedPeer, "marie")
+	if read.Code != http.StatusOK {
+		t.Fatalf("read through the proxy: %d", read.Code)
+	}
+	decodeAPI(t, read, &state)
+	if state.Mode != "forward" || state.Header != remoteUser || state.Username != "marie" {
+		t.Fatalf("the identity of the current request is shown: %+v", state)
+	}
+	if got := callAPI(server.Server, http.MethodGet, "/api/auth", nil); got.Code != http.StatusUnauthorized {
+		t.Fatalf("after enabling, a request without identity: %d", got.Code)
+	}
+	change := callForwardedJSON(server.Server, http.MethodPut, "/api/auth/password", `{"password":"another long passphrase"}`, trustedPeer, remoteUser, testUsername)
+	if change.Code != http.StatusConflict || errorCode(t, change) != "auth.no_password" {
+		t.Fatalf("change password in forward mode: %d %s", change.Code, change.Body.String())
+	}
+	again := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward"}`, trustedPeer, remoteUser, testUsername)
+	if again.Code != http.StatusConflict || errorCode(t, again) != "auth.already_enabled" {
+		t.Fatalf("enable twice: %d %s", again.Code, again.Body.String())
+	}
+	disabled := callForwardedJSON(server.Server, http.MethodPost, "/api/auth/actions/disable", `{}`, trustedPeer, remoteUser, testUsername)
+	if disabled.Code != http.StatusOK {
+		t.Fatalf("disable: %d %s", disabled.Code, disabled.Body.String())
+	}
+	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("after disabling, anonymous: %d", got.Code)
+	}
+}
+
+// Un en-tête choisi remplace Remote-User, et l'activation révoque les
+// jetons MCP comme en basic.
+func TestAuthAPI_EnableForwardWithAnotherHeaderRevokesMCPTokens(t *testing.T) {
+	server := newTestServer(t)
+	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
+	server.enableMCP(t)
+	server.createAPIToken(t, "lecteur")
+	const header = "X-Forwarded-User"
+	enabled := callForwardedJSON(server.Server, http.MethodPost, "/api/auth/actions/enable", `{"mode":"forward","header":"`+header+`"}`, trustedPeer, header, testUsername)
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", enabled.Code, enabled.Body.String())
+	}
+	var response authEnableResponse
+	decodeAPI(t, enabled, &response)
+	if response.Header != header || response.MCPRevoked != (mcpRevokedJSON{APITokens: 1, Sessions: 0}) {
+		t.Fatalf("response %+v", response)
+	}
+	// Remote-User ne vaut plus rien : seul l'en-tête choisi porte l'identité.
+	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusUnauthorized {
+		t.Fatalf("Remote-User with another header configured: %d", got.Code)
+	}
+	ok := callForwardedJSON(server.Server, http.MethodGet, "/api/counts", "", trustedPeer, header, testUsername)
+	if ok.Code != http.StatusOK {
+		t.Fatalf("the configured header: %d %s", ok.Code, ok.Body.String())
 	}
 }
 

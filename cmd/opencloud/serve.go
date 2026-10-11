@@ -271,7 +271,7 @@ func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service
 		return
 	}
 	if state.Mode != auth.ModeNone {
-		logger.Info("interface authentication", "mode", string(state.Mode), "username", state.Username)
+		logger.Info("interface authentication", "mode", string(state.Mode), "username", state.Username, "header", state.Header)
 		return
 	}
 	if isLoopbackListen(listen) {
