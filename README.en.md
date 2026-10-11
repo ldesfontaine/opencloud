@@ -26,8 +26,8 @@ web interface embedded.
 | Probes URLs and ports, checks certificates and their expiry | Renew a certificate |
 | Watches a cron job or a backup through a ping URL | Run the job |
 | Compares each image to its registry and builds the update command | Apply the update: you run it |
-| Sends alerts as signed webhooks (Discord, Slack, Mattermost, ntfy, JSON) | E-mail, SMS |
-| Publishes a status page under `/statut` | Multiple accounts, second factor |
+| Sends alerts as signed webhooks (Discord, Slack, Mattermost, ntfy, JSON), by e-mail through your SMTP relay, or to a Matrix room | SMS |
+| Publishes a status page under `/statut` | Multiple accounts or a second factor of its own: behind a proxy (Authelia), `forward` mode delegates them to your SSO |
 | Serves MCP: 16 read tools, 9 writes the interface already has | Any action on a machine through MCP, any secret returned |
 
 openCloud **observes; it never acts on a machine**. The interface is

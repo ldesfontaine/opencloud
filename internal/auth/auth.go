@@ -16,8 +16,8 @@ const (
 	ModeNone Mode = "none"
 	// HTTP Basic, identifiant et mot de passe choisis à l'activation.
 	ModeBasic Mode = "basic"
-	// Réservé : derrière un mandataire qui authentifie (Authelia) et
-	// transmet l'identité. Rien ne l'active encore ; le serveur le refuse.
+	// Derrière un mandataire qui authentifie (Authelia) et transmet
+	// l'identité dans un en-tête ; cru seulement depuis trusted_proxies.
 	ModeForward Mode = "forward"
 )
 
@@ -31,13 +31,19 @@ const (
 	// de laisser croire qu'une fin de phrase compte.
 	MaxPasswordBytes  = 72
 	MaxUsernameLength = 64
+	// L'en-tête qu'Authelia pose, et que Traefik recopie, après
+	// authentification.
+	DefaultForwardHeader = "Remote-User"
+	MaxHeaderLength      = 64
 )
 
 // State est l'état stocké. PasswordHash ne sort jamais du processus.
+// Header n'a de sens qu'en mode forward : le nom de l'en-tête d'identité.
 type State struct {
 	Mode         Mode
 	Username     string
 	PasswordHash string
+	Header       string
 	EnabledAt    time.Time
 }
 
@@ -47,6 +53,10 @@ var (
 	ErrUsernameInvalid  = errors.New("auth: username invalid")
 	ErrPasswordTooShort = errors.New("auth: password too short")
 	ErrPasswordTooLong  = errors.New("auth: password too long")
+	ErrHeaderInvalid    = errors.New("auth: header name invalid")
+	// En mode forward, c'est le mandataire qui authentifie : il n'y a pas
+	// de mot de passe à changer.
+	ErrNoPassword = errors.New("auth: no password in this mode")
 )
 
 // ValidateUsername : un mot lisible, sans « : » que Basic prend pour le
@@ -73,6 +83,22 @@ func ValidatePassword(password string) error {
 	}
 	if len(password) > MaxPasswordBytes {
 		return ErrPasswordTooLong
+	}
+	return nil
+}
+
+// ValidateHeader : un nom d'en-tête HTTP simple, lettres, chiffres et « - »,
+// pour qu'aucune valeur saisie ne se lise autrement qu'un nom.
+func ValidateHeader(header string) error {
+	if len(header) == 0 || len(header) > MaxHeaderLength {
+		return ErrHeaderInvalid
+	}
+	for _, character := range header {
+		isLetter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+		isDigit := character >= '0' && character <= '9'
+		if !isLetter && !isDigit && character != '-' {
+			return ErrHeaderInvalid
+		}
 	}
 	return nil
 }

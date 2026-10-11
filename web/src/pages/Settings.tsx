@@ -63,16 +63,23 @@ export function Settings() {
   );
 }
 
+// Les deux façons d'activer : identifiant et mot de passe, ou le nom de
+// l'en-tête que pose le mandataire d'authentification.
+type EnableRequest = { username: string; password: string } | { mode: "forward"; header: string };
+
 // L'accès à l'interface. Activer ou changer le mot de passe rend caducs
 // les identifiants du navigateur : la page se recharge, et le navigateur
 // les demande dans sa propre fenêtre. Activer révoque aussi tous les
-// jetons MCP : la carte dit combien avant de recharger.
+// jetons MCP : la carte dit combien avant de recharger. En mode
+// mandataire, il n'y a rien à saisir après coup : la carte montre
+// l'en-tête et l'identité que le mandataire transmet.
 function AccessSection({ state }: { state: AuthState }) {
   const t = useT();
   const now = useNow();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [revoked, setRevoked] = useState<AuthEnableResponse["mcp_revoked"] | null>(null);
+  const [mode, setMode] = useState<"basic" | "forward">("basic");
+  const [enabledWith, setEnabledWith] = useState<AuthEnableResponse | null>(null);
   const enabled = state.mode !== "none";
 
   const run = (action: Promise<unknown>) => {
@@ -90,28 +97,28 @@ function AccessSection({ state }: { state: AuthState }) {
       run(api.post("/api/auth/actions/disable", {}));
     }
   };
-  const enable = (username: string, password: string) => {
+  const enable = (request: EnableRequest) => {
     if (!window.confirm(t("auth.enable_confirm"))) {
       return;
     }
     setBusy(true);
     setError(null);
     api
-      .post<AuthEnableResponse>("/api/auth/actions/enable", { username, password })
-      .then((response) => setRevoked(response.mcp_revoked))
+      .post<AuthEnableResponse>("/api/auth/actions/enable", request)
+      .then(setEnabledWith)
       .catch((failure: unknown) => {
         setError(errorKey(failure));
         setBusy(false);
       });
   };
 
-  if (revoked !== null) {
+  if (enabledWith !== null) {
     return (
       <Card className="form-card">
-        <CardHeader title={t("auth.title")} aside={<Pill tone="ok">{t("auth.state_basic")}</Pill>} />
+        <CardHeader title={t("auth.title")} aside={<Pill tone="ok">{t(`auth.state_${enabledWith.mode}`)}</Pill>} />
         <CardBody>
-          <Note tone="warn">{t("auth.mcp_revoked", revoked.api_tokens, revoked.sessions)}</Note>
-          <p className="secondary">{t("auth.browser_prompt")}</p>
+          <Note tone="warn">{t("auth.mcp_revoked", enabledWith.mcp_revoked.api_tokens, enabledWith.mcp_revoked.sessions)}</Note>
+          {enabledWith.mode === "basic" && <p className="secondary">{t("auth.browser_prompt")}</p>}
           <div className="cluster">
             <Button variant="primary" icon="check" onClick={() => window.location.reload()}>
               {t("auth.continue")}
@@ -124,33 +131,79 @@ function AccessSection({ state }: { state: AuthState }) {
 
   return (
     <Card className="form-card">
-      <CardHeader
-        title={t("auth.title")}
-        aside={<Pill tone={enabled ? "ok" : "warn"}>{t(enabled ? "auth.state_basic" : "auth.state_none")}</Pill>}
-      />
+      <CardHeader title={t("auth.title")} aside={<Pill tone={enabled ? "ok" : "warn"}>{t(`auth.state_${state.mode}`)}</Pill>} />
       <CardBody>
         <p>{t("auth.intro")}</p>
         {!enabled && <Note tone="warn">{t("auth.open_text")}</Note>}
-        {enabled && (
+        {state.mode === "basic" && <KeyValue label={t("auth.username_label")} value={state.username} mono />}
+        {state.mode === "forward" && (
           <>
-            <KeyValue label={t("auth.username_label")} value={state.username} mono />
-            <div className="cluster">
-              <span className="secondary">{state.enabled_at !== null && t("auth.enabled_since", ago(t, state.enabled_at, now))}</span>
-              <Button variant="danger" icon="x" onClick={disable} disabled={busy}>
-                {t("auth.disable")}
-              </Button>
-            </div>
+            <KeyValue label={t("auth.header_label")} value={state.header ?? ""} mono />
+            <KeyValue label={t("auth.identity_label")} value={state.username} mono />
           </>
+        )}
+        {enabled && (
+          <div className="cluster">
+            <span className="secondary">{state.enabled_at !== null && t("auth.enabled_since", ago(t, state.enabled_at, now))}</span>
+            <Button variant="danger" icon="x" onClick={disable} disabled={busy}>
+              {t("auth.disable")}
+            </Button>
+          </div>
+        )}
+        {!enabled && (
+          <Field label={t("auth.mode_label")} htmlFor="auth-mode">
+            <Select id="auth-mode" value={mode} onChange={(event) => setMode(event.target.value === "forward" ? "forward" : "basic")}>
+              <option value="basic">{t("auth.mode_basic")}</option>
+              <option value="forward">{t("auth.mode_forward")}</option>
+            </Select>
+          </Field>
         )}
         {error !== null && <Pill tone="danger">{t(error)}</Pill>}
       </CardBody>
-      <CredentialsForm
-        withUsername={!enabled}
-        minLength={state.password_min_length}
-        busy={busy}
-        onSubmit={(username, password) => (enabled ? run(api.put("/api/auth/password", { password })) : enable(username, password))}
-      />
+      {state.mode === "basic" && (
+        <CredentialsForm
+          withUsername={false}
+          minLength={state.password_min_length}
+          busy={busy}
+          onSubmit={(_username, password) => run(api.put("/api/auth/password", { password }))}
+        />
+      )}
+      {!enabled && mode === "basic" && (
+        <CredentialsForm
+          withUsername
+          minLength={state.password_min_length}
+          busy={busy}
+          onSubmit={(username, password) => enable({ username, password })}
+        />
+      )}
+      {!enabled && mode === "forward" && <ForwardForm busy={busy} onSubmit={(header) => enable({ mode: "forward", header })} />}
     </Card>
+  );
+}
+
+// Le formulaire du mode mandataire : le nom de l'en-tête d'identité,
+// Remote-User pour Authelia. Le serveur n'accepte que si la requête qui
+// active le porte déjà, depuis un mandataire de confiance.
+function ForwardForm({ busy, onSubmit }: { busy: boolean; onSubmit: (header: string) => void }) {
+  const t = useT();
+  const [header, setHeader] = useState("Remote-User");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    onSubmit(header.trim());
+  };
+  return (
+    <form className="card-b" onSubmit={submit}>
+      <p className="field-label">{t("auth.enable_title")}</p>
+      <Field label={t("auth.header_label")} htmlFor="auth-header" help={t("auth.header_help")}>
+        <Input id="auth-header" type="text" mono value={header} onChange={(event) => setHeader(event.target.value)} maxLength={64} required />
+      </Field>
+      <p className="secondary">{t("auth.forward_guard")}</p>
+      <div className="cluster">
+        <Button type="submit" variant="primary" icon="shield" disabled={busy}>
+          {t("auth.enable")}
+        </Button>
+      </div>
+    </form>
   );
 }
 

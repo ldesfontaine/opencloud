@@ -797,9 +797,12 @@ export interface MCPTokenResponse {
 // réservé au mode futur derrière un mandataire (Authelia).
 export type AuthMode = "none" | "basic" | "forward";
 
+// En forward, username est l'identité que le mandataire a transmise avec
+// la requête, et header le nom de l'en-tête qui la porte.
 export interface AuthState {
   mode: AuthMode;
   username: string;
+  header?: string;
   enabled_at: string | null;
   password_min_length: number;
 }

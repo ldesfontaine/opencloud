@@ -100,11 +100,37 @@ func (s *Service) EnableBasic(ctx context.Context, username, password string) (S
 	return next, nil
 }
 
+// EnableForward passe en mode forward : l'identité vient de l'en-tête
+// que pose le mandataire. Le serveur vérifie d'abord que la requête qui
+// active le porte déjà, sans quoi l'opérateur s'enfermerait dehors.
+func (s *Service) EnableForward(ctx context.Context, header string) (State, error) {
+	current, err := s.store.GetAuthState(ctx)
+	if err != nil {
+		return State{}, err
+	}
+	if current.Mode != ModeNone {
+		return State{}, ErrAlreadyEnabled
+	}
+	if err := ValidateHeader(header); err != nil {
+		return State{}, err
+	}
+	next := State{Mode: ModeForward, Header: header, EnabledAt: s.now()}
+	if err := s.store.SaveAuthState(ctx, next, s.now()); err != nil {
+		return State{}, err
+	}
+	s.forget()
+	s.logger.Info("interface authentication enabled", "mode", string(ModeForward), "header", header)
+	return next, nil
+}
+
 // ChangePassword garde l'identifiant et remplace l'empreinte.
 func (s *Service) ChangePassword(ctx context.Context, password string) (State, error) {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {
 		return State{}, err
+	}
+	if current.Mode == ModeForward {
+		return State{}, ErrNoPassword
 	}
 	if current.Mode != ModeBasic {
 		return State{}, ErrDisabled
@@ -122,7 +148,7 @@ func (s *Service) ChangePassword(ctx context.Context, password string) (State, e
 	return current, nil
 }
 
-// Disable rouvre l'interface et efface identifiant et empreinte.
+// Disable rouvre l'interface et efface identifiant, empreinte et en-tête.
 func (s *Service) Disable(ctx context.Context) error {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {

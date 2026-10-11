@@ -311,7 +311,10 @@ porte les deux.
 
 L'interface est **ouverte par défaut** : qui atteint le port enrôle des
 machines, lit les journaux de conteneurs et active MCP. Activez
-l'authentification avant d'exposer openCloud.
+l'authentification avant d'exposer openCloud. Deux modes : identifiant et
+mot de passe (HTTP Basic, ci-dessous), ou
+[un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie)
+(Authelia).
 
 **Dans l'interface** : Paramètres → Accès à l'interface. **Ou par l'API**,
 tant qu'elle est ouverte :
@@ -350,8 +353,63 @@ runuser -u opencloud -- opencloud auth status  -config /etc/opencloud/config.tom
 `serve` suit à la requête suivante, sans redémarrer. Réactivez ensuite sous
 Paramètres.
 
-**À venir** : un mode où openCloud fait confiance à un mandataire qui
-authentifie (Authelia). Il n'existe pas encore ; seul Basic est disponible.
+### Derrière un mandataire qui authentifie
+
+Quand un SSO garde déjà l'accès (Authelia en `forwardAuth` de Traefik), le
+mode `forward` lui délègue tout : comptes, second facteur, déconnexion.
+openCloud laisse passer une requête seulement si elle vient d'une adresse
+de `trusted_proxies` **et** porte l'en-tête d'identité non vide
+(`Remote-User` par défaut). Tout le reste répond `401`, sans fenêtre Basic :
+pas de double connexion, et un conteneur voisin qui joint le port en direct
+n'a rien.
+
+| Prérequis | Pourquoi |
+| --- | --- |
+| `trusted_proxies` = l'adresse du mandataire **seul**, en `/32` (par exemple `["172.30.0.2/32"]`), pas le sous-réseau | Tout pair de cette liste est cru sur parole : avec un `/24`, un voisin du réseau écrirait l'en-tête lui-même |
+| Le mandataire **écrase** l'en-tête envoyé par le client | Sinon un visiteur envoie `Remote-User: admin`. Traefik `forwardAuth` avec `authResponseHeaders: ["Remote-User"]` remplace la valeur du client par celle d'Authelia |
+| Deux Traefik en chaîne : `trusted_proxies` vise celui qui joint openCloud, l'en-tête est nettoyé par celui qui appelle Authelia | Le second ne doit être joignable que par le premier : sinon on le contourne, en-tête forgé compris |
+| Activer depuis une session **déjà authentifiée** par le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête depuis un pair de confiance. On ne peut pas s'enfermer dehors |
+
+Le middleware Traefik côté Authelia :
+
+```yaml
+http:
+  middlewares:
+    authelia:
+      forwardAuth:
+        address: "http://authelia:9091/api/authz/forward-auth"
+        authResponseHeaders: ["Remote-User", "Remote-Groups", "Remote-Email", "Remote-Name"]
+```
+
+**Activer** : ouvrez openCloud par son nom public, connectez-vous à
+Authelia, puis Paramètres → Accès à l'interface → Mode « Mandataire
+d'authentification ». Le corps de l'API est
+`{"mode":"forward","header":"Remote-User"}` sur
+`POST /api/auth/actions/enable`. Comme en Basic, activer révoque tous les
+jetons MCP.
+
+**Vérifier** que le contournement est fermé :
+
+```sh
+# depuis un autre conteneur du même réseau, en-tête forgé : refusé
+docker run --rm --network <réseau> curlimages/curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'Remote-User: admin' http://172.30.0.1:8080/api/machines
+# 401
+# par le nom public, sans session Authelia, en-tête forgé : redirigé vers Authelia, jamais 200
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: admin' https://opencloud.example.org/api/machines
+```
+
+**Mandataire en panne ou mal réglé** : la même commande de secours rouvre
+l'accès.
+
+```sh
+runuser -u opencloud -- opencloud auth disable -config /etc/opencloud/config.toml
+runuser -u opencloud -- opencloud auth status  -config /etc/opencloud/config.toml
+```
+
+La contrepartie : tout repose sur `trusted_proxies` juste et sur un
+mandataire qui nettoie l'en-tête. Un mandataire qui le laisse passer, ou un
+`trusted_proxies` trop large, et n'importe qui devient l'opérateur.
 
 ## Envoi d'e-mails
 
