@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { ImageCheck } from "../api/types";
 import type { Translate } from "../i18n/context";
-import { checkText, needsComposeEdit, shortDigest, updateAvailable, updateLabel } from "./updates";
+import { checkText, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel } from "./updates";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -39,6 +39,14 @@ test("needsComposeEdit seulement sous Compose et pour un tag", () => {
   expect(needsComposeEdit(compose, check({ kind: "minor", newer_tag: "3.22" }))).toBe(true);
   expect(needsComposeEdit(compose, check({ kind: "digest" }))).toBe(false);
   expect(needsComposeEdit({ compose_service: "", compose_dir: "" }, check({ kind: "minor", newer_tag: "3.22" }))).toBe(false);
+});
+
+test("imageLineChange donne la ligne image avant et après, sous Compose seulement", () => {
+  const compose = { compose_service: "server", compose_dir: "/srv/vaultwarden", image: "vaultwarden/server:1.32.0" };
+  const patch = check({ kind: "patch", newer_tag: "1.32.3", target: "vaultwarden/server:1.32.3" });
+  expect(imageLineChange(compose, patch)).toEqual({ before: "image: vaultwarden/server:1.32.0", after: "image: vaultwarden/server:1.32.3" });
+  expect(imageLineChange(compose, check({ kind: "digest", target: "vaultwarden/server:1.32.0" }))).toBeNull();
+  expect(imageLineChange({ ...compose, compose_service: "", compose_dir: "" }, patch)).toBeNull();
 });
 
 test("shortDigest coupe comme Docker", () => {

@@ -6,17 +6,18 @@ import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { useRefresh } from "../lib/refresh";
 import { ago } from "../lib/time";
-import { checkText, needsComposeEdit, shortDigest, updateAvailable } from "../lib/updates";
+import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
 import { Button } from "./Button";
-import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
-import { TokenBox } from "./Copy";
+import { Card, CardBody, CardHeader, KeyValue } from "./Card";
+import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 import "./UpdateCard.scss";
 
 // La carte Mise à jour d'un service : ce que l'agent a constaté sur
-// l'image, la commande à copier, jamais exécutée, et vérifier maintenant.
+// l'image, la ligne du fichier Compose à changer, la commande à copier,
+// jamais exécutée, et vérifier maintenant.
 // Les empreintes et le suivi (épingler, exclure) sont repliés : on les
 // règle une fois. Le pli s'ouvre seul quand une politique est posée.
 export function UpdateCard({ service, reload }: { service: Service; reload: () => void }) {
@@ -26,6 +27,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
   const [error, setError] = useState<unknown>(null);
   const check = service.image_check;
   const available = updateAvailable(service);
+  const lineChange = check !== null ? imageLineChange(service, check) : null;
 
   const setPolicy = (policy: UpdatePolicy) => {
     setError(null);
@@ -57,7 +59,19 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
         {available && check !== null && check.command !== "" && (
           <div className="update-command">
             <span className="secondary">{t("update.command_title")}</span>
-            {needsComposeEdit(service, check) && <Note tone="warn">{t("update.edit_compose", check.newer_tag, service.compose_file !== "" ? service.compose_file : "compose.yaml")}</Note>}
+            {lineChange !== null && (
+              <>
+                <span>{t("update.edit_compose", service.compose_file !== "" ? service.compose_file : "compose.yaml", service.compose_service)}</span>
+                <div className="update-diff">
+                  <pre className="snippet mono">
+                    <span className="diff-line diff-removed">- {lineChange.before}</span>
+                    <span className="diff-line diff-added">+ {lineChange.after}</span>
+                  </pre>
+                  <CopyButton text={lineChange.after} />
+                </div>
+                <span>{t("update.then_run")}</span>
+              </>
+            )}
             <TokenBox value={check.command} />
             {service.compose_service === "" && <span className="secondary">{t("update.recreate_hint")}</span>}
           </div>

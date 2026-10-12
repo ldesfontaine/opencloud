@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> mode `forward` de l'authentification, 11 octobre 2026.
+> ligne `image:` à changer pour une mise à jour, 12 octobre 2026.
 
 ## Les acteurs
 
@@ -480,8 +480,11 @@ les CVE, le changelog, le score de risque, n'a pas été repris.
    n'en est pas une, une date dans le futur) est refusé en bloc.
 5. **La commande est fabriquée, jamais exécutée.** Sous Compose : `cd
    <dossier> && docker compose pull <service> && docker compose up -d
-   <service>` ; pour un tag plus récent, l'interface dit de le changer
-   d'abord dans le fichier, la commande tire ce que le fichier écrit.
+   <service>` ; pour un tag plus récent, l'interface montre la ligne
+   `image:` du service avant et après, avec le fichier Compose concerné :
+   l'opérateur la change dans son dépôt, la commande tire ce que le
+   fichier écrit. La ligne d'avant est celle que Docker rend, variables
+   résolues : elle peut s'écrire autrement dans le fichier.
    Pour un conteneur lancé à la main : `docker pull <image:tag>` seul, et
    la fiche dit de le recréer avec ses options, qu'openCloud ne connaît
    pas. Une rétrogradation est impossible par construction : seul un tag
@@ -1301,7 +1304,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Sauvegarde en échec | Notée au catalogue, sans source : les sauvegardes sont dans le backlog | Avec les sauvegardes |
 | Pas de Sauvegardes, ni d'onglets machine Sauvegardes, Réglages | Entrées masquées tant qu'elles ne sont pas livrées ; leurs adresses mènent au parent. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
-| Appliquer une mise à jour | openCloud fabrique la commande ; l'opérateur la joue dans un terminal, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien | Avec les actions : « Services : déployer et mettre à jour » |
+| Appliquer une mise à jour | openCloud montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien. Décidé le 12 octobre 2026 (issue #125) : openCloud reste observateur pour l'instant, et devra pouvoir agir plus tard | Avec les actions : « Services : déployer et mettre à jour », aux conditions posées dans l'issue #125 |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
 | Pas d'assistant d'identifiants | Un registre dont les identifiants passent par `credHelpers` ou `credsStore` répond « refusé » ; seuls les `auths` en clair du `config.json` sont lus | À décider |
 | Dix mille tags au plus | Un dépôt qui en publie plus est lu jusqu'à la dixième page ; un tag plus récent au-delà n'est pas vu | À décider |
