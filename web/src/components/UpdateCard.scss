@@ -23,3 +23,31 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+// La ligne image avant et après : le signe porte le sens, le lavis le
+// souligne.
+.update-diff {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+
+  .snippet {
+    flex: 1;
+    min-width: 0;
+    padding: 6px;
+  }
+}
+
+.diff-line {
+  display: block;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.diff-removed {
+  background: var(--danger-wash);
+}
+
+.diff-added {
+  background: var(--ok-wash);
+}

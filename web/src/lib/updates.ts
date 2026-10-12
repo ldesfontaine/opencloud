@@ -33,6 +33,21 @@ export function needsComposeEdit(service: Pick<Service, "compose_service" | "com
   return service.compose_service !== "" && service.compose_dir !== "" && check.newer_tag !== "";
 }
 
+// La ligne image du fichier Compose, avant et après : ce que l'opérateur
+// change dans son dépôt. Docker rend l'image une fois les variables du
+// fichier résolues : la ligne d'avant peut s'y écrire autrement.
+export interface LineChange {
+  before: string;
+  after: string;
+}
+
+export function imageLineChange(service: Pick<Service, "compose_service" | "compose_dir" | "image">, check: ImageCheck): LineChange | null {
+  if (!needsComposeEdit(service, check) || check.target === "") {
+    return null;
+  }
+  return { before: `image: ${service.image}`, after: `image: ${check.target}` };
+}
+
 // L'empreinte courte, comme Docker l'écrit.
 export function shortDigest(digest: string): string {
   return digest.replace("sha256:", "").slice(0, 12);
