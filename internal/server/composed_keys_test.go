@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -51,6 +52,7 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "update.outcome_", values: without(names(update.Outcomes()), string(update.OutcomeOK))},
 		{prefix: "update.kind_", values: names(update.Kinds())},
 		{prefix: "update.available_", values: names(update.Kinds())},
+		{prefix: "lifecycle.status_", values: names(lifecycle.Statuses())},
 		{prefix: "resource.window_", values: resourceWindowNames()},
 		// Le libellé d'un type, sans chiffre : liste des silences, sélecteur.
 		{prefix: "alert.kind_", values: names(alert.Kinds())},

@@ -13,11 +13,13 @@ import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
 import { Pill } from "./Pill";
+import { SupportBlock } from "./SupportBlock";
 import "./UpdateCard.scss";
 
 // La carte Mise à jour d'un service : ce que l'agent a constaté sur
 // l'image, la ligne du fichier Compose à changer, la commande à copier,
-// jamais exécutée, et vérifier maintenant.
+// jamais exécutée, et vérifier maintenant. Quand la fin de support est
+// activée, le support de la version suit, sous un trait.
 // Les empreintes et le suivi (épingler, exclure) sont repliés : on les
 // règle une fois. Le pli s'ouvre seul quand une politique est posée.
 export function UpdateCard({ service, reload }: { service: Service; reload: () => void }) {
@@ -110,6 +112,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
             )}
           </div>
         </Fold>
+        {service.lifecycle !== undefined && <SupportBlock lifecycle={service.lifecycle} />}
       </CardBody>
     </Card>
   );

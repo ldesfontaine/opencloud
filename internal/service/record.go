@@ -358,6 +358,19 @@ func (t *Tracker) List(ctx context.Context, machineID string) ([]Service, error)
 	return live, nil
 }
 
+// Images rend l'image de chaque service vivant, toutes machines confondues.
+func (t *Tracker) Images(ctx context.Context) ([]string, error) {
+	living, err := t.List(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	images := make([]string, 0, len(living))
+	for _, service := range living {
+		images = append(images, service.Image)
+	}
+	return images, nil
+}
+
 func (t *Tracker) Get(ctx context.Context, id string) (Service, error) {
 	return t.store.GetService(ctx, id)
 }

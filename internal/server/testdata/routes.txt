@@ -71,6 +71,8 @@ DELETE /api/mcp/tokens/{id}
 DELETE /api/mcp/sessions/{id}
 GET /api/settings/disk
 PUT /api/settings/disk
+GET /api/settings/lifecycle
+PUT /api/settings/lifecycle
 GET /api/settings/mail
 PUT /api/settings/mail
 POST /api/settings/mail/actions/test

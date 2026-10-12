@@ -41,6 +41,9 @@ type Settings struct {
 	MailUsername string `toml:"mail_username,omitempty"`
 	MailPassword string `toml:"mail_password,omitempty"`
 	MailFrom     string `toml:"mail_from,omitempty"`
+	// La fin de support : coupée tant que l'opérateur ne l'a pas activée.
+	// Activée, la machine openCloud lit endoflife.date une fois par jour.
+	LifecycleEnabled bool `toml:"lifecycle_enabled,omitempty"`
 }
 
 // MailRelay rend le relais réglé ; un port absent suit le mode, un mode
