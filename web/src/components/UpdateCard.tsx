@@ -10,13 +10,15 @@ import { checkText, needsComposeEdit, shortDigest, updateAvailable } from "../li
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { TokenBox } from "./Copy";
+import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 import "./UpdateCard.scss";
 
 // La carte Mise à jour d'un service : ce que l'agent a constaté sur
-// l'image, la commande à copier, jamais exécutée, et ce que l'opérateur
-// en veut : vérifier maintenant, épingler, exclure.
+// l'image, la commande à copier, jamais exécutée, et vérifier maintenant.
+// Les empreintes et le suivi (épingler, exclure) sont repliés : on les
+// règle une fois. Le pli s'ouvre seul quand une politique est posée.
 export function UpdateCard({ service, reload }: { service: Service; reload: () => void }) {
   const { t } = useI18n();
   const now = useNow();
@@ -52,13 +54,6 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
         </div>
         {service.update_policy === "pinned" && <span className="secondary">{t("update.pinned_note")}</span>}
         {service.update_policy === "excluded" && <span className="secondary">{t("update.excluded_note")}</span>}
-        {check !== null && check.local_digest !== "" && (
-          <div className="update-digests">
-            <KeyValue label={t("update.local_digest")} value={shortDigest(check.local_digest)} mono />
-            {check.remote_digest !== "" && <KeyValue label={t("update.remote_digest")} value={shortDigest(check.remote_digest)} mono />}
-            {check.newer_digest !== "" && <KeyValue label={t("update.newer_digest")} value={shortDigest(check.newer_digest)} mono />}
-          </div>
-        )}
         {available && check !== null && check.command !== "" && (
           <div className="update-command">
             <span className="secondary">{t("update.command_title")}</span>
@@ -71,25 +66,36 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
           <Button small icon="refresh" onClick={checkNow}>
             {t("update.check_now")}
           </Button>
-          {service.update_policy === "pinned" ? (
-            <Button small onClick={() => setPolicy("")}>
-              {t("update.unpin")}
-            </Button>
-          ) : (
-            <Button small onClick={() => setPolicy("pinned")}>
-              {t("update.pin")}
-            </Button>
-          )}
-          {service.update_policy === "excluded" ? (
-            <Button small onClick={() => setPolicy("")}>
-              {t("update.include")}
-            </Button>
-          ) : (
-            <Button small onClick={() => setPolicy("excluded")}>
-              {t("update.exclude")}
-            </Button>
-          )}
         </div>
+        <Fold label={t("update.details")} initiallyOpen={service.update_policy !== ""}>
+          {check !== null && check.local_digest !== "" && (
+            <div className="update-digests">
+              <KeyValue label={t("update.local_digest")} value={shortDigest(check.local_digest)} mono />
+              {check.remote_digest !== "" && <KeyValue label={t("update.remote_digest")} value={shortDigest(check.remote_digest)} mono />}
+              {check.newer_digest !== "" && <KeyValue label={t("update.newer_digest")} value={shortDigest(check.newer_digest)} mono />}
+            </div>
+          )}
+          <div className="update-actions">
+            {service.update_policy === "pinned" ? (
+              <Button small onClick={() => setPolicy("")}>
+                {t("update.unpin")}
+              </Button>
+            ) : (
+              <Button small onClick={() => setPolicy("pinned")}>
+                {t("update.pin")}
+              </Button>
+            )}
+            {service.update_policy === "excluded" ? (
+              <Button small onClick={() => setPolicy("")}>
+                {t("update.include")}
+              </Button>
+            ) : (
+              <Button small onClick={() => setPolicy("excluded")}>
+                {t("update.exclude")}
+              </Button>
+            )}
+          </div>
+        </Fold>
       </CardBody>
     </Card>
   );

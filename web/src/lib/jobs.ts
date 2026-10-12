@@ -43,3 +43,9 @@ export function preview(payload: string): string {
 }
 
 export const attentionStatuses = new Set(["late", "failed"]);
+
+// Une tâche qui n'a jamais pingé reste à installer : l'URL et les extraits
+// sont ce que l'opérateur vient chercher.
+export function awaitsFirstPing(job: Job): boolean {
+  return job.last_ping_at === null;
+}

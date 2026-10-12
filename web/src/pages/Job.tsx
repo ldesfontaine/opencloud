@@ -6,6 +6,7 @@ import type { Job, JobResponse, Run } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
+import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { Dot, JobPill } from "../components/Pill";
@@ -13,13 +14,14 @@ import { List, RowText, RowWhen, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { lastResult, preview, runTones } from "../lib/jobs";
+import { awaitsFirstPing, lastResult, preview, runTones } from "../lib/jobs";
 import { useRefresh } from "../lib/refresh";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 import { NotFound } from "./NotFound";
 
-// La page d'une tâche : son état, l'URL de ping et les extraits à coller,
-// puis les dernières exécutions et les derniers pings.
+// La page d'une tâche : son état, ses dernières exécutions et ses derniers
+// pings, puis l'installation repliée. Tant qu'aucun ping n'est arrivé,
+// l'installation passe devant, ouverte : c'est ce qu'il reste à faire.
 export function JobPage() {
   const { id = "" } = useParams();
   const job = useResource<JobResponse>(`/api/jobs/${id}`);
@@ -29,7 +31,7 @@ export function JobPage() {
   if (!job.data) {
     return job.error ? <Failure error={job.error} /> : null;
   }
-  return <JobView response={job.data} reload={job.reload} />;
+  return <JobView key={job.data.job.id} response={job.data} reload={job.reload} />;
 }
 
 function JobView({ response, reload }: { response: JobResponse; reload: () => void }) {
@@ -37,6 +39,9 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
   const now = useNow();
   const job = response.job;
   const result = lastResult(t, job);
+  // Décidé à l'ouverture de la page : le premier ping ne déplace pas le bloc
+  // sous les yeux de l'opérateur qui est en train de le recopier.
+  const [installsFirst] = useState(awaitsFirstPing(job));
   return (
     <>
       <PageHead title={job.name} actions={<Actions job={job} reload={reload} />} />
@@ -78,30 +83,7 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
           </span>
         </CardBody>
       </Card>
-      <Card>
-        <CardHeader title={t("job.ping_url_title")} aside={t("job.ping_url_text")} />
-        <CardBody>
-          <TokenBox value={response.ping_url} />
-          {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
-          <KeyValue label={t("job.form_finish")} value={response.ping_url} mono />
-          <KeyValue label={t("job.form_start")} value={`${response.ping_url}/start`} mono />
-          <KeyValue label={t("job.form_code")} value={`${response.ping_url}/{code}`} mono />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardHeader title={t("job.snippets_title")} aside={t("job.snippets_text")} />
-        <CardBody gap={16}>
-          {response.snippets.map((snippet) => (
-            <div className="field" key={snippet.key}>
-              <div className="kv">
-                <span className="field-label">{t(`job.snippet_${snippet.key}`)}</span>
-                <CopyButton text={snippet.code} ghost />
-              </div>
-              <pre className="snippet mono">{snippet.code}</pre>
-            </div>
-          ))}
-        </CardBody>
-      </Card>
+      {installsFirst && <Installation response={response} initiallyOpen={true} />}
       <div className="grid-2">
         <Card>
           <CardHeader title={t("job.runs_title")} aside={t("job.runs_text")} />
@@ -151,7 +133,38 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
           )}
         </Card>
       </div>
+      {!installsFirst && <Installation response={response} initiallyOpen={false} />}
     </>
+  );
+}
+
+// L'URL de ping et les extraits à coller : ouverts tant que la tâche reste
+// à brancher, repliés ensuite.
+function Installation({ response, initiallyOpen }: { response: JobResponse; initiallyOpen: boolean }) {
+  const t = useT();
+  return (
+    <Disclosure title={t("job.install_title")} aside={t("job.install_text")} initiallyOpen={initiallyOpen}>
+      <CardBody gap={24}>
+        <FoldSection title={t("job.ping_url_title")} text={t("job.ping_url_text")}>
+          <TokenBox value={response.ping_url} />
+          {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
+          <KeyValue label={t("job.form_finish")} value={response.ping_url} mono />
+          <KeyValue label={t("job.form_start")} value={`${response.ping_url}/start`} mono />
+          <KeyValue label={t("job.form_code")} value={`${response.ping_url}/{code}`} mono />
+        </FoldSection>
+        <FoldSection title={t("job.snippets_title")} text={t("job.snippets_text")}>
+          {response.snippets.map((snippet) => (
+            <div className="field" key={snippet.key}>
+              <div className="kv">
+                <span className="field-label">{t(`job.snippet_${snippet.key}`)}</span>
+                <CopyButton text={snippet.code} ghost />
+              </div>
+              <pre className="snippet mono">{snippet.code}</pre>
+            </div>
+          ))}
+        </FoldSection>
+      </CardBody>
+    </Disclosure>
   );
 }
 
