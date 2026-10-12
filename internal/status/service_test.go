@@ -289,6 +289,34 @@ func TestIncident_ScheduledMaintenanceOpensAndClosesOnTime(t *testing.T) {
 	}
 }
 
+// Une entrée sans message qui ne change pas le statut ne dit rien au
+// public : refusée, et le fil ne bouge pas. Un changement de statut seul,
+// ou un message seul, passent.
+func TestIncident_UpdateThatSaysNothing_IsRefused(t *testing.T) {
+	f := newFixture(t)
+	up := f.probe(t, "site", probe.OutcomeUp, nil)
+	site := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
+	opened, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"", "   "} {
+		if _, err := f.status.AddUpdate(context.Background(), opened.ID, status.StatusInvestigating, message); !errors.Is(err, status.ErrUpdateEmpty) {
+			t.Fatalf("message %q: got %v", message, err)
+		}
+	}
+	unchanged, err := f.status.GetIncident(context.Background(), opened.ID)
+	if err != nil || len(unchanged.Updates) != len(opened.Updates) {
+		t.Fatalf("a refused update reached the timeline: %d entries, %v", len(unchanged.Updates), err)
+	}
+	if _, err := f.status.AddUpdate(context.Background(), opened.ID, status.StatusInvestigating, "On regarde."); err != nil {
+		t.Fatalf("a message alone: %v", err)
+	}
+	if _, err := f.status.AddUpdate(context.Background(), opened.ID, status.StatusIdentified, ""); err != nil {
+		t.Fatalf("a status change alone: %v", err)
+	}
+}
+
 func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 	f := newFixture(t)
 	up := f.probe(t, "site", probe.OutcomeUp, nil)
@@ -297,12 +325,13 @@ func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 		definition status.IncidentDefinition
 		want       error
 	}{
-		"no component":            {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating}, status.ErrComponentInvalid},
-		"unknown component":       {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{"nope"}}, status.ErrComponentInvalid},
-		"maintenance status":      {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInProgress, ComponentIDs: []string{site.ID}}, status.ErrStatusInvalid},
-		"window on an incident":   {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
-		"maintenance without end": {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
-		"empty title":             {status.IncidentDefinition{Title: " ", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}}, status.ErrTitleInvalid},
+		"no component":             {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating}, status.ErrComponentInvalid},
+		"unknown component":        {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{"nope"}}, status.ErrComponentInvalid},
+		"maintenance status":       {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInProgress, ComponentIDs: []string{site.ID}}, status.ErrStatusInvalid},
+		"window on an incident":    {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
+		"maintenance without end":  {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
+		"maintenance already over": {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, ComponentIDs: []string{site.ID}, StartsAt: f.now.Add(-2 * time.Hour), EndsAt: f.now.Add(-time.Hour)}, status.ErrWindowInvalid},
+		"empty title":              {status.IncidentDefinition{Title: " ", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}}, status.ErrTitleInvalid},
 	}
 	for name, tc := range cases {
 		if _, err := f.status.OpenIncident(context.Background(), tc.definition); !errors.Is(err, tc.want) {

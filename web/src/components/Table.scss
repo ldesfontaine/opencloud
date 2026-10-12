@@ -66,10 +66,11 @@
     padding-right: 16px;
   }
 
-  // Un nom long passe à la ligne plutôt que de pousser l'état hors cadre.
+  // Un nom long passe à la ligne plutôt que de pousser l'état hors cadre,
+  // entre deux mots : un mot ne se coupe que s'il ne tient pas seul.
   .table .svc {
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
 }
 

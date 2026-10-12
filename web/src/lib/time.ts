@@ -46,8 +46,20 @@ export function everyOnce(t: Translate, ms: number): string | null {
   }
 }
 
+// Ce qu'il reste avant une échéance, arrondi vers le haut : jamais plus
+// court que vrai. Entre une heure et un jour les minutes comptent :
+// « 1 h 10 min », pas « 2 h ».
 export function formatRemaining(t: Translate, ms: number): string {
-  return formatDuration(t, ms, "remaining");
+  if (ms <= hour || ms > day) {
+    return formatDuration(t, ms, "remaining");
+  }
+  const minutes = Math.ceil(ms / minute);
+  const rest = minutes % 60;
+  const hours = (minutes - rest) / 60;
+  if (rest === 0) {
+    return t("time.hours", hours);
+  }
+  return `${t("time.hours", hours)} ${t("time.minutes", rest)}`;
 }
 
 export function since(at: string, now: number): number {

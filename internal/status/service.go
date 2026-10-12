@@ -374,6 +374,11 @@ func (s *Service) AddUpdate(ctx context.Context, id string, status IncidentStatu
 	if !validMessage(message) {
 		return Incident{}, ErrMessageInvalid
 	}
+	// Ni message ni changement de statut : l'entrée ne dirait rien au
+	// public.
+	if status == incident.Status && strings.TrimSpace(message) == "" {
+		return Incident{}, ErrUpdateEmpty
+	}
 	if err := s.transition(ctx, incident, status, strings.TrimSpace(message)); err != nil {
 		return Incident{}, err
 	}

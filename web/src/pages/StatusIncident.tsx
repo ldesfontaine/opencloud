@@ -158,6 +158,9 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Une entrée sans message qui ne change pas le statut ne dit rien au
+  // public : le serveur la refuse, le bouton ne la propose pas.
+  const saysNothing = message.trim() === "" && status === incident.status;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -186,12 +189,12 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
             ))}
           </Select>
         </Field>
-        <Field label={t("incident.message_label")} htmlFor="update-message">
+        <Field label={t("incident.message_label")} htmlFor="update-message" help={t("incident.update_help")}>
           <textarea id="update-message" className="input textarea" value={message} onChange={(event) => setMessage(event.target.value)} maxLength={2000} rows={3} />
         </Field>
         {error !== null && <Pill tone="danger">{t(error)}</Pill>}
         <div className="cluster">
-          <Button type="submit" variant="primary" icon="check" disabled={busy}>
+          <Button type="submit" variant="primary" icon="check" disabled={busy || saysNothing}>
             {status === "resolved" ? t("incident.resolve") : t("incident.update_button")}
           </Button>
         </div>

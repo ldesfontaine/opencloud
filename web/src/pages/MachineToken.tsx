@@ -1,4 +1,5 @@
-import { Navigate, useLocation } from "react-router";
+import { useEffect, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router";
 
 import type { TokenResponse } from "../api/types";
 import { Button } from "../components/Button";
@@ -8,11 +9,20 @@ import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
 import { formatRemaining } from "../lib/time";
 
-// Le jeton ne vit que dans l'état de navigation : rechargée, la page n'a
-// plus rien à montrer et renvoie aux machines. C'est voulu.
+// Le jeton arrive par l'état de navigation et en sort aussitôt : le
+// navigateur garde cet état au rechargement et au retour arrière, et le
+// jeton ne doit s'afficher qu'une fois. Rechargée, la page n'a plus rien à
+// montrer et renvoie aux machines. C'est voulu.
 export function MachineToken() {
   const t = useT();
-  const token = useLocation().state as TokenResponse | null;
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [token] = useState(location.state as TokenResponse | null);
+  useEffect(() => {
+    if (location.state !== null) {
+      void navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location, navigate]);
   if (!token) {
     return <Navigate to="/machines" replace />;
   }

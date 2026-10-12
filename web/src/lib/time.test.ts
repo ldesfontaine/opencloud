@@ -23,6 +23,14 @@ test("formatRemaining arrondit vers le haut", () => {
   expect(formatDuration(t, 4 * 60_000 + 1)).toBe("time.minutes:4");
 });
 
+test("formatRemaining garde les minutes entre une heure et un jour", () => {
+  expect(formatRemaining(t, 70 * 60_000)).toBe("time.hours:1 time.minutes:10");
+  expect(formatRemaining(t, 60 * 60_000)).toBe("time.hours:1");
+  expect(formatRemaining(t, 2 * 3_600_000)).toBe("time.hours:2");
+  expect(formatRemaining(t, 2 * 3_600_000 + 1)).toBe("time.hours:2 time.minutes:1");
+  expect(formatRemaining(t, 49 * 3_600_000)).toBe("time.days:3");
+});
+
 test("seenAgo distingue jamais vu, à l'instant et il y a", () => {
   expect(seenAgo(t, null, now)).toBe("machine.never_seen");
   expect(seenAgo(t, "2026-09-12T12:00:00Z", now)).toBe("machine.seen_now");

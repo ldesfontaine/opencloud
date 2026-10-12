@@ -22,7 +22,8 @@ interface Shown extends LogLine {
 
 // La visionneuse : le direct par SSE, le repli sur le tirage unique si le
 // direct échoue avant la première ligne, l'autodéfilement tant que
-// l'opérateur reste en bas.
+// l'opérateur reste en bas. Un flux qui se ferme ou échoue ne se suit
+// plus : le bouton repropose « Suivre », qui retente.
 export function LogViewer({ serviceID }: { serviceID: string }) {
   const t = useT();
   const [lines, setLines] = useState<Shown[]>([]);
@@ -70,6 +71,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
     });
     source.addEventListener("end", (event: MessageEvent<string>) => {
       source.close();
+      setFollowing(false);
       const payload = JSON.parse(event.data) as { error?: string };
       if (payload.error) {
         setError(new ApiError(502, payload.error));
@@ -80,6 +82,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
     });
     source.onerror = () => {
       source.close();
+      setFollowing(false);
       if (!received) {
         fetchOnce();
       } else {

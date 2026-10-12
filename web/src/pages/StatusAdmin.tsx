@@ -110,8 +110,8 @@ function ComponentsTab({ response, error }: { response: StatusComponentsResponse
             <thead>
               <tr>
                 <th>{t("statuspage.col_component")}</th>
-                <th>{t("statuspage.col_objects")}</th>
-                <th>{t("statuspage.col_derived")}</th>
+                <th className="wide-only">{t("statuspage.col_objects")}</th>
+                <th className="wide-only">{t("statuspage.col_derived")}</th>
                 <th className="th-end">{t("statuspage.col_effective")}</th>
               </tr>
             </thead>
@@ -138,13 +138,13 @@ function ComponentRow({ component }: { component: StatusComponent }) {
           <Subject icon="eye">{component.name}</Subject>
         </Link>
       </td>
-      <td>
+      <td className="wide-only">
         <span className="cell-stack">
           <span>{t(component.members.length === 1 ? "statuspage.objects_count" : "statuspage.objects_counts", component.members.length)}</span>
           {names !== "" && <span className="secondary">{names}</span>}
         </span>
       </td>
-      <td>
+      <td className="wide-only">
         <StatePill state={component.derived} />
       </td>
       <td className="td-end">
@@ -184,10 +184,10 @@ function IncidentsTab() {
         <thead>
           <tr>
             <th>{t("incident.col_incident")}</th>
-            <th>{t("incident.col_impact")}</th>
+            <th className="wide-only">{t("incident.col_impact")}</th>
             <th>{t("incident.col_status")}</th>
-            <th>{t("incident.col_components")}</th>
-            <th className="th-end">{t("incident.col_updated")}</th>
+            <th className="wide-only">{t("incident.col_components")}</th>
+            <th className="th-end wide-only">{t("incident.col_updated")}</th>
           </tr>
         </thead>
         <tbody>
@@ -209,14 +209,14 @@ function IncidentRow({ incident, now }: { incident: Incident; now: number }) {
           <Subject icon={incident.impact === "maintenance" ? "clock" : "bell"}>{incident.title}</Subject>
         </Link>
       </td>
-      <td>
+      <td className="wide-only">
         <Pill tone={impactTones[incident.impact]}>{t(`incident.impact_${incident.impact}`)}</Pill>
       </td>
       <td>
         <Pill tone={incidentTones[incident.status]}>{t(`incident.status_${incident.status}`)}</Pill>
       </td>
-      <td className="secondary">{incident.components.map((component) => component.name).join(", ")}</td>
-      <td className="secondary nowrap td-end">{ago(t, incident.updated_at, now)}</td>
+      <td className="secondary wide-only">{incident.components.map((component) => component.name).join(", ")}</td>
+      <td className="secondary nowrap td-end wide-only">{ago(t, incident.updated_at, now)}</td>
     </tr>
   );
 }

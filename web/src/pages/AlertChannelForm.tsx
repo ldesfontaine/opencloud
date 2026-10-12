@@ -78,6 +78,7 @@ export function AlertChannelForm() {
     const request = id === undefined ? api.post<Channel>("/api/alerts/channels", body) : api.put<Channel>(`/api/alerts/channels/${id}`, body);
     request
       .then((saved) => {
+        setError(null);
         refresh("alerts");
         // Un canal neuf n'a encore rien reçu : sa fiche propose de l'essayer.
         void navigate(id === undefined ? `/alertes/canaux/${saved.id}?cree=1` : "/alertes/canaux");

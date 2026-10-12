@@ -111,7 +111,7 @@ export function ProbeNew() {
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="site nextcloud"
+              placeholder={t("probe.name_placeholder")}
               maxLength={80}
               autoComplete="off"
               autoFocus
@@ -146,7 +146,7 @@ export function ProbeNew() {
               type="text"
               value={target}
               onChange={(event) => setTarget(event.target.value)}
-              placeholder={kind === "http" ? "https://cloud.exemple.fr/" : "10.8.0.2:5432"}
+              placeholder={kind === "http" ? t("probe.target_placeholder_http") : "10.8.0.2:5432"}
               maxLength={512}
               autoComplete="off"
               required

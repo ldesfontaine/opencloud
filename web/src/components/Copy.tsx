@@ -1,13 +1,19 @@
-import { useCopy } from "../hooks/useCopy";
+import { type CopyState, useCopy } from "../hooks/useCopy";
 import { useT } from "../i18n/context";
 import { Button } from "./Button";
 
+const labels: Record<CopyState, string> = {
+  idle: "machine.copy",
+  copied: "machine.copied",
+  failed: "machine.copy_failed",
+};
+
 export function CopyButton({ text, ghost = false }: { text: string; ghost?: boolean }) {
   const t = useT();
-  const { copied, copy } = useCopy();
+  const { state, copy } = useCopy();
   return (
     <Button variant={ghost ? "ghost" : "secondary"} small onClick={() => copy(text)}>
-      {t(copied ? "machine.copied" : "machine.copy")}
+      {t(labels[state])}
     </Button>
   );
 }

@@ -235,6 +235,19 @@
   overflow-wrap: anywhere;
 }
 
+// Sur téléphone, un champ a la hauteur d'un bouton : 44 px sous le doigt.
+@media (max-width: 860px) {
+  .input:not(.textarea),
+  .select,
+  .control-row {
+    height: 44px;
+  }
+
+  .seg span {
+    height: 36px;
+  }
+}
+
 // Sur téléphone, une commande garde ses lignes : elle défile dans son bloc
 // plutôt que de se couper au milieu d'un argument.
 @media (max-width: 860px) {

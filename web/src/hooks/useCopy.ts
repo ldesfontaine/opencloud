@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
-const copiedFor = 1500;
+import { copyText } from "../lib/clipboard";
 
-// Copie un texte et dit « Copié » un instant.
-export function useCopy(): { copied: boolean; copy: (text: string) => void } {
-  const [copied, setCopied] = useState(false);
+const shownFor = 1500;
+
+export type CopyState = "idle" | "copied" | "failed";
+
+// Copie un texte et dit « Copié », ou que la copie n'a pas pu se faire, un
+// instant.
+export function useCopy(): { state: CopyState; copy: (text: string) => void } {
+  const [state, setState] = useState<CopyState>("idle");
   useEffect(() => {
-    if (!copied) {
+    if (state === "idle") {
       return;
     }
-    const timer = window.setTimeout(() => setCopied(false), copiedFor);
+    const timer = window.setTimeout(() => setState("idle"), shownFor);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [state]);
   const copy = useCallback((text: string) => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => setCopied(true))
-      .catch(() => setCopied(false));
+    void copyText(text).then((done) => setState(done ? "copied" : "failed"));
   }, []);
-  return { copied, copy };
+  return { state, copy };
 }
