@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -116,6 +117,15 @@ type UpdateService interface {
 	Assign(ctx context.Context, machineID string)
 }
 
+// Ce que le serveur attend du composant lifecycle : la fiche lit le support
+// d'une image, Paramètres lit l'état de la dernière lecture et en demande
+// une quand le réglage vient d'être activé.
+type LifecycleService interface {
+	Of(image string) lifecycle.Verdict
+	State() lifecycle.State
+	Kick()
+}
+
 // Ce que le serveur attend du composant heartbeat : l'API d'un côté,
 // les pings publics de l'autre.
 type HeartbeatService interface {
@@ -195,6 +205,7 @@ type Server struct {
 	services     ServiceTracker
 	probes       ProbeService
 	updates      UpdateService
+	lifecycle    LifecycleService
 	status       StatusService
 	alerts       AlertService
 	notifier     Notifier
@@ -238,6 +249,7 @@ type Options struct {
 	Services   ServiceTracker
 	Probes     ProbeService
 	Updates    UpdateService
+	Lifecycle  LifecycleService
 	Status     StatusService
 	Alerts     AlertService
 	Notifier   Notifier
@@ -290,6 +302,7 @@ func New(opts Options) (*Server, error) {
 		services:       opts.Services,
 		probes:         opts.Probes,
 		updates:        opts.Updates,
+		lifecycle:      opts.Lifecycle,
 		status:         opts.Status,
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,

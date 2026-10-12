@@ -268,6 +268,9 @@ export interface Service {
   update_policy: UpdatePolicy;
   // Le dernier constat de l'agent sur l'image ; nul tant qu'il n'a rien dit.
   image_check: ImageCheck | null;
+  // Le support de l'image : sur la fiche seulement, et seulement quand la
+  // fin de support est activée sous Paramètres.
+  lifecycle?: Lifecycle;
   state: ServiceState;
   exit_code: number;
   // Tué par le noyau faute de mémoire : 137 comme un docker stop, mais pas demandé.
@@ -290,6 +293,40 @@ export interface Service {
   last_seen_at: string;
   archived_at: string | null;
   current: ServiceSample | null;
+}
+
+export type LifecycleStatus = "maintained" | "eol" | "unknown_product" | "unknown_version" | "pending";
+
+// Une branche maintenue plus récente que celle qui tourne. Les dates sont
+// des jours, « 2028-11-09 », vides quand la source n'en annonce pas.
+export interface NewerCycle {
+  cycle: string;
+  latest: string;
+  eol_from: string;
+}
+
+// Ce que la source dit du support d'une image : le produit reconnu, la
+// branche qui tourne, jusqu'à quand, et vers quoi monter.
+export interface Lifecycle {
+  status: LifecycleStatus;
+  product: string;
+  product_url: string;
+  cycle: string;
+  eol_from: string;
+  latest: string;
+  newer: NewerCycle[];
+  fetched_at: string | null;
+  is_stale: boolean;
+}
+
+// Le réglage de la fin de support, et ce que la dernière lecture a donné.
+export interface LifecycleSettings {
+  enabled: boolean;
+  source: string;
+  fetched_at: string | null;
+  products: number;
+  is_failing: boolean;
+  last_attempt_at: string | null;
 }
 
 // Ce que l'opérateur veut des mises à jour d'un service : les suivre,

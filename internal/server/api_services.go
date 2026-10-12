@@ -46,7 +46,10 @@ type serviceJSON struct {
 	// Ce que l'opérateur veut des mises à jour : "", pinned, excluded.
 	UpdatePolicy string `json:"update_policy"`
 	// Le dernier constat sur l'image ; absent tant que l'agent n'a rien dit.
-	ImageCheck   *imageCheckJSON      `json:"image_check"`
+	ImageCheck *imageCheckJSON `json:"image_check"`
+	// Le support de l'image, sur la fiche seulement, et seulement quand
+	// l'opérateur a activé la fin de support.
+	Lifecycle    *lifecycleJSON       `json:"lifecycle,omitempty"`
 	State        string               `json:"state"`
 	ExitCode     int                  `json:"exit_code"`
 	OOMKilled    bool                 `json:"oom_killed"`
@@ -229,6 +232,7 @@ func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (s
 		return serviceResponse{}, err
 	}
 	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
+	response.Service.Lifecycle = s.lifecycleOf(item.Image)
 	for _, engine := range engines {
 		if engine.MachineID == item.MachineID {
 			converted := engineToJSON(engine)

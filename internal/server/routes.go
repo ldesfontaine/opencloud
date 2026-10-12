@@ -99,6 +99,8 @@ func (s *Server) routes() []route {
 		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
 		{"GET", "/api/settings/disk", s.getDiskSettings},
 		{"PUT", "/api/settings/disk", s.setDiskSettings},
+		{"GET", "/api/settings/lifecycle", s.getLifecycleSettings},
+		{"PUT", "/api/settings/lifecycle", s.setLifecycleSettings},
 		{"GET", "/api/settings/mail", s.getMailSettings},
 		{"PUT", "/api/settings/mail", s.setMailSettings},
 		{"POST", "/api/settings/mail/actions/test", s.testMailSettings},

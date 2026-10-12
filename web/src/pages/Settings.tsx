@@ -5,6 +5,7 @@ import type {
   AuthEnableResponse,
   AuthState,
   DiskSettings,
+  LifecycleSettings,
   MailSettings,
   MCPScope,
   MCPSecretResponse,
@@ -25,6 +26,7 @@ import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { diskSettingsError } from "../lib/disks";
+import { readingText } from "../lib/lifecycle";
 import { passwordFormError } from "../lib/auth";
 import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
@@ -32,7 +34,7 @@ import { MailSection } from "./SettingsMail";
 import "./StatusAdmin.scss";
 
 // Paramètres : l'accès à l'interface, les seuils d'alerte du disque, le
-// relais d'e-mails, puis l'accès d'un agent IA. Un secret ou un
+// relais d'e-mails, la fin de support, puis l'accès d'un agent IA. Un secret ou un
 // jeton ne s'affiche qu'une fois, à sa création, dans l'état de la page ;
 // rechargée, elle ne le montre plus.
 export function Settings() {
@@ -41,6 +43,7 @@ export function Settings() {
   const access = useResource<AuthState>("/api/auth");
   const disks = useResource<DiskSettings>("/api/settings/disk");
   const mail = useResource<MailSettings>("/api/settings/mail");
+  const support = useResource<LifecycleSettings>("/api/settings/lifecycle");
   if (state.error) {
     return (
       <>
@@ -58,6 +61,7 @@ export function Settings() {
       {access.data !== null && <AccessSection state={access.data} />}
       {disks.data !== null && <DiskSection settings={disks.data} reload={disks.reload} />}
       {mail.data !== null && <MailSection settings={mail.data} reload={mail.reload} />}
+      {support.data !== null && <LifecycleSection settings={support.data} reload={support.reload} />}
       <MCPSection state={state.data} reload={state.reload} />
     </>
   );
@@ -314,6 +318,54 @@ function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () 
           {saved && <Pill tone="ok">{t("settings.disk_saved")}</Pill>}
         </div>
       </form>
+    </Card>
+  );
+}
+
+// La fin de support : coupée par défaut. La carte dit ce que l'activer fait
+// sortir de la machine openCloud avant qu'on l'active, et ce que la
+// dernière lecture a donné ensuite.
+function LifecycleSection({ settings, reload }: { settings: LifecycleSettings; reload: () => void }) {
+  const t = useT();
+  const now = useNow();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const setEnabled = (enabled: boolean) => {
+    setBusy(true);
+    setError(null);
+    api
+      .put<LifecycleSettings>("/api/settings/lifecycle", { enabled })
+      .catch((failure: unknown) => setError(errorKey(failure)))
+      .finally(() => {
+        setBusy(false);
+        reload();
+      });
+  };
+  return (
+    <Card className="form-card">
+      <CardHeader
+        title={t("lifecycle.settings_title")}
+        aside={<Pill tone={settings.enabled ? "ok" : "neutral"}>{t(settings.enabled ? "lifecycle.state_enabled" : "lifecycle.state_disabled")}</Pill>}
+      />
+      <CardBody>
+        <p>{t("lifecycle.settings_intro")}</p>
+        <p className="secondary">{t("lifecycle.settings_cost", settings.source)}</p>
+        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        {settings.enabled ? (
+          <div className="cluster">
+            <span className="secondary">{readingText(t, settings, now)}</span>
+            <Button icon="x" onClick={() => setEnabled(false)} disabled={busy}>
+              {t("lifecycle.disable")}
+            </Button>
+          </div>
+        ) : (
+          <div className="cluster">
+            <Button variant="primary" icon="check" onClick={() => setEnabled(true)} disabled={busy}>
+              {t("lifecycle.enable")}
+            </Button>
+          </div>
+        )}
+      </CardBody>
     </Card>
   );
 }

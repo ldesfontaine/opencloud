@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
@@ -39,6 +40,8 @@ type testServer struct {
 	services   *service.Tracker
 	probes     *probe.Service
 	updates    *update.Service
+	lifecycle  *lifecycle.Service
+	support    *supportSource
 	status     *status.Service
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
@@ -90,6 +93,11 @@ func newTestServer(t *testing.T) *testServer {
 	updates.SetClock(func() time.Time { return testNow })
 	updates.SetWatcher(bus)
 	preferences := settings.New(root)
+	support := newSupportSource()
+	lifecycles := lifecycle.New(services.Images, lifecycle.NewFileCache(root), support, lifecycleSetting(preferences), logger)
+	lifecycles.SetClock(func() time.Time { return testNow })
+	lifecycles.SetWatcher(bus)
+	lifecycles.SetPause(0)
 	publicBus := live.New()
 	statusPage := status.New(db, machines, preferences, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
@@ -130,6 +138,7 @@ func newTestServer(t *testing.T) *testServer {
 		Services:   services,
 		Probes:     probes,
 		Updates:    updates,
+		Lifecycle:  lifecycles,
 		Status:     statusPage,
 		Alerts:     alerts,
 		Notifier:   notifier,
@@ -150,7 +159,7 @@ func newTestServer(t *testing.T) *testServer {
 	services.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

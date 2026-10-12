@@ -23,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
@@ -163,13 +164,18 @@ func runServe(args []string) error {
 		return err
 	}
 	warnIfOpen(ctx, logger, operator, cfg.Listen)
-	// Quatorze boucles de fond : les échéances, le rollup et la purge des
+	// La fin de support : coupée par défaut. Activée sous Paramètres, cette
+	// machine lit endoflife.date une fois par jour, pour les produits des
+	// images présentes.
+	support := lifecycle.New(services.Images, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
+	support.SetWatcher(bus)
+	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
 	// purge des services, le veilleur Docker, le rollup et la purge des
 	// sondes, leur moteur, la purge des constats d'images et leur
 	// vérificateur, la page de statut, les machines perdues, le moteur des
-	// alertes, le notifieur et la purge des jetons MCP. Elles finissent
-	// avant que la base ne se ferme.
+	// alertes, le notifieur, la purge des jetons MCP et la fin de support.
+	// Elles finissent avant que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
@@ -185,6 +191,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { alerts.Watch(ctx) })
 	runLoop(&loops, func() { notifier.Run(ctx) })
 	runLoop(&loops, func() { access.Watch(ctx) })
+	runLoop(&loops, func() { support.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
@@ -201,6 +208,7 @@ func runServe(args []string) error {
 		Services:       services,
 		Probes:         probes,
 		Updates:        updates,
+		Lifecycle:      support,
 		Status:         statusPage,
 		Alerts:         alerts,
 		Notifier:       notifier,
@@ -259,6 +267,20 @@ func diskThresholdsOf(preferences *settings.Store, logger *slog.Logger) func() a
 			return alert.DefaultDiskThresholds()
 		}
 		return alert.DiskThresholdsOr(current.DiskAttentionPercent, current.DiskDangerPercent)
+	}
+}
+
+// lifecycleEnabledOf relit settings.toml à chaque appel : la fin de support
+// activée ou coupée sous Paramètres vaut aussitôt. Un fichier illisible la
+// laisse coupée : rien ne sort sans que l'opérateur l'ait demandé.
+func lifecycleEnabledOf(preferences *settings.Store, logger *slog.Logger) func() bool {
+	return func() bool {
+		current, err := preferences.Load()
+		if err != nil {
+			logger.Warn("read lifecycle setting", "error", err)
+			return false
+		}
+		return current.LifecycleEnabled
 	}
 }
 

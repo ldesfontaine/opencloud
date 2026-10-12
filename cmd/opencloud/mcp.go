@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
@@ -89,6 +90,12 @@ func runMCP(args []string) error {
 	if err != nil {
 		return err
 	}
+	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
+	// processus ne lit jamais la source lui-même.
+	support := lifecycle.New(services.Images, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
+	if err := support.Load(); err != nil {
+		logger.Warn("load lifecycle snapshot", "error", err)
+	}
 	srv, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
@@ -99,6 +106,7 @@ func runMCP(args []string) error {
 		Services:       services,
 		Probes:         probes,
 		Updates:        updates,
+		Lifecycle:      support,
 		Status:         statusPage,
 		Alerts:         alerts,
 		Notifier:       notifier,
