@@ -217,6 +217,53 @@ func TestReceive_NonZeroExitCode_FailsAndNotifies(t *testing.T) {
 	}
 }
 
+// Le chemin de l'extrait « script » : la tâche repart par un start. L'état
+// d'avant la fin est « Démarré », et la reprise doit partir quand même.
+func TestReceive_StartThenFinish_AfterLate_Recovers(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	if want := "late:job"; strings.Join(f.listener.events, ",") != want {
+		t.Fatalf("a start alone proves nothing yet: %v", f.listener.events)
+	}
+	done := f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
+	if want := "late:job,recovered:job"; done.Status != heartbeat.StatusOnTime || strings.Join(f.listener.events, ",") != want {
+		t.Fatalf("status %s, events %v", done.Status, f.listener.events)
+	}
+}
+
+func TestReceive_StartThenFinish_AfterFailure_Recovers(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindExitCode, code(2))
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
+	if want := "failed:job,recovered:job"; strings.Join(f.listener.events, ",") != want {
+		t.Fatalf("events %v", f.listener.events)
+	}
+}
+
+// Une fin en échec après un start ne lève rien : elle ouvre l'échec.
+func TestReceive_StartThenFailure_AfterLate_FailsWithoutRecovering(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	f.ping(t, h.Token, heartbeat.KindExitCode, code(1))
+	if want := "late:job,failed:job"; strings.Join(f.listener.events, ",") != want {
+		t.Fatalf("events %v", f.listener.events)
+	}
+}
+
 func TestReceive_RejectsUnknownTokenAndBadExitCode(t *testing.T) {
 	f := newFixture(t)
 	h := f.create(t, "job")

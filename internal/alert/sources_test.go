@@ -428,6 +428,52 @@ func TestHeartbeat_LateThenFailedThenRecovered(t *testing.T) {
 	}
 }
 
+// Une tâche qui repart par un start puis une fin réussie lève son alerte,
+// qu'elle ait été en retard ou en échec : c'est le chemin de l'extrait
+// « script ». Le start seul ne lève rien.
+func TestHeartbeat_StartThenSuccess_ResolvesLateAndFailed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	heartbeats := heartbeat.New(f.db, discardLogger())
+	heartbeats.SetClock(func() time.Time { return f.clock })
+	heartbeats.SetListener(f.Engine)
+	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receive := func(kind heartbeat.Kind, exitCode *int) {
+		t.Helper()
+		if _, err := heartbeats.Receive(ctx, job.Token, heartbeat.Ping{Kind: kind, ExitCode: exitCode}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero, one := 0, 1
+
+	receive(heartbeat.KindFinish, nil)
+	f.advance(3 * time.Minute)
+	if err := heartbeats.CheckDeadlines(ctx); err != nil || f.kinds(t) != "job_late:attention" {
+		t.Fatalf("kinds %q, %v", f.kinds(t), err)
+	}
+	receive(heartbeat.KindStart, nil)
+	if f.kinds(t) != "job_late:attention" {
+		t.Fatalf("a start alone lifts nothing: %q", f.kinds(t))
+	}
+	receive(heartbeat.KindExitCode, &zero)
+	if f.kinds(t) != "" {
+		t.Fatalf("late, start, success: %q", f.kinds(t))
+	}
+
+	receive(heartbeat.KindExitCode, &one)
+	if f.kinds(t) != "job_failed:danger" {
+		t.Fatalf("kinds %q", f.kinds(t))
+	}
+	receive(heartbeat.KindStart, nil)
+	receive(heartbeat.KindExitCode, &zero)
+	if f.kinds(t) != "" {
+		t.Fatalf("failed, start, success: %q", f.kinds(t))
+	}
+}
+
 func TestHeartbeat_NeverPinged_OpensTheLateAlertWithItsAge(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

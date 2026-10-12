@@ -61,6 +61,8 @@ func closeOpenRun(before Heartbeat, now time.Time, outcome Outcome) *Run {
 // branche ; nil est toléré.
 type Listener interface {
 	Late(ctx context.Context, heartbeat Heartbeat)
+	// Recovered : une fin réussie, après un retard, un échec ou un start.
+	// Elle peut donc arriver sans rien à lever.
 	Recovered(ctx context.Context, heartbeat Heartbeat)
 	Failed(ctx context.Context, heartbeat Heartbeat, exitCode int)
 	// Paused et Removed : ce que le moniteur portait ne compte plus.
@@ -324,9 +326,17 @@ func (s *Service) notifyAfterPing(ctx context.Context, before, after Heartbeat, 
 		s.listener.Failed(ctx, after, *ping.ExitCode)
 		return
 	}
-	if NeedsAttention(before.Status) && after.Status == StatusOnTime {
+	if after.Status == StatusOnTime && mayHaveNeededAttention(before.Status) {
 		s.listener.Recovered(ctx, after)
 	}
+}
+
+// Une fin réussie lève ce qui était ouvert. Après un start, l'état d'avant
+// est « Démarré » : il ne dit plus si la tâche était en retard ou en échec.
+// On prévient quand même, le moteur des alertes lève ce qu'il trouve et rien
+// sinon.
+func mayHaveNeededAttention(status Status) bool {
+	return NeedsAttention(status) || status == StatusStarted
 }
 
 // CheckDeadlines passe en retard tout moniteur dont l'échéance est dépassée
