@@ -2,7 +2,8 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fin de support du système des machines, 12 octobre 2026.
+> fin de support activée par défaut, deux lectures par jour au plus,
+> 12 octobre 2026.
 
 ## Les acteurs
 
@@ -19,7 +20,7 @@
 | Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi ; un salon Matrix ; ou des adresses e-mail | Rien : il reçoit un POST signé, un message du bot dans le salon, ou un e-mail, quand une alerte s'ouvre, s'aggrave ou se résout |
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
-| endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, **seulement si l'opérateur a activé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
+| endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : seize lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà, dont la publication d'un incident sur la page de statut publique. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
@@ -38,7 +39,7 @@ flowchart LR
         hook["Canal<br>webhook entrant"]
         smtp["Relais SMTP<br>de l'opérateur"]
         reg["Registre d'images<br>Docker Hub, ghcr.io, privé"]
-        eol["endoflife.date<br>si l'opérateur l'active"]
+        eol["endoflife.date<br>sauf si l'opérateur le coupe"]
         ai["Agent IA<br>client MCP distant"]
     end
     subgraph oc["Machine openCloud"]
@@ -114,7 +115,7 @@ réseau est déjà chiffré.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (URL, format, destinataires d'un e-mail ou salon Matrix dans `destination`, **secret en clair** — le jeton du bot pour Matrix —, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **Le secret d'un canal est lisible dans une copie de la base** : c'est une clé de signature, pas un mot de passe, et le récepteur peut la changer ; l'API ne le renvoie jamais. Pour Matrix, c'est le jeton d'accès du bot : il faut le rejouer au serveur d'accueil, un haché ne servirait à rien ; le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. Désactiver efface identifiant, empreinte et en-tête |
-| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, absents tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` en clair** : il faut le rejouer au relais, un haché ne servirait à rien ; fichier en 0600, l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_enabled`, absent tant qu'elle est coupée) | Écriture atomique ; un seul propriétaire, `internal/settings`, qui relit, modifie sa clé et réécrit sous un verrou : la langue et la page de statut changées en même temps survivent toutes deux |
+| Machine openCloud, `state_dir` | `settings.toml` | La langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, absents tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` en clair** : il faut le rejouer au relais, un haché ne servirait à rien ; fichier en 0600, l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, absent tant qu'elle est activée) | Écriture atomique ; un seul propriétaire, `internal/settings`, qui relit, modifie sa clé et réécrit sous un verrou : la langue et la page de statut changées en même temps survivent toutes deux |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
@@ -526,14 +527,17 @@ les CVE, le changelog, le score de risque, n'a pas été repris.
 
 Le constat sur l'image dit s'il existe plus récent. Il ne dit pas si la
 version qui tourne est encore maintenue : c'est une autre question, et une
-autre source. openCloud la lit sur endoflife.date, **seulement si
-l'opérateur l'active** sous Paramètres. Coupée par défaut : rien ne sort.
+autre source. openCloud la lit sur endoflife.date, **activée par défaut**
+(décidé par Lucas le 12 octobre 2026) ; l'opérateur la coupe sous
+Paramètres, et plus rien ne sort. C'est, avec la comparaison des images à
+leur registre, ce qu'openCloud appelle à l'extérieur sans qu'on le lui ait
+demandé : la carte des Paramètres le dit.
 Elle vaut pour l'image d'un service et pour le système d'une machine. Pour
 le système c'est une information seule : aucune commande n'est proposée.
 
 | Ce que ça rapporte | Ce que ça coûte |
 | --- | --- |
-| La fiche d'un service et celle d'une machine disent la branche qui tourne, jusqu'à quand elle est maintenue, et les branches maintenues au-dessus | Une fois par jour, la machine openCloud appelle un tiers : il voit son adresse et le nom des produits demandés (« postgresql », « traefik ») |
+| La fiche d'un service et celle d'une machine disent la branche qui tourne, jusqu'à quand elle est maintenue, et les branches maintenues au-dessus | Une fois par jour, deux au plus, la machine openCloud appelle un tiers, dès l'installation : il voit son adresse et le nom des produits demandés (« postgresql », « traefik », « debian ») |
 | Un correctif proposé dans une branche morte se voit comme tel | Ce que la source ne suit pas reste « support inconnu » ; ses dates sont celles d'une base tenue par des bénévoles |
 
 1. **Seule la machine openCloud appelle**, par `internal/lifecycle`. Les
@@ -545,10 +549,13 @@ le système c'est une information seule : aucune commande n'est proposée.
    (64 au plus : au-delà, les suivants par ordre alphabétique restent
    « en attente »), avec une demi-seconde entre deux. La sortie passe par
    `internal/egress`, comme les canaux d'alerte.
-3. **La cadence** : une lecture par jour. La boucle regarde chaque heure si
-   une lecture est due, si le dernier essai a échoué, ou si un service
-   arrivé depuis tourne sur un produit jamais demandé. Activer le réglage
-   lance une lecture aussitôt.
+3. **La cadence** : une lecture par jour, **deux au plus**. Jamais deux
+   lectures à moins de douze heures. La seconde ne sert qu'à rejouer un
+   essai raté, ou à lire le produit d'un service ou d'une machine arrivés
+   depuis. La boucle regarde chaque heure s'il est l'heure de lire ; ce
+   regard ne sort pas de la machine. Rallumer le réglage lance une
+   lecture aussitôt. Le prix : un nouveau service attend jusqu'à douze
+   heures son support, un essai raté aussi.
 4. **Du dépôt au produit** : la source publie des identifiants
    `pkg:docker/library/postgres` ; openCloud compare le dépôt de l'image,
    sans l'hôte du registre. Un dépôt absent de cette table : « support
@@ -570,7 +577,7 @@ le système c'est une information seule : aucune commande n'est proposée.
    tourne, les quatre plus proches, avec leur dernière version et leur date
    de fin.
 8. **Une panne de la source ne casse rien** : la lecture précédente reste
-   affichée, l'essai se rejoue dans l'heure. Un produit qui ne répond pas
+   affichée, l'essai se rejoue douze heures après. Un produit qui ne répond pas
    garde ses branches et leur date de lecture ; au-delà de 30 jours, sa
    fiche dit que ces dates ont pu changer. Un produit que la source annonce
    sans l'avoir (404) n'est pas une panne : « support inconnu ».
@@ -582,9 +589,9 @@ le système c'est une information seule : aucune commande n'est proposée.
    réglage est activé, et rien sinon ; l'outil MCP `get_service` rend la
    même fiche.
 10. **Le réglage** : `GET`/`PUT /api/settings/lifecycle`, la clé
-    `lifecycle_enabled` de `settings.toml`. La carte « Fin de support » des
-    Paramètres dit ce que l'activer fait sortir, avant qu'on l'active, puis
-    la date de la dernière lecture, ou qu'elle a échoué. Le client MCP
+    `lifecycle_disabled` de `settings.toml` (absente : activée). La carte
+    « Fin de support » des Paramètres dit ce qui sort, la date de la
+    dernière lecture, ou qu'elle a échoué, et porte le bouton « Couper ». Le client MCP
     local (`opencloud mcp`) relit `lifecycle.json` et n'appelle jamais la
     source.
 
@@ -1424,5 +1431,5 @@ refusés avant d'envoyer quoi que ce soit.
 | Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres |
 | Canal e-mail | Le paquet `internal/mail` (relais, message RFC 5322, dialogue SMTP par `net/smtp`, faux relais `internal/mail/smtptest`), le format `email` et la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), les motifs `mail_not_configured` et `smtp_*`, les clés `mail_*` de `settings.toml`, l'API `/api/settings/mail` et son essai, la carte « Envoi d'e-mails » des Paramètres |
 | Canal Matrix | Le format `matrix` (`internal/alert/matrix.go`), la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), l'envoi par `PUT` avec identifiant de transaction stable, les champs serveur d'accueil, salon et jeton du formulaire de canal |
-| Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_enabled` de `settings.toml`, l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |
+| Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_disabled` de `settings.toml`, l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |

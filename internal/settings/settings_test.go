@@ -29,6 +29,35 @@ func TestLoad_MissingFile_GivesEmptySettings(t *testing.T) {
 	}
 }
 
+// La fin de support est activée sur une installation neuve, et reste
+// coupée une fois que l'opérateur l'a coupée.
+func TestLifecycle_OnUntilTheOperatorTurnsItOff(t *testing.T) {
+	store := newStore(t)
+	fresh, err := store.Load()
+	if err != nil || !fresh.LifecycleEnabled() {
+		t.Fatalf("fresh install: %+v, %v", fresh, err)
+	}
+	if _, err := store.Update(func(current *Settings) { current.LifecycleDisabled = true }); err != nil {
+		t.Fatal(err)
+	}
+	if off, err := store.Load(); err != nil || off.LifecycleEnabled() {
+		t.Fatalf("turned off: %+v, %v", off, err)
+	}
+	// Un autre réglage enregistré ensuite ne la rallume pas.
+	if _, err := store.Update(func(current *Settings) { current.Language = lang.English }); err != nil {
+		t.Fatal(err)
+	}
+	if still, err := store.Load(); err != nil || still.LifecycleEnabled() {
+		t.Fatalf("after another setting: %+v, %v", still, err)
+	}
+	if _, err := store.Update(func(current *Settings) { current.LifecycleDisabled = false }); err != nil {
+		t.Fatal(err)
+	}
+	if on, err := store.Load(); err != nil || !on.LifecycleEnabled() {
+		t.Fatalf("turned back on: %+v, %v", on, err)
+	}
+}
+
 func TestUpdate_ThenLoad_RoundTrips(t *testing.T) {
 	store := newStore(t)
 	if _, err := store.Update(func(current *Settings) { current.Language = lang.English }); err != nil {
