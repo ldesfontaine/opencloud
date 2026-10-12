@@ -124,7 +124,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
       <Card className="form-card">
         <form className="card-b" onSubmit={submit}>
           <Field label={t("component.name_label")} htmlFor="component-name" help={t("component.name_help")}>
-            <Input id="component-name" type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder="Site web" maxLength={80} autoComplete="off" autoFocus required />
+            <Input id="component-name" type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder={t("component.name_placeholder")} maxLength={80} autoComplete="off" autoFocus required />
           </Field>
           <Field label={t("component.position_label")} htmlFor="component-position" help={t("component.position_help")}>
             <Input id="component-position" mono type="number" value={position} onChange={(event) => setPosition(event.target.value)} min={0} max={1000} />

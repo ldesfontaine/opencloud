@@ -55,7 +55,7 @@ export function JobNew() {
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="sauvegarde nextcloud"
+              placeholder={t("job.name_placeholder")}
               maxLength={80}
               autoComplete="off"
               autoFocus

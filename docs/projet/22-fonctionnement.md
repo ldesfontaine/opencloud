@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fin de support des versions, coupée par défaut, 12 octobre 2026.
+> défauts d'interface relevés par un test complet, 12 octobre 2026.
 
 ## Les acteurs
 
@@ -776,7 +776,9 @@ choisit pas —, en clair ou en sombre selon son système.
    fenêtre. Planifiée, elle s'affiche sans rien changer ; la boucle la
    passe « en cours » à l'heure du début et la résout à l'heure de la fin,
    en écrivant chaque passage dans le fil. Une fenêtre déjà ouverte à la
-   création commence tout de suite.
+   création commence tout de suite ; une fenêtre déjà finie est refusée.
+   Une entrée du fil sans message, qui ne change pas le statut, est
+   refusée aussi : elle ne dirait rien au public.
 6. **Le public voit** : le titre, l'annonce, l'état global, les composants
    visibles avec leur état et, pour ceux qui ont une sonde, la somme des
    jours de leurs sondes sur 90 jours ; les incidents ouverts, les

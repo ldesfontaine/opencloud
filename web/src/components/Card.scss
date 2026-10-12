@@ -43,6 +43,16 @@
   max-width: 560px;
 }
 
+// Une carte de réglage qui porte un tableau : plus large, pour que la
+// dernière colonne se voie ; son formulaire garde la largeur des autres.
+.form-card-wide {
+  max-width: 860px;
+
+  form {
+    max-width: 560px;
+  }
+}
+
 .kv {
   display: flex;
   justify-content: space-between;

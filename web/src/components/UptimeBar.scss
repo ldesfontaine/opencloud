@@ -30,6 +30,19 @@
   background: var(--line);
 }
 
+// Sur téléphone, quatre-vingt-dix jours tiennent dans la carte : les
+// segments se serrent plutôt que de pousser aujourd'hui hors cadre.
+@media (max-width: 860px) {
+  .ubar:not(.ubar-runs) {
+    gap: 1px;
+
+    .ubar-seg {
+      min-width: 1px;
+      border-radius: 1px;
+    }
+  }
+}
+
 // La barre et son pourcentage, sur une ligne, dans une cellule de tableau.
 .ubar-cell {
   display: flex;

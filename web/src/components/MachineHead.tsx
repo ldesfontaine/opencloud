@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useNavigate, useParams } from "react-router";
 
 import type { Machine } from "../api/types";
 import { useNow } from "../hooks/useNow";
@@ -14,10 +14,14 @@ import "./MachineHead.scss";
 export function MachineHead({ current, all }: { current: Machine; all: Machine[] }) {
   const t = useT();
   const navigate = useNavigate();
+  const { tab = "" } = useParams();
   const now = useNow();
+  // Changer de machine garde l'onglet : on compare deux machines sur la
+  // même vue.
+  const pathOf = (id: string) => (tab === "" ? `/machines/${id}` : `/machines/${id}/${tab}`);
   return (
     <div className="machine-head">
-      <Select icon="server" aria-label={t("machine.select")} value={current.id} onChange={(event) => void navigate(`/machines/${event.target.value}`)}>
+      <Select icon="server" aria-label={t("machine.select")} value={current.id} onChange={(event) => void navigate(pathOf(event.target.value))}>
         {all.map((machine) => (
           <option key={machine.id} value={machine.id}>
             {machine.name}

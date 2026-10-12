@@ -36,11 +36,15 @@ export function AlertSilenceNew() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const options = useObjects(objectKind);
+  // Un volume ne se choisit pas dans une liste : il vient de l'alerte. On
+  // le garde pour y revenir après avoir regardé un autre objet.
+  const [alertVolume] = useState(objectKind === "volume" ? { id: objectID, name: objectName } : null);
 
   const pickKind = (next: PickKind) => {
+    const volume = next === "volume" ? alertVolume : null;
     setObjectKind(next);
-    setObjectID("");
-    setObjectName("");
+    setObjectID(volume?.id ?? "");
+    setObjectName(volume?.name ?? "");
   };
   const pickObject = (id: string) => {
     setObjectID(id);
@@ -85,7 +89,7 @@ export function AlertSilenceNew() {
           <div className="grid-2">
             <Field label={t("silence.object_kind_label")} htmlFor="silence-object-kind">
               <Select id="silence-object-kind" value={objectKind} onChange={(event) => pickKind(asObjectKind(event.target.value))}>
-                {(objectKind === "volume" ? [...objectKinds, "volume" as const] : objectKinds).map((candidate) => (
+                {(alertVolume !== null ? [...objectKinds, "volume" as const] : objectKinds).map((candidate) => (
                   <option key={candidate} value={candidate}>
                     {candidate === "" ? t("silence.object_kind_none") : t(`silence.object_kind_${candidate}`)}
                   </option>

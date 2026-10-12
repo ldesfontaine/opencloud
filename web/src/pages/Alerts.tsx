@@ -229,11 +229,16 @@ export function AlertRow({
   const text = describeAlert(t, alert, now, disks);
   const state = stateOf(alert);
   const path = objectPath(alert.object, alert.machine_id);
+  const [error, setError] = useState<string | null>(null);
   const acknowledge = () => {
+    setError(null);
     api
       .post(`/api/alerts/${alert.id}/actions/acknowledge`)
       .then(() => refresh("alerts"))
-      .catch(() => refresh("alerts"));
+      .catch((failure: unknown) => {
+        setError(errorKey(failure));
+        refresh("alerts");
+      });
   };
   const silenceHref = `/alertes/silences/nouveau?kind=${alert.kind}&object_kind=${alert.object.kind}&object_id=${encodeURIComponent(alert.object.id)}&object_name=${encodeURIComponent(alert.object.name)}`;
   return (
@@ -268,6 +273,7 @@ export function AlertRow({
           <Pill tone={stateTones[state]}>{t(`alert.status_${state}`)}</Pill>
           <span className="secondary nowrap">{when(t, alert, now)}</span>
         </span>
+        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
         {!compact && state !== "resolved" && (
           <span className="actions">
             {state === "open" && (

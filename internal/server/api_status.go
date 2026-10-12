@@ -369,6 +369,8 @@ func statusRefusalKey(err error) (string, bool) {
 		return "incident.title_invalid", true
 	case errors.Is(err, status.ErrMessageInvalid):
 		return "incident.message_invalid", true
+	case errors.Is(err, status.ErrUpdateEmpty):
+		return "incident.update_empty", true
 	case errors.Is(err, status.ErrImpactInvalid):
 		return "incident.impact_invalid", true
 	case errors.Is(err, status.ErrStatusInvalid):

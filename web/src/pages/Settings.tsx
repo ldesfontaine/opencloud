@@ -586,7 +586,7 @@ function Tokens({
       .catch((failure: unknown) => setError(errorKey(failure)));
   };
   return (
-    <Card className="form-card">
+    <Card className="form-card-wide">
       <CardHeader title={t("mcp.tokens_title")} />
       <CardBody>
         <p className="secondary">{t("mcp.tokens_text")}</p>

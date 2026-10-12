@@ -282,6 +282,7 @@ var (
 	ErrWindowInvalid       = errors.New("status: window invalid")
 	ErrTooMany             = errors.New("status: too many")
 	ErrResolved            = errors.New("status: incident resolved")
+	ErrUpdateEmpty         = errors.New("status: update says nothing")
 )
 
 func (d ComponentDefinition) Validate() error {
@@ -319,7 +320,15 @@ func (d IncidentDefinition) Validate(now time.Time) error {
 	if len(d.ComponentIDs) == 0 || len(d.ComponentIDs) > MaxComponents {
 		return ErrComponentInvalid
 	}
-	return validateWindow(d.Impact, d.StartsAt, d.EndsAt, now)
+	if err := validateWindow(d.Impact, d.StartsAt, d.EndsAt, now); err != nil {
+		return err
+	}
+	// Une maintenance déjà finie n'a rien à annoncer : publiée, elle
+	// s'ouvrirait puis se résoudrait aussitôt, datée d'aujourd'hui.
+	if d.Impact == ImpactMaintenance && !d.EndsAt.After(now) {
+		return ErrWindowInvalid
+	}
+	return nil
 }
 
 // Une maintenance porte une fenêtre : un début, une fin après lui, ni trop

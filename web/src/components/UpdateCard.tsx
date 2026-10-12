@@ -27,6 +27,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
   const now = useNow();
   const { refresh } = useRefresh();
   const [error, setError] = useState<unknown>(null);
+  const [checking, setChecking] = useState<"idle" | "asking" | "asked">("idle");
   const check = service.image_check;
   const available = updateAvailable(service);
   const lineChange = check !== null ? imageLineChange(service, check) : null;
@@ -41,9 +42,18 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
       })
       .catch(setError);
   };
+  // La machine vérifie à son rythme : la carte dit que la demande est
+  // partie, le constat se relit seul quand l'agent a répondu.
   const checkNow = () => {
     setError(null);
-    api.post(`/api/machines/${service.machine_id}/actions/check-updates`).catch(setError);
+    setChecking("asking");
+    api
+      .post(`/api/machines/${service.machine_id}/actions/check-updates`)
+      .then(() => setChecking("asked"))
+      .catch((failure: unknown) => {
+        setError(failure);
+        setChecking("idle");
+      });
   };
 
   return (
@@ -79,9 +89,10 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
           </div>
         )}
         <div className="update-actions">
-          <Button small icon="refresh" onClick={checkNow}>
+          <Button small icon="refresh" onClick={checkNow} disabled={checking === "asking"}>
             {t("update.check_now")}
           </Button>
+          {checking === "asked" && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
         <Fold label={t("update.details")} initiallyOpen={service.update_policy !== ""}>
           {check !== null && check.local_digest !== "" && (
