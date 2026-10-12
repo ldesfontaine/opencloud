@@ -2,25 +2,27 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, ApiError } from "../api/client";
-import type { Job, JobResponse, Run } from "../api/types";
+import type { Job, JobResponse, Ping, Run } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, JobPill } from "../components/Pill";
+import { Dot, JobPill, jobTones } from "../components/Pill";
+import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
+import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, lastResult, preview, runTones } from "../lib/jobs";
+import { awaitsFirstPing, jobFact, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
 import { useRefresh } from "../lib/refresh";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 import { NotFound } from "./NotFound";
 
-// La page d'une tâche : son état, ses dernières exécutions et ses derniers
-// pings, puis l'installation repliée. Tant qu'aucun ping n'est arrivé,
+// La page d'une tâche : le verdict, les dernières exécutions, puis les
+// pings bruts et l'installation, repliés. Tant qu'aucun ping n'est arrivé,
 // l'installation passe devant, ouverte : c'est ce qu'il reste à faire.
 export function JobPage() {
   const { id = "" } = useParams();
@@ -45,96 +47,117 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
   return (
     <>
       <PageHead title={job.name} actions={<Actions job={job} reload={reload} />} />
-      <Card>
-        <CardBody gap={16}>
-          <span className="machine-state">
-            <JobPill status={job.status} />
-            <span className="meta">
-              {job.machine_id !== "" && (
-                <>
-                  <Link to={`/machines/${job.machine_id}`}>{job.machine_name}</Link>
-                  <span className="sep" />
-                </>
-              )}
-              <span>
-                {everyOnce(t, job.interval_seconds * 1000) ?? (
-                  <>
-                    {t("time.every")} <span className="mono">{formatDuration(t, job.interval_seconds * 1000)}</span>
-                  </>
-                )}
-              </span>
-              <span className="sep" />
-              <span>
-                {t("job.grace")} <span className="mono">{formatDuration(t, job.grace_seconds * 1000)}</span>
-              </span>
-              <span className="sep" />
-              <span>
-                {t("job.last_ping")} {lastPing(t, job.last_ping_at, now)}
-              </span>
-              <span className="sep" />
-              <span>{deadlineIn(t, job.next_deadline_at, now)}</span>
-              {result && (
-                <>
-                  <span className="sep" />
-                  <span className={`mono result result-${result.tone}`}>{result.text}</span>
-                </>
-              )}
-            </span>
-          </span>
-        </CardBody>
-      </Card>
+      <Verdict
+        tone={jobTones[job.status]}
+        pill={<JobPill status={job.status} />}
+        fact={jobFact(t, job, response.runs, now)}
+        context={lastSuccessText(t, job, response.runs, now)}
+      >
+        {job.machine_id !== "" && (
+          <>
+            <Link to={`/machines/${job.machine_id}`}>{job.machine_name}</Link>
+            <span className="sep" />
+          </>
+        )}
+        <span>
+          {everyOnce(t, job.interval_seconds * 1000) ?? (
+            <>
+              {t("time.every")} <span className="mono">{formatDuration(t, job.interval_seconds * 1000)}</span>
+            </>
+          )}
+        </span>
+        <span className="sep" />
+        <span>
+          {t("job.grace")} <span className="mono">{formatDuration(t, job.grace_seconds * 1000)}</span>
+        </span>
+        <span className="sep" />
+        <span>
+          {t("job.last_ping")} {lastPing(t, job.last_ping_at, now)}
+        </span>
+        <span className="sep" />
+        <span>{deadlineIn(t, job.next_deadline_at, now)}</span>
+        {result && (
+          <>
+            <span className="sep" />
+            <span className={`mono result result-${result.tone}`}>{result.text}</span>
+          </>
+        )}
+      </Verdict>
       {installsFirst && <Installation response={response} initiallyOpen={true} />}
-      <div className="grid-2">
-        <Card>
-          <CardHeader title={t("job.runs_title")} aside={t("job.runs_text")} />
-          {response.runs.length > 0 ? (
-            <List>
-              {response.runs.map((run) => (
-                <RunRow key={run.id} run={run} now={now} />
-              ))}
-            </List>
-          ) : (
-            <Empty text={t("job.runs_empty")} />
-          )}
-        </Card>
-        <Card>
-          <CardHeader title={t("job.pings_title")} aside={t("job.pings_text")} />
-          {response.pings.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <th>{t("job.col_kind")}</th>
-                  <th>{t("job.col_source")}</th>
-                  <th>{t("job.col_received")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {response.pings.map((ping) => (
-                  <tr key={ping.id}>
-                    <td>
-                      {t(`job.kind_${ping.kind}`)}
-                      {ping.exit_code !== null && (
-                        <>
-                          {" "}
-                          <span className="mono">{ping.exit_code}</span>
-                        </>
-                      )}
-                    </td>
-                    <td className="num">
-                      {ping.source} · {ping.method}
-                    </td>
-                    <td className="num">{formatClock(ping.received_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <Empty text={t("job.pings_empty")} />
-          )}
-        </Card>
-      </div>
+      <Runs runs={response.runs} now={now} />
+      <Pings pings={response.pings} />
       {!installsFirst && <Installation response={response} initiallyOpen={false} />}
     </>
+  );
+}
+
+// Les exécutions : la frise dit la tendance, la liste les dernières ; le
+// reste de l'historique se déplie.
+function Runs({ runs, now }: { runs: Run[]; now: number }) {
+  const t = useT();
+  const [showsAll, setShowsAll] = useState(false);
+  const shown = showsAll ? runs : runs.slice(0, runsShownFirst);
+  return (
+    <Card>
+      <CardHeader title={t("job.runs_title")} aside={runs.length > 0 ? <RunStrip runs={runs} /> : undefined} />
+      {runs.length > 0 ? (
+        <List>
+          {shown.map((run) => (
+            <RunRow key={run.id} run={run} now={now} />
+          ))}
+        </List>
+      ) : (
+        <Empty text={t("job.runs_empty")} />
+      )}
+      {runs.length > runsShownFirst && (
+        <div className="card-foot">
+          <Button variant="ghost" small onClick={() => setShowsAll(!showsAll)}>
+            {showsAll ? t("job.runs_show_fewer", runsShownFirst) : t("job.runs_show_all", runs.length)}
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Les pings bruts : le détail qu'on ouvre pour comprendre une exécution.
+function Pings({ pings }: { pings: Ping[] }) {
+  const t = useT();
+  return (
+    <Disclosure title={t("job.pings_title")} aside={t("job.pings_text")} initiallyOpen={false}>
+      {pings.length > 0 ? (
+        <Table>
+          <thead>
+            <tr>
+              <th>{t("job.col_kind")}</th>
+              <th>{t("job.col_source")}</th>
+              <th>{t("job.col_received")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pings.map((ping) => (
+              <tr key={ping.id}>
+                <td>
+                  {t(`job.kind_${ping.kind}`)}
+                  {ping.exit_code !== null && (
+                    <>
+                      {" "}
+                      <span className="mono">{ping.exit_code}</span>
+                    </>
+                  )}
+                </td>
+                <td className="num">
+                  {ping.source} · {ping.method}
+                </td>
+                <td className="num">{formatClock(ping.received_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      ) : (
+        <Empty text={t("job.pings_empty")} />
+      )}
+    </Disclosure>
   );
 }
 

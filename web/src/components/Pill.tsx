@@ -24,7 +24,7 @@ export function StatePill({ online }: { online: boolean }) {
 }
 
 // Pastille par état de tâche : le vocabulaire de la direction artistique.
-const jobTones: Record<JobStatus, Tone> = {
+export const jobTones: Record<JobStatus, Tone> = {
   new: "neutral",
   on_time: "ok",
   started: "accent",

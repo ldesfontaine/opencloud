@@ -1,0 +1,44 @@
+.verdict {
+  padding: 20px;
+  gap: 10px;
+}
+
+.verdict-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.verdict-fact {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.verdict-context {
+  color: var(--ink-2);
+}
+
+// Sur le lavis, le discret ne se lit plus et la pastille perd son fond :
+// les métadonnées passent en encre 2, la pastille se pose sur la surface.
+.verdict-danger,
+.verdict-warn {
+  .meta {
+    color: var(--ink-2);
+  }
+
+  .pill {
+    background: var(--surface);
+  }
+}
+
+.verdict-danger {
+  background: var(--danger-wash);
+  border-color: var(--danger);
+}
+
+.verdict-warn {
+  background: var(--warn-wash);
+  border-color: var(--warn);
+}
