@@ -94,6 +94,10 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
   dessous, moment à droite.
+- **Carte repliable** : ce qui se règle une fois (l'installation d'une tâche,
+  les empreintes et le suivi d'une image) se replie sous son en-tête, chevron
+  à droite, et passe sous l'état. Ouverte et en premier tant que la chose
+  reste à installer ; repliée ensuite.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de
