@@ -25,18 +25,48 @@ const (
 // dépôt se compare sans l'hôte du registre : « quay.io/keycloak/keycloak »
 // est le même produit que sur le Hub.
 func verdictOf(snapshot Snapshot, image string, now time.Time) Verdict {
+	reference, err := registry.Parse(image)
+	if err != nil {
+		return unknownProduct(snapshot, now)
+	}
+	name, known := snapshot.Repositories[reference.Repository]
+	if !known {
+		return unknownProduct(snapshot, now)
+	}
+	return verdictOfProduct(snapshot, name, reference.Tag, now)
+}
+
+// verdictOfSystem lit le support du système d'une machine, tel que son
+// agent le nomme : « Debian GNU/Linux 12 ».
+func verdictOfSystem(snapshot Snapshot, system string, now time.Time) Verdict {
+	name, version, known := systemOf(system)
+	if !known {
+		return unknownProduct(snapshot, now)
+	}
+	return verdictOfProduct(snapshot, name, version, now)
+}
+
+// unknownProduct : rien ne relie l'objet à un produit de la source. Tant
+// que rien n'a été lu, on ne le sait pas encore.
+func unknownProduct(snapshot Snapshot, now time.Time) Verdict {
+	verdict := Verdict{Status: StatusUnknownProduct, FetchedAt: snapshot.FetchedAt}
+	if snapshot.FetchedAt.IsZero() {
+		verdict.Status = StatusPending
+		return verdict
+	}
+	verdict.IsStale = now.Sub(snapshot.FetchedAt) > StaleAfter
+	return verdict
+}
+
+// verdictOfProduct trouve la branche d'une version dans un produit, et dit
+// son support. version est un tag d'image ou une version de système.
+func verdictOfProduct(snapshot Snapshot, name, version string, now time.Time) Verdict {
 	verdict := Verdict{Status: StatusPending, FetchedAt: snapshot.FetchedAt}
 	if snapshot.FetchedAt.IsZero() {
 		return verdict
 	}
 	verdict.IsStale = now.Sub(snapshot.FetchedAt) > StaleAfter
-	reference, err := registry.Parse(image)
-	if err != nil {
-		verdict.Status = StatusUnknownProduct
-		return verdict
-	}
-	name, known := snapshot.Repositories[reference.Repository]
-	if !known {
+	if snapshot.NotFound[name] {
 		verdict.Status = StatusUnknownProduct
 		return verdict
 	}
@@ -49,7 +79,7 @@ func verdictOf(snapshot Snapshot, image string, now time.Time) Verdict {
 	verdict.Product = product.Label
 	verdict.FetchedAt = product.FetchedAt
 	verdict.IsStale = now.Sub(product.FetchedAt) > StaleAfter
-	cycle, found := cycleOf(product.Cycles, reference.Tag)
+	cycle, found := cycleOf(product.Cycles, version)
 	if !found {
 		verdict.Status = StatusUnknownVersion
 		return verdict

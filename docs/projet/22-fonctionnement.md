@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> défauts d'interface relevés par un test complet, 12 octobre 2026.
+> fin de support du système des machines, 12 octobre 2026.
 
 ## Les acteurs
 
@@ -528,17 +528,20 @@ Le constat sur l'image dit s'il existe plus récent. Il ne dit pas si la
 version qui tourne est encore maintenue : c'est une autre question, et une
 autre source. openCloud la lit sur endoflife.date, **seulement si
 l'opérateur l'active** sous Paramètres. Coupée par défaut : rien ne sort.
+Elle vaut pour l'image d'un service et pour le système d'une machine. Pour
+le système c'est une information seule : aucune commande n'est proposée.
 
 | Ce que ça rapporte | Ce que ça coûte |
 | --- | --- |
-| La fiche d'un service dit la branche qui tourne, jusqu'à quand elle est maintenue, et les branches maintenues au-dessus | Une fois par jour, la machine openCloud appelle un tiers : il voit son adresse et le nom des produits demandés (« postgresql », « traefik ») |
+| La fiche d'un service et celle d'une machine disent la branche qui tourne, jusqu'à quand elle est maintenue, et les branches maintenues au-dessus | Une fois par jour, la machine openCloud appelle un tiers : il voit son adresse et le nom des produits demandés (« postgresql », « traefik ») |
 | Un correctif proposé dans une branche morte se voit comme tel | Ce que la source ne suit pas reste « support inconnu » ; ses dates sont celles d'une base tenue par des bénévoles |
 
 1. **Seule la machine openCloud appelle**, par `internal/lifecycle`. Les
    agents n'appellent rien : la source apprend une adresse, pas la liste des
    machines.
 2. Une lecture fait `1 + N` requêtes : la table des identifiants, puis un
-   produit par requête, pour les `N` produits des images présentes
+   produit par requête, pour les `N` produits des images présentes et des
+   systèmes des machines
    (64 au plus : au-delà, les suivants par ordre alphabétique restent
    « en attente »), avec une demi-seconde entre deux. La sortie passe par
    `internal/egress`, comme les canaux d'alerte.
@@ -550,6 +553,14 @@ l'opérateur l'active** sous Paramètres. Coupée par défaut : rien ne sort.
    `pkg:docker/library/postgres` ; openCloud compare le dépôt de l'image,
    sans l'hôte du registre. Un dépôt absent de cette table : « support
    inconnu ». Aucune correspondance n'est devinée.
+   **Du système au produit** : l'agent nomme son système comme
+   os-release (« Debian GNU/Linux 12 ») ; une table courte de
+   `internal/lifecycle/system.go` relie ce nom à un produit (Debian,
+   Ubuntu, Alpine, Rocky, AlmaLinux, Fedora, CentOS, RHEL, Oracle, Amazon,
+   openSUSE Leap, SLES, Linux Mint). C'est la seule correspondance tenue
+   ici : la source n'en publie pas. Un système absent de la table :
+   « support inconnu ». Proxmox VE se présente comme Debian : c'est le
+   support de sa base qui est dit.
 5. **Du tag à la branche** : les nombres en tête du tag, du plus précis au
    plus large : `16.4` est de la branche `16`, `v3.1.4-alpine` de la `3.1`.
    `latest`, ou un tag sans version : « branche inconnue ».
@@ -564,8 +575,10 @@ l'opérateur l'active** sous Paramètres. Coupée par défaut : rien ne sort.
    fiche dit que ces dates ont pu changer. Un produit que la source annonce
    sans l'avoir (404) n'est pas une panne : « support inconnu ».
 9. **Aucune alerte, aucun compteur** : une pastille sur la fiche du service,
-   dans la carte « Mise à jour de l'image », sous un trait. Les listes ne la
-   portent pas encore. `GET /api/services/{id}` porte `lifecycle` quand le
+   dans la carte « Mise à jour de l'image », sous un trait, et sur le
+   résumé d'une machine, sous son système. Les listes ne la portent pas
+   encore. `GET /api/machines` et `GET /api/machines/{id}` portent
+   `lifecycle` quand le réglage est activé. `GET /api/services/{id}` porte `lifecycle` quand le
    réglage est activé, et rien sinon ; l'outil MCP `get_service` rend la
    même fiche.
 10. **Le réglage** : `GET`/`PUT /api/settings/lifecycle`, la clé
@@ -580,8 +593,14 @@ l'opérateur l'active** sous Paramètres. Coupée par défaut : rien ne sort.
 | `GET https://endoflife.date/api/v1/identifiers/purl/` | les identifiants `pkg:docker/…` : dépôt → produit ; réponse bornée à 4 Mio |
 | `GET https://endoflife.date/api/v1/products/<produit>/` | par branche : nom, maintenue, fin de support, date de fin, dernière version ; réponse bornée à 1 Mio, 200 branches au plus |
 
+**Le système d'une machine reste à jour** : l'enrôlement le note, puis
+l'agent le redit à chaque ouverture du flux, par l'en-tête
+`OpenCloud-Agent-OS`. Une montée de version se voit au redémarrage de
+l'agent, sans ré-enrôler. Un agent plus ancien ne le redit pas : la
+machine garde le système de son enrôlement.
+
 Ce qu'openCloud n'envoie jamais : un nom de service, un tag, une
-empreinte, un nom de machine. Ce que la fin de support n'est pas : une
+empreinte, un nom de machine, une version de système. Ce que la fin de support n'est pas : une
 recherche de failles. Une branche maintenue peut porter une CVE non
 corrigée ; une branche morte en porte sûrement qu'on ne corrigera plus.
 
@@ -1379,7 +1398,8 @@ refusés avant d'envoyer quoi que ce soit.
 | Dix mille tags au plus | Un dépôt qui en publie plus est lu jusqu'à la dixième page ; un tag plus récent au-delà n'est pas vu | À décider |
 | Pas de notification de mise à jour | Aucune alerte, aucun canal : la pastille, la carte et le compteur | À décider, si l'usage le demande |
 | Fin de support : pas de produit choisi à la main | Une image que la source ne relie à aucun produit (Forgejo, Vaultwarden, une image maison) reste « support inconnu », même si la source suit le produit | À décider (issue #132) |
-| Fin de support : le système des machines | Debian, Ubuntu, Alpine sont suivis par la source, mais openCloud ne lit que les images des services | À décider (issue #132) |
+| Fin de support : systèmes absents de la table | Raspbian, Arch, NixOS, un BSD, Windows : « support inconnu ». Proxmox VE dit le support de sa base Debian, pas le sien | À décider, au cas par cas |
+| Fin de support : un agent ancien ne redit pas son système | Après une montée de version, la machine affiche le support de l'ancien système jusqu'à la mise à jour de l'agent | Se règle en mettant l'agent à jour |
 | Fin de support : ni liste, ni vue d'ensemble, ni alerte | Une branche morte se voit en ouvrant la fiche du service, nulle part ailleurs | À décider (issue #132) |
 | Pas de recherche de failles (CVE) | openCloud dit qu'une branche ne reçoit plus de correctifs, pas quelles failles touchent l'image qui tourne | À décider : demande une autre source et une autre lecture de l'image |
 | Pas de sous-domaine dédié | La page vit sous `/statut` du même nom ; Traefik peut réécrire la racine d'un `status.exemple.fr` vers elle | À décider, avec le proxy |
@@ -1404,5 +1424,5 @@ refusés avant d'envoyer quoi que ce soit.
 | Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres |
 | Canal e-mail | Le paquet `internal/mail` (relais, message RFC 5322, dialogue SMTP par `net/smtp`, faux relais `internal/mail/smtptest`), le format `email` et la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), les motifs `mail_not_configured` et `smtp_*`, les clés `mail_*` de `settings.toml`, l'API `/api/settings/mail` et son essai, la carte « Envoi d'e-mails » des Paramètres |
 | Canal Matrix | Le format `matrix` (`internal/alert/matrix.go`), la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), l'envoi par `PUT` avec identifiant de transaction stable, les champs serveur d'accueil, salon et jeton du formulaire de canal |
-| Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_enabled` de `settings.toml`, l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service, le bloc « Support de la version » de la carte Mise à jour, la carte « Fin de support » des Paramètres |
+| Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_enabled` de `settings.toml`, l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |

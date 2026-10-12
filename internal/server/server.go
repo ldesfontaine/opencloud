@@ -52,6 +52,7 @@ type MachineService interface {
 	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
+	NoteSystem(ctx context.Context, machineID, system string) error
 	WarnIfOpenCloudHost(machine machine.Machine, fingerprint string)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
@@ -122,6 +123,7 @@ type UpdateService interface {
 // une quand le réglage vient d'être activé.
 type LifecycleService interface {
 	Of(image string) lifecycle.Verdict
+	OfSystem(system string) lifecycle.Verdict
 	State() lifecycle.State
 	Kick()
 }

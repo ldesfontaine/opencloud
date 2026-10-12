@@ -31,6 +31,9 @@ const (
 // fiches.
 type Images func(ctx context.Context) ([]string, error)
 
+// Systems rend le système de chaque machine, tel que son agent le nomme.
+type Systems func(ctx context.Context) ([]string, error)
+
 // Cache garde la dernière lecture d'un démarrage à l'autre.
 type Cache interface {
 	// Load rend ce que Save a écrit ; nil tant que rien ne l'a été.
@@ -48,6 +51,7 @@ type Watcher interface {
 // lecture, et répond sans jamais sortir sur le réseau.
 type Service struct {
 	images  Images
+	systems Systems
 	cache   Cache
 	source  Source
 	enabled func() bool
@@ -69,9 +73,9 @@ type Service struct {
 
 // New : enabled est relu à chaque passage, un réglage changé sous
 // Paramètres vaut aussitôt.
-func New(images Images, cache Cache, source Source, enabled func() bool, logger *slog.Logger) *Service {
+func New(images Images, systems Systems, cache Cache, source Source, enabled func() bool, logger *slog.Logger) *Service {
 	return &Service{
-		images: images, cache: cache, source: source, enabled: enabled, logger: logger,
+		images: images, systems: systems, cache: cache, source: source, enabled: enabled, logger: logger,
 		now: time.Now, pause: pauseBetweenProducts, kick: make(chan struct{}, 1),
 	}
 }
@@ -163,16 +167,17 @@ func (s *Service) isDue() bool {
 	return s.now().Sub(s.snapshot.FetchedAt) >= RefreshEvery
 }
 
-// hasNewProduct : un service arrivé depuis la dernière lecture tourne sur
-// un produit qu'on n'a pas encore demandé. Sa fiche n'attend pas demain.
+// hasNewProduct : un service ou une machine arrivés depuis la dernière
+// lecture apportent un produit qu'on n'a pas encore demandé. Leur fiche
+// n'attend pas demain.
 func (s *Service) hasNewProduct(ctx context.Context) bool {
-	images, err := s.images(ctx)
+	images, systems, err := s.inUse(ctx)
 	if err != nil {
 		return false
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, name := range productsOf(images, s.snapshot.Repositories) {
+	for _, name := range productsOf(images, systems, s.snapshot.Repositories) {
 		if !s.asked[name] {
 			return true
 		}
@@ -180,8 +185,22 @@ func (s *Service) hasNewProduct(ctx context.Context) bool {
 	return false
 }
 
+// inUse rend ce dont on veut connaître le support : les images des
+// services et les systèmes des machines.
+func (s *Service) inUse(ctx context.Context) (images, systems []string, err error) {
+	images, err = s.images(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	systems, err = s.systems(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return images, systems, nil
+}
+
 // Refresh lit la source : quel dépôt est quel produit, puis les branches
-// des produits que les services utilisent. Un produit qui ne répond pas
+// des produits que les services et les machines utilisent. Un produit qui ne répond pas
 // garde ses branches de la lecture précédente. Sans le réglage, rien ne
 // sort.
 func (s *Service) Refresh(ctx context.Context) error {
@@ -223,7 +242,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 
 // fetch rend la lecture et les produits qu'elle a demandés.
 func (s *Service) fetch(ctx context.Context, now time.Time) (Snapshot, []string, error) {
-	images, err := s.images(ctx)
+	images, systems, err := s.inUse(ctx)
 	if err != nil {
 		return Snapshot{}, nil, err
 	}
@@ -234,8 +253,8 @@ func (s *Service) fetch(ctx context.Context, now time.Time) (Snapshot, []string,
 	s.mu.RLock()
 	previous := s.snapshot.Products
 	s.mu.RUnlock()
-	snapshot := Snapshot{FetchedAt: now.UTC(), Repositories: repositories, Products: make(map[string]Product)}
-	wanted := productsOf(images, repositories)
+	snapshot := Snapshot{FetchedAt: now.UTC(), Repositories: repositories, Products: make(map[string]Product), NotFound: make(map[string]bool)}
+	wanted := productsOf(images, systems, repositories)
 	failed := 0
 	for index, name := range wanted {
 		if index > 0 {
@@ -245,9 +264,9 @@ func (s *Service) fetch(ctx context.Context, now time.Time) (Snapshot, []string,
 		}
 		product, err := s.source.Product(ctx, name)
 		if errors.Is(err, ErrNoProduct) {
-			// La source annonce le dépôt sans avoir le produit : pour la
-			// fiche, c'est un produit qu'elle ne suit pas.
-			forget(repositories, name)
+			// La source n'a pas ce produit : pour la fiche, c'est un
+			// produit qu'elle ne suit pas, pas une panne.
+			snapshot.NotFound[name] = true
 			continue
 		}
 		if err != nil {
@@ -269,18 +288,9 @@ func (s *Service) fetch(ctx context.Context, now time.Time) (Snapshot, []string,
 	return snapshot, wanted, nil
 }
 
-// forget retire les dépôts qui mènent à un produit que la source n'a pas.
-func forget(repositories map[string]string, product string) {
-	for repository, name := range repositories {
-		if name == product {
-			delete(repositories, repository)
-		}
-	}
-}
-
-// productsOf rend les produits à lire : ceux des images présentes, dans
-// un ordre stable, bornés.
-func productsOf(images []string, repositories map[string]string) []string {
+// productsOf rend les produits à lire : ceux des images et des systèmes
+// présents, dans un ordre stable, bornés.
+func productsOf(images, systems []string, repositories map[string]string) []string {
 	wanted := make(map[string]bool)
 	for _, image := range images {
 		reference, err := registry.Parse(image)
@@ -288,6 +298,11 @@ func productsOf(images []string, repositories map[string]string) []string {
 			continue
 		}
 		if name, ok := repositories[reference.Repository]; ok {
+			wanted[name] = true
+		}
+	}
+	for _, system := range systems {
+		if name, _, ok := systemOf(system); ok {
 			wanted[name] = true
 		}
 	}
@@ -323,6 +338,13 @@ func (s *Service) Of(image string) Verdict {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return verdictOf(s.snapshot, image, s.now())
+}
+
+// OfSystem rend le support du système d'une machine, de la même lecture.
+func (s *Service) OfSystem(system string) Verdict {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return verdictOfSystem(s.snapshot, system, s.now())
 }
 
 func (s *Service) State() State {

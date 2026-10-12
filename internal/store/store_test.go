@@ -306,6 +306,16 @@ func TestRecordConnection_UpdatesAddressVersionAndLastSeen(t *testing.T) {
 	if err := db.RecordConnection(ctx, "nobody", "", "", later); !errors.Is(err, machine.ErrNotFound) {
 		t.Fatalf("unknown machine: %v", err)
 	}
+	// Le système redit à la connexion remplace celui de l'enrôlement.
+	if err := db.RecordSystem(ctx, enrolled.ID, "Debian GNU/Linux 13"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = db.GetMachine(ctx, enrolled.ID); err != nil || got.OS != "Debian GNU/Linux 13" || got.Address != "51.15.20.114" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if err := db.RecordSystem(ctx, "nobody", "Debian GNU/Linux 13"); !errors.Is(err, machine.ErrNotFound) {
+		t.Fatalf("unknown machine: %v", err)
+	}
 }
 
 // Une machine retirée laisse ses moniteurs, détachés.

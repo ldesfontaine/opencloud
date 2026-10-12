@@ -128,6 +128,58 @@ func TestCycleOf_ReadsTheBranchFromTheTag(t *testing.T) {
 	}
 }
 
+func TestSystemOf_ReadsTheNameAndTheVersionTheAgentGives(t *testing.T) {
+	cases := map[string][2]string{
+		"Debian GNU/Linux 12":            {"debian", "12"},
+		"Ubuntu 24.04":                   {"ubuntu", "24.04"},
+		"Alpine Linux 3.20.3":            {"alpine-linux", "3.20.3"},
+		"Rocky Linux 9.4":                {"rocky-linux", "9.4"},
+		"Fedora Linux 40":                {"fedora", "40"},
+		"CentOS Stream 9":                {"centos-stream", "9"},
+		"Red Hat Enterprise Linux 9.4":   {"rhel", "9.4"},
+		"  debian gnu/linux 12":          {"debian", "12"},
+		"Debian GNU/Linux":               {"debian", ""},
+		"Debian GNU/Linux trixie/sid":    {"", ""},
+		"Arch Linux":                     {"", ""},
+		"Raspbian GNU/Linux 11":          {"", ""},
+		"linux":                          {"", ""},
+		"":                               {"", ""},
+		"12":                             {"", ""},
+		"Windows Server 2022 Datacenter": {"", ""},
+	}
+	for system, want := range cases {
+		product, version, known := systemOf(system)
+		if product != want[0] || version != want[1] || known != (want[0] != "") {
+			t.Errorf("%q: %q %q known=%v, want %v", system, product, version, known, want)
+		}
+	}
+}
+
+func TestVerdictOfSystem_SaysWhatItDoesNotKnow(t *testing.T) {
+	snapshot := sampleSnapshot()
+	snapshot.Products["debian"] = Product{Name: "debian", Label: "Debian", FetchedAt: fetchedAt, Cycles: []Cycle{{Name: "12", IsMaintained: true, EOLFrom: "2028-06-30"}}}
+	snapshot.NotFound = map[string]bool{"fedora": true}
+	cases := map[string]Status{
+		"Debian GNU/Linux 12": StatusMaintained,
+		"Debian GNU/Linux 14": StatusUnknownVersion,
+		"Debian GNU/Linux":    StatusUnknownVersion,
+		"Ubuntu 24.04":        StatusPending,
+		"Fedora Linux 40":     StatusUnknownProduct,
+		"Arch Linux":          StatusUnknownProduct,
+	}
+	for system, want := range cases {
+		if got := verdictOfSystem(snapshot, system, fetchedAt); got.Status != want {
+			t.Errorf("%q: %s, want %s", system, got.Status, want)
+		}
+	}
+	if got := verdictOfSystem(Snapshot{}, "Debian GNU/Linux 12", fetchedAt); got.Status != StatusPending {
+		t.Fatalf("nothing read yet: %+v", got)
+	}
+	if got := verdictOfSystem(Snapshot{}, "Arch Linux", fetchedAt); got.Status != StatusPending {
+		t.Fatalf("nothing read yet, unknown system: %+v", got)
+	}
+}
+
 func TestIsAbove_ComparesNumbersNotText(t *testing.T) {
 	if !isAbove("3.10", "3.9") || isAbove("3.9", "3.10") || isAbove("3.9", "3.9") || !isAbove("17", "16.4") || !isAbove("3.1.1", "3.1") {
 		t.Fatal("numeric comparison")

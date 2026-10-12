@@ -83,6 +83,8 @@ type Client struct {
 	version string
 	// L'empreinte de la machine, présentée à l'ouverture du flux.
 	hostFingerprint string
+	// Le système de la machine, redit à chaque ouverture du flux.
+	system string
 }
 
 // NewClient refuse http:// vers autre chose que la boucle locale, sauf si
@@ -104,7 +106,7 @@ func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
-	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, hostFingerprint: hostinfo.HostFingerprint()}, nil
+	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, hostFingerprint: hostinfo.HostFingerprint(), system: hostinfo.OSName()}, nil
 }
 
 func isLoopback(server string) bool {
@@ -209,6 +211,11 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
 	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
 	request.Header.Set(machine.HeaderAgentVersion, c.version)
+	// Un système au nom hors ASCII ne passe pas dans un en-tête : il reste
+	// celui de l'enrôlement.
+	if machine.IsSystemName(c.system) {
+		request.Header.Set(machine.HeaderAgentOS, c.system)
+	}
 	if c.hostFingerprint != "" {
 		request.Header.Set(machine.HeaderHostFingerprint, c.hostFingerprint)
 	}

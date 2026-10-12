@@ -27,18 +27,18 @@ test("formatDay écrit le jour dans la langue, sans glisser de fuseau", () => {
 });
 
 test("lifecycleText dit la branche et jusqu'à quand", () => {
-  expect(lifecycleText(t, lifecycle({}), "fr")).toBe("lifecycle.maintained_until:PostgreSQL:16:9 novembre 2028");
-  expect(lifecycleText(t, lifecycle({ eol_from: "" }), "fr")).toBe("lifecycle.maintained:PostgreSQL:16");
-  expect(lifecycleText(t, lifecycle({ status: "eol", product: "Traefik", cycle: "3.1", eol_from: "2024-10-28" }), "fr")).toBe(
+  expect(lifecycleText(t, lifecycle({}), "fr", "image")).toBe("lifecycle.maintained_until:PostgreSQL:16:9 novembre 2028");
+  expect(lifecycleText(t, lifecycle({ eol_from: "" }), "fr", "image")).toBe("lifecycle.maintained:PostgreSQL:16");
+  expect(lifecycleText(t, lifecycle({ status: "eol", product: "Traefik", cycle: "3.1", eol_from: "2024-10-28" }), "fr", "image")).toBe(
     "lifecycle.eol_since:Traefik:3.1:28 octobre 2024",
   );
-  expect(lifecycleText(t, lifecycle({ status: "eol", eol_from: "" }), "fr")).toBe("lifecycle.eol:PostgreSQL:16");
+  expect(lifecycleText(t, lifecycle({ status: "eol", eol_from: "" }), "fr", "image")).toBe("lifecycle.eol:PostgreSQL:16");
 });
 
 test("lifecycleText dit ce qu'il ne sait pas", () => {
-  expect(lifecycleText(t, lifecycle({ status: "unknown_version", cycle: "" }), "fr")).toBe("lifecycle.unknown_version:PostgreSQL");
-  expect(lifecycleText(t, lifecycle({ status: "unknown_product", product: "" }), "fr")).toBe("lifecycle.unknown_product");
-  expect(lifecycleText(t, lifecycle({ status: "pending", product: "" }), "fr")).toBe("lifecycle.pending");
+  expect(lifecycleText(t, lifecycle({ status: "unknown_version", cycle: "" }), "fr", "image")).toBe("lifecycle.unknown_version:PostgreSQL");
+  expect(lifecycleText(t, lifecycle({ status: "unknown_product", product: "" }), "fr", "image")).toBe("lifecycle.unknown_product");
+  expect(lifecycleText(t, lifecycle({ status: "pending", product: "" }), "fr", "image")).toBe("lifecycle.pending");
 });
 
 test("newerLine dit la dernière version et la date quand la source les donne", () => {
@@ -46,6 +46,14 @@ test("newerLine dit la dernière version et la date quand la source les donne", 
   expect(newerLine(t, { cycle: "3.7", latest: "3.7.14", eol_from: "" }, "fr")).toBe("lifecycle.newer_latest:3.7:3.7.14");
   expect(newerLine(t, { cycle: "18", latest: "", eol_from: "2030-11-14" }, "fr")).toBe("lifecycle.newer_until:18:14 novembre 2030");
   expect(newerLine(t, { cycle: "19", latest: "", eol_from: "" }, "fr")).toBe("19");
+});
+
+test("lifecycleText parle d'un système avec ses mots", () => {
+  const debian = lifecycle({ product: "Debian", cycle: "12", eol_from: "2028-06-30" });
+  expect(lifecycleText(t, debian, "fr", "system")).toBe("lifecycle.maintained_until:Debian:12:30 juin 2028");
+  expect(lifecycleText(t, lifecycle({ status: "unknown_version", product: "Debian", cycle: "" }), "fr", "system")).toBe("lifecycle.unknown_version_system:Debian");
+  expect(lifecycleText(t, lifecycle({ status: "unknown_product", product: "" }), "fr", "system")).toBe("lifecycle.unknown_system");
+  expect(lifecycleText(t, lifecycle({ status: "pending", product: "" }), "fr", "system")).toBe("lifecycle.pending_system");
 });
 
 test("seule la fin de support demande l'opérateur", () => {

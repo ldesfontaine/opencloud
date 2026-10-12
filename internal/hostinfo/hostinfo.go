@@ -81,6 +81,13 @@ func readFirstIdentifier(paths []string) string {
 	return ""
 }
 
+// OSName rend le système de cette machine, tel qu'os-release le nomme
+// maintenant : une montée de version le change, et l'agent le redit à
+// chaque connexion.
+func OSName() string {
+	return readOSName(osReleasePath)
+}
+
 // readOSName compose « Debian 12 » depuis NAME et VERSION_ID d'os-release,
 // et retombe sur le nom du système de Go.
 func readOSName(path string) string {
