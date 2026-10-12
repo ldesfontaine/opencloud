@@ -24,9 +24,14 @@ export function formatDay(day: string, language: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: "long", timeZone: "UTC" }).format(date);
 }
 
+// Ce dont on dit le support : l'image d'un service, ou le système d'une
+// machine. Ce qu'on ne sait pas ne se dit pas avec les mêmes mots.
+export type Subject = "image" | "system";
+
 // La phrase du support : la branche et jusqu'à quand, ou ce qu'on ne sait
 // pas dire et pourquoi.
-export function lifecycleText(t: Translate, lifecycle: Lifecycle, language: string): string {
+export function lifecycleText(t: Translate, lifecycle: Lifecycle, language: string, subject: Subject): string {
+  const isSystem = subject === "system";
   switch (lifecycle.status) {
     case "maintained":
       return lifecycle.eol_from === ""
@@ -37,16 +42,16 @@ export function lifecycleText(t: Translate, lifecycle: Lifecycle, language: stri
         ? t("lifecycle.eol", lifecycle.product, lifecycle.cycle)
         : t("lifecycle.eol_since", lifecycle.product, lifecycle.cycle, formatDay(lifecycle.eol_from, language));
     case "unknown_version":
-      return t("lifecycle.unknown_version", lifecycle.product);
+      return isSystem ? t("lifecycle.unknown_version_system", lifecycle.product) : t("lifecycle.unknown_version", lifecycle.product);
     case "unknown_product":
-      return t("lifecycle.unknown_product");
+      return isSystem ? t("lifecycle.unknown_system") : t("lifecycle.unknown_product");
     case "pending":
-      return t("lifecycle.pending");
+      return isSystem ? t("lifecycle.pending_system") : t("lifecycle.pending");
   }
 }
 
-// Une branche vers laquelle monter : sa dernière version, celle qu'on
-// écrira dans le fichier, et jusqu'à quand elle est maintenue.
+// Une branche maintenue au-dessus de celle qui tourne : sa dernière
+// version, et jusqu'à quand elle est maintenue.
 export function newerLine(t: Translate, newer: NewerCycle, language: string): string {
   if (newer.latest !== "" && newer.eol_from !== "") {
     return t("lifecycle.newer_full", newer.cycle, newer.latest, formatDay(newer.eol_from, language));

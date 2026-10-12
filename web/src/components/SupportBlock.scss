@@ -1,0 +1,29 @@
+// Le support d'une version : un second constat, séparé du premier par un
+// trait.
+.support {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.support-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.support-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+// Les branches maintenues au-dessus, une par ligne.
+.support-newer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

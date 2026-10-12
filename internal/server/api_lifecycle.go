@@ -11,9 +11,10 @@ import (
 // La source de la fin de support, telle que Paramètres la nomme.
 const lifecycleSourceName = "endoflife.date"
 
-// Le support de l'image d'un service : le produit reconnu, la branche qui
-// tourne, jusqu'à quand elle est maintenue, et les branches maintenues
-// au-dessus. Absent tant que le réglage est coupé.
+// Le support de l'image d'un service ou du système d'une machine : le
+// produit reconnu, la branche qui tourne, jusqu'à quand elle est
+// maintenue, et les branches maintenues au-dessus. Absent tant que le
+// réglage est coupé.
 type lifecycleJSON struct {
 	Status     string           `json:"status"`
 	Product    string           `json:"product"`

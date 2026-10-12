@@ -26,7 +26,7 @@ les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 | Sonde des URL et des ports, juge les certificats et leur échéance | Ne renouvelle pas un certificat |
 | Surveille un cron ou une sauvegarde par une URL de ping | N'exécute pas la tâche |
 | Compare chaque image à son registre et fabrique la commande de mise à jour | N'applique pas la mise à jour : vous la jouez |
-| Dit si la version d'un service est encore maintenue, jusqu'à quand, et vers quelles branches monter, d'après endoflife.date | Coupé par défaut : rien ne sort tant que vous ne l'activez pas. Ne cherche pas de failles (CVE) |
+| Dit si la version d'un service, ou le système d'une machine, est encore maintenu, et jusqu'à quand, d'après endoflife.date | Coupé par défaut : rien ne sort tant que vous ne l'activez pas. Ne cherche pas de failles (CVE) |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
 | Publie une page de statut sous `/statut` | Pas de comptes multiples ni de second facteur en propre : derrière un mandataire (Authelia), le mode `forward` les délègue à votre SSO |
 | Sert MCP : 16 outils de lecture, 9 écritures que l'interface a déjà | Aucune action sur une machine par MCP, aucun secret rendu |

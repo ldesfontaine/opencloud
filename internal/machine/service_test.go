@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,6 +52,13 @@ func (f *fakeStore) DeleteMachine(_ context.Context, id string) error {
 func (f *fakeStore) TouchMachine(_ context.Context, id string, at time.Time) error {
 	m := f.machines[id]
 	m.LastSeenAt = at
+	f.machines[id] = m
+	return nil
+}
+
+func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
+	m := f.machines[id]
+	m.OS = system
 	f.machines[id] = m
 	return nil
 }
@@ -239,6 +247,33 @@ func TestLocalMachine_IsAlwaysOnlineAndNeverRemovedNorAuthenticated(t *testing.T
 	}
 	if _, err := h.service.Challenge(context.Background(), LocalID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("challenge: %v", err)
+	}
+}
+
+// L'enrôlement fige le système ; l'agent le redit à chaque connexion, et
+// une montée de version se voit sans ré-enrôler. Ce qui n'est pas un nom
+// de système n'écrase rien.
+func TestNoteSystem_FollowsWhatTheAgentSays(t *testing.T) {
+	h := newHarness(t)
+	m, _ := h.enroll(t, "vps-paris-1")
+	enrolledWith, _ := h.service.Get(context.Background(), m.ID)
+	if err := h.service.NoteSystem(context.Background(), m.ID, "Debian GNU/Linux 13"); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := h.service.Get(context.Background(), m.ID); status.OS != "Debian GNU/Linux 13" {
+		t.Fatalf("after an upgrade: %q", status.OS)
+	}
+	for _, refused := range []string{"", "Debian\nGNU", "Système 12", strings.Repeat("a", MaxSystemLength+1)} {
+		if err := h.service.NoteSystem(context.Background(), m.ID, refused); err != nil {
+			t.Fatal(err)
+		}
+		if status, _ := h.service.Get(context.Background(), m.ID); status.OS != "Debian GNU/Linux 13" {
+			t.Fatalf("%q replaced the system (enrolled with %q): %q", refused, enrolledWith.OS, status.OS)
+		}
+	}
+	systems, err := h.service.Systems(context.Background())
+	if err != nil || len(systems) != 1 || systems[0] != "Debian GNU/Linux 13" {
+		t.Fatalf("systems %v, %v", systems, err)
 	}
 }
 

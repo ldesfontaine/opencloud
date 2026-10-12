@@ -74,6 +74,9 @@ export interface Machine {
   online: boolean;
   enrolled_at: string;
   last_seen_at: string | null;
+  // Le support du système, seulement quand la fin de support est activée
+  // sous Paramètres.
+  lifecycle?: Lifecycle;
 }
 
 export interface PendingToken {

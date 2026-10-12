@@ -13,6 +13,7 @@ import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
 import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
+import { SupportBlock } from "../components/SupportBlock";
 import { ServicePill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
@@ -74,6 +75,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               <KeyValue label={t("machine.field_os")} value={current.os} />
               <KeyValue label={t("machine.field_agent")} value={current.agent_version} mono />
               <KeyValue label={t("machine.field_seen")} value={seenAgo(t, current.last_seen_at, now)} />
+              {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
             </CardBody>
           </Card>
         </>

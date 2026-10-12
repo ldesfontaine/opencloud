@@ -16,6 +16,10 @@ const (
 	HeaderTimestamp    = "OpenCloud-Timestamp"
 	HeaderSignature    = "OpenCloud-Signature"
 	HeaderAgentVersion = "OpenCloud-Agent-Version"
+	// Le système de la machine, redit à chaque ouverture du flux :
+	// l'enrôlement le fige, une montée de version le change. Absent chez un
+	// agent plus vieux.
+	HeaderAgentOS = "OpenCloud-Agent-OS"
 	// L'empreinte de l'identifiant de la machine de l'agent : à
 	// l'ouverture du flux, elle dit si un agent tourne sur la machine
 	// openCloud elle-même.

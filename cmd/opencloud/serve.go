@@ -166,8 +166,8 @@ func runServe(args []string) error {
 	warnIfOpen(ctx, logger, operator, cfg.Listen)
 	// La fin de support : coupée par défaut. Activée sous Paramètres, cette
 	// machine lit endoflife.date une fois par jour, pour les produits des
-	// images présentes.
-	support := lifecycle.New(services.Images, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
+	// images présentes et les systèmes des machines.
+	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
 	support.SetWatcher(bus)
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la

@@ -76,6 +76,15 @@ func (db *DB) TouchMachine(ctx context.Context, id string, at time.Time) error {
 	return notFoundIfNoRow(result)
 }
 
+// RecordSystem note le système que l'agent dit à l'ouverture du flux.
+func (db *DB) RecordSystem(ctx context.Context, id, system string) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE machines SET os = ? WHERE id = ?`, system, id)
+	if err != nil {
+		return fmt.Errorf("record system: %w", err)
+	}
+	return notFoundIfNoRow(result)
+}
+
 // RecordConnection note l'adresse et la version vues à l'ouverture du flux :
 // l'enrôlement les fige, la connexion les tient à jour.
 func (db *DB) RecordConnection(ctx context.Context, id, address, agentVersion string, at time.Time) error {

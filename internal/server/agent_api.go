@@ -121,6 +121,11 @@ func (s *Server) agentStream(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthError(w, err)
 		return
 	}
+	// Le système que l'agent redit : s'il ne s'écrit pas, le flux s'ouvre
+	// quand même, sur celui de l'enrôlement.
+	if err := s.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(machine.HeaderAgentOS)); err != nil {
+		s.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
+	}
 	session, err := s.machines.Connect(r.Context(), authenticated.ID, s.clientAddress(r), r.Header.Get(machine.HeaderAgentVersion))
 	if err != nil {
 		s.logger.Error("connect", "machine_id", authenticated.ID, "error", err)

@@ -24,6 +24,9 @@ type machineJSON struct {
 	Online       bool       `json:"online"`
 	EnrolledAt   time.Time  `json:"enrolled_at"`
 	LastSeenAt   *time.Time `json:"last_seen_at"`
+	// Le support du système, seulement quand l'opérateur a activé la fin
+	// de support.
+	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
 }
 
 type pendingTokenJSON struct {
@@ -69,6 +72,16 @@ func machineToJSON(status machine.Status) machineJSON {
 	}
 }
 
+// machineJSONOf ajoute aux faits de la machine le support de son système,
+// quand la fin de support est activée.
+func (s *Server) machineJSONOf(status machine.Status) machineJSON {
+	converted := machineToJSON(status)
+	if s.lifecycleEnabled() {
+		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(status.OS))
+	}
+	return converted
+}
+
 // Un instant zéro devient null : le front n'a pas à connaître l'an 1. Tout
 // part en UTC : l'API ne dépend pas du fuseau de la machine openCloud.
 func timeOrNil(at time.Time) *time.Time {
@@ -95,7 +108,7 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 		Pending:  make([]pendingTokenJSON, 0, len(pending)),
 	}
 	for _, status := range statuses {
-		response.Machines = append(response.Machines, machineToJSON(status))
+		response.Machines = append(response.Machines, s.machineJSONOf(status))
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -119,7 +132,7 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	s.writeAPI(w, http.StatusOK, machineToJSON(status))
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(status))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.

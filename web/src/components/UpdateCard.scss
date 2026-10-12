@@ -52,26 +52,3 @@
 .diff-added {
   background: var(--ok-wash);
 }
-
-// Le support de la version : un second constat sur la même image, séparé
-// du premier par un trait.
-.update-support {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.update-support-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-2);
-}
-
-// Les branches vers lesquelles monter, une par ligne.
-.update-newer {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}

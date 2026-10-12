@@ -31,6 +31,8 @@ type Snapshot struct {
 	// Dépôt Docker (« library/postgres ») → nom du produit (« postgresql »).
 	Repositories map[string]string  `json:"repositories"`
 	Products     map[string]Product `json:"products"`
+	// Les produits demandés que la source dit ne pas avoir.
+	NotFound map[string]bool `json:"not_found,omitempty"`
 }
 
 // Status est ce qu'on sait dire du support d'une image.

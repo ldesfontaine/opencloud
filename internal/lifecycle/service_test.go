@@ -71,6 +71,7 @@ type harness struct {
 	now     time.Time
 	enabled atomic.Bool
 	images  []string
+	systems []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -85,7 +86,8 @@ func newHarness(t *testing.T) *harness {
 	}
 	h.enabled.Store(true)
 	images := func(context.Context) ([]string, error) { return h.images, nil }
-	h.service = New(images, h.cache, h.source, h.enabled.Load, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	systems := func(context.Context) ([]string, error) { return h.systems, nil }
+	h.service = New(images, systems, h.cache, h.source, h.enabled.Load, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	h.service.SetClock(func() time.Time { return h.now })
 	h.service.SetWatcher(h.watcher)
 	h.service.SetPause(0)
@@ -126,6 +128,49 @@ func TestRefresh_ReadsOnlyTheProductsInUse(t *testing.T) {
 	}
 	if h.cache.saves != 1 || h.watcher.count != 1 {
 		t.Fatalf("saves %d, notifications %d", h.cache.saves, h.watcher.count)
+	}
+}
+
+// Les systèmes des machines se lisent dans la même passe que les images,
+// sans rien demander pour un système que la table ne connaît pas.
+func TestRefresh_ReadsTheSystemsOfTheMachinesToo(t *testing.T) {
+	h := newHarness(t)
+	h.images = nil
+	h.systems = []string{"Debian GNU/Linux 12", "Debian GNU/Linux 11", "Arch Linux", "linux", ""}
+	h.source.products["debian"] = Product{Name: "debian", Label: "Debian", Cycles: []Cycle{
+		{Name: "13", IsMaintained: true, EOLFrom: "2030-06-30", Latest: "13.7"},
+		{Name: "12", IsMaintained: true, EOLFrom: "2028-06-30", Latest: "12.15"},
+		{Name: "11", IsEOL: true, IsMaintained: true, EOLFrom: "2026-08-31", Latest: "11.11"},
+	}}
+	if err := h.service.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.source.asked) != 1 || h.source.asked[0] != "debian" {
+		t.Fatalf("asked %v", h.source.asked)
+	}
+	current := h.service.OfSystem("Debian GNU/Linux 12")
+	if current.Status != StatusMaintained || current.Product != "Debian" || current.Cycle != "12" || current.EOLFrom != "2028-06-30" || current.Latest != "12.15" {
+		t.Fatalf("debian 12: %+v", current)
+	}
+	if len(current.Newer) != 1 || current.Newer[0].Cycle != "13" || current.ProductURL != "https://endoflife.date/debian" {
+		t.Fatalf("debian 12: %+v", current)
+	}
+	// La source dit encore « maintenue » d'une branche finie, pour son
+	// support payant : c'est la fin de support qui compte.
+	if old := h.service.OfSystem("Debian GNU/Linux 11"); old.Status != StatusEOL || len(old.Newer) != 2 {
+		t.Fatalf("debian 11: %+v", old)
+	}
+	for _, system := range []string{"Arch Linux", "linux", "", "Windows Server 2022"} {
+		if got := h.service.OfSystem(system); got.Status != StatusUnknownProduct {
+			t.Errorf("%q: %+v", system, got)
+		}
+	}
+	if h.service.hasNewProduct(context.Background()) {
+		t.Fatal("nothing new")
+	}
+	h.systems = append(h.systems, "Ubuntu 24.04")
+	if !h.service.hasNewProduct(context.Background()) {
+		t.Fatal("a machine on a system never asked: due")
 	}
 }
 

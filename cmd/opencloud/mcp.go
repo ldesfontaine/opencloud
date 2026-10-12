@@ -92,7 +92,7 @@ func runMCP(args []string) error {
 	}
 	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
 	// processus ne lit jamais la source lui-même.
-	support := lifecycle.New(services.Images, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
+	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
 	if err := support.Load(); err != nil {
 		logger.Warn("load lifecycle snapshot", "error", err)
 	}

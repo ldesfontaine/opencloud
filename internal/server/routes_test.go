@@ -94,7 +94,7 @@ func newTestServer(t *testing.T) *testServer {
 	updates.SetWatcher(bus)
 	preferences := settings.New(root)
 	support := newSupportSource()
-	lifecycles := lifecycle.New(services.Images, lifecycle.NewFileCache(root), support, lifecycleSetting(preferences), logger)
+	lifecycles := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(preferences), logger)
 	lifecycles.SetClock(func() time.Time { return testNow })
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)

@@ -26,6 +26,7 @@ type Store interface {
 	DeleteMachine(ctx context.Context, id string) error
 	TouchMachine(ctx context.Context, id string, at time.Time) error
 	RecordConnection(ctx context.Context, id, address, agentVersion string, at time.Time) error
+	RecordSystem(ctx context.Context, id, system string) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -414,6 +415,48 @@ func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion 
 	}
 	s.changed(machineID)
 	return session, nil
+}
+
+// MaxSystemLength borne ce qu'un agent dit de son système.
+const MaxSystemLength = 120
+
+// NoteSystem tient à jour le système d'une machine, dit par son agent à
+// l'ouverture du flux. Un agent plus vieux ne le dit pas, et un texte qui
+// ne ressemble pas à un nom de système n'est pas gardé : on reste sur ce
+// que l'enrôlement a noté.
+func (s *Service) NoteSystem(ctx context.Context, machineID, system string) error {
+	if !IsSystemName(system) {
+		return nil
+	}
+	return s.store.RecordSystem(ctx, machineID, system)
+}
+
+// IsSystemName : du texte ASCII imprimable, sur une ligne, de longueur
+// bornée. C'est aussi ce qui passe dans un en-tête : l'agent n'envoie rien
+// d'autre.
+func IsSystemName(system string) bool {
+	if system == "" || len(system) > MaxSystemLength {
+		return false
+	}
+	for _, character := range system {
+		if character < ' ' || character > '~' {
+			return false
+		}
+	}
+	return true
+}
+
+// Systems rend le système de chaque machine, tel que son agent le nomme.
+func (s *Service) Systems(ctx context.Context) ([]string, error) {
+	machines, err := s.store.ListMachines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	systems := make([]string, 0, len(machines))
+	for _, machine := range machines {
+		systems = append(systems, machine.OS)
+	}
+	return systems, nil
 }
 
 // Disconnect libère la session quand son flux se termine.

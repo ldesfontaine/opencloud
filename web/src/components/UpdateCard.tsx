@@ -123,7 +123,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
             )}
           </div>
         </Fold>
-        {service.lifecycle !== undefined && <SupportBlock lifecycle={service.lifecycle} />}
+        {service.lifecycle !== undefined && <SupportBlock lifecycle={service.lifecycle} subject="image" />}
       </CardBody>
     </Card>
   );
