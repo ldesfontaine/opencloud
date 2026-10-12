@@ -101,3 +101,17 @@ export function formatClock(at: string): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
   );
 }
+
+// Un instant qu'on lit dans une phrase : l'heure seule le jour même, la
+// date avec l'heure sinon. En heure locale, sans les secondes.
+export function formatWhen(at: string, now: number): string {
+  const date = new Date(at);
+  const today = new Date(now);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const isSameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+  if (isSameDay) {
+    return clock;
+  }
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+}

@@ -94,6 +94,13 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
   dessous, moment à droite.
+- **Verdict** : en tête de la page d'un objet, la pastille d'état et le fait
+  en une phrase (« 4 échecs de suite depuis 09:50 »), ce qui le précise
+  (« Dernière réussite : 09:48, il y a 5 min »), puis les métadonnées. Un état
+  qui demande l'opérateur teinte la carte de son lavis ; les autres la
+  laissent blanche. Posé sur la page d'une tâche ; les autres pages suivront.
+- **Frise** : un segment de 8 px par exécution, de la plus ancienne à la plus
+  récente, aux couleurs d'état ; elle dit la tendance avant la liste.
 - **Carte repliable** : ce qui se règle une fois (l'installation d'une tâche,
   les empreintes et le suivi d'une image) se replie sous son en-tête, chevron
   à droite, et passe sous l'état. Ouverte et en premier tant que la chose
