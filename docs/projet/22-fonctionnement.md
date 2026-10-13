@@ -1065,11 +1065,14 @@ requête : `none` (par défaut), `basic` et `forward`.
   le mandataire, et que `opencloud auth disable -config …` rouvre l'accès.
   L'identité voyage dans le contexte de la requête jusqu'à `/api/auth`, et
   la barre latérale dit « Accès protégé · mandataire · identité ». Tout
-  repose sur deux réglages hors d'openCloud : `trusted_proxies` limité à
+  repose sur deux réglages du déploiement : `trusted_proxies` limité à
   l'adresse du mandataire seul, et un mandataire qui écrase l'en-tête
-  envoyé par le client (Traefik `authResponseHeaders`). Un voisin qui
-  joint le port en direct, ou un mandataire qui laisse passer l'en-tête du
-  client, ouvre tout. Un mode inconnu trouvé dans la base ferme encore
+  envoyé par le client (Traefik `authResponseHeaders`). openCloud en
+  rattrape une part : un préfixe de `trusted_proxies` plus large qu'une
+  adresse fait un `WARN` au démarrage, et un en-tête d'identité présent
+  plusieurs fois (le mandataire a ajouté au lieu d'écraser) répond `401`.
+  Un voisin qui joint le port en direct, ou un mandataire qui laisse
+  passer l'en-tête du client seul, ouvre tout. Un mode inconnu trouvé dans la base ferme encore
   l'interface en `503`.
 
 Gardé : le front, tout `/api/…`, `/api/events`, les flux de journaux et

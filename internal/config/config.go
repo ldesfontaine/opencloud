@@ -113,7 +113,22 @@ func Parse(content []byte) (Config, []string, error) {
 	if err := validate(cfg); err != nil {
 		return Config{}, nil, err
 	}
+	warnings = append(warnings, wideProxyWarnings(cfg)...)
 	return cfg, warnings, nil
+}
+
+// Un mandataire se déclare seul : tout pair d'un préfixe plus large est cru
+// pour X-Forwarded-* et, en mode forward, pour l'identité de l'opérateur.
+// Un avertissement, pas un refus : derrière plusieurs mandataires à IP
+// variable, l'opérateur peut élargir sciemment.
+func wideProxyWarnings(cfg Config) []string {
+	var warnings []string
+	for _, prefix := range cfg.TrustedPrefixes() {
+		if prefix.Bits() < prefix.Addr().BitLen() {
+			warnings = append(warnings, fmt.Sprintf("trusted proxy %s covers more than one address: every peer in it is believed for X-Forwarded-* and, in forward mode, for the operator identity; list the proxy alone (/32 or /128)", prefix))
+		}
+	}
+	return warnings
 }
 
 // Décode en mode strict pour repérer les clés inconnues, puis les signale

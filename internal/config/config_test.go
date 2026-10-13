@@ -87,3 +87,15 @@ func TestParse_PublicURLAndProxies_AreValidated(t *testing.T) {
 		t.Error("bad cidr accepted")
 	}
 }
+
+// Un mandataire déclaré par un sous-réseau est cru pour chacun de ses pairs :
+// le démarrage le dit, sans refuser la configuration.
+func TestParse_WideTrustedProxy_Warns(t *testing.T) {
+	_, warnings, err := Parse([]byte("trusted_proxies = [\"127.0.0.1/32\", \"::1/128\", \"172.18.0.0/16\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "172.18.0.0/16") {
+		t.Fatalf("want one warning naming 172.18.0.0/16, got %v", warnings)
+	}
+}

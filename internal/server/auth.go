@@ -210,6 +210,11 @@ func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}
+	if len(r.Header.Values(state.Header)) > 1 {
+		s.logger.Warn("interface authentication refused: identity header sent more than once, the proxy must overwrite it", "header", state.Header, "source", s.clientAddress(r), "path", r.URL.Path)
+		s.writeForwardUnauthorized(w, r)
+		return "", false
+	}
 	identity := s.trustedIdentity(r, state.Header)
 	if identity == "" {
 		s.logger.Warn("interface authentication refused: identity header missing", "header", state.Header, "source", s.clientAddress(r), "path", r.URL.Path)
@@ -225,7 +230,13 @@ func (s *Server) trustedIdentity(r *http.Request, header string) string {
 	if !s.trustsPeer(r) {
 		return ""
 	}
-	return strings.TrimSpace(r.Header.Get(header))
+	// Plusieurs valeurs : le mandataire a ajouté la sienne au lieu
+	// d'écraser, et la première peut venir du client.
+	values := r.Header.Values(header)
+	if len(values) != 1 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 // Le refus du mode forward, sans défi Basic : le navigateur n'a rien à
