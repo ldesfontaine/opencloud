@@ -35,6 +35,13 @@ type agentError struct {
 }
 
 func (s *Server) agentEnroll(w http.ResponseWriter, r *http.Request) {
+	// Le même seau que le défi : un enrôlement légitime est rare, un flot
+	// d'enrôlements coûte une transaction chacun.
+	if !s.agentLimits.allow(s.clientAddress(r)) {
+		w.Header().Set("Retry-After", retryAfterSeconds)
+		s.writeAgentError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
 	var request machine.EnrollRequest
 	if !s.readJSON(w, r, &request) {
 		return

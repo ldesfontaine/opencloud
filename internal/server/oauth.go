@@ -145,7 +145,7 @@ func (s *Server) redirectWith(w http.ResponseWriter, r *http.Request, redirectUR
 	}
 	query := target.Query()
 	for key, values := range params {
-		if values[0] != "" {
+		if len(values) > 0 && values[0] != "" {
 			query.Set(key, values[0])
 		}
 	}
