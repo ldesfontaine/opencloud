@@ -538,6 +538,26 @@ func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 	}
 }
 
+// Un mandataire qui ajoute l'identité au lieu d'écraser laisse passer celle
+// du client en premier : deux valeurs, c'est un refus, dans les deux ordres.
+func TestAuthForward_IdentityHeaderSentTwiceIsRefused(t *testing.T) {
+	server := newTestServer(t)
+	server.enableForward(t)
+	for _, values := range [][]string{{"admin", testUsername}, {testUsername, testUsername}} {
+		request := httptest.NewRequest(http.MethodGet, "/api/counts", nil)
+		request.RemoteAddr = trustedPeer + ":4000"
+		request.Header.Set("Sec-Fetch-Site", "same-origin")
+		for _, value := range values {
+			request.Header.Add(auth.DefaultForwardHeader, value)
+		}
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized || errorCode(t, recorder) != codeUnauthorized {
+			t.Fatalf("identity %v: status %d %s", values, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 // Le refus d'une page dit de passer par le mandataire, et comment rouvrir
 // l'accès, dans la langue du navigateur.
 func TestAuthForward_RefusedPageSaysToGoThroughTheProxy(t *testing.T) {

@@ -3,6 +3,8 @@
 # sont montrés ; gardez votre configuration Traefik pour le reste.
 # Vérifié avec Traefik v3.5.3 lancé par `docker run` avec les mêmes options
 # (réseau 172.18.0.0/16, host-gateway, provider file) ; ACME non testé.
+# L'IP fixe de Traefik (172.30.0.2 sur le réseau `edge`) n'a pas été rejouée
+# sur ce banc : adaptez le sous-réseau s'il est déjà pris chez vous.
 services:
   traefik:
     image: traefik:v3.5
@@ -16,12 +18,23 @@ services:
       - "443:443"
     # host-gateway vaut l'IP du pont docker0 (172.17.0.1 par défaut), quel
     # que soit le réseau du conteneur : c'est l'adresse que `listen` vise.
-    # openCloud voit alors arriver Traefik depuis l'IP de son réseau à lui
-    # (172.18.0.0/16 pour un réseau créé par Compose…) : c'est ce
-    # sous-réseau qui va dans trusted_proxies.
+    # openCloud voit alors arriver Traefik depuis son IP sur `edge`, fixée
+    # ci-dessous : c'est cette adresse seule, en /32, qui va dans
+    # trusted_proxies (["172.30.0.2/32"]). Jamais le sous-réseau : tout
+    # conteneur voisin pourrait alors écrire X-Forwarded-For ou l'en-tête
+    # d'identité du mode forward lui-même.
+    networks:
+      edge:
+        ipv4_address: 172.30.0.2
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./dynamic:/etc/traefik/dynamic:ro     # y poser traefik-opencloud.yml
       - ./letsencrypt:/letsencrypt
     restart: unless-stopped
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

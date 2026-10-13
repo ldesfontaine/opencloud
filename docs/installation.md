@@ -213,9 +213,12 @@ requête. Ce que ça change :
 - sans `public_url`, les adresses construites ne connaissent pas le nom
   public.
 
-Déclarez l'adresse d'où Traefik se connecte : `127.0.0.1/32` en mode host,
-le sous-réseau de son réseau Docker s'il est en conteneur. `X-Forwarded-For`
-se lit de la droite : ce qu'un client écrit lui-même à gauche ne compte pas.
+Déclarez l'adresse d'où Traefik se connecte, **seule** : `127.0.0.1/32` en
+mode host, son IP fixe en `/32` s'il est en conteneur. Jamais un
+sous-réseau : chaque pair de la liste est cru sur parole, et un conteneur
+voisin écrirait `X-Forwarded-For` lui-même. Un préfixe plus large qu'une
+adresse fait un avertissement au démarrage. `X-Forwarded-For` se lit de la
+droite : ce qu'un client écrit lui-même à gauche ne compte pas.
 
 ## Traefik
 
@@ -254,8 +257,8 @@ http:
 | Cas | `listen` | URL du service Traefik | `trusted_proxies` |
 | --- | --- | --- | --- |
 | Traefik en mode host (`network_mode: host`, ou paquet sur l'hôte) | `127.0.0.1:8080` | `http://127.0.0.1:8080` | `["127.0.0.1/32", "::1/128"]` |
-| Traefik en conteneur, réseau `bridge` par défaut | `172.17.0.1:8080` | `http://host.docker.internal:8080` | `["172.17.0.0/16"]` |
-| Traefik en conteneur, réseau créé par Compose | `172.17.0.1:8080` | `http://host.docker.internal:8080` | le sous-réseau de ce réseau, par exemple `["172.18.0.0/16"]` |
+| Traefik en conteneur, réseau créé par Compose, IP fixe | `172.17.0.1:8080` | `http://host.docker.internal:8080` | cette IP seule, par exemple `["172.30.0.2/32"]` |
+| Traefik en conteneur, réseau `bridge` par défaut | À éviter : l'IP du conteneur change au redémarrage, et seul un sous-réseau la couvrirait | | |
 
 Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml)) :
 
@@ -266,9 +269,10 @@ Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml
 - `listen` doit viser cette IP : `127.0.0.1` n'est pas joignable depuis un
   conteneur. Vérifiez la vôtre avec
   `docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}'`.
-- openCloud voit Traefik arriver depuis l'IP de **son** réseau (`172.18.0.x`
-  pour un réseau Compose) : c'est ce sous-réseau qui va dans
-  `trusted_proxies`. Lisez-le avec `docker network inspect <réseau>`.
+- openCloud voit Traefik arriver depuis l'IP de **son** réseau. L'extrait
+  la fixe (`ipv4_address: 172.30.0.2` sur un réseau `172.30.0.0/24`) :
+  c'est cette adresse seule qui va dans `trusted_proxies`, en `/32`.
+  Vérifiez-la avec `docker inspect <conteneur>`.
 - `docker0` doit exister quand `serve` démarre : l'unité démarre après
   `docker.service` et redémarre en cas d'échec.
 - Écouter sur `172.17.0.1` rend openCloud joignable par **tous** les
