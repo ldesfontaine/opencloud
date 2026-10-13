@@ -21,7 +21,23 @@ StateDirectoryMode=0700
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=full
+# strict : tout est en lecture seule, sauf StateDirectory. Un state_dir
+# ailleurs que /var/lib/opencloud demande son ReadWritePaths.
+ProtectSystem=strict
+ProtectHome=read-only
+# Le port 8080 n'exige aucune capacité.
+CapabilityBoundingSet=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# AF_NETLINK : la liste des interfaces, pour son rôle d'agent.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
