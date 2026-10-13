@@ -19,6 +19,27 @@ RestartSec=10
 # Code 2 : refus (machine retirée, identité refusée, pas enrôlée). Relancer
 # n'y changerait rien ; il faut un nouveau jeton.
 RestartPreventExitStatus=2
+# Durcissement : root reste root, mais un agent compromis ne réécrit ni le
+# système ni les comptes. Il lit /proc, les volumes, /root/.docker (les
+# identifiants des registres) et la socket Docker ; il n'écrit que dans
+# son état, qui doit exister (premier lancement fait).
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/opencloud/agent
+ProtectHome=read-only
+PrivateTmp=true
+UMask=0077
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# AF_NETLINK : la liste des interfaces réseau de la machine.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target

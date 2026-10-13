@@ -12,6 +12,10 @@ services:
       - --certificatesresolvers.letsencrypt.acme.email=vous@example.org
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --providers.file.directory=/etc/traefik/dynamic
+      # Ni --api.insecure ni tableau de bord publié : seul websecure sort.
+      # Si le :80 est ouvert, redirigez-le vers 443 :
+      # - --entrypoints.web.address=:80
+      # - --entrypoints.web.http.redirections.entrypoint.to=websecure
     ports:
       - "443:443"
     # host-gateway vaut l'IP du pont docker0 (172.17.0.1 par défaut), quel
