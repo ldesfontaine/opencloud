@@ -1,3 +1,7 @@
+// Galerie du système visuel : une page d'atelier, pas un écran de
+// l'opérateur. Ses exemples (« Debian 12 », « nextcloud ») sont des
+// valeurs de démonstration en dur, l'exception assumée à la règle du
+// catalogue.
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Meter, Stat } from "../components/Card";
 import { Field, Input, Select } from "../components/Field";

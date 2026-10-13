@@ -44,7 +44,7 @@ export function MachineNew() {
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="vps-paris-1"
+              placeholder={t("machine.name_placeholder")}
               autoComplete="off"
               autoFocus
               required

@@ -201,8 +201,9 @@ export function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "gone") {
     return t("service.transition_gone");
   }
-  if (transition.new_state === "" ) {
-    return transition.action;
+  // Un état vide : la fiche est archivée, par un destroy ou par l'inventaire.
+  if (transition.new_state === "") {
+    return transition.action === "destroy" ? t("service.transition_destroyed") : t("service.transition_gone");
   }
   if (transition.action === "health_status" || (transition.new_state === transition.previous_state && transition.new_health !== transition.previous_health)) {
     return t(`service.health_${transition.new_health || "healthy"}`);

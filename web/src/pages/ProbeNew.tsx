@@ -146,7 +146,7 @@ export function ProbeNew() {
               type="text"
               value={target}
               onChange={(event) => setTarget(event.target.value)}
-              placeholder={kind === "http" ? t("probe.target_placeholder_http") : "10.8.0.2:5432"}
+              placeholder={kind === "http" ? t("probe.target_placeholder_http") : t("probe.target_placeholder_tcp")}
               maxLength={512}
               autoComplete="off"
               required

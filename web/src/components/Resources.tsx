@@ -157,8 +157,8 @@ const windows: WindowName[] = ["1h", "24h", "7d", "30d", "90d"];
 // L'historique d'une machine : une fenêtre, quatre graphes.
 export function ResourceHistory({ machineID }: { machineID: string }) {
   const { t, language } = useI18n();
-  const [window, setWindow] = useState<WindowName>("1h");
-  const history = useResource<HistoryResponse>(`/api/machines/${machineID}/resources/history?window=${window}`);
+  const [timeWindow, setTimeWindow] = useState<WindowName>("1h");
+  const history = useResource<HistoryResponse>(`/api/machines/${machineID}/resources/history?window=${timeWindow}`);
   const now = useNow(10_000);
   const data = history.data;
   const spanMs = (data?.span_seconds ?? 3600) * 1000;
@@ -178,7 +178,7 @@ export function ResourceHistory({ machineID }: { machineID: string }) {
         aside={
           <span className="segmented">
             {windows.map((name) => (
-              <Button key={name} small variant={name === window ? "primary" : "ghost"} onClick={() => setWindow(name)}>
+              <Button key={name} small variant={name === timeWindow ? "primary" : "ghost"} onClick={() => setTimeWindow(name)}>
                 {t(`resource.window_${name}`)}
               </Button>
             ))}

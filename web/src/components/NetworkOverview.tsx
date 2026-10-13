@@ -39,7 +39,7 @@ export function NetworkOverview() {
     );
   }
   const ports = publicPorts(response?.machines.flatMap((machine) => machine.edges) ?? []);
-  const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit)) : t("network.internet_none");
+  const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");
   const scale = layout && width > 0 ? Math.min(1, width / layout.width) : 1;
   // Le conteneur est toujours là : c'est lui qui donne la largeur, avant
   // même que la réponse arrive.
