@@ -34,7 +34,7 @@ Trois dossiers hors git, pour trois raisons :
 | Dossier | Qui le crée | Contenu | `make clean` |
 |---|---|---|---|
 | `bin/` | `make build` | le binaire de dev, refait à chaque build | jette le binaire |
-| `dist/` | `make release`, **à venir** : la cible n'existe pas encore | ce qu'une release publiera : binaire versionné, `.deb`, `SHA256SUMS` | jette tout |
+| `dist-release/` | `make release` | les binaires `opencloud-linux-amd64` et `-arm64`, statiques, et `SHA256SUMS` ; c'est ce que `release.yml` publie. Pas de `.deb` | jette tout |
 | `dev/` | `make run` la première fois, puis toi | `config.toml` et `state/` : ton `/etc` et ton `/var/lib` locaux | n'y touche jamais |
 | `web/node_modules/`, `web/dist/` | `make front` | les paquets npm épinglés par le verrou, et le front compilé | vide `dist/`, garde `node_modules/` |
 
@@ -94,14 +94,19 @@ s'explique seul et les commentaires deviennent rares.
 - Un `// TODO(lucas): raison` porte toujours sa raison.
 
 ```go
-// Dépose le script et ses paramètres, sans les lancer.
-func (r *Runner) DepositScript(ctx context.Context, action Action) error {
-	dir := r.actionDir(action.ID)
-	if err := r.transport.Put(ctx, dir+"/run.sh", action.Script, 0o755); err != nil {
-		return fmt.Errorf("deposit script: %w", err)
+// trustedIdentity rend l'identité posée par un mandataire de confiance, ou
+// rien si la requête ne vient pas de l'un d'eux ou ne la porte pas.
+func (s *Server) trustedIdentity(r *http.Request, header string) string {
+	if !s.trustsPeer(r) {
+		return ""
 	}
-	// params.env est lu par systemd, jamais par un shell : quoting fait par Go.
-	return r.transport.Put(ctx, dir+"/params.env", action.ParamsEnv(), 0o600)
+	// Plusieurs valeurs : le mandataire a ajouté la sienne au lieu
+	// d'écraser, et la première peut venir du client.
+	values := r.Header.Values(header)
+	if len(values) != 1 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 ```
 
@@ -170,7 +175,15 @@ Rien à voir avec les migrations d'un **service** déployé (celles de son
 application, jouées par `make update`) : ici il s'agit de la base d'openCloud
 lui-même.
 
-## L'exécution de commandes
+## À venir : les actions
+
+openCloud observe et n'agit sur aucune machine : aucun `exec.Command`,
+aucun script, aucun catalogue d'actions dans le code. Les actions viendront
+avec l'issue #125 (l'agent applique une mise à jour au clic). Les
+conventions ci-dessous sont **écrites d'avance** pour ce jour-là ; rien ne
+les vérifie encore, ni en local ni en CI.
+
+### L'exécution de commandes
 
 - **Jamais de shell.** `exec.CommandContext(ctx, "/chemin/absolu", args…)`.
 - **Environnement remplacé**, pas hérité : `PATH=/usr/sbin:/usr/bin:/sbin:/bin`,
@@ -181,7 +194,7 @@ lui-même.
 - Les valeurs de l'opérateur ne vont **jamais** dans un vecteur : `params.env`
   et fichiers rendus.
 
-## Les scripts
+### Les scripts
 
 ```sh
 #!/bin/bash
@@ -272,21 +285,22 @@ scripts relus.
   il dit ce qu'il prouve.
 - **`gofmt`, `goimports`, `staticcheck` obligatoires**, en local et en CI : la
   machine tient le style, l'humain garde l'attention pour le sens.
-- **Fixtures figées** : la liste des actions et leurs schémas, l'arbre des
+- **Fixtures figées** : l'arbre des
   routes, les réponses JSON de l'API (`internal/server/testdata/*.golden.json`,
   `go test ./internal/server -update` pour les réécrire après vérification). Tout
   changement casse un test — c'est voulu.
 - Un composant se teste avec des faux des interfaces qu'il consomme.
-- Les scripts : `shellcheck` + un test qui vérifie que chaque action du
-  catalogue a son `run.sh` et inversement.
-- **Idempotence testée.** Chaque `run.sh` est rejoué **deux fois** ; la seconde
-  exécution doit sortir `inchangé` et code `0`. Vérifié en CI — c'est une
-  propriété du produit, pas une bonne intention.
+- **Avec les actions, à venir** : `shellcheck`, un test qui vérifie que
+  chaque action du catalogue a son `run.sh` et inversement, et
+  l'idempotence : chaque `run.sh` rejoué **deux fois**, la seconde exécution
+  sort `inchangé` et code `0`. À poser en CI le jour où le premier script
+  entre ; d'ici là, rien ne le vérifie.
 
 ## La CI
 
-`go build`, `go vet`, `staticcheck`, `tsc`, `vitest`, `vite build`,
-`go test`, `govulncheck`, `gosec`, `shellcheck`, scan des secrets. `permissions: read` par défaut, délais,
+Les étapes sont celles de la cible `ci` du `Makefile`, qui fait foi ;
+`.github/workflows/ci.yml` les appelle, précédées du scan des secrets et de
+Plumber. Aucune liste n'est recopiée ici : elle divergerait. `permissions: read` par défaut, délais,
 `concurrency`. **Actions épinglées par SHA de commit**, et **Plumber** vérifie
 la politique CI/CD (`.plumber.yaml`) à chaque exécution — bloquant, 100 points
 exigés. `make ci` joue les mêmes commandes en local ; `make plumber`, pour
@@ -305,7 +319,9 @@ ci: actions épinglées par SHA
 ```
 
 - `type(portée): sujet` — types : `feat`, `fix`, `docs`, `ci`, `chore`,
-  `refactor`, `test`. Sujet court, en français, à l'impératif, sans point.
+  `refactor`, `test`. Sujet court, en français, sans point : il **décrit**
+  ce que le commit change, comme les exemples ci-dessus. Pas de sujet qui
+  enchaîne plusieurs changements : c'est le signe de deux commits.
 - **Pas de corps**, pas de longue explication : les bons mots dans le sujet
   suffisent.
 - **Un commit par fonctionnalité** — ni un par fichier, ni un par mot changé.

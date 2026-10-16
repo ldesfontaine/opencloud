@@ -39,11 +39,10 @@ Le changement de version est une décision de Lucas.
 ## La CI
 
 `.github/workflows/ci.yml` joue le scan des secrets, la politique Plumber
-(`.plumber.yaml`), puis les étapes Go — `gofmt`, `go vet`, `staticcheck`,
-`go test`, `govulncheck`, `gosec`, build — et les étapes du front — `tsc`,
-`vitest`, `vite build` — épinglées par version dans le Makefile et
-`web/package.json`. Le front se compile avant les tests Go, qui
-l'embarquent. Les actions GitHub sont épinglées par SHA de commit.
+(`.plumber.yaml`), puis les cibles du `Makefile` : c'est lui qui liste les
+étapes (`make ci`) et épingle les outils, avec `web/package.json` pour le
+front. Le front se compile avant les tests Go, qui l'embarquent. Les
+actions GitHub sont épinglées par SHA de commit.
 
 `.github/workflows/release.yml` publie les binaires Linux amd64 et arm64
 (`make release`) dans la release `v0.0.1`, après les tests. **Lancement à
