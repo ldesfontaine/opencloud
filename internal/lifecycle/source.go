@@ -75,7 +75,16 @@ func NewHTTPSource() *HTTPSource {
 		TLSHandshakeTimeout:   requestTimeout,
 		ResponseHeaderTimeout: requestTimeout,
 	}
-	return NewHTTPSourceAt(DefaultBaseURL, &http.Client{Transport: transport, Timeout: requestTimeout})
+	// Une API JSON ne redirige pas ; une redirection vers une adresse privée
+	// ne doit pas être composée, comme pour le registre et les canaux.
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   requestTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return NewHTTPSourceAt(DefaultBaseURL, client)
 }
 
 // NewHTTPSourceAt vise une autre adresse : les tests y posent un serveur.

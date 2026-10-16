@@ -31,6 +31,9 @@ import (
 const (
 	requestTimeout = 15 * time.Second
 	maxErrorBody   = 4 << 10
+	// Une réponse d'enrôlement ou de défi tient en quelques centaines
+	// d'octets : au-delà, ce n'est pas openCloud qui parle.
+	maxAnswerBody = 64 << 10
 )
 
 // Une réponse du serveur qui dit non ; le code est celui de son JSON.
@@ -344,7 +347,7 @@ func (c *Client) postJSON(ctx context.Context, path string, payload, into any) e
 	if response.StatusCode >= http.StatusBadRequest {
 		return serverError(response)
 	}
-	return json.NewDecoder(response.Body).Decode(into)
+	return json.NewDecoder(io.LimitReader(response.Body, maxAnswerBody)).Decode(into)
 }
 
 func serverError(response *http.Response) error {
