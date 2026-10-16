@@ -56,7 +56,8 @@ export function StatusPage() {
       if (template === undefined) {
         return `[${key}]`;
       }
-      return args.length > 0 ? format(template, args) : template;
+      // Toujours formaté, comme la coquille : « %% » doit devenir « % ».
+      return format(template, args);
     },
     [catalog],
   );
@@ -211,8 +212,8 @@ function IncidentBlock({ incident, language, t }: { incident: PublicIncident; la
         {t("status.affects")} <b>{incident.components.join(", ")}</b>
       </p>
       <ul className="status-timeline">
-        {incident.updates.map((update, index) => (
-          <li key={index}>
+        {incident.updates.map((update) => (
+          <li key={`${update.created_at}-${update.status}`}>
             <span className="tl-status">{t(`status.incident_${update.status}`)}</span>
             <span className="tl-when mono">{formatInstant(update.created_at, language)}</span>
             {update.message !== "" && <span className="tl-message">{update.message}</span>}

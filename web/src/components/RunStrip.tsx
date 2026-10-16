@@ -2,6 +2,7 @@ import type { Run, RunOutcome } from "../api/types";
 import { useT } from "../i18n/context";
 import { formatClock } from "../lib/time";
 import "./UptimeBar.scss";
+import "./RunStrip.scss";
 
 const stripTones: Record<RunOutcome, "ok" | "warn" | "danger" | "none"> = {
   in_progress: "none",

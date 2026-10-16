@@ -1,0 +1,12 @@
+// La frise des exécutions d'une tâche : des segments de largeur fixe,
+// calés à droite, la plus récente au bord. Les classes .ubar de base
+// viennent de UptimeBar.scss, que RunStrip importe aussi.
+.ubar-runs {
+  min-width: 0;
+  height: 16px;
+  justify-content: flex-end;
+
+  .ubar-seg {
+    flex: 0 0 8px;
+  }
+}

@@ -45,7 +45,8 @@ export function Chart({ series, from, to, stepMs, max, format, height = 160 }: P
   const top = scaleTop(series, max);
   const x = (at: number) => margin.left + ((at - from) / (to - from)) * plotWidth;
   const y = (value: number) => margin.top + plotHeight - (Math.min(value, top) / top) * plotHeight;
-  const hasPoints = series.some((line) => line.points.length > 0);
+  // Une fenêtre vide ferait des coordonnées NaN : le graphe reste vide.
+  const hasPoints = to > from && series.some((line) => line.points.length > 0);
 
   const onMove = (event: MouseEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();

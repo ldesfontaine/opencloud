@@ -41,7 +41,8 @@ export function NetworkGraph({ layout, ports, selected, onSelect }: Props) {
   const drag = useRef<{ startX: number; startY: number; viewX: number; viewY: number; moved: boolean } | null>(null);
 
   // Recadrer quand la taille du graphe ou de la vue change ; le zoom de
-  // l'opérateur survit à une relecture qui ne bouge rien.
+  // l'opérateur survit à une relecture qui ne bouge rien. Les dépendances
+  // sont volontairement les seules dimensions, pas layout entier.
   useEffect(() => {
     setView(fitView(layout, width, height));
   }, [layout.width, layout.height, width, height]);
@@ -191,7 +192,7 @@ interface NodeProps<T> {
 
 function InternetNode({ node, ports, selected, onSelect }: NodeProps<MouseEvent | KeyboardEvent> & { ports: number[] }) {
   const t = useT();
-  const subtitle = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit)) : t("network.internet_none");
+  const subtitle = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");
   return (
     <NodeFrame
       node={node}
@@ -207,15 +208,16 @@ function InternetNode({ node, ports, selected, onSelect }: NodeProps<MouseEvent 
   );
 }
 
-// Autant de ports que la place permet, puis « +n » pour le reste.
-export function fitPorts(ports: number[], limit: number): string {
+// Autant de ports que la place permet, puis « +n » pour le reste ;
+// prefixLength est la longueur du libellé traduit qui précède les ports.
+export function fitPorts(ports: number[], limit: number, prefixLength: number): string {
   for (let count = ports.length; count > 0; count--) {
     const shown = ports.slice(0, count).map((port) => `:${port}`);
     if (count < ports.length) {
       shown.push(`+${ports.length - count}`);
     }
     const text = shown.join(" · ");
-    if (text.length + "entrées ".length <= limit || count === 1) {
+    if (text.length + prefixLength <= limit || count === 1) {
       return text;
     }
   }

@@ -16,6 +16,9 @@ import { Pill } from "./Pill";
 import { SupportBlock } from "./SupportBlock";
 import "./UpdateCard.scss";
 
+// Le nom que Compose prend quand le label ne dit pas le fichier.
+const defaultComposeFile = "compose.yaml";
+
 // La carte Mise à jour d'un service : ce que l'agent a constaté sur
 // l'image, la ligne du fichier Compose à changer, la commande à copier,
 // jamais exécutée, et vérifier maintenant. Quand la fin de support est
@@ -73,7 +76,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
             <span className="secondary">{t("update.command_title")}</span>
             {lineChange !== null && (
               <>
-                <span>{t("update.edit_compose", service.compose_file !== "" ? service.compose_file : "compose.yaml", service.compose_service)}</span>
+                <span>{t("update.edit_compose", service.compose_file !== "" ? service.compose_file : defaultComposeFile, service.compose_service)}</span>
                 <div className="update-diff">
                   <pre className="snippet mono">
                     <span className="diff-line diff-removed">- {lineChange.before}</span>

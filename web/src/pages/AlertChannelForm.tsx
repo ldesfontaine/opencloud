@@ -159,7 +159,7 @@ export function AlertChannelForm() {
               {url.startsWith("http://") && <Note tone="warn">{t("channel.plain_warning")}</Note>}
               {isMatrix && (
                 <Field label={t("channel.matrix_room_label")} htmlFor="channel-room" help={t("channel.matrix_room_help")}>
-                  <Input id="channel-room" mono type="text" value={destination} onChange={(event) => setDestination(event.target.value)} maxLength={255} placeholder="!abc123:matrix.org" autoComplete="off" required />
+                  <Input id="channel-room" mono type="text" value={destination} onChange={(event) => setDestination(event.target.value)} maxLength={255} placeholder={t("channel.matrix_room_placeholder")} autoComplete="off" required />
                 </Field>
               )}
             </>

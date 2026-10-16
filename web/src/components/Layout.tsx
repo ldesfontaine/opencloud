@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 import type { AuthState, Counts } from "../api/types";
 import { useLive } from "../hooks/useLive";
 import { useResource } from "../hooks/useResource";
+import { useTheme } from "../hooks/useTheme";
 import { useI18n, useT } from "../i18n/context";
 import { accessLabel, isInterfaceOpen } from "../lib/auth";
 import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
@@ -156,6 +157,7 @@ const settingsEntries: NavEntry[] = [{ key: "settings", href: "/parametres", ico
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.
 function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }) {
   const { t, language, languages, setLanguage } = useI18n();
+  const theme = useTheme();
   const label = accessLabel(access);
   const counts = useResource<Counts>("/api/counts").data;
   return (
@@ -175,11 +177,11 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
       </nav>
       <div className="side-foot">
         <div className="switches">
-          <div className="theme" role="group">
-            <button type="button" data-set-theme="light" aria-label={t("theme.light")} title={t("theme.light")}>
+          <div className="theme" role="group" aria-label={t("theme.label")}>
+            <button type="button" data-set-theme="light" aria-pressed={theme === "light"} aria-label={t("theme.light")} title={t("theme.light")}>
               <Icon name="sun" />
             </button>
-            <button type="button" data-set-theme="dark" aria-label={t("theme.dark")} title={t("theme.dark")}>
+            <button type="button" data-set-theme="dark" aria-pressed={theme === "dark"} aria-label={t("theme.dark")} title={t("theme.dark")}>
               <Icon name="moon" />
             </button>
           </div>
