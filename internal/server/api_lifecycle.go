@@ -33,8 +33,8 @@ type newerCycleJSON struct {
 	EOLFrom string `json:"eol_from"`
 }
 
-// Le réglage sous Paramètres : coupé par défaut, et ce que la dernière
-// lecture de la source a donné.
+// Le réglage sous Paramètres : activé tant que l'opérateur ne le coupe
+// pas, et ce que la dernière lecture de la source a donné.
 type lifecycleSettingsJSON struct {
 	Enabled       bool       `json:"enabled"`
 	Source        string     `json:"source"`
@@ -63,7 +63,7 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 func (s *Server) lifecycleEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.current.LifecycleEnabled
+	return s.current.LifecycleEnabled()
 }
 
 // lifecycleOf rend le support de l'image d'un service, ou nil quand le
@@ -98,8 +98,8 @@ func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	// Vient d'être activé : la première lecture part tout de suite, sans
-	// attendre la cadence. Le redemander ne presse pas la source.
+	// Vient d'être rallumé : une lecture part tout de suite, sans attendre
+	// la cadence. Le redemander ne presse pas la source.
 	if request.Enabled && !wasEnabled {
 		s.lifecycle.Kick()
 	}
@@ -112,7 +112,7 @@ func (s *Server) saveLifecycleEnabled(enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, err := s.settings.Update(func(current *settings.Settings) {
-		current.LifecycleEnabled = enabled
+		current.LifecycleDisabled = !enabled
 	})
 	if err != nil {
 		return err

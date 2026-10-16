@@ -14,12 +14,16 @@ import (
 )
 
 const (
-	// RefreshEvery : la source bouge quelques fois par semaine.
+	// RefreshEvery : une lecture par jour. La source bouge quelques fois
+	// par semaine, et une date de fin se lit à la journée.
 	RefreshEvery = 24 * time.Hour
-	// La boucle regarde toutes les heures si une lecture est due. Un essai
-	// raté se rejoue à la passe suivante, pas le lendemain.
+	// MinGap : jamais deux lectures à moins de douze heures, donc deux par
+	// jour au plus. La seconde sert à rejouer un essai raté, ou à lire le
+	// produit d'un service ou d'une machine arrivés depuis.
+	MinGap = 12 * time.Hour
+	// La boucle regarde toutes les heures s'il est l'heure de lire ; ce
+	// regard ne sort pas de la machine.
 	checkPeriod = time.Hour
-	retryAfter  = checkPeriod / 2
 	// Une pause entre deux produits : la source est gratuite, on ne la
 	// presse pas.
 	pauseBetweenProducts = 500 * time.Millisecond
@@ -118,8 +122,7 @@ func (s *Service) Load() error {
 }
 
 // Watch relit la dernière lecture gardée, puis lit la source quand une
-// lecture est due, quand une image apporte un produit jamais demandé, ou
-// tout de suite quand Kick le demande.
+// lecture est due, ou tout de suite quand Kick le demande.
 func (s *Service) Watch(ctx context.Context) {
 	if err := s.Load(); err != nil {
 		s.logger.Warn("load lifecycle snapshot", "error", err)
@@ -127,7 +130,7 @@ func (s *Service) Watch(ctx context.Context) {
 	ticker := time.NewTicker(checkPeriod)
 	defer ticker.Stop()
 	for {
-		if s.enabled() && (s.isDue() || s.hasNewProduct(ctx)) {
+		if s.enabled() && s.isDue(ctx) {
 			if err := s.Refresh(ctx); err != nil && ctx.Err() == nil {
 				s.logger.Warn("refresh lifecycle", "error", err)
 			}
@@ -153,23 +156,37 @@ func (s *Service) Kick() {
 	}
 }
 
-// isDue : demandée par Kick, ou la dernière lecture a un jour, ou le
-// dernier essai a raté et la passe suivante est là.
-func (s *Service) isDue() bool {
+// isDue dit s'il est l'heure de lire la source. Demandée par Kick : tout
+// de suite. Sinon jamais à moins de MinGap de la lecture ou de l'essai
+// d'avant ; passé ce délai, une lecture est due quand la dernière a un
+// jour, quand le dernier essai a raté, ou quand un produit jamais demandé
+// est apparu.
+func (s *Service) isDue(ctx context.Context) bool {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.isForced {
+	isForced, isFailing := s.isForced, s.isFailing
+	sinceLast := s.now().Sub(latest(s.lastAttemptAt, s.snapshot.FetchedAt))
+	sinceRead := s.now().Sub(s.snapshot.FetchedAt)
+	s.mu.RUnlock()
+	if isForced {
 		return true
 	}
-	if s.isFailing {
-		return s.now().Sub(s.lastAttemptAt) >= retryAfter
+	if sinceLast < MinGap {
+		return false
 	}
-	return s.now().Sub(s.snapshot.FetchedAt) >= RefreshEvery
+	return isFailing || sinceRead >= RefreshEvery || s.hasNewProduct(ctx)
+}
+
+// latest rend le plus récent de deux instants.
+func latest(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 // hasNewProduct : un service ou une machine arrivés depuis la dernière
 // lecture apportent un produit qu'on n'a pas encore demandé. Leur fiche
-// n'attend pas demain.
+// attend au plus MinGap, pas un jour.
 func (s *Service) hasNewProduct(ctx context.Context) bool {
 	images, systems, err := s.inUse(ctx)
 	if err != nil {

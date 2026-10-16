@@ -47,20 +47,20 @@ func (s *supportSource) Product(_ context.Context, name string) (lifecycle.Produ
 func lifecycleSetting(preferences *settings.Store) func() bool {
 	return func() bool {
 		current, err := preferences.Load()
-		return err == nil && current.LifecycleEnabled
+		return err == nil && current.LifecycleEnabled()
 	}
 }
 
-// Coupé par défaut : la fiche ne dit rien du support, et rien ne sort
-// vers la source, même si on la presse.
-func TestAPI_Lifecycle_OffByDefault_ShowsNothingAndReadsNothing(t *testing.T) {
+// Coupé : la fiche ne dit rien du support, et rien ne sort vers la
+// source, même si on la presse.
+func TestAPI_Lifecycle_TurnedOff_ShowsNothingAndReadsNothing(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris", remoteID)
 	serviceID := server.seedServices(t)
 	var state lifecycleSettingsJSON
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/settings/lifecycle", nil), &state)
 	if state.Enabled || state.Source != "endoflife.date" || state.FetchedAt != nil || state.LastAttemptAt != nil || state.Products != 0 {
-		t.Fatalf("defaults %+v", state)
+		t.Fatalf("turned off %+v", state)
 	}
 	if err := server.lifecycle.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 		t.Fatalf("status %d: %+v", got.Code, state)
 	}
 	saved, err := server.settings.Load()
-	if err != nil || !saved.LifecycleEnabled || saved.Language != "en" {
+	if err != nil || !saved.LifecycleEnabled() || saved.Language != "en" {
 		t.Fatalf("file %+v %v", saved, err)
 	}
 

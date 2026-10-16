@@ -93,6 +93,13 @@ func newTestServer(t *testing.T) *testServer {
 	updates.SetClock(func() time.Time { return testNow })
 	updates.SetWatcher(bus)
 	preferences := settings.New(root)
+	// Les réponses figées datent d'avant la fin de support : le serveur de
+	// test démarre avec le réglage coupé, et les tests qui le regardent
+	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
+	// dans le paquet settings.
+	if _, err := preferences.Update(func(current *settings.Settings) { current.LifecycleDisabled = true }); err != nil {
+		t.Fatal(err)
+	}
 	support := newSupportSource()
 	lifecycles := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(preferences), logger)
 	lifecycles.SetClock(func() time.Time { return testNow })

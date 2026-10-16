@@ -322,9 +322,9 @@ function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () 
   );
 }
 
-// La fin de support : coupée par défaut. La carte dit ce que l'activer fait
-// sortir de la machine openCloud avant qu'on l'active, et ce que la
-// dernière lecture a donné ensuite.
+// La fin de support : activée tant que l'opérateur ne la coupe pas. La
+// carte dit ce qui sort de la machine openCloud, ce que la dernière
+// lecture a donné, et permet de couper.
 function LifecycleSection({ settings, reload }: { settings: LifecycleSettings; reload: () => void }) {
   const t = useT();
   const now = useNow();

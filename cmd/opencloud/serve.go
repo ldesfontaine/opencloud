@@ -164,9 +164,10 @@ func runServe(args []string) error {
 		return err
 	}
 	warnIfOpen(ctx, logger, operator, cfg.Listen)
-	// La fin de support : coupée par défaut. Activée sous Paramètres, cette
-	// machine lit endoflife.date une fois par jour, pour les produits des
-	// images présentes et les systèmes des machines.
+	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
+	// Paramètres. Cette machine lit endoflife.date une fois par jour, deux
+	// au plus, pour les produits des images présentes et les systèmes des
+	// machines.
 	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
 	support.SetWatcher(bus)
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
@@ -271,8 +272,8 @@ func diskThresholdsOf(preferences *settings.Store, logger *slog.Logger) func() a
 }
 
 // lifecycleEnabledOf relit settings.toml à chaque appel : la fin de support
-// activée ou coupée sous Paramètres vaut aussitôt. Un fichier illisible la
-// laisse coupée : rien ne sort sans que l'opérateur l'ait demandé.
+// coupée ou rallumée sous Paramètres vaut aussitôt. Un fichier illisible la
+// laisse coupée : on ne sait pas si l'opérateur l'a coupée.
 func lifecycleEnabledOf(preferences *settings.Store, logger *slog.Logger) func() bool {
 	return func() bool {
 		current, err := preferences.Load()
@@ -280,7 +281,7 @@ func lifecycleEnabledOf(preferences *settings.Store, logger *slog.Logger) func()
 			logger.Warn("read lifecycle setting", "error", err)
 			return false
 		}
-		return current.LifecycleEnabled
+		return current.LifecycleEnabled()
 	}
 }
 

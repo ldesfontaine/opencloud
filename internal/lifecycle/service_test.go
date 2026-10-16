@@ -282,30 +282,82 @@ func TestLoad_ReadsBackWhatRefreshKept(t *testing.T) {
 	}
 }
 
-func TestIsDue_DailyThenRetryThenForced(t *testing.T) {
+// Une lecture par jour, deux au plus : jamais à moins de douze heures de
+// la précédente, sauf quand l'opérateur vient d'activer le réglage.
+func TestIsDue_OnceADayTwiceAtMost(t *testing.T) {
 	h := newHarness(t)
-	if !h.service.isDue() {
+	ctx := context.Background()
+	if !h.service.isDue(ctx) {
 		t.Fatal("never read: due")
 	}
-	if err := h.service.Refresh(context.Background()); err != nil {
+	if err := h.service.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
 	h.now = fetchedAt.Add(RefreshEvery - time.Minute)
-	if h.service.isDue() {
-		t.Fatal("read less than a day ago: not due")
+	if h.service.isDue(ctx) {
+		t.Fatal("read less than a day ago, nothing new: not due")
+	}
+	h.now = fetchedAt.Add(RefreshEvery)
+	if !h.service.isDue(ctx) {
+		t.Fatal("read a day ago: due")
+	}
+
+	// Un essai raté ne se rejoue pas dans l'heure : douze heures après.
+	h.source.repositoriesErr = ErrSource
+	_ = h.service.Refresh(ctx)
+	h.now = h.now.Add(MinGap - time.Minute)
+	if h.service.isDue(ctx) {
+		t.Fatal("failed less than twelve hours ago: wait")
+	}
+	h.now = h.now.Add(time.Minute)
+	if !h.service.isDue(ctx) {
+		t.Fatal("failed twelve hours ago: due")
+	}
+	h.source.repositoriesErr = nil
+	if err := h.service.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Un produit jamais demandé attend lui aussi les douze heures.
+	h.images = append(h.images, "redis:7.4")
+	h.source.products["redis"] = Product{Name: "redis", Label: "Redis"}
+	h.now = h.now.Add(MinGap - time.Minute)
+	if h.service.isDue(ctx) {
+		t.Fatal("a new product less than twelve hours after a reading: wait")
+	}
+	h.now = h.now.Add(time.Minute)
+	if !h.service.isDue(ctx) {
+		t.Fatal("a new product, twelve hours after: due")
+	}
+
+	// L'opérateur vient d'activer : tout de suite, quel que soit le délai.
+	if err := h.service.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if h.service.isDue(ctx) {
+		t.Fatal("just read: not due")
 	}
 	h.service.Kick()
-	if !h.service.isDue() {
+	if !h.service.isDue(ctx) {
 		t.Fatal("asked for: due")
 	}
-	h.source.repositoriesErr = ErrSource
-	_ = h.service.Refresh(context.Background())
-	if h.service.isDue() {
-		t.Fatal("just failed: wait for the next pass")
+}
+
+// Après un redémarrage, la lecture gardée compte : on ne relit pas la
+// source parce que le processus vient de naître.
+func TestIsDue_AfterARestart_TheKeptReadingCounts(t *testing.T) {
+	h := newHarness(t)
+	if err := h.service.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	h.now = h.now.Add(retryAfter)
-	if !h.service.isDue() {
-		t.Fatal("failed, next pass: due")
+	restarted := newHarness(t)
+	restarted.cache.payload = h.cache.payload
+	restarted.now = fetchedAt.Add(time.Hour)
+	if err := restarted.service.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if restarted.service.isDue(context.Background()) {
+		t.Fatal("read an hour ago by the previous process: not due")
 	}
 }
 
