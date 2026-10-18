@@ -136,6 +136,12 @@ func runServe(args []string) error {
 	// trousseau Docker ; les constats s'écrivent sans passer par le réseau.
 	updates := update.New(db, logger)
 	updates.SetWatcher(bus)
+	// L'annuaire lit ce que les machines montrent ; le suivi des services lui
+	// demande les unités à chaque rapport, et l'annuaire lui demande de
+	// rattacher de nouveau après chaque écriture.
+	declared.SetObserved(services, updates)
+	declared.SetRematcher(services)
+	services.SetUnits(declared)
 	docker := dockerapi.New(cfg.DockerSocket)
 	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: updates, logger: logger}, logger)
 	updates.SetLocalRunner(machine.LocalID, updater)
@@ -208,6 +214,10 @@ func runServe(args []string) error {
 	// la base garde des sondes de cette machine repart dès le démarrage.
 	probes.Assign(ctx, machine.LocalID)
 	updates.Assign(ctx, machine.LocalID)
+	// Les services saisis avant que le rapprochement existe, ou pendant que
+	// le serveur était arrêté, sont rattachés sans attendre l'inventaire
+	// suivant de chaque agent.
+	services.RematchAll(ctx)
 
 	server, err := server.New(server.Options{
 		Logger:         logger,

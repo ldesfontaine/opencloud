@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> annuaire déclaré (1/5), 18 octobre 2026.
+> annuaire, l'écart (2/5), 18 octobre 2026.
 
 ## Les acteurs
 
@@ -20,7 +20,7 @@
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
-| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : seize lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà, dont la publication d'un incident sur la page de statut publique. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
+| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-sept lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà, dont la publication d'un incident sur la page de statut publique. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -109,6 +109,7 @@ base ; voir « Ce qui est stocké, et où ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `services.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `services.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
@@ -429,8 +430,8 @@ s'affichent dans la colonne Domaine en attendant les domaines.
 ## Comment l'annuaire se déclare
 
 L'annuaire est ce que l'opérateur **dit** exister, par opposition aux conteneurs
-que l'agent **voit** (section précédente). Il ne lit rien sur les machines : la
-PR « annuaire (1/5) » ne fait que déclarer et ranger.
+que l'agent **voit** (section précédente). Déclarer ne lit rien sur les machines ;
+le rapprochement des deux est dit dans la section suivante.
 
 - **Un service déclaré** a son propre identifiant (`svc_` + 16 caractères
   hexadécimaux), jamais tiré de Docker : recréer un conteneur ne le change pas.
@@ -453,7 +454,8 @@ PR « annuaire (1/5) » ne fait que déclarer et ranger.
   unités d'un même service ne déclarent pas le même conteneur ni la même
   unité systemd (`directory.unit_key_duplicate`).
 - **Une version `latest`** est refusée ; l'image s'écrit sans étiquette ni
-  empreinte ; la version est facultative (sans elle, l'écart dira « version
+  empreinte, en référence lisible par le registre (minuscules : l'écart la lit
+  avec le même analyseur, `directory.image_invalid` sinon) ; la version est facultative (sans elle, l'écart dira « version
   non vérifiable »). L'empreinte `sha256:` est facultative et ne s'attache
   qu'à une image, pas à un binaire.
 - **Ce qu'il fournit** (`sso`, `proxy`, `tls`, `backup-target`) n'est admis que
@@ -475,8 +477,124 @@ PR « annuaire (1/5) » ne fait que déclarer et ranger.
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
   la fiche d'un service et le formulaire (déclaration et édition).
 
-Rien n'est encore rapproché du réel : un service déclaré ne sait pas si son
-conteneur tourne, et un conteneur observé ne sait pas qu'il est déclaré.
+Chaque écriture de l'annuaire demande ensuite à la machine concernée de
+rapprocher ses conteneurs (section suivante).
+
+## Comment un conteneur se rattache à l'annuaire
+
+Le serveur rapproche ce que l'opérateur a déclaré de ce que l'agent voit. Le
+résultat se garde sur la fiche du conteneur (`services.unit_id`,
+`services.match_level`) ; l'écart, lui, ne se stocke jamais.
+
+**Deux niveaux**, choisis par l'origine du service déclaré, donc disjoints :
+
+| Niveau | Clé | Pour | Force |
+| --- | --- | --- | --- |
+| `compose` | machine + projet Compose du conteneur = `compose_project` du service + service Compose du conteneur = nom de l'unité | un service d'origine Compose | forte, tant que le projet garde son nom |
+| `name` | machine + nom du conteneur = `container_name` d'une unité | un service d'origine « conteneur seul » | **faible**, signalée « rattachement faible » : un renommage le perd |
+
+Un conteneur qui répond aux deux est rattaché par `compose` (le niveau fort
+gagne) ; l'unité « conteneur seul » qui portait son nom paraît alors absente.
+Une unité binaire ne rapproche jamais rien. Plusieurs conteneurs d'une même
+unité sont admis (répliques) et se montrent tous. Le niveau « label »
+(`<préfixe>.service`, `<préfixe>.unit`), prévu par le modèle cible, viendra
+avec ce qu'openCloud déploiera : aucun conteneur n'en porte encore.
+
+- **Quand.** À chaque rapport de l'agent (les fiches que le rapport touche sont
+  rapprochées dans la même écriture ; si le rapprochement échoue, le rapport
+  passe quand même avec le rattachement que les fiches avaient), après chaque écriture de l'annuaire
+  (création, édition et suppression d'un service, pour la machine concernée,
+  ou les deux machines si le service en change) et une fois au démarrage de
+  `serve`, pour rattraper ce qu'un arrêt a laissé en route. Seules les lignes
+  qui changent sont écrites.
+- **Sérialisation par machine.** Le suivi des conteneurs tient un verrou par
+  machine : un rapport et un rapprochement de la même machine ne se chevauchent
+  jamais, donc l'un ne défait pas l'autre en écrasant ses fiches avec un état
+  lu avant lui. Le verrou est lâché avant les alertes et le bus. L'annuaire
+  appelle le rapprochement **après** avoir validé sa transaction, jamais
+  dedans : pas d'attente en cercle. Un rapprochement qui échoue est journalisé
+  (`WARN`) sans défaire l'écriture de l'annuaire ; le rapport suivant, ou le
+  prochain démarrage, le refait.
+- **Une unité supprimée entre-temps.** L'écriture du rattachement vérifie que
+  l'unité existe encore (sous-requête) et écrit sinon « non rattaché » : une
+  course entre un rapport et une suppression ne laisse ni erreur de clé
+  étrangère ni lien mort.
+- **Un conteneur archivé garde son dernier rattachement** et n'est jamais
+  recalculé : sa fiche dit « était rattaché à… » tant que l'unité existe. Un
+  projet Compose renommé sur la machine perd ses conteneurs au rapport suivant
+  (ils paraissent non déclarés, l'unité absente) ; renommer le projet dans
+  l'annuaire les retrouve à l'écriture.
+- **Une machine hors ligne montre son dernier inventaire** : l'écart ne sait
+  pas que l'agent est parti, c'est l'alerte de machine qui le dit.
+
+**L'écart se calcule à chaque lecture** (`GET /api/directory/gaps`, la fiche
+d'un service, l'outil MCP `list_declared_services`) à partir des fiches, sans
+relancer le rapprochement. Pour chaque conteneur rattaché, la première règle
+qui s'applique décide :
+
+| # | Règle | Verdict | Motif |
+| --- | --- | --- | --- |
+| 1 | L'image observée est illisible | non vérifiable | `image_unreadable` |
+| 2 | L'image déclarée est illisible (la validation ne l'admet plus ; des lignes plus anciennes peuvent en porter) | non vérifiable | `image_unreadable` |
+| 3 | Autre registre ou autre dépôt que l'image déclarée | divergent | `image_differs` |
+| 4 | Une empreinte est épinglée, l'empreinte observée est connue et diffère | divergent | `digest_differs` |
+| 5 | Une empreinte est épinglée et l'image observée l'écrit elle-même (`dépôt@sha256:…`), égale à l'épinglée | conforme, quel que soit le tag | |
+| 6 | Le conteneur est sur `latest` ou sans tag | non vérifiable | `tag_latest` |
+| 7 | Aucune version n'est déclarée | non vérifiable | `version_unpinned` |
+| 8 | Le tag observé n'est pas la version déclarée | divergent | `tag_differs` |
+| 9 | Une empreinte est épinglée, l'empreinte observée est inconnue | non vérifiable | `digest_unknown` |
+| 10 | Sinon | conforme | |
+
+L'empreinte observée est celle que l'image écrit (`dépôt@sha256:…`), à défaut
+celle que le dernier constat sur l'image a lue localement (`RepoDigests`). La
+règle 4 se contente de l'une ou de l'autre ; la règle 5 n'accepte que celle que
+l'image écrit : l'empreinte lue localement ne dit pas ce que le conteneur a
+démarré, et un tag mobile (`latest`) peut avoir bougé depuis. Une image
+épinglée par son empreinte seule est donc conforme sans version déclarée ;
+sur `latest` avec l'empreinte épinglée lue localement, elle reste « sur
+`latest` ». Un conteneur arrêté **compte comme présent** : l'état de Docker
+reste l'affaire de la pastille et des alertes, pas de l'écart.
+
+Puis **l'unité** : un binaire est « non observé » (aucun agent ne le regarde
+encore) ; une unité sans conteneur vivant est « déclaré, absent » ; sinon
+le pire verdict de ses conteneurs. **Le service** prend le pire de ses unités,
+du plus grave au moins grave : absent, divergent, non vérifiable, non observé,
+conforme. Le rattachement faible est le « ou » des conteneurs et des unités :
+il se montre à côté de l'état, il ne le change pas.
+
+**Les conteneurs non déclarés** sont les fiches vivantes sans unité, groupées
+par la clé qu'on peut ignorer : le projet Compose (`compose_project`), à défaut
+le nom du conteneur (`container_name`). Un groupe dont le projet Compose est
+déjà déclaré sur la machine porte l'identifiant de ce service.
+
+- **Adopter** (`GET /api/directory/proposal?container=<id de fiche>`) : le
+  serveur lit le conteneur et ses voisins du même projet et rend une
+  définition au format du corps de la création, que le formulaire reprend.
+  Rien n'est écrit. Projet Compose non déclaré : un service d'origine Compose,
+  une unité par service Compose du projet. Projet déjà déclaré : la réponse
+  porte `service_id` et la définition du service, ses identifiants d'unités
+  compris, plus les unités qui manquent (sans identifiant, comme l'édition
+  l'attend) ; le formulaire s'ouvre alors en édition de ce service. Conteneur
+  sans projet : un service « conteneur seul ». L'image se propose sans tag ni
+  empreinte, la version vient du tag sauf `latest`, les ports de ceux que
+  Docker publie. Au plus 32 unités par proposition, celle du conteneur demandé toujours
+  retenue en tête ; un projet plus gros s'adopte en plusieurs fois. Un
+  service déjà déclaré avec 32 unités ne peut plus rien recevoir : 409
+  `directory.units_full`. 404 `directory.container_not_found` si la fiche a
+  disparu, 409 `directory.container_declared` si elle est déjà rattachée.
+- **Ignorer** (`POST /api/directory/ignored`, corps `machine_id`, `kind`,
+  `value`) : une ligne de `ignored_keys`, idempotente. Le groupe reste dans la
+  liste, derrière « Montrer les ignorés », et ne compte plus parmi les
+  conteneurs à régler. `DELETE /api/directory/ignored?machine=&kind=&value=`
+  le retire (404 `directory.ignore_not_found`). Un refus de forme est un 422
+  `directory.ignore_invalid`.
+- **L'interface** : la colonne « Écart » de l'onglet Annuaire, la liste « Non
+  déclarés » dessous (masquée quand un projet est choisi : un projet ne regroupe
+  que du déclaré), l'écart par unité et les conteneurs rattachés sur la fiche
+  d'un service déclaré, la carte « Annuaire » sur la fiche d'un conteneur.
+- **Les sujets du direct** : l'écart croise l'annuaire et les conteneurs ; il se
+  relit quand l'un ou l'autre change. La fiche d'un conteneur suit aussi
+  l'annuaire.
 
 ## Comment le réseau des services se lit
 
@@ -1361,6 +1479,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | --- | --- | --- |
 | `get_overview` | La version et les compteurs de `/api/counts` | |
 | `list_machines`, `get_machine`, `get_machine_network` | Les machines sans leurs jetons en attente ; une machine avec sa dernière mesure et son Docker ; la topologie et les constats d'exposition | |
+| `list_declared_services` | Les services déclarés avec leur écart (état par service, par unité et par conteneur rattaché) et les conteneurs non déclarés, groupés et marqués ignorés ou non ; filtre par machine ou projet (un projet ne montre aucun non déclaré) | 100, 500 au plus ; la page ne porte que les services, les non déclarés sortent tous |
 | `list_services`, `get_service`, `get_service_logs` | Les services, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais | 50 essais |
@@ -1571,7 +1690,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se compile et se copie à la main. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
-| L'annuaire ne voit pas le réel | Un service déclaré n'est pas rapproché des conteneurs : pas d'écart « absent » ou « divergent », pas de rattachement, pas d'adoption d'un conteneur non couvert ; l'origine `deployed` est réservée et refusée | Annuaire 2/5 et suivantes |
+| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par le projet Compose et par le nom du conteneur ; pas encore par label (rien ne déploie), et un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | Annuaire 3/5 et suivantes |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
@@ -1632,3 +1751,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Édition sur place | `PUT /api/probes/{id}` et `PUT /api/jobs/{id}` (la définition entière, mêmes refus que la création), `POST /api/jobs/{id}/actions/regenerate-token`, `Service.Update` des paquets `internal/probe` et `internal/heartbeat` et `RegenerateToken`, la migration `021_probe_revision.sql` (`probes.revised_at`) et sa garde dans `planChanges` et `updateProbeState`, la pause d'une tâche qui n'est plus reprise par un ping, les formulaires `ProbeForm` et `JobForm` (création et édition), les boutons Modifier et « Régénérer le jeton », les trois routes de `testdata/routes.txt` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |
 | Annuaire (1/5) | Le paquet `internal/directory` (identité propre, validation, création et édition sur place des services, unités, fournitures et projets), la migration `022_directory.sql` (`projects`, `declared_services`, `service_units`, `service_provides`, `project_services`), `internal/store/directory.go`, le refus 409 `machine.has_declared_services` au retrait d'une machine, les dix routes `/api/directory/…`, le sujet `directory`, les onglets Annuaire et Projets de la page Services, la fiche et le formulaire de service |
+| Annuaire (2/5) | Le rapprochement `internal/directory/match.go` (deux niveaux) et son application par le suivi des conteneurs (`Tracker.SetUnits`, `Rematch`, `RematchAll`, verrou par machine), la migration `023_container_units.sql` (`services.unit_id`, `services.match_level`, `ignored_keys`), le calcul de l'écart `gap.go`, la proposition d'adoption `propose.go`, les quatre routes `/api/directory/gaps`, `/proposal` et `/ignored`, `directory` sur la fiche d'un conteneur, l'outil MCP `list_declared_services`, la colonne Écart, la liste des non déclarés, l'adoption dans le formulaire et la carte Annuaire |

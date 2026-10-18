@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -16,7 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Les seize lectures : chacune rend les faits de l'API, sous le même JSON.
+// Les dix-sept lectures : chacune rend les faits de l'API, sous le même JSON.
 // Aucun secret d'openCloud n'en sort : ni l'URL de ping d'une tâche, ni les
 // jetons en attente d'une machine, ni l'URL complète d'un canal. Les
 // journaux d'un conteneur, eux, sont bruts et peuvent en contenir un.
@@ -51,6 +52,11 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 		Description: "One service with the Docker engine of its machine and its last 50 state transitions (start, die, health changes, with the raw log snippet captured on an abnormal exit, which can contain secrets).",
 		Annotations: readOnlyHints(),
 	}, s.getServiceTool)
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_declared_services",
+		Description: "Declared services of the directory with their gap against what Docker shows (conform, absent, diverged, unverifiable on latest or untagged, unobserved for binaries, weak name match), and the containers present but undeclared, grouped by Compose project or name, flagged when ignored.",
+		Annotations: readOnlyHints(),
+	}, s.listDeclaredServicesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_service_logs",
 		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (" + brand.Command + " mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
@@ -114,6 +120,13 @@ type machineInput struct {
 type listServicesInput struct {
 	MachineID string `json:"machine_id,omitempty" jsonschema:"Only the services of this machine"`
 	Group     string `json:"group,omitempty" jsonschema:"Only the services of this Compose project"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Page size, default 100, max 500"`
+	Offset    int    `json:"offset,omitempty" jsonschema:"Items to skip, default 0"`
+}
+
+type listDeclaredServicesInput struct {
+	MachineID string `json:"machine_id,omitempty" jsonschema:"Only the services declared on this machine"`
+	ProjectID string `json:"project_id,omitempty" jsonschema:"Only the services of this project; the undeclared containers are then left out, they belong to no project"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"Page size, default 100, max 500"`
 	Offset    int    `json:"offset,omitempty" jsonschema:"Items to skip, default 0"`
 }
@@ -183,6 +196,20 @@ type servicesToolResponse struct {
 	Total    int           `json:"total"`
 	Offset   int           `json:"offset"`
 	Limit    int           `json:"limit"`
+}
+
+// Un service déclaré et son écart, côte à côte : l'écart n'est pas stocké.
+type declaredServiceGapJSON struct {
+	declaredServiceJSON
+	Gap serviceGapJSON `json:"gap"`
+}
+
+type declaredServicesToolResponse struct {
+	Services   []declaredServiceGapJSON `json:"services"`
+	Undeclared []undeclaredJSON         `json:"undeclared"`
+	Total      int                      `json:"total"`
+	Offset     int                      `json:"offset"`
+	Limit      int                      `json:"limit"`
 }
 
 type jobsToolResponse struct {
@@ -326,6 +353,28 @@ func (s *Server) listServicesTool(ctx context.Context, _ *gomcp.CallToolRequest,
 		if input.MachineID == "" || engine.MachineID == input.MachineID {
 			response.Engines = append(response.Engines, engineToJSON(engine))
 		}
+	}
+	return toolJSON(response)
+}
+
+func (s *Server) listDeclaredServicesTool(ctx context.Context, _ *gomcp.CallToolRequest, input listDeclaredServicesInput) (*gomcp.CallToolResult, any, error) {
+	// Une seule lecture de l'annuaire : le rapport porte les services qu'il a
+	// jugés, dans l'ordre de leurs écarts, donc chacun a le sien.
+	report, err := s.directory.Gaps(ctx, directory.Filter{MachineID: input.MachineID, ProjectID: input.ProjectID})
+	if err != nil {
+		return s.toolInternal("list_declared_services", err)
+	}
+	gaps, err := s.gapsResponseOf(ctx, report)
+	if err != nil {
+		return s.toolInternal("list_declared_services", err)
+	}
+	limit, offset := pageOf(input.Limit, input.Offset)
+	response := declaredServicesToolResponse{Services: []declaredServiceGapJSON{}, Undeclared: gaps.Undeclared, Total: len(report.Declared), Offset: offset, Limit: limit}
+	for index, found := range report.Declared {
+		if index < offset || index >= offset+limit {
+			continue
+		}
+		response.Services = append(response.Services, declaredServiceGapJSON{declaredServiceJSON: declaredServiceToJSON(found), Gap: gaps.Services[index]})
 	}
 	return toolJSON(response)
 }

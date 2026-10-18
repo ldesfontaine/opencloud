@@ -661,6 +661,15 @@ Calculé par le serveur à chaque inventaire. Le niveau le plus fort gagne. Jama
 
 L'écart n'est pas stocké : il se calcule à la lecture, par service et par unité (conforme, absent, divergent, faible, non observé pour un binaire, version non vérifiable sur `latest` ou sans tag) et par conteneur (non déclaré).
 
+Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-fonctionnement.md`, « Comment un conteneur se rattache à l'annuaire ») :
+
+- Les niveaux 2 et 3 seulement ; le niveau 1 (label) viendra avec ce qu'openCloud déploiera. Les niveaux 2 et 3 sont **disjoints par l'origine du service** (Compose ou conteneur seul), le niveau fort gagnant si un conteneur répond aux deux.
+- Une fiche archivée **garde son dernier rattachement** et n'est plus recalculée : l'historique d'un conteneur dit à quelle unité il appartenait.
+- `ignored_keys` porte deux genres : `compose_project` (tout le projet) et `container_name` ; la clé est une observation, jamais un id Docker.
+- Le verdict d'un conteneur suit dix règles ordonnées : image observée illisible, image déclarée illisible, autre image, autre empreinte, empreinte épinglée que l'image écrit elle-même (conforme, quel que soit le tag), `latest` ou sans tag, version non déclarée, autre tag, empreinte épinglée inconnue, conforme. Tout verdict autre que « conforme » porte l'un des sept motifs nommés (`image_unreadable`, `image_differs`, `digest_differs`, `tag_latest`, `version_unpinned`, `tag_differs`, `digest_unknown`).
+- L'empreinte observée est celle que l'image écrit, à défaut celle du dernier constat sur l'image ; seule la première fait conclure à « conforme » (un tag mobile peut avoir bougé). Un conteneur arrêté compte comme présent.
+- Pas de motif « label orphelin » tant que le niveau 1 n'existe pas.
+
 ### Projets, canaux, taire : règles de lecture
 
 | Question | Règle |

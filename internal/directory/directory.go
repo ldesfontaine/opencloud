@@ -116,6 +116,13 @@ var (
 	ErrProjectNameInvalid    = errors.New("project name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrProjectTitleInvalid   = errors.New("project title must be at most 80 characters")
 	ErrProjectNameTaken      = errors.New("project name already used")
+
+	ErrIgnoreInvalid     = errors.New("ignored key needs an existing machine, a known kind and a value that fits it")
+	ErrIgnoredNotFound   = errors.New("ignored key not found")
+	ErrContainerNotFound = errors.New("container not found, or already gone")
+	ErrContainerDeclared = errors.New("container already belongs to a declared service")
+	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
+	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
 )
 
 // Service est un service tel que l'opérateur l'a déclaré, avec ses unités.

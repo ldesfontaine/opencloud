@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/registry"
 )
 
 var (
@@ -199,6 +201,11 @@ func validateImage(image string, kind UnitKind) error {
 	}
 	// Un « : » avant le dernier « / » est un port de registre, pas une version.
 	if strings.Contains(image[strings.LastIndex(image, "/")+1:], ":") {
+		return ErrImageInvalid
+	}
+	// L'écart lit l'image avec registry.Parse : une image qu'il refuse
+	// (des majuscules, par exemple) serait « illisible » pour toujours.
+	if _, err := registry.Parse(image); err != nil {
 		return ErrImageInvalid
 	}
 	return nil

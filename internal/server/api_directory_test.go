@@ -255,6 +255,7 @@ func TestDirectory_RefusalKeysExistInEveryCatalog(t *testing.T) {
 		directory.ErrVersionLatest, directory.ErrDigestInvalid, directory.ErrContainerNameInvalid,
 		directory.ErrSystemdUnitInvalid, directory.ErrPortsInvalid, directory.ErrNameTaken,
 		directory.ErrComposeProjectTaken, directory.ErrMatchKeyTaken, directory.ErrUnitInvalid, directory.ErrProjectInvalid, directory.ErrUnitKeyDuplicate,
+		directory.ErrIgnoreInvalid,
 	}
 	for _, refusal := range refusals {
 		key, refused := directoryRefusalKey(refusal)

@@ -787,3 +787,72 @@ func (db *DB) DeleteProject(ctx context.Context, id string) error {
 	}
 	return directoryNotFoundIfNoRow(result, directory.ErrProjectNotFound)
 }
+
+// --- Clés ignorées ---
+
+// ListIgnoredKeys rend les clés ignorées d'une machine, de toutes si
+// machineID est vide, par machine, genre et valeur.
+func (db *DB) ListIgnoredKeys(ctx context.Context, machineID string) ([]directory.IgnoredKey, error) {
+	query := `SELECT machine_id, kind, value, created_at FROM ignored_keys`
+	var args []any
+	if machineID != "" {
+		query += ` WHERE machine_id = ?`
+		args = append(args, machineID)
+	}
+	rows, err := db.sql.QueryContext(ctx, query+` ORDER BY machine_id, kind, value`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list ignored keys: %w", err)
+	}
+	defer rows.Close()
+	keys := []directory.IgnoredKey{}
+	for rows.Next() {
+		var key directory.IgnoredKey
+		var kind string
+		var createdAt int64
+		if err := rows.Scan(&key.MachineID, &kind, &key.Value, &createdAt); err != nil {
+			return nil, err
+		}
+		key.Kind = directory.IgnoreKind(kind)
+		key.CreatedAt = time.Unix(createdAt, 0)
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// InsertIgnoredKey est idempotent : dire deux fois qu'une clé est ignorée
+// garde la première date. Lire la machine avant d'écrire donne le refus
+// précis, là où une clé étrangère violée ne dirait rien.
+func (db *DB) InsertIgnoredKey(ctx context.Context, key directory.IgnoredKey) error {
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin insert ignored key: %w", err)
+	}
+	defer tx.Rollback()
+	var machines int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM machines WHERE id = ?`, key.MachineID).Scan(&machines); err != nil {
+		return fmt.Errorf("find ignored key machine: %w", err)
+	}
+	if machines == 0 {
+		return directory.ErrMachineInvalid
+	}
+	_, err = tx.ExecContext(ctx,
+		`INSERT OR IGNORE INTO ignored_keys (machine_id, kind, value, created_at) VALUES (?, ?, ?, ?)`,
+		key.MachineID, string(key.Kind), key.Value, key.CreatedAt.Unix())
+	if err != nil {
+		return fmt.Errorf("insert ignored key: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit insert ignored key: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) DeleteIgnoredKey(ctx context.Context, key directory.IgnoredKey) error {
+	result, err := db.sql.ExecContext(ctx,
+		`DELETE FROM ignored_keys WHERE machine_id = ? AND kind = ? AND value = ?`,
+		key.MachineID, string(key.Kind), key.Value)
+	if err != nil {
+		return fmt.Errorf("delete ignored key: %w", err)
+	}
+	return directoryNotFoundIfNoRow(result, directory.ErrIgnoredNotFound)
+}

@@ -124,9 +124,12 @@ type transitionJSON struct {
 }
 
 type serviceResponse struct {
-	Service     serviceJSON      `json:"service"`
-	Engine      *engineJSON      `json:"engine"`
-	Transitions []transitionJSON `json:"transitions"`
+	Service serviceJSON `json:"service"`
+	Engine  *engineJSON `json:"engine"`
+	// Ce que l'annuaire dit du conteneur ; sur la fiche seulement, pas dans
+	// les listes.
+	Directory   *containerDirectoryJSON `json:"directory"`
+	Transitions []transitionJSON        `json:"transitions"`
 }
 
 type transitionsResponse struct {
@@ -233,6 +236,10 @@ func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (s
 	}
 	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
 	response.Service.Lifecycle, err = s.lifecycleOf(ctx, item.Image)
+	if err != nil {
+		return serviceResponse{}, err
+	}
+	response.Directory, err = s.containerDirectoryOf(ctx, item)
 	if err != nil {
 		return serviceResponse{}, err
 	}

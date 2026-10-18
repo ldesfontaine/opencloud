@@ -120,6 +120,14 @@ type DirectoryService interface {
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	// L'écart entre ce qui est déclaré et ce que les machines montrent, et
+	// ce qui en découle : adopter un conteneur, ignorer une clé, dire à quoi
+	// se rattache une fiche.
+	Gaps(ctx context.Context, filter directory.Filter) (directory.GapReport, error)
+	Propose(ctx context.Context, containerID string) (directory.Proposal, error)
+	Ignore(ctx context.Context, key directory.IgnoredKey) error
+	Unignore(ctx context.Context, key directory.IgnoredKey) error
+	ContainerLink(ctx context.Context, container service.Service) (directory.ContainerLink, error)
 }
 
 // Ce que le serveur attend du composant update : l'API lit et règle, le

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { DeclaredService } from "../api/types";
-import { emptyServiceForm, formatPorts, parsePorts, serviceFormOf, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import type { DeclaredService, ProposalResponse } from "../api/types";
+import { emptyServiceForm, formatPorts, parsePorts, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -103,5 +103,48 @@ describe("toggled", () => {
   it("ajoute ce qui manque et retire ce qui y est", () => {
     expect(toggled(["a"], "b")).toEqual(["a", "b"]);
     expect(toggled(["a", "b"], "a")).toEqual(["b"]);
+  });
+});
+
+describe("serviceFormOfDefinition", () => {
+  const definition: ProposalResponse["definition"] = {
+    machine_id: "m1",
+    name: "nextcloud",
+    title: "",
+    nature: "application",
+    origin: "compose",
+    compose_project: "nextcloud",
+    public_url: "",
+    provides: [],
+    units: [
+      { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80"] },
+      // Une unité ajoutée par la proposition arrive sans identifiant.
+      { id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] },
+    ],
+    project_ids: ["prj_1"],
+  };
+
+  it("reprend la proposition du serveur, ids d'unités compris", () => {
+    const form = serviceFormOfDefinition(definition);
+    expect(form.machineID).toBe("m1");
+    expect(form.composeProject).toBe("nextcloud");
+    expect(form.units.map((unit) => unit.id)).toEqual(["unit_1", ""]);
+    expect(form.units[0]?.ports).toBe("8080:80");
+    expect(form.projectIDs).toEqual(["prj_1"]);
+  });
+
+  it("renvoie au serveur la même définition que celle reçue", () => {
+    const request = serviceRequestOf(serviceFormOfDefinition(definition));
+    expect(request.units.map((unit) => ({ id: unit.id, name: unit.name, ports: unit.ports }))).toEqual([
+      { id: "unit_1", name: "app", ports: ["8080:80"] },
+      { id: "", name: "redis", ports: [] },
+    ]);
+    expect(request.compose_project).toBe("nextcloud");
+  });
+
+  it("ne partage pas ses listes avec la proposition", () => {
+    const form = serviceFormOfDefinition(definition);
+    form.projectIDs.push("prj_2");
+    expect(definition.project_ids).toEqual(["prj_1"]);
   });
 });

@@ -90,6 +90,10 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "directory.origin_", values: names(directory.Origins())},
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
+		{prefix: "gap.state_", values: names(directory.GapStates())},
+		{prefix: "gap.reason_", values: names(directory.GapReasons())},
+		{prefix: "gap.level_", values: names(service.MatchLevels())},
+		{prefix: "gap.key_", values: names(directory.IgnoreKinds())},
 	}
 	for _, list := range lists {
 		if len(list.values) == 0 {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Une machine qui porte un service déclaré ne se retire pas, et rien n'est
@@ -156,5 +157,180 @@ func TestListDeclaredServices_FilterKeepsAllLinksOfKeptServices(t *testing.T) {
 	got := listed[0]
 	if got.Name != "inside" || len(got.Units) != 1 || len(got.Provides) != 1 || len(got.ProjectIDs) != 2 {
 		t.Fatalf("service filtré incomplet: %+v", got)
+	}
+}
+
+// storedContainer écrit une fiche sur la machine, avec le rattachement
+// donné ; ApplyChanges est le chemin d'un rapport.
+func storedContainer(t *testing.T, db *DB, machineID, containerID string, unitID string, level service.MatchLevel) service.Service {
+	t.Helper()
+	now := time.Unix(1_800_000_000, 0)
+	fiche := service.Service{
+		ID: service.ID(machineID, containerID), MachineID: machineID, Kind: service.KindContainer, Name: containerID,
+		ContainerID: containerID, Image: "nextcloud:29", State: service.StateRunning,
+		CreatedAt: now, FirstSeenAt: now, LastSeenAt: now, UnitID: unitID, MatchLevel: level,
+	}
+	if err := db.ApplyChanges(context.Background(), service.Changes{MachineID: machineID, Now: now, Services: []service.Service{fiche}}); err != nil {
+		t.Fatal(err)
+	}
+	return fiche
+}
+
+func declareOneUnit(t *testing.T, db *DB, machineID, name string) directory.Service {
+	t.Helper()
+	now := time.Unix(1_800_000_000, 0)
+	declared := directory.Service{
+		ID: "svc_" + name, MachineID: machineID, Name: name, Nature: directory.NatureApplication,
+		Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator, CreatedAt: now, UpdatedAt: now,
+		Units: []directory.Unit{{ID: "unit_" + name, ServiceID: "svc_" + name, Name: name, Kind: directory.UnitContainer, Image: "nextcloud", ContainerName: name}},
+	}
+	if err := db.InsertDeclaredService(context.Background(), declared); err != nil {
+		t.Fatal(err)
+	}
+	return declared
+}
+
+func enrolledMachine(t *testing.T, db *DB, name string) string {
+	t.Helper()
+	now := time.Unix(1_800_000_000, 0)
+	token := issueToken(t, db, name, "", now)
+	enrolled, err := db.Enroll(context.Background(), machine.HashToken(token), candidate(t), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return enrolled.ID
+}
+
+// Supprimer une unité, par son service ou par l'édition, rend ses
+// conteneurs « non déclarés » : la clé étrangère met l'unité à NULL, et
+// la lecture ne garde pas le niveau d'un rattachement qui n'existe plus.
+func TestDeletingAUnit_LeavesItsContainersUndeclared(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	machineID := enrolledMachine(t, db, "vps")
+	declared := declareOneUnit(t, db, machineID, "web")
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchName)
+
+	got, err := db.GetService(ctx, service.ID(machineID, "c1"))
+	if err != nil || got.UnitID != declared.Units[0].ID || got.MatchLevel != service.MatchName {
+		t.Fatalf("avant: %+v, %v", got, err)
+	}
+	if err := db.DeleteDeclaredService(ctx, declared.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = db.GetService(ctx, service.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+		t.Fatalf("après: %+v, %v", got, err)
+	}
+	listed, err := db.ListServices(ctx, machineID)
+	if err != nil || len(listed) != 1 || listed[0].UnitID != "" || listed[0].MatchLevel != service.MatchNone {
+		t.Fatalf("liste: %+v, %v", listed, err)
+	}
+}
+
+// Le rapprochement lit l'annuaire hors de la transaction du rapport : si
+// l'unité disparaît entre les deux, la fiche s'écrit non déclarée plutôt
+// que de faire échouer la clé étrangère et perdre le rapport.
+func TestUpsertService_UnitGoneMeanwhileWritesNull(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	machineID := enrolledMachine(t, db, "vps")
+
+	storedContainer(t, db, machineID, "c1", "unit_disparue", service.MatchCompose)
+	got, err := db.GetService(ctx, service.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+		t.Fatalf("insertion: %+v, %v", got, err)
+	}
+
+	declared := declareOneUnit(t, db, machineID, "web")
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchCompose)
+	if got, _ := db.GetService(ctx, service.ID(machineID, "c1")); got.UnitID != declared.Units[0].ID {
+		t.Fatalf("mise à jour vers une unité qui existe: %+v", got)
+	}
+	storedContainer(t, db, machineID, "c1", "unit_disparue", service.MatchCompose)
+	got, err = db.GetService(ctx, service.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+		t.Fatalf("mise à jour vers une unité disparue: %+v, %v", got, err)
+	}
+
+	// La même règle pour le rapprochement seul.
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchName)
+	err = db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: service.ID(machineID, "c1"), UnitID: "unit_disparue", Level: service.MatchName}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := db.GetService(ctx, service.ID(machineID, "c1")); got.UnitID != "" || got.MatchLevel != service.MatchNone {
+		t.Fatalf("SetServiceUnits vers une unité disparue: %+v", got)
+	}
+}
+
+func TestSetServiceUnits_WritesOnlyTheNamedRows(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	machineID := enrolledMachine(t, db, "vps")
+	declared := declareOneUnit(t, db, machineID, "web")
+	storedContainer(t, db, machineID, "c1", "", service.MatchNone)
+	storedContainer(t, db, machineID, "c2", "", service.MatchNone)
+
+	err := db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: service.ID(machineID, "c1"), UnitID: declared.Units[0].ID, Level: service.MatchCompose}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := db.GetService(ctx, service.ID(machineID, "c1"))
+	second, _ := db.GetService(ctx, service.ID(machineID, "c2"))
+	if first.UnitID != declared.Units[0].ID || first.MatchLevel != service.MatchCompose || second.UnitID != "" {
+		t.Fatalf("first = %+v, second = %+v", first, second)
+	}
+}
+
+func TestIgnoredKeys_RoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	first, second := enrolledMachine(t, db, "vps-1"), enrolledMachine(t, db, "vps-2")
+	at := time.Unix(1_800_000_000, 0)
+	project := directory.IgnoredKey{MachineID: first, Kind: directory.IgnoreComposeProject, Value: "blog", CreatedAt: at}
+	alone := directory.IgnoredKey{MachineID: first, Kind: directory.IgnoreContainerName, Value: "whoami", CreatedAt: at}
+	elsewhere := directory.IgnoredKey{MachineID: second, Kind: directory.IgnoreContainerName, Value: "whoami", CreatedAt: at}
+	for _, key := range []directory.IgnoredKey{project, alone, elsewhere, project} {
+		if err := db.InsertIgnoredKey(ctx, key); err != nil {
+			t.Fatalf("%+v: %v", key, err)
+		}
+	}
+
+	onFirst, err := db.ListIgnoredKeys(ctx, first)
+	if err != nil || len(onFirst) != 2 || onFirst[0].Kind != directory.IgnoreComposeProject || onFirst[1].Value != "whoami" || !onFirst[0].CreatedAt.Equal(at) {
+		t.Fatalf("première machine: %+v, %v", onFirst, err)
+	}
+	all, err := db.ListIgnoredKeys(ctx, "")
+	if err != nil || len(all) != 3 {
+		t.Fatalf("toutes: %+v, %v", all, err)
+	}
+
+	later := project
+	later.CreatedAt = at.Add(time.Hour)
+	if err := db.InsertIgnoredKey(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+	if kept, _ := db.ListIgnoredKeys(ctx, first); !kept[0].CreatedAt.Equal(at) {
+		t.Fatalf("ignorer deux fois garde la première date: %v", kept[0].CreatedAt)
+	}
+
+	missing := directory.IgnoredKey{MachineID: "inconnue", Kind: directory.IgnoreContainerName, Value: "x", CreatedAt: at}
+	if err := db.InsertIgnoredKey(ctx, missing); !errors.Is(err, directory.ErrMachineInvalid) {
+		t.Fatalf("machine inconnue: %v", err)
+	}
+	if err := db.DeleteIgnoredKey(ctx, alone); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteIgnoredKey(ctx, alone); !errors.Is(err, directory.ErrIgnoredNotFound) {
+		t.Fatalf("retirer deux fois: %v", err)
+	}
+
+	// Retirer la machine emporte ses clés.
+	if err := db.DeleteMachine(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := db.ListIgnoredKeys(ctx, ""); len(left) != 1 {
+		t.Fatalf("après le retrait de la machine: %+v", left)
 	}
 }

@@ -19,12 +19,12 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
-// Le catalogue, fermé : seize lectures, neuf écritures. Un outil ajouté
+// Le catalogue, fermé : dix-sept lectures, neuf écritures. Un outil ajouté
 // ou renommé casse ce test, c'est voulu.
 var (
 	mcpReadTools = []string{
 		"get_overview", "list_machines", "get_machine", "get_machine_network",
-		"list_services", "get_service", "get_service_logs",
+		"list_services", "get_service", "get_service_logs", "list_declared_services",
 		"list_jobs", "get_job", "list_probes", "get_probe",
 		"get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
 	}
@@ -94,7 +94,7 @@ func toolErrorCode(t *testing.T, text string) string {
 	return response.Error
 }
 
-func TestMCP_ListsSixteenReadsAndNineWritesWithHonestHints(t *testing.T) {
+func TestMCP_ListsSeventeenReadsAndNineWritesWithHonestHints(t *testing.T) {
 	server := newTestServer(t)
 	session := connectMCP(t, server.mcpServer)
 	listed, err := session.ListTools(context.Background(), nil)
@@ -161,6 +161,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
 	serviceID := server.seedServices(t)
+	server.seedGaps(t)
 	probeID := server.seedProbes(t, serviceID)
 	server.seedStatus(t, serviceID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
@@ -170,21 +171,22 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	}
 	session := connectMCP(t, server.mcpServer)
 	cases := map[string]map[string]any{
-		"get_overview":        {},
-		"list_machines":       {},
-		"get_machine":         {"machine_id": remoteID},
-		"get_machine_network": {"machine_id": remoteID},
-		"list_services":       {"limit": 1},
-		"get_service":         {"service_id": serviceID},
-		"list_jobs":           {},
-		"get_job":             {"job_id": jobID},
-		"list_probes":         {"machine_id": remoteID},
-		"get_probe":           {"probe_id": probeID},
-		"get_status_page":     {},
-		"list_incidents":      {"status": "resolved"},
-		"list_alerts":         {},
-		"get_alert":           {"alert_id": alertID},
-		"list_alert_channels": {},
+		"get_overview":           {},
+		"list_machines":          {},
+		"get_machine":            {"machine_id": remoteID},
+		"get_machine_network":    {"machine_id": remoteID},
+		"list_services":          {"limit": 1},
+		"get_service":            {"service_id": serviceID},
+		"list_declared_services": {},
+		"list_jobs":              {},
+		"get_job":                {"job_id": jobID},
+		"list_probes":            {"machine_id": remoteID},
+		"get_probe":              {"probe_id": probeID},
+		"get_status_page":        {},
+		"list_incidents":         {"status": "resolved"},
+		"list_alerts":            {},
+		"get_alert":              {"alert_id": alertID},
+		"list_alert_channels":    {},
 	}
 	secrets := []string{job.Token, "hb_", "/ping/", "s3cret", "webhooks/1/x", "oc_", "vps-lyon-2"}
 	for name, args := range cases {
