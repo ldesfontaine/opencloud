@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { DeclaredService, ProposalResponse } from "../api/types";
-import { emptyServiceForm, formatPorts, parsePorts, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import { ApiError } from "../api/client";
+import { emptyServiceForm, formatPorts, hasLinks, linksOfRefusal, parsePorts, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -18,8 +19,8 @@ function nextcloud(): DeclaredService {
     needs_review: false,
     provides: [],
     units: [
-      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"] },
-      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [] },
+      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
+      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [], update_policy: "watch" },
     ],
     project_ids: ["prj_1"],
     created_at: "2026-10-18T09:00:00Z",
@@ -52,8 +53,8 @@ describe("serviceRequestOf", () => {
       public_url: "https://cloud.exemple.fr",
       provides: [],
       units: [
-        { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"] },
-        { id: "unit_2", name: "db", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [] },
+        { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
+        { id: "unit_2", name: "db", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [], update_policy: "watch" },
       ],
       project_ids: ["prj_1"],
     });
@@ -117,7 +118,7 @@ describe("serviceFormOfDefinition", () => {
     public_url: "",
     provides: [],
     units: [
-      { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80"] },
+      { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80"], update_policy: "hold" },
       // Une unité ajoutée par la proposition arrive sans identifiant.
       { id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] },
     ],
@@ -135,9 +136,10 @@ describe("serviceFormOfDefinition", () => {
 
   it("renvoie au serveur la même définition que celle reçue", () => {
     const request = serviceRequestOf(serviceFormOfDefinition(definition));
-    expect(request.units.map((unit) => ({ id: unit.id, name: unit.name, ports: unit.ports }))).toEqual([
-      { id: "unit_1", name: "app", ports: ["8080:80"] },
-      { id: "", name: "redis", ports: [] },
+    expect(request.units.map((unit) => ({ id: unit.id, name: unit.name, ports: unit.ports, update_policy: unit.update_policy }))).toEqual([
+      { id: "unit_1", name: "app", ports: ["8080:80"], update_policy: "hold" },
+      // Sans politique dite, une unité ajoutée se suit.
+      { id: "", name: "redis", ports: [], update_policy: "watch" },
     ]);
     expect(request.compose_project).toBe("nextcloud");
   });
@@ -146,5 +148,39 @@ describe("serviceFormOfDefinition", () => {
     const form = serviceFormOfDefinition(definition);
     form.projectIDs.push("prj_2");
     expect(definition.project_ids).toEqual(["prj_1"]);
+  });
+});
+
+describe("la politique de mise à jour d'une unité", () => {
+  it("fait l'aller-retour entre le serveur et le formulaire", () => {
+    const form = serviceFormOf(nextcloud());
+    expect(form.units.map((unit) => unit.updatePolicy)).toEqual(["hold", "watch"]);
+    form.units[1] = { ...form.units[1]!, updatePolicy: "ignore" };
+    expect(serviceRequestOf(form).units.map((unit) => unit.update_policy)).toEqual(["hold", "ignore"]);
+  });
+
+  it("force watch pour un binaire, même si le formulaire gardait une autre valeur", () => {
+    const form = serviceFormOf(nextcloud());
+    const request = serviceRequestOf({ ...form, origin: "binary", nature: "infra" });
+    expect(request.units.map((unit) => unit.update_policy)).toEqual(["watch", "watch"]);
+  });
+});
+
+describe("linksOfRefusal", () => {
+  const links = { probes: [{ id: "p1", name: "site" }], components: [] };
+
+  it("lit la liste du corps d'un 409", () => {
+    expect(linksOfRefusal(new ApiError(409, "directory.service_linked", { error: "directory.service_linked", links }))).toEqual(links);
+  });
+
+  it("ne dit rien d'un autre refus ni d'une autre erreur", () => {
+    expect(linksOfRefusal(new ApiError(422, "directory.name_invalid", { error: "directory.name_invalid" }))).toBeNull();
+    expect(linksOfRefusal(new ApiError(409, "directory.name_taken", { error: "directory.name_taken" }))).toBeNull();
+    expect(linksOfRefusal(new Error("x"))).toBeNull();
+  });
+
+  it("dit si quelque chose lie le service", () => {
+    expect(hasLinks(links)).toBe(true);
+    expect(hasLinks({ probes: [], components: [] })).toBe(false);
   });
 });

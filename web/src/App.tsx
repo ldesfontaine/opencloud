@@ -41,8 +41,10 @@ export function App() {
         <Route path="machines/jeton" element={<MachineToken />} />
         <Route path="machines/:id" element={<MachinePage />} />
         <Route path="machines/:id/:tab" element={<MachinePage />} />
-        <Route path="services" element={<Services />} />
-        <Route path="services/annuaire" element={<Services tab="annuaire" />} />
+        <Route path="services" element={<Services tab="annuaire" />} />
+        <Route path="services/conteneurs" element={<Services tab="conteneurs" />} />
+        {/* L'ancienne adresse de l'onglet : les liens enregistrés suivent. */}
+        <Route path="services/annuaire" element={<Navigate to="/services" replace />} />
         <Route path="services/annuaire/nouveau" element={<DeclaredServiceForm />} />
         <Route path="services/annuaire/:id/modifier" element={<DeclaredServiceForm />} />
         <Route path="services/annuaire/:id" element={<DeclaredServicePage />} />

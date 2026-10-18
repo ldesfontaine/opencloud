@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -75,13 +76,12 @@ func (db *DB) PurgeImageChecks(ctx context.Context, before time.Time) error {
 	return nil
 }
 
-func (db *DB) SetServiceUpdatePolicy(ctx context.Context, id string, policy service.UpdatePolicy) error {
-	result, err := db.sql.ExecContext(ctx, `UPDATE services SET update_policy = ? WHERE id = ?`, string(policy), id)
+// SetUnitUpdatePolicy écrit la politique de mise à jour d'une unité de
+// l'annuaire ; tous ses conteneurs la lisent.
+func (db *DB) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE service_units SET update_policy = ? WHERE id = ?`, string(policy), unitID)
 	if err != nil {
-		return fmt.Errorf("set update policy of %s: %w", id, err)
+		return fmt.Errorf("set update policy of unit %s: %w", unitID, err)
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return service.ErrNotFound
-	}
-	return nil
+	return directoryNotFoundIfNoRow(result, directory.ErrUnitNotFound)
 }

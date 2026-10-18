@@ -1,4 +1,5 @@
-import type { Capability, DeclaredService, Nature, Origin, ProposalResponse, ServiceUnit } from "../api/types";
+import { ApiError } from "../api/client";
+import type { Capability, DeclaredService, Nature, Origin, ProposalResponse, ServiceLinks, ServiceUnit, UpdatePolicy } from "../api/types";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -6,6 +7,7 @@ import type { Translate } from "../i18n/context";
 export const natures: readonly Nature[] = ["application", "infra"];
 export const origins: readonly Origin[] = ["compose", "container", "binary"];
 export const capabilities: readonly Capability[] = ["sso", "proxy", "tls", "backup-target"];
+export const updatePolicies: readonly UpdatePolicy[] = ["watch", "hold", "ignore"];
 
 // Une unité telle que l'opérateur la tape : des textes. Les ports se
 // saisissent sur une ligne, séparés par des virgules ou des espaces.
@@ -19,6 +21,8 @@ export interface UnitFormValues {
   containerName: string;
   systemdUnit: string;
   ports: string;
+  // Ce que l'opérateur veut des mises à jour de l'unité ; un binaire n'en a pas.
+  updatePolicy: UpdatePolicy;
 }
 
 export interface ServiceFormValues {
@@ -35,7 +39,7 @@ export interface ServiceFormValues {
 }
 
 export function emptyUnitForm(): UnitFormValues {
-  return { id: "", name: "", image: "", version: "", digest: "", containerName: "", systemdUnit: "", ports: "" };
+  return { id: "", name: "", image: "", version: "", digest: "", containerName: "", systemdUnit: "", ports: "", updatePolicy: "watch" };
 }
 
 // Un service neuf : une application Compose et sa première unité vide. Une
@@ -66,6 +70,7 @@ export function unitFormOf(unit: ServiceUnit): UnitFormValues {
     containerName: unit.container_name,
     systemdUnit: unit.systemd_unit,
     ports: formatPorts(unit.ports),
+    updatePolicy: unit.update_policy,
   };
 }
 
@@ -108,6 +113,8 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
       containerName: unit.container_name,
       systemdUnit: unit.systemd_unit,
       ports: formatPorts(unit.ports),
+      // Une unité ajoutée par la proposition n'en porte pas : elle se suit.
+      updatePolicy: unit.update_policy ?? "watch",
     })),
     projectIDs: [...definition.project_ids],
   };
@@ -147,6 +154,8 @@ export function serviceRequestOf(values: ServiceFormValues) {
       container_name: isContainer ? unit.containerName : "",
       systemd_unit: isBinary ? unit.systemdUnit : "",
       ports: parsePorts(unit.ports),
+      // La politique ne vaut que pour un conteneur : un binaire se suit.
+      update_policy: isBinary ? "watch" : unit.updatePolicy,
     })),
     project_ids: values.projectIDs,
   };
@@ -179,4 +188,17 @@ export function projectsSubtitle(t: Translate, count: number): string {
     return t("project.subtitle_none");
   }
   return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
+}
+
+// Ce que le serveur dit lier un service qu'on voulait supprimer : la liste
+// vient du corps du refus 409, pas d'une clé du catalogue.
+export function linksOfRefusal(error: unknown): ServiceLinks | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || typeof error.payload !== "object" || error.payload === null || !("links" in error.payload)) {
+    return null;
+  }
+  return error.payload.links as ServiceLinks;
+}
+
+export function hasLinks(links: ServiceLinks): boolean {
+  return links.probes.length > 0 || links.components.length > 0;
 }

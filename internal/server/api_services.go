@@ -43,8 +43,12 @@ type serviceJSON struct {
 	ComposeService string `json:"compose_service"`
 	ComposeDir     string `json:"compose_dir"`
 	ComposeFile    string `json:"compose_file"`
-	// Ce que l'opérateur veut des mises à jour : "", pinned, excluded.
+	// Ce que l'opérateur veut des mises à jour, réglé sur l'unité de la
+	// fiche : watch, hold, ignore. En lecture seule ici ; watch sans unité.
 	UpdatePolicy string `json:"update_policy"`
+	// Le service de l'annuaire qui porte l'unité de la fiche ; vide : non
+	// déclaré.
+	DeclaredServiceID string `json:"declared_service_id"`
 	// Le dernier constat sur l'image ; absent tant que l'agent n'a rien dit.
 	ImageCheck *imageCheckJSON `json:"image_check"`
 	// Le support de l'image, sur la fiche seulement, et seulement quand
@@ -453,7 +457,7 @@ func serviceToJSON(item service.Service, machineName string, current service.Cur
 		ID: item.ID, MachineID: item.MachineID, MachineName: machineName, Kind: string(item.Kind),
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
 		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
-		UpdatePolicy: string(item.UpdatePolicy), ImageCheck: imageCheckToJSON(item, checks),
+		UpdatePolicy: string(item.UpdatePolicy), DeclaredServiceID: item.DeclaredServiceID, ImageCheck: imageCheckToJSON(item, checks),
 		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: service.Exposure(item),

@@ -4,9 +4,9 @@ import type { Translate } from "../i18n/context";
 type Checked = Pick<Service, "update_policy" | "image_check">;
 
 // Une mise à jour se montre quand le constat en nomme une et que
-// l'opérateur ne l'a pas épinglée ; la même règle que le compteur.
+// l'opérateur ne l'a pas épinglée (hold) ; la même règle que le compteur.
 export function updateAvailable(service: Checked): boolean {
-  return service.update_policy !== "pinned" && service.image_check !== null && service.image_check.kind !== "";
+  return service.update_policy !== "hold" && service.image_check !== null && service.image_check.kind !== "";
 }
 
 // Ce que la pastille écrit : le tag plus récent, ou « reconstruite »

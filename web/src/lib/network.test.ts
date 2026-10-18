@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
-import type { NetworkResponse, Service } from "../api/types";
-import { compactHeight, compactWidth, fitView, internetID, layoutNetwork, layoutOverview, nodeHeight, nodeWidth, peersOf, publicPorts, zoomView } from "./network";
+import type { NetworkResponse, Probe, Service } from "../api/types";
+import { compactHeight, compactWidth, fitView, internetID, layoutNetwork, layoutOverview, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function service(id: string, name: string, extra: Partial<Service> = {}): Service {
   return {
@@ -17,7 +17,8 @@ function service(id: string, name: string, extra: Partial<Service> = {}): Servic
     compose_service: "",
     compose_dir: "",
     compose_file: "",
-    update_policy: "",
+    update_policy: "watch",
+    declared_service_id: "",
     image_check: null,
     state: "running",
     exit_code: 0,
@@ -181,4 +182,11 @@ test("layoutOverview ne cadre pas une machine seule et accepte une machine vide"
   expect(empty.machines[0]!.empty).toBe(true);
   expect(empty.nodes).toHaveLength(0);
   expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 48);
+});
+
+test("probesOf rend les sondes du service déclaré, et rien pour un conteneur non déclaré", () => {
+  const probes = [{ id: "p1", service_id: "svc_1" }, { id: "p2", service_id: "svc_2" }, { id: "p3", service_id: "" }] as Probe[];
+  expect(probesOf(probes, { declared_service_id: "svc_1" }).map((probe) => probe.id)).toEqual(["p1"]);
+  // Une sonde sans service ne se rattache pas à un conteneur sans service déclaré.
+  expect(probesOf(probes, { declared_service_id: "" })).toEqual([]);
 });

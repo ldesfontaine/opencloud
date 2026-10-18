@@ -466,9 +466,8 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		// Docker ne sait pas qu'un arrêt était brutal : l'inventaire le
 		// garde tant que c'est le même arrêt.
 		service.Killed = previous.Killed && service.State == previous.State && service.FinishedAt.Equal(previous.FinishedAt)
-		// Ce que l'opérateur a réglé sur la fiche survit à l'inventaire.
 		service.FirstSeenAt = previous.FirstSeenAt
-		service.UpdatePolicy = previous.UpdatePolicy
+		// L'inventaire ne dit rien de l'annuaire : le rattachement survit.
 		service.UnitID = previous.UnitID
 		service.MatchLevel = previous.MatchLevel
 	}

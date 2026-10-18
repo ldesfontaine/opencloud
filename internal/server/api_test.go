@@ -87,16 +87,16 @@ func (ts *testServer) seedJobs(t *testing.T) string {
 }
 
 // Deux sondes pour des réponses parlantes : l'une sur le site de la
-// machine distante, déjà sondée trois fois et dégradée par un certificat
+// machine distante, qui vise le service déclaré de l'annuaire, déjà sondée trois fois et dégradée par un certificat
 // d'autorité interne qui approche de sa fin, l'autre sur la base, portée
 // par la machine openCloud et encore neuve. Une seule a donc un agrégat
 // journalier.
-func (ts *testServer) seedProbes(t *testing.T, serviceID string) string {
+func (ts *testServer) seedProbes(t *testing.T, declaredServiceID string) string {
 	t.Helper()
 	ctx := context.Background()
 	site, err := ts.probes.Create(ctx, probe.Definition{
 		Name: "site nextcloud", Kind: probe.KindHTTP, Target: "https://cloud.exemple.fr/status.php",
-		MachineID: remoteID, ServiceID: serviceID, ExpectedBody: "installed",
+		MachineID: remoteID, ServiceID: declaredServiceID, ExpectedBody: "installed",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -276,7 +276,8 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
 	serviceID := server.seedServices(t)
-	probeID := server.seedProbes(t, serviceID)
+	declaredID := server.seedGaps(t)
+	probeID := server.seedProbes(t, declaredID)
 	cases := map[string]string{
 		"probes":           "/api/probes",
 		"probe":            "/api/probes/" + probeID,

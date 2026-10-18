@@ -257,3 +257,37 @@ func TestRecordAndRematch_AreSerialisedPerMachine(t *testing.T) {
 		t.Fatal("deux rapprochements de la même machine se sont chevauchés")
 	}
 }
+
+// La politique de mise à jour vit sur l'unité : le conteneur recréé change
+// d'identifiant, pas d'unité, et la lit sans rien avoir à recopier. Une fiche
+// que rien ne rattache se suit.
+func TestRecord_RecreatedContainerReadsThePolicyOfItsUnit(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	webUnit := b.declareUnit(t, "web")
+	units := &fakeUnits{byName: map[string]service.UnitMatch{"web": {UnitID: webUnit, Level: service.MatchName}}}
+	b.tracker.SetUnits(units)
+	b.record(t, inventory(running(webID, "web", ""), running(dbID, "db", "")))
+	if err := b.db.SetUnitUpdatePolicy(ctx, webUnit, service.PolicyHold); err != nil {
+		t.Fatal(err)
+	}
+	if web := b.get(t, webID); web.UpdatePolicy != service.PolicyHold || web.DeclaredServiceID != "svc_web" {
+		t.Fatalf("web = %+v", web)
+	}
+	if db := b.get(t, dbID); db.UpdatePolicy != service.PolicyWatch || db.DeclaredServiceID != "" {
+		t.Fatalf("un conteneur non déclaré se suit: %+v", db)
+	}
+
+	// Le conteneur est recréé sous un autre identifiant, au même nom.
+	const recreatedID = "5ee4f5d1c2b3a49786950a1b2c3d4e5f60718293a4b5c6d7e8f9011223344556"
+	b.now = b.now.Add(5 * time.Minute)
+	b.record(t, inventory(running(recreatedID, "web", ""), running(dbID, "db", "")))
+
+	recreated := b.get(t, recreatedID)
+	if recreated.UnitID != webUnit || recreated.UpdatePolicy != service.PolicyHold {
+		t.Fatalf("le conteneur recréé doit retrouver la politique de son unité: %+v", recreated)
+	}
+	if old := b.get(t, webID); !old.IsArchived() || old.UpdatePolicy != service.PolicyHold {
+		t.Fatalf("la fiche archivée lit la même unité: %+v", old)
+	}
+}

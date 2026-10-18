@@ -16,6 +16,7 @@ import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
+import { adoptPath } from "../lib/gaps";
 import { findingText, formatBindings, servicePill, transitionTitle } from "../lib/services";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatDecimal } from "../lib/units";
@@ -45,9 +46,19 @@ function ServiceView({ response, reload }: { response: ServiceResponse; reload: 
         title={service.name}
         subtitle={service.group !== "" && service.group !== service.name ? service.group : ""}
         actions={
-          <Button icon="globe" to={`/domaines/nouvelle?service=${service.id}`}>
-            {t("probe.watch_service")}
-          </Button>
+          // Une sonde vise le service déclaré : sans lui, il n'y a rien à
+          // surveiller, et le chemin est d'abord d'adopter le conteneur.
+          service.declared_service_id !== "" ? (
+            <Button icon="globe" to={`/domaines/nouvelle?service=${service.declared_service_id}&container=${service.id}`}>
+              {t("probe.watch_service")}
+            </Button>
+          ) : (
+            service.archived_at === null && (
+              <Button icon="plus" to={adoptPath(service.id)}>
+                {t("gap.adopt")}
+              </Button>
+            )
+          )
         }
       />
       <Card>
@@ -78,7 +89,7 @@ function ServiceView({ response, reload }: { response: ServiceResponse; reload: 
           </span>
         </CardBody>
       </Card>
-      <UpdateCard service={service} reload={reload} />
+      <UpdateCard service={service} directory={response.directory} reload={reload} />
       <DirectoryCard service={service} directory={response.directory} />
       <div className="grid-3">
         <Card>

@@ -10,7 +10,6 @@ import (
 var (
 	ErrReportInvalid  = errors.New("image report out of range")
 	ErrMachineOffline = errors.New("machine offline")
-	ErrBadPolicy      = errors.New("unknown update policy")
 )
 
 // Check est le dernier constat gardé par (machine, image) : les faits de

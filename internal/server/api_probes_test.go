@@ -63,14 +63,17 @@ func TestAPI_CreateProbe_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testin
 	}
 }
 
-func TestAPI_CreateProbe_RefusesAServiceUnknownOrOfAnotherMachine(t *testing.T) {
+// La sonde vise un service déclaré de l'annuaire, sur n'importe quelle
+// machine : un service inconnu ou un identifiant de conteneur est refusé.
+func TestAPI_CreateProbe_AcceptsADeclaredServiceOfAnyMachineAndRefusesTheRest(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedServices(t)
+	declaredID := server.seedGaps(t)
 
 	cases := map[string]probeRequest{
-		"service inconnu":             {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: "inexistant"},
-		"service d'une autre machine": {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: serviceID},
+		"service inconnu":      {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: "inexistant"},
+		"fiche d'un conteneur": {Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: containerID},
 	}
 	for name, request := range cases {
 		got := callAPI(server.Server, http.MethodPost, "/api/probes", request)
@@ -79,9 +82,11 @@ func TestAPI_CreateProbe_RefusesAServiceUnknownOrOfAnotherMachine(t *testing.T) 
 		}
 	}
 
-	request := probeRequest{Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: remoteID, ServiceID: serviceID}
-	if created := server.createProbeVia(t, request); created.ServiceID != serviceID {
-		t.Fatalf("le service de la machine devait se rattacher: %+v", created)
+	// Le service tourne sur la machine distante, la sonde sur la machine openCloud.
+	request := probeRequest{Name: "x", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: declaredID}
+	created := server.createProbeVia(t, request)
+	if created.ServiceID != declaredID || created.ServiceName != "nextcloud" || created.ServiceMachineName != "vps-paris-1" {
+		t.Fatalf("le service d'une autre machine devait se rattacher: %+v", created)
 	}
 }
 

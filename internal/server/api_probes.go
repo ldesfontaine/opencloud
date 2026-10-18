@@ -30,25 +30,27 @@ type probeJSON struct {
 	MachineName string `json:"machine_name"`
 	// Sans son flux, la machine ne sonde pas : l'état montré est le dernier
 	// connu, et l'interface le dit plutôt que de le faire croire vrai.
-	MachineOnline     bool             `json:"machine_online"`
-	ServiceID         string           `json:"service_id"`
-	ServiceName       string           `json:"service_name"`
-	Status            string           `json:"status"`
-	IntervalSeconds   int              `json:"interval_seconds"`
-	TimeoutSeconds    int              `json:"timeout_seconds"`
-	FailureThreshold  int              `json:"failure_threshold"`
-	RecoveryThreshold int              `json:"recovery_threshold"`
-	Method            string           `json:"method"`
-	ExpectedStatus    string           `json:"expected_status"`
-	ExpectedBody      string           `json:"expected_body"`
-	FollowRedirects   bool             `json:"follow_redirects"`
-	TLS               bool             `json:"tls"`
-	LastCheckedAt     *time.Time       `json:"last_checked_at"`
-	LastDurationMs    int64            `json:"last_duration_ms"`
-	LastCode          *int             `json:"last_code"`
-	LastReason        string           `json:"last_reason"`
-	Certificate       *certificateJSON `json:"certificate"`
-	CreatedAt         time.Time        `json:"created_at"`
+	MachineOnline bool   `json:"machine_online"`
+	ServiceID     string `json:"service_id"`
+	ServiceName   string `json:"service_name"`
+	// La machine qui porte le service : la sonde peut en voir un d'une autre.
+	ServiceMachineName string           `json:"service_machine_name"`
+	Status             string           `json:"status"`
+	IntervalSeconds    int              `json:"interval_seconds"`
+	TimeoutSeconds     int              `json:"timeout_seconds"`
+	FailureThreshold   int              `json:"failure_threshold"`
+	RecoveryThreshold  int              `json:"recovery_threshold"`
+	Method             string           `json:"method"`
+	ExpectedStatus     string           `json:"expected_status"`
+	ExpectedBody       string           `json:"expected_body"`
+	FollowRedirects    bool             `json:"follow_redirects"`
+	TLS                bool             `json:"tls"`
+	LastCheckedAt      *time.Time       `json:"last_checked_at"`
+	LastDurationMs     int64            `json:"last_duration_ms"`
+	LastCode           *int             `json:"last_code"`
+	LastReason         string           `json:"last_reason"`
+	Certificate        *certificateJSON `json:"certificate"`
+	CreatedAt          time.Time        `json:"created_at"`
 }
 
 // La chaîne présentée, réduite à des faits. Le serveur ne dit ni « valide »
@@ -124,31 +126,32 @@ type probeRequest struct {
 
 func probeToJSON(found probe.Probe, online bool) probeJSON {
 	return probeJSON{
-		ID:                found.ID,
-		Name:              found.Name,
-		Kind:              string(found.Kind),
-		Target:            found.Target,
-		MachineID:         found.MachineID,
-		MachineName:       found.MachineName,
-		MachineOnline:     online,
-		ServiceID:         found.ServiceID,
-		ServiceName:       found.ServiceName,
-		Status:            string(found.Status),
-		IntervalSeconds:   int(found.Interval.Seconds()),
-		TimeoutSeconds:    int(found.Timeout.Seconds()),
-		FailureThreshold:  found.FailureThreshold,
-		RecoveryThreshold: found.RecoveryThreshold,
-		Method:            found.Method,
-		ExpectedStatus:    found.ExpectedStatus,
-		ExpectedBody:      found.ExpectedBody,
-		FollowRedirects:   found.FollowRedirects,
-		TLS:               found.TLS,
-		LastCheckedAt:     timeOrNil(found.LastCheckedAt),
-		LastDurationMs:    found.LastDurationMs,
-		LastCode:          found.LastCode,
-		LastReason:        string(found.LastReason),
-		Certificate:       certificateToJSON(found.Certificate),
-		CreatedAt:         found.CreatedAt.UTC(),
+		ID:                 found.ID,
+		Name:               found.Name,
+		Kind:               string(found.Kind),
+		Target:             found.Target,
+		MachineID:          found.MachineID,
+		MachineName:        found.MachineName,
+		MachineOnline:      online,
+		ServiceID:          found.ServiceID,
+		ServiceName:        found.ServiceName,
+		ServiceMachineName: found.ServiceMachineName,
+		Status:             string(found.Status),
+		IntervalSeconds:    int(found.Interval.Seconds()),
+		TimeoutSeconds:     int(found.Timeout.Seconds()),
+		FailureThreshold:   found.FailureThreshold,
+		RecoveryThreshold:  found.RecoveryThreshold,
+		Method:             found.Method,
+		ExpectedStatus:     found.ExpectedStatus,
+		ExpectedBody:       found.ExpectedBody,
+		FollowRedirects:    found.FollowRedirects,
+		TLS:                found.TLS,
+		LastCheckedAt:      timeOrNil(found.LastCheckedAt),
+		LastDurationMs:     found.LastDurationMs,
+		LastCode:           found.LastCode,
+		LastReason:         string(found.LastReason),
+		Certificate:        certificateToJSON(found.Certificate),
+		CreatedAt:          found.CreatedAt.UTC(),
 	}
 }
 

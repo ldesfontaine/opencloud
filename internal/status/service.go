@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -52,6 +54,8 @@ type Store interface {
 	PurgeIncidents(ctx context.Context, resolvedBefore time.Time) error
 
 	ListServices(ctx context.Context, machineID string) ([]service.Service, error)
+	GetService(ctx context.Context, id string) (service.Service, error)
+	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
 	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 	ListProbes(ctx context.Context, machineID string) ([]probe.Probe, error)
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]probe.Day, error)
@@ -121,10 +125,21 @@ func (s *Service) SetFeed(feed Feed) {
 // incident de maintenance qui s'applique : le moteur des alertes ouvre
 // alors l'alerte sans la livrer. Un objet rattaché nulle part ne l'est
 // jamais.
+//
+// Le genre « service » d'une alerte désigne un conteneur observé, alors que
+// celui d'un membre désigne un service de l'annuaire : le conteneur est
+// retrouvé par son unité. Un conteneur non déclaré n'est dans aucun composant.
 func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID string) (bool, error) {
 	ref := MemberRef{Kind: MemberKind(objectKind), ID: objectID}
 	if !isKind(ref.Kind) || ref.ID == "" {
 		return false, nil
+	}
+	if ref.Kind == KindService {
+		declaredID, err := s.declaredServiceOf(ctx, ref.ID)
+		if err != nil || declaredID == "" {
+			return false, err
+		}
+		ref.ID = declaredID
 	}
 	components, err := s.store.ListComponents(ctx)
 	if err != nil {
@@ -158,6 +173,21 @@ func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID str
 		}
 	}
 	return false, nil
+}
+
+// declaredServiceOf rend le service de l'annuaire qui porte l'unité d'un
+// conteneur ; vide si le conteneur n'existe plus ou n'est pas déclaré.
+func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (string, error) {
+	container, err := s.store.GetService(ctx, containerID)
+	if errors.Is(err, service.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	// La fiche porte déjà le service de son unité : pas besoin de relire
+	// l'annuaire à chaque alerte.
+	return container.DeclaredServiceID, nil
 }
 
 // --- Composants ---
@@ -274,15 +304,16 @@ func (s *Service) judge(component *Component, known facts, incidents []Incident)
 	component.Effective = effective(component.Derived, override(component.ID, incidents))
 }
 
-// facts lit tous les objets d'un coup : quatre lectures, quel que soit le
+// facts lit tous les objets d'un coup : cinq lectures, quel que soit le
 // nombre de composants.
 func (s *Service) facts(ctx context.Context) (facts, error) {
 	known := facts{
-		machines:   map[string]machine.Status{},
-		services:   map[string]service.Service{},
-		heartbeats: map[string]heartbeat.Heartbeat{},
-		probes:     map[string]probe.Probe{},
-		now:        s.now(),
+		machines:         map[string]machine.Status{},
+		declared:         map[string]directory.Service{},
+		containersByUnit: map[string][]service.Service{},
+		heartbeats:       map[string]heartbeat.Heartbeat{},
+		probes:           map[string]probe.Probe{},
+		now:              s.now(),
 	}
 	machines, err := s.machines.List(ctx)
 	if err != nil {
@@ -291,12 +322,21 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 	for _, found := range machines {
 		known.machines[found.ID] = found
 	}
-	services, err := s.store.ListServices(ctx, "")
+	declared, err := s.store.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		return facts{}, err
 	}
-	for _, found := range services {
-		known.services[found.ID] = found
+	for _, found := range declared {
+		known.declared[found.ID] = found
+	}
+	containers, err := s.store.ListServices(ctx, "")
+	if err != nil {
+		return facts{}, err
+	}
+	for _, found := range containers {
+		if !found.IsArchived() && found.UnitID != "" {
+			known.containersByUnit[found.UnitID] = append(known.containersByUnit[found.UnitID], found)
+		}
 	}
 	heartbeats, err := s.store.ListHeartbeats(ctx)
 	if err != nil {

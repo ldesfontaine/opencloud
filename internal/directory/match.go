@@ -31,15 +31,21 @@ func Match(declared []Service, containers []service.Service) map[string]service.
 		if container.IsArchived() {
 			continue
 		}
-		if match, ok := matchCompose(byCompose, container); ok {
-			matches[container.ID] = match
-			continue
-		}
-		if match, ok := matchName(byName, container); ok {
+		if match, ok := matchOne(byCompose, byName, container); ok {
 			matches[container.ID] = match
 		}
 	}
 	return matches
+}
+
+// matchOne applique la règle à une fiche, vivante ou non : le projet gagne
+// sur le nom. Match n'y met que le filtre « vivant » ; la reprise de
+// l'existant s'en sert aussi pour les fiches archivées.
+func matchOne(byCompose, byName map[string]string, container service.Service) (service.UnitMatch, bool) {
+	if match, ok := matchCompose(byCompose, container); ok {
+		return match, true
+	}
+	return matchName(byName, container)
 }
 
 func matchCompose(byCompose map[string]string, container service.Service) (service.UnitMatch, bool) {

@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -151,8 +151,8 @@ func TestCreate_RefusesMoreProbesThanAMachineCarries(t *testing.T) {
 
 const remoteMachineID = "11111111-2222-4333-8444-555555555555"
 
-// enrollRemote ajoute une seconde machine : un service ne peut être
-// surveillé que par une sonde de la machine qui le porte.
+// enrollRemote ajoute une seconde machine : une sonde peut surveiller un
+// service déclaré sur une autre machine que la sienne.
 func (b *bench) enrollRemote(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -175,17 +175,12 @@ func (b *bench) enrollRemote(t *testing.T) {
 	}
 }
 
-// addService écrit la fiche d'un conteneur sur la machine donnée.
+// addService écrit un service déclaré sur la machine donnée.
 func (b *bench) addService(t *testing.T, id, machineID string) {
 	t.Helper()
-	err := b.db.ApplyChanges(context.Background(), service.Changes{
-		MachineID: machineID,
-		Now:       testNow,
-		Services: []service.Service{{
-			ID: id, MachineID: machineID, Kind: service.KindContainer, Name: "nextcloud",
-			ContainerID: "abc", State: service.StateRunning,
-			CreatedAt: testNow, FirstSeenAt: testNow, LastSeenAt: testNow,
-		}},
+	err := b.db.InsertDeclaredService(context.Background(), directory.Service{
+		ID: id, MachineID: machineID, Name: "nextcloud", Nature: directory.NatureApplication,
+		Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator, CreatedAt: testNow, UpdatedAt: testNow,
 	})
 	if err != nil {
 		t.Fatalf("écrire le service: %v", err)
@@ -199,20 +194,20 @@ func (b *bench) createWithService(machineID, serviceID string) (probe.Probe, err
 	})
 }
 
-func TestCreate_AttachesAServiceOfTheProbeMachine(t *testing.T) {
+func TestCreate_AttachesADeclaredServiceAndReadsItsMachine(t *testing.T) {
 	fixture := newBench(t)
-	fixture.addService(t, "svc-local", machine.LocalID)
+	fixture.addService(t, "svc_local", machine.LocalID)
 
-	created, err := fixture.createWithService(machine.LocalID, "svc-local")
+	created, err := fixture.createWithService(machine.LocalID, "svc_local")
 	if err != nil {
 		t.Fatalf("créer la sonde: %v", err)
 	}
-	if created.ServiceID != "svc-local" || created.ServiceName != "nextcloud" {
+	if created.ServiceID != "svc_local" || created.ServiceName != "nextcloud" || created.ServiceMachineName == "" {
 		t.Fatalf("la sonde n'est pas rattachée: %+v", created)
 	}
 }
 
-func TestCreate_RefusesAServiceThatDoesNotExist(t *testing.T) {
+func TestCreate_UnknownDeclaredServiceRefused(t *testing.T) {
 	fixture := newBench(t)
 
 	_, err := fixture.createWithService(machine.LocalID, "inexistant")
@@ -224,17 +219,20 @@ func TestCreate_RefusesAServiceThatDoesNotExist(t *testing.T) {
 	}
 }
 
-func TestCreate_RefusesAServiceOfAnotherMachine(t *testing.T) {
+// La sonde qui regarde de l'extérieur surveille un service qui tourne
+// ailleurs : l'ancienne règle « la machine de la sonde porte le service »
+// n'a plus lieu d'être.
+func TestCreate_DeclaredServiceOfAnotherMachineAccepted(t *testing.T) {
 	fixture := newBench(t)
 	fixture.enrollRemote(t)
-	fixture.addService(t, "svc-remote", remoteMachineID)
+	fixture.addService(t, "svc_remote", remoteMachineID)
 
-	_, err := fixture.createWithService(machine.LocalID, "svc-remote")
-	if !errors.Is(err, probe.ErrServiceInvalid) {
-		t.Fatalf("attendu %v, obtenu %v", probe.ErrServiceInvalid, err)
+	created, err := fixture.createWithService(machine.LocalID, "svc_remote")
+	if err != nil {
+		t.Fatalf("le service d'une autre machine doit passer: %v", err)
 	}
-	if _, err := fixture.createWithService(remoteMachineID, "svc-remote"); err != nil {
-		t.Fatalf("le service de la machine doit passer: %v", err)
+	if created.MachineID != machine.LocalID || created.ServiceID != "svc_remote" || created.ServiceMachineName != "vps" {
+		t.Fatalf("sonde = %+v", created)
 	}
 }
 
@@ -824,7 +822,6 @@ func TestUpdate_MovingMachine_HandsTheSetToBoth(t *testing.T) {
 func TestUpdate_ReplaysValidation(t *testing.T) {
 	fixture := newBench(t)
 	fixture.enrollRemote(t)
-	fixture.addService(t, "svc-remote", remoteMachineID)
 	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
 
 	cases := []struct {
@@ -843,7 +840,7 @@ func TestUpdate_ReplaysValidation(t *testing.T) {
 		{"méthode interdite", func(d *probe.Definition) { d.Method = "DELETE" }, probe.ErrMethodInvalid},
 		{"code attendu illisible", func(d *probe.Definition) { d.ExpectedStatus = "beaucoup" }, probe.ErrStatusInvalid},
 		{"texte attendu trop long", func(d *probe.Definition) { d.ExpectedBody = strings.Repeat("x", probe.MaxBodyLength+1) }, probe.ErrBodyInvalid},
-		{"service d'une autre machine", func(d *probe.Definition) { d.ServiceID = "svc-remote" }, probe.ErrServiceInvalid},
+		{"service absent de l'annuaire", func(d *probe.Definition) { d.ServiceID = "svc_absent" }, probe.ErrServiceInvalid},
 	}
 	for _, c := range cases {
 		definition := definitionOf(created)

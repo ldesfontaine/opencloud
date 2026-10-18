@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { MachinesResponse, Probe, ProbeKind, ProbeResponse, ServicesResponse } from "../api/types";
+import type { DeclaredServicesResponse, MachinesResponse, Probe, ProbeKind, ProbeResponse, ServiceResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -18,9 +18,11 @@ import { NotFound } from "./NotFound";
 
 // Créer ou modifier une sonde : l'opérateur dit ce qu'il faut joindre, tous
 // les combien, et depuis quelle machine ; le serveur valide et répond par la
-// clé du refus. Venu d'une fiche de service, le formulaire de création
-// arrive déjà rempli. En édition, il part de la sonde et la remplace
-// entière ; ce qui change ce qu'elle mesure la remet à « Nouveau ».
+// clé du refus. La sonde vise un service déclaré de l'annuaire, sur n'importe
+// quelle machine : venu de sa fiche (?service=), ou d'un conteneur
+// (?service=&container=), le formulaire de création arrive déjà rempli. En
+// édition, il part de la sonde et la remplace entière ; ce qui change ce
+// qu'elle mesure la remet à « Nouveau ».
 export function ProbeForm() {
   const { id } = useParams();
   const isEditing = id !== undefined;
@@ -29,13 +31,13 @@ export function ProbeForm() {
   const { refresh } = useRefresh();
   const [params] = useSearchParams();
   const fromService = params.get("service") ?? "";
+  const fromContainer = params.get("container") ?? "";
   const machines = useResource<MachinesResponse>("/api/machines");
-  const services = useResource<ServicesResponse>(fromService === "" ? null : "/api/services");
+  const declared = useResource<DeclaredServicesResponse>("/api/directory/services");
+  const container = useResource<ServiceResponse>(fromContainer === "" ? null : `/api/services/${fromContainer}`);
   const existing = useResource<ProbeResponse>(isEditing ? `/api/probes/${id}` : null);
 
   const [values, setValues] = useState<ProbeFormValues>(emptyProbeForm);
-  // Le service ne se choisit pas ici : il vient de sa fiche à la création,
-  // et ne fait que se détacher à l'édition.
   const [serviceID, setServiceID] = useState(fromService);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,25 +68,34 @@ export function ProbeForm() {
     }
   }, [isEditing, local, values.machineID]);
 
-  // Venue d'un service, la sonde vise son premier port publié depuis la
-  // machine qui le porte : la vue depuis l'intérieur, qui marche derrière
-  // un NAT comme ailleurs.
-  const service = services.data?.services.find((candidate) => candidate.id === fromService);
+  // Venue d'un service déclaré, la sonde en prend le nom. Venue d'un de ses
+  // conteneurs, elle vise en plus son premier port publié depuis la machine
+  // qui le porte : la vue depuis l'intérieur, qui marche derrière un NAT
+  // comme ailleurs.
+  const service = declared.data?.services.find((candidate) => candidate.id === fromService);
+  const carrier = container.data?.service;
+  const ready = service !== undefined && (fromContainer === "" || carrier !== undefined);
   useEffect(() => {
-    if (prefilled || service === undefined) {
+    if (prefilled || fromService === "" || !ready) {
       return;
     }
     setPrefilled(true);
     setValues((current) => {
-      const next = { ...current, name: service.name, machineID: service.machine_id };
-      const port = service.ports[0];
-      if (port !== undefined) {
+      const next = { ...current, name: service.title !== "" ? service.title : service.name };
+      // La machine qui porte le conteneur sonde, port publié ou non : sans
+      // port il n'y a pas de cible à deviner, mais la vue depuis l'intérieur
+      // reste celle qu'on veut.
+      if (carrier !== undefined) {
+        next.machineID = carrier.machine_id;
+      }
+      const port = carrier?.ports[0];
+      if (carrier !== undefined && port !== undefined) {
         const host = isPublicIP(port.ip) ? "127.0.0.1" : port.ip;
         next.target = `http://${host}:${String(port.host_port)}/`;
       }
       return next;
     });
-  }, [service, prefilled]);
+  }, [fromService, ready, service, carrier, prefilled]);
 
   if (isEditing && existing.error?.status === 404) {
     return <NotFound />;
@@ -143,14 +154,16 @@ export function ProbeForm() {
               </Select>
             </Field>
           </div>
-          {isEditing && existing.data !== null && existing.data.probe.service_id !== "" && (
-            <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>
-              <Select id="probe-service" value={serviceID} onChange={(event) => setServiceID(event.target.value)}>
-                <option value={existing.data.probe.service_id}>{existing.data.probe.service_name}</option>
-                <option value="">{t("probe.service_none")}</option>
-              </Select>
-            </Field>
-          )}
+          <Field label={t("probe.service_label")} htmlFor="probe-service" help={t("probe.service_help")}>
+            <Select id="probe-service" value={serviceID} onChange={(event) => setServiceID(event.target.value)}>
+              <option value="">{t("probe.service_none")}</option>
+              {(declared.data?.services ?? []).map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {t("probe.service_option", candidate.title !== "" ? candidate.title : candidate.name, candidate.machine_name)}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <Field
             label={t("probe.target_label")}
             htmlFor="probe-target"

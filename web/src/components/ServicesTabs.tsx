@@ -3,8 +3,8 @@ import { NavLink } from "react-router";
 import { useT } from "../i18n/context";
 
 const tabs = [
-  { href: "/services", key: "services.tab_containers" },
-  { href: "/services/annuaire", key: "services.tab_directory" },
+  { href: "/services", key: "services.tab_directory" },
+  { href: "/services/conteneurs", key: "services.tab_containers" },
   { href: "/services/projets", key: "services.tab_projects" },
 ];
 

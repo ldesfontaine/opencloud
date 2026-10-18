@@ -137,6 +137,9 @@ interface NavEntry {
   key: string;
   href: string;
   icon: IconName;
+  // Où mène l'entrée quand son compteur demande attention : les services du
+  // compteur sont des conteneurs, qui ne sont plus la première page de Services.
+  attentionHref?: string;
 }
 
 // Seul ce qui est livré a son entrée : les Sauvegardes reviendront avec
@@ -144,7 +147,7 @@ interface NavEntry {
 const viewEntries: NavEntry[] = [
   { key: "overview", href: "/", icon: "grid" },
   { key: "machines", href: "/machines", icon: "server" },
-  { key: "services", href: "/services", icon: "box" },
+  { key: "services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
   { key: "domains", href: "/domaines", icon: "globe" },
   { key: "jobs", href: "/taches", icon: "clock" },
   { key: "statuspage", href: "/page-statut", icon: "eye" },
@@ -255,8 +258,9 @@ function counter(key: string, counts: Counts | null): Counter | null {
 
 function NavItem({ entry, counter }: { entry: NavEntry; counter: Counter | null }) {
   const { t } = useI18n();
+  const href = counter?.hot === true && entry.attentionHref !== undefined ? entry.attentionHref : entry.href;
   return (
-    <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={entry.href} end={entry.href === "/"}>
+    <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={href} end={entry.href === "/"}>
       <Icon name={entry.icon} />
       <span>{t(`nav.${entry.key}`)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}

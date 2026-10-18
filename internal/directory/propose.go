@@ -146,6 +146,7 @@ func definitionOf(existing Service) ServiceDefinition {
 		units = append(units, UnitDefinition{
 			ID: unit.ID, Name: unit.Name, Kind: unit.Kind, Image: unit.Image, Version: unit.Version, Digest: unit.Digest,
 			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: slices.Clone(unit.Ports),
+			UpdatePolicy: unit.UpdatePolicy,
 		})
 	}
 	return ServiceDefinition{

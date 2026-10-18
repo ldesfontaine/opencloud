@@ -47,8 +47,8 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "job.outcome_", values: names(heartbeat.Outcomes())},
 		{prefix: "service.health_", values: names(service.Healths())},
 		{prefix: "network.exposure_", values: names(service.FindingKinds())},
-		// Suivre est la politique par défaut, sans pastille.
-		{prefix: "update.policy_", values: without(names(service.UpdatePolicies()), "")},
+		// Les trois politiques ont leur libellé : le sélecteur de l'unité les montre toutes.
+		{prefix: "update.policy_", values: names(service.UpdatePolicies())},
 		// Une vérification réussie dit ce qu'elle a trouvé, pas son issue.
 		{prefix: "update.outcome_", values: without(names(update.Outcomes()), string(update.OutcomeOK))},
 		{prefix: "update.kind_", values: names(update.Kinds())},

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.nature, s.origin,
@@ -17,7 +18,7 @@ const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.n
 
 const declaredServiceFrom = ` FROM declared_services s JOIN machines m ON m.id = s.machine_id`
 
-const unitColumns = `id, service_id, name, kind, image, version, digest, container_name, systemd_unit, ports`
+const unitColumns = `id, service_id, name, kind, image, version, digest, container_name, systemd_unit, ports, update_policy`
 
 // --- Services déclarés ---
 
@@ -356,10 +357,10 @@ func insertUnit(ctx context.Context, tx *sql.Tx, unit directory.Unit, position i
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO service_units (id, service_id, name, kind, image, version, digest,
-			container_name, systemd_unit, ports, position)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			container_name, systemd_unit, ports, update_policy, position)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		unit.ID, unit.ServiceID, unit.Name, string(unit.Kind), unit.Image, unit.Version, unit.Digest,
-		unit.ContainerName, unit.SystemdUnit, ports, position)
+		unit.ContainerName, unit.SystemdUnit, ports, string(unit.UpdatePolicy), position)
 	if err != nil {
 		return fmt.Errorf("insert unit: %w", err)
 	}
@@ -373,10 +374,10 @@ func updateUnit(ctx context.Context, tx *sql.Tx, unit directory.Unit, position i
 	}
 	_, err = tx.ExecContext(ctx, `
 		UPDATE service_units SET name = ?, kind = ?, image = ?, version = ?, digest = ?,
-			container_name = ?, systemd_unit = ?, ports = ?, position = ?
+			container_name = ?, systemd_unit = ?, ports = ?, update_policy = ?, position = ?
 		WHERE id = ?`,
 		unit.Name, string(unit.Kind), unit.Image, unit.Version, unit.Digest,
-		unit.ContainerName, unit.SystemdUnit, ports, position, unit.ID)
+		unit.ContainerName, unit.SystemdUnit, ports, string(unit.UpdatePolicy), position, unit.ID)
 	if err != nil {
 		return fmt.Errorf("update unit: %w", err)
 	}
@@ -568,13 +569,14 @@ func (db *DB) listUnits(ctx context.Context, scope partsScope) ([]directory.Unit
 
 func scanUnit(row scanner) (directory.Unit, error) {
 	var unit directory.Unit
-	var kind, ports string
+	var kind, ports, policy string
 	err := row.Scan(&unit.ID, &unit.ServiceID, &unit.Name, &kind, &unit.Image, &unit.Version, &unit.Digest,
-		&unit.ContainerName, &unit.SystemdUnit, &ports)
+		&unit.ContainerName, &unit.SystemdUnit, &ports, &policy)
 	if err != nil {
 		return directory.Unit{}, err
 	}
 	unit.Kind = directory.UnitKind(kind)
+	unit.UpdatePolicy = service.UpdatePolicy(policy)
 	unit.Ports = []string{}
 	if err := json.Unmarshal([]byte(ports), &unit.Ports); err != nil {
 		return directory.Unit{}, fmt.Errorf("decode unit ports: %w", err)
@@ -618,13 +620,100 @@ func (db *DB) listServiceLinks(ctx context.Context, query string, args ...any) (
 }
 
 // DeleteDeclaredService efface le service ; ses unités, ses fournitures et
-// ses liens de projet partent avec lui, les projets restent.
+// ses liens de projet partent avec lui, les projets restent. Des sondes ou
+// des composants de statut qui le visent le retiennent : les compter et
+// supprimer se font dans la même transaction, pour qu'un lien posé entre les
+// deux ne passe pas. La clé étrangère en restrict reste le filet.
 func (db *DB) DeleteDeclaredService(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM declared_services WHERE id = ?`, id)
+	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin delete declared service: %w", err)
+	}
+	defer tx.Rollback()
+	var found int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE id = ?`, id).Scan(&found); err != nil {
+		return fmt.Errorf("find declared service: %w", err)
+	}
+	if found == 0 {
+		return directory.ErrNotFound
+	}
+	links, err := listServiceLinks(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if !links.IsEmpty() {
+		return &directory.LinkedError{Links: links}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM declared_services WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("delete declared service: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete declared service: %w", err)
+	}
+	return nil
+}
+
+// ListServiceLinks rend les sondes et les composants de statut qui visent le
+// service, par nom.
+func (db *DB) ListServiceLinks(ctx context.Context, serviceID string) (directory.Links, error) {
+	return listServiceLinks(ctx, db.sql, serviceID)
+}
+
+// querier est ce que la base et une transaction ont en commun pour lire.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func listServiceLinks(ctx context.Context, db querier, serviceID string) (directory.Links, error) {
+	probes, err := linkedObjects(ctx, db, `SELECT id, name FROM probes WHERE service_id = ? ORDER BY name, id`, serviceID)
+	if err != nil {
+		return directory.Links{}, fmt.Errorf("list service probes: %w", err)
+	}
+	components, err := linkedObjects(ctx, db, `
+		SELECT id, name FROM status_components
+		WHERE id IN (SELECT component_id FROM status_component_members WHERE service_id = ?)
+		ORDER BY position, name, id`, serviceID)
+	if err != nil {
+		return directory.Links{}, fmt.Errorf("list service components: %w", err)
+	}
+	return directory.Links{Probes: probes, Components: components}, nil
+}
+
+// linkedObjects lit des lignes (id, nom).
+func linkedObjects(ctx context.Context, db querier, query string, args ...any) ([]directory.LinkedObject, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	objects := []directory.LinkedObject{}
+	for rows.Next() {
+		var object directory.LinkedObject
+		if err := rows.Scan(&object.ID, &object.Name); err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+	return objects, rows.Err()
+}
+
+// MarkServiceReviewed baisse « à vérifier » : l'opérateur a relu ce que la
+// reprise de l'existant avait créé.
+func (db *DB) MarkServiceReviewed(ctx context.Context, id string, at time.Time) error {
+	result, err := db.sql.ExecContext(ctx,
+		`UPDATE declared_services SET needs_review = 0, updated_at = ? WHERE id = ?`, at.Unix(), id)
+	if err != nil {
+		return fmt.Errorf("mark declared service reviewed: %w", err)
+	}
 	return directoryNotFoundIfNoRow(result, directory.ErrNotFound)
+}
+
+func (db *DB) GetUnit(ctx context.Context, id string) (directory.Unit, error) {
+	unit, err := scanUnit(db.sql.QueryRowContext(ctx, `SELECT `+unitColumns+` FROM service_units WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return directory.Unit{}, directory.ErrUnitNotFound
+	}
+	return unit, err
 }
 
 func directoryNotFoundIfNoRow(result sql.Result, notFound error) error {

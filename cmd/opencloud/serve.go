@@ -141,6 +141,9 @@ func runServe(args []string) error {
 	// rattacher de nouveau après chaque écriture.
 	declared.SetObserved(services, updates)
 	declared.SetRematcher(services)
+	// La politique de mise à jour vit sur l'unité : l'annuaire dit au suivi
+	// des images de redire à la machine ce qu'elle ne doit plus interroger.
+	declared.SetAssigner(updates)
 	services.SetUnits(declared)
 	docker := dockerapi.New(cfg.DockerSocket)
 	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: updates, logger: logger}, logger)
@@ -213,11 +216,13 @@ func runServe(args []string) error {
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
 	probes.Assign(ctx, machine.LocalID)
-	updates.Assign(ctx, machine.LocalID)
 	// Les services saisis avant que le rapprochement existe, ou pendant que
 	// le serveur était arrêté, sont rattachés sans attendre l'inventaire
-	// suivant de chaque agent.
+	// suivant de chaque agent. Les exclusions se disent après : c'est
+	// l'unité rattachée qui porte la politique.
 	services.RematchAll(ctx)
+	updates.Assign(ctx, machine.LocalID)
+	logServicesToReview(ctx, declared, logger)
 
 	server, err := server.New(server.Options{
 		Logger:         logger,
@@ -473,5 +478,25 @@ type localProbes struct {
 func (p localProbes) Deliver(report probe.Report) {
 	if err := p.probes.Record(p.ctx, machine.LocalID, report); err != nil && p.ctx.Err() == nil {
 		p.logger.Error("record local probes", "error", err)
+	}
+}
+
+// logServicesToReview dit au journal combien de services repris de l'existant
+// attendent la relecture de l'opérateur : la mise à jour qui relie l'annuaire
+// en crée, et rien d'autre ne le prévient.
+func logServicesToReview(ctx context.Context, declared *directory.Directory, logger *slog.Logger) {
+	found, err := declared.ListServices(ctx, directory.Filter{})
+	if err != nil {
+		logger.Warn("list declared services to review", "error", err)
+		return
+	}
+	count := 0
+	for _, candidate := range found {
+		if candidate.NeedsReview {
+			count++
+		}
+	}
+	if count > 0 {
+		logger.Info("declared services to review", "count", count)
 	}
 }

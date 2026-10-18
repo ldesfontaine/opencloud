@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Nature dit si le service est ce que l'on déploie pour ses utilisateurs ou
@@ -123,6 +125,13 @@ var (
 	ErrContainerDeclared = errors.New("container already belongs to a declared service")
 	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
 	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
+
+	ErrUpdatePolicyInvalid = errors.New("unit update policy must be watch, hold or ignore, and only watch for a binary")
+	ErrUnitNotFound        = errors.New("unit not found")
+	// ErrServiceLinked : des sondes ou des composants de statut visent le
+	// service. LinkedError porte la liste ; errors.Is(err, ErrServiceLinked)
+	// le reconnaît.
+	ErrServiceLinked = errors.New("declared service is still watched or shown")
 )
 
 // Service est un service tel que l'opérateur l'a déclaré, avec ses unités.
@@ -159,6 +168,9 @@ type Unit struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Ce que l'opérateur veut des mises à jour de l'image ; elle vaut pour
+	// tous les conteneurs de l'unité, recréés compris.
+	UpdatePolicy service.UpdatePolicy
 }
 
 // Project regroupe des services. Le lien est le seul que le projet porte :
@@ -201,6 +213,8 @@ type UnitDefinition struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Vide : Complete la pose à watch.
+	UpdatePolicy service.UpdatePolicy
 }
 
 type ProjectDefinition struct {
@@ -212,6 +226,38 @@ type ProjectDefinition struct {
 type Filter struct {
 	MachineID string
 	ProjectID string
+}
+
+// LinkedObject est un objet qui vise un service déclaré : une sonde ou un
+// composant de statut.
+type LinkedObject struct {
+	ID   string
+	Name string
+}
+
+// Links dit ce qui vise un service déclaré. Tant qu'il n'est pas vide, le
+// service ne se supprime pas.
+type Links struct {
+	Probes     []LinkedObject
+	Components []LinkedObject
+}
+
+func (l Links) IsEmpty() bool {
+	return len(l.Probes) == 0 && len(l.Components) == 0
+}
+
+// LinkedError est le refus de supprimer un service que des sondes ou des
+// composants visent encore, avec la liste de ce qui le lie.
+type LinkedError struct {
+	Links Links
+}
+
+func (e *LinkedError) Error() string {
+	return ErrServiceLinked.Error()
+}
+
+func (e *LinkedError) Is(target error) bool {
+	return target == ErrServiceLinked
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

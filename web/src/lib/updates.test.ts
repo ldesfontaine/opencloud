@@ -15,11 +15,11 @@ function check(overrides: Partial<ImageCheck>): ImageCheck {
 
 test("updateAvailable suit le constat et la politique", () => {
   const minor = check({ kind: "minor", newer_tag: "3.22", target: "alpine:3.22" });
-  expect(updateAvailable({ update_policy: "", image_check: minor })).toBe(true);
-  expect(updateAvailable({ update_policy: "pinned", image_check: minor })).toBe(false);
-  expect(updateAvailable({ update_policy: "excluded", image_check: minor })).toBe(true);
-  expect(updateAvailable({ update_policy: "", image_check: check({}) })).toBe(false);
-  expect(updateAvailable({ update_policy: "", image_check: null })).toBe(false);
+  expect(updateAvailable({ update_policy: "watch", image_check: minor })).toBe(true);
+  expect(updateAvailable({ update_policy: "hold", image_check: minor })).toBe(false);
+  expect(updateAvailable({ update_policy: "ignore", image_check: minor })).toBe(true);
+  expect(updateAvailable({ update_policy: "watch", image_check: check({}) })).toBe(false);
+  expect(updateAvailable({ update_policy: "watch", image_check: null })).toBe(false);
 });
 
 test("updateLabel écrit le tag, ou « reconstruite »", () => {

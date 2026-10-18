@@ -15,15 +15,15 @@ import (
 )
 
 // Un composant « Nuage » fait de tout ce que les autres seeds ont créé :
-// la machine distante, sa base arrêtée, la tâche en échec, la sonde
-// dégradée. Un incident ouvert dessus, un autre résolu hier. Le composant
+// la machine distante, le service déclaré nextcloud (dont une unité n'a pas
+// de conteneur), la tâche en échec, la sonde dégradée. Un incident ouvert dessus, un autre résolu hier. Le composant
 // « Silence » n'a qu'une sonde neuve : rien à en dire, caché du public.
-func (ts *testServer) seedStatus(t *testing.T, serviceID, jobID, probeID string) (string, string) {
+func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
 	cloud, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: remoteID},
-		{Kind: status.KindService, ID: serviceID},
+		{Kind: status.KindService, ID: declaredServiceID},
 		{Kind: status.KindHeartbeat, ID: jobID},
 		{Kind: status.KindProbe, ID: probeID},
 	}})
@@ -67,9 +67,10 @@ func (ts *testServer) seedAll(t *testing.T) (componentID, incidentID string) {
 	t.Helper()
 	ts.enroll(t, "vps-paris-1", remoteID)
 	jobID := ts.seedJobs(t)
-	serviceID := ts.seedServices(t)
-	probeID := ts.seedProbes(t, serviceID)
-	return ts.seedStatus(t, serviceID, jobID, probeID)
+	ts.seedServices(t)
+	declaredID := ts.seedGaps(t)
+	probeID := ts.seedProbes(t, declaredID)
+	return ts.seedStatus(t, declaredID, jobID, probeID)
 }
 
 func TestStatusAPI_ReadsMatchGoldenFiles(t *testing.T) {
