@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 )
@@ -28,8 +29,16 @@ func (s *Server) controlMux() *http.ServeMux {
 		if !strings.HasPrefix(route.pattern, controlPrefix) || route.method == anyMethod {
 			continue
 		}
-		mux.HandleFunc(route.method+" "+route.pattern, route.handler)
+		mux.HandleFunc(route.method+" "+route.pattern, markControlSocket(route.handler))
 	}
 	mux.HandleFunc("/", s.apiUnknown)
 	return mux
+}
+
+// markControlSocket dit au gestionnaire qu'il répond à la commande locale :
+// l'acteur d'un apply en dépend, et seule cette porte peut le dire.
+func markControlSocket(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		next(w, r.WithContext(context.WithValue(r.Context(), controlSocketKey{}, struct{}{})))
+	}
 }

@@ -21,7 +21,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -157,7 +156,7 @@ func newTestServer(t *testing.T) *testServer {
 		Containers: containers,
 		Probes:     probes,
 		Directory:  declared,
-		Manifest:   manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db}, logger),
+		Manifest:   newTestManifest(declared, probes, heartbeats, db, bus, logger),
 		Updates:    updates,
 		Lifecycle:  lifecycles,
 		Status:     statusPage,

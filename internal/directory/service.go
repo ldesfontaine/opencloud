@@ -341,7 +341,7 @@ func (d *Directory) Review(ctx context.Context, id string) (Service, error) {
 	if !found.NeedsReview {
 		return found, nil
 	}
-	definition := definitionOf(found).Complete()
+	definition := found.Definition().Complete()
 	if err := definition.Validate(); err != nil {
 		return Service{}, err
 	}

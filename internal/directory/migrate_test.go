@@ -267,7 +267,7 @@ func TestPlanLinks_CreatedDefinitionsPassValidate(t *testing.T) {
 		t.Fatal("rien n'a été créé")
 	}
 	for _, created := range got.Created {
-		if err := definitionOf(created).Complete().Validate(); err != nil {
+		if err := created.Definition().Complete().Validate(); err != nil {
 			t.Errorf("le service %q ne passe pas Validate: %v (%+v)", created.Name, err, created)
 		}
 	}
@@ -320,7 +320,7 @@ func TestPlanLinks_ProjectOverTheUnitLimitKeepsLinkedOnesAndNeverFails(t *testin
 	if !slices.Contains(unitNames(project), "s34") {
 		t.Fatalf("la dernière fiche liée doit tenir dans le service: %v", unitNames(project))
 	}
-	if err := definitionOf(project).Complete().Validate(); err != nil {
+	if err := project.Definition().Complete().Validate(); err != nil {
 		t.Fatalf("le service tronqué doit rester valable: %v", err)
 	}
 	for _, id := range []string{fiches[0].ID, fiches[MaxUnits+2].ID} {
@@ -446,7 +446,7 @@ func TestPlanLinks_FullDeclaredProjectNeverGetsASecondComposeService(t *testing.
 	if slices.ContainsFunc(got.Links, func(link LinkedFiche) bool { return link.ContainerID == other.ID }) {
 		t.Fatal("la fiche sans lien du projet reste non déclarée")
 	}
-	if err := definitionOf(created).Complete().Validate(); err != nil {
+	if err := created.Definition().Complete().Validate(); err != nil {
 		t.Fatalf("le service ne passe pas Validate: %v", err)
 	}
 }

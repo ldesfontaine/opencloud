@@ -1,0 +1,1 @@
+{"applies":[{"id":"apl_ID","at":"2026-09-12T12:00:00Z","finished_at":"2026-09-12T12:00:00Z","actor_kind":"operator","actor_name":"","file_hash":"sha256:HASH","file_name":"opencloud.yaml","prune":false,"plan_hash":"sha256:HASH","state":"applied","summary":{"create":2,"update":1,"delete":0,"unchanged":7},"done":3,"error":"","error_object":""}]}

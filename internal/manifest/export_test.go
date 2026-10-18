@@ -1,4 +1,4 @@
-package manifest
+package manifest_test
 
 import (
 	"context"
@@ -10,9 +10,10 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
-var testAnnotations = Annotations{
+var testAnnotations = manifest.Annotations{
 	Header:      "Annuaire exporté.\nLes identifiants rattachent chaque entrée à son objet : gardez-les.",
 	NeedsReview: "À vérifier : repris de l'existant.",
 }
@@ -40,7 +41,7 @@ func TestExport_IsDeterministicAndSorted(t *testing.T) {
 	}
 	compareGolden(t, filepath.Join("testdata", "export.golden.yaml"), again)
 
-	file, problems := Parse(again)
+	file, problems := manifest.Parse(again)
 	if len(problems) > 0 {
 		t.Fatalf("the export does not parse: %+v", problems)
 	}
@@ -60,7 +61,7 @@ func TestExport_IsDeterministicAndSorted(t *testing.T) {
 	want := map[string][]string{
 		"machines":   {"app-1", "opencloud"},
 		"services":   {"app-1/backup", "app-1/proxy", "app-1/wiki", "opencloud/legacy"},
-		"probes":     {"mail-imaps 00000000000000c2", "twin 00000000000000c3", "twin 00000000000000c4", "wiki-http 00000000000000c1"},
+		"probes":     {"api-post 00000000000000c5", "mail-imaps 00000000000000c2", "twin 00000000000000c3", "twin 00000000000000c4", "wiki-http 00000000000000c1"},
 		"heartbeats": {"certbot", "wiki-dump"},
 	}
 	got := map[string][]string{"machines": machines, "services": services, "probes": probes, "heartbeats": heartbeats}
@@ -89,21 +90,21 @@ func TestExport_QuotesWhatWouldNotStayAString(t *testing.T) {
 		}
 	}
 	// Le piège de la relecture : tout reste du texte une fois relu.
-	file, problems := Parse([]byte(text))
+	file, problems := manifest.Parse([]byte(text))
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
-	if wiki := file.Services[2]; wiki.Name != "wiki" || wiki.Units[1].Version != "16.4" || wiki.Units[0].Ports[1] != "80" {
+	if wiki := file.Services[2]; wiki.Name != "wiki" || wiki.Units[0].Version != "16.4" || wiki.Units[1].Ports[1] != "80" {
 		t.Fatalf("services: %+v", file.Services)
 	}
 }
 
 func TestEncode_QuotesBooleansAndNumbersWrittenAsText(t *testing.T) {
-	file := File{Services: []Service{{
+	file := manifest.File{Services: []manifest.Service{{
 		Machine: "m", Name: "s", Title: "true", Nature: "application", Origin: "container",
-		Units: []Unit{{Name: "u", Version: "1", Image: "x", Ports: []string{"53/udp", "8080:80"}}},
+		Units: []manifest.Unit{{Name: "u", Version: "1", Image: "x", Ports: []string{"53/udp", "8080:80"}}},
 	}}}
-	data, err := Encode(file, Annotations{})
+	data, err := manifest.Encode(file, manifest.Annotations{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestEncode_QuotesBooleansAndNumbersWrittenAsText(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
 	}
-	back, problems := Parse(data)
+	back, problems := manifest.Parse(data)
 	if len(problems) > 0 || back.Services[0].Title != "true" || back.Services[0].Units[0].Version != "1" {
 		t.Fatalf("not a string again: %+v %+v", back, problems)
 	}
@@ -122,7 +123,7 @@ func TestEncode_QuotesBooleansAndNumbersWrittenAsText(t *testing.T) {
 func TestExport_WritesNonEmptyDefaultsExplicitly(t *testing.T) {
 	b := newBench(t)
 	b.seed(t, false)
-	file, problems := Parse(b.export(t))
+	file, problems := manifest.Parse(b.export(t))
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
@@ -155,7 +156,7 @@ func TestExport_WritesNonEmptyDefaultsExplicitly(t *testing.T) {
 func TestExport_BinaryUnitsHaveNoPolicyAndContainersAlwaysDo(t *testing.T) {
 	b := newBench(t)
 	b.seed(t, false)
-	file, problems := Parse(b.export(t))
+	file, problems := manifest.Parse(b.export(t))
 	if len(problems) > 0 {
 		t.Fatal(problems)
 	}
@@ -167,7 +168,7 @@ func TestExport_BinaryUnitsHaveNoPolicyAndContainersAlwaysDo(t *testing.T) {
 			}
 		}
 	}
-	if file.Services[2].Units[1].Updates != "hold" || file.Services[1].Units[0].Updates != "ignore" {
+	if file.Services[2].Units[0].Updates != "hold" || file.Services[1].Units[0].Updates != "ignore" {
 		t.Errorf("policies lost: %+v", file.Services)
 	}
 }
@@ -196,16 +197,16 @@ func TestExport_ParseGivesBackTheSameFile(t *testing.T) {
 	b.seed(t, false)
 	// « À vérifier » est un commentaire : la relecture ne le sait pas, le
 	// fichier relu se réécrit donc sans lui.
-	annotations := Annotations{Header: testAnnotations.Header}
+	annotations := manifest.Annotations{Header: testAnnotations.Header}
 	data, err := b.manifest.Export(context.Background(), annotations)
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, problems := Parse(data)
+	file, problems := manifest.Parse(data)
 	if len(problems) > 0 {
 		t.Fatalf("problems: %+v", problems)
 	}
-	again, err := Encode(file, annotations)
+	again, err := manifest.Encode(file, annotations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +260,7 @@ func TestExport_AnEmptyDirectoryWritesEverySection(t *testing.T) {
 			t.Errorf("lacks %q:\n%s", want, text)
 		}
 	}
-	if _, problems := Parse([]byte(text)); len(problems) > 0 {
+	if _, problems := manifest.Parse([]byte(text)); len(problems) > 0 {
 		t.Fatal(problems)
 	}
 }
@@ -270,26 +271,26 @@ func TestEncode_QuotesWhatOtherYAMLReadersWouldMisread(t *testing.T) {
 	values := []string{"<<", "yes", "No", "ON", "off", "y", "N", "1:30", "-1:30:15", "+0:5.5"}
 	for _, value := range values {
 		t.Run(value, func(t *testing.T) {
-			file := File{Projects: []Project{{ID: "prj_00000000000000a1", Name: "docs", Title: value}}}
-			data, err := Encode(file, Annotations{})
+			file := manifest.File{Projects: []manifest.Project{{ID: "prj_00000000000000a1", Name: "docs", Title: value}}}
+			data, err := manifest.Encode(file, manifest.Annotations{})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !strings.Contains(string(data), `title: "`+value+`"`) {
 				t.Fatalf("not quoted:\n%s", data)
 			}
-			back, problems := Parse(data)
+			back, problems := manifest.Parse(data)
 			if len(problems) > 0 || back.Projects[0].Title != value {
 				t.Fatalf("does not read back: %+v %+v", back, problems)
 			}
-			again, err := Encode(back, Annotations{})
+			again, err := manifest.Encode(back, manifest.Annotations{})
 			if err != nil || string(again) != string(data) {
 				t.Fatalf("round trip differs: %v\n%s\n----\n%s", err, data, again)
 			}
 		})
 	}
 	// Ce qui n'est qu'un mot reste nu.
-	data, err := Encode(File{Projects: []Project{{Name: "docs", Title: "maybe 1:30 pm"}}}, Annotations{})
+	data, err := manifest.Encode(manifest.File{Projects: []manifest.Project{{Name: "docs", Title: "maybe 1:30 pm"}}}, manifest.Annotations{})
 	if err != nil || !strings.Contains(string(data), "title: maybe 1:30 pm") {
 		t.Fatalf("over-quoted: %v\n%s", err, data)
 	}
@@ -299,14 +300,14 @@ func TestExport_FailsClearlyWhenTheFileWouldNotReadBack(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
 	filler := strings.Repeat("x", 1000)
-	for i := 0; i < MaxFileBytes/1000+20; i++ {
+	for i := 0; i < manifest.MaxFileBytes/1000+20; i++ {
 		id := fmt.Sprintf("prj_%016x", i+1)
 		if err := b.db.InsertProject(ctx, directory.Project{ID: id, Name: "p" + id, Title: filler, CreatedAt: testNow, UpdatedAt: testNow}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	data, err := b.manifest.Export(ctx, Annotations{})
-	if !errors.Is(err, ErrExportTooLarge) || data != nil {
+	data, err := b.manifest.Export(ctx, manifest.Annotations{})
+	if !errors.Is(err, manifest.ErrExportTooLarge) || data != nil {
 		t.Fatalf("got %d bytes, %v", len(data), err)
 	}
 }

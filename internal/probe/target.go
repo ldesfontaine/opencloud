@@ -80,3 +80,49 @@ func validateTarget(kind Kind, target string) error {
 	}
 	return nil
 }
+
+// TargetPassword est le mot de passe d'une cible « https://user:mot@hôte », ou
+// rien. Il ne sert qu'à comparer : il ne s'écrit nulle part.
+func TargetPassword(target string) string {
+	schemeEnd := strings.Index(target, "://")
+	if schemeEnd < 0 {
+		return ""
+	}
+	rest := target[schemeEnd+3:]
+	authorityEnd := strings.IndexAny(rest, "/?#")
+	if authorityEnd < 0 {
+		authorityEnd = len(rest)
+	}
+	authority := rest[:authorityEnd]
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return ""
+	}
+	_, password, _ := strings.Cut(authority[:at], ":")
+	return password
+}
+
+// RedactTarget masque le mot de passe d'une cible « https://user:mot@hôte » :
+// la cible va dans un plan, un journal technique et un écran, qui ne portent
+// jamais un secret. Toute ligne de journal qui cite une cible passe par elle. Le nom d'utilisateur reste, pour qu'on reconnaisse la cible.
+func RedactTarget(target string) string {
+	schemeEnd := strings.Index(target, "://")
+	if schemeEnd < 0 {
+		return target
+	}
+	rest := target[schemeEnd+3:]
+	authorityEnd := strings.IndexAny(rest, "/?#")
+	if authorityEnd < 0 {
+		authorityEnd = len(rest)
+	}
+	authority := rest[:authorityEnd]
+	at := strings.LastIndex(authority, "@")
+	if at < 0 {
+		return target
+	}
+	user, _, hasPassword := strings.Cut(authority[:at], ":")
+	if !hasPassword {
+		return target
+	}
+	return target[:schemeEnd+3] + user + ":…" + authority[at:] + rest[authorityEnd:]
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/mail"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -94,6 +95,15 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},
 		{prefix: "gap.key_", values: names(directory.IgnoreKinds())},
+		// Le journal des fichiers et le plan : l'état d'un passage, le geste,
+		// le genre d'objet, la conséquence, ce qu'une suppression emporte.
+		{prefix: "manifest.state_", values: names(manifest.ApplyStates())},
+		{prefix: "manifest.actor_", values: names(manifest.ActorKinds())},
+		{prefix: "manifest.action_", values: names(manifest.Actions())},
+		{prefix: "manifest.kind_", values: names(manifest.Kinds())},
+		{prefix: "manifest.note_", values: names(manifest.Notes())},
+		{prefix: "manifest.carries_", values: manifest.CarryKinds()},
+		{prefix: "manifest.carries_", suffix: "_one", values: manifest.CarryKinds()},
 	}
 	for _, list := range lists {
 		if len(list.values) == 0 {

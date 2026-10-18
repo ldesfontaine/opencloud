@@ -91,7 +91,7 @@ func proposeIntoService(existing Service, requested container.Container, missing
 	if len(existing.Units) >= MaxUnits {
 		return Proposal{}, ErrUnitsFull
 	}
-	definition := definitionOf(existing)
+	definition := existing.Definition()
 	for _, item := range requestedFirst(missing, requested, MaxUnits-len(existing.Units)) {
 		if len(definition.Units) >= MaxUnits {
 			break
@@ -138,11 +138,12 @@ func proposeContainer(item container.Container, declared []Service) Proposal {
 	}}
 }
 
-// definitionOf redonne un service déclaré sous la forme que l'édition
-// remplace entière.
-func definitionOf(existing Service) ServiceDefinition {
-	units := make([]UnitDefinition, 0, len(existing.Units))
-	for _, unit := range existing.Units {
+// Definition redonne un service déclaré sous la forme que l'édition remplace
+// entière : le fichier de l'annuaire s'en sert pour comparer ce qu'il demande
+// à ce qui est déclaré.
+func (service Service) Definition() ServiceDefinition {
+	units := make([]UnitDefinition, 0, len(service.Units))
+	for _, unit := range service.Units {
 		units = append(units, UnitDefinition{
 			ID: unit.ID, Name: unit.Name, Kind: unit.Kind, Image: unit.Image, Version: unit.Version, Digest: unit.Digest,
 			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: slices.Clone(unit.Ports),
@@ -150,16 +151,16 @@ func definitionOf(existing Service) ServiceDefinition {
 		})
 	}
 	return ServiceDefinition{
-		MachineID:      existing.MachineID,
-		Name:           existing.Name,
-		Title:          existing.Title,
-		Nature:         existing.Nature,
-		Origin:         existing.Origin,
-		ComposeProject: existing.ComposeProject,
-		PublicURL:      existing.PublicURL,
-		Provides:       slices.Clone(existing.Provides),
+		MachineID:      service.MachineID,
+		Name:           service.Name,
+		Title:          service.Title,
+		Nature:         service.Nature,
+		Origin:         service.Origin,
+		ComposeProject: service.ComposeProject,
+		PublicURL:      service.PublicURL,
+		Provides:       slices.Clone(service.Provides),
 		Units:          units,
-		ProjectIDs:     slices.Clone(existing.ProjectIDs),
+		ProjectIDs:     slices.Clone(service.ProjectIDs),
 	}
 }
 

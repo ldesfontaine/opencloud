@@ -20,6 +20,8 @@ Commandes :
             ou la couper en cas de mot de passe oublié (option -config)
   export    écrit l'annuaire dans un fichier YAML, par le serveur qui tourne
             (options -config -o)
+  apply     applique un fichier YAML à l'annuaire, après avoir montré le plan et
+            demandé confirmation (options -config -prune -yes -dry-run)
   secrets   forget : clé de chiffrement perdue, repart d'une clé neuve et oublie
             les secrets qu'elle chiffrait (option -config)
   version   affiche la version
@@ -42,6 +44,8 @@ func main() {
 		err = runAuth(os.Args[2:])
 	case "export":
 		err = runExport(os.Args[2:])
+	case "apply":
+		err = runApply(os.Args[2:])
 	case "secrets":
 		err = runSecrets(os.Args[2:])
 	case "version":

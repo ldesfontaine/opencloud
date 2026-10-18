@@ -93,6 +93,12 @@ func (h Heartbeat) IsPaused() bool {
 	return h.Status == StatusPaused
 }
 
+// Definition redonne la tâche sous la forme que l'édition remplace entière.
+// Le jeton n'en fait pas partie : il ne se modifie jamais par une édition.
+func (h Heartbeat) Definition() Definition {
+	return Definition{Name: h.Name, MachineID: h.MachineID, Interval: h.Interval, Grace: h.Grace}
+}
+
 // NeverPinged dit qu'aucun ping n'est jamais arrivé : la commande de ping
 // n'est peut-être pas branchée.
 func (h Heartbeat) NeverPinged() bool {

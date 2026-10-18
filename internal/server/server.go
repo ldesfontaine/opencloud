@@ -136,11 +136,20 @@ type DirectoryService interface {
 	ContainerLink(ctx context.Context, item container.Container) (directory.ContainerLink, error)
 }
 
-// Ce que le serveur attend du composant manifest : le fichier de l'annuaire.
+// Ce que le serveur attend du composant manifest : le fichier de l'annuaire,
+// de l'export au journal des passages.
 type ManifestService interface {
 	// Export écrit tout l'annuaire, commentaires dans la langue donnée par
 	// les annotations. Jamais un secret.
 	Export(ctx context.Context, annotations manifest.Annotations) ([]byte, error)
+	// Plan dit ce que le fichier changerait, sans rien écrire.
+	Plan(ctx context.Context, request manifest.Request) (manifest.Plan, error)
+	// Apply écrit ce que le fichier demande si le plan est celui que
+	// l'opérateur a confirmé (request.PlanHash). Sur ErrPlanChanged et
+	// ErrNotApplicable, le plan rendu est celui d'aujourd'hui.
+	Apply(ctx context.Context, request manifest.Request, actor manifest.Actor) (manifest.Apply, manifest.Plan, error)
+	Applies(ctx context.Context, limit int) ([]manifest.Apply, error)
+	GetApply(ctx context.Context, id string) (manifest.Apply, error)
 }
 
 // Ce que le serveur attend du composant update : l'API lit et règle, le

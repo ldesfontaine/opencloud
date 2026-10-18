@@ -30,21 +30,21 @@ const controlSocketMode = 0o600
 func startControlSocket(logger *slog.Logger, stateDir *os.Root, statePath string, handler http.Handler) *http.Server {
 	path := filepath.Join(statePath, brand.ControlSocketFile)
 	if err := requirePrivateDir(stateDir); err != nil {
-		logger.Warn("state_dir is open to the group or others: control socket not opened, export disabled", "path", statePath, "error", err)
+		logger.Warn("state_dir is open to the group or others: control socket not opened, export and apply disabled", "path", statePath, "error", err)
 		return nil
 	}
 	if err := removeStaleSocket(stateDir, path); err != nil {
-		logger.Warn("control socket unavailable, export disabled", "path", path, "error", err)
+		logger.Warn("control socket unavailable, export and apply disabled", "path", path, "error", err)
 		return nil
 	}
 	listener, err := net.Listen("unix", path)
 	if err != nil {
-		logger.Warn("control socket unavailable, export disabled", "path", path, "error", err)
+		logger.Warn("control socket unavailable, export and apply disabled", "path", path, "error", err)
 		return nil
 	}
 	if err := stateDir.Chmod(brand.ControlSocketFile, controlSocketMode); err != nil {
 		_ = listener.Close()
-		logger.Warn("control socket unavailable, export disabled", "path", path, "error", err)
+		logger.Warn("control socket unavailable, export and apply disabled", "path", path, "error", err)
 		return nil
 	}
 	control := newHTTPServer("", handler)
