@@ -98,6 +98,27 @@ func IsUpdatePolicy(policy UpdatePolicy) bool {
 	return slices.Contains(UpdatePolicies(), policy)
 }
 
+// MatchLevel dit par quoi un conteneur a été rattaché à une unité de
+// l'annuaire. Le niveau « compose » tient au projet et au service Compose,
+// que le conteneur porte même recréé ; le niveau « name » ne tient qu'au
+// nom du conteneur, qu'un renommage perd : il est dit faible.
+type MatchLevel string
+
+const (
+	MatchNone    MatchLevel = ""
+	MatchCompose MatchLevel = "compose"
+	MatchName    MatchLevel = "name"
+)
+
+func MatchLevels() []MatchLevel {
+	return []MatchLevel{MatchCompose, MatchName}
+}
+
+// IsWeak dit si le rattachement ne tient qu'au nom du conteneur.
+func (l MatchLevel) IsWeak() bool {
+	return l == MatchName
+}
+
 // Service est une fiche telle que la base la connaît. Les dates zéro
 // disent « jamais » ; ArchivedAt non nul dit que le conteneur est détruit.
 type Service struct {
@@ -135,6 +156,11 @@ type Service struct {
 	FirstSeenAt time.Time
 	LastSeenAt  time.Time
 	ArchivedAt  time.Time
+	// L'unité de l'annuaire à laquelle la fiche se rattache, et par quoi.
+	// Vides : non déclaré ; une fiche archivée garde son dernier
+	// rattachement.
+	UnitID     string
+	MatchLevel MatchLevel
 }
 
 // Port est un port publié sur l'hôte. Une IP vide, 0.0.0.0 ou :: dit

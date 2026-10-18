@@ -16,10 +16,14 @@ const serviceColumns = `id, machine_id, kind, name, group_name, container_id, im
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
 	compose_service, compose_dir, compose_file, update_policy, oom_killed, killed`
 
+// Le rattachement à l'annuaire se lit avec la fiche. Il ne s'écrit pas
+// comme le reste, l'unité est vérifiée à l'écriture : voir upsertService.
+const serviceReadColumns = serviceColumns + `, unit_id, match_level`
+
 // ListServices rend les fiches d'une machine, ou de toutes si machineID
 // est vide, archivées comprises, par groupe puis par nom.
 func (db *DB) ListServices(ctx context.Context, machineID string) ([]service.Service, error) {
-	query := `SELECT ` + serviceColumns + ` FROM services`
+	query := `SELECT ` + serviceReadColumns + ` FROM services`
 	var args []any
 	if machineID != "" {
 		query += ` WHERE machine_id = ?`
@@ -48,7 +52,7 @@ func (db *DB) ListServices(ctx context.Context, machineID string) ([]service.Ser
 }
 
 func (db *DB) GetService(ctx context.Context, id string) (service.Service, error) {
-	row := db.sql.QueryRowContext(ctx, `SELECT `+serviceColumns+` FROM services WHERE id = ?`, id)
+	row := db.sql.QueryRowContext(ctx, `SELECT `+serviceReadColumns+` FROM services WHERE id = ?`, id)
 	item, err := scanService(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return service.Service{}, service.ErrNotFound
@@ -161,9 +165,14 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 	if err != nil {
 		return fmt.Errorf("encode dependencies: %w", err)
 	}
+	// L'unité se lit en sous-requête : si l'annuaire l'a supprimée depuis
+	// que le rapprochement l'a nommée, la fiche s'écrit « non déclarée »
+	// plutôt que de faire échouer la clé étrangère et perdre le rapport.
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO services (`+serviceColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO services (`+serviceColumns+`, unit_id, match_level)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+			(SELECT id FROM service_units WHERE id = ?),
+			CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END)
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name, group_name = excluded.group_name, image = excluded.image,
 			image_id = excluded.image_id, state = excluded.state, exit_code = excluded.exit_code, oom_killed = excluded.oom_killed, killed = excluded.killed,
@@ -171,17 +180,45 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 			network_mode = excluded.network_mode, privileged = excluded.privileged, depends_on = excluded.depends_on,
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
 			last_seen_at = excluded.last_seen_at, archived_at = excluded.archived_at,
-			compose_service = excluded.compose_service, compose_dir = excluded.compose_dir, compose_file = excluded.compose_file`,
+			compose_service = excluded.compose_service, compose_dir = excluded.compose_dir, compose_file = excluded.compose_file,
+			unit_id = excluded.unit_id, match_level = excluded.match_level`,
 		item.ID, item.MachineID, string(item.Kind), item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
 		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, ports,
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
-		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy), boolToInt(item.OOMKilled), boolToInt(item.Killed))
+		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy), boolToInt(item.OOMKilled), boolToInt(item.Killed),
+		item.UnitID, item.UnitID, string(item.MatchLevel))
 	if err != nil {
 		return fmt.Errorf("upsert service %s: %w", item.ID, err)
 	}
 	return replaceServiceNetworks(ctx, tx, item)
+}
+
+// SetServiceUnits écrit le rattachement des fiches nommées, dans une
+// transaction. Une unité qui n'existe plus s'écrit comme « non déclaré » :
+// l'annuaire a pu la supprimer entre le rapprochement et l'écriture.
+func (db *DB) SetServiceUnits(ctx context.Context, assignments []service.UnitAssignment) error {
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin set service units: %w", err)
+	}
+	defer tx.Rollback()
+	for _, assignment := range assignments {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE services SET
+				unit_id = (SELECT id FROM service_units WHERE id = ?),
+				match_level = CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END
+			WHERE id = ?`,
+			assignment.UnitID, assignment.UnitID, string(assignment.Level), assignment.ServiceID)
+		if err != nil {
+			return fmt.Errorf("set unit of service %s: %w", assignment.ServiceID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit set service units: %w", err)
+	}
+	return nil
 }
 
 // Une liste nulle s'écrit « [] » : la colonne ne connaît pas null.
@@ -412,16 +449,23 @@ func (db *DB) PurgeServices(ctx context.Context, transitionsBefore, archivedBefo
 
 func scanService(row scanner) (service.Service, error) {
 	var item service.Service
-	var kind, state, health, ports, dependsOn, policy string
+	var kind, state, health, ports, dependsOn, policy, matchLevel string
+	var unitID sql.NullString
 	var privileged, oomKilled, killed int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
-		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy, &oomKilled, &killed)
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy, &oomKilled, &killed,
+		&unitID, &matchLevel)
 	if err != nil {
 		return service.Service{}, err
+	}
+	// Sans unité, le niveau n'a pas de sens : une unité supprimée met
+	// unit_id à NULL sans toucher à match_level.
+	if unitID.Valid {
+		item.UnitID, item.MatchLevel = unitID.String, service.MatchLevel(matchLevel)
 	}
 	item.OOMKilled = oomKilled != 0
 	item.Killed = killed != 0

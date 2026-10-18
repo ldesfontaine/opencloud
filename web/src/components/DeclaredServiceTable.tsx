@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 
-import type { DeclaredService, Project } from "../api/types";
+import type { DeclaredService, ServiceGap, Project } from "../api/types";
 import { useT } from "../i18n/context";
+import { GapPill } from "./GapPill";
 import { Pill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
@@ -20,8 +21,17 @@ export function NaturePill({ nature }: { nature: DeclaredService["nature"] }) {
 }
 
 // Le tableau des services déclarés : nom et titre, machine, nature,
-// origine, nombre d'unités, projets, et la pastille « à vérifier ».
-export function DeclaredServiceTable({ services, projects }: { services: DeclaredService[]; projects: Project[] }) {
+// origine, nombre d'unités, projets, la pastille « à vérifier » et l'écart.
+// Sans réponse sur l'écart (elle se lit à part), la colonne reste vide.
+export function DeclaredServiceTable({
+  services,
+  projects,
+  gaps,
+}: {
+  services: DeclaredService[];
+  projects: Project[];
+  gaps: Map<string, ServiceGap>;
+}) {
   const t = useT();
   const names = projectNames(projects);
   return (
@@ -31,6 +41,7 @@ export function DeclaredServiceTable({ services, projects }: { services: Declare
           <th>{t("directory.col_service")}</th>
           <th className="wide-only">{t("directory.col_machine")}</th>
           <th>{t("directory.col_nature")}</th>
+          <th>{t("gap.column")}</th>
           <th className="wide-only">{t("directory.col_origin")}</th>
           <th className="th-num wide-only">{t("directory.col_units")}</th>
           <th className="th-end wide-only">{t("directory.col_projects")}</th>
@@ -60,6 +71,9 @@ export function DeclaredServiceTable({ services, projects }: { services: Declare
             <td>
               <NaturePill nature={service.nature} />
             </td>
+            <td>
+              <GapCell gap={gaps.get(service.id)} />
+            </td>
             <td className="wide-only">{t(`directory.origin_${service.origin}`)}</td>
             <td className="num td-num wide-only">{service.units.length}</td>
             <td className="td-end wide-only">
@@ -80,4 +94,8 @@ export function DeclaredServiceTable({ services, projects }: { services: Declare
       </tbody>
     </Table>
   );
+}
+
+function GapCell({ gap }: { gap: ServiceGap | undefined }) {
+  return gap ? <GapPill state={gap.state} weak={gap.weak} /> : <span className="muted">—</span>;
 }

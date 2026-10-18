@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,31 @@ type Store interface {
 	// ListNetworks rend les réseaux d'une machine, par nom.
 	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
 	PurgeServices(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
+	// SetServiceUnits écrit le rattachement des fiches nommées, et rien
+	// d'autre ; une unité disparue entre-temps s'écrit comme « non déclaré ».
+	SetServiceUnits(ctx context.Context, assignments []UnitAssignment) error
+}
+
+// UnitMatch est l'unité à laquelle l'annuaire rattache un conteneur, et par
+// quel niveau.
+type UnitMatch struct {
+	UnitID string
+	Level  MatchLevel
+}
+
+// UnitAssignment est le rattachement à écrire sur une fiche ; une unité
+// vide la rend « non déclarée ».
+type UnitAssignment struct {
+	ServiceID string
+	UnitID    string
+	Level     MatchLevel
+}
+
+// UnitsOnMachine applique la règle de l'annuaire aux conteneurs vivants
+// d'une machine, rendus par identifiant de fiche ; une clé absente du
+// résultat dit « non déclaré ». nil est toléré.
+type UnitsOnMachine interface {
+	MatchUnits(ctx context.Context, machineID string, containers []Service) (map[string]UnitMatch, error)
 }
 
 // Changes est ce qu'un rapport change : des fiches à écrire, celles à
@@ -67,6 +93,11 @@ type Tracker struct {
 	logger  *slog.Logger
 	relay   *Relay
 	now     func() time.Time
+	units   UnitsOnMachine
+	// Un verrou par machine (*sync.Mutex) : lire les fiches, rapprocher et
+	// écrire d'un seul tenant, pour qu'un rapport et un nouveau
+	// rapprochement de l'annuaire ne s'écrasent pas.
+	locks sync.Map
 }
 
 func New(store Store, logger *slog.Logger) *Tracker {
@@ -85,6 +116,16 @@ func (t *Tracker) SetAlerter(alerter Alerter) {
 	t.alerter = alerter
 }
 
+// SetUnits branche l'annuaire : sans lui, aucun conteneur n'est rattaché.
+func (t *Tracker) SetUnits(units UnitsOnMachine) {
+	t.units = units
+}
+
+func (t *Tracker) machineLock(machineID string) *sync.Mutex {
+	lock, _ := t.locks.LoadOrStore(machineID, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
 // Record écrit ce qu'un agent rapporte de sa machine. Un élément hors de ce
 // qu'un agent peut observer est écarté et journalisé ; le reste du rapport
 // passe. Seule une forme d'ensemble absurde refuse le rapport entier.
@@ -100,12 +141,8 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 	for _, dropped := range discards {
 		t.logger.Warn("discard invalid service report element", "machine", machineID, "element", dropped.what, "reason", dropped.reason)
 	}
-	stored, err := t.store.ListServices(ctx, machineID)
+	changes, err := t.write(ctx, machineID, report, now)
 	if err != nil {
-		return err
-	}
-	changes := planChanges(machineID, stored, report, now)
-	if err := t.store.ApplyChanges(ctx, changes); err != nil {
 		return err
 	}
 	t.alert(ctx, changes)
@@ -113,6 +150,137 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 		t.watcher.ServicesChanged(machineID)
 	}
 	return nil
+}
+
+// write lit les fiches de la machine, planifie le rapport, rapproche les
+// conteneurs touchés des unités de l'annuaire et écrit le tout, sous le
+// verrou de la machine. Le verrou est relâché avant d'alerter et de
+// prévenir le direct : ni l'un ni l'autre n'a besoin de lui.
+func (t *Tracker) write(ctx context.Context, machineID string, report Report, now time.Time) (Changes, error) {
+	lock := t.machineLock(machineID)
+	lock.Lock()
+	defer lock.Unlock()
+	stored, err := t.store.ListServices(ctx, machineID)
+	if err != nil {
+		return Changes{}, err
+	}
+	changes := planChanges(machineID, stored, report, now)
+	t.match(ctx, machineID, &changes)
+	if err := t.store.ApplyChanges(ctx, changes); err != nil {
+		return Changes{}, err
+	}
+	return changes, nil
+}
+
+// match pose l'unité de chaque fiche vivante que le rapport touche. Un
+// rapport sans fiche vivante, ne portant que des mesures par exemple, ne
+// dérange pas l'annuaire. Si le rapprochement échoue le rapport passe
+// quand même, avec le rattachement que les fiches avaient.
+func (t *Tracker) match(ctx context.Context, machineID string, changes *Changes) {
+	if t.units == nil {
+		return
+	}
+	living := make([]int, 0, len(changes.Services))
+	containers := make([]Service, 0, len(changes.Services))
+	for index, touched := range changes.Services {
+		if !touched.IsArchived() {
+			living = append(living, index)
+			containers = append(containers, touched)
+		}
+	}
+	if len(containers) == 0 {
+		return
+	}
+	matches, err := t.units.MatchUnits(ctx, machineID, containers)
+	if err != nil {
+		t.logger.Warn("match containers to units", "machine", machineID, "error", err)
+		return
+	}
+	for _, index := range living {
+		match := matches[changes.Services[index].ID]
+		changes.Services[index].UnitID = match.UnitID
+		changes.Services[index].MatchLevel = match.Level
+	}
+}
+
+// Rematch refait le rapprochement des conteneurs vivants d'une machine
+// avec l'annuaire tel qu'il est maintenant, et n'écrit que ce qui change.
+// L'annuaire l'appelle après chaque écriture, une fois sa transaction
+// validée : jamais pendant, sinon il attendrait le verrou de la machine
+// que le rapport en cours tient en lisant l'annuaire.
+func (t *Tracker) Rematch(ctx context.Context, machineID string) error {
+	if t.units == nil {
+		return nil
+	}
+	count, err := t.rematch(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		t.logger.Info("containers rematched", "machine", machineID, "count", count)
+		if t.watcher != nil {
+			t.watcher.ServicesChanged(machineID)
+		}
+	}
+	return nil
+}
+
+func (t *Tracker) rematch(ctx context.Context, machineID string) (int, error) {
+	lock := t.machineLock(machineID)
+	lock.Lock()
+	defer lock.Unlock()
+	stored, err := t.store.ListServices(ctx, machineID)
+	if err != nil {
+		return 0, err
+	}
+	living := make([]Service, 0, len(stored))
+	for _, found := range stored {
+		if !found.IsArchived() {
+			living = append(living, found)
+		}
+	}
+	if len(living) == 0 {
+		return 0, nil
+	}
+	matches, err := t.units.MatchUnits(ctx, machineID, living)
+	if err != nil {
+		return 0, err
+	}
+	var assignments []UnitAssignment
+	for _, found := range living {
+		match := matches[found.ID]
+		if match.UnitID != found.UnitID || match.Level != found.MatchLevel {
+			assignments = append(assignments, UnitAssignment{ServiceID: found.ID, UnitID: match.UnitID, Level: match.Level})
+		}
+	}
+	if len(assignments) == 0 {
+		return 0, nil
+	}
+	if err := t.store.SetServiceUnits(ctx, assignments); err != nil {
+		return 0, err
+	}
+	return len(assignments), nil
+}
+
+// RematchAll rattache d'un coup les conteneurs de chaque machine : au
+// démarrage, pour ce que l'annuaire a reçu avant que le rapprochement
+// existe, sans attendre l'inventaire suivant de chaque agent.
+func (t *Tracker) RematchAll(ctx context.Context) {
+	stored, err := t.store.ListServices(ctx, "")
+	if err != nil {
+		t.logger.Warn("rematch containers", "error", err)
+		return
+	}
+	done := map[string]bool{}
+	for _, found := range stored {
+		if done[found.MachineID] {
+			continue
+		}
+		done[found.MachineID] = true
+		if err := t.Rematch(ctx, found.MachineID); err != nil {
+			t.logger.Warn("rematch containers", "machine", found.MachineID, "error", err)
+		}
+	}
 }
 
 // alert donne au moteur chaque fiche touchée avec ses transitions, dans
@@ -301,6 +469,8 @@ func (p *planner) fromContainer(container Container, previous Service, existed b
 		// Ce que l'opérateur a réglé sur la fiche survit à l'inventaire.
 		service.FirstSeenAt = previous.FirstSeenAt
 		service.UpdatePolicy = previous.UpdatePolicy
+		service.UnitID = previous.UnitID
+		service.MatchLevel = previous.MatchLevel
 	}
 	return service
 }

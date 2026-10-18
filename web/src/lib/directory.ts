@@ -1,4 +1,4 @@
-import type { Capability, DeclaredService, Nature, Origin, ServiceUnit } from "../api/types";
+import type { Capability, DeclaredService, Nature, Origin, ProposalResponse, ServiceUnit } from "../api/types";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -82,6 +82,34 @@ export function serviceFormOf(service: DeclaredService): ServiceFormValues {
     provides: [...service.provides],
     units: service.units.map(unitFormOf),
     projectIDs: [...service.project_ids],
+  };
+}
+
+// Le formulaire part de ce que le serveur propose pour « Adopter » : la
+// forme du corps de la création, que le formulaire reprend sans la
+// reconstruire. Les unités gardées d'un service déjà déclaré y portent leur
+// identifiant, les ajoutées n'en ont pas.
+export function serviceFormOfDefinition(definition: ProposalResponse["definition"]): ServiceFormValues {
+  return {
+    machineID: definition.machine_id,
+    name: definition.name,
+    title: definition.title,
+    nature: definition.nature,
+    origin: definition.origin,
+    composeProject: definition.compose_project,
+    publicURL: definition.public_url,
+    provides: [...definition.provides],
+    units: definition.units.map((unit) => ({
+      id: unit.id,
+      name: unit.name,
+      image: unit.image,
+      version: unit.version,
+      digest: unit.digest,
+      containerName: unit.container_name,
+      systemdUnit: unit.systemd_unit,
+      ports: formatPorts(unit.ports),
+    })),
+    projectIDs: [...definition.project_ids],
   };
 }
 

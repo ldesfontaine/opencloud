@@ -388,6 +388,8 @@ export interface ServiceResponse {
   service: Service;
   engine: Engine | null;
   transitions: Transition[];
+  // Ce que l'annuaire sait de ce conteneur ; nul pour une fiche qui n'en a pas.
+  directory: ContainerDirectory | null;
 }
 
 // Un groupe du graphe : un réseau créé par l'opérateur ou par Compose, et
@@ -909,4 +911,95 @@ export interface DeclaredServicesResponse {
 
 export interface ProjectsResponse {
   projects: Project[];
+}
+
+// L'écart entre l'annuaire et ce que les machines montrent. Les états sont
+// des faits : le front en fait une pastille et un libellé.
+export type GapState = "conform" | "absent" | "diverged" | "unverifiable" | "unobserved";
+export type GapReason = "image_differs" | "digest_differs" | "tag_latest" | "version_unpinned" | "tag_differs" | "digest_unknown" | "image_unreadable";
+export type MatchLevel = "compose" | "name";
+export type IgnoreKind = "compose_project" | "container_name";
+
+export interface ContainerVerdict {
+  // L'identifiant de la fiche du conteneur, pas celui d'un service déclaré.
+  id: string;
+  name: string;
+  state: ServiceState;
+  image: string;
+  match_level: MatchLevel | "";
+  verdict: GapState;
+  reason: GapReason | "";
+}
+
+export interface UnitGap {
+  unit_id: string;
+  name: string;
+  kind: "container" | "binary";
+  state: GapState;
+  weak: boolean;
+  containers: ContainerVerdict[];
+}
+
+export interface ServiceGap {
+  service_id: string;
+  state: GapState;
+  weak: boolean;
+  units: UnitGap[];
+}
+
+export interface UndeclaredContainer {
+  id: string;
+  name: string;
+  state: ServiceState;
+  image: string;
+  compose_service: string;
+}
+
+// Ce qui tourne sans être déclaré, regroupé par la clé qu'on peut ignorer.
+export interface UndeclaredGroup {
+  machine_id: string;
+  machine_name: string;
+  key_kind: IgnoreKind;
+  key_value: string;
+  ignored: boolean;
+  // Le service déclaré du même projet Compose : là où « Adopter » ajoute une unité.
+  service_id: string;
+  containers: UndeclaredContainer[];
+}
+
+export interface GapsResponse {
+  services: ServiceGap[];
+  undeclared: UndeclaredGroup[];
+}
+
+// Ce que « Adopter » pré-remplit : la forme du corps de la création. Avec
+// service_id, c'est la modification de ce service.
+export interface ProposalResponse {
+  service_id: string;
+  definition: {
+    machine_id: string;
+    name: string;
+    title: string;
+    nature: Nature;
+    origin: Origin;
+    compose_project: string;
+    public_url: string;
+    provides: Capability[];
+    units: Array<Omit<ServiceUnit, "kind">>;
+    project_ids: string[];
+  };
+}
+
+// Ce que la fiche d'un conteneur dit de l'annuaire.
+export interface ContainerDirectory {
+  declared: boolean;
+  service_id: string;
+  service_name: string;
+  unit_id: string;
+  unit_name: string;
+  match_level: MatchLevel | "";
+  weak: boolean;
+  key_kind: IgnoreKind;
+  key_value: string;
+  ignored: boolean;
 }

@@ -2,9 +2,13 @@ package directory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // Ce que l'annuaire attend de la base ; le paquet store le fournit. Chaque
@@ -23,6 +27,33 @@ type Store interface {
 	GetProject(ctx context.Context, id string) (Project, error)
 	ListProjects(ctx context.Context) ([]Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	// ListIgnoredKeys rend les clés ignorées d'une machine, de toutes si
+	// machineID est vide, par machine, genre et valeur.
+	ListIgnoredKeys(ctx context.Context, machineID string) ([]IgnoredKey, error)
+	// InsertIgnoredKey est sans effet si la clé y est déjà ; une machine
+	// inconnue est refusée par ErrMachineInvalid.
+	InsertIgnoredKey(ctx context.Context, key IgnoredKey) error
+	DeleteIgnoredKey(ctx context.Context, key IgnoredKey) error
+}
+
+// Containers est ce que l'annuaire lit des conteneurs observés : les
+// vivants d'une machine (de toutes si machineID est vide), et une fiche par
+// son identifiant, archivée comprise.
+type Containers interface {
+	List(ctx context.Context, machineID string) ([]service.Service, error)
+	Get(ctx context.Context, id string) (service.Service, error)
+}
+
+// ImageChecks est ce que l'annuaire lit des constats sur les images, dont
+// l'empreinte tirée localement.
+type ImageChecks interface {
+	Checks(ctx context.Context, machineID string) (map[string]update.Check, error)
+}
+
+// Rematcher refait le rattachement des conteneurs d'une machine : il se
+// lance après chaque écriture de l'annuaire. nil est toléré.
+type Rematcher interface {
+	Rematch(ctx context.Context, machineID string) error
 }
 
 // Watcher reçoit chaque changement visible : le direct s'y branche. nil
@@ -32,10 +63,13 @@ type Watcher interface {
 }
 
 type Directory struct {
-	store   Store
-	watcher Watcher
-	logger  *slog.Logger
-	now     func() time.Time
+	store      Store
+	watcher    Watcher
+	containers Containers
+	checks     ImageChecks
+	rematcher  Rematcher
+	logger     *slog.Logger
+	now        func() time.Time
 }
 
 func New(store Store, logger *slog.Logger) *Directory {
@@ -48,6 +82,17 @@ func (d *Directory) SetClock(now func() time.Time) {
 
 func (d *Directory) SetWatcher(watcher Watcher) {
 	d.watcher = watcher
+}
+
+// SetObserved branche ce que la machine montre : sans lui, l'écart voit
+// chaque service déclaré comme absent.
+func (d *Directory) SetObserved(containers Containers, checks ImageChecks) {
+	d.containers = containers
+	d.checks = checks
+}
+
+func (d *Directory) SetRematcher(rematcher Rematcher) {
+	d.rematcher = rematcher
 }
 
 func (d *Directory) changed() {
@@ -90,6 +135,7 @@ func (d *Directory) CreateService(ctx context.Context, definition ServiceDefinit
 		return Service{}, err
 	}
 	d.logger.Info("declared service created", "service_id", id, "name", created.Name, "machine_id", created.MachineID)
+	d.rematch(ctx, created.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
 }
@@ -119,8 +165,37 @@ func (d *Directory) UpdateService(ctx context.Context, id string, definition Ser
 		return Service{}, err
 	}
 	d.logger.Info("declared service updated", "service_id", id, "name", updated.Name, "machine_id", updated.MachineID)
+	d.rematch(ctx, before.MachineID, updated.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
+}
+
+// rematch rattache de nouveau les conteneurs des machines dites, une fois
+// l'écriture validée : la règle lit l'annuaire, elle ne peut pas le faire
+// pendant la transaction. Un échec n'annule pas l'écriture, que
+// l'opérateur a faite ; le rapport suivant de la machine rattrapera.
+func (d *Directory) rematch(ctx context.Context, machineIDs ...string) {
+	if d.rematcher == nil {
+		return
+	}
+	for index, machineID := range machineIDs {
+		if index > 0 && machineID == machineIDs[0] {
+			continue
+		}
+		if err := d.rematcher.Rematch(ctx, machineID); err != nil {
+			d.logger.Warn("rematch containers", "machine", machineID, "error", err)
+		}
+	}
+}
+
+// MatchUnits applique la règle de rapprochement aux conteneurs d'une
+// machine : c'est ce que le suivi des services appelle à chaque rapport.
+func (d *Directory) MatchUnits(ctx context.Context, machineID string, containers []service.Service) (map[string]service.UnitMatch, error) {
+	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: machineID})
+	if err != nil {
+		return nil, err
+	}
+	return Match(declared, containers), nil
 }
 
 func serviceOf(id string, definition ServiceDefinition, units []Unit) Service {
@@ -205,6 +280,7 @@ func (d *Directory) DeleteService(ctx context.Context, id string) error {
 		return err
 	}
 	d.logger.Info("declared service deleted", "service_id", id, "name", found.Name)
+	d.rematch(ctx, found.MachineID)
 	d.changed()
 	return nil
 }
@@ -269,4 +345,144 @@ func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 	d.logger.Info("project deleted", "project_id", id, "name", found.Name, "services", len(found.ServiceIDs))
 	d.changed()
 	return nil
+}
+
+// Gaps compare ce qui est déclaré à ce que les machines montrent. Avec un
+// projet, les conteneurs non déclarés ne sont pas dits : ils n'ont pas de
+// projet.
+func (d *Directory) Gaps(ctx context.Context, filter Filter) (GapReport, error) {
+	declared, err := d.store.ListDeclaredServices(ctx, filter)
+	if err != nil {
+		return GapReport{}, err
+	}
+	containers, checks, err := d.observed(ctx, filter.MachineID)
+	if err != nil {
+		return GapReport{}, err
+	}
+	ignored, err := d.store.ListIgnoredKeys(ctx, filter.MachineID)
+	if err != nil {
+		return GapReport{}, err
+	}
+	report := Gaps(declared, containers, checks, ignored)
+	if filter.ProjectID != "" {
+		report.Undeclared = []Undeclared{}
+	}
+	return report, nil
+}
+
+// observed lit les conteneurs vivants et les constats d'images ; sans
+// source branchée, la machine ne montre rien.
+func (d *Directory) observed(ctx context.Context, machineID string) ([]service.Service, map[string]update.Check, error) {
+	if d.containers == nil || d.checks == nil {
+		return nil, nil, nil
+	}
+	containers, err := d.containers.List(ctx, machineID)
+	if err != nil {
+		return nil, nil, err
+	}
+	checks, err := d.checks.Checks(ctx, machineID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return containers, checks, nil
+}
+
+// Propose tire de la fiche d'un conteneur non déclaré la définition à
+// relire avant d'adopter. Un conteneur inconnu ou détruit est introuvable.
+func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, error) {
+	if d.containers == nil {
+		return Proposal{}, ErrContainerNotFound
+	}
+	container, err := d.containers.Get(ctx, containerID)
+	if errors.Is(err, service.ErrNotFound) {
+		return Proposal{}, ErrContainerNotFound
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	if container.IsArchived() {
+		return Proposal{}, ErrContainerNotFound
+	}
+	siblings, err := d.containers.List(ctx, container.MachineID)
+	if err != nil {
+		return Proposal{}, err
+	}
+	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: container.MachineID})
+	if err != nil {
+		return Proposal{}, err
+	}
+	return Propose(container, siblings, declared)
+}
+
+// Ignore dit que ce qui est présent sans être déclaré, c'est voulu. Le dire
+// deux fois est sans effet. Cela ne change aucun rattachement.
+func (d *Directory) Ignore(ctx context.Context, key IgnoredKey) error {
+	key = key.Complete()
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	key.CreatedAt = d.now()
+	if err := d.store.InsertIgnoredKey(ctx, key); err != nil {
+		return err
+	}
+	d.logger.Info("key ignored", "machine_id", key.MachineID, "kind", key.Kind, "value", key.Value)
+	d.changed()
+	return nil
+}
+
+func (d *Directory) Unignore(ctx context.Context, key IgnoredKey) error {
+	key = key.Complete()
+	if err := d.store.DeleteIgnoredKey(ctx, key); err != nil {
+		return err
+	}
+	d.logger.Info("key no longer ignored", "machine_id", key.MachineID, "kind", key.Kind, "value", key.Value)
+	d.changed()
+	return nil
+}
+
+// ContainerLink est ce que la fiche d'un conteneur dit de l'annuaire :
+// l'unité à laquelle il se rattache, ou, sans elle, la clé par laquelle on
+// l'ignorerait.
+type ContainerLink struct {
+	ServiceID   string
+	ServiceName string
+	UnitID      string
+	UnitName    string
+	Level       service.MatchLevel
+	Key         IgnoredKey
+	Ignored     bool
+}
+
+func (d *Directory) ContainerLink(ctx context.Context, container service.Service) (ContainerLink, error) {
+	link := ContainerLink{Key: keyOf(container)}
+	if container.UnitID != "" {
+		return d.linkToUnit(ctx, container, link)
+	}
+	ignored, err := d.store.ListIgnoredKeys(ctx, container.MachineID)
+	if err != nil {
+		return ContainerLink{}, err
+	}
+	link.Ignored = isIgnored(ignored, link.Key)
+	return link, nil
+}
+
+// linkToUnit cherche le service qui porte l'unité sur toutes les machines :
+// une fiche archivée garde son unité, et le service a pu changer de machine
+// depuis.
+func (d *Directory) linkToUnit(ctx context.Context, container service.Service, link ContainerLink) (ContainerLink, error) {
+	declared, err := d.store.ListDeclaredServices(ctx, Filter{})
+	if err != nil {
+		return ContainerLink{}, err
+	}
+	for _, found := range declared {
+		for _, unit := range found.Units {
+			if unit.ID == container.UnitID {
+				link.ServiceID, link.ServiceName = found.ID, found.Name
+				link.UnitID, link.UnitName = unit.ID, unit.Name
+				link.Level = container.MatchLevel
+				return link, nil
+			}
+		}
+	}
+	return link, nil
 }

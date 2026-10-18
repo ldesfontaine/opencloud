@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,7 +16,9 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/seal"
+	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 var testNow = time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
@@ -23,11 +26,12 @@ var testNow = time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 const remoteID = "11111111-2222-4333-8444-555555555555"
 
 type bench struct {
-	directory *directory.Directory
-	db        *store.DB
-	machines  *machine.Service
-	mu        sync.Mutex
-	changes   int
+	directory  *directory.Directory
+	containers *service.Tracker
+	db         *store.DB
+	machines   *machine.Service
+	mu         sync.Mutex
+	changes    int
 }
 
 func (b *bench) DirectoryChanged() {
@@ -69,6 +73,13 @@ func newBench(t *testing.T) *bench {
 	b.directory = directory.New(db, logger)
 	b.directory.SetClock(func() time.Time { return testNow })
 	b.directory.SetWatcher(b)
+	// Le même câblage que serve : l'annuaire lit les conteneurs et les
+	// constats, et le suivi des services lui demande les unités.
+	b.containers = service.New(db, logger)
+	b.containers.SetClock(func() time.Time { return testNow })
+	b.containers.SetUnits(b.directory)
+	b.directory.SetObserved(b.containers, update.New(db, logger))
+	b.directory.SetRematcher(b.containers)
 	return b
 }
 
@@ -617,5 +628,286 @@ func TestWrites_TellTheWatcher(t *testing.T) {
 	}
 	if got := b.changeCount(); got != 6 {
 		t.Fatalf("un refus a été annoncé: %d", got)
+	}
+}
+
+// Le rapprochement se relance sur les machines que l'écriture touche, une
+// fois l'écriture validée.
+type rematchSpy struct {
+	machines []string
+}
+
+func (s *rematchSpy) Rematch(_ context.Context, machineID string) error {
+	s.machines = append(s.machines, machineID)
+	return nil
+}
+
+func TestWrites_RematchTheMachines(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	spy := &rematchSpy{}
+	b.directory.SetRematcher(spy)
+
+	created := mustCreate(t, b, composeDefinition(remoteID))
+	if !slices.Equal(spy.machines, []string{remoteID}) {
+		t.Fatalf("création: %v", spy.machines)
+	}
+
+	spy.machines = nil
+	if _, err := b.directory.UpdateService(ctx, created.ID, composeDefinition(remoteID)); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spy.machines, []string{remoteID}) {
+		t.Fatalf("édition sur place: %v", spy.machines)
+	}
+
+	// Changer de machine : celle qu'on quitte perd ses rattachements, l'autre en gagne.
+	spy.machines = nil
+	moved := composeDefinition(machine.LocalID)
+	if _, err := b.directory.UpdateService(ctx, created.ID, moved); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spy.machines, []string{remoteID, machine.LocalID}) {
+		t.Fatalf("changement de machine: %v", spy.machines)
+	}
+
+	spy.machines = nil
+	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(spy.machines, []string{machine.LocalID}) {
+		t.Fatalf("suppression: %v", spy.machines)
+	}
+
+	// Un refus n'écrit rien, il ne relance rien non plus.
+	spy.machines = nil
+	if _, err := b.directory.CreateService(ctx, composeDefinition("machine-inconnue")); err == nil {
+		t.Fatal("refus attendu")
+	}
+	if len(spy.machines) != 0 {
+		t.Fatalf("refus: %v", spy.machines)
+	}
+}
+
+type failingRematcher struct{}
+
+func (failingRematcher) Rematch(context.Context, string) error { return errors.New("boom") }
+
+// L'opérateur a écrit : un rapprochement qui échoue ne défait pas son geste.
+func TestWrites_ARematchFailureDoesNotUndoTheWrite(t *testing.T) {
+	b := newBench(t)
+	b.directory.SetRematcher(failingRematcher{})
+
+	created, err := b.directory.CreateService(context.Background(), composeDefinition(remoteID))
+	if err != nil {
+		t.Fatalf("création: %v", err)
+	}
+	if _, err := b.directory.GetService(context.Background(), created.ID); err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+}
+
+func TestIgnore_RefusesBadKindAndUnknownMachine(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	cases := []struct {
+		name string
+		key  directory.IgnoredKey
+		want error
+	}{
+		{"genre inconnu", directory.IgnoredKey{MachineID: remoteID, Kind: "id", Value: "whoami"}, directory.ErrIgnoreInvalid},
+		{"machine vide", directory.IgnoredKey{Kind: directory.IgnoreContainerName, Value: "whoami"}, directory.ErrIgnoreInvalid},
+		{"projet en majuscules", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeProject, Value: "Blog"}, directory.ErrIgnoreInvalid},
+		{"nom de conteneur avec une barre", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreContainerName, Value: "a/b"}, directory.ErrIgnoreInvalid},
+		{"valeur vide", directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreContainerName}, directory.ErrIgnoreInvalid},
+		{"machine inconnue", directory.IgnoredKey{MachineID: "machine-inconnue", Kind: directory.IgnoreContainerName, Value: "whoami"}, directory.ErrMachineInvalid},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := b.directory.Ignore(ctx, c.key); !errors.Is(err, c.want) {
+				t.Fatalf("err = %v, want %v", err, c.want)
+			}
+		})
+	}
+	if got := b.changeCount(); got != 0 {
+		t.Fatalf("un refus a été annoncé: %d", got)
+	}
+}
+
+func TestIgnore_IsIdempotentAndUnignoreNotFound(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	key := directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeProject, Value: " blog "}
+
+	if err := b.directory.Ignore(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.directory.Ignore(ctx, key); err != nil {
+		t.Fatalf("ignorer deux fois: %v", err)
+	}
+	stored, err := b.db.ListIgnoredKeys(ctx, remoteID)
+	if err != nil || len(stored) != 1 || stored[0].Value != "blog" || !stored[0].CreatedAt.Equal(testNow) {
+		t.Fatalf("clés = %+v, %v", stored, err)
+	}
+
+	key.Value = "blog"
+	if err := b.directory.Unignore(ctx, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.directory.Unignore(ctx, key); !errors.Is(err, directory.ErrIgnoredNotFound) {
+		t.Fatalf("retirer deux fois: %v", err)
+	}
+}
+
+// Les identifiants de conteneurs de Docker : 64 hexadécimaux.
+var (
+	containerID1 = strings.Repeat("1", 64)
+	containerID2 = strings.Repeat("2", 64)
+)
+
+func inventoryOf(containers ...service.Container) service.Report {
+	return service.Report{Engine: &service.EngineReport{Present: true}, Complete: true, Inventory: containers}
+}
+
+func composeContainerOf(id, name, project, composeService, image string) service.Container {
+	return service.Container{
+		ContainerID: id, Name: name, Group: project, ComposeService: composeService, Image: image,
+		State: service.StateRunning, CreatedAt: testNow.Add(-time.Hour),
+	}
+}
+
+// Un conteneur non déclaré n'a pas de projet : filtrer par projet ne dit
+// que ce qui est déclaré.
+func TestGaps_ProjectFilterHidesUndeclared(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	project := mustCreateProject(t, b, "client-a")
+	definition := composeDefinition(remoteID)
+	definition.ProjectIDs = []string{project.ID}
+	created := mustCreate(t, b, definition)
+	report := inventoryOf(
+		composeContainerOf(containerID1, "nextcloud-app-1", "nextcloud", "app", "nextcloud:29.0.4"),
+		composeContainerOf(containerID2, "blog-web-1", "blog", "web", "nginx:1.27"),
+	)
+	if err := b.containers.Record(ctx, remoteID, report); err != nil {
+		t.Fatal(err)
+	}
+
+	onMachine, err := b.directory.Gaps(ctx, directory.Filter{MachineID: remoteID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(onMachine.Services) != 1 || len(onMachine.Undeclared) != 1 || onMachine.Undeclared[0].Key.Value != "blog" {
+		t.Fatalf("machine: %+v", onMachine)
+	}
+	if got := onMachine.Services[0]; got.ServiceID != created.ID || got.State != directory.GapAbsent || got.Units[0].State != directory.GapConform {
+		t.Fatalf("service: %+v", got)
+	}
+
+	inProject, err := b.directory.Gaps(ctx, directory.Filter{ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inProject.Services) != 1 || inProject.Undeclared == nil || len(inProject.Undeclared) != 0 {
+		t.Fatalf("projet: %+v", inProject)
+	}
+}
+
+// Le chemin entier : l'annuaire écrit, le suivi des services rattache ; un
+// rapport suivant garde le rattachement ; l'unité supprimée rend le
+// conteneur non déclaré ; un conteneur détruit garde son unité.
+func TestContainers_FollowTheDirectory(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID1, "nextcloud-app-1", "nextcloud", "app", "nextcloud:29.0.4"),
+		composeContainerOf(containerID2, "nextcloud-db-1", "nextcloud", "db", "postgres:16.4"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+	app := service.ID(remoteID, containerID1)
+	if found, _ := b.containers.Get(ctx, app); found.UnitID != "" {
+		t.Fatalf("rien n'est déclaré: %+v", found)
+	}
+
+	created := mustCreate(t, b, composeDefinition(remoteID))
+	found, err := b.containers.Get(ctx, app)
+	if err != nil || found.UnitID != created.Units[0].ID || found.MatchLevel != service.MatchCompose {
+		t.Fatalf("après la déclaration: %+v, %v", found, err)
+	}
+	link, err := b.directory.ContainerLink(ctx, found)
+	if err != nil || link.ServiceName != "nextcloud" || link.UnitName != "app" || link.Level != service.MatchCompose {
+		t.Fatalf("lien: %+v, %v", link, err)
+	}
+
+	// Un rapport qui retouche la fiche garde le rattachement.
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID1, "nextcloud-app-1", "nextcloud", "app", "nextcloud:29.0.4"),
+		composeContainerOf(containerID2, "nextcloud-db-1", "nextcloud", "db", "postgres:16.4"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if found, _ := b.containers.Get(ctx, app); found.UnitID != created.Units[0].ID {
+		t.Fatalf("après un rapport: %+v", found)
+	}
+
+	// Le conteneur est détruit : sa fiche archivée garde son unité.
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID2, "nextcloud-db-1", "nextcloud", "db", "postgres:16.4"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+	gone, _ := b.containers.Get(ctx, app)
+	if !gone.IsArchived() || gone.UnitID != created.Units[0].ID {
+		t.Fatalf("archivé: %+v", gone)
+	}
+
+	// L'unité disparaît de la définition : le conteneur vivant devient non déclaré.
+	definition := composeDefinition(remoteID)
+	definition.Units = []directory.UnitDefinition{{ID: created.Units[0].ID, Name: "app", Image: "nextcloud", Version: "29.0.4"}}
+	if _, err := b.directory.UpdateService(ctx, created.ID, definition); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := b.containers.Get(ctx, service.ID(remoteID, containerID2))
+	if db.UnitID != "" || db.MatchLevel != service.MatchNone {
+		t.Fatalf("db: %+v", db)
+	}
+	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	gone, _ = b.containers.Get(ctx, app)
+	if gone.UnitID != "" || gone.MatchLevel != service.MatchNone {
+		t.Fatalf("la fiche archivée perd l'unité supprimée: %+v", gone)
+	}
+}
+
+func TestPropose_ReadsTheContainerAndRefusesWhatIsGoneOrDeclared(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID1, "blog-web-1", "blog", "web", "nginx:1.27"),
+		composeContainerOf(containerID2, "gone-1", "gone", "web", "nginx:1.27"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(composeContainerOf(containerID1, "blog-web-1", "blog", "web", "nginx:1.27"))); err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := b.directory.Propose(ctx, service.ID(remoteID, containerID1))
+	if err != nil || proposal.Definition.ComposeProject != "blog" || proposal.Definition.Units[0].Version != "1.27" {
+		t.Fatalf("proposition: %+v, %v", proposal, err)
+	}
+	if _, err := b.directory.Propose(ctx, service.ID(remoteID, containerID2)); !errors.Is(err, directory.ErrContainerNotFound) {
+		t.Fatalf("conteneur détruit: %v", err)
+	}
+	if _, err := b.directory.Propose(ctx, "inconnu"); !errors.Is(err, directory.ErrContainerNotFound) {
+		t.Fatalf("conteneur inconnu: %v", err)
+	}
+
+	// Une fois adopté, le conteneur est rattaché : il n'y a plus rien à proposer.
+	mustCreate(t, b, proposal.Definition)
+	if _, err := b.directory.Propose(ctx, service.ID(remoteID, containerID1)); !errors.Is(err, directory.ErrContainerDeclared) {
+		t.Fatalf("conteneur déclaré: %v", err)
 	}
 }

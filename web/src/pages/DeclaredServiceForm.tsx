@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse } from "../api/types";
+import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -10,7 +10,7 @@ import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
-import { useT } from "../i18n/context";
+import { useT, type Translate } from "../i18n/context";
 import {
   capabilities,
   emptyServiceForm,
@@ -18,6 +18,7 @@ import {
   natures,
   origins,
   serviceFormOf,
+  serviceFormOfDefinition,
   serviceRequestOf,
   toggled,
   type ServiceFormValues,
@@ -34,15 +35,22 @@ import "./DeclaredServiceForm.scss";
 // entier ; une unité gardée garde son identifiant, une unité retirée est
 // supprimée. L'appartenance aux projets se règle ici, depuis le service.
 // Le serveur valide et répond par la clé du refus.
+//
+// Avec ?container=, le formulaire part de ce que le serveur propose pour
+// adopter ce conteneur : une déclaration nouvelle, ou, si son projet Compose
+// est déjà déclaré, la modification de ce service, à laquelle les unités qui
+// manquent s'ajoutent. Rien n'est écrit tant que l'opérateur n'a pas validé.
 export function DeclaredServiceForm() {
   const { id } = useParams();
   const isEditing = id !== undefined;
+  const container = useSearchParams()[0].get("container") ?? "";
   const t = useT();
   const navigate = useNavigate();
   const { refresh } = useRefresh();
   const machines = useResource<MachinesResponse>("/api/machines");
   const projects = useResource<ProjectsResponse>("/api/directory/projects");
   const existing = useResource<DeclaredService>(isEditing ? `/api/directory/services/${id}` : null);
+  const proposal = useResource<ProposalResponse>(container === "" ? null : `/api/directory/proposal?container=${encodeURIComponent(container)}`);
 
   const [values, setValues] = useState<ServiceFormValues>(emptyServiceForm);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +59,31 @@ export function DeclaredServiceForm() {
   // passe) ne doit pas écraser ce que l'opérateur est en train de taper.
   const [filled, setFilled] = useState(false);
 
+  // Tant que la proposition n'est ni arrivée ni refusée, on ne remplit pas :
+  // le formulaire ne partirait pas du bon côté.
+  const awaitingProposal = container !== "" && proposal.data === null && proposal.error === null;
   useEffect(() => {
-    if (filled || existing.data === null) {
+    if (filled) {
+      return;
+    }
+    if (isEditing) {
+      if (existing.data === null || awaitingProposal) {
+        return;
+      }
+      // Une proposition pour un autre service n'est pas la nôtre : le service
+      // tel qu'il est gardé fait foi.
+      const proposed = proposal.data !== null && proposal.data.service_id === id ? proposal.data.definition : null;
+      setFilled(true);
+      setValues(proposed !== null ? serviceFormOfDefinition(proposed) : serviceFormOf(existing.data));
+      return;
+    }
+    // Une proposition qui vise un service déjà déclaré redirige, plus bas.
+    if (proposal.data === null || proposal.data.service_id !== "") {
       return;
     }
     setFilled(true);
-    setValues(serviceFormOf(existing.data));
-  }, [existing.data, filled]);
+    setValues(serviceFormOfDefinition(proposal.data.definition));
+  }, [existing.data, proposal.data, awaitingProposal, filled, isEditing, id]);
 
   // À défaut de choix, la machine openCloud : c'est celle qu'on a sous la main.
   const local = machines.data?.machines.find((machine) => machine.local);
@@ -70,6 +96,13 @@ export function DeclaredServiceForm() {
   if (isEditing && existing.error?.status === 404) {
     return <NotFound />;
   }
+  // Le projet Compose de ce conteneur est déjà déclaré : on y ajoute les
+  // unités qui manquent plutôt que d'en déclarer un second.
+  if (!isEditing && proposal.data !== null && proposal.data.service_id !== "") {
+    return <Navigate replace to={`/services/annuaire/${proposal.data.service_id}/modifier?container=${encodeURIComponent(container)}`} />;
+  }
+  const waiting = !filled && (isEditing || awaitingProposal);
+  const adopting = container !== "" && proposal.error === null;
 
   const change = <Key extends keyof ServiceFormValues>(key: Key, value: ServiceFormValues[Key]) => {
     setValues((current) => ({ ...current, [key]: value }));
@@ -103,10 +136,11 @@ export function DeclaredServiceForm() {
   return (
     <>
       <PageHead
-        title={isEditing ? t("directory.edit_title") : t("directory.new_title")}
-        subtitle={isEditing ? t("directory.edit_subtitle") : t("directory.new_subtitle")}
+        title={heading(t, isEditing, adopting).title}
+        subtitle={heading(t, isEditing, adopting).subtitle}
       />
       {existing.error && <Failure error={existing.error} />}
+      {proposal.error && <Failure error={proposal.error} />}
       <Card className="form-card">
         <form className="card-b" onSubmit={submit}>
           <div className="grid-2">
@@ -232,7 +266,7 @@ export function DeclaredServiceForm() {
           </Field>
           {error !== null && <Pill tone="danger">{t(error)}</Pill>}
           <div className="cluster">
-            <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || (isEditing && !filled)}>
+            <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || waiting}>
               {isEditing ? t("directory.save") : t("directory.create")}
             </Button>
             <Button variant="ghost" to={isEditing ? `/services/annuaire/${id}` : "/services/annuaire"}>
@@ -243,6 +277,19 @@ export function DeclaredServiceForm() {
       </Card>
     </>
   );
+}
+
+// Le titre dit si l'on déclare, modifie, ou adopte un conteneur que la
+// machine montre.
+function heading(t: Translate, isEditing: boolean, adopting: boolean) {
+  if (adopting) {
+    return isEditing
+      ? { title: t("gap.adopt_into_title"), subtitle: t("gap.adopt_into_subtitle") }
+      : { title: t("gap.adopt_title"), subtitle: t("gap.adopt_subtitle") };
+  }
+  return isEditing
+    ? { title: t("directory.edit_title"), subtitle: t("directory.edit_subtitle") }
+    : { title: t("directory.new_title"), subtitle: t("directory.new_subtitle") };
 }
 
 // Une unité : le champ qui la retrouve parmi ce que la machine montre

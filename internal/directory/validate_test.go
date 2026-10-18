@@ -99,6 +99,7 @@ func TestValidate_RefusesEachRuleWithItsError(t *testing.T) {
 			d.Units[0].Image = "nextcloud@sha256:" + strings.Repeat("a", 64)
 			return d
 		}, composeDefinition, ErrImageInvalid},
+		{"image avec une majuscule", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Image = "NextCloud"; return d }, composeDefinition, ErrImageInvalid},
 		{"image avec une espace", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Image = "next cloud"; return d }, composeDefinition, ErrImageInvalid},
 		{"image trop longue", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Image = strings.Repeat("a", 513); return d }, composeDefinition, ErrImageInvalid},
 		{"binaire avec une image", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Image = "caddy"; return d }, binaryDefinition, ErrImageInvalid},

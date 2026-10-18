@@ -99,6 +99,11 @@ func newTestServer(t *testing.T) *testServer {
 	updates := update.New(db, logger)
 	updates.SetClock(func() time.Time { return testNow })
 	updates.SetWatcher(bus)
+	// Le même câblage que serve : l'annuaire lit les conteneurs et leurs
+	// constats, le suivi des services lui demande leurs unités.
+	declared.SetObserved(services, updates)
+	declared.SetRematcher(services)
+	services.SetUnits(declared)
 	// Les réponses figées datent d'avant la fin de support : le serveur de
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie

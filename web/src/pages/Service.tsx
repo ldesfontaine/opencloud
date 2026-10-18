@@ -5,6 +5,7 @@ import { ApiError } from "../api/client";
 import type { ServiceResponse, Transition } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { DirectoryCard } from "../components/DirectoryCard";
 import { Failure } from "../components/Failure";
 import { LogViewer } from "../components/LogViewer";
 import { modeText } from "../components/NetworkInspector";
@@ -78,6 +79,7 @@ function ServiceView({ response, reload }: { response: ServiceResponse; reload: 
         </CardBody>
       </Card>
       <UpdateCard service={service} reload={reload} />
+      <DirectoryCard service={service} directory={response.directory} />
       <div className="grid-3">
         <Card>
           <CardHeader title={t("tab.summary")} />

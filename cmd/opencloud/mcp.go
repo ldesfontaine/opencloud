@@ -82,6 +82,9 @@ func runMCP(args []string) error {
 	probes := probe.New(db, logger)
 	declared := directory.New(db, logger)
 	updates := update.New(db, logger)
+	// Ce processus ne fait que lire : l'écart voit les conteneurs que serve
+	// a rattachés, il n'écrit et ne rattache rien.
+	declared.SetObserved(services, updates)
 	statusPage := status.New(db, machines, db, logger)
 	catalogs, err := lang.Load()
 	if err != nil {

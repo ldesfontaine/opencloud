@@ -17,10 +17,22 @@ const RefreshContext = createContext<Refresh>({ refresh: () => {}, versionFor: (
 // Le chemin d'une ressource dit son sujet ; les compteurs relèvent de
 // tout ce qui se compte.
 export function topicsOf(path: string): Topic[] {
+  // L'écart croise l'annuaire et les conteneurs : il se relit quand l'un ou
+  // l'autre change. La proposition d'adoption, elle, ne suit que l'annuaire :
+  // elle se lit pour remplir un formulaire, et un rapport de l'agent ne doit
+  // pas la relire pendant que l'opérateur le remplit.
+  if (path.startsWith("/api/directory/gaps")) {
+    return ["directory", "services"];
+  }
   // Avant « /services » : l'annuaire en porte aussi le mot, et ce n'est pas
   // le sujet des conteneurs.
   if (path.startsWith("/api/directory")) {
     return ["directory"];
+  }
+  // La fiche d'un conteneur dit aussi de quelle unité elle relève : elle suit
+  // l'annuaire autant que les machines. Seule la fiche, pas ses sous-chemins.
+  if (/^\/api\/services\/[^/?]+(\?.*)?$/.test(path)) {
+    return ["services", "directory"];
   }
   if (path.startsWith("/api/status")) {
     return ["status"];

@@ -56,7 +56,7 @@ const (
 	mcpMaxLimit     = 500
 	codeReadOnly    = "mcp.read_only"
 	// Les comptes du catalogue, figés par un test qui énumère les outils.
-	mcpReadToolCount  = 16
+	mcpReadToolCount  = 17
 	mcpWriteToolCount = 9
 	// Les mêmes bornes que /ping et /statut par adresse résolue ; le point
 	// de jeton, où un secret se devine, est tenu plus serré.
@@ -69,6 +69,7 @@ const (
 )
 
 const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that watches machines, their Docker services, " +
+	"the services its operator declares and how they differ from what Docker shows, " +
 	"scheduled jobs (heartbeats), HTTP/TCP probes with their TLS certificates, a public status page and alerts. " +
 	"Every read tool returns the same JSON facts as the web API: instants are ISO 8601 in UTC, durations are in " +
 	"seconds or milliseconds, states are closed lists of lowercase words. Nothing here can act on a machine: " +

@@ -310,6 +310,8 @@ func directoryRefusalKey(err error) (string, bool) {
 		return "directory.unit_invalid", true
 	case errors.Is(err, directory.ErrProjectInvalid):
 		return "directory.project_invalid", true
+	case errors.Is(err, directory.ErrIgnoreInvalid):
+		return "directory.ignore_invalid", true
 	}
 	return "", false
 }

@@ -33,6 +33,10 @@ POST /api/directory/projects
 GET /api/directory/projects/{id}
 PUT /api/directory/projects/{id}
 DELETE /api/directory/projects/{id}
+GET /api/directory/gaps
+GET /api/directory/proposal
+POST /api/directory/ignored
+DELETE /api/directory/ignored
 GET /api/probes
 POST /api/probes
 GET /api/probes/{id}
