@@ -19,6 +19,10 @@ const (
 // Ce que le service attend de la base ; le paquet store le fournit.
 type Store interface {
 	InsertProbe(ctx context.Context, probe Probe) error
+	// UpdateProbe remplace la définition d'une sonde en une instruction,
+	// sans relire l'état : un essai qui arrive pendant l'édition ne se perd
+	// pas, sauf si l'édition remet l'état à zéro.
+	UpdateProbe(ctx context.Context, revision Revision) error
 	// ListProbes rend les sondes d'une machine, toutes si machineID est vide.
 	ListProbes(ctx context.Context, machineID string) ([]Probe, error)
 	GetProbe(ctx context.Context, id string) (Probe, error)
@@ -33,9 +37,10 @@ type Store interface {
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
 	// pause, ce que la sonde valait ne vaut plus rien.
 	SetProbeStatus(ctx context.Context, id string, status Status) error
-	// ApplyChanges écrit les essais et l'état des sondes touchées, en une
-	// transaction ; un essai déjà en base, rejoué, est ignoré.
-	ApplyProbeResults(ctx context.Context, changes Changes) error
+	// ApplyProbeResults écrit les essais et l'état des sondes touchées, en une
+	// transaction ; un essai déjà en base, rejoué, est ignoré. Rend les
+	// sondes dont l'état a été écrit : une sonde révisée entre-temps n'y est pas.
+	ApplyProbeResults(ctx context.Context, changes Changes) ([]Probe, error)
 	ListProbeResults(ctx context.Context, probeID string, limit int) ([]Result, error)
 	// ListDays rend les jours d'une sonde, ou de toutes si probeID est vide.
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
@@ -162,7 +167,10 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 		TLS:               definition.TLS,
 		CreatedAt:         s.now(),
 	}
-	if err := s.insertUnderCeiling(ctx, created); err != nil {
+	err = s.writeUnderCeiling(ctx, created.MachineID, func() error {
+		return s.store.InsertProbe(ctx, created)
+	})
+	if err != nil {
 		return Probe{}, err
 	}
 	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", created.Target)
@@ -188,17 +196,97 @@ func (s *Service) checkServiceBelongs(ctx context.Context, definition Definition
 	return nil
 }
 
-func (s *Service) insertUnderCeiling(ctx context.Context, created Probe) error {
+// writeUnderCeiling compte puis écrit d'un seul tenant : la sonde qui
+// arrive sur la machine ne passe que s'il reste une place.
+func (s *Service) writeUnderCeiling(ctx context.Context, machineID string, write func() error) error {
 	s.creating.Lock()
 	defer s.creating.Unlock()
-	carried, err := s.store.CountProbesOnMachine(ctx, created.MachineID)
+	carried, err := s.store.CountProbesOnMachine(ctx, machineID)
 	if err != nil {
 		return err
 	}
 	if carried >= MaxProbesPerMachine {
 		return ErrTooMany
 	}
-	return s.store.InsertProbe(ctx, created)
+	return write()
+}
+
+// Update remplace la définition de la sonde, sur place : l'identifiant,
+// l'histoire et la date de création restent. Ce qui change ce que la sonde
+// mesure la remet à « Nouvelle » ; le certificat n'est oublié que si la
+// cible change. Ses machines, l'ancienne comme la nouvelle, reçoivent leur
+// jeu à jour.
+func (s *Service) Update(ctx context.Context, id string, definition Definition) (Probe, error) {
+	before, err := s.store.GetProbe(ctx, id)
+	if err != nil {
+		return Probe{}, err
+	}
+	definition = definition.Complete()
+	if err := definition.Validate(); err != nil {
+		return Probe{}, err
+	}
+	if err := s.checkServiceBelongs(ctx, definition); err != nil {
+		return Probe{}, err
+	}
+	revision := s.revisionOf(before, definition)
+	if err := s.writeRevision(ctx, before, revision); err != nil {
+		return Probe{}, err
+	}
+	s.logger.Info("probe updated", "probe_id", id, "name", revision.Probe.Name, "machine_id", revision.Probe.MachineID,
+		"target", revision.Probe.Target, "state_reset", revision.ResetsState)
+	updated, err := s.store.GetProbe(ctx, id)
+	if err != nil {
+		return Probe{}, err
+	}
+	// Remise à zéro : l'état est « Nouveau » et le moteur lève tout ; sinon
+	// il ne fait que renommer ce qui est ouvert, sans rien notifier.
+	if s.alerter != nil {
+		s.alerter.ProbeChanged(ctx, updated)
+	}
+	s.Assign(ctx, updated.MachineID)
+	s.changed(updated.MachineID)
+	if before.MachineID != updated.MachineID {
+		s.Assign(ctx, before.MachineID)
+		s.changed(before.MachineID)
+	}
+	return updated, nil
+}
+
+func (s *Service) revisionOf(before Probe, definition Definition) Revision {
+	revision := Revision{
+		Probe:             before,
+		ResetsState:       definition.resetsState(before),
+		ClearsCertificate: definition.clearsCertificate(before),
+	}
+	revised := &revision.Probe
+	revised.Name = definition.Name
+	revised.Kind = definition.Kind
+	revised.Target = definition.Target
+	revised.MachineID = definition.MachineID
+	revised.ServiceID = definition.ServiceID
+	revised.Interval = definition.Interval
+	revised.Timeout = definition.Timeout
+	revised.FailureThreshold = definition.FailureThreshold
+	revised.RecoveryThreshold = definition.RecoveryThreshold
+	revised.Method = definition.Method
+	revised.ExpectedStatus = definition.ExpectedStatus
+	revised.ExpectedBody = definition.ExpectedBody
+	revised.FollowRedirects = definition.FollowRedirects
+	revised.TLS = definition.TLS
+	if revision.ResetsState {
+		revised.RevisedAt = s.now()
+	}
+	return revision
+}
+
+// Changer de machine est une arrivée : elle compte sur la nouvelle, et
+// c'est elle qui est refusée si elle est pleine.
+func (s *Service) writeRevision(ctx context.Context, before Probe, revision Revision) error {
+	write := func() error { return s.store.UpdateProbe(ctx, revision) }
+	if revision.Probe.MachineID == before.MachineID {
+		return write()
+	}
+	return s.writeUnderCeiling(ctx, revision.Probe.MachineID, write)
 }
 
 func (s *Service) List(ctx context.Context, machineID string) ([]Probe, error) {
@@ -397,11 +485,12 @@ func (s *Service) Record(ctx context.Context, machineID string, report Report) e
 	if len(changes.Results) == 0 && len(changes.Probes) == 0 {
 		return nil
 	}
-	if err := s.store.ApplyProbeResults(ctx, changes); err != nil {
+	written, err := s.store.ApplyProbeResults(ctx, changes)
+	if err != nil {
 		return err
 	}
 	if s.alerter != nil {
-		for _, touched := range changes.Probes {
+		for _, touched := range written {
 			s.alerter.ProbeChanged(ctx, touched)
 		}
 	}

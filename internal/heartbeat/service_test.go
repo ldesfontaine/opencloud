@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -333,7 +334,7 @@ func TestCheckDeadlines_StartedRun_IsClosedAsTimeout(t *testing.T) {
 	}
 }
 
-func TestPauseAndResume_PausedNeverGetsLateAndAPingResumesIt(t *testing.T) {
+func TestPauseAndResume_PausedNeverGetsLateAndResumeOpensAFullInterval(t *testing.T) {
 	f := newFixture(t)
 	h := f.create(t, "job")
 	f.ping(t, h.Token, heartbeat.KindFinish, nil)
@@ -357,11 +358,63 @@ func TestPauseAndResume_PausedNeverGetsLateAndAPingResumesIt(t *testing.T) {
 	if got.Status != heartbeat.StatusOnTime || !got.NextDeadlineAt.Equal(f.clock.Add(6*time.Minute)) {
 		t.Fatalf("after resume %+v", got)
 	}
+}
+
+// Un cron oublié continue de pinger : le ping est noté, pour qu'on voie qu'il
+// tourne encore, mais rien ne bouge avant la reprise.
+func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	if err := f.Pause(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	paused, _ := f.Get(ctx, h.ID)
+	f.listener.events = nil
+	f.advance(time.Hour)
+
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	got := f.ping(t, h.Token, heartbeat.KindExitCode, code(3))
+
+	if got.Status != heartbeat.StatusPaused {
+		t.Fatalf("a ping must not resume a paused heartbeat, got %s", got.Status)
+	}
+	after, _ := f.Get(ctx, h.ID)
+	if after.Status != heartbeat.StatusPaused || !after.LastPingAt.Equal(paused.LastPingAt) || !after.NextDeadlineAt.IsZero() ||
+		!after.RunStartedAt.IsZero() || after.LastExitCode != paused.LastExitCode {
+		t.Fatalf("a paused heartbeat moved: before %+v, after %+v", paused, after)
+	}
+	if runs, _ := f.Runs(ctx, h.ID, 10); len(runs) != 1 {
+		t.Fatalf("a ping while paused must not open or close a run: %d runs", len(runs))
+	}
+	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 4 {
+		t.Fatalf("the raw pings must be kept: %d pings", len(pings))
+	}
+	if len(f.listener.events) != 0 {
+		t.Fatalf("a ping while paused must raise nothing: %v", f.listener.events)
+	}
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Resume(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	if resumed, _ := f.Get(ctx, h.ID); resumed.Status != heartbeat.StatusOnTime {
+		t.Fatalf("only Resume leaves the pause: %s", resumed.Status)
+	}
+}
+
+func TestReceive_PausedStillRefusesABadExitCode(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
 	if err := f.Pause(context.Background(), h.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.ping(t, h.Token, heartbeat.KindFinish, nil); got.Status != heartbeat.StatusOnTime {
-		t.Fatalf("a ping must resume a paused heartbeat, got %s", got.Status)
+	_, err := f.Receive(context.Background(), h.Token, heartbeat.Ping{Kind: heartbeat.KindExitCode, ExitCode: code(256)})
+	if !errors.Is(err, heartbeat.ErrExitCodeInvalid) {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -523,5 +576,239 @@ func TestReceive_TruncatesOnARuneBoundary(t *testing.T) {
 	pings, _ := f.Pings(context.Background(), h.ID, 1)
 	if len(pings[0].Payload) != heartbeat.MaxPayloadBytes-1 {
 		t.Fatalf("payload kept %d bytes", len(pings[0].Payload))
+	}
+}
+
+func (f *fixture) update(t *testing.T, id string, definition heartbeat.Definition) heartbeat.Heartbeat {
+	t.Helper()
+	updated, err := f.Update(context.Background(), id, definition)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	return updated
+}
+
+func TestUpdate_KeepsIDTokenAndHistory(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "  sauvegarde  ", Interval: time.Hour, Grace: 5 * time.Minute})
+
+	if updated.ID != h.ID || updated.Token != h.Token || !updated.CreatedAt.Equal(h.CreatedAt) {
+		t.Fatalf("identity changed: %+v", updated)
+	}
+	if updated.Name != "sauvegarde" || updated.Interval != time.Hour || updated.Grace != 5*time.Minute || updated.MachineID != "" {
+		t.Fatalf("definition not replaced: %+v", updated)
+	}
+	if runs, _ := f.Runs(ctx, h.ID, 10); len(runs) != 1 {
+		t.Fatalf("runs lost: %d", len(runs))
+	}
+	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 2 {
+		t.Fatalf("pings lost: %d", len(pings))
+	}
+	if got := f.ping(t, h.Token, heartbeat.KindFinish, nil); got.ID != h.ID {
+		t.Fatalf("the old URL must keep working: %+v", got)
+	}
+}
+
+// L'échéance suit le rythme : plus d'intervalle ou de grâce, c'est plus de
+// temps, à partir du même dernier ping.
+func TestUpdate_ShiftsTheRunningDeadline(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	pinged := f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(2 * time.Minute)
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: 2 * time.Minute})
+	if want := pinged.NextDeadlineAt.Add(6 * time.Minute); !updated.NextDeadlineAt.Equal(want) {
+		t.Fatalf("deadline %s, want %s", updated.NextDeadlineAt, want)
+	}
+	if updated.Status != heartbeat.StatusOnTime || !updated.LastPingAt.Equal(pinged.LastPingAt) {
+		t.Fatalf("state moved: %+v", updated)
+	}
+
+	renamed := f.update(t, h.ID, heartbeat.Definition{Name: "autre", Interval: 10 * time.Minute, Grace: 2 * time.Minute})
+	if !renamed.NextDeadlineAt.Equal(updated.NextDeadlineAt) {
+		t.Fatalf("a rename must not move the deadline: %s", renamed.NextDeadlineAt)
+	}
+}
+
+func TestUpdate_Paused_ChangesNoDeadlineNorState(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	if err := f.Pause(context.Background(), h.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: time.Hour, Grace: time.Minute})
+	if updated.Status != heartbeat.StatusPaused || !updated.NextDeadlineAt.IsZero() || updated.Interval != time.Hour {
+		t.Fatalf("paused update: %+v", updated)
+	}
+}
+
+func TestUpdate_LateWithinNewInterval_BackOnTimeAndRecovered(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	pinged := f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.listener.events = nil
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
+
+	if updated.Status != heartbeat.StatusOnTime || !updated.NextDeadlineAt.Equal(pinged.LastPingAt.Add(11*time.Minute)) {
+		t.Fatalf("a late job with time left must be back on time: %+v", updated)
+	}
+	if want := []string{"recovered:job"}; !slices.Equal(f.listener.events, want) {
+		t.Fatalf("events %v, want %v", f.listener.events, want)
+	}
+}
+
+func TestUpdate_LateWithinNewInterval_AfterAFailureGoesBackToFailed(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindExitCode, code(2))
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.listener.events = nil
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
+
+	if updated.Status != heartbeat.StatusFailed || updated.NextDeadlineAt.IsZero() {
+		t.Fatalf("got %+v", updated)
+	}
+	if want := []string{"failed:job"}; !slices.Equal(f.listener.events, want) {
+		t.Fatalf("events %v, want %v", f.listener.events, want)
+	}
+}
+
+func TestUpdate_LateNeverPinged_WithinNewInterval_BackToNew(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
+	if updated.Status != heartbeat.StatusNew || !updated.NextDeadlineAt.Equal(h.CreatedAt.Add(11*time.Minute)) {
+		t.Fatalf("got %+v", updated)
+	}
+}
+
+func TestUpdate_LateBeyondNewInterval_StaysLate(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(20 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
+	if updated.Status != heartbeat.StatusLate || !updated.NextDeadlineAt.IsZero() {
+		t.Fatalf("got %+v", updated)
+	}
+}
+
+func TestUpdate_ShorterInterval_LateAtNextCheck(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(2 * time.Minute)
+
+	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: time.Minute, Grace: 0})
+	if updated.Status != heartbeat.StatusOnTime {
+		t.Fatalf("the edit itself judges nothing: %+v", updated)
+	}
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.Get(ctx, h.ID); got.Status != heartbeat.StatusLate {
+		t.Fatalf("the next check must find it late, got %s", got.Status)
+	}
+}
+
+func TestUpdate_RejectsBadDefinitions(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	cases := []struct {
+		name       string
+		definition heartbeat.Definition
+		want       error
+	}{
+		{"empty name", heartbeat.Definition{Name: " ", Interval: time.Hour}, heartbeat.ErrNameInvalid},
+		{"interval too short", heartbeat.Definition{Name: "job", Interval: time.Second}, heartbeat.ErrIntervalInvalid},
+		{"grace longer than the interval", heartbeat.Definition{Name: "job", Interval: time.Hour, Grace: 2 * time.Hour}, heartbeat.ErrGraceInvalid},
+	}
+	for _, c := range cases {
+		if _, err := f.Update(context.Background(), h.ID, c.definition); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, err, c.want)
+		}
+	}
+	if got, _ := f.Get(context.Background(), h.ID); got.Interval != 5*time.Minute {
+		t.Fatalf("a refused edit was written: %+v", got)
+	}
+	if _, err := f.Update(context.Background(), "inconnu", heartbeat.Definition{Name: "job", Interval: time.Hour}); !errors.Is(err, heartbeat.ErrNotFound) {
+		t.Fatalf("unknown id: %v", err)
+	}
+}
+
+// Une tâche encore en retard est renommée : le moteur des alertes reçoit le
+// nouveau nom, il n'en ouvre pas une seconde.
+func TestUpdate_RenamesTheOpenAlert(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "ancien")
+	f.advance(7 * time.Minute)
+	if err := f.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.listener.events = nil
+
+	f.update(t, h.ID, heartbeat.Definition{Name: "nouveau", Interval: 5 * time.Minute, Grace: time.Minute})
+	if want := []string{"late:nouveau"}; !slices.Equal(f.listener.events, want) {
+		t.Fatalf("events %v, want %v", f.listener.events, want)
+	}
+}
+
+func TestRegenerateToken_OldRefusedNewAccepted(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	pinged := f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	if err := f.Pause(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.RegenerateToken(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	regenerated, _ := f.Get(ctx, h.ID)
+	if regenerated.Token == h.Token || !strings.HasPrefix(regenerated.Token, "hb_") {
+		t.Fatalf("token not renewed: %q", regenerated.Token)
+	}
+	if _, err := f.Receive(ctx, h.Token, heartbeat.Ping{Kind: heartbeat.KindFinish}); !errors.Is(err, heartbeat.ErrNotFound) {
+		t.Fatalf("the old token must be refused: %v", err)
+	}
+	if _, err := f.Receive(ctx, regenerated.Token, heartbeat.Ping{Kind: heartbeat.KindFinish}); err != nil {
+		t.Fatalf("the new token must work: %v", err)
+	}
+	if regenerated.Status != heartbeat.StatusPaused || !regenerated.LastPingAt.Equal(pinged.LastPingAt) {
+		t.Fatalf("regenerating must not touch the state: %+v", regenerated)
+	}
+	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 2 {
+		t.Fatalf("history lost: %d pings", len(pings))
+	}
+	if err := f.RegenerateToken(ctx, "inconnu"); !errors.Is(err, heartbeat.ErrNotFound) {
+		t.Fatalf("unknown id: %v", err)
 	}
 }

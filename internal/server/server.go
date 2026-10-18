@@ -95,6 +95,7 @@ type ProbeService interface {
 	// leur fin, pour la vue d'ensemble.
 	Certificates(ctx context.Context) (probe.Certificates, error)
 	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
+	Update(ctx context.Context, id string, definition probe.Definition) (probe.Probe, error)
 	Delete(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
@@ -134,6 +135,8 @@ type HeartbeatService interface {
 	Get(ctx context.Context, id string) (heartbeat.Heartbeat, error)
 	Count(ctx context.Context) (total, attention int, err error)
 	Create(ctx context.Context, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
+	Update(ctx context.Context, id string, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
+	RegenerateToken(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error

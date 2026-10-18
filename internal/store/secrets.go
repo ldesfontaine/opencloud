@@ -219,18 +219,36 @@ func (db *DB) SealPlaintextSecrets(ctx context.Context) (int, error) {
 // sealInPlace remplace un clair par son chiffré. Le jeton de ping pose aussi
 // son empreinte, par laquelle on le retrouve.
 func (db *DB) sealInPlace(ctx context.Context, tx *sql.Tx, scope seal.Scope, plaintext string) error {
+	if scope.Table == "heartbeats" {
+		if _, err := db.writeHeartbeatToken(ctx, tx, scope.Row, plaintext); err != nil {
+			return fmt.Errorf("seal %s.%s row %s: %w", scope.Table, scope.Column, scope.Row, err)
+		}
+		return nil
+	}
 	sealed := db.sealer.Seal(plaintext, scope)
 	// Table et colonne viennent de secretColumns, jamais d'une saisie.
 	query := `UPDATE ` + scope.Table + ` SET ` + scope.Column + ` = ? WHERE id = ?` // #nosec G202 -- constantes du paquet.
-	args := []any{sealed, scope.Row}
-	if scope.Table == "heartbeats" {
-		query = `UPDATE heartbeats SET token = ?, token_hash = ? WHERE id = ?`
-		args = []any{sealed, heartbeat.HashToken(plaintext), scope.Row}
-	}
-	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+	if _, err := tx.ExecContext(ctx, query, sealed, scope.Row); err != nil {
 		return fmt.Errorf("seal %s.%s row %s: %w", scope.Table, scope.Column, scope.Row, err)
 	}
 	return nil
+}
+
+// execer est satisfait par *sql.DB et *sql.Tx.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// writeHeartbeatToken pose le jeton d'une tâche, chiffré, avec l'empreinte
+// par laquelle un ping le retrouve : les deux colonnes s'écrivent ensemble
+// ou pas du tout.
+func (db *DB) writeHeartbeatToken(ctx context.Context, to execer, id, token string) (sql.Result, error) {
+	sealed, err := db.sealSecret(token, heartbeatTokenScope(id))
+	if err != nil {
+		return nil, fmt.Errorf("seal heartbeat token: %w", err)
+	}
+	return to.ExecContext(ctx, `UPDATE heartbeats SET token = ?, token_hash = ? WHERE id = ?`,
+		sealed, heartbeat.HashToken(token), id)
 }
 
 // Compact réécrit le fichier de la base pour que les clairs qu'elle vient de
@@ -311,8 +329,7 @@ func (db *DB) renewHeartbeatTokens(ctx context.Context, tx *sql.Tx, newToken fun
 		if err != nil {
 			return 0, fmt.Errorf("draw heartbeat token: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE heartbeats SET token = ?, token_hash = ? WHERE id = ?`,
-			db.sealer.Seal(token, heartbeatTokenScope(id)), heartbeat.HashToken(token), id); err != nil {
+		if _, err := db.writeHeartbeatToken(ctx, tx, id, token); err != nil {
 			return 0, fmt.Errorf("renew heartbeat token: %w", err)
 		}
 	}

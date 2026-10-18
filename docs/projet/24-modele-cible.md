@@ -19,7 +19,7 @@
 | D'un objet vers **son propre** historique : `cascade`, chiffré dans le plan | L'historique n'a pas de sens sans son objet | Le plan le dit en nombre de lignes |
 | Alertes, exécutions, audit vers un objet : `set null` + nom recopié | La trace survit à l'objet | Une colonne de nom en double |
 | Supprimer un service de l'annuaire ne touche jamais la machine | Retirer un déploiement est une action typée à part | Les conteneurs restent et passent « présent non déclaré » |
-| `apply` modifie sur place, ne recrée jamais (décision 3) | Historique et jetons gardés | Chaque objet éditable champ par champ (sondes, tâches : à faire) |
+| `apply` modifie sur place, ne recrée jamais (décision 3) | Historique et jetons gardés | Chaque objet éditable champ par champ (sondes et tâches : faites, PR « édition sur place ») |
 | Secrets saisis dans l'interface (URL et secret des canaux, mot de passe du relais, jetons de tâche, secret OIDC) : **chiffrés en base** par la clé du serveur, colonnes `*_sealed` | Une base volée sans la clé ne livre rien ; la sauvegarde chiffrée les emporte | Un jeton cherché par valeur a besoin d'une empreinte à côté (`token_lookup`) |
 | Secrets des services : **le `.env` sur la machine fait foi**. Ni en base, ni dans l'export | Une seule source de vérité | Restaurer un service passe par sa sauvegarde (`data/` + `.env`, chiffrés) |
 | La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé |

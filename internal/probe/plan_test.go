@@ -147,3 +147,28 @@ func TestPlan_ResultCarriesTheCertificateOntoTheProbe(t *testing.T) {
 		t.Fatalf("le certificat vu n'est pas porté sur la sonde: %+v", changes.Probes[0].Certificate)
 	}
 }
+
+// La garde est à la milliseconde : un essai pris juste avant la révision,
+// dans la même seconde, est de l'histoire ; celui d'après compte.
+func TestPlan_ResultCheckedBeforeTheRevisionWritesHistoryOnly(t *testing.T) {
+	revised := watched()
+	revised.RevisedAt = planNow
+	known := map[string]Probe{revised.ID: revised}
+	before := Result{ProbeID: revised.ID, CheckedAt: planNow.Add(-time.Second), Outcome: OutcomeDown}
+	changes := planChanges(known, Report{Results: []Result{before}}, planNow)
+	if len(changes.Results) != 1 || len(changes.Probes) != 0 {
+		t.Fatalf("l'essai d'avant la révision doit rester dans l'histoire: %+v", changes)
+	}
+
+	sameSecondBefore := Result{ProbeID: revised.ID, CheckedAt: planNow.Add(-time.Millisecond), Outcome: OutcomeDown}
+	changes = planChanges(known, Report{Results: []Result{sameSecondBefore}}, planNow)
+	if len(changes.Results) != 1 || len(changes.Probes) != 0 {
+		t.Fatalf("l'essai pris une milliseconde avant la révision doit rester dans l'histoire: %+v", changes)
+	}
+
+	after := Result{ProbeID: revised.ID, CheckedAt: planNow.Add(time.Millisecond), Outcome: OutcomeUp}
+	changes = planChanges(known, Report{Results: []Result{after}}, planNow)
+	if len(changes.Probes) != 1 || changes.Probes[0].Status != StatusUp {
+		t.Fatalf("l'essai pris après la révision doit compter: %+v", changes)
+	}
+}

@@ -106,12 +106,12 @@ base ; voir « Ce qui est stocké, et où ».
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. On peut supprimer et recréer une tâche |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`) et la politique de l'opérateur (`update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
@@ -220,10 +220,38 @@ le client qui les garde.
    l'échéance. Un code de sortie autre que 0 met la tâche « En échec ».
 4. Toutes les 15 s, une boucle passe « En retard » les tâches dont
    l'échéance est dépassée. Le prochain ping les remet « À l'heure ».
-5. En pause, une tâche n'a plus d'échéance ; un ping le reprend. La reprise
-   rouvre une échéance complète ; une tâche qui n'a jamais pingé redevient
-   « Nouveau » avec cette échéance. Supprimé,
-   son URL répond 404 et son historique disparaît avec lui.
+5. En pause, une tâche n'a plus d'échéance, et **un ping ne la reprend
+   pas** : il est écrit tel quel dans les pings bruts, pour qu'on voie qu'un
+   cron oublié tourne encore, et l'URL répond toujours 200 `ok`. Rien
+   d'autre ne bouge : ni l'état, ni le dernier ping, ni l'échéance, ni les
+   exécutions, ni les alertes. Seule la reprise la remet en surveillance :
+   elle rouvre une échéance complète ; une tâche qui n'a jamais pingé
+   redevient « Nouveau » avec cette échéance. Supprimé, son URL répond 404
+   et son historique disparaît avec lui.
+6. **L'édition se fait sur place** (`PUT /api/jobs/{id}`) : le nom, la
+   machine (facultative), l'intervalle et la grâce. L'identifiant et le jeton
+   ne changent jamais par là, l'historique reste. L'échéance n'est
+   recalculée que si l'intervalle ou la grâce change :
+
+   | La tâche est | L'échéance devient | L'état |
+   | --- | --- | --- |
+   | en cours d'attente (Nouveau, À l'heure, Démarré, En échec) | décalée de la différence entre le nouveau et l'ancien total intervalle + grâce | inchangé |
+   | En retard | dernier ping (sa création si elle n'a jamais pingé) + nouvel intervalle + nouvelle grâce, si cette date est à venir | Nouveau (jamais pingée), En échec (dernier code autre que 0) ou À l'heure ; sinon elle reste en retard |
+   | En pause | rien ne change | En pause |
+
+   Une échéance devenue passée n'est pas jugée par l'édition : la boucle des
+   15 s s'en charge. Côté alertes, une tâche encore en retard ou en échec
+   voit son alerte **renommée** sans nouvelle notification ; une tâche sortie
+   du retard (À l'heure, Nouveau) lève l'alerte « Tâche en retard » ; un
+   retour à « En échec » la lève aussi, et ouvre l'alerte « Tâche en échec ».
+   L'alerte suit aussi la machine de la tâche quand l'édition la change.
+7. **Le jeton se régénère** depuis la page de la tâche, section « URL de
+   ping », après confirmation (`POST /api/jobs/{id}/actions/regenerate-token`,
+   204). L'ancienne URL répond 404 aussitôt ; l'état, l'échéance et
+   l'historique ne bougent pas ; c'est permis en pause. Le jeton neuf est
+   chiffré avec son empreinte, en une seule écriture. Le journal note
+   l'identifiant et le nom de la tâche, jamais le jeton. Le script qui
+   appelait l'ancienne URL doit être mis à jour : l'interface le dit avant.
 
 Le ping est écrit en une seule transaction : ping brut, exécution, état de la
 tâche. La source notée est l'adresse résolue par `trusted_proxies` ; un
@@ -727,8 +755,53 @@ place, et il en va de même des composants, des canaux et des jetons d'API.
 L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s sans dépasser
 l'intervalle. Le service surveillé, quand il est donné, doit exister et
 tourner sur la machine qui sonde : sinon la création est refusée
-(`probe.service_invalid`, 422), jamais en erreur interne. Une sonde ne
-s'édite pas : on la supprime et on la recrée, comme une tâche.
+(`probe.service_invalid`, 422), jamais en erreur interne.
+
+**Une sonde s'édite sur place.** `PUT /api/probes/{id}` remplace la
+définition entière, comme la création la donne : un champ omis prend sa
+valeur par défaut, et tous les refus de la création reviennent, avec leur
+clé. L'identifiant, la date de création et l'histoire (`probe_results`,
+`probe_days`) restent. Ce qui change décide de ce que la sonde garde :
+
+| Ce qui change | État et compteurs | Certificat |
+| --- | --- | --- |
+| Le nom, le service, l'intervalle, les seuils | gardés | gardé |
+| La méthode, le code attendu, le texte attendu, les redirections, le délai | remis à zéro | gardé : la cible est la même |
+| Le type, la cible, la machine, la poignée de main TLS | remis à zéro | effacé, relu au premier essai |
+
+*Remis à zéro* : l'état repasse à « Nouveau » (une sonde en pause reste en
+pause), les compteurs à 0, et `revised_at` prend l'instant de l'édition
+(colonne **en millisecondes** ajoutée par la migration
+`021_probe_revision.sql`, vide tant que la sonde n'a jamais été révisée).
+L'écriture est une seule instruction qui ne relit pas l'état : un essai qui
+arrive pendant l'édition ne se perd pas. Deux onglets qui éditent la même
+sonde ou la même tâche : le dernier enregistrement gagne, comme pour les
+canaux.
+
+**Les essais de l'ancien réglage.** Un essai déjà parti quand l'opérateur
+édite arrive après l'édition, mesuré sur l'ancienne cible. Deux gardes
+l'empêchent de fausser l'état tout juste remis à zéro : le rapport est
+jugé sur `revised_at` — un essai pris avant lui va dans l'histoire sans
+toucher l'état ni les compteurs, comme un essai rejoué —, et l'écriture de
+l'état ajoute `revised_at IS ?` (celui lu avec la sonde) : un signal lu
+avant l'édition n'écrase pas ce qu'elle a remis à zéro, et la sonde lue
+dans cet état n'est pas montrée au moteur des alertes (l'écriture rend celles
+qu'elle a vraiment écrites). La garde compare à la milliseconde l'instant de
+l'essai, daté par l'agent, et celui de la révision, daté par le serveur : elle
+vaut ce que valent leurs horloges. **Un agent en retard voit son premier essai
+après l'édition compter pour l'histoire seulement** ; **un agent en avance date
+« après » un essai de l'ancien réglage, qui fixe alors l'état** depuis
+« Nouveau » (le suivant le corrige). Le fil vers l'agent ne change pas :
+l'essai ne porte pas le numéro de la révision.
+
+**Changer de machine.** Les deux machines reçoivent leur jeu à jour, l'ancienne
+sans la sonde, la nouvelle avec ; le plafond de 64 sondes compte sur la
+nouvelle, sous le même verrou que la création (`probe.too_many`). Le service
+rattaché doit tourner sur la nouvelle machine, sinon `probe.service_invalid` :
+il se détache d'abord. **Les alertes** : une remise à zéro montre la sonde
+« Nouveau » au moteur, qui lève tout ce qu'elle avait ouvert ; sans remise à
+zéro, il voit l'état d'avant et ne fait que renommer l'alerte ouverte, sans
+rien notifier.
 
 ## Comment un certificat est jugé
 
@@ -1002,7 +1075,7 @@ composant qui sait, lui qui parle.
 | Service défaillant | `service` | `running` avec santé `unhealthy` | santé revenue depuis **2 min**, ou arrêt ; un échec qui revient avant reprend la même alerte | attention |
 | Redémarrage non demandé | `service` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage ; un nouvel arrêt la repasse en « arrêté » sans en ouvrir une autre | attention |
 | Boucle de redémarrage | `service` | **3** redémarrages non demandés en 10 min : la même alerte, aggravée une seule fois, le compteur dans ses détails ; à l'arrêt comme relancé, elle se dit « Boucle de redémarrage » | idem | danger |
-| Tâche en retard | `heartbeat` | échéance dépassée, la première comprise pour une tâche qui n'a jamais pingé (motif `never_pinged`, avec sa date de création) | prochaine fin, réussie ou en échec ; un `start` seul ne lève rien ; pause ; suppression | attention |
+| Tâche en retard | `heartbeat` | échéance dépassée, la première comprise pour une tâche qui n'a jamais pingé (motif `never_pinged`, avec sa date de création) | prochaine fin, réussie ou en échec ; un `start` seul ne lève rien ; pause ; suppression ; une édition de l'intervalle ou de la grâce qui lui rend du temps | attention |
 | Tâche en échec | `heartbeat` | code de sortie hors 0 | prochaine fin réussie, après un `start` ou non ; pause ; suppression | danger |
 | Sonde hors ligne | `probe` | état passé à `down`, donc au seuil | état `up` ou `degraded` ; pause ; suppression | danger |
 | Certificat qui expire | `probe`, à chaque essai et toutes les 5 min | échéance à moins de **30 j** ; aggravée à **7 j** | renouvelé ; pause ; suppression | attention → danger |
@@ -1453,10 +1526,8 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas de Telegram | Un canal est un webhook ou un e-mail ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
 | L'e-mail dépend d'un relais | openCloud ne signe rien (DKIM, SPF) et ne gère aucune réputation : la délivrabilité est celle du relais choisi, ses quotas aussi | Voulu |
 | Une livraison échouée trois fois est perdue | Le récepteur en panne plus d'une minute ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
-| Rotation du jeton de ping | Un jeton fuité impose de supprimer et recréer la tâche ; le schéma (jeton chiffré, empreinte à part) permet de le régénérer, l'interface ne le propose pas | À décider |
 | La clé des secrets est à côté de la base | `secret.key` vit sous `state_dir`, lisible par le compte du service : le chiffrement protège une copie de la base seule, pas qui lit tout le dossier. Pas de rotation de la clé (le format du fichier la prévoit). Une clé perdue fait perdre les secrets, `opencloud secrets forget` repart à neuf | À décider : la sauvegarde chiffrée par paire de clés, puis la rotation |
 | Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
-| Pas d'édition d'une sonde | Changer une cadence impose de supprimer et recréer, ce qui perd l'historique | À décider |
 | Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée ; l'historique des alertes résolues le dit sur 90 jours | À décider |
 | Pas de spool des sondes | Un redémarrage de l'agent perd les essais en attente : un trou dans l'historique, et l'agrégat de ce jour le dit | Avec le spool des mesures |
 | Pas de renouvellement | openCloud observe un certificat, il ne le renouvelle pas et ne sait rien d'un renouvellement qui a échoué | À décider, avec le proxy |
@@ -1504,4 +1575,5 @@ refusés avant d'envoyer quoi que ce soit.
 | Réglages en base | La table `settings` (migration `019_settings.sql`) et ses requêtes dans `internal/store/settings.go`, à la place de `settings.toml` ; la reprise de l'ancien fichier au démarrage de `serve` (`internal/settings/legacy.go`) |
 | Secrets chiffrés | Le paquet `internal/seal` (AES-256-GCM, fichier de clé `secret.key`), la migration `020_sealed_secrets.sql` (`heartbeats.token_hash`), `internal/store/secrets.go` (chiffrement sur place au démarrage, `Compact`, `ForgetSecrets`) et les requêtes de `settings`, `alert_channels` et `heartbeats` qui chiffrent à l'écriture et ouvrent à la lecture, `HashToken` dans `internal/heartbeat`, `cmd/opencloud/secrets.go` (la clé au démarrage de `serve` et de `mcp`, la sous-commande `opencloud secrets forget`), les constantes `SecretKeyFile` et `SecretKeyIDDomain` de `internal/brand` |
 | Le nom du produit | Le paquet `internal/brand` (nom affiché, identifiant technique, empreinte du protocole), les marqueurs `{product}`, `{command}` et `{signature_header}` des catalogues et `expand` dans `internal/lang/lang.go`, le marqueur `{{product}}` des pages HTML et `expandProductName`, `web/src/lib/product.ts`, le champ `server_name` de `/api/mcp` et le golden `mcp.golden.json`, les tests `TestNameOnlyInBrand` et `TestFiles_NameOnlyThroughPlaceholders` |
+| Édition sur place | `PUT /api/probes/{id}` et `PUT /api/jobs/{id}` (la définition entière, mêmes refus que la création), `POST /api/jobs/{id}/actions/regenerate-token`, `Service.Update` des paquets `internal/probe` et `internal/heartbeat` et `RegenerateToken`, la migration `021_probe_revision.sql` (`probes.revised_at`) et sa garde dans `planChanges` et `updateProbeState`, la pause d'une tâche qui n'est plus reprise par un ping, les formulaires `ProbeForm` et `JobForm` (création et édition), les boutons Modifier et « Régénérer le jeton », les trois routes de `testdata/routes.txt` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |

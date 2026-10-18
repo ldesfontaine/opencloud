@@ -49,6 +49,16 @@ func (db *DB) GetHeartbeatByToken(ctx context.Context, token string) (heartbeat.
 	return db.scanHeartbeat(row)
 }
 
+// SetHeartbeatToken remplace le jeton d'une tâche : l'ancien cesse aussitôt
+// de la retrouver.
+func (db *DB) SetHeartbeatToken(ctx context.Context, id, token string) error {
+	result, err := db.writeHeartbeatToken(ctx, db.sql, id, token)
+	if err != nil {
+		return err
+	}
+	return heartbeatNotFoundIfNoRow(result)
+}
+
 func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
 	result, err := db.sql.ExecContext(ctx, `DELETE FROM heartbeats WHERE id = ?`, id)
 	if err != nil {
@@ -164,9 +174,11 @@ func insertRun(ctx context.Context, tx *sql.Tx, run heartbeat.Run) error {
 
 func updateHeartbeatState(ctx context.Context, tx *sql.Tx, h heartbeat.Heartbeat) error {
 	result, err := tx.ExecContext(ctx, `
-		UPDATE heartbeats SET status = ?, last_ping_at = ?, next_deadline_at = ?, run_started_at = ?,
+		UPDATE heartbeats SET name = ?, machine_id = ?, interval_seconds = ?, grace_seconds = ?,
+			status = ?, last_ping_at = ?, next_deadline_at = ?, run_started_at = ?,
 			last_exit_code = ?, last_duration_ms = ?
 		WHERE id = ?`,
+		h.Name, nullableString(h.MachineID), int64(h.Interval.Seconds()), int64(h.Grace.Seconds()),
 		string(h.Status), nullableTime(h.LastPingAt), nullableTime(h.NextDeadlineAt), nullableTime(h.RunStartedAt),
 		nullableInt(h.LastExitCode), nullableMillis(h.LastDuration), h.ID)
 	if err != nil {

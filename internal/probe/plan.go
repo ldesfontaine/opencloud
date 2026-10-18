@@ -25,7 +25,9 @@ func planChanges(known map[string]Probe, report Report, now time.Time) Changes {
 		// Un essai rejoué est de l'histoire : il nourrit l'uptime et
 		// s'arrête là. L'état, les compteurs et le certificat disent ce que
 		// la sonde voit maintenant, et seul un essai vivant peut le dire.
-		if result.Replayed {
+		// Un essai antérieur à la dernière révision mesurait l'ancien
+		// réglage : il est de l'histoire aussi.
+		if result.Replayed || predates(result, current) {
 			continue
 		}
 		after := advance(current, result)
@@ -38,6 +40,18 @@ func planChanges(known map[string]Probe, report Report, now time.Time) Changes {
 		changes.Probes = append(changes.Probes, after)
 	}
 	return changes
+}
+
+// predates dit que l'essai a été pris avant la dernière révision de la
+// sonde. La garde est à la milliseconde. Elle ne voit que l'horloge de
+// l'agent : un agent en retard sur celle du serveur voit son premier essai
+// après l'édition compter pour l'histoire seulement ; un agent en avance
+// date « après » un essai de l'ancien réglage, qui fixe alors l'état.
+func predates(result Result, current Probe) bool {
+	if current.RevisedAt.IsZero() {
+		return false
+	}
+	return result.CheckedAt.UnixMilli() < current.RevisedAt.UnixMilli()
 }
 
 // advance porte sur la sonde ce qu'un essai vient d'apprendre.

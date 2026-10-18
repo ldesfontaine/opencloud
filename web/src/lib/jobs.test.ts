@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Job, Run, RunOutcome } from "../api/types";
 import type { Translate } from "../i18n/context";
-import { awaitsFirstPing, currentStreak, jobFact, lastSuccessText, runHistoryLimit } from "./jobs";
+import { awaitsFirstPing, currentStreak, jobFact, jobFormOf, jobRequestOf, lastSuccessText, runHistoryLimit } from "./jobs";
 
 // Un faux catalogue : la clé et ses arguments, pour lire ce qui est demandé.
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -102,4 +102,24 @@ test("lastSuccessText ne parle que d'une tâche qui va mal", () => {
   expect(lastSuccessText(t, failed, runs("failure", "timeout"), now)).toBe("job.no_success:2");
   expect(lastSuccessText(t, failed, [], now)).toBeNull();
   expect(lastSuccessText(t, { ...job, status: "on_time" }, runs("success"), now)).toBeNull();
+});
+
+test("jobFormOf passe les secondes du serveur en minutes du formulaire", () => {
+  const form = jobFormOf({ ...job, machine_id: "machine-1", interval_seconds: 3600, grace_seconds: 600 });
+  expect(form).toEqual({ name: "Renouvellement certbot", machineID: "machine-1", interval: "60", grace: "10" });
+});
+
+test("jobRequestOf renvoie les minutes que le serveur attend", () => {
+  expect(jobRequestOf({ name: "sauvegarde", machineID: "", interval: "60", grace: "10" })).toEqual({
+    name: "sauvegarde",
+    machine_id: "",
+    interval_minutes: 60,
+    grace_minutes: 10,
+  });
+});
+
+test("une tâche relue puis renvoyée garde son rythme", () => {
+  const request = jobRequestOf(jobFormOf(job));
+  expect(request.interval_minutes * 60).toBe(job.interval_seconds);
+  expect(request.grace_minutes * 60).toBe(job.grace_seconds);
 });

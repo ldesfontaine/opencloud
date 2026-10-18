@@ -120,10 +120,10 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 		return fmt.Errorf("encode alert details: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, details = ?, updated_at = ?, resolved_at = ?, acknowledged_at = ?,
-			clear_since = ?
+		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, machine_id = ?, details = ?, updated_at = ?, resolved_at = ?,
+			acknowledged_at = ?, clear_since = ?
 		WHERE id = ?`,
-		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, string(details),
+		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, nullableString(found.MachineID), string(details),
 		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince), found.ID)
 	if err != nil {
 		return fmt.Errorf("update alert: %w", err)

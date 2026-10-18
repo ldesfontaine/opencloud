@@ -83,10 +83,10 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
           </>
         )}
       </Verdict>
-      {installsFirst && <Installation response={response} initiallyOpen={true} />}
+      {installsFirst && <Installation response={response} reload={reload} initiallyOpen={true} />}
       <Runs runs={response.runs} now={now} />
       <Pings pings={response.pings} />
-      {!installsFirst && <Installation response={response} initiallyOpen={false} />}
+      {!installsFirst && <Installation response={response} reload={reload} initiallyOpen={false} />}
     </>
   );
 }
@@ -162,15 +162,35 @@ function Pings({ pings }: { pings: Ping[] }) {
 }
 
 // L'URL de ping et les extraits à coller : ouverts tant que la tâche reste
-// à brancher, repliés ensuite.
-function Installation({ response, initiallyOpen }: { response: JobResponse; initiallyOpen: boolean }) {
+// à brancher, repliés ensuite. Le jeton se régénère d'ici, après
+// confirmation : l'ancienne URL cesse aussitôt de répondre.
+function Installation({ response, reload, initiallyOpen }: { response: JobResponse; reload: () => void; initiallyOpen: boolean }) {
   const t = useT();
+  const [error, setError] = useState<unknown>(null);
+  const regenerate = () => {
+    if (!window.confirm(t("job.regenerate_confirm", response.job.name))) {
+      return;
+    }
+    api
+      .post(`/api/jobs/${response.job.id}/actions/regenerate-token`)
+      .then(() => {
+        setError(null);
+        reload();
+      })
+      .catch(setError);
+  };
   return (
     <Disclosure title={t("job.install_title")} aside={t("job.install_text")} initiallyOpen={initiallyOpen}>
       <CardBody gap={24}>
         <FoldSection title={t("job.ping_url_title")} text={t("job.ping_url_text")}>
           <TokenBox value={response.ping_url} />
           {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
+          {error !== null && <Failure error={error} />}
+          <div className="cluster">
+            <Button variant="ghost" icon="refresh" onClick={regenerate}>
+              {t("job.regenerate")}
+            </Button>
+          </div>
           <KeyValue label={t("job.form_finish")} value={response.ping_url} mono />
           <KeyValue label={t("job.form_start")} value={`${response.ping_url}/start`} mono />
           <KeyValue label={t("job.form_code")} value={`${response.ping_url}/{code}`} mono />
@@ -229,7 +249,7 @@ function RunRow({ run, now }: { run: Run; now: number }) {
   );
 }
 
-// Mettre en pause, reprendre, supprimer après confirmation.
+// Modifier, mettre en pause, reprendre, supprimer après confirmation.
 function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
@@ -261,6 +281,9 @@ function Actions({ job, reload }: { job: Job; reload: () => void }) {
   return (
     <>
       {error !== null && <Failure error={error} />}
+      <Button icon="settings" to={`/taches/${job.id}/modifier`}>
+        {t("job.edit")}
+      </Button>
       {job.status === "paused" ? (
         <Button icon="refresh" onClick={() => act("resume")}>
           {t("job.resume")}

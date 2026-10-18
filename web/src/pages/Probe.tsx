@@ -231,7 +231,7 @@ function ResultRow({ result }: { result: ProbeResult }) {
   );
 }
 
-// Mettre en pause, reprendre, supprimer après confirmation.
+// Modifier, mettre en pause, reprendre, supprimer après confirmation.
 function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
@@ -263,6 +263,9 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   return (
     <>
       {error !== null && <Failure error={error} />}
+      <Button icon="settings" to={`/domaines/${probe.id}/modifier`}>
+        {t("probe.edit")}
+      </Button>
       {probe.status === "paused" ? (
         <Button icon="refresh" onClick={() => act("resume")}>
           {t("probe.resume")}

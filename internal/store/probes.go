@@ -18,7 +18,7 @@ const probeColumns = `p.id, p.name, p.kind, p.target, p.machine_id, COALESCE(m.n
 	p.last_checked_at, p.last_duration_ms, p.last_code, p.last_reason,
 	p.cert_subject, p.cert_issuer, p.cert_not_before, p.cert_not_after, p.cert_fingerprint,
 	p.cert_chain_valid, p.cert_hostname_match, p.cert_ocsp,
-	p.created_at`
+	p.created_at, p.revised_at`
 
 const probeFrom = ` FROM probes p
 	JOIN machines m ON m.id = p.machine_id
@@ -39,6 +39,47 @@ func (db *DB) InsertProbe(ctx context.Context, item probe.Probe) error {
 		return fmt.Errorf("insert probe: %w", err)
 	}
 	return nil
+}
+
+// UpdateProbe remplace la définition en une seule instruction, sans relire
+// ni réécrire l'état, qu'un essai peut changer au même moment. L'état,
+// les compteurs et la date de révision ne s'écrivent que si l'édition remet
+// à zéro, et une sonde en pause le reste ; le certificat, que si la cible
+// change.
+func (db *DB) UpdateProbe(ctx context.Context, revision probe.Revision) error {
+	item := revision.Probe
+	resets := boolToInt(revision.ResetsState)
+	clears := boolToInt(revision.ClearsCertificate)
+	result, err := db.sql.ExecContext(ctx, `
+		UPDATE probes SET name = ?, kind = ?, target = ?, machine_id = ?, service_id = ?,
+			interval_seconds = ?, timeout_seconds = ?, failure_threshold = ?, recovery_threshold = ?,
+			method = ?, expected_status = ?, expected_body = ?, follow_redirects = ?, tls = ?,
+			status = CASE WHEN ? AND status <> ? THEN ? ELSE status END,
+			consecutive_failures = CASE WHEN ? THEN 0 ELSE consecutive_failures END,
+			consecutive_successes = CASE WHEN ? THEN 0 ELSE consecutive_successes END,
+			revised_at = CASE WHEN ? THEN ? ELSE revised_at END,
+			cert_subject = CASE WHEN ? THEN '' ELSE cert_subject END,
+			cert_issuer = CASE WHEN ? THEN '' ELSE cert_issuer END,
+			cert_not_before = CASE WHEN ? THEN NULL ELSE cert_not_before END,
+			cert_not_after = CASE WHEN ? THEN NULL ELSE cert_not_after END,
+			cert_fingerprint = CASE WHEN ? THEN '' ELSE cert_fingerprint END,
+			cert_chain_valid = CASE WHEN ? THEN 0 ELSE cert_chain_valid END,
+			cert_hostname_match = CASE WHEN ? THEN 0 ELSE cert_hostname_match END,
+			cert_ocsp = CASE WHEN ? THEN '' ELSE cert_ocsp END
+		WHERE id = ?`,
+		item.Name, string(item.Kind), item.Target, item.MachineID, nullableString(item.ServiceID),
+		int64(item.Interval.Seconds()), int64(item.Timeout.Seconds()), item.FailureThreshold, item.RecoveryThreshold,
+		item.Method, item.ExpectedStatus, item.ExpectedBody, boolToInt(item.FollowRedirects), boolToInt(item.TLS),
+		resets, string(probe.StatusPaused), string(probe.StatusNew),
+		resets,
+		resets,
+		resets, revisedAtMillis(item.RevisedAt),
+		clears, clears, clears, clears, clears, clears, clears, clears,
+		item.ID)
+	if err != nil {
+		return fmt.Errorf("update probe: %w", err)
+	}
+	return probeNotFoundIfNoRow(result)
 }
 
 // ListProbes rend les sondes d'une machine, ou de toutes si machineID est
@@ -135,28 +176,36 @@ func (db *DB) SetProbeStatus(ctx context.Context, id string, status probe.Status
 	return probeNotFoundIfNoRow(result)
 }
 
-// ApplyChanges écrit les essais et l'état des sondes touchées en une
-// transaction : ce qu'un signal rapporte est tout ou rien.
-func (db *DB) ApplyProbeResults(ctx context.Context, changes probe.Changes) error {
+// ApplyProbeResults écrit les essais et l'état des sondes touchées en une
+// transaction : ce qu'un signal rapporte est tout ou rien. Il rend les sondes
+// dont l'état a réellement été écrit ; une sonde révisée depuis sa lecture
+// n'y est pas, et personne ne doit la croire dans l'état qu'on lui avait
+// calculé.
+func (db *DB) ApplyProbeResults(ctx context.Context, changes probe.Changes) ([]probe.Probe, error) {
 	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin apply probes: %w", err)
+		return nil, fmt.Errorf("begin apply probes: %w", err)
 	}
 	defer tx.Rollback()
 	for _, result := range changes.Results {
 		if err := insertProbeResult(ctx, tx, result); err != nil {
-			return err
+			return nil, err
 		}
 	}
+	written := make([]probe.Probe, 0, len(changes.Probes))
 	for _, item := range changes.Probes {
-		if err := updateProbeState(ctx, tx, item); err != nil {
-			return err
+		isWritten, err := updateProbeState(ctx, tx, item)
+		if err != nil {
+			return nil, err
+		}
+		if isWritten {
+			written = append(written, item)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit apply probes: %w", err)
+		return nil, fmt.Errorf("commit apply probes: %w", err)
 	}
-	return nil
+	return written, nil
 }
 
 // Un essai déjà en base, rejoué après une coupure, tombe sur la même clé
@@ -173,26 +222,33 @@ func insertProbeResult(ctx context.Context, tx *sql.Tx, result probe.Result) err
 	return nil
 }
 
-func updateProbeState(ctx context.Context, tx *sql.Tx, item probe.Probe) error {
+// L'état se calcule sur la sonde telle qu'elle était à la lecture : si une
+// édition l'a remise à zéro depuis (revised_at a changé), il ne l'écrase
+// pas. Une révision qui laisse l'état en place ne change pas revised_at.
+func updateProbeState(ctx context.Context, tx *sql.Tx, item probe.Probe) (bool, error) {
 	certificate := item.Certificate
 	if certificate == nil {
 		certificate = &probe.Certificate{}
 	}
-	_, err := tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE probes SET status = ?, consecutive_failures = ?, consecutive_successes = ?,
 			last_checked_at = ?, last_duration_ms = ?, last_code = ?, last_reason = ?,
 			cert_subject = ?, cert_issuer = ?, cert_not_before = ?, cert_not_after = ?, cert_fingerprint = ?,
 			cert_chain_valid = ?, cert_hostname_match = ?, cert_ocsp = ?
-		WHERE id = ?`,
+		WHERE id = ? AND revised_at IS ?`,
 		string(item.Status), item.ConsecutiveFailures, item.ConsecutiveSuccesses,
 		nullableTime(item.LastCheckedAt), item.LastDurationMs, nullableInt(item.LastCode), string(item.LastReason),
 		certificate.Subject, certificate.Issuer, nullableTime(certificate.NotBefore), nullableTime(certificate.NotAfter),
 		certificate.Fingerprint, boolToInt(certificate.ChainValid), boolToInt(certificate.HostnameMatch),
-		string(certificate.OCSP), item.ID)
+		string(certificate.OCSP), item.ID, revisedAtMillis(item.RevisedAt))
 	if err != nil {
-		return fmt.Errorf("update probe state: %w", err)
+		return false, fmt.Errorf("update probe state: %w", err)
 	}
-	return nil
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("count updated probe state: %w", err)
+	}
+	return affected > 0, nil
 }
 
 // ListResults rend les derniers essais d'une sonde, le plus récent d'abord.
@@ -313,6 +369,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	var certificate probe.Certificate
 	var ocsp string
 	var createdAt int64
+	var revisedAt sql.NullInt64
 	err := row.Scan(
 		&item.ID, &item.Name, &kind, &item.Target, &item.MachineID, &item.MachineName,
 		&item.ServiceID, &item.ServiceName, &status,
@@ -322,7 +379,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 		&lastCheckedAt, &item.LastDurationMs, &lastCode, &reason,
 		&certificate.Subject, &certificate.Issuer, &notBefore, &notAfter, &certificate.Fingerprint,
 		&chainValid, &hostnameMatch, &ocsp,
-		&createdAt,
+		&createdAt, &revisedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return probe.Probe{}, probe.ErrNotFound
@@ -340,6 +397,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	item.LastCode = intPointer(lastCode)
 	item.LastReason = probe.Reason(reason)
 	item.CreatedAt = time.Unix(createdAt, 0).UTC()
+	item.RevisedAt = timeOfMillis(revisedAt)
 	if certificate.Fingerprint != "" {
 		certificate.NotBefore = timeOf(notBefore)
 		certificate.NotAfter = timeOf(notAfter)
@@ -349,6 +407,23 @@ func scanProbe(row scanner) (probe.Probe, error) {
 		item.Certificate = &certificate
 	}
 	return item, nil
+}
+
+// revised_at est en millisecondes, contrairement aux autres dates : la garde
+// qui écarte un essai de l'ancien réglage ne doit pas se tromper dans la
+// seconde de l'édition.
+func revisedAtMillis(at time.Time) any {
+	if at.IsZero() {
+		return nil
+	}
+	return at.UnixMilli()
+}
+
+func timeOfMillis(value sql.NullInt64) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return time.UnixMilli(value.Int64)
 }
 
 func probeNotFoundIfNoRow(result sql.Result) error {

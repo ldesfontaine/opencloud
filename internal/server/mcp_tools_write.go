@@ -39,7 +39,7 @@ func (s *Server) registerWriteTools(server *gomcp.Server, readOnly bool) {
 	}, guarded(readOnly, s.resumeProbeTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "pause_job",
-		Description: "Pause a job: no more deadline, so it can no longer be late; an open run is closed as timed out. Pausing twice is harmless.",
+		Description: "Pause a job: no more deadline, so it can no longer be late; an open run is closed as timed out. Pings are still recorded but change nothing until the job is resumed. Pausing twice is harmless.",
 		Annotations: writeHints(true),
 	}, guarded(readOnly, s.pauseJobTool))
 	gomcp.AddTool(server, &gomcp.Tool{

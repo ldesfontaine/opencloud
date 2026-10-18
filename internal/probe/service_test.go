@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -602,5 +604,388 @@ func TestCreate_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
 	}
 	if accepted != probe.MaxProbesPerMachine || tooMany != 16 {
 		t.Fatalf("acceptées %d, refusées %d", accepted, tooMany)
+	}
+}
+
+// recordingAlerter note chaque sonde que le service montre au moteur des
+// alertes, dans l'ordre.
+type recordingAlerter struct {
+	mu     sync.Mutex
+	probes []probe.Probe
+}
+
+func (a *recordingAlerter) ProbeChanged(_ context.Context, found probe.Probe) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.probes = append(a.probes, found)
+}
+
+func (a *recordingAlerter) ProbeRemoved(context.Context, string) {}
+
+func (a *recordingAlerter) last() probe.Probe {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.probes[len(a.probes)-1]
+}
+
+// recordingCommander tient lieu du flux d'une machine distante : il note le
+// dernier jeu poussé à chacune.
+type recordingCommander struct {
+	mu   sync.Mutex
+	sets map[string]probe.Assignment
+}
+
+func (c *recordingCommander) Command(machineID, _ string, payload any) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sets == nil {
+		c.sets = map[string]probe.Assignment{}
+	}
+	c.sets[machineID] = payload.(probe.Assignment)
+	return nil
+}
+
+func (c *recordingCommander) setOf(machineID string) (probe.Assignment, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	set, ok := c.sets[machineID]
+	return set, ok
+}
+
+// definitionOf redonne la définition que la sonde a aujourd'hui : un test
+// n'a plus qu'à changer le champ qui l'intéresse.
+func definitionOf(found probe.Probe) probe.Definition {
+	return probe.Definition{
+		Name: found.Name, Kind: found.Kind, Target: found.Target, MachineID: found.MachineID,
+		ServiceID: found.ServiceID, Interval: found.Interval, Timeout: found.Timeout,
+		FailureThreshold: found.FailureThreshold, RecoveryThreshold: found.RecoveryThreshold,
+		Method: found.Method, ExpectedStatus: found.ExpectedStatus, ExpectedBody: found.ExpectedBody,
+		FollowRedirects: found.FollowRedirects, TLS: found.TLS,
+	}
+}
+
+func (b *bench) update(t *testing.T, id string, definition probe.Definition) probe.Probe {
+	t.Helper()
+	updated, err := b.service.Update(context.Background(), id, definition)
+	if err != nil {
+		t.Fatalf("modifier la sonde: %v", err)
+	}
+	return updated
+}
+
+func (b *bench) countResults(t *testing.T, id string) int {
+	t.Helper()
+	results, err := b.service.Results(context.Background(), id, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(results)
+}
+
+// Le nom, le rythme et les seuils ne changent pas ce que la sonde mesure :
+// ni l'état, ni les compteurs, ni le certificat n'y touchent.
+func TestUpdate_RhythmOnly_KeepsIDHistoryStateAndCertificate(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.seeCertificate(t, created.ID, testNow.AddDate(0, 0, 20))
+	before := fixture.get(t, created.ID)
+
+	definition := definitionOf(before)
+	definition.Name = "site nextcloud"
+	definition.Interval = 5 * time.Minute
+	definition.FailureThreshold = 5
+	definition.RecoveryThreshold = 4
+	updated := fixture.update(t, created.ID, definition)
+
+	if updated.ID != created.ID || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("l'identité a changé: %+v", updated)
+	}
+	if updated.Name != "site nextcloud" || updated.Interval != 5*time.Minute || updated.FailureThreshold != 5 || updated.RecoveryThreshold != 4 {
+		t.Fatalf("la définition n'a pas été remplacée: %+v", updated)
+	}
+	if updated.Status != before.Status || updated.ConsecutiveSuccesses != before.ConsecutiveSuccesses {
+		t.Fatalf("l'état a bougé: avant %+v, après %+v", before, updated)
+	}
+	if updated.Certificate == nil || updated.Certificate.Fingerprint != "ab" {
+		t.Fatalf("le certificat doit rester: %+v", updated.Certificate)
+	}
+	if !updated.RevisedAt.IsZero() {
+		t.Fatalf("une édition de rythme n'est pas une révision: %s", updated.RevisedAt)
+	}
+	if got := fixture.countResults(t, created.ID); got != 1 {
+		t.Fatalf("l'histoire doit rester: %d essais", got)
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 1 || assignment.Probes[0].IntervalSeconds != 300 {
+		t.Fatalf("la machine n'a pas reçu le nouveau rythme: %+v", assignment)
+	}
+}
+
+// Une autre cible : l'état, les compteurs et le certificat ne disent plus
+// rien d'elle, l'histoire reste.
+func TestUpdate_NewTarget_ResetsStateAndCertificateKeepsHistory(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.seeCertificate(t, created.ID, testNow.AddDate(0, 0, 20))
+	fixture.now = testNow.Add(time.Hour)
+
+	definition := definitionOf(fixture.get(t, created.ID))
+	definition.Target = "https://autre.exemple.fr/"
+	updated := fixture.update(t, created.ID, definition)
+
+	if updated.Status != probe.StatusNew || updated.ConsecutiveSuccesses != 0 || updated.ConsecutiveFailures != 0 {
+		t.Fatalf("l'état devait repartir de zéro: %+v", updated)
+	}
+	if updated.Certificate != nil {
+		t.Fatalf("le certificat de l'ancienne cible doit disparaître: %+v", updated.Certificate)
+	}
+	if !updated.RevisedAt.Equal(fixture.now) {
+		t.Fatalf("révision attendue à %s, obtenue %s", fixture.now, updated.RevisedAt)
+	}
+	if got := fixture.countResults(t, created.ID); got != 1 {
+		t.Fatalf("l'histoire doit rester: %d essais", got)
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 1 || assignment.Probes[0].Target != "https://autre.exemple.fr/" {
+		t.Fatalf("la machine n'a pas reçu la nouvelle cible: %+v", assignment)
+	}
+}
+
+// Un réglage de l'essai remet l'état à zéro, mais le certificat reste : la
+// cible est la même.
+func TestUpdate_ExpectedBody_ResetsStateButKeepsTheCertificate(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.seeCertificate(t, created.ID, testNow.AddDate(0, 0, 20))
+
+	definition := definitionOf(fixture.get(t, created.ID))
+	definition.ExpectedBody = "bienvenue"
+	updated := fixture.update(t, created.ID, definition)
+
+	if updated.Status != probe.StatusNew || updated.RevisedAt.IsZero() {
+		t.Fatalf("l'état devait repartir de zéro: %+v", updated)
+	}
+	if updated.Certificate == nil {
+		t.Fatal("la cible n'a pas changé : le certificat doit rester")
+	}
+}
+
+// Un essai pris avec l'ancien réglage arrive après l'édition : il va dans
+// l'histoire, pas dans l'état tout juste remis à zéro.
+func TestUpdate_ResultCheckedBeforeRevision_WritesHistoryOnly(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.now = testNow.Add(time.Minute)
+	definition := definitionOf(fixture.get(t, created.ID))
+	definition.Target = "https://autre.exemple.fr/"
+	fixture.update(t, created.ID, definition)
+
+	fixture.record(t, created.ID, testNow, probe.OutcomeDown)
+	after := fixture.get(t, created.ID)
+	if after.Status != probe.StatusNew || after.ConsecutiveFailures != 0 {
+		t.Fatalf("un essai de l'ancien réglage a bougé l'état: %+v", after)
+	}
+	if got := fixture.countResults(t, created.ID); got != 1 {
+		t.Fatalf("l'essai doit être dans l'histoire: %d essais", got)
+	}
+
+	fixture.record(t, created.ID, fixture.now, probe.OutcomeUp)
+	if after := fixture.get(t, created.ID); after.Status != probe.StatusUp {
+		t.Fatalf("un essai du nouveau réglage doit compter, obtenu %q", after.Status)
+	}
+}
+
+func TestUpdate_MovingMachine_HandsTheSetToBoth(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	commander := &recordingCommander{}
+	fixture.service.SetCommander(commander)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+
+	definition := definitionOf(created)
+	definition.MachineID = remoteMachineID
+	updated := fixture.update(t, created.ID, definition)
+
+	if updated.MachineID != remoteMachineID || updated.Status != probe.StatusNew {
+		t.Fatalf("la sonde n'a pas changé de machine: %+v", updated)
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 0 {
+		t.Fatalf("l'ancienne machine garde la sonde: %+v", assignment)
+	}
+	set, pushed := commander.setOf(remoteMachineID)
+	if !pushed || len(set.Probes) != 1 || set.Probes[0].ID != created.ID {
+		t.Fatalf("la nouvelle machine n'a pas reçu la sonde: %+v", set)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if !slices.Contains(fixture.changed, machine.LocalID) || !slices.Contains(fixture.changed, remoteMachineID) {
+		t.Fatalf("les deux machines doivent être signalées: %v", fixture.changed)
+	}
+}
+
+func TestUpdate_ReplaysValidation(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	fixture.addService(t, "svc-remote", remoteMachineID)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+
+	cases := []struct {
+		name   string
+		change func(*probe.Definition)
+		want   error
+	}{
+		{"nom vide", func(d *probe.Definition) { d.Name = " " }, probe.ErrNameInvalid},
+		{"type inconnu", func(d *probe.Definition) { d.Kind = "udp" }, probe.ErrKindInvalid},
+		{"cible illisible", func(d *probe.Definition) { d.Target = "pas une url" }, probe.ErrTargetInvalid},
+		{"cible lien-local", func(d *probe.Definition) { d.Target = "http://169.254.169.254/" }, probe.ErrTargetForbidden},
+		{"machine absente", func(d *probe.Definition) { d.MachineID = "" }, probe.ErrMachineInvalid},
+		{"intervalle trop court", func(d *probe.Definition) { d.Interval = time.Second }, probe.ErrIntervalInvalid},
+		{"délai plus long que l'intervalle", func(d *probe.Definition) { d.Timeout = 2 * d.Interval }, probe.ErrTimeoutInvalid},
+		{"seuil hors limites", func(d *probe.Definition) { d.FailureThreshold = 11 }, probe.ErrThresholdInvalid},
+		{"méthode interdite", func(d *probe.Definition) { d.Method = "DELETE" }, probe.ErrMethodInvalid},
+		{"code attendu illisible", func(d *probe.Definition) { d.ExpectedStatus = "beaucoup" }, probe.ErrStatusInvalid},
+		{"texte attendu trop long", func(d *probe.Definition) { d.ExpectedBody = strings.Repeat("x", probe.MaxBodyLength+1) }, probe.ErrBodyInvalid},
+		{"service d'une autre machine", func(d *probe.Definition) { d.ServiceID = "svc-remote" }, probe.ErrServiceInvalid},
+	}
+	for _, c := range cases {
+		definition := definitionOf(created)
+		c.change(&definition)
+		if _, err := fixture.service.Update(context.Background(), created.ID, definition); !errors.Is(err, c.want) {
+			t.Errorf("%s: attendu %v, obtenu %v", c.name, c.want, err)
+		}
+	}
+	if got := fixture.get(t, created.ID); got.Name != "site" || got.Target != created.Target {
+		t.Fatalf("une édition refusée a été écrite: %+v", got)
+	}
+
+	if _, err := fixture.service.Update(context.Background(), "inconnue", definitionOf(created)); !errors.Is(err, probe.ErrNotFound) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrNotFound, err)
+	}
+}
+
+// Changer de machine compte sur la nouvelle : pleine, elle refuse.
+func TestUpdate_MovingToAFullMachine_IsRefused(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	for index := 0; index < probe.MaxProbesPerMachine; index++ {
+		_, err := fixture.service.Create(context.Background(), probe.Definition{
+			Name: "sonde", Kind: probe.KindHTTP, Target: "https://a.fr/", MachineID: remoteMachineID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+
+	definition := definitionOf(created)
+	definition.MachineID = remoteMachineID
+	if _, err := fixture.service.Update(context.Background(), created.ID, definition); !errors.Is(err, probe.ErrTooMany) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrTooMany, err)
+	}
+	if got := fixture.get(t, created.ID); got.MachineID != machine.LocalID {
+		t.Fatalf("la sonde a bougé malgré le refus: %+v", got)
+	}
+
+	// Une sonde qui reste sur la machine pleine n'y prend pas une place de plus.
+	carried, err := fixture.service.List(context.Background(), remoteMachineID)
+	if err != nil || len(carried) == 0 {
+		t.Fatalf("lire les sondes de la machine pleine: %v", err)
+	}
+	renamed := definitionOf(carried[0])
+	renamed.Name = "renommée"
+	fixture.update(t, carried[0].ID, renamed)
+}
+
+func TestUpdate_Paused_StaysPausedAndOutOfTheSet(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow, probe.OutcomeUp)
+	if err := fixture.service.Pause(context.Background(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	definition := definitionOf(fixture.get(t, created.ID))
+	definition.Target = "https://autre.exemple.fr/"
+	updated := fixture.update(t, created.ID, definition)
+
+	if updated.Status != probe.StatusPaused {
+		t.Fatalf("une sonde en pause le reste, obtenu %q", updated.Status)
+	}
+	if updated.Target != "https://autre.exemple.fr/" || updated.RevisedAt.IsZero() {
+		t.Fatalf("la définition devait être remplacée et révisée: %+v", updated)
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 0 {
+		t.Fatalf("une sonde en pause revient dans le jeu: %+v", assignment)
+	}
+}
+
+// Remise à zéro : le moteur des alertes voit « Nouveau » et lève tout. Sans
+// remise à zéro, il voit l'état d'avant, et ne fait que renommer.
+func TestUpdate_Reset_TellsTheAlerterNew(t *testing.T) {
+	fixture := newBench(t)
+	alerter := &recordingAlerter{}
+	fixture.service.SetAlerter(alerter)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow, probe.OutcomeDown)
+
+	definition := definitionOf(fixture.get(t, created.ID))
+	definition.Name = "renommée"
+	fixture.update(t, created.ID, definition)
+	if seen := alerter.last(); seen.Status != probe.StatusDown || seen.Name != "renommée" {
+		t.Fatalf("le moteur doit voir la sonde renommée, toujours hors ligne: %+v", seen)
+	}
+
+	definition.Target = "https://autre.exemple.fr/"
+	fixture.update(t, created.ID, definition)
+	if seen := alerter.last(); seen.Status != probe.StatusNew {
+		t.Fatalf("le moteur doit voir « Nouveau », obtenu %q", seen.Status)
+	}
+}
+
+// editingStore édite la sonde juste avant que le rapport s'écrive : le
+// cas d'un essai lu avec l'ancienne sonde, appliqué après l'édition.
+type editingStore struct {
+	*store.DB
+	beforeApply func()
+}
+
+func (s *editingStore) ApplyProbeResults(ctx context.Context, changes probe.Changes) ([]probe.Probe, error) {
+	if s.beforeApply != nil {
+		s.beforeApply()
+	}
+	return s.DB.ApplyProbeResults(ctx, changes)
+}
+
+// Une sonde révisée entre la lecture et l'écriture garde son état remis à
+// zéro, et le moteur des alertes ne voit rien de la sonde d'avant : ni
+// « hors ligne » qui n'a plus lieu d'être, ni son ancien certificat.
+func TestRecord_ProbeRevisedBetweenReadAndWrite_TellsTheAlerterNothing(t *testing.T) {
+	fixture := newBench(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	alerter := &recordingAlerter{}
+	wrapper := &editingStore{DB: fixture.db}
+	recording := probe.New(wrapper, logger)
+	recording.SetClock(func() time.Time { return fixture.now })
+	recording.SetAlerter(alerter)
+
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	wrapper.beforeApply = func() {
+		definition := definitionOf(fixture.get(t, created.ID))
+		definition.Target = "https://autre.exemple.fr/"
+		fixture.update(t, created.ID, definition)
+	}
+	// Lu avant l'édition : le plan ne sait pas encore qu'elle viendra, seule
+	// la garde de l'écriture retient l'état calculé.
+	fixture.now = testNow.Add(time.Minute)
+	result := probe.Result{ProbeID: created.ID, CheckedAt: fixture.now, Outcome: probe.OutcomeDown, DurationMs: 5}
+	if err := recording.Record(context.Background(), machine.LocalID, probe.Report{Results: []probe.Result{result}}); err != nil {
+		t.Fatal(err)
+	}
+
+	alerter.mu.Lock()
+	defer alerter.mu.Unlock()
+	if len(alerter.probes) != 0 {
+		t.Fatalf("le moteur a reçu la sonde d'avant l'édition: %+v", alerter.probes)
+	}
+	if after := fixture.get(t, created.ID); after.Status != probe.StatusNew || after.Target != "https://autre.exemple.fr/" {
+		t.Fatalf("l'état remis à zéro a été écrasé: %+v", after)
 	}
 }

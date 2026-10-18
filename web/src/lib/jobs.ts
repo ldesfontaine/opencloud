@@ -140,3 +140,34 @@ export function lastSuccessText(t: Translate, job: Job, runs: Run[], now: number
   }
   return t("job.last_success", formatWhen(at, now), ago(t, at, now));
 }
+
+// Le formulaire d'une tâche, tel que l'opérateur le tape : le serveur parle
+// en secondes, le formulaire en minutes.
+export interface JobFormValues {
+  name: string;
+  machineID: string;
+  interval: string;
+  grace: string;
+}
+
+export const emptyJobForm: JobFormValues = { name: "", machineID: "", interval: "60", grace: "10" };
+
+const secondsPerMinute = 60;
+
+export function jobFormOf(job: Job): JobFormValues {
+  return {
+    name: job.name,
+    machineID: job.machine_id,
+    interval: String(Math.round(job.interval_seconds / secondsPerMinute)),
+    grace: String(Math.round(job.grace_seconds / secondsPerMinute)),
+  };
+}
+
+export function jobRequestOf(values: JobFormValues) {
+  return {
+    name: values.name,
+    machine_id: values.machineID,
+    interval_minutes: Number(values.interval),
+    grace_minutes: Number(values.grace),
+  };
+}

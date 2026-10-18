@@ -188,3 +188,32 @@ func TestPing_ByTheTokenTheDatabaseGivesBack(t *testing.T) {
 		t.Fatalf("ping by the re-displayed token: %d", recorder.Code)
 	}
 }
+
+// Un cron oublié continue d'appeler l'URL d'une tâche en pause : la réponse
+// reste « ok », le ping est noté, et rien d'autre ne bouge.
+func TestPing_WhilePaused_Answers200AndChangesNothing(t *testing.T) {
+	server := newTestServer(t)
+	ctx := context.Background()
+	job := server.createJob(t, "job")
+	if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {
+		t.Fatalf("ping: %d", got.Code)
+	}
+	if err := server.heartbeats.Pause(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	paused, _ := server.heartbeats.Get(ctx, job.ID)
+
+	for _, path := range []string{"/ping/" + job.Token, "/ping/" + job.Token + "/start", "/ping/" + job.Token + "/3"} {
+		recorder := ping(server.Server, http.MethodGet, path, "", "")
+		if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
+			t.Fatalf("%s: %d %q", path, recorder.Code, recorder.Body.String())
+		}
+	}
+	after, _ := server.heartbeats.Get(ctx, job.ID)
+	if after.Status != heartbeat.StatusPaused || !after.LastPingAt.Equal(paused.LastPingAt) || !after.NextDeadlineAt.IsZero() || !after.RunStartedAt.IsZero() {
+		t.Fatalf("a paused job moved: %+v", after)
+	}
+	if pings, _ := server.heartbeats.Pings(ctx, job.ID, 10); len(pings) != 4 {
+		t.Fatalf("the pings must be kept: %d", len(pings))
+	}
+}
