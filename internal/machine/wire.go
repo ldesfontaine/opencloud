@@ -2,9 +2,9 @@ package machine
 
 import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -63,13 +63,15 @@ type ChallengeResponse struct {
 // sections, le serveur l'accepte.
 type SignalRequest struct {
 	Readings []sampler.Reading `json:"readings,omitempty"`
-	Services *service.Report   `json:"services,omitempty"`
+	// Clé figée : les agents installés l'envoient sous « services ».
+	Services *container.Report `json:"services,omitempty"`
 	Probes   *probe.Report     `json:"probes,omitempty"`
 	Images   *update.Report    `json:"images,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
-// rendue quand l'une est refusée.
+// rendue quand l'une est refusée. SectionServices garde son nom : clé
+// figée, les agents installés l'envoient et lisent « bad_services ».
 const (
 	SectionReadings = "readings"
 	SectionServices = "services"

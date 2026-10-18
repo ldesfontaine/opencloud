@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Un service déclaré tel que le front le lit : des faits, les listes
@@ -216,7 +216,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 			ContainerName: unit.ContainerName,
 			SystemdUnit:   unit.SystemdUnit,
 			Ports:         unit.Ports,
-			UpdatePolicy:  service.UpdatePolicy(unit.UpdatePolicy),
+			UpdatePolicy:  container.UpdatePolicy(unit.UpdatePolicy),
 		})
 	}
 	return directory.ServiceDefinition{
@@ -346,7 +346,7 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), service.UpdatePolicy(request.Policy))
+	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), container.UpdatePolicy(request.Policy))
 	if key, refused := directoryRefusalKey(err); refused {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
 		return

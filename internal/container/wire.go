@@ -1,4 +1,4 @@
-package service
+package container
 
 import "time"
 
@@ -8,14 +8,14 @@ import "time"
 type Report struct {
 	Engine           *EngineReport   `json:"engine,omitempty"`
 	Complete         bool            `json:"complete,omitempty"`
-	Inventory        []Container     `json:"inventory,omitempty"`
+	Inventory        []Observed      `json:"inventory,omitempty"`
 	NetworksComplete bool            `json:"networks_complete,omitempty"`
 	Networks         []NetworkReport `json:"networks,omitempty"`
 	Events           []Event         `json:"events,omitempty"`
 	Stats            []Stat          `json:"stats,omitempty"`
 }
 
-// IsEmpty dit si le signal ne porte rien sur les services.
+// IsEmpty dit si le signal ne porte rien sur les conteneurs.
 func (r Report) IsEmpty() bool {
 	return r.Engine == nil && !r.Complete && !r.NetworksComplete && len(r.Events) == 0 && len(r.Stats) == 0
 }
@@ -36,8 +36,9 @@ type EngineReport struct {
 	APIVersion string       `json:"api_version,omitempty"`
 }
 
-// Container est un conteneur tel que l'agent l'a inspecté.
-type Container struct {
+// Observed est un conteneur tel que l'agent l'a observé, avant qu'il devienne
+// une fiche (Container).
+type Observed struct {
 	ContainerID string `json:"container_id"`
 	Name        string `json:"name"`
 	Group       string `json:"group,omitempty"`
@@ -77,10 +78,10 @@ type Event struct {
 	ExitCode    *int      `json:"exit_code,omitempty"`
 	// Tué en SIGKILL sans arrêt demandé juste avant ; un agent plus vieux
 	// ne le dit pas, et 137 reste alors un arrêt propre.
-	Killed    bool       `json:"killed,omitempty"`
-	Replayed  bool       `json:"replayed,omitempty"`
-	Snippet   string     `json:"snippet,omitempty"`
-	Container *Container `json:"container,omitempty"`
+	Killed    bool      `json:"killed,omitempty"`
+	Replayed  bool      `json:"replayed,omitempty"`
+	Snippet   string    `json:"snippet,omitempty"`
+	Container *Observed `json:"container,omitempty"`
 }
 
 // ActionDestroy est la seule action qui ferme une fiche. Les actions de

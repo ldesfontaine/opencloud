@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 
-import type { NetworkResponse, Probe, Service } from "../api/types";
+import type { NetworkResponse, Probe, Container } from "../api/types";
 import { compactHeight, compactWidth, fitView, internetID, layoutNetwork, layoutOverview, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
-function service(id: string, name: string, extra: Partial<Service> = {}): Service {
+function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
     id,
     machine_id: "m",
@@ -53,11 +53,11 @@ const response: NetworkResponse = {
   machine_name: "vps",
   online: true,
   engine: null,
-  services: [
-    service("web", "web", { networks: [front], depends_on: [{ name: "db", source: "compose" }] }),
-    service("db", "db", { networks: [back] }),
-    service("cache", "cache", { networks: [back] }),
-    service("lonely", "lonely", { state: "exited", network_mode: "bridge" }),
+  containers: [
+    container("web", "web", { networks: [front], depends_on: [{ name: "db", source: "compose" }] }),
+    container("db", "db", { networks: [back] }),
+    container("cache", "cache", { networks: [back] }),
+    container("lonely", "lonely", { state: "exited", network_mode: "bridge" }),
   ],
   groups: [{ network_id: "back", name: "ocfix_back", internal: true, members: ["db", "cache"] }],
   edges: [
@@ -92,7 +92,7 @@ test("layoutNetwork met Internet, puis ce qu'il atteint, puis le reste", () => {
   expect(layout.height).toBeGreaterThanOrEqual(group.y + group.height);
 });
 
-test("layoutNetwork garde dans la première colonne un groupe qui abrite un service publié", () => {
+test("layoutNetwork garde dans la première colonne un groupe qui abrite un container publié", () => {
   const grouped: NetworkResponse = {
     ...response,
     groups: [{ network_id: "back", name: "ocfix_back", internal: true, members: ["web", "db", "cache"] }],
@@ -136,11 +136,11 @@ test("fitView fait tenir le graphe sans l'agrandir, zoomView reste borné", () =
 });
 
 test("peersOf et publicPorts lisent les faits du serveur", () => {
-  const peers = peersOf(response.services[1]!, response.services);
+  const peers = peersOf(response.containers[1]!, response.containers);
   expect(peers).toHaveLength(1);
   expect(peers[0]!.network).toBe("ocfix_back");
-  expect(peers[0]!.services.map((peer) => peer.name)).toEqual(["cache"]);
-  expect(peersOf(response.services[3]!, response.services)).toEqual([]);
+  expect(peers[0]!.containers.map((peer) => peer.name)).toEqual(["cache"]);
+  expect(peersOf(response.containers[3]!, response.containers)).toEqual([]);
   expect(publicPorts([...response.edges, { from: internetID, to: "web", kind: "public", port: 80 }])).toEqual([80, 18081]);
 });
 
@@ -150,7 +150,7 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
     machine_id: "n",
     machine_name: "nas",
     online: false,
-    services: [service("s1", "s1", { machine_id: "n" }), service("s2", "s2", { machine_id: "n" }), service("s3", "s3", { machine_id: "n" }), service("s4", "s4", { machine_id: "n" }), service("s5", "s5", { machine_id: "n" })],
+    containers: [container("s1", "s1", { machine_id: "n" }), container("s2", "s2", { machine_id: "n" }), container("s3", "s3", { machine_id: "n" }), container("s4", "s4", { machine_id: "n" }), container("s5", "s5", { machine_id: "n" })],
     groups: [],
     edges: [],
   };
@@ -165,7 +165,7 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
   expect(web.public).toBe(true);
   expect(web.x).toBe(vps.x + 16);
   expect(db.x).toBe(web.x + compactWidth + 12);
-  // Cinq services sans route publique : quatre colonnes, deux lignes.
+  // Cinq conteneurs sans route publique : quatre colonnes, deux lignes.
   expect(byID.get("s5")!.y).toBe(byID.get("s1")!.y + compactHeight + 12);
   expect(byID.get("s5")!.x).toBe(byID.get("s1")!.x);
   expect(layout.edges).toHaveLength(1);
@@ -178,7 +178,7 @@ test("layoutOverview ne cadre pas une machine seule et accepte une machine vide"
   const alone = layoutOverview({ machines: [response] });
   expect(alone.framed).toBe(false);
   expect(alone.machines[0]!.x).toBe(alone.nodes[0]!.x);
-  const empty = layoutOverview({ machines: [{ ...response, services: [], edges: [] }] });
+  const empty = layoutOverview({ machines: [{ ...response, containers: [], edges: [] }] });
   expect(empty.machines[0]!.empty).toBe(true);
   expect(empty.nodes).toHaveLength(0);
   expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 48);
@@ -187,6 +187,6 @@ test("layoutOverview ne cadre pas une machine seule et accepte une machine vide"
 test("probesOf rend les sondes du service déclaré, et rien pour un conteneur non déclaré", () => {
   const probes = [{ id: "p1", service_id: "svc_1" }, { id: "p2", service_id: "svc_2" }, { id: "p3", service_id: "" }] as Probe[];
   expect(probesOf(probes, { declared_service_id: "svc_1" }).map((probe) => probe.id)).toEqual(["p1"]);
-  // Une sonde sans service ne se rattache pas à un conteneur sans service déclaré.
+  // Une sonde sans conteneur ne se rattache pas à un conteneur sans service déclaré.
   expect(probesOf(probes, { declared_service_id: "" })).toEqual([]);
 });

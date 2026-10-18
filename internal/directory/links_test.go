@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -114,7 +114,7 @@ func TestReview_ClearsTheFlagOnlyForAValidDefinition(t *testing.T) {
 		Units: []directory.Unit{{
 			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
 			// Une image que Docker montrait sous une forme que l'annuaire refuse.
-			Image: "NOT A VALID IMAGE", ContainerName: "whoami", UpdatePolicy: service.PolicyWatch,
+			Image: "NOT A VALID IMAGE", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
 		}},
 	}
 	if err := b.db.InsertDeclaredService(ctx, taken); err != nil {
@@ -166,12 +166,12 @@ func TestSetUnitUpdatePolicy_TellsTheMachine(t *testing.T) {
 	})
 	told, changes := len(assigner.told()), b.changeCount()
 
-	updated, err := b.directory.SetUnitUpdatePolicy(ctx, created.Units[0].ID, service.PolicyHold)
+	updated, err := b.directory.SetUnitUpdatePolicy(ctx, created.Units[0].ID, container.PolicyHold)
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.ID != created.ID || updated.Units[0].UpdatePolicy != service.PolicyHold || updated.Units[1].UpdatePolicy != service.PolicyWatch {
+	if updated.ID != created.ID || updated.Units[0].UpdatePolicy != container.PolicyHold || updated.Units[1].UpdatePolicy != container.PolicyWatch {
 		t.Fatalf("service = %+v", updated.Units)
 	}
 	if got := assigner.told(); len(got) != told+1 || got[len(got)-1] != remoteID {
@@ -185,16 +185,16 @@ func TestSetUnitUpdatePolicy_TellsTheMachine(t *testing.T) {
 	if _, err := b.directory.SetUnitUpdatePolicy(ctx, created.Units[0].ID, "pinned"); !errors.Is(err, directory.ErrUpdatePolicyInvalid) {
 		t.Fatalf("politique inconnue: %v", err)
 	}
-	if _, err := b.directory.SetUnitUpdatePolicy(ctx, binary.Units[0].ID, service.PolicyIgnore); !errors.Is(err, directory.ErrUpdatePolicyInvalid) {
+	if _, err := b.directory.SetUnitUpdatePolicy(ctx, binary.Units[0].ID, container.PolicyIgnore); !errors.Is(err, directory.ErrUpdatePolicyInvalid) {
 		t.Fatalf("binaire: %v", err)
 	}
-	if _, err := b.directory.SetUnitUpdatePolicy(ctx, "unit_inconnue", service.PolicyHold); !errors.Is(err, directory.ErrUnitNotFound) {
+	if _, err := b.directory.SetUnitUpdatePolicy(ctx, "unit_inconnue", container.PolicyHold); !errors.Is(err, directory.ErrUnitNotFound) {
 		t.Fatalf("unité inconnue: %v", err)
 	}
 	if len(assigner.told()) != told {
 		t.Fatalf("un refus ne prévient personne: %v", assigner.told())
 	}
-	if kept, _ := b.directory.GetService(ctx, created.ID); kept.Units[0].UpdatePolicy != service.PolicyHold {
+	if kept, _ := b.directory.GetService(ctx, created.ID); kept.Units[0].UpdatePolicy != container.PolicyHold {
 		t.Fatalf("un refus ne change rien: %+v", kept.Units)
 	}
 }
@@ -210,7 +210,7 @@ func TestUpdateService_WritesThePolicyAndTellsBothMachines(t *testing.T) {
 
 	definition := composeDefinition(machine.LocalID)
 	definition.Units[0].ID = created.Units[0].ID
-	definition.Units[0].UpdatePolicy = service.PolicyIgnore
+	definition.Units[0].UpdatePolicy = container.PolicyIgnore
 	definition.Units[1].ID = created.Units[1].ID
 	before := len(assigner.told())
 
@@ -219,7 +219,7 @@ func TestUpdateService_WritesThePolicyAndTellsBothMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Units[0].UpdatePolicy != service.PolicyIgnore || updated.Units[1].UpdatePolicy != service.PolicyWatch {
+	if updated.Units[0].UpdatePolicy != container.PolicyIgnore || updated.Units[1].UpdatePolicy != container.PolicyWatch {
 		t.Fatalf("unités = %+v", updated.Units)
 	}
 	told := assigner.told()[before:]

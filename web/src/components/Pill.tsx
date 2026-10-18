@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { JobStatus, ProbeStatus } from "../api/types";
 import { useT } from "../i18n/context";
 import { probeTones } from "../lib/probes";
-import { type PillFacts, servicePill } from "../lib/services";
+import { containerPill, type PillFacts } from "../lib/containers";
 import "./Pill.scss";
 
 export type Tone = "ok" | "warn" | "danger" | "neutral" | "accent";
@@ -38,13 +38,13 @@ export function JobPill({ status }: { status: JobStatus }) {
   return <Pill tone={jobTones[status]}>{t(`job.status_${status}`)}</Pill>;
 }
 
-// Pastille d'un service : Actif, Démarre, Défaillant, Manque de mémoire,
+// Pastille d'un conteneur : Actif, Démarre, Défaillant, Manque de mémoire,
 // Redémarre, En pause, Arrêté ; dérivée des faits, jamais envoyée par le
 // serveur.
-export function ServicePill({ service }: { service: PillFacts }) {
+export function ContainerPill({ container }: { container: PillFacts }) {
   const t = useT();
-  const pill = servicePill(service);
-  return <Pill tone={pill.tone}>{t(`service.state_${pill.key}`)}</Pill>;
+  const pill = containerPill(container);
+  return <Pill tone={pill.tone}>{t(`container.state_${pill.key}`)}</Pill>;
 }
 
 // Pastille d'une sonde : Nouveau, En ligne, Dégradé, Hors ligne, En pause.

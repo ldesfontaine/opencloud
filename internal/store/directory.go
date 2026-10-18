@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.nature, s.origin,
@@ -576,7 +576,7 @@ func scanUnit(row scanner) (directory.Unit, error) {
 		return directory.Unit{}, err
 	}
 	unit.Kind = directory.UnitKind(kind)
-	unit.UpdatePolicy = service.UpdatePolicy(policy)
+	unit.UpdatePolicy = container.UpdatePolicy(policy)
 	unit.Ports = []string{}
 	if err := json.Unmarshal([]byte(ports), &unit.Ports); err != nil {
 		return directory.Unit{}, fmt.Errorf("decode unit ports: %w", err)

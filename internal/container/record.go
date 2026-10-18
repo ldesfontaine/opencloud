@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"context"
@@ -8,24 +8,24 @@ import (
 	"time"
 )
 
-// Ce que le service attend de la base ; le package store le fournit.
+// Ce que le conteneur attend de la base ; le package store le fournit.
 type Store interface {
-	// ListServices rend les fiches d'une machine, archivées comprises ; toutes
+	// ListContainers rend les fiches d'une machine, archivées comprises ; toutes
 	// les machines si machineID est vide.
-	ListServices(ctx context.Context, machineID string) ([]Service, error)
-	GetService(ctx context.Context, id string) (Service, error)
+	ListContainers(ctx context.Context, machineID string) ([]Container, error)
+	GetContainer(ctx context.Context, id string) (Container, error)
 	// ApplyChanges écrit tout ce qu'un rapport change, en une transaction.
 	ApplyChanges(ctx context.Context, changes Changes) error
-	ListTransitions(ctx context.Context, serviceID string, limit int) ([]Transition, error)
-	// LatestServiceSamples rend le dernier échantillon de chaque service.
-	LatestServiceSamples(ctx context.Context) ([]Sample, error)
+	ListTransitions(ctx context.Context, containerID string, limit int) ([]Transition, error)
+	// LatestContainerSamples rend le dernier échantillon de chaque conteneur.
+	LatestContainerSamples(ctx context.Context) ([]Sample, error)
 	ListEngines(ctx context.Context) ([]Engine, error)
 	// ListNetworks rend les réseaux d'une machine, par nom.
 	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
-	PurgeServices(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
-	// SetServiceUnits écrit le rattachement des fiches nommées, et rien
+	PurgeContainers(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
+	// SetContainerUnits écrit le rattachement des fiches nommées, et rien
 	// d'autre ; une unité disparue entre-temps s'écrit comme « non déclaré ».
-	SetServiceUnits(ctx context.Context, assignments []UnitAssignment) error
+	SetContainerUnits(ctx context.Context, assignments []UnitAssignment) error
 }
 
 // UnitMatch est l'unité à laquelle l'annuaire rattache un conteneur, et par
@@ -38,26 +38,26 @@ type UnitMatch struct {
 // UnitAssignment est le rattachement à écrire sur une fiche ; une unité
 // vide la rend « non déclarée ».
 type UnitAssignment struct {
-	ServiceID string
-	UnitID    string
-	Level     MatchLevel
+	ContainerID string
+	UnitID      string
+	Level       MatchLevel
 }
 
 // UnitsOnMachine applique la règle de l'annuaire aux conteneurs vivants
 // d'une machine, rendus par identifiant de fiche ; une clé absente du
 // résultat dit « non déclaré ». nil est toléré.
 type UnitsOnMachine interface {
-	MatchUnits(ctx context.Context, machineID string, containers []Service) (map[string]UnitMatch, error)
+	MatchUnits(ctx context.Context, machineID string, containers []Container) (map[string]UnitMatch, error)
 }
 
 // Changes est ce qu'un rapport change : des fiches à écrire, celles à
 // archiver parce que l'inventaire ne les nomme plus, des transitions, des
 // échantillons, l'état du Docker de la machine.
 type Changes struct {
-	MachineID string
-	Now       time.Time
-	Engine    *Engine
-	Services  []Service
+	MachineID  string
+	Now        time.Time
+	Engine     *Engine
+	Containers []Container
 	// ArchiveMissing archive les fiches vivantes de la machine absentes de
 	// Keep : un inventaire complet fait foi.
 	ArchiveMissing bool
@@ -73,7 +73,7 @@ type Changes struct {
 // Watcher reçoit chaque écriture visible : le direct s'y branche. nil est
 // toléré.
 type Watcher interface {
-	ServicesChanged(machineID string)
+	ContainersChanged(machineID string)
 }
 
 // Alerter reçoit chaque fiche qu'un rapport a touchée, avec les
@@ -81,11 +81,11 @@ type Watcher interface {
 // un arrêt non demandé, un redémarrage, une santé qui échoue. nil est
 // toléré.
 type Alerter interface {
-	ServiceChanged(ctx context.Context, service Service, transitions []Transition)
+	ContainerChanged(ctx context.Context, container Container, transitions []Transition)
 }
 
-// Tracker est le composant : il suit les services que les agents
-// rapportent ; Service, lui, est une fiche.
+// Tracker est le composant : il suit les conteneurs que les agents
+// rapportent ; Container, lui, est une fiche.
 type Tracker struct {
 	store   Store
 	watcher Watcher
@@ -139,7 +139,7 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 		return err
 	}
 	for _, dropped := range discards {
-		t.logger.Warn("discard invalid service report element", "machine", machineID, "element", dropped.what, "reason", dropped.reason)
+		t.logger.Warn("discard invalid container report element", "machine", machineID, "element", dropped.what, "reason", dropped.reason)
 	}
 	changes, err := t.write(ctx, machineID, report, now)
 	if err != nil {
@@ -147,7 +147,7 @@ func (t *Tracker) Record(ctx context.Context, machineID string, report Report) e
 	}
 	t.alert(ctx, changes)
 	if t.watcher != nil {
-		t.watcher.ServicesChanged(machineID)
+		t.watcher.ContainersChanged(machineID)
 	}
 	return nil
 }
@@ -160,7 +160,7 @@ func (t *Tracker) write(ctx context.Context, machineID string, report Report, no
 	lock := t.machineLock(machineID)
 	lock.Lock()
 	defer lock.Unlock()
-	stored, err := t.store.ListServices(ctx, machineID)
+	stored, err := t.store.ListContainers(ctx, machineID)
 	if err != nil {
 		return Changes{}, err
 	}
@@ -180,9 +180,9 @@ func (t *Tracker) match(ctx context.Context, machineID string, changes *Changes)
 	if t.units == nil {
 		return
 	}
-	living := make([]int, 0, len(changes.Services))
-	containers := make([]Service, 0, len(changes.Services))
-	for index, touched := range changes.Services {
+	living := make([]int, 0, len(changes.Containers))
+	containers := make([]Container, 0, len(changes.Containers))
+	for index, touched := range changes.Containers {
 		if !touched.IsArchived() {
 			living = append(living, index)
 			containers = append(containers, touched)
@@ -197,9 +197,9 @@ func (t *Tracker) match(ctx context.Context, machineID string, changes *Changes)
 		return
 	}
 	for _, index := range living {
-		match := matches[changes.Services[index].ID]
-		changes.Services[index].UnitID = match.UnitID
-		changes.Services[index].MatchLevel = match.Level
+		match := matches[changes.Containers[index].ID]
+		changes.Containers[index].UnitID = match.UnitID
+		changes.Containers[index].MatchLevel = match.Level
 	}
 }
 
@@ -219,7 +219,7 @@ func (t *Tracker) Rematch(ctx context.Context, machineID string) error {
 	if count > 0 {
 		t.logger.Info("containers rematched", "machine", machineID, "count", count)
 		if t.watcher != nil {
-			t.watcher.ServicesChanged(machineID)
+			t.watcher.ContainersChanged(machineID)
 		}
 	}
 	return nil
@@ -229,11 +229,11 @@ func (t *Tracker) rematch(ctx context.Context, machineID string) (int, error) {
 	lock := t.machineLock(machineID)
 	lock.Lock()
 	defer lock.Unlock()
-	stored, err := t.store.ListServices(ctx, machineID)
+	stored, err := t.store.ListContainers(ctx, machineID)
 	if err != nil {
 		return 0, err
 	}
-	living := make([]Service, 0, len(stored))
+	living := make([]Container, 0, len(stored))
 	for _, found := range stored {
 		if !found.IsArchived() {
 			living = append(living, found)
@@ -250,13 +250,13 @@ func (t *Tracker) rematch(ctx context.Context, machineID string) (int, error) {
 	for _, found := range living {
 		match := matches[found.ID]
 		if match.UnitID != found.UnitID || match.Level != found.MatchLevel {
-			assignments = append(assignments, UnitAssignment{ServiceID: found.ID, UnitID: match.UnitID, Level: match.Level})
+			assignments = append(assignments, UnitAssignment{ContainerID: found.ID, UnitID: match.UnitID, Level: match.Level})
 		}
 	}
 	if len(assignments) == 0 {
 		return 0, nil
 	}
-	if err := t.store.SetServiceUnits(ctx, assignments); err != nil {
+	if err := t.store.SetContainerUnits(ctx, assignments); err != nil {
 		return 0, err
 	}
 	return len(assignments), nil
@@ -266,7 +266,7 @@ func (t *Tracker) rematch(ctx context.Context, machineID string) (int, error) {
 // démarrage, pour ce que l'annuaire a reçu avant que le rapprochement
 // existe, sans attendre l'inventaire suivant de chaque agent.
 func (t *Tracker) RematchAll(ctx context.Context) {
-	stored, err := t.store.ListServices(ctx, "")
+	stored, err := t.store.ListContainers(ctx, "")
 	if err != nil {
 		t.logger.Warn("rematch containers", "error", err)
 		return
@@ -289,24 +289,24 @@ func (t *Tracker) alert(ctx context.Context, changes Changes) {
 	if t.alerter == nil {
 		return
 	}
-	for _, touched := range changes.Services {
+	for _, touched := range changes.Containers {
 		var transitions []Transition
 		for _, transition := range changes.Transitions {
-			if transition.ServiceID == touched.ID {
+			if transition.ContainerID == touched.ID {
 				transitions = append(transitions, transition)
 			}
 		}
-		t.alerter.ServiceChanged(ctx, touched, transitions)
+		t.alerter.ContainerChanged(ctx, touched, transitions)
 	}
 }
 
 // planChanges traduit le rapport en écritures, dans l'ordre du rapport :
 // l'inventaire d'abord, puis chaque événement appliqué sur la fiche telle
 // que le précédent l'a laissée, puis les mesures des fiches connues.
-func planChanges(machineID string, stored []Service, report Report, now time.Time) Changes {
-	plan := &planner{machineID: machineID, now: now, known: make(map[string]Service, len(stored)), touched: make(map[string]int)}
-	for _, service := range stored {
-		plan.known[service.ID] = service
+func planChanges(machineID string, stored []Container, report Report, now time.Time) Changes {
+	plan := &planner{machineID: machineID, now: now, known: make(map[string]Container, len(stored)), touched: make(map[string]int)}
+	for _, container := range stored {
+		plan.known[container.ID] = container
 	}
 	if report.Engine != nil {
 		plan.changes.Engine = &Engine{
@@ -334,14 +334,14 @@ func planChanges(machineID string, stored []Service, report Report, now time.Tim
 type planner struct {
 	machineID string
 	now       time.Time
-	known     map[string]Service
-	// touched donne la place de chaque fiche déjà dans changes.Services :
+	known     map[string]Container
+	// touched donne la place de chaque fiche déjà dans changes.Containers :
 	// une fiche touchée deux fois par le même rapport n'est écrite qu'une.
 	touched map[string]int
 	changes Changes
 }
 
-func (p *planner) applyInventory(inventory []Container) {
+func (p *planner) applyInventory(inventory []Observed) {
 	p.changes.ArchiveMissing = true
 	p.changes.Keep = make([]string, 0, len(inventory))
 	for _, container := range inventory {
@@ -351,13 +351,13 @@ func (p *planner) applyInventory(inventory []Container) {
 		next := p.fromContainer(container, previous, existed)
 		p.record(next, previous, existed, Transition{At: p.now, Action: "inventory"})
 	}
-	for id, service := range p.known {
-		if service.IsArchived() || contains(p.changes.Keep, id) {
+	for id, container := range p.known {
+		if container.IsArchived() || contains(p.changes.Keep, id) {
 			continue
 		}
-		archived := service
+		archived := container
 		archived.ArchivedAt = p.now
-		p.record(archived, service, true, Transition{At: p.now, Action: "gone"})
+		p.record(archived, container, true, Transition{At: p.now, Action: "gone"})
 	}
 }
 
@@ -418,68 +418,68 @@ func (p *planner) applyEvent(event Event) {
 
 func (p *planner) applyStat(stat Stat) {
 	id := ID(p.machineID, stat.ContainerID)
-	service, known := p.known[id]
-	if !known || service.IsArchived() {
+	container, known := p.known[id]
+	if !known || container.IsArchived() {
 		return
 	}
 	p.changes.Samples = append(p.changes.Samples, Sample{
-		ServiceID: id, SampledAt: stat.SampledAt, CPUPercent: stat.CPUPercent, MemUsed: stat.MemUsed, MemLimit: stat.MemLimit,
+		ContainerID: id, SampledAt: stat.SampledAt, CPUPercent: stat.CPUPercent, MemUsed: stat.MemUsed, MemLimit: stat.MemLimit,
 	})
 }
 
-// fromContainer fait une fiche de ce que l'agent a inspecté ; ce que la base
+// fromContainer fait une fiche de ce que l'agent a observé ; ce que la base
 // savait déjà (première vue) est conservé.
-func (p *planner) fromContainer(container Container, previous Service, existed bool) Service {
-	service := Service{
-		ID:             ID(p.machineID, container.ContainerID),
+func (p *planner) fromContainer(observed Observed, previous Container, existed bool) Container {
+	container := Container{
+		ID:             ID(p.machineID, observed.ContainerID),
 		MachineID:      p.machineID,
 		Kind:           KindContainer,
-		Name:           container.Name,
-		Group:          container.Group,
-		ContainerID:    container.ContainerID,
-		Image:          container.Image,
-		ImageID:        container.ImageID,
-		ComposeService: container.ComposeService,
-		ComposeDir:     container.ComposeDir,
-		ComposeFile:    container.ComposeFile,
-		State:          container.State,
-		ExitCode:       container.ExitCode,
-		OOMKilled:      container.OOMKilled,
-		Health:         container.Health,
-		RestartCount:   container.RestartCount,
-		Ports:          container.Ports,
-		NetworkMode:    container.NetworkMode,
-		Privileged:     container.Privileged,
-		Networks:       container.Networks,
-		DependsOn:      container.DependsOn,
-		CreatedAt:      container.CreatedAt.UTC(),
+		Name:           observed.Name,
+		Group:          observed.Group,
+		ContainerID:    observed.ContainerID,
+		Image:          observed.Image,
+		ImageID:        observed.ImageID,
+		ComposeService: observed.ComposeService,
+		ComposeDir:     observed.ComposeDir,
+		ComposeFile:    observed.ComposeFile,
+		State:          observed.State,
+		ExitCode:       observed.ExitCode,
+		OOMKilled:      observed.OOMKilled,
+		Health:         observed.Health,
+		RestartCount:   observed.RestartCount,
+		Ports:          observed.Ports,
+		NetworkMode:    observed.NetworkMode,
+		Privileged:     observed.Privileged,
+		Networks:       observed.Networks,
+		DependsOn:      observed.DependsOn,
+		CreatedAt:      observed.CreatedAt.UTC(),
 		FirstSeenAt:    p.now,
 		LastSeenAt:     p.now,
 	}
-	if container.StartedAt != nil {
-		service.StartedAt = container.StartedAt.UTC()
+	if observed.StartedAt != nil {
+		container.StartedAt = observed.StartedAt.UTC()
 	}
-	if container.FinishedAt != nil {
-		service.FinishedAt = container.FinishedAt.UTC()
+	if observed.FinishedAt != nil {
+		container.FinishedAt = observed.FinishedAt.UTC()
 	}
 	if existed {
 		// Docker ne sait pas qu'un arrêt était brutal : l'inventaire le
 		// garde tant que c'est le même arrêt.
-		service.Killed = previous.Killed && service.State == previous.State && service.FinishedAt.Equal(previous.FinishedAt)
-		service.FirstSeenAt = previous.FirstSeenAt
+		container.Killed = previous.Killed && container.State == previous.State && container.FinishedAt.Equal(previous.FinishedAt)
+		container.FirstSeenAt = previous.FirstSeenAt
 		// L'inventaire ne dit rien de l'annuaire : le rattachement survit.
-		service.UnitID = previous.UnitID
-		service.MatchLevel = previous.MatchLevel
+		container.UnitID = previous.UnitID
+		container.MatchLevel = previous.MatchLevel
 	}
-	return service
+	return container
 }
 
 // record garde la fiche et note la transition si l'état ou la santé a
 // changé, ou si la fiche est nouvelle.
-func (p *planner) record(next, previous Service, existed bool, transition Transition) {
+func (p *planner) record(next, previous Container, existed bool, transition Transition) {
 	changed := !existed || next.State != previous.State || next.Health != previous.Health || next.IsArchived() != previous.IsArchived()
 	if changed {
-		transition.ServiceID = next.ID
+		transition.ContainerID = next.ID
 		transition.NewState = next.State
 		transition.NewHealth = next.Health
 		transition.OOMKilled = next.OOMKilled && (next.State == StateExited || next.State == StateDead)
@@ -496,11 +496,11 @@ func (p *planner) record(next, previous Service, existed bool, transition Transi
 	}
 	p.known[next.ID] = next
 	if index, seen := p.touched[next.ID]; seen {
-		p.changes.Services[index] = next
+		p.changes.Containers[index] = next
 		return
 	}
-	p.touched[next.ID] = len(p.changes.Services)
-	p.changes.Services = append(p.changes.Services, next)
+	p.touched[next.ID] = len(p.changes.Containers)
+	p.changes.Containers = append(p.changes.Containers, next)
 }
 
 func contains(ids []string, id string) bool {
@@ -512,49 +512,49 @@ func contains(ids []string, id string) bool {
 	return false
 }
 
-// List rend les services vivants, d'une machine ou de toutes.
-func (t *Tracker) List(ctx context.Context, machineID string) ([]Service, error) {
-	all, err := t.store.ListServices(ctx, machineID)
+// List rend les conteneurs vivants, d'une machine ou de toutes.
+func (t *Tracker) List(ctx context.Context, machineID string) ([]Container, error) {
+	all, err := t.store.ListContainers(ctx, machineID)
 	if err != nil {
 		return nil, err
 	}
-	live := make([]Service, 0, len(all))
-	for _, service := range all {
-		if !service.IsArchived() {
-			live = append(live, service)
+	live := make([]Container, 0, len(all))
+	for _, container := range all {
+		if !container.IsArchived() {
+			live = append(live, container)
 		}
 	}
 	return live, nil
 }
 
-// Images rend l'image de chaque service vivant, toutes machines confondues.
+// Images rend l'image de chaque conteneur vivant, toutes machines confondues.
 func (t *Tracker) Images(ctx context.Context) ([]string, error) {
 	living, err := t.List(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 	images := make([]string, 0, len(living))
-	for _, service := range living {
-		images = append(images, service.Image)
+	for _, container := range living {
+		images = append(images, container.Image)
 	}
 	return images, nil
 }
 
-func (t *Tracker) Get(ctx context.Context, id string) (Service, error) {
-	return t.store.GetService(ctx, id)
+func (t *Tracker) Get(ctx context.Context, id string) (Container, error) {
+	return t.store.GetContainer(ctx, id)
 }
 
 func (t *Tracker) Transitions(ctx context.Context, id string, limit int) ([]Transition, error) {
-	if _, err := t.store.GetService(ctx, id); err != nil {
+	if _, err := t.store.GetContainer(ctx, id); err != nil {
 		return nil, err
 	}
 	return t.store.ListTransitions(ctx, id, limit)
 }
 
 // Topology rend ce que l'onglet Réseau d'une machine dessine : ses
-// services vivants, ses groupes et ses arêtes.
+// conteneurs vivants, ses groupes et ses arêtes.
 func (t *Tracker) Topology(ctx context.Context, machineID string) (Topology, error) {
-	services, err := t.List(ctx, machineID)
+	containers, err := t.List(ctx, machineID)
 	if err != nil {
 		return Topology{}, err
 	}
@@ -562,7 +562,7 @@ func (t *Tracker) Topology(ctx context.Context, machineID string) (Topology, err
 	if err != nil {
 		return Topology{}, err
 	}
-	return BuildTopology(services, networks), nil
+	return BuildTopology(containers, networks), nil
 }
 
 // Engines rend ce que chaque machine a dit de son Docker.
@@ -570,9 +570,9 @@ func (t *Tracker) Engines(ctx context.Context) ([]Engine, error) {
 	return t.store.ListEngines(ctx)
 }
 
-// CurrentAll rend la mesure courante de chaque service qui en a une.
+// CurrentAll rend la mesure courante de chaque conteneur qui en a une.
 func (t *Tracker) CurrentAll(ctx context.Context) ([]Current, error) {
-	samples, err := t.store.LatestServiceSamples(ctx)
+	samples, err := t.store.LatestContainerSamples(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -580,21 +580,21 @@ func (t *Tracker) CurrentAll(ctx context.Context) ([]Current, error) {
 	currents := make([]Current, 0, len(samples))
 	for _, sample := range samples {
 		fresh := now.Sub(sample.SampledAt) <= StaleAfter
-		currents = append(currents, Current{ServiceID: sample.ServiceID, Available: fresh, Sample: &sample})
+		currents = append(currents, Current{ContainerID: sample.ContainerID, Available: fresh, Sample: &sample})
 	}
 	return currents, nil
 }
 
-// NeedsAttention dit si un service va mal : c'est ce que compte la barre
+// NeedsAttention dit si un conteneur va mal : c'est ce que compte la barre
 // latérale. Le front dérive ses pastilles de la même règle.
-func NeedsAttention(service Service) bool {
-	switch service.State {
+func NeedsAttention(container Container) bool {
+	switch container.State {
 	case StateRunning:
-		return service.Health == HealthUnhealthy
+		return container.Health == HealthUnhealthy
 	case StateRestarting, StateDead:
 		return true
 	case StateExited:
-		return !IsCleanStop(service.ExitCode, service.OOMKilled, service.Killed)
+		return !IsCleanStop(container.ExitCode, container.OOMKilled, container.Killed)
 	}
 	return false
 }
@@ -613,24 +613,24 @@ func IsCleanStop(code int, oomKilled, killed bool) bool {
 	return !oomKilled && !killed && IsCleanExit(code)
 }
 
-// Count rend le nombre de services vivants et ceux qui demandent attention.
+// Count rend le nombre de conteneurs vivants et ceux qui demandent attention.
 func (t *Tracker) Count(ctx context.Context) (total, attention int, err error) {
-	services, err := t.List(ctx, "")
+	containers, err := t.List(ctx, "")
 	if err != nil {
 		return 0, 0, err
 	}
-	for _, service := range services {
-		if NeedsAttention(service) {
+	for _, container := range containers {
+		if NeedsAttention(container) {
 			attention++
 		}
 	}
-	return len(services), attention, nil
+	return len(containers), attention, nil
 }
 
 // Purge efface chaque table au-delà de sa rétention.
 func (t *Tracker) Purge(ctx context.Context) error {
 	now := t.now()
-	return t.store.PurgeServices(ctx, now.Add(-TransitionRetention), now.Add(-ArchivedRetention), now.Add(-SampleRetention))
+	return t.store.PurgeContainers(ctx, now.Add(-TransitionRetention), now.Add(-ArchivedRetention), now.Add(-SampleRetention))
 }
 
 const purgePeriod = 24 * time.Hour
@@ -652,6 +652,6 @@ func (t *Tracker) Watch(ctx context.Context) {
 
 func (t *Tracker) purge(ctx context.Context) {
 	if err := t.Purge(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		t.logger.Warn("purge services", "error", err)
+		t.logger.Warn("purge containers", "error", err)
 	}
 }

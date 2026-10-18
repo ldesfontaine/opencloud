@@ -113,7 +113,7 @@ func checkOpenRoutes(t *testing.T, open map[string]bool) {
 			t.Errorf("%s should stay open", pattern)
 		}
 	}
-	if open["/oauth/authorize"] || open["/"] || open["/api/events"] || open["/api/services/{id}/logs/stream"] {
+	if open["/oauth/authorize"] || open["/"] || open["/api/events"] || open["/api/containers/{id}/logs/stream"] {
 		t.Error("the consent step, the front, the live stream and the log stream must be guarded")
 	}
 }

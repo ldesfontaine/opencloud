@@ -1,7 +1,7 @@
 import type { Certificate, CertificateThresholds } from "../api/types";
 import type { Tone } from "../components/Pill";
 
-// L'état d'un certificat, dérivé ici comme les pastilles de service : le
+// L'état d'un certificat, dérivé ici comme les pastilles de conteneur : le
 // serveur rend des faits, le navigateur en fait un mot et une couleur.
 //
 // L'échéance et la confiance ne se mélangent pas. Un certificat d'autorité

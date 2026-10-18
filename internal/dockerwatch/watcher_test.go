@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const (
@@ -36,7 +36,7 @@ func fixture(t *testing.T, name string) []byte {
 
 type recordingSink struct {
 	mu      sync.Mutex
-	reports []service.Report
+	reports []container.Report
 	wake    chan struct{}
 }
 
@@ -44,7 +44,7 @@ func newSink() *recordingSink {
 	return &recordingSink{wake: make(chan struct{}, 64)}
 }
 
-func (s *recordingSink) Deliver(report service.Report) {
+func (s *recordingSink) Deliver(report container.Report) {
 	s.mu.Lock()
 	s.reports = append(s.reports, report)
 	s.mu.Unlock()
@@ -55,7 +55,7 @@ func (s *recordingSink) Deliver(report service.Report) {
 }
 
 // waitFor attend qu'un rapport satisfasse le prédicat, une seconde au plus.
-func (s *recordingSink) waitFor(t *testing.T, what string, match func(service.Report) bool) service.Report {
+func (s *recordingSink) waitFor(t *testing.T, what string, match func(container.Report) bool) container.Report {
 	t.Helper()
 	deadline := time.After(2 * time.Second)
 	for {
@@ -168,7 +168,7 @@ func TestRun_WithoutDocker_ReportsTheAbsenceOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	watcher.Run(ctx)
-	if sink.count() != 1 || sink.reports[0].Engine == nil || sink.reports[0].Engine.Present || sink.reports[0].Engine.Reason != service.ReasonNoSocket {
+	if sink.count() != 1 || sink.reports[0].Engine == nil || sink.reports[0].Engine.Present || sink.reports[0].Engine.Reason != container.ReasonNoSocket {
 		t.Fatalf("reports = %+v", sink.reports)
 	}
 }
@@ -180,15 +180,15 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 	defer cancel()
 	go watcher.Run(ctx)
 
-	engine := sink.waitFor(t, "engine", func(r service.Report) bool { return r.Engine != nil })
+	engine := sink.waitFor(t, "engine", func(r container.Report) bool { return r.Engine != nil })
 	if !engine.Engine.Present || engine.Engine.Version != "29.8.0" {
 		t.Fatalf("engine = %+v", engine.Engine)
 	}
-	inventory := sink.waitFor(t, "inventory", func(r service.Report) bool { return r.Complete })
+	inventory := sink.waitFor(t, "inventory", func(r container.Report) bool { return r.Complete })
 	if len(inventory.Inventory) != 1 || !inventory.NetworksComplete || len(inventory.Networks) != 8 {
 		t.Fatalf("inventory = %+v networks = %d", inventory.Inventory, len(inventory.Networks))
 	}
-	var back service.NetworkReport
+	var back container.NetworkReport
 	for _, network := range inventory.Networks {
 		if network.Name == "ocfix_back" {
 			back = network
@@ -198,35 +198,37 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 		t.Fatalf("back = %+v", back)
 	}
 	web := inventory.Inventory[0]
-	if web.Name != "web" || web.Group != "fixture" || web.Image != "alpine:3.20" || web.State != service.StateRunning || web.StartedAt == nil {
+	if web.Name != "web" || web.Group != "fixture" || web.Image != "alpine:3.20" || web.State != container.StateRunning || web.StartedAt == nil {
 		t.Fatalf("web = %+v", web)
 	}
-	if len(web.Ports) != 1 || web.Ports[0] != (service.Port{IP: "127.0.0.1", HostPort: 18080, ContainerPort: 80, Protocol: "tcp"}) {
+	if len(web.Ports) != 1 || web.Ports[0] != (container.Port{IP: "127.0.0.1", HostPort: 18080, ContainerPort: 80, Protocol: "tcp"}) {
 		t.Fatalf("ports = %+v", web.Ports)
 	}
 	if web.NetworkMode != "bridge" || web.Privileged || len(web.Networks) != 1 || web.Networks[0].Name != "bridge" || web.Networks[0].IP != "172.17.0.2" || len(web.DependsOn) != 0 {
 		t.Fatalf("networking = %+v", web)
 	}
-	die := sink.waitFor(t, "die", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
+	die := sink.waitFor(t, "die", func(r container.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
 	event := die.Events[0]
 	// La fixture est un docker stop dont le délai expire : 137, mais demandé.
-	if event.State != service.StateExited || event.ExitCode == nil || *event.ExitCode != 137 || event.Killed || event.Snippet != "" || event.Container == nil {
+	if event.State != container.StateExited || event.ExitCode == nil || *event.ExitCode != 137 || event.Killed || event.Snippet != "" || event.Container == nil {
 		t.Fatalf("die = %+v", event)
 	}
-	destroy := sink.waitFor(t, "destroy", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == service.ActionDestroy })
+	destroy := sink.waitFor(t, "destroy", func(r container.Report) bool {
+		return len(r.Events) == 1 && r.Events[0].Action == container.ActionDestroy
+	})
 	if destroy.Events[0].Container != nil {
 		t.Fatal("a destroyed container has no snapshot")
 	}
-	sink.waitFor(t, "pause", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].State == service.StatePaused })
+	sink.waitFor(t, "pause", func(r container.Report) bool { return len(r.Events) == 1 && r.Events[0].State == container.StatePaused })
 	// Puis la fixture réseau : un connect réinspecte le conteneur avec ses
 	// réseaux, un create ou un destroy de réseau relit la liste.
-	connect := sink.waitFor(t, "network connect", func(r service.Report) bool {
-		return len(r.Events) == 1 && r.Events[0].Action == service.ActionNetworkConnect && r.Events[0].ContainerID == networkedID
+	connect := sink.waitFor(t, "network connect", func(r container.Report) bool {
+		return len(r.Events) == 1 && r.Events[0].Action == container.ActionNetworkConnect && r.Events[0].ContainerID == networkedID
 	})
 	if connect.Events[0].State != "" || connect.Events[0].Container == nil || len(connect.Events[0].Container.Networks) != 2 {
 		t.Fatalf("connect = %+v", connect.Events[0])
 	}
-	relisted := sink.waitFor(t, "networks relisted", func(r service.Report) bool { return r.NetworksComplete && !r.Complete })
+	relisted := sink.waitFor(t, "networks relisted", func(r container.Report) bool { return r.NetworksComplete && !r.Complete })
 	if len(relisted.Networks) != 8 {
 		t.Fatalf("relisted = %d", len(relisted.Networks))
 	}
@@ -308,7 +310,7 @@ func TestHandleEvent_A137WithoutAStopRequestIsKilled(t *testing.T) {
 			for _, raw := range tc.events {
 				watcher.handleEvent(context.Background(), raw)
 			}
-			die := sink.waitFor(t, "die", func(r service.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
+			die := sink.waitFor(t, "die", func(r container.Report) bool { return len(r.Events) == 1 && r.Events[0].Action == "die" })
 			if die.Events[0].Killed != tc.killed {
 				t.Fatalf("killed = %v, want %v", die.Events[0].Killed, tc.killed)
 			}
@@ -325,7 +327,7 @@ func TestRun_SecondMeasureGivesACPUPercent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go watcher.Run(ctx)
-	stats := sink.waitFor(t, "stats", func(r service.Report) bool { return len(r.Stats) > 0 })
+	stats := sink.waitFor(t, "stats", func(r container.Report) bool { return len(r.Stats) > 0 })
 	stat := stats.Stats[0]
 	// 10 ms sur 1 s de système, 20 cœurs : 20 %.
 	if stat.ContainerID != fixtureID || stat.CPUPercent < 19.9 || stat.CPUPercent > 20.1 || stat.MemUsed != 2846720-40960 || stat.MemLimit != 29199167488 {
@@ -335,11 +337,11 @@ func TestRun_SecondMeasureGivesACPUPercent(t *testing.T) {
 
 func TestOpenLogs_BatchesThenDone(t *testing.T) {
 	watcher := newWatcher(serve(t, newDaemon(t, true).mux), newSink())
-	batches, err := watcher.OpenLogs(context.Background(), service.LogRequest{ContainerID: fixtureID, Tail: 5})
+	batches, err := watcher.OpenLogs(context.Background(), container.LogRequest{ContainerID: fixtureID, Tail: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var lines []service.LogLine
+	var lines []container.LogLine
 	for batch := range batches {
 		lines = append(lines, batch.Lines...)
 		if batch.Error != "" {
@@ -356,18 +358,18 @@ func TestOpenLogs_BatchesThenDone(t *testing.T) {
 
 func TestOpenLogs_UnknownContainerAndBusyMachine(t *testing.T) {
 	watcher := newWatcher(serve(t, newDaemon(t, true).mux), newSink())
-	batches, _ := watcher.OpenLogs(context.Background(), service.LogRequest{ContainerID: "missing"})
+	batches, _ := watcher.OpenLogs(context.Background(), container.LogRequest{ContainerID: "missing"})
 	if batch := <-batches; batch.Error != LogsNotFound {
 		t.Fatalf("batch = %+v", batch)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	for i := 0; i < service.MaxFollowsPerMachine; i++ {
-		if _, err := watcher.OpenLogs(ctx, service.LogRequest{ContainerID: fixtureID, Follow: true}); err != nil {
+	for i := 0; i < container.MaxFollowsPerMachine; i++ {
+		if _, err := watcher.OpenLogs(ctx, container.LogRequest{ContainerID: fixtureID, Follow: true}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	batches, _ = watcher.OpenLogs(ctx, service.LogRequest{ContainerID: fixtureID, Follow: true})
+	batches, _ = watcher.OpenLogs(ctx, container.LogRequest{ContainerID: fixtureID, Follow: true})
 	if batch := <-batches; batch.Error != LogsBusy {
 		t.Fatalf("batch = %+v", batch)
 	}
@@ -375,14 +377,14 @@ func TestOpenLogs_UnknownContainerAndBusyMachine(t *testing.T) {
 
 func TestTranslate_MapsActionsToStates(t *testing.T) {
 	cases := map[string]struct {
-		state  service.State
-		health service.Health
+		state  container.State
+		health container.Health
 		wanted bool
 	}{
-		"start": {service.StateRunning, "", true}, "unpause": {service.StateRunning, "", true},
-		"pause": {service.StatePaused, "", true}, "create": {service.StateCreated, "", true},
-		"die": {service.StateExited, "", true}, "destroy": {"", "", true}, "rename": {"", "", true},
-		"health_status: unhealthy": {"", service.HealthUnhealthy, true},
+		"start": {container.StateRunning, "", true}, "unpause": {container.StateRunning, "", true},
+		"pause": {container.StatePaused, "", true}, "create": {container.StateCreated, "", true},
+		"die": {container.StateExited, "", true}, "destroy": {"", "", true}, "rename": {"", "", true},
+		"health_status: unhealthy": {"", container.HealthUnhealthy, true},
 		"kill":                     {"", "", false}, "stop": {"", "", false}, "exec_start: sh": {"", "", false}, "oom": {"", "", false},
 	}
 	for action, expected := range cases {
@@ -398,7 +400,7 @@ func TestTranslate_NetworkEventsNameTheContainer(t *testing.T) {
 	connect.Actor.ID = "net"
 	connect.Actor.Attributes = map[string]string{"container": networkedID, "name": "ocfix_back"}
 	event, wanted := translate(connect)
-	if !wanted || event.Action != service.ActionNetworkConnect || event.ContainerID != networkedID || event.State != "" {
+	if !wanted || event.Action != container.ActionNetworkConnect || event.ContainerID != networkedID || event.State != "" {
 		t.Fatalf("connect → %+v %v", event, wanted)
 	}
 	create := dockerapi.Event{Type: "network", Action: "create"}
@@ -414,25 +416,25 @@ func TestToContainer_ReadsNetworksAndDependencies(t *testing.T) {
 	if err := json.Unmarshal(fixture(t, "inspect_networked.json"), &inspected); err != nil {
 		t.Fatal(err)
 	}
-	container := toContainer(inspected)
-	if container.NetworkMode != "ocfix_back" || container.Privileged || container.Group != "ocfix" || container.Name != "web" {
-		t.Fatalf("container = %+v", container)
+	observed := toContainer(inspected)
+	if observed.NetworkMode != "ocfix_back" || observed.Privileged || observed.Group != "ocfix" || observed.Name != "web" {
+		t.Fatalf("container = %+v", observed)
 	}
-	if len(container.Networks) != 2 || container.Networks[0].Name != "ocfix_back" || container.Networks[1].Name != "ocfix_front" {
-		t.Fatalf("networks = %+v", container.Networks)
+	if len(observed.Networks) != 2 || observed.Networks[0].Name != "ocfix_back" || observed.Networks[1].Name != "ocfix_front" {
+		t.Fatalf("networks = %+v", observed.Networks)
 	}
-	back := container.Networks[0]
+	back := observed.Networks[0]
 	if back.IP != "172.20.0.4" || len(back.NetworkID) != 64 || strings.Join(back.Aliases, ",") != "ocfix-web-1,web" {
 		t.Fatalf("back = %+v", back)
 	}
-	if len(container.DependsOn) != 2 || container.DependsOn[0] != (service.Dependency{Name: "cache", Source: service.DependencyCompose}) || container.DependsOn[1].Name != "db" {
-		t.Fatalf("depends = %+v", container.DependsOn)
+	if len(observed.DependsOn) != 2 || observed.DependsOn[0] != (container.Dependency{Name: "cache", Source: container.DependencyCompose}) || observed.DependsOn[1].Name != "db" {
+		t.Fatalf("depends = %+v", observed.DependsOn)
 	}
-	if len(container.Ports) != 2 || !container.Ports[0].IsPublic() {
-		t.Fatalf("ports = %+v", container.Ports)
+	if len(observed.Ports) != 2 || !observed.Ports[0].IsPublic() {
+		t.Fatalf("ports = %+v", observed.Ports)
 	}
 	inspected.Host.Links = []string{"/legacy-db:/web/db"}
-	if deps := dependencies(inspected); len(deps) != 3 || deps[2] != (service.Dependency{Name: "legacy-db", Source: service.DependencyLink}) {
+	if deps := dependencies(inspected); len(deps) != 3 || deps[2] != (container.Dependency{Name: "legacy-db", Source: container.DependencyLink}) {
 		t.Fatalf("links = %+v", deps)
 	}
 }
@@ -455,8 +457,8 @@ func TestToContainer_SkipsANetworkWithoutIdentifier(t *testing.T) {
 	if err := json.Unmarshal(fixture(t, "inspect_created.json"), &inspected); err != nil {
 		t.Fatal(err)
 	}
-	container := toContainer(inspected)
-	if container.Name != "rd-test" || container.State != service.StateCreated || len(container.Networks) != 0 {
-		t.Fatalf("container = %+v", container)
+	observed := toContainer(inspected)
+	if observed.Name != "rd-test" || observed.State != container.StateCreated || len(observed.Networks) != 0 {
+		t.Fatalf("container = %+v", observed)
 	}
 }

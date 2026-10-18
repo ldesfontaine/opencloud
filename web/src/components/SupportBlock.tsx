@@ -6,7 +6,7 @@ import { ago } from "../lib/time";
 import { Pill } from "./Pill";
 import "./SupportBlock.scss";
 
-// Le support de la version qui tourne, pour l'image d'un service ou le
+// Le support de la version qui tourne, pour l'image d'un conteneur ou le
 // système d'une machine : la branche, jusqu'à quand elle est maintenue,
 // les branches maintenues au-dessus. À titre d'information : aucune
 // commande. La source est nommée et liée : c'est elle qui le dit, pas

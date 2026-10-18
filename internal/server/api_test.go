@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -158,55 +158,55 @@ func (ts *testServer) seedResources(t *testing.T) {
 	}
 }
 
-// Deux services sur la machine distante, le projet Compose de la planche
+// Deux conteneurs sur la machine distante, le projet Compose de la planche
 // « Machine » : nextcloud actif, mesuré, publié sur toutes les interfaces
 // et sur le réseau interne du projet, avec un correctif publié sur le
 // registre ; sa base sur ce réseau seul, avec son port publié sur la
 // boucle locale, arrêtée sur un crash, dont le tag a été reconstruit ; et
 // sur la machine openCloud, un Docker absent.
-func (ts *testServer) seedServices(t *testing.T) string {
+func (ts *testServer) seedContainers(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 	started := testNow.Add(-26 * time.Hour)
 	finished := testNow.Add(-10 * time.Minute)
 	internalNet, bridgeNet := strings.Repeat("c", 64), strings.Repeat("d", 64)
-	web := service.Container{
+	web := container.Observed{
 		ContainerID: strings.Repeat("a", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4", ImageID: "sha256:" + strings.Repeat("1", 64),
 		ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml",
-		State: service.StateRunning, Health: service.HealthHealthy, RestartCount: 0,
-		Ports:       []service.Port{{IP: "0.0.0.0", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}, {IP: "::", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
+		State: container.StateRunning, Health: container.HealthHealthy, RestartCount: 0,
+		Ports:       []container.Port{{IP: "0.0.0.0", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}, {IP: "::", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}},
 		NetworkMode: "nextcloud_internal",
-		Networks:    []service.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.2", Aliases: []string{"nextcloud"}}},
-		DependsOn:   []service.Dependency{{Name: "nextcloud-db", Source: service.DependencyCompose}},
+		Networks:    []container.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.2", Aliases: []string{"nextcloud"}}},
+		DependsOn:   []container.Dependency{{Name: "nextcloud-db", Source: container.DependencyCompose}},
 		CreatedAt:   testNow.Add(-48 * time.Hour), StartedAt: &started,
 	}
-	db := service.Container{
+	db := container.Observed{
 		ContainerID: strings.Repeat("b", 64), Name: "nextcloud-db", Group: "nextcloud", Image: "postgres:16.4", ImageID: "sha256:" + strings.Repeat("2", 64),
 		ComposeService: "nextcloud-db", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml",
-		State: service.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
-		Ports:       []service.Port{{IP: "127.0.0.1", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}},
+		State: container.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour), StartedAt: &started,
+		Ports:       []container.Port{{IP: "127.0.0.1", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}},
 		NetworkMode: "nextcloud_internal",
-		Networks:    []service.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.3", Aliases: []string{"nextcloud-db", "postgres"}}},
+		Networks:    []container.Attachment{{NetworkID: internalNet, Name: "nextcloud_internal", IP: "172.20.0.3", Aliases: []string{"nextcloud-db", "postgres"}}},
 	}
-	report := service.Report{
-		Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []service.Container{web, db},
-		NetworksComplete: true, Networks: []service.NetworkReport{
+	report := container.Report{
+		Engine: &container.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []container.Observed{web, db},
+		NetworksComplete: true, Networks: []container.NetworkReport{
 			{NetworkID: bridgeNet, Name: "bridge", Driver: "bridge"},
 			{NetworkID: internalNet, Name: "nextcloud_internal", Driver: "bridge", Internal: true, Group: "nextcloud"},
 		},
-		Stats: []service.Stat{{ContainerID: web.ContainerID, SampledAt: testNow.Add(-10 * time.Second), CPUPercent: 12.5, MemUsed: 1_503_238_553, MemLimit: 8_589_934_592}},
+		Stats: []container.Stat{{ContainerID: web.ContainerID, SampledAt: testNow.Add(-10 * time.Second), CPUPercent: 12.5, MemUsed: 1_503_238_553, MemLimit: 8_589_934_592}},
 	}
-	if err := ts.services.Record(ctx, remoteID, report); err != nil {
+	if err := ts.containers.Record(ctx, remoteID, report); err != nil {
 		t.Fatal(err)
 	}
 	one := 1
-	db.State, db.ExitCode, db.FinishedAt = service.StateExited, 1, &finished
-	crash := service.Report{Events: []service.Event{{At: finished, Action: "die", ContainerID: db.ContainerID, State: service.StateExited, ExitCode: &one, Snippet: "FATAL: out of memory", Container: &db}}}
-	if err := ts.services.Record(ctx, remoteID, crash); err != nil {
+	db.State, db.ExitCode, db.FinishedAt = container.StateExited, 1, &finished
+	crash := container.Report{Events: []container.Event{{At: finished, Action: "die", ContainerID: db.ContainerID, State: container.StateExited, ExitCode: &one, Snippet: "FATAL: out of memory", Container: &db}}}
+	if err := ts.containers.Record(ctx, remoteID, crash); err != nil {
 		t.Fatal(err)
 	}
-	absent := service.Report{Engine: &service.EngineReport{Present: false, Reason: service.ReasonNoSocket}}
-	if err := ts.services.Record(ctx, machine.LocalID, absent); err != nil {
+	absent := container.Report{Engine: &container.EngineReport{Present: false, Reason: container.ReasonNoSocket}}
+	if err := ts.containers.Record(ctx, machine.LocalID, absent); err != nil {
 		t.Fatal(err)
 	}
 	checks := update.Report{Results: []update.Result{
@@ -219,7 +219,7 @@ func (ts *testServer) seedServices(t *testing.T) string {
 	if err := ts.updates.Record(ctx, remoteID, checks); err != nil {
 		t.Fatal(err)
 	}
-	return service.ID(remoteID, db.ContainerID)
+	return container.ID(remoteID, db.ContainerID)
 }
 
 var (
@@ -275,33 +275,33 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	}
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	declaredID := server.seedGaps(t)
 	probeID := server.seedProbes(t, declaredID)
 	cases := map[string]string{
-		"probes":           "/api/probes",
-		"probe":            "/api/probes/" + probeID,
-		"machine_probes":   "/api/machines/" + remoteID + "/probes",
-		"services":         "/api/services",
-		"machine_services": "/api/machines/" + remoteID + "/services",
-		"machine_network":  "/api/machines/" + remoteID + "/network",
-		"local_network":    "/api/machines/local/network",
-		"network":          "/api/network",
-		"local_services":   "/api/machines/local/services",
-		"service":          "/api/services/" + serviceID,
-		"transitions":      "/api/services/" + serviceID + "/transitions?limit=1",
-		"session":          "/api/session",
-		"counts":           "/api/counts",
-		"machines":         "/api/machines",
-		"machine":          "/api/machines/" + remoteID,
-		"local":            "/api/machines/local",
-		"jobs":             "/api/jobs",
-		"job":              "/api/jobs/" + jobID,
-		"resources":        "/api/resources",
-		"local_resources":  "/api/machines/local/resources",
-		"remote_resources": "/api/machines/" + remoteID + "/resources",
-		"history":          "/api/machines/local/resources/history?window=1h",
-		"history_hourly":   "/api/machines/local/resources/history?window=7d",
+		"probes":             "/api/probes",
+		"probe":              "/api/probes/" + probeID,
+		"machine_probes":     "/api/machines/" + remoteID + "/probes",
+		"containers":         "/api/containers",
+		"machine_containers": "/api/machines/" + remoteID + "/containers",
+		"machine_network":    "/api/machines/" + remoteID + "/network",
+		"local_network":      "/api/machines/local/network",
+		"network":            "/api/network",
+		"local_containers":   "/api/machines/local/containers",
+		"container":          "/api/containers/" + containerID,
+		"transitions":        "/api/containers/" + containerID + "/transitions?limit=1",
+		"session":            "/api/session",
+		"counts":             "/api/counts",
+		"machines":           "/api/machines",
+		"machine":            "/api/machines/" + remoteID,
+		"local":              "/api/machines/local",
+		"jobs":               "/api/jobs",
+		"job":                "/api/jobs/" + jobID,
+		"resources":          "/api/resources",
+		"local_resources":    "/api/machines/local/resources",
+		"remote_resources":   "/api/machines/" + remoteID + "/resources",
+		"history":            "/api/machines/local/resources/history?window=1h",
+		"history_hourly":     "/api/machines/local/resources/history?window=7d",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {

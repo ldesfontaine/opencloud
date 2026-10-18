@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 func TestPropose_ComposeProposesTheWholeProject(t *testing.T) {
 	web := composeContainer("m1", "blog-web-1", "blog", "web")
 	web.Image = "ghcr.io/org/blog:2.1"
-	web.Ports = []service.Port{
+	web.Ports = []container.Port{
 		{IP: "0.0.0.0", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"},
 		{IP: "::", HostPort: 8080, ContainerPort: 80, Protocol: "tcp"},
 		{IP: "127.0.0.1", HostPort: 5353, ContainerPort: 53, Protocol: "udp"},
@@ -25,7 +25,7 @@ func TestPropose_ComposeProposesTheWholeProject(t *testing.T) {
 	gone := composeContainer("m1", "blog-old-1", "blog", "old")
 	gone.ArchivedAt = replica.CreatedAt.AddDate(0, 0, 1)
 
-	proposal, err := Propose(web, []service.Service{web, db, replica, other, elsewhere, gone}, nil)
+	proposal, err := Propose(web, []container.Container{web, db, replica, other, elsewhere, gone}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +49,11 @@ func TestPropose_ComposeProposesTheWholeProject(t *testing.T) {
 func TestPropose_DeclaredProjectAddsMissingUnits(t *testing.T) {
 	declared := declaredCompose("svc_1", "m1", "nextcloud", "app")
 	declared.Title, declared.ProjectIDs = "Nextcloud", []string{"prj_1"}
-	app := attached(composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"), "unit_nextcloud_app", service.MatchCompose)
+	app := attached(composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"), "unit_nextcloud_app", container.MatchCompose)
 	db := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
 	db.Image = "postgres:16.4"
 
-	proposal, err := Propose(db, []service.Service{app, db}, []Service{declared})
+	proposal, err := Propose(db, []container.Container{app, db}, []Service{declared})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +84,10 @@ func TestPropose_LatestLeavesVersionEmpty(t *testing.T) {
 	}
 	for image, want := range cases {
 		t.Run(image, func(t *testing.T) {
-			container := aloneContainer("m1", "front")
-			container.Image = image
+			item := aloneContainer("m1", "front")
+			item.Image = image
 			// Une empreinte lue après coup n'est jamais proposée.
-			proposal, err := Propose(container, nil, nil)
+			proposal, err := Propose(item, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,9 +100,9 @@ func TestPropose_LatestLeavesVersionEmpty(t *testing.T) {
 }
 
 func TestPropose_AloneContainerDeclaresItByName(t *testing.T) {
-	container := aloneContainer("m1", "My_Front.1")
+	item := aloneContainer("m1", "My_Front.1")
 
-	proposal, err := Propose(container, nil, nil)
+	proposal, err := Propose(item, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +122,9 @@ func TestPropose_FreeNameAvoidsTaken(t *testing.T) {
 		{ID: "svc_2", MachineID: "m1", Name: "whoami-2"},
 		{ID: "svc_3", MachineID: "m2", Name: "whoami-3"},
 	}
-	container := aloneContainer("m1", "whoami")
+	item := aloneContainer("m1", "whoami")
 
-	proposal, err := Propose(container, nil, declared)
+	proposal, err := Propose(item, nil, declared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +161,8 @@ func TestSlug_ProducesAValidNameFromAnything(t *testing.T) {
 }
 
 func TestPropose_DeclaredContainerRefused(t *testing.T) {
-	container := attached(aloneContainer("m1", "whoami"), "unit_whoami", service.MatchName)
-	if _, err := Propose(container, nil, nil); !errors.Is(err, ErrContainerDeclared) {
+	item := attached(aloneContainer("m1", "whoami"), "unit_whoami", container.MatchName)
+	if _, err := Propose(item, nil, nil); !errors.Is(err, ErrContainerDeclared) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -170,7 +170,7 @@ func TestPropose_DeclaredContainerRefused(t *testing.T) {
 func TestPropose_DefinitionPassesValidate(t *testing.T) {
 	web := composeContainer("m1", "blog-web-1", "blog", "web")
 	web.Image = "ghcr.io/org/blog:2.1"
-	web.Ports = []service.Port{{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}}
+	web.Ports = []container.Port{{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}}
 	db := composeContainer("m1", "blog-db-1", "blog", "db")
 	db.Image = "postgres@" + digestA
 	alone := aloneContainer("m1", "My_Front.1")
@@ -181,9 +181,9 @@ func TestPropose_DefinitionPassesValidate(t *testing.T) {
 	nextcloudDB.Image = "postgres:16.4"
 
 	for name, proposal := range map[string]func() (Proposal, error){
-		"projet Compose": func() (Proposal, error) { return Propose(web, []service.Service{web, db}, nil) },
+		"projet Compose": func() (Proposal, error) { return Propose(web, []container.Container{web, db}, nil) },
 		"projet déclaré": func() (Proposal, error) {
-			return Propose(nextcloudDB, []service.Service{nextcloudDB}, []Service{declared})
+			return Propose(nextcloudDB, []container.Container{nextcloudDB}, []Service{declared})
 		},
 		"conteneur seul":      func() (Proposal, error) { return Propose(alone, nil, nil) },
 		"image par empreinte": func() (Proposal, error) { return Propose(db, nil, nil) },
@@ -204,14 +204,14 @@ func TestPropose_DefinitionPassesValidate(t *testing.T) {
 // définition que Validate refuserait ; le conteneur sur lequel l'opérateur a
 // cliqué reste dans la coupe, même s'il est le dernier par nom.
 func TestPropose_StopsAtTheUnitLimitKeepingTheRequestedContainer(t *testing.T) {
-	var siblings []service.Service
+	var siblings []container.Container
 	for index := range MaxUnits + 5 {
 		name := string(rune('a'+index/26)) + string(rune('a'+index%26))
 		siblings = append(siblings, composeContainer("m1", "big-"+name, "big", name))
 	}
 	last := siblings[len(siblings)-1]
 
-	for _, requested := range []service.Service{siblings[0], last} {
+	for _, requested := range []container.Container{siblings[0], last} {
 		proposal, err := Propose(requested, siblings, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -239,7 +239,7 @@ func TestPropose_FullDeclaredServiceRefuses(t *testing.T) {
 	declared := declaredCompose("svc_1", "m1", "big", names...)
 	extra := composeContainer("m1", "big-zz", "big", "zz")
 
-	if _, err := Propose(extra, []service.Service{extra}, []Service{declared}); !errors.Is(err, ErrUnitsFull) {
+	if _, err := Propose(extra, []container.Container{extra}, []Service{declared}); !errors.Is(err, ErrUnitsFull) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -254,7 +254,7 @@ func TestPropose_DeclaredServiceOneBelowTheLimitTakesTheRequestedUnit(t *testing
 	extra := composeContainer("m1", "big-zz", "big", "zz")
 	other := composeContainer("m1", "big-zy", "big", "zy")
 
-	proposal, err := Propose(extra, []service.Service{extra, other}, []Service{declared})
+	proposal, err := Propose(extra, []container.Container{extra, other}, []Service{declared})
 	if err != nil {
 		t.Fatal(err)
 	}

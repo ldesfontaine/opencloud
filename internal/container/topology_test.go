@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"strings"
@@ -17,8 +17,8 @@ func attached(networkID, name string) Attachment {
 // Le projet de la planche : web sur deux réseaux et publié, sa base sur le
 // réseau interne, un cache sur les deux avec un port de base de données
 // publié sur toutes les interfaces.
-func fixtureServices() []Service {
-	return []Service{
+func fixtureContainers() []Container {
+	return []Container{
 		{ID: "m:web", Name: "web", Group: "ocfix", NetworkMode: "ocfix_back",
 			Ports:     []Port{{IP: "0.0.0.0", HostPort: 18081, ContainerPort: 80, Protocol: "tcp"}, {IP: "::", HostPort: 18081, ContainerPort: 80, Protocol: "tcp"}},
 			Networks:  []Attachment{attached(backNet, "ocfix_back"), attached(frontNet, "ocfix_front")},
@@ -45,7 +45,7 @@ func fixtureNetworks() []Network {
 }
 
 func TestBuildTopology_GroupsByUserNetworkAndPlacesWhereMostNeighbours(t *testing.T) {
-	topology := BuildTopology(fixtureServices(), fixtureNetworks())
+	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
 	// bridge, host, none et le réseau vide ne font pas de groupe.
 	if len(topology.Groups) != 1 {
 		t.Fatalf("groups = %+v", topology.Groups)
@@ -57,12 +57,12 @@ func TestBuildTopology_GroupsByUserNetworkAndPlacesWhereMostNeighbours(t *testin
 }
 
 func TestBuildTopology_TieGoesToTheFirstNetworkByName(t *testing.T) {
-	services := []Service{
+	containers := []Container{
 		{ID: "m:a", Name: "a", Networks: []Attachment{attached(frontNet, "zeta"), attached(backNet, "alpha")}},
 		{ID: "m:b", Name: "b", Networks: []Attachment{attached(backNet, "alpha")}},
 		{ID: "m:c", Name: "c", Networks: []Attachment{attached(frontNet, "zeta")}},
 	}
-	topology := BuildTopology(services, []Network{
+	topology := BuildTopology(containers, []Network{
 		{NetworkID: backNet, Name: "alpha", Driver: "bridge"},
 		{NetworkID: frontNet, Name: "zeta", Driver: "bridge"},
 	})
@@ -72,15 +72,15 @@ func TestBuildTopology_TieGoesToTheFirstNetworkByName(t *testing.T) {
 }
 
 func TestBuildTopology_ANetworkNotListedStillGroupsItsMembers(t *testing.T) {
-	services := []Service{{ID: "m:a", Name: "a", Networks: []Attachment{attached(backNet, "late_net")}}}
-	topology := BuildTopology(services, nil)
+	containers := []Container{{ID: "m:a", Name: "a", Networks: []Attachment{attached(backNet, "late_net")}}}
+	topology := BuildTopology(containers, nil)
 	if len(topology.Groups) != 1 || topology.Groups[0].Name != "late_net" || topology.Groups[0].Internal {
 		t.Fatalf("groups = %+v", topology.Groups)
 	}
 }
 
 func TestBuildTopology_PublicEdgesDedupeIPv4AndIPv6(t *testing.T) {
-	topology := BuildTopology(fixtureServices(), fixtureNetworks())
+	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
 	var public []Edge
 	for _, edge := range topology.Edges {
 		if edge.Kind == EdgePublic {
@@ -93,7 +93,7 @@ func TestBuildTopology_PublicEdgesDedupeIPv4AndIPv6(t *testing.T) {
 }
 
 func TestBuildTopology_DependenciesResolveInTheProjectAndUnknownOnesHaveNoEdge(t *testing.T) {
-	topology := BuildTopology(fixtureServices(), fixtureNetworks())
+	topology := BuildTopology(fixtureContainers(), fixtureNetworks())
 	var depends []string
 	for _, edge := range topology.Edges {
 		if edge.Kind == EdgeDepends {
@@ -106,33 +106,33 @@ func TestBuildTopology_DependenciesResolveInTheProjectAndUnknownOnesHaveNoEdge(t
 }
 
 func TestBuildTopology_AComposeDependencyDoesNotCrossProjects(t *testing.T) {
-	services := []Service{
+	containers := []Container{
 		{ID: "m:web", Name: "web", Group: "one", DependsOn: []Dependency{{Name: "db", Source: DependencyCompose}, {Name: "shared-db", Source: DependencyLink}}},
 		{ID: "m:db", Name: "db", Group: "two"},
 		{ID: "m:shared", Name: "shared-db"},
 	}
-	topology := BuildTopology(services, nil)
+	topology := BuildTopology(containers, nil)
 	if len(topology.Edges) != 1 || topology.Edges[0].To != "m:shared" || topology.Edges[0].Source != DependencyLink {
 		t.Fatalf("edges = %+v", topology.Edges)
 	}
 }
 
 func TestExposure_FollowsTheFourRules(t *testing.T) {
-	services := fixtureServices()
-	if got := Exposure(services[0]); len(got) != 1 || got[0] != (Finding{Kind: FindingPortPublic, Level: LevelInfo, Port: 80, Protocol: "tcp"}) {
+	containers := fixtureContainers()
+	if got := Exposure(containers[0]); len(got) != 1 || got[0] != (Finding{Kind: FindingPortPublic, Level: LevelInfo, Port: 80, Protocol: "tcp"}) {
 		t.Fatalf("web = %+v", got)
 	}
-	if got := Exposure(services[1]); len(got) != 0 {
+	if got := Exposure(containers[1]); len(got) != 0 {
 		t.Fatalf("db on loopback = %+v", got)
 	}
-	if got := Exposure(services[2]); len(got) != 1 || got[0].Kind != FindingDatabasePortPublic || got[0].Level != LevelWarn || got[0].Port != 6379 || !NeedsCaution(got) {
+	if got := Exposure(containers[2]); len(got) != 1 || got[0].Kind != FindingDatabasePortPublic || got[0].Level != LevelWarn || got[0].Port != 6379 || !NeedsCaution(got) {
 		t.Fatalf("cache = %+v", got)
 	}
-	host := Service{NetworkMode: "host", Privileged: true, Ports: []Port{{IP: "0.0.0.0", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}}}
+	host := Container{NetworkMode: "host", Privileged: true, Ports: []Port{{IP: "0.0.0.0", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}}}
 	if got := Exposure(host); len(got) != 2 || got[0].Kind != FindingPrivileged || got[1].Kind != FindingHostNetwork {
 		t.Fatalf("host = %+v", got)
 	}
-	if got := Exposure(Service{}); len(got) != 0 || NeedsCaution(got) {
+	if got := Exposure(Container{}); len(got) != 0 || NeedsCaution(got) {
 		t.Fatalf("clean = %+v", got)
 	}
 }

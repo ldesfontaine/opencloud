@@ -1,15 +1,15 @@
 import { expect, test } from "vitest";
 
-import type { Counts, JobsResponse, ProbesResponse, ServicesResponse, Session } from "../api/types";
+import type { Counts, JobsResponse, ProbesResponse, ContainersResponse, Session } from "../api/types";
 import countsGolden from "../../../internal/server/testdata/counts.golden.json";
 import jobsGolden from "../../../internal/server/testdata/jobs.golden.json";
 import probesGolden from "../../../internal/server/testdata/probes.golden.json";
-import servicesGolden from "../../../internal/server/testdata/services.golden.json";
+import containersGolden from "../../../internal/server/testdata/containers.golden.json";
 import sessionGolden from "../../../internal/server/testdata/session.golden.json";
 import { read, soonest } from "./certificates";
 import { attentionStatuses } from "./jobs";
 import { needsAttention as probeNeedsAttention } from "./probes";
-import { needsAttention as serviceNeedsAttention } from "./services";
+import { needsAttention as containerNeedsAttention } from "./containers";
 import { updateAvailable } from "./updates";
 
 // Les compteurs de la barre latérale et de la vue d'ensemble viennent du
@@ -18,20 +18,20 @@ import { updateAvailable } from "./updates";
 // état, servent à vérifier que les deux comptent pareil : une règle qui
 // bouge d'un seul côté casse ce test.
 const counts = countsGolden as Counts;
-const services = (servicesGolden as ServicesResponse).services;
+const containers = (containersGolden as ContainersResponse).containers;
 const probes = (probesGolden as ProbesResponse).probes;
 const jobs = (jobsGolden as JobsResponse).jobs;
 const session = sessionGolden as Session;
 // L'instant des fixtures : testNow de internal/server.
 const now = Date.parse("2026-09-12T12:00:00Z");
 
-test("services : ce que la pastille dit défaillant, la barre le compte", () => {
-  expect(services.filter((service) => serviceNeedsAttention(service)).length).toBe(counts.services.attention);
-  expect(services.length).toBe(counts.services.total);
+test("containers : ce que la pastille dit défaillant, la barre le compte", () => {
+  expect(containers.filter((container) => containerNeedsAttention(container)).length).toBe(counts.containers.attention);
+  expect(containers.length).toBe(counts.containers.total);
 });
 
 test("mises à jour : ce que la pastille montre, la vue d'ensemble le compte", () => {
-  expect(services.filter((service) => updateAvailable(service)).length).toBe(counts.services.updates);
+  expect(containers.filter((container) => updateAvailable(container)).length).toBe(counts.containers.updates);
 });
 
 test("tâches : ce que la liste met en danger, la barre le compte", () => {

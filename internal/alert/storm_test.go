@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // stormCounts est ce qu'une tempête a produit : alertes ouvertes en tout,
@@ -22,17 +22,17 @@ type stormCounts struct {
 // replayOOMLoop rejoue un conteneur en boucle OOM : un die OOM puis un
 // start, en alternance toutes les 10 s pendant 3 min, chacun dans son
 // signal, le balayage toutes les 30 s comme en production.
-func (f *fixture) replayOOMLoop(t *testing.T, tracker *service.Tracker) {
+func (f *fixture) replayOOMLoop(t *testing.T, tracker *container.Tracker) {
 	t.Helper()
 	ctx := context.Background()
 	for step := range 18 {
 		f.advance(10 * time.Second)
-		event := f.event("start", service.StateRunning, 0, "", false)
+		event := f.event("start", container.StateRunning, 0, "", false)
 		if step%2 == 0 {
-			event = f.event("die", service.StateExited, 137, "", false)
+			event = f.event("die", container.StateExited, 137, "", false)
 			event.Container.OOMKilled = true
 		}
-		if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{event}}); err != nil {
+		if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{event}}); err != nil {
 			t.Fatal(err)
 		}
 		if step%3 == 2 {
@@ -77,12 +77,12 @@ func TestService_DangerOnlyChannel_HearsTheEndOfACrashItWasTold(t *testing.T) {
 	f.channel(t, "astreinte", alert.SeverityDanger, true)
 	ctx := context.Background()
 	tracker := f.tracker(t)
-	die := f.event("die", service.StateExited, 1, "", false)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{die}}); err != nil {
+	die := f.event("die", container.StateExited, 1, "", false)
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{die}}); err != nil {
 		t.Fatal(err)
 	}
 	f.advance(10 * time.Second)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_restart:attention" {
@@ -104,11 +104,11 @@ func TestService_FlappingHealth_KeepsOneAlertUntilCalm(t *testing.T) {
 	tracker := f.tracker(t)
 	for range 4 {
 		f.advance(20 * time.Second)
-		if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("health_status", service.StateRunning, 0, service.HealthUnhealthy, false)}}); err != nil {
+		if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("health_status", container.StateRunning, 0, container.HealthUnhealthy, false)}}); err != nil {
 			t.Fatal(err)
 		}
 		f.advance(20 * time.Second)
-		if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("health_status", service.StateRunning, 0, service.HealthHealthy, false)}}); err != nil {
+		if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("health_status", container.StateRunning, 0, container.HealthHealthy, false)}}); err != nil {
 			t.Fatal(err)
 		}
 		f.Sweep(ctx)

@@ -88,7 +88,7 @@ function DomainsFoot({ counts }: { counts: Counts }) {
   return <>{t("overview.probes_ok")}</>;
 }
 
-// La vue d'ensemble compte les machines, les services, les sondes et les
+// La vue d'ensemble compte les machines, les conteneurs, les sondes et les
 // tâches, dessine le réseau de
 // toutes les machines, puis montre chaque machine en carte avec ses trois
 // jauges ; sans machine, elle invite à en ajouter une.
@@ -124,14 +124,14 @@ export function Overview() {
             <Stat icon="server" label={t("nav.machines")} value={list.length} foot={<b>{t("overview.online", online)}</b>} />
             <Stat
               icon="box"
-              label={t("nav.services")}
-              value={counts.data?.services.total ?? "–"}
+              label={t("services.tab_containers")}
+              value={counts.data?.containers.total ?? "–"}
               foot={
-                counts.data && counts.data.services.attention > 0 ? (
-                  <b className="danger">{t("overview.services_attention", counts.data.services.attention)}</b>
-                ) : counts.data && counts.data.services.updates > 0 ? (
+                counts.data && counts.data.containers.attention > 0 ? (
+                  <b className="danger">{t("overview.services_attention", counts.data.containers.attention)}</b>
+                ) : counts.data && counts.data.containers.updates > 0 ? (
                   <b className="accent">
-                    {counts.data.services.updates === 1 ? t("overview.service_update") : t("overview.services_updates", counts.data.services.updates)}
+                    {counts.data.containers.updates === 1 ? t("overview.service_update") : t("overview.services_updates", counts.data.containers.updates)}
                   </b>
                 ) : (
                   t("overview.services_ok")

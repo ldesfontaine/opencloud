@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"sort"
@@ -24,7 +24,7 @@ func FindingKinds() []FindingKind {
 
 // Level dit ce que le front en fait : un point orange sur le nœud, ou une
 // ligne d'information seulement. Un port publié sur toutes les interfaces
-// est le cas normal d'un service web sans proxy : il s'écrit, sans alarmer.
+// est le cas normal d'un conteneur web sans proxy : il s'écrit, sans alarmer.
 type Level string
 
 const (
@@ -44,8 +44,8 @@ type Finding struct {
 // port du conteneur qui compte, pas celui de l'hôte.
 var databasePorts = map[int]bool{3306: true, 5432: true, 6379: true, 27017: true}
 
-// Exposure rend les constats d'un service, dans un ordre stable.
-func Exposure(s Service) []Finding {
+// Exposure rend les constats d'un conteneur, dans un ordre stable.
+func Exposure(s Container) []Finding {
 	findings := []Finding{}
 	if s.Privileged {
 		findings = append(findings, Finding{Kind: FindingPrivileged, Level: LevelWarn})

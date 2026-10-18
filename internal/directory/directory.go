@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // Nature dit si le service est ce que l'on déploie pour ses utilisateurs ou
@@ -170,7 +170,7 @@ type Unit struct {
 	Ports         []string
 	// Ce que l'opérateur veut des mises à jour de l'image ; elle vaut pour
 	// tous les conteneurs de l'unité, recréés compris.
-	UpdatePolicy service.UpdatePolicy
+	UpdatePolicy container.UpdatePolicy
 }
 
 // Project regroupe des services. Le lien est le seul que le projet porte :
@@ -214,7 +214,7 @@ type UnitDefinition struct {
 	SystemdUnit   string
 	Ports         []string
 	// Vide : Complete la pose à watch.
-	UpdatePolicy service.UpdatePolicy
+	UpdatePolicy container.UpdatePolicy
 }
 
 type ProjectDefinition struct {

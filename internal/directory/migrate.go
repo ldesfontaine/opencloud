@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // ErrLinkUnplanned : la reprise de l'existant n'a pas su dire à quelle unité
@@ -36,7 +36,7 @@ type LinkedFiche struct {
 	ContainerID string
 	UnitID      string
 	ServiceID   string
-	Level       service.MatchLevel
+	Level       container.MatchLevel
 }
 
 // PlanLinks décide où vont les conteneurs qui portent un lien. Les fiches
@@ -62,7 +62,7 @@ type LinkedFiche struct {
 //     Compose que le plan n'a pas retenus restent non déclarées.
 //  5. Une fiche liée sans unité fait échouer le plan : jamais de lien perdu
 //     en silence.
-func PlanLinks(fiches []service.Service, linked map[string]bool, declared []Service, newID func(prefix string) (string, error)) (LinkPlan, error) {
+func PlanLinks(fiches []container.Container, linked map[string]bool, declared []Service, newID func(prefix string) (string, error)) (LinkPlan, error) {
 	planner := newLinkPlanner(linked, declared, newID)
 	if err := planner.plan(sortedForPlan(fiches)); err != nil {
 		return LinkPlan{}, err
@@ -121,9 +121,9 @@ func newLinkPlanner(linked map[string]bool, declared []Service, newID func(prefi
 
 // sortedForPlan met les fiches dans un ordre qui ne dépend de rien d'autre
 // que de leur contenu.
-func sortedForPlan(fiches []service.Service) []service.Service {
+func sortedForPlan(fiches []container.Container) []container.Container {
 	sorted := slices.Clone(fiches)
-	slices.SortFunc(sorted, func(a, b service.Service) int {
+	slices.SortFunc(sorted, func(a, b container.Container) int {
 		return cmp.Or(
 			strings.Compare(a.MachineID, b.MachineID),
 			strings.Compare(a.Group, b.Group),
@@ -135,7 +135,7 @@ func sortedForPlan(fiches []service.Service) []service.Service {
 	return sorted
 }
 
-func (p *linkPlanner) plan(fiches []service.Service) error {
+func (p *linkPlanner) plan(fiches []container.Container) error {
 	unresolved, err := p.resolveDeclared(fiches)
 	if err != nil {
 		return err
@@ -149,8 +149,8 @@ func (p *linkPlanner) plan(fiches []service.Service) error {
 // resolveDeclared rattache ce que l'annuaire déclaré rattache déjà : la
 // fiche qui a une unité la garde, une autre est cherchée par la règle du
 // rapprochement. Il rend les fiches que rien ne reçoit.
-func (p *linkPlanner) resolveDeclared(fiches []service.Service) ([]service.Service, error) {
-	var unresolved []service.Service
+func (p *linkPlanner) resolveDeclared(fiches []container.Container) ([]container.Container, error) {
+	var unresolved []container.Container
 	for _, fiche := range fiches {
 		if fiche.UnitID != "" {
 			// Elle a déjà son unité : il n'y a rien à écrire, sauf pour une
@@ -178,7 +178,7 @@ func (p *linkPlanner) resolveDeclared(fiches []service.Service) ([]service.Servi
 // jamais recalculée par l'inventaire, et elle doit dire « était rattaché à »
 // comme celles des services que le plan crée. Une fiche que rien ne vise ne
 // fait pas échouer le plan si son unité a disparu.
-func (p *linkPlanner) linkToDeclared(fiche service.Service, unitID string, level service.MatchLevel) error {
+func (p *linkPlanner) linkToDeclared(fiche container.Container, unitID string, level container.MatchLevel) error {
 	serviceID, ok := p.serviceOfUnit[unitID]
 	if !ok {
 		if !p.linked[fiche.ID] {
@@ -190,7 +190,7 @@ func (p *linkPlanner) linkToDeclared(fiche service.Service, unitID string, level
 	return nil
 }
 
-func (p *linkPlanner) link(containerID, unitID, serviceID string, level service.MatchLevel) {
+func (p *linkPlanner) link(containerID, unitID, serviceID string, level container.MatchLevel) {
 	p.result.Links = append(p.result.Links, LinkedFiche{ContainerID: containerID, UnitID: unitID, ServiceID: serviceID, Level: level})
 	p.mapped[containerID] = true
 }
@@ -201,7 +201,7 @@ func (p *linkPlanner) link(containerID, unitID, serviceID string, level service.
 // rapprochement les comparant tels quels. Une fiche dont le label sort de ces
 // formes descend en conteneur seul plutôt que de faire échouer le démarrage
 // sur un service que l'opérateur ne pourrait pas enregistrer.
-func isComposeFiche(fiche service.Service) bool {
+func isComposeFiche(fiche container.Container) bool {
 	return namePattern.MatchString(fiche.Group) && unitNamePattern.MatchString(fiche.ComposeService)
 }
 
@@ -209,8 +209,8 @@ func isComposeFiche(fiche service.Service) bool {
 // d'un projet que l'opérateur a déjà déclaré sans elle, et marque ce service
 // « à vérifier ». Le service plein ne reçoit rien : ses fiches liées
 // descendent en conteneurs seuls.
-func (p *linkPlanner) addToDeclaredProjects(unresolved []service.Service) []service.Service {
-	var remaining []service.Service
+func (p *linkPlanner) addToDeclaredProjects(unresolved []container.Container) []container.Container {
+	var remaining []container.Container
 	added := map[string]string{}
 	for _, group := range groupFiches(unresolved, composeFicheKey) {
 		serviceID, declaredProject := p.projects[composeKey(group[0].MachineID, group[0].Group, "")]
@@ -234,7 +234,7 @@ func (p *linkPlanner) addToDeclaredProjects(unresolved []service.Service) []serv
 			added[unitKey] = unitID
 		}
 		for _, fiche := range group {
-			p.link(fiche.ID, unitID, serviceID, service.MatchCompose)
+			p.link(fiche.ID, unitID, serviceID, container.MatchCompose)
 		}
 	}
 	return remaining
@@ -244,8 +244,8 @@ func (p *linkPlanner) addToDeclaredProjects(unresolved []service.Service) []serv
 // déclare, avec une unité par service Compose : ceux des fiches liées
 // d'abord, puis les autres fiches vivantes, jusqu'à MaxUnits. Les fiches liées
 // qui ne tiennent pas dans le service restent à placer.
-func (p *linkPlanner) createComposeServices(unresolved []service.Service) []service.Service {
-	var remaining, composeFiches []service.Service
+func (p *linkPlanner) createComposeServices(unresolved []container.Container) []container.Container {
+	var remaining, composeFiches []container.Container
 	for _, fiche := range unresolved {
 		if isComposeFiche(fiche) {
 			composeFiches = append(composeFiches, fiche)
@@ -268,24 +268,24 @@ func (p *linkPlanner) createComposeServices(unresolved []service.Service) []serv
 
 // createComposeService crée le service du projet et rend les fiches qu'il
 // n'a pas reçues.
-func (p *linkPlanner) createComposeService(project []service.Service) []service.Service {
+func (p *linkPlanner) createComposeService(project []container.Container) []container.Container {
 	first := project[0]
 	groups := groupFiches(project, composeFicheKey)
 	chosen := chooseComposeServices(groups, p.linked)
 	created := p.newService(first.MachineID, slug(first.Group), OriginCompose)
 	created.ComposeProject = first.Group
-	var remaining []service.Service
+	var remaining []container.Container
 	for _, group := range groups {
 		if !slices.Contains(chosen, group[0].ComposeService) {
 			remaining = append(remaining, group...)
 		}
 	}
 	for _, composeService := range chosen {
-		group := groups[slices.IndexFunc(groups, func(candidate []service.Service) bool { return candidate[0].ComposeService == composeService })]
+		group := groups[slices.IndexFunc(groups, func(candidate []container.Container) bool { return candidate[0].ComposeService == composeService })]
 		unit := p.newUnit(created.ID, unitOfCompose(latest(group)))
 		created.Units = append(created.Units, unit)
 		for _, fiche := range group {
-			p.link(fiche.ID, unit.ID, created.ID, service.MatchCompose)
+			p.link(fiche.ID, unit.ID, created.ID, container.MatchCompose)
 		}
 	}
 	p.addCreated(created)
@@ -299,12 +299,12 @@ func (p *linkPlanner) createComposeService(project []service.Service) []service.
 // unité sans conteneur qui tourne ferait passer le composant de statut en
 // panne sans que rien n'ait changé. Il reste non déclaré, adoptable. Le
 // résultat est trié par nom.
-func chooseComposeServices(groups [][]service.Service, linked map[string]bool) []string {
+func chooseComposeServices(groups [][]container.Container, linked map[string]bool) []string {
 	var withLink, living []string
 	for _, group := range groups {
 		name := group[0].ComposeService
 		switch {
-		case slices.ContainsFunc(group, func(fiche service.Service) bool { return linked[fiche.ID] }):
+		case slices.ContainsFunc(group, func(fiche container.Container) bool { return linked[fiche.ID] }):
 			withLink = append(withLink, name)
 		case slices.ContainsFunc(group, runs):
 			living = append(living, name)
@@ -319,14 +319,14 @@ func chooseComposeServices(groups [][]service.Service, linked map[string]bool) [
 }
 
 // runs dit si la fiche est un conteneur qui tourne ou qui redémarre.
-func runs(fiche service.Service) bool {
-	return !fiche.IsArchived() && (fiche.State == service.StateRunning || fiche.State == service.StateRestarting)
+func runs(fiche container.Container) bool {
+	return !fiche.IsArchived() && (fiche.State == container.StateRunning || fiche.State == container.StateRestarting)
 }
 
 // createContainerServices crée un service « conteneur seul » par nom de
 // conteneur dont une fiche porte un lien, pour tout ce que les projets n'ont
 // pas reçu. Une fiche sans lien et sans projet à créer n'est pas reprise.
-func (p *linkPlanner) createContainerServices(unresolved []service.Service) {
+func (p *linkPlanner) createContainerServices(unresolved []container.Container) {
 	for _, group := range groupFiches(unresolved, nameKeyOfFiche) {
 		if !p.anyLinked(group) {
 			continue
@@ -337,7 +337,7 @@ func (p *linkPlanner) createContainerServices(unresolved []service.Service) {
 		// même clé d'observation.
 		if unitID, taken := p.containerNames[nameKeyOfFiche(fiche)]; taken {
 			for _, member := range group {
-				p.link(member.ID, unitID, p.serviceOfUnit[unitID], service.MatchName)
+				p.link(member.ID, unitID, p.serviceOfUnit[unitID], container.MatchName)
 			}
 			continue
 		}
@@ -347,14 +347,14 @@ func (p *linkPlanner) createContainerServices(unresolved []service.Service) {
 		p.containerNames[nameKeyOfFiche(fiche)] = unit.ID
 		p.serviceOfUnit[unit.ID] = created.ID
 		for _, member := range group {
-			p.link(member.ID, unit.ID, created.ID, service.MatchName)
+			p.link(member.ID, unit.ID, created.ID, container.MatchName)
 		}
 		p.addCreated(created)
 	}
 }
 
-func (p *linkPlanner) anyLinked(group []service.Service) bool {
-	return slices.ContainsFunc(group, func(fiche service.Service) bool { return p.linked[fiche.ID] })
+func (p *linkPlanner) anyLinked(group []container.Container) bool {
+	return slices.ContainsFunc(group, func(fiche container.Container) bool { return p.linked[fiche.ID] })
 }
 
 // newService prépare un service repris de l'existant, avec un nom libre sur
@@ -405,7 +405,7 @@ func (p *linkPlanner) finish() (LinkPlan, error) {
 
 // unitOfCompose décrit l'unité d'un service Compose d'après la fiche la plus
 // récente de sa clé.
-func unitOfCompose(fiche service.Service) UnitDefinition {
+func unitOfCompose(fiche container.Container) UnitDefinition {
 	unit := unitProposal(fiche)
 	unit.Name = fiche.ComposeService
 	return unit
@@ -413,7 +413,7 @@ func unitOfCompose(fiche service.Service) UnitDefinition {
 
 // unitOfContainer décrit l'unité d'un conteneur seul : le nom du conteneur
 // est la clé par laquelle il se retrouve.
-func unitOfContainer(fiche service.Service) UnitDefinition {
+func unitOfContainer(fiche container.Container) UnitDefinition {
 	unit := unitProposal(fiche)
 	unit.Name = unitNameOf(fiche.Name)
 	unit.ContainerName = fiche.Name
@@ -422,8 +422,8 @@ func unitOfContainer(fiche service.Service) UnitDefinition {
 
 // latest rend la fiche la plus récente d'un groupe : une vivante avant une
 // archivée, puis la plus récemment vue, puis l'identifiant le plus petit.
-func latest(group []service.Service) service.Service {
-	return slices.MinFunc(group, func(a, b service.Service) int {
+func latest(group []container.Container) container.Container {
+	return slices.MinFunc(group, func(a, b container.Container) int {
 		return cmp.Or(
 			cmp.Compare(boolRank(a.IsArchived()), boolRank(b.IsArchived())),
 			b.LastSeenAt.Compare(a.LastSeenAt),
@@ -442,22 +442,22 @@ func boolRank(value bool) int {
 // Les clés par lesquelles les fiches se regroupent : une machine et un projet
 // ; une machine, un projet et un service Compose ; une machine et un nom de
 // conteneur.
-func projectKey(fiche service.Service) string {
+func projectKey(fiche container.Container) string {
 	return composeKey(fiche.MachineID, fiche.Group, "")
 }
 
-func composeFicheKey(fiche service.Service) string {
+func composeFicheKey(fiche container.Container) string {
 	return composeKey(fiche.MachineID, fiche.Group, fiche.ComposeService)
 }
 
-func nameKeyOfFiche(fiche service.Service) string {
+func nameKeyOfFiche(fiche container.Container) string {
 	return nameKey(fiche.MachineID, fiche.Name)
 }
 
 // groupFiches range les fiches par clé, dans l'ordre où les clés paraissent :
 // les fiches arrivent triées, le résultat l'est aussi.
-func groupFiches(fiches []service.Service, key func(service.Service) string) [][]service.Service {
-	var groups [][]service.Service
+func groupFiches(fiches []container.Container, key func(container.Container) string) [][]container.Container {
+	var groups [][]container.Container
 	position := map[string]int{}
 	for _, fiche := range fiches {
 		k := key(fiche)

@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const remoteID = "11111111-2222-4333-8444-555555555555"
@@ -96,27 +96,27 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 
 // --- Services ---
 
-func container(state service.State, exitCode int, health service.Health) *service.Container {
-	return &service.Container{
+func inspection(state container.State, exitCode int, health container.Health) *container.Observed {
+	return &container.Observed{
 		ContainerID: strings.Repeat("a", 64), Name: "nextcloud", Image: "nextcloud:29", State: state, ExitCode: exitCode, Health: health,
 		CreatedAt: testNow.Add(-time.Hour),
 	}
 }
 
-func (f *fixture) tracker(t *testing.T) *service.Tracker {
+func (f *fixture) tracker(t *testing.T) *container.Tracker {
 	t.Helper()
-	tracker := service.New(f.db, discardLogger())
+	tracker := container.New(f.db, discardLogger())
 	tracker.SetClock(func() time.Time { return f.clock })
 	tracker.SetAlerter(f.Engine)
-	if err := tracker.Record(context.Background(), machine.LocalID, service.Report{Complete: true, Inventory: []service.Container{*container(service.StateRunning, 0, "")}}); err != nil {
+	if err := tracker.Record(context.Background(), machine.LocalID, container.Report{Complete: true, Inventory: []container.Observed{*inspection(container.StateRunning, 0, "")}}); err != nil {
 		t.Fatal(err)
 	}
 	return tracker
 }
 
-func (f *fixture) event(action string, state service.State, exitCode int, health service.Health, replayed bool) service.Event {
+func (f *fixture) event(action string, state container.State, exitCode int, health container.Health, replayed bool) container.Event {
 	code := exitCode
-	return service.Event{At: f.clock, Action: action, ContainerID: strings.Repeat("a", 64), State: state, Health: health, ExitCode: &code, Replayed: replayed, Container: container(state, exitCode, health)}
+	return container.Event{At: f.clock, Action: action, ContainerID: strings.Repeat("a", 64), State: state, Health: health, ExitCode: &code, Replayed: replayed, Container: inspection(state, exitCode, health)}
 }
 
 func TestService_UnexpectedStop_ThenRestartsUpToALoop(t *testing.T) {
@@ -127,14 +127,14 @@ func TestService_UnexpectedStop_ThenRestartsUpToALoop(t *testing.T) {
 		t.Fatalf("a running service opens nothing: %q", f.kinds(t))
 	}
 	// Un die en 1 dans un signal, le start dans le suivant.
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("die", service.StateExited, 1, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("die", container.StateExited, 1, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_down:danger" || f.only(t, alert.StatusOpen).Details.ExitCode != 1 {
 		t.Fatalf("kinds %q", f.kinds(t))
 	}
 	f.advance(20 * time.Second)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_restart:attention" || f.only(t, alert.StatusOpen).Details.Count != 1 {
@@ -142,12 +142,12 @@ func TestService_UnexpectedStop_ThenRestartsUpToALoop(t *testing.T) {
 	}
 	// Deux fois de plus dans le même signal : la boucle.
 	f.advance(time.Minute)
-	crashes := []service.Event{
-		f.event("die", service.StateExited, 137, "", false), f.event("start", service.StateRunning, 0, "", false),
-		f.event("die", service.StateExited, 2, "", false), f.event("start", service.StateRunning, 0, "", false),
-		f.event("die", service.StateExited, 2, "", false), f.event("start", service.StateRunning, 0, "", false),
+	crashes := []container.Event{
+		f.event("die", container.StateExited, 137, "", false), f.event("start", container.StateRunning, 0, "", false),
+		f.event("die", container.StateExited, 2, "", false), f.event("start", container.StateRunning, 0, "", false),
+		f.event("die", container.StateExited, 2, "", false), f.event("start", container.StateRunning, 0, "", false),
 	}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: crashes}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: crashes}); err != nil {
 		t.Fatal(err)
 	}
 	loop := f.only(t, alert.StatusOpen)
@@ -166,23 +166,23 @@ func TestService_ReplayedAndCleanStopsAreNotAlerts_UnhealthyIs_ArchivedResolves(
 	f := newFixture(t)
 	ctx := context.Background()
 	tracker := f.tracker(t)
-	replayed := []service.Event{f.event("die", service.StateExited, 1, "", true), f.event("start", service.StateRunning, 0, "", true)}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: replayed}); err != nil {
+	replayed := []container.Event{f.event("die", container.StateExited, 1, "", true), f.event("start", container.StateRunning, 0, "", true)}
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: replayed}); err != nil {
 		t.Fatal(err)
 	}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("die", service.StateExited, 143, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("die", container.StateExited, 143, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" {
 		t.Fatalf("replayed or asked-for stops open nothing: %q", f.kinds(t))
 	}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, service.HealthUnhealthy, false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, container.HealthUnhealthy, false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_unhealthy:attention" {
 		t.Fatalf("kinds %q", f.kinds(t))
 	}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{{At: f.clock, Action: service.ActionDestroy, ContainerID: strings.Repeat("a", 64)}}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{{At: f.clock, Action: container.ActionDestroy, ContainerID: strings.Repeat("a", 64)}}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" {
@@ -197,13 +197,13 @@ func TestService_OutOfMemoryKill_OpensADangerAlert(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	tracker := f.tracker(t)
-	killed := f.event("die", service.StateExited, 137, "", false)
+	killed := f.event("die", container.StateExited, 137, "", false)
 	killed.Container.OOMKilled = true
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{killed}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{killed}}); err != nil {
 		t.Fatal(err)
 	}
 	listed, err := tracker.List(ctx, machine.LocalID)
-	if err != nil || len(listed) != 1 || !listed[0].OOMKilled || !service.NeedsAttention(listed[0]) {
+	if err != nil || len(listed) != 1 || !listed[0].OOMKilled || !container.NeedsAttention(listed[0]) {
 		t.Fatalf("la fiche doit garder le manque de mémoire: %+v %v", listed, err)
 	}
 	opened := f.only(t, alert.StatusOpen)
@@ -214,11 +214,11 @@ func TestService_OutOfMemoryKill_OpensADangerAlert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := alert.Describe(catalogs.For(lang.French), opened, f.clock); text.Fact != "Service arrêté par manque de mémoire" {
+	if text := alert.Describe(catalogs.For(lang.French), opened, f.clock); text.Fact != "Conteneur arrêté par manque de mémoire" {
 		t.Fatalf("fact %q", text.Fact)
 	}
 	f.advance(20 * time.Second)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_restart:attention" {
@@ -233,22 +233,22 @@ func TestService_KilledWithoutAStopRequest_OpensADangerAlert(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	tracker := f.tracker(t)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("die", service.StateExited, 137, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("die", container.StateExited, 137, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" {
 		t.Fatalf("a stop asked for opens nothing: %q", f.kinds(t))
 	}
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
-	killed := f.event("die", service.StateExited, 137, "", false)
+	killed := f.event("die", container.StateExited, 137, "", false)
 	killed.Killed = true
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{killed}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{killed}}); err != nil {
 		t.Fatal(err)
 	}
 	listed, err := tracker.List(ctx, machine.LocalID)
-	if err != nil || len(listed) != 1 || !listed[0].Killed || !service.NeedsAttention(listed[0]) {
+	if err != nil || len(listed) != 1 || !listed[0].Killed || !container.NeedsAttention(listed[0]) {
 		t.Fatalf("la fiche doit garder l'arrêt brutal: %+v %v", listed, err)
 	}
 	opened := f.only(t, alert.StatusOpen)
@@ -260,18 +260,18 @@ func TestService_KilledWithoutAStopRequest_OpensADangerAlert(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := alert.Describe(catalogs.For(lang.French), opened, f.clock)
-	if text.Fact != "Service arrêté brutalement" || !strings.Contains(text.Cause, "arrêté brutalement (signal KILL), sans arrêt demandé") {
+	if text.Fact != "Conteneur arrêté brutalement" || !strings.Contains(text.Cause, "arrêté brutalement (signal KILL), sans arrêt demandé") {
 		t.Fatalf("text %+v", text)
 	}
 	// L'inventaire suivant ne sait rien du kill : l'arrêt reste brutal.
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Complete: true, Inventory: []service.Container{*killed.Container}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Complete: true, Inventory: []container.Observed{*killed.Container}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_down:danger" {
 		t.Fatalf("an inventory keeps the brutal stop: %q", f.kinds(t))
 	}
 	f.advance(20 * time.Second)
-	if err := tracker.Record(ctx, machine.LocalID, service.Report{Events: []service.Event{f.event("start", service.StateRunning, 0, "", false)}}); err != nil {
+	if err := tracker.Record(ctx, machine.LocalID, container.Report{Events: []container.Event{f.event("start", container.StateRunning, 0, "", false)}}); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "service_restart:attention" {

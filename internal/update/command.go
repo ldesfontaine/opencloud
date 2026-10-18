@@ -3,7 +3,7 @@ package update
 import (
 	"strings"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // Command fabrique ce que l'opérateur tapera pour appliquer la mise à
@@ -12,7 +12,7 @@ import (
 // seulement : le recréer demande ses options, qu'openCloud ne connaît
 // pas. Vide sans mise à jour : la garde contre une rétrogradation est
 // dans le constat, qui ne nomme qu'un tag strictement plus récent.
-func Command(found service.Service, check Check) string {
+func Command(found container.Container, check Check) string {
 	if !check.HasUpdate() {
 		return ""
 	}

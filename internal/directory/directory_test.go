@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -27,7 +27,7 @@ const remoteID = "11111111-2222-4333-8444-555555555555"
 
 type bench struct {
 	directory  *directory.Directory
-	containers *service.Tracker
+	containers *container.Tracker
 	db         *store.DB
 	machines   *machine.Service
 	mu         sync.Mutex
@@ -75,7 +75,7 @@ func newBench(t *testing.T) *bench {
 	b.directory.SetWatcher(b)
 	// Le même câblage que serve : l'annuaire lit les conteneurs et les
 	// constats, et le suivi des services lui demande les unités.
-	b.containers = service.New(db, logger)
+	b.containers = container.New(db, logger)
 	b.containers.SetClock(func() time.Time { return testNow })
 	b.containers.SetUnits(b.directory)
 	b.directory.SetObserved(b.containers, update.New(db, logger))
@@ -765,14 +765,14 @@ var (
 	containerID2 = strings.Repeat("2", 64)
 )
 
-func inventoryOf(containers ...service.Container) service.Report {
-	return service.Report{Engine: &service.EngineReport{Present: true}, Complete: true, Inventory: containers}
+func inventoryOf(containers ...container.Observed) container.Report {
+	return container.Report{Engine: &container.EngineReport{Present: true}, Complete: true, Inventory: containers}
 }
 
-func composeContainerOf(id, name, project, composeService, image string) service.Container {
-	return service.Container{
+func composeContainerOf(id, name, project, composeService, image string) container.Observed {
+	return container.Observed{
 		ContainerID: id, Name: name, Group: project, ComposeService: composeService, Image: image,
-		State: service.StateRunning, CreatedAt: testNow.Add(-time.Hour),
+		State: container.StateRunning, CreatedAt: testNow.Add(-time.Hour),
 	}
 }
 
@@ -825,18 +825,18 @@ func TestContainers_FollowTheDirectory(t *testing.T) {
 	)); err != nil {
 		t.Fatal(err)
 	}
-	app := service.ID(remoteID, containerID1)
+	app := container.ID(remoteID, containerID1)
 	if found, _ := b.containers.Get(ctx, app); found.UnitID != "" {
 		t.Fatalf("rien n'est déclaré: %+v", found)
 	}
 
 	created := mustCreate(t, b, composeDefinition(remoteID))
 	found, err := b.containers.Get(ctx, app)
-	if err != nil || found.UnitID != created.Units[0].ID || found.MatchLevel != service.MatchCompose {
+	if err != nil || found.UnitID != created.Units[0].ID || found.MatchLevel != container.MatchCompose {
 		t.Fatalf("après la déclaration: %+v, %v", found, err)
 	}
 	link, err := b.directory.ContainerLink(ctx, found)
-	if err != nil || link.ServiceName != "nextcloud" || link.UnitName != "app" || link.Level != service.MatchCompose {
+	if err != nil || link.ServiceName != "nextcloud" || link.UnitName != "app" || link.Level != container.MatchCompose {
 		t.Fatalf("lien: %+v, %v", link, err)
 	}
 
@@ -868,15 +868,15 @@ func TestContainers_FollowTheDirectory(t *testing.T) {
 	if _, err := b.directory.UpdateService(ctx, created.ID, definition); err != nil {
 		t.Fatal(err)
 	}
-	db, _ := b.containers.Get(ctx, service.ID(remoteID, containerID2))
-	if db.UnitID != "" || db.MatchLevel != service.MatchNone {
+	db, _ := b.containers.Get(ctx, container.ID(remoteID, containerID2))
+	if db.UnitID != "" || db.MatchLevel != container.MatchNone {
 		t.Fatalf("db: %+v", db)
 	}
 	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
 	gone, _ = b.containers.Get(ctx, app)
-	if gone.UnitID != "" || gone.MatchLevel != service.MatchNone {
+	if gone.UnitID != "" || gone.MatchLevel != container.MatchNone {
 		t.Fatalf("la fiche archivée perd l'unité supprimée: %+v", gone)
 	}
 }
@@ -894,11 +894,11 @@ func TestPropose_ReadsTheContainerAndRefusesWhatIsGoneOrDeclared(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proposal, err := b.directory.Propose(ctx, service.ID(remoteID, containerID1))
+	proposal, err := b.directory.Propose(ctx, container.ID(remoteID, containerID1))
 	if err != nil || proposal.Definition.ComposeProject != "blog" || proposal.Definition.Units[0].Version != "1.27" {
 		t.Fatalf("proposition: %+v, %v", proposal, err)
 	}
-	if _, err := b.directory.Propose(ctx, service.ID(remoteID, containerID2)); !errors.Is(err, directory.ErrContainerNotFound) {
+	if _, err := b.directory.Propose(ctx, container.ID(remoteID, containerID2)); !errors.Is(err, directory.ErrContainerNotFound) {
 		t.Fatalf("conteneur détruit: %v", err)
 	}
 	if _, err := b.directory.Propose(ctx, "inconnu"); !errors.Is(err, directory.ErrContainerNotFound) {
@@ -907,7 +907,7 @@ func TestPropose_ReadsTheContainerAndRefusesWhatIsGoneOrDeclared(t *testing.T) {
 
 	// Une fois adopté, le conteneur est rattaché : il n'y a plus rien à proposer.
 	mustCreate(t, b, proposal.Definition)
-	if _, err := b.directory.Propose(ctx, service.ID(remoteID, containerID1)); !errors.Is(err, directory.ErrContainerDeclared) {
+	if _, err := b.directory.Propose(ctx, container.ID(remoteID, containerID1)); !errors.Is(err, directory.ErrContainerDeclared) {
 		t.Fatalf("conteneur déclaré: %v", err)
 	}
 }

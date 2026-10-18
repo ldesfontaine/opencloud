@@ -14,6 +14,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -24,7 +25,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -39,7 +39,7 @@ type testServer struct {
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	resources  *resource.Service
-	services   *service.Tracker
+	containers *container.Tracker
 	probes     *probe.Service
 	directory  *directory.Directory
 	updates    *update.Service
@@ -87,9 +87,9 @@ func newTestServer(t *testing.T) *testServer {
 	resources := resource.New(db, logger)
 	resources.SetClock(func() time.Time { return testNow })
 	resources.SetWatcher(bus)
-	services := service.New(db, logger)
-	services.SetClock(func() time.Time { return testNow })
-	services.SetWatcher(bus)
+	containers := container.New(db, logger)
+	containers.SetClock(func() time.Time { return testNow })
+	containers.SetWatcher(bus)
 	probes := probe.New(db, logger)
 	probes.SetClock(func() time.Time { return testNow })
 	probes.SetWatcher(bus)
@@ -100,10 +100,10 @@ func newTestServer(t *testing.T) *testServer {
 	updates.SetClock(func() time.Time { return testNow })
 	updates.SetWatcher(bus)
 	// Le même câblage que serve : l'annuaire lit les conteneurs et leurs
-	// constats, le suivi des services lui demande leurs unités.
-	declared.SetObserved(services, updates)
-	declared.SetRematcher(services)
-	services.SetUnits(declared)
+	// constats, le suivi des conteneurs lui demande leurs unités.
+	declared.SetObserved(containers, updates)
+	declared.SetRematcher(containers)
+	containers.SetUnits(declared)
 	// Les réponses figées datent d'avant la fin de support : le serveur de
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
@@ -112,7 +112,7 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatal(err)
 	}
 	support := newSupportSource()
-	lifecycles := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(db), logger)
+	lifecycles := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(db), logger)
 	lifecycles.SetClock(func() time.Time { return testNow })
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
@@ -135,7 +135,7 @@ func newTestServer(t *testing.T) *testServer {
 	machines.SetAlerter(alerts)
 	heartbeats.SetListener(alerts)
 	resources.SetAlerter(alerts)
-	services.SetAlerter(alerts)
+	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
 	access := mcp.New(db, logger)
 	access.SetClock(func() time.Time { return testNow })
@@ -153,7 +153,7 @@ func newTestServer(t *testing.T) *testServer {
 		Machines:   machines,
 		Heartbeats: heartbeats,
 		Resources:  resources,
-		Services:   services,
+		Containers: containers,
 		Probes:     probes,
 		Directory:  declared,
 		Updates:    updates,
@@ -175,10 +175,10 @@ func newTestServer(t *testing.T) *testServer {
 		t.Fatal(err)
 	}
 	// Le serveur commande les agents par leurs flux, comme dans serve.
-	services.SetCommander(server)
+	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, services: services, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

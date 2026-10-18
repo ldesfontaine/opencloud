@@ -1,4 +1,4 @@
-import type { Engine, Finding, Port, Service, ServiceState, Transition } from "../api/types";
+import type { Engine, Finding, Port, Container, ContainerState, Transition } from "../api/types";
 import type { Tone } from "../components/Pill";
 import type { Translate } from "../i18n/context";
 
@@ -7,7 +7,7 @@ import type { Translate } from "../i18n/context";
 // « demande attention ».
 export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created";
 
-export interface ServicePillInfo {
+export interface ContainerPillInfo {
   key: PillKey;
   tone: Tone;
 }
@@ -19,15 +19,15 @@ export function isCleanExit(code: number): boolean {
 
 // Les faits dont la pastille dépend ; oom_killed et killed manquent sur
 // une fiche d'avant leur correctif.
-export type PillFacts = Pick<Service, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean };
+export type PillFacts = Pick<Container, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean };
 
-export function servicePill(service: PillFacts): ServicePillInfo {
-  switch (service.state) {
+export function containerPill(container: PillFacts): ContainerPillInfo {
+  switch (container.state) {
     case "running":
-      if (service.health === "unhealthy") {
+      if (container.health === "unhealthy") {
         return { key: "failing", tone: "danger" };
       }
-      if (service.health === "starting") {
+      if (container.health === "starting") {
         return { key: "starting", tone: "accent" };
       }
       return { key: "active", tone: "ok" };
@@ -41,34 +41,34 @@ export function servicePill(service: PillFacts): ServicePillInfo {
     case "removing":
       // Le noyau tue en SIGKILL : 137 comme un docker stop, seul oom_killed
       // les distingue.
-      if (service.oom_killed === true) {
+      if (container.oom_killed === true) {
         return { key: "out_of_memory", tone: "danger" };
       }
       // docker kill aussi, sans arrêt demandé : l'agent le dit par killed.
-      if (service.killed === true) {
+      if (container.killed === true) {
         return { key: "killed", tone: "danger" };
       }
-      return isCleanExit(service.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
+      return isCleanExit(container.exit_code) ? { key: "stopped", tone: "neutral" } : { key: "failing", tone: "danger" };
     default:
       return { key: "created", tone: "neutral" };
   }
 }
 
-export function needsAttention(service: PillFacts): boolean {
-  const key = servicePill(service).key;
+export function needsAttention(container: PillFacts): boolean {
+  const key = containerPill(container).key;
   return key === "failing" || key === "out_of_memory" || key === "killed" || key === "restarting";
 }
 
 // Le filtre de la planche « Machine » : Tous, Actifs, Arrêtés.
 export type Filter = "all" | "active" | "stopped";
 
-const activeStates: ReadonlySet<ServiceState> = new Set(["running", "restarting"]);
+const activeStates: ReadonlySet<ContainerState> = new Set(["running", "restarting"]);
 
-export function matchesFilter(service: Pick<Service, "state">, filter: Filter): boolean {
+export function matchesFilter(container: Pick<Container, "state">, filter: Filter): boolean {
   if (filter === "all") {
     return true;
   }
-  return activeStates.has(service.state) === (filter === "active");
+  return activeStates.has(container.state) === (filter === "active");
 }
 
 // Les ports publiés comme la planche les écrit : « :80 · :443 ».
@@ -117,8 +117,8 @@ const databaseImages = /^(postgres|postgresql|mysql|mariadb|redis|valkey|mongo|m
 
 // L'icône d'un nœud : une base pour les images de bases de données, le
 // carton pour le reste. Le proxy attend sa fonctionnalité.
-export function serviceIcon(service: Pick<Service, "image">): "box" | "database" {
-  return databaseImages.test(imageBase(service.image)) ? "database" : "box";
+export function containerIcon(container: Pick<Container, "image">): "box" | "database" {
+  return databaseImages.test(imageBase(container.image)) ? "database" : "box";
 }
 
 // La clé du catalogue d'un constat, et ce qu'il y a à y insérer.
@@ -129,25 +129,25 @@ export function findingText(t: Translate, finding: Finding): string {
   return t(`network.exposure_${finding.kind}`);
 }
 
-export function needsCaution(service: Pick<Service, "exposure">): boolean {
-  return service.exposure.some((finding) => finding.level === "warn");
+export function needsCaution(container: Pick<Container, "exposure">): boolean {
+  return container.exposure.some((finding) => finding.level === "warn");
 }
 
 // Le point d'un nœud : le danger d'abord, puis l'attention d'un constat ou
 // d'un redémarrage, puis l'état.
-export function nodeTone(service: PillFacts & Pick<Service, "exposure">): Tone {
-  const tone = servicePill(service).tone;
+export function nodeTone(container: PillFacts & Pick<Container, "exposure">): Tone {
+  const tone = containerPill(container).tone;
   if (tone === "danger" || tone === "warn") {
     return tone;
   }
-  return needsCaution(service) ? "warn" : tone;
+  return needsCaution(container) ? "warn" : tone;
 }
 
 // Le sous-titre d'un nœud, en mono : l'image, puis ses ports publiés.
-export function nodeSubtitle(service: Pick<Service, "image" | "ports">): string {
-  const parts = [imageBase(service.image)];
+export function nodeSubtitle(container: Pick<Container, "image" | "ports">): string {
+  const parts = [imageBase(container.image)];
   const seen = new Set<string>();
-  for (const port of service.ports) {
+  for (const port of container.ports) {
     const label = isPublicIP(port.ip) ? `:${port.host_port}` : `${port.ip}:${port.host_port}`;
     if (!seen.has(label)) {
       seen.add(label);
@@ -172,7 +172,7 @@ export function servicesSubtitle(t: Translate, total: number, attention: number)
   return t("services.subtitle_attention", total, attention);
 }
 
-// Ce qu'on dit d'une machine sans service : la raison, si elle l'a dite.
+// Ce qu'on dit d'une machine sans conteneur : la raison, si elle l'a dite.
 export function engineNote(t: Translate, engine: Engine | undefined): string | null {
   if (engine === undefined) {
     return t("services.engine_unknown");
@@ -196,17 +196,17 @@ export function engineNote(t: Translate, engine: Engine | undefined): string | n
 // qu'elle a donnés.
 export function transitionTitle(t: Translate, transition: Transition): string {
   if (transition.action === "inventory" && transition.previous_state === "") {
-    return t("service.transition_seen");
+    return t("container.transition_seen");
   }
   if (transition.action === "gone") {
-    return t("service.transition_gone");
+    return t("container.transition_gone");
   }
   // Un état vide : la fiche est archivée, par un destroy ou par l'inventaire.
   if (transition.new_state === "") {
-    return transition.action === "destroy" ? t("service.transition_destroyed") : t("service.transition_gone");
+    return transition.action === "destroy" ? t("container.transition_destroyed") : t("container.transition_gone");
   }
   if (transition.action === "health_status" || (transition.new_state === transition.previous_state && transition.new_health !== transition.previous_health)) {
-    return t(`service.health_${transition.new_health || "healthy"}`);
+    return t(`container.health_${transition.new_health || "healthy"}`);
   }
-  return t(`service.state_${servicePill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
+  return t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
 }

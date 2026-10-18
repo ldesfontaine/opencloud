@@ -12,6 +12,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
@@ -21,7 +22,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -119,7 +119,7 @@ type pending struct {
 	reports  *reports
 	results  *results
 	images   *images
-	logs     service.LogSource
+	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
 }
@@ -225,7 +225,7 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, pendi
 
 // connectOnce tient un flux et envoie un signal à intervalle régulier tant
 // qu'il vit ; il rend la main dès que le flux tombe. Ce qui attendait dans
-// le tampon des services est marqué rejoué : le serveur l'écrit sans y
+// le tampon des conteneurs est marqué rejoué : le serveur l'écrit sans y
 // voir du neuf.
 func connectOnce(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
 	streamCtx, cancel := context.WithCancel(ctx)
@@ -265,16 +265,16 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 // réseau remet le lot dans le tampon. Une section refusée est jetée, elle
 // ne passera jamais ; les autres sont écrites et ne repartent pas. Les
 // essais des sondes partent dans le même corps, à côté des mesures et des
-// services.
+// conteneurs.
 func signal(ctx context.Context, client *Client, session string, pending *pending, logger *slog.Logger) error {
 	for {
 		sent := signalBatch{
-			readings: pending.readings.take(resource.MaxReadingsPerSignal),
-			services: pending.reports.take(),
-			probes:   pending.results.take(),
-			images:   pending.images.take(),
+			readings:   pending.readings.take(resource.MaxReadingsPerSignal),
+			containers: pending.reports.take(),
+			probes:     pending.results.take(),
+			images:     pending.images.take(),
 		}
-		rejected, err := client.Signal(ctx, session, sent.readings, sent.services, sent.probes, sent.images)
+		rejected, err := client.Signal(ctx, session, sent.readings, sent.containers, sent.probes, sent.images)
 		var refused *ServerError
 		switch {
 		case errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
@@ -297,10 +297,10 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 
 // Ce qu'un signal emporte, section par section.
 type signalBatch struct {
-	readings []sampler.Reading
-	services *service.Report
-	probes   *probe.Report
-	images   *update.Report
+	readings   []sampler.Reading
+	containers *container.Report
+	probes     *probe.Report
+	images     *update.Report
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -326,7 +326,7 @@ func (b signalBatch) restore(pending *pending, section string) {
 	case machine.SectionReadings:
 		pending.readings.restore(b.readings)
 	case machine.SectionServices:
-		pending.reports.restore(b.services)
+		pending.reports.restore(b.containers)
 	case machine.SectionProbes:
 		pending.results.restore(b.probes)
 	case machine.SectionImages:

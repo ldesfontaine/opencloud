@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // Un service Compose déclaré sur une machine, une unité par nom donné.
@@ -32,17 +32,17 @@ func declaredBinary(id, machineID, systemdUnit string) Service {
 }
 
 // Un conteneur Compose vivant : fiche, projet, service dans le projet.
-func composeContainer(machineID, name, project, composeService string) service.Service {
-	return service.Service{
-		ID: service.ID(machineID, name), MachineID: machineID, Kind: service.KindContainer, Name: name, Group: project,
-		ComposeService: composeService, Image: composeService + ":1", State: service.StateRunning,
+func composeContainer(machineID, name, project, composeService string) container.Container {
+	return container.Container{
+		ID: container.ID(machineID, name), MachineID: machineID, Kind: container.KindContainer, Name: name, Group: project,
+		ComposeService: composeService, Image: composeService + ":1", State: container.StateRunning,
 	}
 }
 
-func aloneContainer(machineID, name string) service.Service {
-	return service.Service{
-		ID: service.ID(machineID, name), MachineID: machineID, Kind: service.KindContainer, Name: name,
-		Image: "traefik/whoami:v1", State: service.StateRunning,
+func aloneContainer(machineID, name string) container.Container {
+	return container.Container{
+		ID: container.ID(machineID, name), MachineID: machineID, Kind: container.KindContainer, Name: name,
+		Image: "traefik/whoami:v1", State: container.StateRunning,
 	}
 }
 
@@ -53,9 +53,9 @@ func TestMatch_ComposeKeyTakesTheProjectUnit(t *testing.T) {
 	other := composeContainer("m1", "blog-app-1", "blog", "app")
 	cache := composeContainer("m1", "nextcloud-redis-1", "nextcloud", "redis")
 
-	matches := Match(declared, []service.Service{app, other, cache})
+	matches := Match(declared, []container.Container{app, other, cache})
 
-	if got := matches[app.ID]; got.UnitID != "unit_nextcloud_app" || got.Level != service.MatchCompose {
+	if got := matches[app.ID]; got.UnitID != "unit_nextcloud_app" || got.Level != container.MatchCompose {
 		t.Fatalf("app = %+v", got)
 	}
 	if _, matched := matches[other.ID]; matched {
@@ -70,12 +70,12 @@ func TestMatch_ContainerNameIsWeak(t *testing.T) {
 	declared := []Service{declaredContainer("svc_1", "m1", "whoami")}
 	whoami := aloneContainer("m1", "whoami")
 
-	got := Match(declared, []service.Service{whoami})[whoami.ID]
+	got := Match(declared, []container.Container{whoami})[whoami.ID]
 
-	if got.UnitID != "unit_whoami" || got.Level != service.MatchName || !got.Level.IsWeak() {
+	if got.UnitID != "unit_whoami" || got.Level != container.MatchName || !got.Level.IsWeak() {
 		t.Fatalf("whoami = %+v", got)
 	}
-	if service.MatchCompose.IsWeak() {
+	if container.MatchCompose.IsWeak() {
 		t.Fatal("le niveau compose n'est pas faible")
 	}
 }
@@ -89,9 +89,9 @@ func TestMatch_ComposeBeatsName(t *testing.T) {
 	}
 	app := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 
-	got := Match(declared, []service.Service{app})[app.ID]
+	got := Match(declared, []container.Container{app})[app.ID]
 
-	if got.UnitID != "unit_nextcloud_app" || got.Level != service.MatchCompose {
+	if got.UnitID != "unit_nextcloud_app" || got.Level != container.MatchCompose {
 		t.Fatalf("app = %+v", got)
 	}
 }
@@ -101,7 +101,7 @@ func TestMatch_ReplicasShareTheUnit(t *testing.T) {
 	first := composeContainer("m1", "web-app-1", "web", "app")
 	second := composeContainer("m1", "web-app-2", "web", "app")
 
-	matches := Match(declared, []service.Service{first, second})
+	matches := Match(declared, []container.Container{first, second})
 
 	if matches[first.ID].UnitID != "unit_web_app" || matches[second.ID].UnitID != "unit_web_app" {
 		t.Fatalf("matches = %+v", matches)
@@ -114,10 +114,10 @@ func TestMatch_RenamedProjectLosesTheUnit(t *testing.T) {
 	before := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 	renamed := composeContainer("m1", "cloud-app-1", "cloud", "app")
 
-	if _, matched := Match(declared, []service.Service{before})[before.ID]; !matched {
+	if _, matched := Match(declared, []container.Container{before})[before.ID]; !matched {
 		t.Fatal("le projet déclaré doit se rattacher")
 	}
-	if got, matched := Match(declared, []service.Service{renamed})[renamed.ID]; matched {
+	if got, matched := Match(declared, []container.Container{renamed})[renamed.ID]; matched {
 		t.Fatalf("le projet renommé ne se rattache pas: %+v", got)
 	}
 }
@@ -134,7 +134,7 @@ func TestMatch_OtherMachineArchivedAndBinaryNeverMatch(t *testing.T) {
 	// Le nom d'une unité binaire n'est pas celui d'un conteneur.
 	caddy := aloneContainer("m1", "main")
 
-	matches := Match(declared, []service.Service{elsewhere, gone, caddy})
+	matches := Match(declared, []container.Container{elsewhere, gone, caddy})
 
 	if len(matches) != 0 {
 		t.Fatalf("matches = %+v", matches)
@@ -150,13 +150,13 @@ func TestMatch_AnAmbiguousKeyGoesToTheSmallestServiceID(t *testing.T) {
 	}
 	app := composeContainer("m1", "web-app-1", "web", "app")
 
-	got := Match(declared, []service.Service{app})[app.ID]
+	got := Match(declared, []container.Container{app})[app.ID]
 
 	if got.UnitID != "unit_web_app" {
 		t.Fatalf("app = %+v", got)
 	}
 	declared[0].Units[0].ID, declared[1].Units[0].ID = "unit_from_2", "unit_from_1"
-	if got := Match(declared, []service.Service{app})[app.ID]; got.UnitID != "unit_from_1" {
+	if got := Match(declared, []container.Container{app})[app.ID]; got.UnitID != "unit_from_1" {
 		t.Fatalf("le service svc_1 doit gagner: %+v", got)
 	}
 }

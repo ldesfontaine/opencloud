@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 
 // Ce que le composant attend de la base ; le package store le fournit.
 type Store interface {
-	ListServices(ctx context.Context, machineID string) ([]service.Service, error)
+	ListContainers(ctx context.Context, machineID string) ([]container.Container, error)
 	// ApplyImageChecks écrase le constat de chaque (machine, image).
 	ApplyImageChecks(ctx context.Context, checks []Check) error
 	// ListImageChecks rend les constats d'une machine ; de toutes si vide.
@@ -40,9 +40,9 @@ type Assignable interface {
 }
 
 // Watcher reçoit chaque changement visible : le direct s'y branche. Un
-// constat change une ligne de service, le sujet est le leur.
+// constat change une ligne de conteneur, le sujet est le leur.
 type Watcher interface {
-	ServicesChanged(machineID string)
+	ContainersChanged(machineID string)
 }
 
 // Service est le composant côté serveur : il écrit les constats, et dit aux
@@ -100,7 +100,7 @@ func (s *Service) Record(ctx context.Context, machineID string, report Report) e
 		return err
 	}
 	if s.watcher != nil {
-		s.watcher.ServicesChanged(machineID)
+		s.watcher.ContainersChanged(machineID)
 	}
 	return nil
 }
@@ -121,13 +121,13 @@ func (s *Service) CheckNow(ctx context.Context, machineID string) error {
 }
 
 func (s *Service) assign(ctx context.Context, machineID string, now bool) error {
-	services, err := s.store.ListServices(ctx, machineID)
+	containers, err := s.store.ListContainers(ctx, machineID)
 	if err != nil {
 		return err
 	}
 	assignment := Assignment{Now: now}
-	for _, found := range services {
-		if found.UpdatePolicy == service.PolicyIgnore && !found.IsArchived() {
+	for _, found := range containers {
+		if found.UpdatePolicy == container.PolicyIgnore && !found.IsArchived() {
 			assignment.Excluded = append(assignment.Excluded, found.Image)
 		}
 	}
@@ -167,7 +167,7 @@ func keyOf(machineID, image string) string {
 }
 
 // CheckFor rend le constat qui vaut pour une fiche, s'il y en a un.
-func CheckFor(checks map[string]Check, found service.Service) (Check, bool) {
+func CheckFor(checks map[string]Check, found container.Container) (Check, bool) {
 	check, ok := checks[keyOf(found.MachineID, found.Image)]
 	return check, ok
 }
@@ -175,7 +175,7 @@ func CheckFor(checks map[string]Check, found service.Service) (Check, bool) {
 // Count rend le nombre de conteneurs vivants qui ont une mise à jour et
 // dont l'opérateur veut la voir (politique « watch ») : c'est ce que la vue d'ensemble compte.
 func (s *Service) Count(ctx context.Context) (int, error) {
-	services, err := s.store.ListServices(ctx, "")
+	containers, err := s.store.ListContainers(ctx, "")
 	if err != nil {
 		return 0, err
 	}
@@ -184,8 +184,8 @@ func (s *Service) Count(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	count := 0
-	for _, found := range services {
-		if found.IsArchived() || found.UpdatePolicy != service.PolicyWatch {
+	for _, found := range containers {
+		if found.IsArchived() || found.UpdatePolicy != container.PolicyWatch {
 			continue
 		}
 		if check, ok := CheckFor(checks, found); ok && check.HasUpdate() {

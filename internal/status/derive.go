@@ -3,11 +3,11 @@ package status
 import (
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Ce que chaque objet apporte à son composant. Le booléen dit s'il apporte
@@ -27,22 +27,22 @@ func machineState(status machine.Status) (State, bool) {
 // arrêté : pour le visiteur, il ne répond pas. Un conteneur qui redémarre ou
 // démarre est dégradé. Un conteneur créé sans avoir tourné ne compte pas ;
 // un conteneur disparu est une panne, tant que sa fiche existe.
-func serviceState(found service.Service) (State, bool) {
+func containerState(found container.Container) (State, bool) {
 	if !found.ArchivedAt.IsZero() {
 		return StateDown, true
 	}
 	switch found.State {
-	case service.StateRunning:
+	case container.StateRunning:
 		switch found.Health {
-		case service.HealthUnhealthy:
+		case container.HealthUnhealthy:
 			return StateDown, true
-		case service.HealthStarting:
+		case container.HealthStarting:
 			return StateDegraded, true
 		}
 		return StateOperational, true
-	case service.StateRestarting:
+	case container.StateRestarting:
 		return StateDegraded, true
-	case service.StateCreated:
+	case container.StateCreated:
 		return StateUnknown, false
 	}
 	return StateDown, true
@@ -55,7 +55,7 @@ func serviceState(found service.Service) (State, bool) {
 // conteneurs sont tous « créés sans avoir tourné » ne compte pas, comme eux.
 // Un binaire ne compte pas : aucun agent ne le regarde encore. Un service
 // sans unité qui compte n'apporte rien.
-func declaredServiceState(found directory.Service, containersByUnit map[string][]service.Service) (State, bool) {
+func declaredServiceState(found directory.Service, containersByUnit map[string][]container.Container) (State, bool) {
 	states := make([]State, 0, len(found.Units))
 	for _, unit := range found.Units {
 		if unit.Kind != directory.UnitContainer {
@@ -71,13 +71,13 @@ func declaredServiceState(found directory.Service, containersByUnit map[string][
 	return Worst(states), true
 }
 
-func unitState(containers []service.Service) (State, bool) {
+func unitState(containers []container.Container) (State, bool) {
 	if len(containers) == 0 {
 		return StateDown, true
 	}
 	states := make([]State, 0, len(containers))
-	for _, container := range containers {
-		if state, counts := serviceState(container); counts {
+	for _, item := range containers {
+		if state, counts := containerState(item); counts {
 			states = append(states, state)
 		}
 	}
@@ -125,7 +125,7 @@ type facts struct {
 	// qui lui sont rattachés : un conteneur recréé change d'identifiant, pas
 	// d'unité.
 	declared         map[string]directory.Service
-	containersByUnit map[string][]service.Service
+	containersByUnit map[string][]container.Container
 	heartbeats       map[string]heartbeat.Heartbeat
 	probes           map[string]probe.Probe
 	now              time.Time

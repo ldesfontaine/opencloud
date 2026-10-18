@@ -24,7 +24,7 @@ export function formatDay(day: string, language: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: "long", timeZone: "UTC" }).format(date);
 }
 
-// Ce dont on dit le support : l'image d'un service, ou le système d'une
+// Ce dont on dit le support : l'image d'un conteneur, ou le système d'une
 // machine. Ce qu'on ne sait pas ne se dit pas avec les mêmes mots.
 export type Subject = "image" | "system";
 

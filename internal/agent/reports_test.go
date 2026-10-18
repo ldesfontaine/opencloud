@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
@@ -11,13 +11,13 @@ func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
 	if pending.take() != nil {
 		t.Fatal("empty at start")
 	}
-	pending.Deliver(service.Report{Engine: &service.EngineReport{Present: true}})
-	pending.Deliver(service.Report{Complete: true, Inventory: []service.Container{{Name: "a"}}})
-	pending.Deliver(service.Report{Complete: true, Inventory: []service.Container{{Name: "b"}}})
-	pending.Deliver(service.Report{NetworksComplete: true, Networks: []service.NetworkReport{{Name: "old"}}})
-	pending.Deliver(service.Report{NetworksComplete: true, Networks: []service.NetworkReport{{Name: "new"}}})
-	pending.Deliver(service.Report{Events: []service.Event{{Action: "start"}}})
-	pending.Deliver(service.Report{Stats: []service.Stat{{CPUPercent: 1}}})
+	pending.Deliver(container.Report{Engine: &container.EngineReport{Present: true}})
+	pending.Deliver(container.Report{Complete: true, Inventory: []container.Observed{{Name: "a"}}})
+	pending.Deliver(container.Report{Complete: true, Inventory: []container.Observed{{Name: "b"}}})
+	pending.Deliver(container.Report{NetworksComplete: true, Networks: []container.NetworkReport{{Name: "old"}}})
+	pending.Deliver(container.Report{NetworksComplete: true, Networks: []container.NetworkReport{{Name: "new"}}})
+	pending.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
+	pending.Deliver(container.Report{Stats: []container.Stat{{CPUPercent: 1}}})
 
 	taken := pending.take()
 	if taken == nil || !taken.Engine.Present || len(taken.Inventory) != 1 || taken.Inventory[0].Name != "b" || len(taken.Events) != 1 || len(taken.Stats) != 1 {
@@ -29,7 +29,7 @@ func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
 	if pending.take() != nil {
 		t.Fatal("take empties the buffer")
 	}
-	pending.Deliver(service.Report{Events: []service.Event{{Action: "die"}}})
+	pending.Deliver(container.Report{Events: []container.Event{{Action: "die"}}})
 	pending.restore(taken)
 	pending.markReplayed()
 	again := pending.take()
@@ -40,10 +40,10 @@ func TestReports_MergeTakeRestoreAndReplay(t *testing.T) {
 
 func TestReports_ForgetsTheOldestWhenFull(t *testing.T) {
 	var pending reports
-	for i := 0; i < service.MaxEventsPerReport+5; i++ {
-		pending.Deliver(service.Report{Events: []service.Event{{Action: "start"}}})
+	for i := 0; i < container.MaxEventsPerReport+5; i++ {
+		pending.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
 	}
-	if taken := pending.take(); len(taken.Events) != service.MaxEventsPerReport {
+	if taken := pending.take(); len(taken.Events) != container.MaxEventsPerReport {
 		t.Fatalf("len = %d", len(taken.Events))
 	}
 }

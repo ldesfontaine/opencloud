@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Une machine qui porte un service déclaré ne se retire pas, et rien n'est
@@ -162,15 +162,15 @@ func TestListDeclaredServices_FilterKeepsAllLinksOfKeptServices(t *testing.T) {
 
 // storedContainer écrit une fiche sur la machine, avec le rattachement
 // donné ; ApplyChanges est le chemin d'un rapport.
-func storedContainer(t *testing.T, db *DB, machineID, containerID string, unitID string, level service.MatchLevel) service.Service {
+func storedContainer(t *testing.T, db *DB, machineID, containerID string, unitID string, level container.MatchLevel) container.Container {
 	t.Helper()
 	now := time.Unix(1_800_000_000, 0)
-	fiche := service.Service{
-		ID: service.ID(machineID, containerID), MachineID: machineID, Kind: service.KindContainer, Name: containerID,
-		ContainerID: containerID, Image: "nextcloud:29", State: service.StateRunning,
+	fiche := container.Container{
+		ID: container.ID(machineID, containerID), MachineID: machineID, Kind: container.KindContainer, Name: containerID,
+		ContainerID: containerID, Image: "nextcloud:29", State: container.StateRunning,
 		CreatedAt: now, FirstSeenAt: now, LastSeenAt: now, UnitID: unitID, MatchLevel: level,
 	}
-	if err := db.ApplyChanges(context.Background(), service.Changes{MachineID: machineID, Now: now, Services: []service.Service{fiche}}); err != nil {
+	if err := db.ApplyChanges(context.Background(), container.Changes{MachineID: machineID, Now: now, Containers: []container.Container{fiche}}); err != nil {
 		t.Fatal(err)
 	}
 	return fiche
@@ -209,21 +209,21 @@ func TestDeletingAUnit_LeavesItsContainersUndeclared(t *testing.T) {
 	ctx := context.Background()
 	machineID := enrolledMachine(t, db, "vps")
 	declared := declareOneUnit(t, db, machineID, "web")
-	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchName)
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, container.MatchName)
 
-	got, err := db.GetService(ctx, service.ID(machineID, "c1"))
-	if err != nil || got.UnitID != declared.Units[0].ID || got.MatchLevel != service.MatchName {
+	got, err := db.GetContainer(ctx, container.ID(machineID, "c1"))
+	if err != nil || got.UnitID != declared.Units[0].ID || got.MatchLevel != container.MatchName {
 		t.Fatalf("avant: %+v, %v", got, err)
 	}
 	if err := db.DeleteDeclaredService(ctx, declared.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, err = db.GetService(ctx, service.ID(machineID, "c1"))
-	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+	got, err = db.GetContainer(ctx, container.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != container.MatchNone {
 		t.Fatalf("après: %+v, %v", got, err)
 	}
-	listed, err := db.ListServices(ctx, machineID)
-	if err != nil || len(listed) != 1 || listed[0].UnitID != "" || listed[0].MatchLevel != service.MatchNone {
+	listed, err := db.ListContainers(ctx, machineID)
+	if err != nil || len(listed) != 1 || listed[0].UnitID != "" || listed[0].MatchLevel != container.MatchNone {
 		t.Fatalf("liste: %+v, %v", listed, err)
 	}
 }
@@ -236,49 +236,49 @@ func TestUpsertService_UnitGoneMeanwhileWritesNull(t *testing.T) {
 	ctx := context.Background()
 	machineID := enrolledMachine(t, db, "vps")
 
-	storedContainer(t, db, machineID, "c1", "unit_disparue", service.MatchCompose)
-	got, err := db.GetService(ctx, service.ID(machineID, "c1"))
-	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+	storedContainer(t, db, machineID, "c1", "unit_disparue", container.MatchCompose)
+	got, err := db.GetContainer(ctx, container.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != container.MatchNone {
 		t.Fatalf("insertion: %+v, %v", got, err)
 	}
 
 	declared := declareOneUnit(t, db, machineID, "web")
-	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchCompose)
-	if got, _ := db.GetService(ctx, service.ID(machineID, "c1")); got.UnitID != declared.Units[0].ID {
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, container.MatchCompose)
+	if got, _ := db.GetContainer(ctx, container.ID(machineID, "c1")); got.UnitID != declared.Units[0].ID {
 		t.Fatalf("mise à jour vers une unité qui existe: %+v", got)
 	}
-	storedContainer(t, db, machineID, "c1", "unit_disparue", service.MatchCompose)
-	got, err = db.GetService(ctx, service.ID(machineID, "c1"))
-	if err != nil || got.UnitID != "" || got.MatchLevel != service.MatchNone {
+	storedContainer(t, db, machineID, "c1", "unit_disparue", container.MatchCompose)
+	got, err = db.GetContainer(ctx, container.ID(machineID, "c1"))
+	if err != nil || got.UnitID != "" || got.MatchLevel != container.MatchNone {
 		t.Fatalf("mise à jour vers une unité disparue: %+v, %v", got, err)
 	}
 
 	// La même règle pour le rapprochement seul.
-	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, service.MatchName)
-	err = db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: service.ID(machineID, "c1"), UnitID: "unit_disparue", Level: service.MatchName}})
+	storedContainer(t, db, machineID, "c1", declared.Units[0].ID, container.MatchName)
+	err = db.SetContainerUnits(ctx, []container.UnitAssignment{{ContainerID: container.ID(machineID, "c1"), UnitID: "unit_disparue", Level: container.MatchName}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := db.GetService(ctx, service.ID(machineID, "c1")); got.UnitID != "" || got.MatchLevel != service.MatchNone {
-		t.Fatalf("SetServiceUnits vers une unité disparue: %+v", got)
+	if got, _ := db.GetContainer(ctx, container.ID(machineID, "c1")); got.UnitID != "" || got.MatchLevel != container.MatchNone {
+		t.Fatalf("SetContainerUnits vers une unité disparue: %+v", got)
 	}
 }
 
-func TestSetServiceUnits_WritesOnlyTheNamedRows(t *testing.T) {
+func TestSetContainerUnits_WritesOnlyTheNamedRows(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	machineID := enrolledMachine(t, db, "vps")
 	declared := declareOneUnit(t, db, machineID, "web")
-	storedContainer(t, db, machineID, "c1", "", service.MatchNone)
-	storedContainer(t, db, machineID, "c2", "", service.MatchNone)
+	storedContainer(t, db, machineID, "c1", "", container.MatchNone)
+	storedContainer(t, db, machineID, "c2", "", container.MatchNone)
 
-	err := db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: service.ID(machineID, "c1"), UnitID: declared.Units[0].ID, Level: service.MatchCompose}})
+	err := db.SetContainerUnits(ctx, []container.UnitAssignment{{ContainerID: container.ID(machineID, "c1"), UnitID: declared.Units[0].ID, Level: container.MatchCompose}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, _ := db.GetService(ctx, service.ID(machineID, "c1"))
-	second, _ := db.GetService(ctx, service.ID(machineID, "c2"))
-	if first.UnitID != declared.Units[0].ID || first.MatchLevel != service.MatchCompose || second.UnitID != "" {
+	first, _ := db.GetContainer(ctx, container.ID(machineID, "c1"))
+	second, _ := db.GetContainer(ctx, container.ID(machineID, "c2"))
+	if first.UnitID != declared.Units[0].ID || first.MatchLevel != container.MatchCompose || second.UnitID != "" {
 		t.Fatalf("first = %+v, second = %+v", first, second)
 	}
 }

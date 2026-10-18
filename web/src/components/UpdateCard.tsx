@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../api/client";
-import type { ContainerDirectory, Service, UpdatePolicy } from "../api/types";
+import type { ContainerDirectory, Container, UpdatePolicy } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath } from "../lib/gaps";
@@ -23,7 +23,7 @@ import "./UpdateCard.scss";
 // Le nom que Compose prend quand le label ne dit pas le fichier.
 const defaultComposeFile = "compose.yaml";
 
-// La carte Mise à jour d'un service : ce que l'agent a constaté sur
+// La carte Mise à jour d'un conteneur : ce que l'agent a constaté sur
 // l'image, la ligne du fichier Compose à changer, la commande à copier,
 // jamais exécutée, et vérifier maintenant. Quand la fin de support est
 // activée, le support de la version suit, sous un trait.
@@ -33,15 +33,15 @@ const defaultComposeFile = "compose.yaml";
 // Le pli s'ouvre seul quand une politique est posée.
 const policies: readonly UpdatePolicy[] = ["watch", "hold", "ignore"];
 
-export function UpdateCard({ service, directory, reload }: { service: Service; directory: ContainerDirectory | null; reload: () => void }) {
+export function UpdateCard({ container, directory, reload }: { container: Container; directory: ContainerDirectory | null; reload: () => void }) {
   const { t } = useI18n();
   const now = useNow();
   const { refresh } = useRefresh();
   const [error, setError] = useState<unknown>(null);
   const [checking, setChecking] = useState<"idle" | "asking" | "asked">("idle");
-  const check = service.image_check;
-  const available = updateAvailable(service);
-  const lineChange = check !== null ? imageLineChange(service, check) : null;
+  const check = container.image_check;
+  const available = updateAvailable(container);
+  const lineChange = check !== null ? imageLineChange(container, check) : null;
 
   const unitID = directory !== null && directory.declared ? directory.unit_id : "";
   const setPolicy = (policy: UpdatePolicy) => {
@@ -60,7 +60,7 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
     setError(null);
     setChecking("asking");
     api
-      .post(`/api/machines/${service.machine_id}/actions/check-updates`)
+      .post(`/api/machines/${container.machine_id}/actions/check-updates`)
       .then(() => setChecking("asked"))
       .catch((failure: unknown) => {
         setError(failure);
@@ -74,18 +74,18 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
       <CardBody gap={12}>
         {error !== null && <Failure error={error} />}
         <div className="update-state">
-          {service.update_policy !== "watch" && <Pill tone="neutral">{t(`update.policy_${service.update_policy}`)}</Pill>}
+          {container.update_policy !== "watch" && <Pill tone="neutral">{t(`update.policy_${container.update_policy}`)}</Pill>}
           {available && check !== null && <Pill tone="accent">{t(`update.kind_${check.kind}`)}</Pill>}
           <span>{check === null ? t("update.never_checked") : checkText(t, check)}</span>
         </div>
-        {service.update_policy === "hold" && <span className="secondary">{t("update.hold_note")}</span>}
-        {service.update_policy === "ignore" && <span className="secondary">{t("update.ignore_note")}</span>}
+        {container.update_policy === "hold" && <span className="secondary">{t("update.hold_note")}</span>}
+        {container.update_policy === "ignore" && <span className="secondary">{t("update.ignore_note")}</span>}
         {available && check !== null && check.command !== "" && (
           <div className="update-command">
             <span className="secondary">{t("update.command_title")}</span>
             {lineChange !== null && (
               <>
-                <span>{t("update.edit_compose", service.compose_file !== "" ? service.compose_file : defaultComposeFile, service.compose_service)}</span>
+                <span>{t("update.edit_compose", container.compose_file !== "" ? container.compose_file : defaultComposeFile, container.compose_service)}</span>
                 <div className="update-diff">
                   <pre className="snippet mono">
                     <span className="diff-line diff-removed">- {lineChange.before}</span>
@@ -97,7 +97,7 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
               </>
             )}
             <TokenBox value={check.command} />
-            {service.compose_service === "" && <span className="secondary">{t("update.recreate_hint")}</span>}
+            {container.compose_service === "" && <span className="secondary">{t("update.recreate_hint")}</span>}
           </div>
         )}
         <div className="update-actions">
@@ -106,7 +106,7 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
           </Button>
           {checking === "asked" && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
-        <Fold label={t("update.details")} initiallyOpen={service.update_policy !== "watch"}>
+        <Fold label={t("update.details")} initiallyOpen={container.update_policy !== "watch"}>
           {check !== null && check.local_digest !== "" && (
             <div className="update-digests">
               <KeyValue label={t("update.local_digest")} value={shortDigest(check.local_digest)} mono />
@@ -117,7 +117,7 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
           <div className="update-policy">
             <Select
               aria-label={t("directory.update_policy_label")}
-              value={service.update_policy}
+              value={container.update_policy}
               disabled={unitID === ""}
               onChange={(event) => setPolicy(event.target.value as UpdatePolicy)}
             >
@@ -132,17 +132,17 @@ export function UpdateCard({ service, directory, reload }: { service: Service; d
             ) : (
               <span className="secondary">
                 {t("update.policy_needs_declaration")}
-                {service.archived_at === null && (
+                {container.archived_at === null && (
                   <>
                     {" "}
-                    <Link to={adoptPath(service.id)}>{t("gap.adopt")}</Link>
+                    <Link to={adoptPath(container.id)}>{t("gap.adopt")}</Link>
                   </>
                 )}
               </span>
             )}
           </div>
         </Fold>
-        {service.lifecycle !== undefined && <SupportBlock lifecycle={service.lifecycle} subject="image" />}
+        {container.lifecycle !== undefined && <SupportBlock lifecycle={container.lifecycle} subject="image" />}
       </CardBody>
     </Card>
   );

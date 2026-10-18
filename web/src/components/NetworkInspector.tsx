@@ -1,21 +1,21 @@
 import { Link } from "react-router";
 
-import type { NetworkResponse, Probe, Service } from "../api/types";
+import type { NetworkResponse, Probe, Container } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT, type Translate } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";
 import { internetID, peersOf, probesOf, publicPorts } from "../lib/network";
-import { findingText, formatBindings, needsCaution, serviceIcon } from "../lib/services";
+import { findingText, formatBindings, needsCaution, containerIcon } from "../lib/containers";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { Remaining } from "./Certificate";
 import { Icon } from "./Icon";
-import { Pill, ServicePill } from "./Pill";
+import { Pill, ContainerPill } from "./Pill";
 import "./NetworkInspector.scss";
 
 interface Props {
   response: NetworkResponse;
-  // Les sondes de la machine : celles rattachées au service choisi disent
+  // Les sondes de la machine : celles rattachées au conteneur choisi disent
   // le certificat qu'il sert.
   probes: Probe[];
   selected: string | null;
@@ -26,23 +26,23 @@ interface Props {
 // sans choix, ce que la machine compte. Le domaine attend le proxy ;
 // Redémarrer attend les actions.
 export function NetworkInspector({ response, probes, selected, onSelect }: Props) {
-  const service = response.services.find((candidate) => candidate.id === selected);
+  const container = response.containers.find((candidate) => candidate.id === selected);
   if (selected === internetID) {
     return <InternetInspector response={response} onSelect={onSelect} />;
   }
-  if (service === undefined) {
+  if (container === undefined) {
     return <MachineInspector response={response} />;
   }
-  return <ServiceInspector service={service} response={response} probes={probes} onSelect={onSelect} />;
+  return <ContainerInspector container={container} response={response} probes={probes} onSelect={onSelect} />;
 }
 
-// Le certificat que les sondes de ce service ont vu ; le plus pressé quand
+// Le certificat que les sondes de ce conteneur ont vu ; le plus pressé quand
 // il y en a plusieurs. Rien quand aucune sonde ne le surveille.
-function CertificateRow({ service, probes }: { service: Service; probes: Probe[] }) {
+function CertificateRow({ container, probes }: { container: Container; probes: Probe[] }) {
   const t = useT();
   const now = useNow();
   const thresholds = useCertificateThresholds();
-  const watched = probesOf(probes, service).map((probe) => probe.certificate);
+  const watched = probesOf(probes, container).map((probe) => probe.certificate);
   const certificate = soonest(watched);
   if (certificate === null) {
     return null;
@@ -57,12 +57,12 @@ function CertificateRow({ service, probes }: { service: Service; probes: Probe[]
 
 function MachineInspector({ response }: { response: NetworkResponse }) {
   const t = useT();
-  const findings = response.services.reduce((sum, service) => sum + service.exposure.filter((finding) => finding.level === "warn").length, 0);
+  const findings = response.containers.reduce((sum, container) => sum + container.exposure.filter((finding) => finding.level === "warn").length, 0);
   return (
     <Card className="inspector">
       <CardHeader title={t("network.summary_title")} />
       <CardBody gap={12}>
-        <KeyValue label={t("network.summary_services")} value={response.services.length} mono />
+        <KeyValue label={t("network.summary_containers")} value={response.containers.length} mono />
         <KeyValue label={t("network.summary_groups")} value={response.groups.length} mono />
         <KeyValue label={t("network.summary_public")} value={publicPorts(response.edges).length} mono />
         <KeyValue label={t("network.summary_findings")} value={findings} mono />
@@ -89,7 +89,7 @@ function InternetInspector({ response, onSelect }: { response: NetworkResponse; 
         <span className="k">{t("network.field_routes")}</span>
         {routes.length === 0 && <span className="muted">{t("network.none")}</span>}
         {routes.map((edge) => {
-          const target = response.services.find((service) => service.id === edge.to);
+          const target = response.containers.find((container) => container.id === edge.to);
           return (
             <div className="kv" key={`${edge.to}:${edge.port ?? ""}`}>
               <span className="mono">{`:${edge.port ?? ""}/${edge.protocol ?? ""}`}</span>
@@ -104,50 +104,50 @@ function InternetInspector({ response, onSelect }: { response: NetworkResponse; 
   );
 }
 
-function ServiceInspector({
-  service,
+function ContainerInspector({
+  container,
   response,
   probes,
   onSelect,
 }: {
-  service: Service;
+  container: Container;
   response: NetworkResponse;
   probes: Probe[];
   onSelect: (id: string) => void;
 }) {
   const t = useT();
-  const peers = peersOf(service, response.services);
-  const dependencies = response.edges.filter((edge) => edge.kind === "depends" && edge.from === service.id);
-  const unresolved = service.depends_on.filter((dependency) => !dependencies.some((edge) => response.services.find((candidate) => candidate.id === edge.to)?.name === dependency.name));
-  const caution = needsCaution(service);
+  const peers = peersOf(container, response.containers);
+  const dependencies = response.edges.filter((edge) => edge.kind === "depends" && edge.from === container.id);
+  const unresolved = container.depends_on.filter((dependency) => !dependencies.some((edge) => response.containers.find((candidate) => candidate.id === edge.to)?.name === dependency.name));
+  const caution = needsCaution(container);
   return (
     <Card className="inspector">
       <div className="card-h">
         <span className="svc">
           <span className="ico">
-            <Icon name={serviceIcon(service)} />
+            <Icon name={containerIcon(container)} />
           </span>
-          {service.name}
+          {container.name}
         </span>
-        <ServicePill service={service} />
+        <ContainerPill container={container} />
       </div>
       <CardBody gap={12}>
-        <KeyValue label={t("service.field_image")} value={service.image} mono />
-        {service.group !== "" && <KeyValue label={t("service.field_group")} value={service.group} mono />}
-        <KeyValue label={t("network.field_mode")} value={modeText(t, service)} mono />
-        <CertificateRow service={service} probes={probes} />
+        <KeyValue label={t("container.field_image")} value={container.image} mono />
+        {container.group !== "" && <KeyValue label={t("container.field_group")} value={container.group} mono />}
+        <KeyValue label={t("network.field_mode")} value={modeText(t, container)} mono />
+        <CertificateRow container={container} probes={probes} />
 
-        <span className="k">{t("service.field_ports")}</span>
-        {service.ports.length === 0 && <span className="muted">{t("service.internal")}</span>}
-        {formatBindings(service.ports).map((line) => (
+        <span className="k">{t("container.field_ports")}</span>
+        {container.ports.length === 0 && <span className="muted">{t("container.internal")}</span>}
+        {formatBindings(container.ports).map((line) => (
           <span className="mono" key={line}>
             {line}
           </span>
         ))}
 
         <span className="k">{t("network.field_networks")}</span>
-        {service.networks.length === 0 && <span className="muted">{t("network.none")}</span>}
-        {service.networks.map((attachment) => (
+        {container.networks.length === 0 && <span className="muted">{t("network.none")}</span>}
+        {container.networks.map((attachment) => (
           <div className="kv" key={attachment.network_id}>
             <span className="mono">{attachment.name}</span>
             <span className="mono muted">{attachment.ip !== "" ? attachment.ip : "–"}</span>
@@ -157,7 +157,7 @@ function ServiceInspector({
         <span className="k">{t("network.field_depends")}</span>
         {dependencies.length === 0 && unresolved.length === 0 && <span className="muted">{t("network.none")}</span>}
         {dependencies.map((edge) => {
-          const target = response.services.find((candidate) => candidate.id === edge.to);
+          const target = response.containers.find((candidate) => candidate.id === edge.to);
           return (
             <button type="button" className="link-btn mono" key={edge.to} onClick={() => onSelect(edge.to)}>
               {target?.name ?? edge.to}
@@ -174,7 +174,7 @@ function ServiceInspector({
           <div className="stack gap-8" key={group.network}>
             <span className="k">{t("network.field_peers", group.network)}</span>
             <span className="peers">
-              {group.services.map((peer) => (
+              {group.containers.map((peer) => (
                 <button type="button" className="link-btn mono" key={peer.id} onClick={() => onSelect(peer.id)}>
                   {peer.name}
                 </button>
@@ -184,12 +184,12 @@ function ServiceInspector({
         ))}
 
         <span className="k">{t("network.field_exposure")}</span>
-        {service.exposure.length === 0 && (
+        {container.exposure.length === 0 && (
           <Pill tone="ok" dot={false}>
             {t("network.exposure_none")}
           </Pill>
         )}
-        {service.exposure.map((finding) =>
+        {container.exposure.map((finding) =>
           finding.level === "warn" ? (
             <Note tone="warn" key={finding.kind + String(finding.port)}>
               {findingText(t, finding)}
@@ -203,11 +203,11 @@ function ServiceInspector({
         {caution && <span className="secondary">{t("network.exposure_hint")}</span>}
       </CardBody>
       <div className="card-h inspector-actions">
-        <Button small icon="file" to={`/services/${service.id}`}>
-          {t("network.open_service")}
+        <Button small icon="file" to={`/services/conteneurs/${container.id}`}>
+          {t("network.open_container")}
         </Button>
-        <Link className="secondary" to={`/services/${service.id}#journaux`}>
-          {t("service.logs_title")}
+        <Link className="secondary" to={`/services/conteneurs/${container.id}#journaux`}>
+          {t("container.logs_title")}
         </Link>
       </div>
     </Card>
@@ -216,8 +216,8 @@ function ServiceInspector({
 
 // Le mode réseau tel qu'on le lit : host et none se traduisent, le reste
 // est le nom d'un réseau ou d'un conteneur.
-export function modeText(t: Translate, service: Pick<Service, "network_mode">): string {
-  switch (service.network_mode) {
+export function modeText(t: Translate, container: Pick<Container, "network_mode">): string {
+  switch (container.network_mode) {
     case "host":
       return t("network.mode_host");
     case "none":
@@ -225,9 +225,9 @@ export function modeText(t: Translate, service: Pick<Service, "network_mode">): 
     case "":
       return "–";
     default:
-      if (service.network_mode.startsWith("container:")) {
-        return t("network.mode_container", service.network_mode.slice("container:".length, "container:".length + 12));
+      if (container.network_mode.startsWith("container:")) {
+        return t("network.mode_container", container.network_mode.slice("container:".length, "container:".length + 12));
       }
-      return service.network_mode;
+      return container.network_mode;
   }
 }

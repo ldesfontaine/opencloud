@@ -1,4 +1,4 @@
-package service_test
+package container_test
 
 import (
 	"context"
@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Un annuaire de pacotille : il rattache selon le nom du conteneur, compte
 // ses appels et peut échouer.
 type fakeUnits struct {
 	mu      sync.Mutex
-	byName  map[string]service.UnitMatch
+	byName  map[string]container.UnitMatch
 	calls   int
 	seen    []int
 	err     error
@@ -26,7 +26,7 @@ type fakeUnits struct {
 	overlap atomic.Bool
 }
 
-func (f *fakeUnits) MatchUnits(_ context.Context, _ string, containers []service.Service) (map[string]service.UnitMatch, error) {
+func (f *fakeUnits) MatchUnits(_ context.Context, _ string, containers []container.Container) (map[string]container.UnitMatch, error) {
 	if f.running.Add(1) > 1 {
 		f.overlap.Store(true)
 	}
@@ -39,10 +39,10 @@ func (f *fakeUnits) MatchUnits(_ context.Context, _ string, containers []service
 	if f.err != nil {
 		return nil, f.err
 	}
-	matches := map[string]service.UnitMatch{}
-	for _, container := range containers {
-		if match, ok := f.byName[container.Name]; ok {
-			matches[container.ID] = match
+	matches := map[string]container.UnitMatch{}
+	for _, item := range containers {
+		if match, ok := f.byName[item.Name]; ok {
+			matches[item.ID] = match
 		}
 	}
 	return matches, nil
@@ -73,20 +73,20 @@ func (b *bench) declareUnit(t *testing.T, name string) string {
 func TestRecord_WritesTheUnitOfEachLiveContainer(t *testing.T) {
 	b := newBench(t)
 	webUnit := b.declareUnit(t, "web")
-	units := &fakeUnits{byName: map[string]service.UnitMatch{"web": {UnitID: webUnit, Level: service.MatchName}}}
+	units := &fakeUnits{byName: map[string]container.UnitMatch{"web": {UnitID: webUnit, Level: container.MatchName}}}
 	b.tracker.SetUnits(units)
 
 	b.record(t, inventory(running(webID, "web", ""), running(dbID, "db", "")))
 
-	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != service.MatchName {
+	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != container.MatchName {
 		t.Fatalf("web = %+v", web)
 	}
-	if db := b.get(t, dbID); db.UnitID != "" || db.MatchLevel != service.MatchNone {
+	if db := b.get(t, dbID); db.UnitID != "" || db.MatchLevel != container.MatchNone {
 		t.Fatalf("db = %+v", db)
 	}
 	// Un événement sur la fiche, sans inventaire, garde le rattachement.
-	b.record(t, service.Report{Events: []service.Event{{At: testNow, Action: "health_status", ContainerID: webID, Health: service.HealthHealthy}}})
-	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != service.MatchName {
+	b.record(t, container.Report{Events: []container.Event{{At: testNow, Action: "health_status", ContainerID: webID, Health: container.HealthHealthy}}})
+	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != container.MatchName {
 		t.Fatalf("après un événement, web = %+v", web)
 	}
 }
@@ -98,13 +98,13 @@ func TestRecord_DoesNotAskTheDirectoryWithoutALiveContainer(t *testing.T) {
 	units := &fakeUnits{}
 	b.tracker.SetUnits(units)
 
-	b.record(t, service.Report{Engine: &service.EngineReport{Present: true}})
-	b.record(t, service.Report{Stats: []service.Stat{{ContainerID: webID, SampledAt: testNow, CPUPercent: 1, MemUsed: 1, MemLimit: 1}}})
+	b.record(t, container.Report{Engine: &container.EngineReport{Present: true}})
+	b.record(t, container.Report{Stats: []container.Stat{{ContainerID: webID, SampledAt: testNow, CPUPercent: 1, MemUsed: 1, MemLimit: 1}}})
 	if units.callCount() != 0 {
 		t.Fatalf("%d appels pour des rapports sans fiche", units.callCount())
 	}
 	b.record(t, inventory(running(webID, "web", "")))
-	b.record(t, service.Report{Events: []service.Event{{At: testNow, Action: service.ActionDestroy, ContainerID: webID}}})
+	b.record(t, container.Report{Events: []container.Event{{At: testNow, Action: container.ActionDestroy, ContainerID: webID}}})
 	if units.callCount() != 1 {
 		t.Fatalf("%d appels, un seul pour l'inventaire", units.callCount())
 	}
@@ -113,20 +113,20 @@ func TestRecord_DoesNotAskTheDirectoryWithoutALiveContainer(t *testing.T) {
 func TestRecord_MatchErrorKeepsThePreviousUnit(t *testing.T) {
 	b := newBench(t)
 	webUnit := b.declareUnit(t, "web")
-	units := &fakeUnits{byName: map[string]service.UnitMatch{"web": {UnitID: webUnit, Level: service.MatchCompose}}}
+	units := &fakeUnits{byName: map[string]container.UnitMatch{"web": {UnitID: webUnit, Level: container.MatchCompose}}}
 	b.tracker.SetUnits(units)
 	b.record(t, inventory(running(webID, "web", "")))
 
 	units.err = errors.New("annuaire illisible")
 	exited := running(webID, "web", "")
-	exited.State = service.StateExited
+	exited.State = container.StateExited
 	b.record(t, inventory(exited, running(dbID, "db", "")))
 
 	web := b.get(t, webID)
-	if web.State != service.StateExited {
+	if web.State != container.StateExited {
 		t.Fatalf("le rapport doit passer malgré l'échec: %+v", web)
 	}
-	if web.UnitID != webUnit || web.MatchLevel != service.MatchCompose {
+	if web.UnitID != webUnit || web.MatchLevel != container.MatchCompose {
 		t.Fatalf("le rattachement précédent reste: %+v", web)
 	}
 	if db := b.get(t, dbID); db.UnitID != "" {
@@ -137,7 +137,7 @@ func TestRecord_MatchErrorKeepsThePreviousUnit(t *testing.T) {
 func TestRecord_ArchivedContainerKeepsItsUnit(t *testing.T) {
 	b := newBench(t)
 	webUnit := b.declareUnit(t, "web")
-	units := &fakeUnits{byName: map[string]service.UnitMatch{"web": {UnitID: webUnit, Level: service.MatchName}}}
+	units := &fakeUnits{byName: map[string]container.UnitMatch{"web": {UnitID: webUnit, Level: container.MatchName}}}
 	b.tracker.SetUnits(units)
 	b.record(t, inventory(running(webID, "web", ""), running(dbID, "db", "")))
 
@@ -145,12 +145,12 @@ func TestRecord_ArchivedContainerKeepsItsUnit(t *testing.T) {
 	b.record(t, inventory(running(dbID, "db", "")))
 
 	web := b.get(t, webID)
-	if !web.IsArchived() || web.UnitID != webUnit || web.MatchLevel != service.MatchName {
+	if !web.IsArchived() || web.UnitID != webUnit || web.MatchLevel != container.MatchName {
 		t.Fatalf("web = %+v", web)
 	}
 	// Archivée, la fiche n'est plus recalculée : l'annuaire changerait d'avis
 	// qu'elle garderait ce qu'elle était.
-	units.byName["web"] = service.UnitMatch{}
+	units.byName["web"] = container.UnitMatch{}
 	if err := b.tracker.Rematch(context.Background(), machine.LocalID); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestRecord_ArchivedContainerKeepsItsUnit(t *testing.T) {
 func TestRematch_WritesOnlyWhatChangedAndTellsTheWatcher(t *testing.T) {
 	b := newBench(t)
 	webUnit := b.declareUnit(t, "web")
-	units := &fakeUnits{byName: map[string]service.UnitMatch{}}
+	units := &fakeUnits{byName: map[string]container.UnitMatch{}}
 	b.tracker.SetUnits(units)
 	b.record(t, inventory(running(webID, "web", ""), running(dbID, "db", "")))
 	b.changed = nil
@@ -175,11 +175,11 @@ func TestRematch_WritesOnlyWhatChangedAndTellsTheWatcher(t *testing.T) {
 		t.Fatalf("annoncé sans changement: %v", b.changed)
 	}
 
-	units.byName["web"] = service.UnitMatch{UnitID: webUnit, Level: service.MatchName}
+	units.byName["web"] = container.UnitMatch{UnitID: webUnit, Level: container.MatchName}
 	if err := b.tracker.Rematch(context.Background(), machine.LocalID); err != nil {
 		t.Fatal(err)
 	}
-	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != service.MatchName {
+	if web := b.get(t, webID); web.UnitID != webUnit || web.MatchLevel != container.MatchName {
 		t.Fatalf("web = %+v", web)
 	}
 	if len(b.changed) != 1 || b.changed[0] != machine.LocalID {
@@ -188,11 +188,11 @@ func TestRematch_WritesOnlyWhatChangedAndTellsTheWatcher(t *testing.T) {
 
 	// Le niveau seul qui change se réécrit aussi.
 	b.changed = nil
-	units.byName["web"] = service.UnitMatch{UnitID: webUnit, Level: service.MatchCompose}
+	units.byName["web"] = container.UnitMatch{UnitID: webUnit, Level: container.MatchCompose}
 	if err := b.tracker.Rematch(context.Background(), machine.LocalID); err != nil {
 		t.Fatal(err)
 	}
-	if web := b.get(t, webID); web.MatchLevel != service.MatchCompose || len(b.changed) != 1 {
+	if web := b.get(t, webID); web.MatchLevel != container.MatchCompose || len(b.changed) != 1 {
 		t.Fatalf("web = %+v, changed = %v", web, b.changed)
 	}
 
@@ -200,7 +200,7 @@ func TestRematch_WritesOnlyWhatChangedAndTellsTheWatcher(t *testing.T) {
 	if err := b.db.DeleteDeclaredService(context.Background(), "svc_web"); err != nil {
 		t.Fatal(err)
 	}
-	if web := b.get(t, webID); web.UnitID != "" || web.MatchLevel != service.MatchNone {
+	if web := b.get(t, webID); web.UnitID != "" || web.MatchLevel != container.MatchNone {
 		t.Fatalf("après la suppression, web = %+v", web)
 	}
 }
@@ -265,16 +265,16 @@ func TestRecord_RecreatedContainerReadsThePolicyOfItsUnit(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
 	webUnit := b.declareUnit(t, "web")
-	units := &fakeUnits{byName: map[string]service.UnitMatch{"web": {UnitID: webUnit, Level: service.MatchName}}}
+	units := &fakeUnits{byName: map[string]container.UnitMatch{"web": {UnitID: webUnit, Level: container.MatchName}}}
 	b.tracker.SetUnits(units)
 	b.record(t, inventory(running(webID, "web", ""), running(dbID, "db", "")))
-	if err := b.db.SetUnitUpdatePolicy(ctx, webUnit, service.PolicyHold); err != nil {
+	if err := b.db.SetUnitUpdatePolicy(ctx, webUnit, container.PolicyHold); err != nil {
 		t.Fatal(err)
 	}
-	if web := b.get(t, webID); web.UpdatePolicy != service.PolicyHold || web.DeclaredServiceID != "svc_web" {
+	if web := b.get(t, webID); web.UpdatePolicy != container.PolicyHold || web.DeclaredServiceID != "svc_web" {
 		t.Fatalf("web = %+v", web)
 	}
-	if db := b.get(t, dbID); db.UpdatePolicy != service.PolicyWatch || db.DeclaredServiceID != "" {
+	if db := b.get(t, dbID); db.UpdatePolicy != container.PolicyWatch || db.DeclaredServiceID != "" {
 		t.Fatalf("un conteneur non déclaré se suit: %+v", db)
 	}
 
@@ -284,10 +284,10 @@ func TestRecord_RecreatedContainerReadsThePolicyOfItsUnit(t *testing.T) {
 	b.record(t, inventory(running(recreatedID, "web", ""), running(dbID, "db", "")))
 
 	recreated := b.get(t, recreatedID)
-	if recreated.UnitID != webUnit || recreated.UpdatePolicy != service.PolicyHold {
+	if recreated.UnitID != webUnit || recreated.UpdatePolicy != container.PolicyHold {
 		t.Fatalf("le conteneur recréé doit retrouver la politique de son unité: %+v", recreated)
 	}
-	if old := b.get(t, webID); !old.IsArchived() || old.UpdatePolicy != service.PolicyHold {
+	if old := b.get(t, webID); !old.IsArchived() || old.UpdatePolicy != container.PolicyHold {
 		t.Fatalf("la fiche archivée lit la même unité: %+v", old)
 	}
 }

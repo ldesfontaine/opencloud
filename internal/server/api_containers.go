@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -20,16 +20,18 @@ const (
 	// Les lectures de journaux en cours, en tout : suivis des onglets,
 	// tirages uniques et outil MCP. Chaque suivi est une seconde connexion,
 	// hors du plafond du direct.
-	maxLogStreams   = 16
+	maxLogStreams = 16
+	// Le code que l'agent rend aussi (dockerwatch.LogsBusy) : un agent déjà
+	// installé garde son nom, le catalogue le traduit sous cette clé.
 	codeLogsBusy    = "service.logs_busy"
-	codeMachineBusy = "service.machine_busy"
+	codeMachineBusy = "container.machine_busy"
 )
 
-// Un service tel que le front le lit : des faits, jamais une pastille. Le
+// Un conteneur tel que le front le lit : des faits, jamais une pastille. Le
 // front dérive Actif, Défaillant, Arrêté de l'état, du code de sortie et
 // de la santé. La mesure courante est là si elle est fraîche ; les
 // constats d'exposition sont calculés à la lecture.
-type serviceJSON struct {
+type containerJSON struct {
 	ID          string `json:"id"`
 	MachineID   string `json:"machine_id"`
 	MachineName string `json:"machine_name"`
@@ -53,26 +55,26 @@ type serviceJSON struct {
 	ImageCheck *imageCheckJSON `json:"image_check"`
 	// Le support de l'image, sur la fiche seulement, et seulement quand
 	// l'opérateur a activé la fin de support.
-	Lifecycle    *lifecycleJSON       `json:"lifecycle,omitempty"`
-	State        string               `json:"state"`
-	ExitCode     int                  `json:"exit_code"`
-	OOMKilled    bool                 `json:"oom_killed"`
-	Killed       bool                 `json:"killed"`
-	Health       string               `json:"health"`
-	RestartCount int                  `json:"restart_count"`
-	Ports        []service.Port       `json:"ports"`
-	NetworkMode  string               `json:"network_mode"`
-	Privileged   bool                 `json:"privileged"`
-	Networks     []service.Attachment `json:"networks"`
-	DependsOn    []service.Dependency `json:"depends_on"`
-	Exposure     []service.Finding    `json:"exposure"`
-	CreatedAt    time.Time            `json:"created_at"`
-	StartedAt    *time.Time           `json:"started_at"`
-	FinishedAt   *time.Time           `json:"finished_at"`
-	FirstSeenAt  time.Time            `json:"first_seen_at"`
-	LastSeenAt   time.Time            `json:"last_seen_at"`
-	ArchivedAt   *time.Time           `json:"archived_at"`
-	Current      *sampleJSON          `json:"current"`
+	Lifecycle    *lifecycleJSON         `json:"lifecycle,omitempty"`
+	State        string                 `json:"state"`
+	ExitCode     int                    `json:"exit_code"`
+	OOMKilled    bool                   `json:"oom_killed"`
+	Killed       bool                   `json:"killed"`
+	Health       string                 `json:"health"`
+	RestartCount int                    `json:"restart_count"`
+	Ports        []container.Port       `json:"ports"`
+	NetworkMode  string                 `json:"network_mode"`
+	Privileged   bool                   `json:"privileged"`
+	Networks     []container.Attachment `json:"networks"`
+	DependsOn    []container.Dependency `json:"depends_on"`
+	Exposure     []container.Finding    `json:"exposure"`
+	CreatedAt    time.Time              `json:"created_at"`
+	StartedAt    *time.Time             `json:"started_at"`
+	FinishedAt   *time.Time             `json:"finished_at"`
+	FirstSeenAt  time.Time              `json:"first_seen_at"`
+	LastSeenAt   time.Time              `json:"last_seen_at"`
+	ArchivedAt   *time.Time             `json:"archived_at"`
+	Current      *sampleJSON            `json:"current"`
 }
 
 // Le constat de l'agent sur l'image, et ce que le serveur en fait : le
@@ -107,9 +109,9 @@ type engineJSON struct {
 	CheckedAt  time.Time `json:"checked_at"`
 }
 
-type servicesResponse struct {
-	Services []serviceJSON `json:"services"`
-	Engines  []engineJSON  `json:"engines"`
+type containersResponse struct {
+	Containers []containerJSON `json:"containers"`
+	Engines    []engineJSON    `json:"engines"`
 }
 
 type transitionJSON struct {
@@ -127,9 +129,9 @@ type transitionJSON struct {
 	Snippet        string    `json:"snippet"`
 }
 
-type serviceResponse struct {
-	Service serviceJSON `json:"service"`
-	Engine  *engineJSON `json:"engine"`
+type containerResponse struct {
+	Container containerJSON `json:"container"`
+	Engine    *engineJSON   `json:"engine"`
 	// Ce que l'annuaire dit du conteneur ; sur la fiche seulement, pas dans
 	// les listes.
 	Directory   *containerDirectoryJSON `json:"directory"`
@@ -150,22 +152,22 @@ type logLineJSON struct {
 	Text   string     `json:"text"`
 }
 
-// listServices rend tous les services vivants, avec la machine de chacun
+// listContainers rend tous les conteneurs vivants, avec la machine de chacun
 // et l'état du Docker de chaque machine.
-func (s *Server) listServices(w http.ResponseWriter, r *http.Request) {
-	s.writeServices(w, r, "")
+func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
+	s.writeContainers(w, r, "")
 }
 
-func (s *Server) listMachineServices(w http.ResponseWriter, r *http.Request) {
+func (s *Server) listMachineContainers(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !s.machineExists(w, r, id) {
 		return
 	}
-	s.writeServices(w, r, id)
+	s.writeContainers(w, r, id)
 }
 
-func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID string) {
-	services, err := s.services.List(r.Context(), machineID)
+func (s *Server) writeContainers(w http.ResponseWriter, r *http.Request, machineID string) {
+	containers, err := s.containers.List(r.Context(), machineID)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -175,12 +177,12 @@ func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID
 		s.apiInternalError(w, r, err)
 		return
 	}
-	currents, err := s.currentByService(r.Context())
+	currents, err := s.currentByContainer(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	engines, err := s.services.Engines(r.Context())
+	engines, err := s.containers.Engines(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -190,9 +192,9 @@ func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := servicesResponse{Services: make([]serviceJSON, 0, len(services)), Engines: []engineJSON{}}
-	for _, item := range services {
-		response.Services = append(response.Services, serviceToJSON(item, names[item.MachineID], currents[item.ID], checks))
+	response := containersResponse{Containers: make([]containerJSON, 0, len(containers)), Engines: []engineJSON{}}
+	for _, item := range containers {
+		response.Containers = append(response.Containers, containerToJSON(item, names[item.MachineID], currents[item.ID], checks))
 	}
 	for _, engine := range engines {
 		if machineID == "" || engine.MachineID == machineID {
@@ -202,12 +204,12 @@ func (s *Server) writeServices(w http.ResponseWriter, r *http.Request, machineID
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
-	item, ok := s.serviceOr404(w, r)
+func (s *Server) getContainer(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.containerOr404(w, r)
 	if !ok {
 		return
 	}
-	response, err := s.serviceResponseOf(r.Context(), item)
+	response, err := s.containerResponseOf(r.Context(), item)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -215,37 +217,37 @@ func (s *Server) getService(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// serviceResponseOf assemble la fiche d'un service ; l'API et l'outil MCP
+// containerResponseOf assemble la fiche d'un conteneur ; l'API et l'outil MCP
 // la rendent telle quelle.
-func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (serviceResponse, error) {
+func (s *Server) containerResponseOf(ctx context.Context, item container.Container) (containerResponse, error) {
 	names, err := s.machineNames(ctx)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
-	currents, err := s.currentByService(ctx)
+	currents, err := s.currentByContainer(ctx)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
-	transitions, err := s.services.Transitions(ctx, item.ID, defaultTransitions)
+	transitions, err := s.containers.Transitions(ctx, item.ID, defaultTransitions)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
-	engines, err := s.services.Engines(ctx)
+	engines, err := s.containers.Engines(ctx)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
 	checks, err := s.updates.Checks(ctx, item.MachineID)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
-	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
-	response.Service.Lifecycle, err = s.lifecycleOf(ctx, item.Image)
+	response := containerResponse{Container: containerToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
+	response.Container.Lifecycle, err = s.lifecycleOf(ctx, item.Image)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
 	response.Directory, err = s.containerDirectoryOf(ctx, item)
 	if err != nil {
-		return serviceResponse{}, err
+		return containerResponse{}, err
 	}
 	for _, engine := range engines {
 		if engine.MachineID == item.MachineID {
@@ -256,8 +258,8 @@ func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (s
 	return response, nil
 }
 
-func (s *Server) listServiceTransitions(w http.ResponseWriter, r *http.Request) {
-	item, ok := s.serviceOr404(w, r)
+func (s *Server) listContainerTransitions(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.containerOr404(w, r)
 	if !ok {
 		return
 	}
@@ -265,7 +267,7 @@ func (s *Server) listServiceTransitions(w http.ResponseWriter, r *http.Request) 
 	if value, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && value > 0 {
 		limit = min(value, maxTransitions)
 	}
-	transitions, err := s.services.Transitions(r.Context(), item.ID, limit)
+	transitions, err := s.containers.Transitions(r.Context(), item.ID, limit)
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
@@ -273,9 +275,9 @@ func (s *Server) listServiceTransitions(w http.ResponseWriter, r *http.Request) 
 	s.writeAPI(w, http.StatusOK, transitionsResponse{Transitions: transitionsToJSON(transitions)})
 }
 
-// getServiceLogs tire les dernières lignes en un coup ; le repli du direct.
-func (s *Server) getServiceLogs(w http.ResponseWriter, r *http.Request) {
-	item, ok := s.serviceOr404(w, r)
+// getContainerLogs tire les dernières lignes en un coup ; le repli du direct.
+func (s *Server) getContainerLogs(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.containerOr404(w, r)
 	if !ok {
 		return
 	}
@@ -284,7 +286,7 @@ func (s *Server) getServiceLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseLogSlot()
-	lines, err := s.services.FetchLogs(r.Context(), item.ID, tailOf(r))
+	lines, err := s.containers.FetchLogs(r.Context(), item.ID, tailOf(r))
 	if err != nil {
 		s.writeLogsError(w, r, err)
 		return
@@ -296,11 +298,11 @@ func (s *Server) getServiceLogs(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// streamServiceLogs suit le journal en SSE : un événement « line » par
+// streamContainerLogs suit le journal en SSE : un événement « line » par
 // ligne, « end » quand le journal ou la machine s'arrête. C'est la seule
 // seconde connexion qu'un onglet ouvre, plafonnée à part.
-func (s *Server) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
-	item, ok := s.serviceOr404(w, r)
+func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
+	item, ok := s.containerOr404(w, r)
 	if !ok {
 		return
 	}
@@ -309,7 +311,7 @@ func (s *Server) streamServiceLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.releaseLogSlot()
-	batches, err := s.services.FollowLogs(r.Context(), item.ID, tailOf(r))
+	batches, err := s.containers.FollowLogs(r.Context(), item.ID, tailOf(r))
 	if err != nil {
 		s.writeLogsError(w, r, err)
 		return
@@ -392,33 +394,33 @@ func (s *Server) writeLogsError(w http.ResponseWriter, r *http.Request, err erro
 // logsRefusal classe un échec de lecture des journaux : la clé que le
 // front ou le modèle lit, et le statut HTTP qui va avec.
 func logsRefusal(err error) (string, int, bool) {
-	var failed *service.LogsError
+	var failed *container.LogsError
 	switch {
-	case errors.Is(err, service.ErrMachineOffline):
-		return "service.machine_offline", http.StatusServiceUnavailable, true
-	case errors.Is(err, service.ErrLogsUnavailableLocally):
-		return "service.logs_unavailable_locally", http.StatusServiceUnavailable, true
+	case errors.Is(err, container.ErrMachineOffline):
+		return "container.machine_offline", http.StatusServiceUnavailable, true
+	case errors.Is(err, container.ErrLogsUnavailableLocally):
+		return "container.logs_unavailable_locally", http.StatusServiceUnavailable, true
 	case errors.Is(err, machine.ErrBusy):
 		return codeMachineBusy, http.StatusServiceUnavailable, true
-	case errors.Is(err, service.ErrLogsBusy):
+	case errors.Is(err, container.ErrLogsBusy):
 		return codeLogsBusy, http.StatusTooManyRequests, true
-	case errors.Is(err, service.ErrLogsTimeout):
-		return "service.logs_timeout", http.StatusGatewayTimeout, true
+	case errors.Is(err, container.ErrLogsTimeout):
+		return "container.logs_timeout", http.StatusGatewayTimeout, true
 	case errors.As(err, &failed):
 		return failed.Code, http.StatusBadGateway, true
 	}
 	return "", 0, false
 }
 
-func (s *Server) serviceOr404(w http.ResponseWriter, r *http.Request) (service.Service, bool) {
-	item, err := s.services.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, service.ErrNotFound) {
+func (s *Server) containerOr404(w http.ResponseWriter, r *http.Request) (container.Container, bool) {
+	item, err := s.containers.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, container.ErrNotFound) {
 		s.apiNotFound(w)
-		return service.Service{}, false
+		return container.Container{}, false
 	}
 	if err != nil {
 		s.apiInternalError(w, r, err)
-		return service.Service{}, false
+		return container.Container{}, false
 	}
 	return item, true
 }
@@ -435,16 +437,16 @@ func (s *Server) machineNames(ctx context.Context) (map[string]string, error) {
 	return names, nil
 }
 
-func (s *Server) currentByService(ctx context.Context) (map[string]service.Current, error) {
-	currents, err := s.services.CurrentAll(ctx)
+func (s *Server) currentByContainer(ctx context.Context) (map[string]container.Current, error) {
+	currents, err := s.containers.CurrentAll(ctx)
 	if err != nil {
 		return nil, err
 	}
-	byService := make(map[string]service.Current, len(currents))
+	byContainer := make(map[string]container.Current, len(currents))
 	for _, current := range currents {
-		byService[current.ServiceID] = current
+		byContainer[current.ContainerID] = current
 	}
-	return byService, nil
+	return byContainer, nil
 }
 
 func tailOf(r *http.Request) int {
@@ -452,15 +454,15 @@ func tailOf(r *http.Request) int {
 	return tail
 }
 
-func serviceToJSON(item service.Service, machineName string, current service.Current, checks map[string]update.Check) serviceJSON {
-	converted := serviceJSON{
+func containerToJSON(item container.Container, machineName string, current container.Current, checks map[string]update.Check) containerJSON {
+	converted := containerJSON{
 		ID: item.ID, MachineID: item.MachineID, MachineName: machineName, Kind: string(item.Kind),
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
 		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
 		UpdatePolicy: string(item.UpdatePolicy), DeclaredServiceID: item.DeclaredServiceID, ImageCheck: imageCheckToJSON(item, checks),
 		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
-		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: service.Exposure(item),
+		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: container.Exposure(item),
 		CreatedAt: item.CreatedAt.UTC(), StartedAt: timeOrNil(item.StartedAt), FinishedAt: timeOrNil(item.FinishedAt),
 		FirstSeenAt: item.FirstSeenAt.UTC(), LastSeenAt: item.LastSeenAt.UTC(), ArchivedAt: timeOrNil(item.ArchivedAt),
 	}
@@ -476,7 +478,7 @@ func serviceToJSON(item service.Service, machineName string, current service.Cur
 	return converted
 }
 
-func imageCheckToJSON(item service.Service, checks map[string]update.Check) *imageCheckJSON {
+func imageCheckToJSON(item container.Container, checks map[string]update.Check) *imageCheckJSON {
 	check, ok := update.CheckFor(checks, item)
 	if !ok {
 		return nil
@@ -501,14 +503,14 @@ func orEmpty[T any](list []T) []T {
 	return list
 }
 
-func engineToJSON(engine service.Engine) engineJSON {
+func engineToJSON(engine container.Engine) engineJSON {
 	return engineJSON{
 		MachineID: engine.MachineID, Present: engine.Present, Reason: string(engine.Reason),
 		Version: engine.Version, APIVersion: engine.APIVersion, CheckedAt: engine.CheckedAt.UTC(),
 	}
 }
 
-func transitionsToJSON(transitions []service.Transition) []transitionJSON {
+func transitionsToJSON(transitions []container.Transition) []transitionJSON {
 	converted := make([]transitionJSON, 0, len(transitions))
 	for _, t := range transitions {
 		converted = append(converted, transitionJSON{
@@ -519,6 +521,6 @@ func transitionsToJSON(transitions []service.Transition) []transitionJSON {
 	return converted
 }
 
-func logLineToJSON(line service.LogLine) logLineJSON {
+func logLineToJSON(line container.LogLine) logLineJSON {
 	return logLineJSON{At: timeOrNil(line.At), Stream: line.Stream, Text: line.Text}
 }

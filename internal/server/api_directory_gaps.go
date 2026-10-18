@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Ce que l'écart dit d'un service déclaré : un état par service, par unité
@@ -94,10 +94,10 @@ func serviceGapToJSON(gap directory.ServiceGap) serviceGapJSON {
 	converted := serviceGapJSON{ServiceID: gap.ServiceID, State: string(gap.State), Weak: gap.Weak, Units: make([]unitGapJSON, 0, len(gap.Units))}
 	for _, unit := range gap.Units {
 		containers := make([]containerVerdictJSON, 0, len(unit.Containers))
-		for _, container := range unit.Containers {
+		for _, found := range unit.Containers {
 			containers = append(containers, containerVerdictJSON{
-				ID: container.ServiceID, Name: container.Name, State: string(container.State), Image: container.Image,
-				MatchLevel: string(container.Level), Verdict: string(container.Verdict), Reason: string(container.Reason),
+				ID: found.ServiceID, Name: found.Name, State: string(found.State), Image: found.Image,
+				MatchLevel: string(found.Level), Verdict: string(found.Verdict), Reason: string(found.Reason),
 			})
 		}
 		converted.Units = append(converted.Units, unitGapJSON{
@@ -109,9 +109,9 @@ func serviceGapToJSON(gap directory.ServiceGap) serviceGapJSON {
 
 func undeclaredToJSON(group directory.Undeclared, machineNames map[string]string) undeclaredJSON {
 	containers := make([]undeclaredContainer, 0, len(group.Containers))
-	for _, container := range group.Containers {
+	for _, found := range group.Containers {
 		containers = append(containers, undeclaredContainer{
-			ID: container.ID, Name: container.Name, State: string(container.State), Image: container.Image, ComposeService: container.ComposeService,
+			ID: found.ID, Name: found.Name, State: string(found.State), Image: found.Image, ComposeService: found.ComposeService,
 		})
 	}
 	return undeclaredJSON{
@@ -229,7 +229,7 @@ func (s *Server) unignoreKey(w http.ResponseWriter, r *http.Request) {
 
 // containerDirectoryOf dit de la fiche d'un conteneur à quelle unité de
 // l'annuaire elle se rattache, ou sinon par quelle clé on l'ignorerait.
-func (s *Server) containerDirectoryOf(ctx context.Context, item service.Service) (*containerDirectoryJSON, error) {
+func (s *Server) containerDirectoryOf(ctx context.Context, item container.Container) (*containerDirectoryJSON, error) {
 	link, err := s.directory.ContainerLink(ctx, item)
 	if err != nil {
 		return nil, err

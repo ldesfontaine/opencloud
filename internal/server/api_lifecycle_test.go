@@ -55,7 +55,7 @@ func lifecycleSetting(preferences SettingsStore) func() bool {
 func TestAPI_Lifecycle_TurnedOff_ShowsNothingAndReadsNothing(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	var state lifecycleSettingsJSON
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/settings/lifecycle", nil), &state)
 	if state.Enabled || state.Source != "endoflife.date" || state.FetchedAt != nil || state.LastAttemptAt != nil || state.Products != 0 {
@@ -67,7 +67,7 @@ func TestAPI_Lifecycle_TurnedOff_ShowsNothingAndReadsNothing(t *testing.T) {
 	if server.support.asked != 0 {
 		t.Fatalf("the source was read %d times while the setting is off", server.support.asked)
 	}
-	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil)
+	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID, nil)
 	if got.Code != http.StatusOK || strings.Contains(got.Body.String(), `"lifecycle"`) {
 		t.Fatalf("status %d: %s", got.Code, got.Body.String())
 	}
@@ -78,7 +78,7 @@ func TestAPI_Lifecycle_TurnedOff_ShowsNothingAndReadsNothing(t *testing.T) {
 func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	if got := callAPI(server.Server, http.MethodPut, "/api/session/language", languageRequest{Language: "en"}); got.Code != http.StatusNoContent {
 		t.Fatalf("language: %d", got.Code)
 	}
@@ -94,18 +94,18 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	}
 
 	// Avant la première lecture, la fiche dit qu'elle attend.
-	var pending serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil), &pending)
-	if pending.Service.Lifecycle == nil || pending.Service.Lifecycle.Status != string(lifecycle.StatusPending) || pending.Service.Lifecycle.FetchedAt != nil {
-		t.Fatalf("before the first reading: %+v", pending.Service.Lifecycle)
+	var pending containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID, nil), &pending)
+	if pending.Container.Lifecycle == nil || pending.Container.Lifecycle.Status != string(lifecycle.StatusPending) || pending.Container.Lifecycle.FetchedAt != nil {
+		t.Fatalf("before the first reading: %+v", pending.Container.Lifecycle)
 	}
 
 	if err := server.lifecycle.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	var response serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil), &response)
-	support := response.Service.Lifecycle
+	var response containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID, nil), &response)
+	support := response.Container.Lifecycle
 	if support == nil || support.Status != "maintained" || support.Product != "PostgreSQL" || support.Cycle != "16" || support.EOLFrom != "2028-11-09" || support.Latest != "16.15" {
 		t.Fatalf("postgres:16.4: %+v", support)
 	}
@@ -121,7 +121,7 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	}
 
 	// Les listes ne le portent pas : la fiche seulement.
-	if list := callAPI(server.Server, http.MethodGet, "/api/services", nil); strings.Contains(list.Body.String(), `"lifecycle"`) {
+	if list := callAPI(server.Server, http.MethodGet, "/api/containers", nil); strings.Contains(list.Body.String(), `"lifecycle"`) {
 		t.Fatalf("the list carries the support: %s", list.Body.String())
 	}
 
@@ -134,7 +134,7 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	if err := server.lifecycle.Refresh(context.Background()); err != nil || server.support.asked != asked {
 		t.Fatalf("the source was read after the setting was turned off: %v", err)
 	}
-	if off := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil); strings.Contains(off.Body.String(), `"lifecycle"`) {
+	if off := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID, nil); strings.Contains(off.Body.String(), `"lifecycle"`) {
 		t.Fatalf("turned off, the service still says its support: %s", off.Body.String())
 	}
 }

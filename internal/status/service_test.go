@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -19,7 +20,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -32,7 +32,7 @@ type fixture struct {
 	status     *status.Service
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
-	services   *service.Tracker
+	services   *container.Tracker
 	directory  *directory.Directory
 	probes     *probe.Service
 	bus        *live.Bus
@@ -67,7 +67,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.heartbeats = heartbeat.New(db, logger)
 	f.heartbeats.SetClock(clock)
-	f.services = service.New(db, logger)
+	f.services = container.New(db, logger)
 	f.services.SetClock(clock)
 	f.directory = directory.New(db, logger)
 	f.directory.SetClock(clock)
@@ -133,16 +133,16 @@ func (f *fixture) enroll(t *testing.T, name string) string {
 // service pose un conteneur sur la machine openCloud et le déclare à l'annuaire :
 // un composant surveille le service déclaré, jamais le conteneur. Rend
 // l'identifiant du service déclaré.
-func (f *fixture) service(t *testing.T, name string, state service.State, exitCode int) string {
+func (f *fixture) service(t *testing.T, name string, state container.State, exitCode int) string {
 	t.Helper()
 	f.container(t, name, strings.Repeat("a", 64), state, exitCode)
 	return f.declare(t, name)
 }
 
-func (f *fixture) container(t *testing.T, name, containerID string, state service.State, exitCode int) {
+func (f *fixture) container(t *testing.T, name, containerID string, state container.State, exitCode int) {
 	t.Helper()
-	container := service.Container{ContainerID: containerID, Name: name, Image: name + ":1", State: state, ExitCode: exitCode, CreatedAt: f.now.Add(-time.Hour)}
-	report := service.Report{Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []service.Container{container}}
+	item := container.Observed{ContainerID: containerID, Name: name, Image: name + ":1", State: state, ExitCode: exitCode, CreatedAt: f.now.Add(-time.Hour)}
+	report := container.Report{Engine: &container.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []container.Observed{item}}
 	if err := f.services.Record(context.Background(), machine.LocalID, report); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestDerive_CertificateAboutToExpireDegrades(t *testing.T) {
 
 func TestDerive_ServicesAndMachines(t *testing.T) {
 	f := newFixture(t)
-	stopped := f.service(t, "nextcloud", service.StateExited, 0)
+	stopped := f.service(t, "nextcloud", container.StateExited, 0)
 	if got := f.component(t, "Nuage", status.MemberRef{Kind: status.KindService, ID: stopped}).Effective; got != status.StateDown {
 		t.Fatalf("a stopped service is an outage, got %q", got)
 	}
@@ -394,7 +394,7 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 	f := newFixture(t)
 	certificate := &probe.Certificate{Subject: "SECRET-subject", Issuer: "SECRET-issuer", NotBefore: f.now.Add(-24 * time.Hour), NotAfter: f.now.Add(90 * 24 * time.Hour), Fingerprint: strings.Repeat("f", 64), ChainValid: true, HostnameMatch: true}
 	site := f.probe(t, "SECRET-probe", probe.OutcomeUp, certificate)
-	stopped := f.service(t, "SECRET-container", service.StateExited, 1)
+	stopped := f.service(t, "SECRET-container", container.StateExited, 1)
 	job, err := f.heartbeats.Create(context.Background(), heartbeat.Definition{Name: "SECRET-job", Interval: time.Hour, MachineID: machine.LocalID})
 	if err != nil {
 		t.Fatal(err)

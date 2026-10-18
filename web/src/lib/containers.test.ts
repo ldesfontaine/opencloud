@@ -1,27 +1,27 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { findingText, formatBinding, formatBindings, formatPorts, imageBase, matchesFilter, needsAttention, nodeSubtitle, nodeTone, serviceIcon, servicePill, servicesSubtitle } from "./services";
+import { findingText, formatBinding, formatBindings, formatPorts, imageBase, matchesFilter, needsAttention, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle } from "./containers";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
-test("servicePill dérive la pastille des faits", () => {
-  expect(servicePill({ state: "running", exit_code: 0, health: "" }).key).toBe("active");
-  expect(servicePill({ state: "running", exit_code: 0, health: "healthy" }).key).toBe("active");
-  expect(servicePill({ state: "running", exit_code: 0, health: "starting" }).key).toBe("starting");
-  expect(servicePill({ state: "running", exit_code: 0, health: "unhealthy" }).key).toBe("failing");
-  expect(servicePill({ state: "exited", exit_code: 0, health: "" }).key).toBe("stopped");
-  expect(servicePill({ state: "exited", exit_code: 143, health: "" }).key).toBe("stopped");
-  expect(servicePill({ state: "exited", exit_code: 1, health: "" }).key).toBe("failing");
-  expect(servicePill({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toEqual({ key: "out_of_memory", tone: "danger" });
-  expect(servicePill({ state: "exited", exit_code: 137, health: "", oom_killed: false }).key).toBe("stopped");
+test("containerPill dérive la pastille des faits", () => {
+  expect(containerPill({ state: "running", exit_code: 0, health: "" }).key).toBe("active");
+  expect(containerPill({ state: "running", exit_code: 0, health: "healthy" }).key).toBe("active");
+  expect(containerPill({ state: "running", exit_code: 0, health: "starting" }).key).toBe("starting");
+  expect(containerPill({ state: "running", exit_code: 0, health: "unhealthy" }).key).toBe("failing");
+  expect(containerPill({ state: "exited", exit_code: 0, health: "" }).key).toBe("stopped");
+  expect(containerPill({ state: "exited", exit_code: 143, health: "" }).key).toBe("stopped");
+  expect(containerPill({ state: "exited", exit_code: 1, health: "" }).key).toBe("failing");
+  expect(containerPill({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toEqual({ key: "out_of_memory", tone: "danger" });
+  expect(containerPill({ state: "exited", exit_code: 137, health: "", oom_killed: false }).key).toBe("stopped");
   // docker kill sans arrêt demandé : 137 aussi, mais « Tué » ; sans le fait (agent ancien), « Arrêté ».
-  expect(servicePill({ state: "exited", exit_code: 137, health: "", killed: true })).toEqual({ key: "killed", tone: "danger" });
-  expect(servicePill({ state: "exited", exit_code: 137, health: "" }).key).toBe("stopped");
-  expect(servicePill({ state: "restarting", exit_code: 1, health: "" }).key).toBe("restarting");
-  expect(servicePill({ state: "paused", exit_code: 0, health: "" }).key).toBe("paused");
-  expect(servicePill({ state: "dead", exit_code: 0, health: "" }).tone).toBe("danger");
-  expect(servicePill({ state: "created", exit_code: 0, health: "" }).key).toBe("created");
+  expect(containerPill({ state: "exited", exit_code: 137, health: "", killed: true })).toEqual({ key: "killed", tone: "danger" });
+  expect(containerPill({ state: "exited", exit_code: 137, health: "" }).key).toBe("stopped");
+  expect(containerPill({ state: "restarting", exit_code: 1, health: "" }).key).toBe("restarting");
+  expect(containerPill({ state: "paused", exit_code: 0, health: "" }).key).toBe("paused");
+  expect(containerPill({ state: "dead", exit_code: 0, health: "" }).tone).toBe("danger");
+  expect(containerPill({ state: "created", exit_code: 0, health: "" }).key).toBe("created");
 });
 
 test("needsAttention suit la règle du serveur", () => {
@@ -59,13 +59,13 @@ test("servicesSubtitle compte", () => {
   expect(servicesSubtitle(t, 6, 2)).toBe("services.subtitle_attention:6:2");
 });
 
-test("imageBase et serviceIcon lisent le nom de l'image", () => {
+test("imageBase et containerIcon lisent le nom de l'image", () => {
   expect(imageBase("nextcloud:29.0.4")).toBe("nextcloud");
   expect(imageBase("ghcr.io/lib/postgres:16.4")).toBe("postgres");
   expect(imageBase("redis@sha256:abc")).toBe("redis");
   expect(imageBase("localhost:5000/app")).toBe("app");
-  expect(serviceIcon({ image: "postgres:16" })).toBe("database");
-  expect(serviceIcon({ image: "nginx:alpine" })).toBe("box");
+  expect(containerIcon({ image: "postgres:16" })).toBe("database");
+  expect(containerIcon({ image: "nginx:alpine" })).toBe("box");
 });
 
 test("nodeSubtitle et formatBinding écrivent les ports avec leur interface", () => {
@@ -80,7 +80,7 @@ test("nodeSubtitle et formatBinding écrivent les ports avec leur interface", ()
   expect(formatBindings(ports)).toEqual(["0.0.0.0:18081 → 80/tcp", "127.0.0.1:15432 → 5432/tcp"]);
 });
 
-test("nodeTone met l'attention d'un constat sur un service sain, jamais sur un défaillant", () => {
+test("nodeTone met l'attention d'un constat sur un container sain, jamais sur un défaillant", () => {
   const warn = [{ kind: "database_port_public" as const, level: "warn" as const, port: 6379, protocol: "tcp" }];
   expect(nodeTone({ state: "running", exit_code: 0, health: "", exposure: [] })).toBe("ok");
   expect(nodeTone({ state: "running", exit_code: 0, health: "", exposure: warn })).toBe("warn");

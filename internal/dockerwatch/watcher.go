@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 
 // Sink reçoit chaque rapport, dans l'ordre où le veilleur l'observe.
 type Sink interface {
-	Deliver(report service.Report)
+	Deliver(report container.Report)
 }
 
 type Options struct {
@@ -60,7 +60,7 @@ type Watcher struct {
 	since string
 	// Ce qu'on a dit du démon la dernière fois ; on ne le redit que s'il
 	// change.
-	engine  *service.EngineReport
+	engine  *container.EngineReport
 	follows int
 	// L'instant de la dernière demande d'arrêt vue par conteneur : un
 	// « die » 137 sans elle est un conteneur tué brutalement.
@@ -74,10 +74,10 @@ type cpuCounters struct {
 
 func New(client *dockerapi.Client, sink Sink, opts Options) *Watcher {
 	if opts.SampleInterval <= 0 {
-		opts.SampleInterval = service.SampleInterval
+		opts.SampleInterval = container.SampleInterval
 	}
 	if opts.InventoryInterval <= 0 {
-		opts.InventoryInterval = service.InventoryInterval
+		opts.InventoryInterval = container.InventoryInterval
 	}
 	if opts.ProbeInterval <= 0 {
 		opts.ProbeInterval = DefaultProbeInterval
@@ -98,7 +98,7 @@ func (w *Watcher) Run(ctx context.Context) {
 			}
 			continue
 		}
-		w.reportEngine(service.EngineReport{Present: true, Version: engine.Version, APIVersion: engine.APIVersion})
+		w.reportEngine(container.EngineReport{Present: true, Version: engine.Version, APIVersion: engine.APIVersion})
 		w.deliverInventory(ctx)
 		if err := w.follow(ctx); err != nil && ctx.Err() == nil {
 			w.logger.Warn("docker event stream lost", "error", err)
@@ -109,24 +109,24 @@ func (w *Watcher) Run(ctx context.Context) {
 	}
 }
 
-func engineReport(engine dockerapi.Engine, err error) service.EngineReport {
-	report := service.EngineReport{Version: engine.Version, APIVersion: engine.APIVersion}
+func engineReport(engine dockerapi.Engine, err error) container.EngineReport {
+	report := container.EngineReport{Version: engine.Version, APIVersion: engine.APIVersion}
 	switch {
 	case errors.Is(err, dockerapi.ErrNoSocket):
-		report.Reason = service.ReasonNoSocket
+		report.Reason = container.ReasonNoSocket
 	case errors.Is(err, dockerapi.ErrSocketDenied):
-		report.Reason = service.ReasonDenied
+		report.Reason = container.ReasonDenied
 	case errors.Is(err, dockerapi.ErrVersionTooOld):
-		report.Reason = service.ReasonTooOld
+		report.Reason = container.ReasonTooOld
 	default:
-		report.Reason = service.ReasonDown
+		report.Reason = container.ReasonDown
 	}
 	return report
 }
 
 // reportEngine ne parle que si l'état du démon change : un Docker absent
 // ne remplit pas le signal d'une machine sans Docker.
-func (w *Watcher) reportEngine(report service.EngineReport) {
+func (w *Watcher) reportEngine(report container.EngineReport) {
 	w.mu.Lock()
 	same := w.engine != nil && *w.engine == report
 	w.engine = &report
@@ -134,7 +134,7 @@ func (w *Watcher) reportEngine(report service.EngineReport) {
 	if same {
 		return
 	}
-	w.sink.Deliver(service.Report{Engine: &report})
+	w.sink.Deliver(container.Report{Engine: &report})
 }
 
 // deliverInventory livre les conteneurs et les réseaux de la machine, les
@@ -150,7 +150,7 @@ func (w *Watcher) deliverInventory(ctx context.Context) {
 		w.logger.Warn("docker networks", "error", err)
 		return
 	}
-	w.sink.Deliver(service.Report{Complete: true, Inventory: inventory, NetworksComplete: true, Networks: networks})
+	w.sink.Deliver(container.Report{Complete: true, Inventory: inventory, NetworksComplete: true, Networks: networks})
 }
 
 // deliverNetworks ne relit que les réseaux : après un réseau créé ou
@@ -161,55 +161,55 @@ func (w *Watcher) deliverNetworks(ctx context.Context) {
 		w.logger.Warn("docker networks", "error", err)
 		return
 	}
-	w.sink.Deliver(service.Report{NetworksComplete: true, Networks: networks})
+	w.sink.Deliver(container.Report{NetworksComplete: true, Networks: networks})
 }
 
-func (w *Watcher) networks(ctx context.Context) ([]service.NetworkReport, error) {
+func (w *Watcher) networks(ctx context.Context) ([]container.NetworkReport, error) {
 	list, err := w.client.ListNetworks(ctx)
 	if err != nil {
 		return nil, err
 	}
-	networks := make([]service.NetworkReport, 0, len(list))
+	networks := make([]container.NetworkReport, 0, len(list))
 	for _, network := range list {
-		networks = append(networks, service.NetworkReport{
+		networks = append(networks, container.NetworkReport{
 			NetworkID: network.ID, Name: network.Name, Driver: network.Driver, Internal: network.Internal,
 			Group: network.Labels[dockerapi.LabelComposeProject],
 		})
 	}
-	if len(networks) > service.MaxNetworksPerMachine {
-		networks = networks[:service.MaxNetworksPerMachine]
+	if len(networks) > container.MaxNetworksPerMachine {
+		networks = networks[:container.MaxNetworksPerMachine]
 	}
 	return networks, nil
 }
 
 // inventory liste puis inspecte chaque conteneur ; un « compose run » est
 // laissé de côté, un conteneur disparu entre les deux aussi.
-func (w *Watcher) inventory(ctx context.Context) ([]service.Container, error) {
+func (w *Watcher) inventory(ctx context.Context) ([]container.Observed, error) {
 	list, err := w.client.ListContainers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	inventory := make([]service.Container, 0, len(list))
+	inventory := make([]container.Observed, 0, len(list))
 	for _, summary := range list {
 		if summary.IsOneOff() {
 			continue
 		}
-		container, err := w.inspect(ctx, summary.ID)
+		observed, err := w.inspect(ctx, summary.ID)
 		if errors.Is(err, dockerapi.ErrNotFound) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
-		inventory = append(inventory, container)
+		inventory = append(inventory, observed)
 	}
 	return inventory, nil
 }
 
-func (w *Watcher) inspect(ctx context.Context, id string) (service.Container, error) {
+func (w *Watcher) inspect(ctx context.Context, id string) (container.Observed, error) {
 	inspected, err := w.client.Inspect(ctx, id)
 	if err != nil {
-		return service.Container{}, err
+		return container.Observed{}, err
 	}
 	return toContainer(inspected), nil
 }
@@ -267,7 +267,7 @@ func (w *Watcher) follow(ctx context.Context) error {
 	}
 }
 
-// handleEvent traduit une action Docker en événement de service, avec le
+// handleEvent traduit une action Docker en événement de conteneur, avec le
 // conteneur réinspecté ; les actions qui ne changent ni l'état ni la
 // santé ni le nom ni les réseaux sont ignorées, le prochain inventaire
 // couvre le reste. Un réseau créé ou détruit fait relire la liste.
@@ -284,33 +284,33 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 	if !wanted {
 		return
 	}
-	if event.Action == service.ActionDestroy {
+	if event.Action == container.ActionDestroy {
 		w.forgetCounters(event.ContainerID)
 		w.forgetStopRequest(event.ContainerID)
-		w.sink.Deliver(service.Report{Events: []service.Event{event}})
+		w.sink.Deliver(container.Report{Events: []container.Event{event}})
 		return
 	}
 	inspected, err := w.client.Inspect(ctx, event.ContainerID)
 	isGone := errors.Is(err, dockerapi.ErrNotFound)
-	var container service.Container
+	var observed container.Observed
 	if err == nil {
-		container = toContainer(inspected)
-		event.Container = &container
+		observed = toContainer(inspected)
+		event.Container = &observed
 	} else if !isGone {
 		w.logger.Warn("inspect after event", "action", raw.Action, "error", err)
 	}
 	if event.Action == "die" {
 		// Un conteneur qu'on retire (rm -f, compose down) est tué en
 		// SIGKILL sans « stop » : c'est demandé aussi.
-		isRemoved := isGone || inspected.State.Status == string(service.StateRemoving)
+		isRemoved := isGone || inspected.State.Status == string(container.StateRemoving)
 		event.Killed = event.ExitCode != nil && *event.ExitCode == exitCodeKilled &&
-			!container.OOMKilled && !isRemoved && !w.takeStopRequest(event.ContainerID, event.At, stopTimeout(inspected))
+			!observed.OOMKilled && !isRemoved && !w.takeStopRequest(event.ContainerID, event.At, stopTimeout(inspected))
 	}
 	// Le manque de mémoire ne se lit qu'à l'inspection : elle passe avant.
-	if event.Action == "die" && event.ExitCode != nil && !service.IsCleanStop(*event.ExitCode, container.OOMKilled, event.Killed) {
+	if event.Action == "die" && event.ExitCode != nil && !container.IsCleanStop(*event.ExitCode, observed.OOMKilled, event.Killed) {
 		event.Snippet = w.snippet(ctx, event.ContainerID)
 	}
-	w.sink.Deliver(service.Report{Events: []service.Event{event}})
+	w.sink.Deliver(container.Report{Events: []container.Event{event}})
 }
 
 // exitCodeKilled est le code d'un processus tué par SIGKILL (128 + 9).
@@ -362,46 +362,46 @@ func stopTimeout(inspected dockerapi.Container) time.Duration {
 // « stop » ou un « kill » ne changent rien par eux-mêmes : le « die » qui
 // suit porte l'état et le code de sortie. Sur un réseau, l'acteur est le
 // réseau : le conteneur est dans les attributs.
-func translate(raw dockerapi.Event) (service.Event, bool) {
+func translate(raw dockerapi.Event) (container.Event, bool) {
 	if raw.Type == "network" {
 		return translateNetwork(raw)
 	}
-	event := service.Event{At: raw.At(), Action: raw.Action, ContainerID: raw.Actor.ID}
+	event := container.Event{At: raw.At(), Action: raw.Action, ContainerID: raw.Actor.ID}
 	if strings.HasPrefix(raw.Action, "health_status") {
 		_, status, _ := strings.Cut(raw.Action, ": ")
 		event.Action = "health_status"
-		event.Health = service.Health(status)
+		event.Health = container.Health(status)
 		return event, event.Health != ""
 	}
 	switch raw.Action {
 	case "create":
-		event.State = service.StateCreated
+		event.State = container.StateCreated
 	case "start", "unpause":
-		event.State = service.StateRunning
+		event.State = container.StateRunning
 	case "pause":
-		event.State = service.StatePaused
+		event.State = container.StatePaused
 	case "die":
-		event.State = service.StateExited
+		event.State = container.StateExited
 		code := raw.ExitCode()
 		if code >= 0 {
 			event.ExitCode = &code
 		}
-	case "rename", service.ActionDestroy:
+	case "rename", container.ActionDestroy:
 	default:
-		return service.Event{}, false
+		return container.Event{}, false
 	}
 	return event, true
 }
 
-func translateNetwork(raw dockerapi.Event) (service.Event, bool) {
-	event := service.Event{At: raw.At(), ContainerID: raw.Actor.Attributes["container"]}
+func translateNetwork(raw dockerapi.Event) (container.Event, bool) {
+	event := container.Event{At: raw.At(), ContainerID: raw.Actor.Attributes["container"]}
 	switch raw.Action {
 	case "connect":
-		event.Action = service.ActionNetworkConnect
+		event.Action = container.ActionNetworkConnect
 	case "disconnect":
-		event.Action = service.ActionNetworkDisconnect
+		event.Action = container.ActionNetworkDisconnect
 	default:
-		return service.Event{}, false
+		return container.Event{}, false
 	}
 	return event, event.ContainerID != ""
 }
@@ -409,7 +409,7 @@ func translateNetwork(raw dockerapi.Event) (service.Event, bool) {
 // snippet lit les dernières lignes du journal d'un conteneur qui vient de
 // s'arrêter mal ; bornées en lignes et en octets.
 func (w *Watcher) snippet(ctx context.Context, id string) string {
-	reader, err := w.client.Logs(ctx, id, dockerapi.LogsOptions{Tail: service.SnippetLines})
+	reader, err := w.client.Logs(ctx, id, dockerapi.LogsOptions{Tail: container.SnippetLines})
 	if err != nil {
 		return ""
 	}
@@ -423,8 +423,8 @@ func (w *Watcher) snippet(ctx context.Context, id string) string {
 		lines = append(lines, line.Text)
 	}
 	snippet := strings.Join(lines, "\n")
-	if len(snippet) > service.MaxSnippetBytes {
-		snippet = snippet[len(snippet)-service.MaxSnippetBytes:]
+	if len(snippet) > container.MaxSnippetBytes {
+		snippet = snippet[len(snippet)-container.MaxSnippetBytes:]
 	}
 	return snippet
 }
@@ -443,9 +443,9 @@ func (w *Watcher) deliverStats(ctx context.Context) {
 		w.logger.Warn("list for stats", "error", err)
 		return
 	}
-	var stats []service.Stat
+	var stats []container.Stat
 	for _, summary := range list {
-		if summary.State != string(service.StateRunning) || summary.IsOneOff() {
+		if summary.State != string(container.StateRunning) || summary.IsOneOff() {
 			continue
 		}
 		measured, err := w.client.Stats(ctx, summary.ID)
@@ -458,20 +458,20 @@ func (w *Watcher) deliverStats(ctx context.Context) {
 		}
 	}
 	if len(stats) > 0 {
-		w.sink.Deliver(service.Report{Stats: stats})
+		w.sink.Deliver(container.Report{Stats: stats})
 	}
 }
 
 // toStat fait le delta de processeur avec la mesure précédente. Un compteur
 // qui recule (conteneur relancé) vaut une première mesure : rien ce tour.
-func (w *Watcher) toStat(id string, measured dockerapi.Stats) (service.Stat, bool) {
+func (w *Watcher) toStat(id string, measured dockerapi.Stats) (container.Stat, bool) {
 	current := cpuCounters{total: measured.CPU.Usage.Total, system: measured.CPU.System}
 	w.mu.Lock()
 	previous, hasPrevious := w.previous[id]
 	w.previous[id] = current
 	w.mu.Unlock()
 	if !hasPrevious || current.total < previous.total || current.system <= previous.system {
-		return service.Stat{}, false
+		return container.Stat{}, false
 	}
 	cpuDelta := float64(current.total - previous.total)
 	systemDelta := float64(current.system - previous.system)
@@ -483,7 +483,7 @@ func (w *Watcher) toStat(id string, measured dockerapi.Stats) (service.Stat, boo
 	if sampledAt.IsZero() {
 		sampledAt = time.Now().UTC()
 	}
-	return service.Stat{
+	return container.Stat{
 		ContainerID: id,
 		SampledAt:   sampledAt.Truncate(time.Second),
 		CPUPercent:  cpuDelta / systemDelta * float64(cores) * 100,
@@ -499,15 +499,15 @@ func clampInt64(value uint64) int64 {
 	return int64(value)
 }
 
-// toContainer fait un conteneur de service d'un conteneur inspecté.
-func toContainer(inspected dockerapi.Container) service.Container {
-	container := service.Container{
+// toContainer fait le conteneur observé de ce que Docker a inspecté.
+func toContainer(inspected dockerapi.Container) container.Observed {
+	observed := container.Observed{
 		ContainerID:  inspected.ID,
 		Name:         inspected.ShortName(),
 		Group:        inspected.Config.Labels[dockerapi.LabelComposeProject],
 		Image:        inspected.Config.Image,
 		ImageID:      inspected.Image,
-		State:        service.State(inspected.State.Status),
+		State:        container.State(inspected.State.Status),
 		ExitCode:     inspected.State.ExitCode,
 		OOMKilled:    inspected.State.OOMKilled,
 		RestartCount: inspected.RestartCount,
@@ -519,27 +519,27 @@ func toContainer(inspected dockerapi.Container) service.Container {
 		CreatedAt:    dockerapi.ParseTime(inspected.Created),
 	}
 	if composeService := inspected.Config.Labels[dockerapi.LabelComposeService]; composeService != "" {
-		container.Name = composeService
-		container.ComposeService = composeService
-		container.ComposeDir = inspected.Config.Labels[dockerapi.LabelComposeWorkingDir]
-		container.ComposeFile, _, _ = strings.Cut(inspected.Config.Labels[dockerapi.LabelComposeConfigFiles], ",")
+		observed.Name = composeService
+		observed.ComposeService = composeService
+		observed.ComposeDir = inspected.Config.Labels[dockerapi.LabelComposeWorkingDir]
+		observed.ComposeFile, _, _ = strings.Cut(inspected.Config.Labels[dockerapi.LabelComposeConfigFiles], ",")
 	}
 	if inspected.State.Health != nil {
-		container.Health = service.Health(inspected.State.Health.Status)
+		observed.Health = container.Health(inspected.State.Health.Status)
 	}
 	if started := dockerapi.ParseTime(inspected.State.StartedAt); !started.IsZero() {
-		container.StartedAt = &started
+		observed.StartedAt = &started
 	}
 	if finished := dockerapi.ParseTime(inspected.State.FinishedAt); !finished.IsZero() {
-		container.FinishedAt = &finished
+		observed.FinishedAt = &finished
 	}
-	return container
+	return observed
 }
 
 // publishedPorts lit « 80/tcp » → [{127.0.0.1 18080}] ; un port exposé
 // sans publication n'a pas de liaison et ne compte pas.
-func publishedPorts(ports map[string][]dockerapi.PortBinding) []service.Port {
-	var published []service.Port
+func publishedPorts(ports map[string][]dockerapi.PortBinding) []container.Port {
+	var published []container.Port
 	for key, bindings := range ports {
 		containerPort, protocol := splitPortKey(key)
 		for _, binding := range bindings {
@@ -547,24 +547,24 @@ func publishedPorts(ports map[string][]dockerapi.PortBinding) []service.Port {
 			if containerPort == 0 || hostPort == 0 {
 				continue
 			}
-			published = append(published, service.Port{IP: binding.HostIP, HostPort: hostPort, ContainerPort: containerPort, Protocol: protocol})
+			published = append(published, container.Port{IP: binding.HostIP, HostPort: hostPort, ContainerPort: containerPort, Protocol: protocol})
 		}
 	}
 	sortPorts(published)
-	if len(published) > service.MaxPortsPerContainer {
-		published = published[:service.MaxPortsPerContainer]
+	if len(published) > container.MaxPortsPerContainer {
+		published = published[:container.MaxPortsPerContainer]
 	}
 	return published
 }
 
 // attachments lit les réseaux joints, par nom ; l'alias qu'est l'id court
 // du conteneur n'apprend rien et n'est pas gardé.
-func attachments(inspected dockerapi.Container) []service.Attachment {
+func attachments(inspected dockerapi.Container) []container.Attachment {
 	shortID := inspected.ID
 	if len(shortID) > 12 {
 		shortID = shortID[:12]
 	}
-	var joined []service.Attachment
+	var joined []container.Attachment
 	for name, endpoint := range inspected.Network.Networks {
 		// Un conteneur tout juste créé n'a pas encore d'identifiant de réseau :
 		// ce rattachement-là n'est pas encore un fait, le prochain inventaire
@@ -582,14 +582,14 @@ func attachments(inspected dockerapi.Container) []service.Attachment {
 				aliases = append(aliases, alias)
 			}
 		}
-		if len(aliases) > service.MaxAliasesPerNetwork {
-			aliases = aliases[:service.MaxAliasesPerNetwork]
+		if len(aliases) > container.MaxAliasesPerNetwork {
+			aliases = aliases[:container.MaxAliasesPerNetwork]
 		}
-		joined = append(joined, service.Attachment{NetworkID: endpoint.NetworkID, Name: name, IP: endpoint.IPAddress, Aliases: aliases})
+		joined = append(joined, container.Attachment{NetworkID: endpoint.NetworkID, Name: name, IP: endpoint.IPAddress, Aliases: aliases})
 	}
 	sort.Slice(joined, func(i, j int) bool { return joined[i].Name < joined[j].Name })
-	if len(joined) > service.MaxNetworksPerContainer {
-		joined = joined[:service.MaxNetworksPerContainer]
+	if len(joined) > container.MaxNetworksPerContainer {
+		joined = joined[:container.MaxNetworksPerContainer]
 	}
 	return joined
 }
@@ -597,23 +597,23 @@ func attachments(inspected dockerapi.Container) []service.Attachment {
 // dependencies lit les dépendances déclarées : le label Compose
 // « db:service_started:false,cache:service_healthy:true » donne des noms de
 // services ; un lien « /db:/web/db » donne un nom de conteneur.
-func dependencies(inspected dockerapi.Container) []service.Dependency {
-	var declared []service.Dependency
+func dependencies(inspected dockerapi.Container) []container.Dependency {
+	var declared []container.Dependency
 	for _, entry := range strings.Split(inspected.Config.Labels[dockerapi.LabelComposeDependsOn], ",") {
 		name, _, _ := strings.Cut(entry, ":")
 		if name != "" {
-			declared = append(declared, service.Dependency{Name: name, Source: service.DependencyCompose})
+			declared = append(declared, container.Dependency{Name: name, Source: container.DependencyCompose})
 		}
 	}
 	for _, link := range inspected.Host.Links {
 		target, _, _ := strings.Cut(link, ":")
 		target = strings.TrimPrefix(target, "/")
 		if target != "" {
-			declared = append(declared, service.Dependency{Name: target, Source: service.DependencyLink})
+			declared = append(declared, container.Dependency{Name: target, Source: container.DependencyLink})
 		}
 	}
-	if len(declared) > service.MaxDependencies {
-		declared = declared[:service.MaxDependencies]
+	if len(declared) > container.MaxDependencies {
+		declared = declared[:container.MaxDependencies]
 	}
 	return declared
 }
@@ -646,7 +646,7 @@ func atoi(value string) int {
 	return number
 }
 
-func sortPorts(ports []service.Port) {
+func sortPorts(ports []container.Port) {
 	for i := 1; i < len(ports); i++ {
 		for j := i; j > 0 && lessPort(ports[j], ports[j-1]); j-- {
 			ports[j], ports[j-1] = ports[j-1], ports[j]
@@ -654,7 +654,7 @@ func sortPorts(ports []service.Port) {
 	}
 }
 
-func lessPort(a, b service.Port) bool {
+func lessPort(a, b container.Port) bool {
 	if a.HostPort != b.HostPort {
 		return a.HostPort < b.HostPort
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
@@ -34,7 +35,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -118,12 +118,12 @@ func runServe(args []string) error {
 	heartbeats.SetWatcher(bus)
 	resources := resource.New(db, logger)
 	resources.SetWatcher(bus)
-	services := service.New(db, logger)
-	services.SetWatcher(bus)
+	containers := container.New(db, logger)
+	containers.SetWatcher(bus)
 	// La machine openCloud veille son propre Docker, sans passer par le
 	// réseau : ce que le veilleur observe s'écrit directement.
-	watcher := dockerwatch.New(dockerapi.New(cfg.DockerSocket), localSink{ctx: ctx, services: services, logger: logger}, dockerwatch.Options{Logger: logger})
-	services.SetLocalLogSource(machine.LocalID, watcher)
+	watcher := dockerwatch.New(dockerapi.New(cfg.DockerSocket), localSink{ctx: ctx, containers: containers, logger: logger}, dockerwatch.Options{Logger: logger})
+	containers.SetLocalLogSource(machine.LocalID, watcher)
 	probes := probe.New(db, logger)
 	probes.SetWatcher(bus)
 	declared := directory.New(db, logger)
@@ -136,15 +136,15 @@ func runServe(args []string) error {
 	// trousseau Docker ; les constats s'écrivent sans passer par le réseau.
 	updates := update.New(db, logger)
 	updates.SetWatcher(bus)
-	// L'annuaire lit ce que les machines montrent ; le suivi des services lui
+	// L'annuaire lit ce que les machines montrent ; le suivi des conteneurs lui
 	// demande les unités à chaque rapport, et l'annuaire lui demande de
 	// rattacher de nouveau après chaque écriture.
-	declared.SetObserved(services, updates)
-	declared.SetRematcher(services)
+	declared.SetObserved(containers, updates)
+	declared.SetRematcher(containers)
 	// La politique de mise à jour vit sur l'unité : l'annuaire dit au suivi
 	// des images de redire à la machine ce qu'elle ne doit plus interroger.
 	declared.SetAssigner(updates)
-	services.SetUnits(declared)
+	containers.SetUnits(declared)
 	docker := dockerapi.New(cfg.DockerSocket)
 	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: updates, logger: logger}, logger)
 	updates.SetLocalRunner(machine.LocalID, updater)
@@ -173,7 +173,7 @@ func runServe(args []string) error {
 	machines.SetAlerter(alerts)
 	heartbeats.SetListener(alerts)
 	resources.SetAlerter(alerts)
-	services.SetAlerter(alerts)
+	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
 	// L'accès d'un agent IA : le client OAuth, ses jetons, leur purge.
 	access := mcp.New(db, logger)
@@ -187,11 +187,11 @@ func runServe(args []string) error {
 	// Paramètres. Cette machine lit endoflife.date une fois par jour, deux
 	// au plus, pour les produits des images présentes et les systèmes des
 	// machines.
-	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
+	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
 	support.SetWatcher(bus)
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
-	// purge des services, le veilleur Docker, le rollup et la purge des
+	// purge des conteneurs, le veilleur Docker, le rollup et la purge des
 	// sondes, leur moteur, la purge des constats d'images et leur
 	// vérificateur, la page de statut, les machines perdues, le moteur des
 	// alertes, le notifieur, la purge des jetons MCP et la fin de support.
@@ -200,7 +200,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { resources.Watch(ctx) })
 	runLoop(&loops, func() { resources.SampleLocal(ctx, machine.LocalID, sampler.New(), resource.SampleInterval) })
-	runLoop(&loops, func() { services.Watch(ctx) })
+	runLoop(&loops, func() { containers.Watch(ctx) })
 	runLoop(&loops, func() { watcher.Run(ctx) })
 	runLoop(&loops, func() { probes.Watch(ctx) })
 	runLoop(&loops, func() { prober.Run(ctx) })
@@ -220,7 +220,7 @@ func runServe(args []string) error {
 	// le serveur était arrêté, sont rattachés sans attendre l'inventaire
 	// suivant de chaque agent. Les exclusions se disent après : c'est
 	// l'unité rattachée qui porte la politique.
-	services.RematchAll(ctx)
+	containers.RematchAll(ctx)
 	updates.Assign(ctx, machine.LocalID)
 	logServicesToReview(ctx, declared, logger)
 
@@ -231,7 +231,7 @@ func runServe(args []string) error {
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,
-		Services:       services,
+		Containers:     containers,
 		Probes:         probes,
 		Directory:      declared,
 		Updates:        updates,
@@ -252,7 +252,7 @@ func runServe(args []string) error {
 		return err
 	}
 	// Le serveur tient les flux des agents : c'est lui qui leur commande.
-	services.SetCommander(server)
+	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), cfg)
@@ -444,14 +444,14 @@ func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *htt
 
 // localSink écrit ce que le veilleur de la machine openCloud observe.
 type localSink struct {
-	ctx      context.Context
-	services *service.Tracker
-	logger   *slog.Logger
+	ctx        context.Context
+	containers *container.Tracker
+	logger     *slog.Logger
 }
 
-func (s localSink) Deliver(report service.Report) {
-	if err := s.services.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
-		s.logger.Error("record local services", "error", err)
+func (s localSink) Deliver(report container.Report) {
+	if err := s.containers.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
+		s.logger.Error("record local containers", "error", err)
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -22,7 +22,7 @@ type commandRunner struct {
 	ctx     context.Context
 	client  *Client
 	session string
-	logs    service.LogSource
+	logs    container.LogSource
 	probes  probe.Assignable
 	updates update.Assignable
 	logger  *slog.Logger
@@ -31,16 +31,16 @@ type commandRunner struct {
 	open map[string]context.CancelFunc
 }
 
-func newCommandRunner(ctx context.Context, client *Client, session string, logs service.LogSource, probes probe.Assignable, updates update.Assignable, logger *slog.Logger) *commandRunner {
+func newCommandRunner(ctx context.Context, client *Client, session string, logs container.LogSource, probes probe.Assignable, updates update.Assignable, logger *slog.Logger) *commandRunner {
 	return &commandRunner{ctx: ctx, client: client, session: session, logs: logs, probes: probes, updates: updates, logger: logger, open: make(map[string]context.CancelFunc)}
 }
 
 func (r *commandRunner) handle(name, data string) {
 	switch name {
-	case service.CommandLogs:
+	case container.CommandLogs:
 		r.withLogRequest(name, data, r.startLogs)
-	case service.CommandLogsStop:
-		r.withLogRequest(name, data, func(request service.LogRequest) { r.stopLogs(request.ID) })
+	case container.CommandLogsStop:
+		r.withLogRequest(name, data, func(request container.LogRequest) { r.stopLogs(request.ID) })
 	case probe.CommandProbes:
 		r.assignProbes(name, data)
 	case update.CommandImages:
@@ -50,8 +50,8 @@ func (r *commandRunner) handle(name, data string) {
 	}
 }
 
-func (r *commandRunner) withLogRequest(name, data string, apply func(service.LogRequest)) {
-	var request service.LogRequest
+func (r *commandRunner) withLogRequest(name, data string, apply func(container.LogRequest)) {
+	var request container.LogRequest
 	if err := json.Unmarshal([]byte(data), &request); err != nil || request.ID == "" {
 		r.logger.Warn("bad command", "name", name)
 		return
@@ -82,7 +82,7 @@ func (r *commandRunner) assignImages(name, data string) {
 	r.updates.Assign(assignment)
 }
 
-func (r *commandRunner) startLogs(request service.LogRequest) {
+func (r *commandRunner) startLogs(request container.LogRequest) {
 	ctx, cancel := context.WithCancel(r.ctx)
 	r.mu.Lock()
 	r.open[request.ID] = cancel
@@ -105,10 +105,11 @@ func (r *commandRunner) stopLogs(requestID string) {
 
 // serveLogs fait suivre chaque lot au serveur ; un serveur qui ne veut
 // plus de la requête (404) arrête le suivi.
-func (r *commandRunner) serveLogs(ctx context.Context, request service.LogRequest) {
+func (r *commandRunner) serveLogs(ctx context.Context, request container.LogRequest) {
 	batches, err := r.logs.OpenLogs(ctx, request)
 	if err != nil {
-		_ = r.client.PostLogs(ctx, r.session, request.ID, service.LogBatch{Error: "service.logs_failed"})
+		// Clé figée : les agents installés l'envoient sous « service. ».
+		_ = r.client.PostLogs(ctx, r.session, request.ID, container.LogBatch{Error: "service.logs_failed"})
 		return
 	}
 	for batch := range batches {

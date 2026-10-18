@@ -28,7 +28,7 @@ export function describeAlert(t: Translate, alert: Alert, now: number, disks: Di
   const machine = alert.machine_name !== "" ? alert.machine_name : t("alert.no_machine");
   const object = alert.object.name;
   const details = alert.details;
-  // Arrêté ou relancé, un service qui plante en boucle se dit pareil :
+  // Arrêté ou relancé, un conteneur qui plante en boucle se dit pareil :
   // c'est la même alerte, dont le type suit l'état du moment.
   if (isRestartLoop(alert)) {
     return {
@@ -114,7 +114,7 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
     case "machine":
       return `/machines/${object.id}`;
     case "service":
-      return `/services/${object.id}`;
+      return `/services/conteneurs/${object.id}`;
     case "heartbeat":
       return `/taches/${object.id}`;
     case "probe":

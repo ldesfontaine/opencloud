@@ -190,7 +190,7 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
               <tr key={container.id}>
                 <td className="mono">{unit.name}</td>
                 <td>
-                  <Link className="mono" to={`/services/${container.id}`}>
+                  <Link className="mono" to={`/services/conteneurs/${container.id}`}>
                     {container.name}
                   </Link>
                 </td>

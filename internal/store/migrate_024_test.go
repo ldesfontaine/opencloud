@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
 
@@ -240,7 +240,7 @@ func unitNamed(t *testing.T, found directory.Service, name string) directory.Uni
 
 func ficheUnit(t *testing.T, db *DB, id string) string {
 	t.Helper()
-	return text(t, db, `SELECT unit_id FROM services WHERE id = ?`, id)
+	return text(t, db, `SELECT unit_id FROM containers WHERE id = ?`, id)
 }
 
 // assertRematchStable : la reprise ne doit laisser au rapprochement du
@@ -253,7 +253,7 @@ func assertRematchStable(t *testing.T, db *DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fiches, err := db.ListServices(ctx, "")
+	fiches, err := db.ListContainers(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestMigration024_ProbeOnComposeContainerFollowsTheNewService(t *testing.T) 
 	if ficheUnit(t, db, "m1:app") != unitNamed(t, created, "app").ID || ficheUnit(t, db, "m1:db") != unitNamed(t, created, "db").ID {
 		t.Fatal("les conteneurs du projet doivent être rattachés à leur unité")
 	}
-	if got := text(t, db, `SELECT match_level FROM services WHERE id = 'm1:app'`); got != string(service.MatchCompose) {
+	if got := text(t, db, `SELECT match_level FROM containers WHERE id = 'm1:app'`); got != string(container.MatchCompose) {
 		t.Fatalf("niveau = %q", got)
 	}
 	// Le conteneur seul, que rien ne visait, n'est pas repris.
@@ -336,15 +336,15 @@ func TestMigration024_RecreatedContainerArchivedLinkGoesToTheUnit(t *testing.T) 
 	if got := text(t, db, `SELECT service_id FROM probes WHERE id = 'probe1'`); got != created.ID {
 		t.Fatalf("la sonde vise %q", got)
 	}
-	if unit.UpdatePolicy != service.PolicyHold {
+	if unit.UpdatePolicy != container.PolicyHold {
 		t.Fatalf("politique de l'unité = %q, want hold", unit.UpdatePolicy)
 	}
 	if ficheUnit(t, db, "m1:old") != unit.ID || ficheUnit(t, db, "m1:new") != unit.ID {
 		t.Fatal("l'archivée et la vivante doivent être à la même unité")
 	}
 	// La fiche vivante, sans politique propre, lit celle de l'unité.
-	fresh, err := db.GetService(context.Background(), "m1:new")
-	if err != nil || fresh.UpdatePolicy != service.PolicyHold || fresh.DeclaredServiceID != created.ID {
+	fresh, err := db.GetContainer(context.Background(), "m1:new")
+	if err != nil || fresh.UpdatePolicy != container.PolicyHold || fresh.DeclaredServiceID != created.ID {
 		t.Fatalf("fiche vivante = %+v, %v", fresh, err)
 	}
 	assertRematchStable(t, db)
@@ -371,7 +371,7 @@ func TestMigration024_PolicyMostRecentFicheWins(t *testing.T) {
 	migrateToTheEnd(t, db)
 
 	created := declaredNamed(t, db, m1, "shop")
-	want := map[string]service.UpdatePolicy{"web": service.PolicyIgnore, "db": service.PolicyHold, "cache": service.PolicyHold, "extra": service.PolicyWatch}
+	want := map[string]container.UpdatePolicy{"web": container.PolicyIgnore, "db": container.PolicyHold, "cache": container.PolicyHold, "extra": container.PolicyWatch}
 	for name, policy := range want {
 		if got := unitNamed(t, created, name).UpdatePolicy; got != policy {
 			t.Errorf("unité %s : politique %q, want %q", name, got, policy)
@@ -451,10 +451,10 @@ func TestMigration024_UnlinkedContainersStayUndeclared(t *testing.T) {
 	if got := count(t, db, `SELECT COUNT(*) FROM service_units`); got != 0 {
 		t.Fatalf("%d unités créées pour rien", got)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM services WHERE unit_id IS NOT NULL`); got != 0 {
+	if got := count(t, db, `SELECT COUNT(*) FROM containers WHERE unit_id IS NOT NULL`); got != 0 {
 		t.Fatalf("%d fiches rattachées pour rien", got)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM services`); got != 3 {
+	if got := count(t, db, `SELECT COUNT(*) FROM containers`); got != 3 {
 		t.Fatalf("%d fiches, trois attendues", got)
 	}
 }
@@ -482,7 +482,7 @@ func TestMigration024_OperatorServiceReusedGainsUnitAndNeedsReview(t *testing.T)
 	if len(reused.Units) != 2 || reused.Units[0].Name != "app" || reused.Units[1].Name != "redis" {
 		t.Fatalf("unités = %+v", reused.Units)
 	}
-	if redis := unitNamed(t, reused, "redis"); redis.UpdatePolicy != service.PolicyHold || redis.Image != "redis" || redis.Version != "7.4" {
+	if redis := unitNamed(t, reused, "redis"); redis.UpdatePolicy != container.PolicyHold || redis.Image != "redis" || redis.Version != "7.4" {
 		t.Fatalf("unité ajoutée = %+v", redis)
 	}
 	if got := text(t, db, `SELECT service_id FROM probes WHERE id = 'probe1'`); got != "svc_ops" {
@@ -514,7 +514,7 @@ func TestMigration024_AttachedFicheKeepsItsUnit(t *testing.T) {
 	if got := ficheUnit(t, db, "m1:app"); got != "unit_nextcloud_db" {
 		t.Fatalf("la fiche a changé d'unité : %q", got)
 	}
-	if got := text(t, db, `SELECT match_level FROM services WHERE id = 'm1:app'`); got != "name" {
+	if got := text(t, db, `SELECT match_level FROM containers WHERE id = 'm1:app'`); got != "name" {
 		t.Fatalf("le niveau a changé : %q", got)
 	}
 	if got := text(t, db, `SELECT service_id FROM probes WHERE id = 'probe1'`); got != "svc_ops" {
@@ -566,9 +566,11 @@ func TestMigration024_KeepsProbeHistoryAndAlerts(t *testing.T) {
 
 	migrateToTheEnd(t, db)
 
+	// La 025 a renommé la table des fiches et la colonne de leurs alertes.
+	renamed := strings.NewReplacer("FROM services", "FROM containers", "alerts WHERE service_id", "alerts WHERE container_id")
 	for name, query := range counts {
 		want := before[name]
-		if got := count(t, db, query); got != want {
+		if got := count(t, db, renamed.Replace(query)); got != want {
 			t.Errorf("%s : %d avant, %d après", name, want, got)
 		}
 	}
@@ -593,13 +595,13 @@ func TestMigration024_EmptyDatabaseChangesNothing(t *testing.T) {
 
 	migrateToTheEnd(t, db)
 
-	for _, table := range []string{"declared_services", "service_units", "services", "probes", "status_component_members"} {
+	for _, table := range []string{"declared_services", "service_units", "containers", "probes", "status_component_members"} {
 		if got := count(t, db, `SELECT COUNT(*) FROM `+table); got != 0 {
 			t.Errorf("%s : %d lignes", table, got)
 		}
 	}
 	applied, err := db.AppliedVersions(context.Background())
-	if err != nil || applied[len(applied)-1] != 24 {
+	if err != nil || !slices.Contains(applied, 24) {
 		t.Fatalf("versions = %v, %v", applied, err)
 	}
 	// Les tables reconstruites gardent leur forme : seule la clé change.
@@ -733,7 +735,7 @@ func TestMigration024_StoppedInitContainerStaysUndeclared(t *testing.T) {
 	if got := ficheUnit(t, db, "m1:init"); got != "" {
 		t.Fatalf("init est rattaché à %q : il devait rester non déclaré", got)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM services WHERE id = 'm1:init'`); got != 1 {
+	if got := count(t, db, `SELECT COUNT(*) FROM containers WHERE id = 'm1:init'`); got != 1 {
 		t.Fatal("la fiche d'init a disparu")
 	}
 	if got := text(t, db, `SELECT service_id FROM status_component_members WHERE component_id = 'comp1'`); got != created.ID {

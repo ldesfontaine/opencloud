@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // memoryStore tient lieu de la base : les fiches et les constats qu'on lui
 // donne, rien d'autre.
 type memoryStore struct {
-	services []service.Service
-	checks   []update.Check
+	containers []container.Container
+	checks     []update.Check
 }
 
-func (m *memoryStore) ListServices(_ context.Context, machineID string) ([]service.Service, error) {
-	var found []service.Service
-	for _, candidate := range m.services {
+func (m *memoryStore) ListContainers(_ context.Context, machineID string) ([]container.Container, error) {
+	var found []container.Container
+	for _, candidate := range m.containers {
 		if machineID == "" || candidate.MachineID == machineID {
 			found = append(found, candidate)
 		}
@@ -52,10 +52,10 @@ func (r *recordingRunner) Assign(assignment update.Assignment) {
 	r.assignments = append(r.assignments, assignment)
 }
 
-func fiche(machineID, name, image string, policy service.UpdatePolicy) service.Service {
-	return service.Service{
-		ID: service.ID(machineID, name), MachineID: machineID, Kind: service.KindContainer, Name: name,
-		Image: image, State: service.StateRunning, UpdatePolicy: policy,
+func fiche(machineID, name, image string, policy container.UpdatePolicy) container.Container {
+	return container.Container{
+		ID: container.ID(machineID, name), MachineID: machineID, Kind: container.KindContainer, Name: name,
+		Image: image, State: container.StateRunning, UpdatePolicy: policy,
 	}
 }
 
@@ -69,14 +69,14 @@ func newService(store *memoryStore) (*update.Service, *recordingRunner) {
 // La politique d'une unité désigne les images que la machine ne doit jamais
 // interroger : « ignore » seulement, et une fiche archivée n'en désigne plus.
 func TestAssign_ExcludesImagesOfIgnoredUnits(t *testing.T) {
-	gone := fiche("m1", "gone", "old:1", service.PolicyIgnore)
+	gone := fiche("m1", "gone", "old:1", container.PolicyIgnore)
 	gone.ArchivedAt = time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	store := &memoryStore{services: []service.Service{
-		fiche("m1", "ignored", "nginx:1.27", service.PolicyIgnore),
-		fiche("m1", "held", "redis:7", service.PolicyHold),
-		fiche("m1", "watched", "postgres:16", service.PolicyWatch),
+	store := &memoryStore{containers: []container.Container{
+		fiche("m1", "ignored", "nginx:1.27", container.PolicyIgnore),
+		fiche("m1", "held", "redis:7", container.PolicyHold),
+		fiche("m1", "watched", "postgres:16", container.PolicyWatch),
 		gone,
-		fiche("m2", "elsewhere", "other:1", service.PolicyIgnore),
+		fiche("m2", "elsewhere", "other:1", container.PolicyIgnore),
 	}}
 	updates, runner := newService(store)
 
@@ -94,11 +94,11 @@ func TestAssign_ExcludesImagesOfIgnoredUnits(t *testing.T) {
 // ignorée, elle n'est pas comptée non plus ; seule « watch » compte.
 func TestCount_SkipsHeldAndIgnored(t *testing.T) {
 	store := &memoryStore{
-		services: []service.Service{
-			fiche("m1", "watched", "nginx:1.27", service.PolicyWatch),
-			fiche("m1", "held", "redis:7", service.PolicyHold),
-			fiche("m1", "ignored", "postgres:16", service.PolicyIgnore),
-			fiche("m1", "uptodate", "caddy:2", service.PolicyWatch),
+		containers: []container.Container{
+			fiche("m1", "watched", "nginx:1.27", container.PolicyWatch),
+			fiche("m1", "held", "redis:7", container.PolicyHold),
+			fiche("m1", "ignored", "postgres:16", container.PolicyIgnore),
+			fiche("m1", "uptodate", "caddy:2", container.PolicyWatch),
 		},
 		checks: []update.Check{
 			{MachineID: "m1", Image: "nginx:1.27", Kind: update.KindMinor, NewerTag: "1.29"},

@@ -4,24 +4,24 @@ import type { NetworkResponse, ProbesResponse } from "../api/types";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { layoutNetwork, publicPorts } from "../lib/network";
-import { engineNote } from "../lib/services";
+import { engineNote } from "../lib/containers";
 import { Card, CardBody, Empty, Note } from "./Card";
 import { Failure } from "./Failure";
 import { NetworkGraph } from "./NetworkGraph";
 import { NetworkInspector } from "./NetworkInspector";
-import { ServiceFilter, useServiceFilter } from "./ServiceTable";
+import { ContainerFilter, useContainerFilter } from "./ContainerTable";
 import "./NetworkView.scss";
 
 // L'onglet Réseau d'une machine : le filtre de l'onglet Services, le
 // graphe et l'inspecteur. Le direct relit la topologie sur le sujet
-// services ; la sélection tient par identifiant, elle survit à la relecture.
+// conteneurs ; la sélection tient par identifiant, elle survit à la relecture.
 export function NetworkView({ machineID }: { machineID: string }) {
   const t = useT();
   const network = useResource<NetworkResponse>(`/api/machines/${machineID}/network`);
   // Les sondes de cette machine servent la ligne « Certificat » de
   // l'inspecteur : le graphe dit les liens, la sonde dit ce qu'elle a vu.
   const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
-  const [filter, setFilter] = useServiceFilter();
+  const [filter, setFilter] = useContainerFilter();
   const [selected, setSelected] = useState<string | null>(null);
   const response = network.data;
   const layout = useMemo(() => (response ? layoutNetwork(response, filter) : null), [response, filter]);
@@ -31,7 +31,7 @@ export function NetworkView({ machineID }: { machineID: string }) {
   if (!response || !layout) {
     return null;
   }
-  if (response.services.length === 0) {
+  if (response.containers.length === 0) {
     const note = engineNote(t, response.engine ?? undefined);
     return (
       <Card>
@@ -49,8 +49,8 @@ export function NetworkView({ machineID }: { machineID: string }) {
     <div className="network-view">
       {network.error && <Failure error={network.error} />}
       <div className="table-bar network-bar">
-        <ServiceFilter value={filter} onChange={setFilter} />
-        <span className="secondary">{t("network.shown", visible, response.services.length)}</span>
+        <ContainerFilter value={filter} onChange={setFilter} />
+        <span className="secondary">{t("network.shown", visible, response.containers.length)}</span>
       </div>
       <div className="network-body">
         <NetworkGraph layout={layout} ports={publicPorts(response.edges)} selected={selected} onSelect={setSelected} />

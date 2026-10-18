@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"math"
@@ -95,13 +95,13 @@ func validateNetwork(network NetworkReport) error {
 // validateContainer rend le conteneur sans ses rattachements réseau
 // invalides (un conteneur tout juste créé n'a pas encore d'identifiant de
 // réseau), ou une erreur si c'est le conteneur lui-même qui l'est.
-func validateContainer(container Container, now time.Time) (Container, []discard, error) {
+func validateContainer(container Observed, now time.Time) (Observed, []discard, error) {
 	var discards []discard
 	container.Networks, discards = keepAttachments(container)
 	return container, discards, checkContainer(container, now)
 }
 
-func checkContainer(container Container, now time.Time) error {
+func checkContainer(container Observed, now time.Time) error {
 	if !isContainerID(container.ContainerID) || container.Name == "" || len(container.Name) > MaxNameLength {
 		return invalid("identifiant, nom ou longueur du nom")
 	}
@@ -131,7 +131,7 @@ func checkContainer(container Container, now time.Time) error {
 // keepAttachments écarte les rattachements réseau qu'un agent n'a pas pu
 // observer : sans identifiant de réseau (Docker n'en donne pas encore à un
 // conteneur tout juste créé), sans nom, ou illisibles.
-func keepAttachments(container Container) ([]Attachment, []discard) {
+func keepAttachments(container Observed) ([]Attachment, []discard) {
 	var kept []Attachment
 	var discards []discard
 	for _, attachment := range container.Networks {
@@ -161,7 +161,7 @@ func checkAttachment(attachment Attachment) error {
 	return nil
 }
 
-func validateNetworking(container Container) error {
+func validateNetworking(container Observed) error {
 	if len(container.NetworkMode) > MaxNameLength || len(container.Networks) > MaxNetworksPerContainer || len(container.DependsOn) > MaxDependencies {
 		return invalid("mode réseau, réseaux ou dépendances en trop")
 	}

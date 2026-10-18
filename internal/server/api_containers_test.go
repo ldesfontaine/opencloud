@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -74,24 +74,24 @@ func readStreamEvent(t *testing.T, reader *bufio.Reader) (string, string) {
 // Le signal porte la section services : elle s'écrit au nom de la machine
 // de la session, un rapport hors de mesure est refusé, un agent sans
 // section passe.
-func TestAgentSignal_CarriesServicesAndRefusesBadReports(t *testing.T) {
+func TestAgentSignal_CarriesContainersAndRefusesBadReports(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
 	resp, session, _, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
 
-	report := service.Report{Complete: true, Inventory: []service.Container{{
-		ContainerID: strings.Repeat("c", 64), Name: "web", Image: "nginx:1.27", State: service.StateRunning, CreatedAt: testNow,
+	report := container.Report{Complete: true, Inventory: []container.Observed{{
+		ContainerID: strings.Repeat("c", 64), Name: "web", Image: "nginx:1.27", State: container.StateRunning, CreatedAt: testNow,
 	}}}
 	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Services: &report}); got.Code != http.StatusNoContent {
 		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
-	services, err := server.services.List(context.Background(), remoteID)
-	if err != nil || len(services) != 1 || services[0].Name != "web" {
-		t.Fatalf("services = %+v %v", services, err)
+	containers, err := server.containers.List(context.Background(), remoteID)
+	if err != nil || len(containers) != 1 || containers[0].Name != "web" {
+		t.Fatalf("containers = %+v %v", containers, err)
 	}
-	bad := service.Report{Engine: &service.EngineReport{Present: false}}
+	bad := container.Report{Engine: &container.EngineReport{Present: false}}
 	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Services: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_services") {
 		t.Fatalf("bad report: %d %s", got.Code, got.Body.String())
 	}
@@ -100,19 +100,19 @@ func TestAgentSignal_CarriesServicesAndRefusesBadReports(t *testing.T) {
 // Une demande de journaux part par le flux de l'agent, les lots reviennent
 // par POST et sortent en SSE vers le navigateur ; un lot pour une requête
 // inconnue est refusé.
-func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
+func TestContainerLogs_RemoteRoundTrip(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
 	resp, session, agentStream, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 
 	live := httptest.NewServer(server.Server)
 	defer live.Close()
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/services/"+serviceID+"/logs/stream?tail=20", nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/containers/"+containerID+"/logs/stream?tail=20", nil)
 	browser, err := live.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -122,8 +122,8 @@ func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("stream: %d %s", browser.StatusCode, browser.Header.Get("Content-Type"))
 	}
 
-	data := readCommand(t, agentStream, service.CommandLogs)
-	var command service.LogRequest
+	data := readCommand(t, agentStream, container.CommandLogs)
+	var command container.LogRequest
 	if err := json.Unmarshal([]byte(data), &command); err != nil {
 		t.Fatal(err)
 	}
@@ -131,15 +131,15 @@ func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("command %+v", command)
 	}
 
-	if got := server.agentPost(session, "/agent/logs/unknown", service.LogBatch{}); got.Code != http.StatusNotFound {
+	if got := server.agentPost(session, "/agent/logs/unknown", container.LogBatch{}); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown request: %d", got.Code)
 	}
 	at := testNow
-	batch := service.LogBatch{Lines: []service.LogLine{{At: at, Stream: "stdout", Text: "ready"}, {Stream: "stderr", Text: "oops"}}}
+	batch := container.LogBatch{Lines: []container.LogLine{{At: at, Stream: "stdout", Text: "ready"}, {Stream: "stderr", Text: "oops"}}}
 	if got := server.agentPost(session, "/agent/logs/"+command.ID, batch); got.Code != http.StatusNoContent {
 		t.Fatalf("deliver: %d %s", got.Code, got.Body.String())
 	}
-	if got := server.agentPost(session, "/agent/logs/"+command.ID, service.LogBatch{Done: true}); got.Code != http.StatusNoContent {
+	if got := server.agentPost(session, "/agent/logs/"+command.ID, container.LogBatch{Done: true}); got.Code != http.StatusNoContent {
 		t.Fatalf("deliver done: %d", got.Code)
 	}
 
@@ -153,32 +153,32 @@ func TestServiceLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("events = %v", events)
 	}
 	// Le serveur ne veut plus rien pour cette requête.
-	if got := server.agentPost(session, "/agent/logs/"+command.ID, service.LogBatch{}); got.Code != http.StatusNotFound {
+	if got := server.agentPost(session, "/agent/logs/"+command.ID, container.LogBatch{}); got.Code != http.StatusNotFound {
 		t.Fatalf("after done: %d", got.Code)
 	}
 }
 
 // Quand le navigateur part, l'agent reçoit l'ordre d'arrêter.
-func TestServiceLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
+func TestContainerLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
 	resp, _, agentStream, cancel := openStream(t, server, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 
 	live := httptest.NewServer(server.Server)
 	defer live.Close()
 	ctx, stop := context.WithCancel(context.Background())
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/services/"+serviceID+"/logs/stream", nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/containers/"+containerID+"/logs/stream", nil)
 	browser, err := live.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := readCommand(t, agentStream, service.CommandLogs)
+	data := readCommand(t, agentStream, container.CommandLogs)
 	browser.Body.Close()
 	stop()
-	stopData := readCommand(t, agentStream, service.CommandLogsStop)
+	stopData := readCommand(t, agentStream, container.CommandLogsStop)
 	if !strings.Contains(data, jsonID(t, stopData)) {
 		t.Fatalf("la commande d'arrêt ne porte pas la requête ouverte: %s", stopData)
 	}
@@ -186,7 +186,7 @@ func TestServiceLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 
 func jsonID(t *testing.T, data string) string {
 	t.Helper()
-	var request service.LogRequest
+	var request container.LogRequest
 	if err := json.Unmarshal([]byte(data), &request); err != nil {
 		t.Fatal(err)
 	}
@@ -194,20 +194,20 @@ func jsonID(t *testing.T, data string) string {
 }
 
 // Sans flux, les journaux d'une machine distante sont un refus traduit ;
-// la fiche d'un service inconnu est un 404.
-func TestServiceLogs_OfflineMachineAndUnknownService(t *testing.T) {
+// la fiche d'un conteneur inconnu est un 404.
+func TestContainerLogs_OfflineMachineAndUnknownContainer(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
-	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
-	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "service.machine_offline" {
+	containerID := server.seedContainers(t)
+	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
+	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "container.machine_offline" {
 		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
 	}
-	got = callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs/stream", nil)
+	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs/stream", nil)
 	if got.Code != http.StatusServiceUnavailable {
 		t.Fatalf("offline stream: %d", got.Code)
 	}
-	for _, path := range []string{"/api/services/nope", "/api/services/nope/transitions", "/api/services/nope/logs", "/api/machines/nope/services"} {
+	for _, path := range []string{"/api/containers/nope", "/api/containers/nope/transitions", "/api/containers/nope/logs", "/api/machines/nope/containers"} {
 		if got := callAPI(server.Server, http.MethodGet, path, nil); got.Code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, got.Code)
 		}
@@ -218,23 +218,23 @@ func TestServiceLogs_OfflineMachineAndUnknownService(t *testing.T) {
 // passe par la source locale, sans agent.
 type fakeLocalLogs struct{}
 
-func (fakeLocalLogs) OpenLogs(_ context.Context, request service.LogRequest) (<-chan service.LogBatch, error) {
-	batches := make(chan service.LogBatch, 1)
-	batches <- service.LogBatch{Lines: []service.LogLine{{At: testNow, Stream: "stdout", Text: "local line " + request.ContainerID[:4]}}, Done: true}
+func (fakeLocalLogs) OpenLogs(_ context.Context, request container.LogRequest) (<-chan container.LogBatch, error) {
+	batches := make(chan container.LogBatch, 1)
+	batches <- container.LogBatch{Lines: []container.LogLine{{At: testNow, Stream: "stdout", Text: "local line " + request.ContainerID[:4]}}, Done: true}
 	close(batches)
 	return batches, nil
 }
 
-func TestServiceLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
+func TestContainerLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
 	server := newTestServer(t)
-	server.services.SetLocalLogSource(machine.LocalID, fakeLocalLogs{})
-	report := service.Report{Complete: true, Inventory: []service.Container{{
-		ContainerID: strings.Repeat("d", 64), Name: "traefik", Image: "traefik:3.1", State: service.StateRunning, CreatedAt: testNow,
+	server.containers.SetLocalLogSource(machine.LocalID, fakeLocalLogs{})
+	report := container.Report{Complete: true, Inventory: []container.Observed{{
+		ContainerID: strings.Repeat("d", 64), Name: "traefik", Image: "traefik:3.1", State: container.StateRunning, CreatedAt: testNow,
 	}}}
-	if err := server.services.Record(context.Background(), machine.LocalID, report); err != nil {
+	if err := server.containers.Record(context.Background(), machine.LocalID, report); err != nil {
 		t.Fatal(err)
 	}
-	got := callAPI(server.Server, http.MethodGet, "/api/services/"+service.ID(machine.LocalID, strings.Repeat("d", 64))+"/logs?tail=5", nil)
+	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+container.ID(machine.LocalID, strings.Repeat("d", 64))+"/logs?tail=5", nil)
 	if got.Code != http.StatusOK {
 		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
 	}
@@ -247,7 +247,7 @@ func TestServiceLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
 
 // Une machine ne livre pas dans la requête poussée à une autre : sans quoi
 // un agent enrôlé écrirait dans les journaux qu'un onglet lit ailleurs.
-func TestServiceLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
+func TestContainerLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
 	server := newTestServer(t)
 	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
 	resp, session, agentStream, cancel := openStream(t, server, enrolled.ID, private)
@@ -257,24 +257,24 @@ func TestServiceLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
 	intruderResp, intruderSession, _, intruderCancel := openStream(t, server, intruder.ID, intruderKey)
 	defer intruderResp.Body.Close()
 	defer intruderCancel()
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 
 	live := httptest.NewServer(server.Server)
 	defer live.Close()
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/services/"+serviceID+"/logs/stream", nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, live.URL+"/api/containers/"+containerID+"/logs/stream", nil)
 	browser, err := live.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer browser.Body.Close()
-	requestID := jsonID(t, readCommand(t, agentStream, service.CommandLogs))
+	requestID := jsonID(t, readCommand(t, agentStream, container.CommandLogs))
 
-	if got := server.agentPost(intruderSession, "/agent/logs/"+requestID, service.LogBatch{Lines: []service.LogLine{{Text: "intrus"}}}); got.Code != http.StatusNotFound {
+	if got := server.agentPost(intruderSession, "/agent/logs/"+requestID, container.LogBatch{Lines: []container.LogLine{{Text: "intrus"}}}); got.Code != http.StatusNotFound {
 		t.Fatalf("intruder: %d %s", got.Code, got.Body.String())
 	}
-	if got := server.agentPost(session, "/agent/logs/"+requestID, service.LogBatch{}); got.Code != http.StatusNoContent {
+	if got := server.agentPost(session, "/agent/logs/"+requestID, container.LogBatch{}); got.Code != http.StatusNoContent {
 		t.Fatalf("owner: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -290,7 +290,7 @@ func TestAgentLogs_DoesNotPublishMachines(t *testing.T) {
 	defer cancel()
 	subscription := server.bus.Subscribe()
 	defer subscription.Close()
-	if got := server.agentPost(session, "/agent/logs/unknown", service.LogBatch{}); got.Code != http.StatusNotFound {
+	if got := server.agentPost(session, "/agent/logs/unknown", container.LogBatch{}); got.Code != http.StatusNotFound {
 		t.Fatalf("deliver: %d", got.Code)
 	}
 	ctx, stop := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -323,29 +323,29 @@ func TestLogSlots_ConcurrentTakers_NeverExceedTheCeiling(t *testing.T) {
 
 // Le tirage unique et l'outil MCP comptent dans les mêmes seize places que
 // les suivis : au-delà, la clé du catalogue.
-func TestServiceLogs_FetchAndToolShareTheCeiling(t *testing.T) {
+func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	for range maxLogStreams {
 		server.takeLogSlot()
 	}
-	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
+	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
 	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
 		t.Fatalf("fetch: %d %s", got.Code, got.Body.String())
 	}
-	got = callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs/stream", nil)
+	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs/stream", nil)
 	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
 		t.Fatalf("stream: %d %s", got.Code, got.Body.String())
 	}
 	session := connectMCP(t, server.mcpServer)
-	text, isError := callTool(t, session, "get_service_logs", map[string]any{"service_id": serviceID})
+	text, isError := callTool(t, session, "get_container_logs", map[string]any{"id": containerID})
 	if !isError || toolErrorCode(t, text) != codeLogsBusy {
 		t.Fatalf("tool: %v %s", isError, text)
 	}
 	server.releaseLogSlot()
-	got = callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
-	if errorCode(t, got) != "service.machine_offline" {
+	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
+	if errorCode(t, got) != "container.machine_offline" {
 		t.Fatalf("a freed slot lets the next one through: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -355,7 +355,7 @@ func TestServiceLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	// Une session sans boucle de flux : personne ne vide la file.
 	session, err := server.machines.Connect(context.Background(), remoteID, "51.15.20.114", "v0.0.1")
 	if err != nil {
@@ -365,7 +365,7 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	for server.Command(remoteID, "filler", nil) == nil {
 	}
 
-	got := callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID+"/logs", nil)
+	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
 	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeMachineBusy {
 		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
 	}
@@ -384,7 +384,7 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	}
 }
 
-// Une lecture hors de mesure ne fait plus perdre les services du même
+// Une lecture hors de mesure ne fait plus perdre les conteneurs du même
 // signal : chaque section s'écrit seule, la refusée est nommée dans la
 // réponse pour un agent qui sait la lire, en 400 pour un plus vieux.
 func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
@@ -395,8 +395,8 @@ func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
 	defer cancel()
 
 	send := func(name string, sections bool) *httptest.ResponseRecorder {
-		report := service.Report{Complete: true, Inventory: []service.Container{{
-			ContainerID: strings.Repeat("c", 64), Name: name, Image: "nginx:1.27", State: service.StateRunning, CreatedAt: testNow,
+		report := container.Report{Complete: true, Inventory: []container.Observed{{
+			ContainerID: strings.Repeat("c", 64), Name: name, Image: "nginx:1.27", State: container.StateRunning, CreatedAt: testNow,
 		}}}
 		var body bytes.Buffer
 		_ = json.NewEncoder(&body).Encode(machine.SignalRequest{Readings: []sampler.Reading{testReading(testNow, 250)}, Services: &report})
@@ -411,11 +411,11 @@ func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
 		return recorder
 	}
 	recordedName := func() string {
-		services, err := server.services.List(context.Background(), remoteID)
-		if err != nil || len(services) != 1 {
-			t.Fatalf("services = %+v %v", services, err)
+		containers, err := server.containers.List(context.Background(), remoteID)
+		if err != nil || len(containers) != 1 {
+			t.Fatalf("containers = %+v %v", containers, err)
 		}
-		return services[0].Name
+		return containers[0].Name
 	}
 
 	got := send("web", true)
@@ -423,13 +423,13 @@ func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
 		t.Fatalf("agent récent: %d %s", got.Code, got.Body.String())
 	}
 	if name := recordedName(); name != "web" {
-		t.Fatalf("services perdus avec la lecture refusée: %q", name)
+		t.Fatalf("conteneurs perdus avec la lecture refusée: %q", name)
 	}
 	got = send("web-renamed", false)
 	if got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
 		t.Fatalf("agent ancien: %d %s", got.Code, got.Body.String())
 	}
 	if name := recordedName(); name != "web-renamed" {
-		t.Fatalf("agent ancien, services perdus: %q", name)
+		t.Fatalf("agent ancien, conteneurs perdus: %q", name)
 	}
 }

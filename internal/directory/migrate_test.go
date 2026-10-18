@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 var planNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -22,7 +22,7 @@ func sequentialIDs() func(string) (string, error) {
 	}
 }
 
-func linkedSet(fiches ...service.Service) map[string]bool {
+func linkedSet(fiches ...container.Container) map[string]bool {
 	linked := map[string]bool{}
 	for _, fiche := range fiches {
 		linked[fiche.ID] = true
@@ -30,23 +30,23 @@ func linkedSet(fiches ...service.Service) map[string]bool {
 	return linked
 }
 
-func archived(fiche service.Service) service.Service {
+func archived(fiche container.Container) container.Container {
 	fiche.ArchivedAt = planNow.Add(-time.Hour)
-	fiche.State = service.StateExited
+	fiche.State = container.StateExited
 	return fiche
 }
 
-func withImage(fiche service.Service, image string) service.Service {
+func withImage(fiche container.Container, image string) container.Container {
 	fiche.Image = image
 	return fiche
 }
 
-func seenAt(fiche service.Service, at time.Time) service.Service {
+func seenAt(fiche container.Container, at time.Time) container.Container {
 	fiche.LastSeenAt = at
 	return fiche
 }
 
-func plan(t *testing.T, fiches []service.Service, linked map[string]bool, declared []Service) LinkPlan {
+func plan(t *testing.T, fiches []container.Container, linked map[string]bool, declared []Service) LinkPlan {
 	t.Helper()
 	got, err := PlanLinks(fiches, linked, declared, sequentialIDs())
 	if err != nil {
@@ -55,14 +55,14 @@ func plan(t *testing.T, fiches []service.Service, linked map[string]bool, declar
 	return got
 }
 
-func linkOf(t *testing.T, got LinkPlan, container service.Service) LinkedFiche {
+func linkOf(t *testing.T, got LinkPlan, item container.Container) LinkedFiche {
 	t.Helper()
 	for _, link := range got.Links {
-		if link.ContainerID == container.ID {
+		if link.ContainerID == item.ID {
 			return link
 		}
 	}
-	t.Fatalf("la fiche %s n'est pas dans le plan: %+v", container.Name, got.Links)
+	t.Fatalf("la fiche %s n'est pas dans le plan: %+v", item.Name, got.Links)
 	return LinkedFiche{}
 }
 
@@ -82,7 +82,7 @@ func TestPlanLinks_ComposeProjectBecomesOneServiceWithAllItsUnits(t *testing.T) 
 	db := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
 	redis := composeContainer("m1", "nextcloud-redis-1", "nextcloud", "redis")
 
-	got := plan(t, []service.Service{redis, db, app}, linkedSet(app), nil)
+	got := plan(t, []container.Container{redis, db, app}, linkedSet(app), nil)
 
 	if len(got.Created) != 1 {
 		t.Fatalf("un seul service attendu: %+v", got.Created)
@@ -102,9 +102,9 @@ func TestPlanLinks_ComposeProjectBecomesOneServiceWithAllItsUnits(t *testing.T) 
 	if len(got.Links) != 3 {
 		t.Fatalf("liens = %+v", got.Links)
 	}
-	for index, fiche := range []service.Service{app, db, redis} {
+	for index, fiche := range []container.Container{app, db, redis} {
 		link := linkOf(t, got, fiche)
-		if link.ServiceID != created.ID || link.Level != service.MatchCompose || link.UnitID != created.Units[index].ID {
+		if link.ServiceID != created.ID || link.Level != container.MatchCompose || link.UnitID != created.Units[index].ID {
 			t.Fatalf("lien de %s = %+v, unités %+v", fiche.Name, link, created.Units)
 		}
 	}
@@ -114,7 +114,7 @@ func TestPlanLinks_LoneContainerBecomesAContainerService(t *testing.T) {
 	whoami := aloneContainer("m1", "whoami")
 	other := aloneContainer("m1", "other")
 
-	got := plan(t, []service.Service{whoami, other}, linkedSet(whoami), nil)
+	got := plan(t, []container.Container{whoami, other}, linkedSet(whoami), nil)
 
 	if len(got.Created) != 1 {
 		t.Fatalf("un conteneur sans lien n'est pas repris: %+v", got.Created)
@@ -124,7 +124,7 @@ func TestPlanLinks_LoneContainerBecomesAContainerService(t *testing.T) {
 	if created.Origin != OriginContainer || created.Name != "whoami" || unit.ContainerName != "whoami" || unit.Image != "traefik/whoami" || unit.Version != "v1" {
 		t.Fatalf("service = %+v", created)
 	}
-	if link := linkOf(t, got, whoami); link.Level != service.MatchName || link.UnitID != unit.ID {
+	if link := linkOf(t, got, whoami); link.Level != container.MatchName || link.UnitID != unit.ID {
 		t.Fatalf("lien = %+v", link)
 	}
 }
@@ -134,10 +134,10 @@ func TestPlanLinks_LoneContainerBecomesAContainerService(t *testing.T) {
 // recréé. Une fiche liée archivée seule garde, elle aussi, son unité.
 func TestPlanLinks_ArchivedOnlyFicheStillCreatesTheUnit(t *testing.T) {
 	old := archived(composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"))
-	old.ID = service.ID("m1", "old-docker-id")
+	old.ID = container.ID("m1", "old-docker-id")
 	fresh := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 
-	got := plan(t, []service.Service{fresh, old}, linkedSet(old), nil)
+	got := plan(t, []container.Container{fresh, old}, linkedSet(old), nil)
 
 	if len(got.Created) != 1 || len(got.Created[0].Units) != 1 {
 		t.Fatalf("un service, une unité: %+v", got.Created)
@@ -149,7 +149,7 @@ func TestPlanLinks_ArchivedOnlyFicheStillCreatesTheUnit(t *testing.T) {
 
 	// Seule, archivée : l'unité existe quand même, la sonde garde son service.
 	alone := archived(aloneContainer("m1", "gone"))
-	got = plan(t, []service.Service{alone}, linkedSet(alone), nil)
+	got = plan(t, []container.Container{alone}, linkedSet(alone), nil)
 	if len(got.Created) != 1 || linkOf(t, got, alone).ServiceID != got.Created[0].ID {
 		t.Fatalf("plan = %+v", got)
 	}
@@ -163,7 +163,7 @@ func TestPlanLinks_DeclaredServiceReusedAndMarkedForReview(t *testing.T) {
 	app := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 	redis := composeContainer("m1", "nextcloud-redis-1", "nextcloud", "redis")
 
-	got := plan(t, []service.Service{app, redis}, linkedSet(app, redis), declared)
+	got := plan(t, []container.Container{app, redis}, linkedSet(app, redis), declared)
 
 	if len(got.Created) != 0 {
 		t.Fatalf("rien à créer: %+v", got.Created)
@@ -177,7 +177,7 @@ func TestPlanLinks_DeclaredServiceReusedAndMarkedForReview(t *testing.T) {
 	if link := linkOf(t, got, app); link.UnitID != "unit_nextcloud_app" || link.ServiceID != "svc_1" {
 		t.Fatalf("app = %+v", link)
 	}
-	if link := linkOf(t, got, redis); link.UnitID != got.Added[0].ID || link.ServiceID != "svc_1" || link.Level != service.MatchCompose {
+	if link := linkOf(t, got, redis); link.UnitID != got.Added[0].ID || link.ServiceID != "svc_1" || link.Level != container.MatchCompose {
 		t.Fatalf("redis = %+v", link)
 	}
 }
@@ -189,7 +189,7 @@ func TestPlanLinks_DeclaredServiceWithoutLinkIsLeftAlone(t *testing.T) {
 	app := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 	redis := composeContainer("m1", "nextcloud-redis-1", "nextcloud", "redis")
 
-	got := plan(t, []service.Service{app, redis}, linkedSet(app), declared)
+	got := plan(t, []container.Container{app, redis}, linkedSet(app), declared)
 
 	if len(got.Added) != 0 || len(got.Reviewed) != 0 || len(got.Created) != 0 {
 		t.Fatalf("rien ne doit changer: %+v", got)
@@ -204,17 +204,17 @@ func TestPlanLinks_DeclaredServiceWithoutLinkIsLeftAlone(t *testing.T) {
 func TestPlanLinks_AttachedFicheKeepsItsUnit(t *testing.T) {
 	declared := []Service{declaredCompose("svc_1", "m1", "nextcloud", "app", "db")}
 	app := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
-	app.UnitID, app.MatchLevel = "unit_nextcloud_db", service.MatchName
+	app.UnitID, app.MatchLevel = "unit_nextcloud_db", container.MatchName
 
-	got := plan(t, []service.Service{app}, linkedSet(app), declared)
+	got := plan(t, []container.Container{app}, linkedSet(app), declared)
 
-	if link := linkOf(t, got, app); link.UnitID != "unit_nextcloud_db" || link.Level != service.MatchName {
+	if link := linkOf(t, got, app); link.UnitID != "unit_nextcloud_db" || link.Level != container.MatchName {
 		t.Fatalf("lien = %+v", link)
 	}
 
 	// Une unité que l'annuaire ne tient plus est une erreur, pas un lien perdu.
 	app.UnitID = "unit_disparue"
-	if _, err := PlanLinks([]service.Service{app}, linkedSet(app), declared, sequentialIDs()); !errors.Is(err, ErrLinkUnplanned) {
+	if _, err := PlanLinks([]container.Container{app}, linkedSet(app), declared, sequentialIDs()); !errors.Is(err, ErrLinkUnplanned) {
 		t.Fatalf("attendu %v, obtenu %v", ErrLinkUnplanned, err)
 	}
 }
@@ -229,7 +229,7 @@ func TestPlanLinks_EveryLinkedFicheIsMapped(t *testing.T) {
 	broken := aloneContainer("m1", "broken-image")
 	broken.Image = "NOT A VALID IMAGE"
 	gone := archived(aloneContainer("m2", "gone"))
-	fiches := []service.Service{app, whoami, odd, badProject, broken, gone}
+	fiches := []container.Container{app, whoami, odd, badProject, broken, gone}
 	linked := linkedSet(fiches...)
 
 	got := plan(t, fiches, linked, nil)
@@ -248,13 +248,13 @@ func TestPlanLinks_EveryLinkedFicheIsMapped(t *testing.T) {
 // repris que l'opérateur ne pourrait pas enregistrer après coup est une
 // migration qui a mal tourné.
 func TestPlanLinks_CreatedDefinitionsPassValidate(t *testing.T) {
-	fiches := []service.Service{
+	fiches := []container.Container{
 		// Un projet ou un service Compose au nom que l'annuaire refuse : le
 		// conteneur descend en conteneur seul.
 		withImage(composeContainer("m1", "My_App-web-1", "My_App", "web"), "nginx:1.27"),
 		withImage(composeContainer("m1", "x-1", "shop", "web server"), "nginx:1.27"),
 		aloneContainer("m1", "Weird.Name_9"),
-		func() service.Service {
+		func() container.Container {
 			c := aloneContainer("m1", "latest-user")
 			c.Image = "registry.example.org:5000/team/app:latest"
 			return c
@@ -282,7 +282,7 @@ func TestPlanLinks_NameCollisionGetsASuffix(t *testing.T) {
 	lone := aloneContainer("m1", "Web")
 	other := composeContainer("m2", "web-app-1", "web", "app")
 
-	got := plan(t, []service.Service{project, lone, other}, linkedSet(project, lone, other), declared)
+	got := plan(t, []container.Container{project, lone, other}, linkedSet(project, lone, other), declared)
 
 	names := map[string][]string{}
 	for _, created := range got.Created {
@@ -300,7 +300,7 @@ func TestPlanLinks_NameCollisionGetsASuffix(t *testing.T) {
 // qu'un lien vise d'abord, et les fiches liées qui ne tiennent pas descendent
 // en conteneurs seuls plutôt que de faire échouer le démarrage.
 func TestPlanLinks_ProjectOverTheUnitLimitKeepsLinkedOnesAndNeverFails(t *testing.T) {
-	var fiches []service.Service
+	var fiches []container.Container
 	for index := range MaxUnits + 3 {
 		fiches = append(fiches, composeContainer("m1", fmt.Sprintf("big-s%02d-1", index), "big", fmt.Sprintf("s%02d", index)))
 	}
@@ -333,7 +333,7 @@ func TestPlanLinks_ProjectOverTheUnitLimitKeepsLinkedOnesAndNeverFails(t *testin
 // Le plan ne dépend ni de l'ordre des fiches ni de celui des maps : deux
 // démarrages sur la même base donnent les mêmes services, dans le même ordre.
 func TestPlanLinks_IsDeterministic(t *testing.T) {
-	fiches := []service.Service{
+	fiches := []container.Container{
 		composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"),
 		composeContainer("m1", "nextcloud-db-1", "nextcloud", "db"),
 		composeContainer("m2", "blog-web-1", "blog", "web"),
@@ -361,13 +361,13 @@ func TestPlanLinks_IsDeterministic(t *testing.T) {
 // archivée, puis la plus récente.
 func TestPlanLinks_UnitReadsTheLatestFiche(t *testing.T) {
 	older := seenAt(composeContainer("m1", "shop-web-1", "shop", "web"), planNow.Add(-48*time.Hour))
-	older.ID = service.ID("m1", "older")
+	older.ID = container.ID("m1", "older")
 	older.Image = "nginx:1.25"
 	older = archived(older)
 	newer := seenAt(composeContainer("m1", "shop-web-1", "shop", "web"), planNow)
 	newer.Image = "nginx:1.27"
 
-	got := plan(t, []service.Service{older, newer}, linkedSet(older), nil)
+	got := plan(t, []container.Container{older, newer}, linkedSet(older), nil)
 
 	unit := got.Created[0].Units[0]
 	if unit.Image != "nginx" || unit.Version != "1.27" {
@@ -381,13 +381,13 @@ func TestPlanLinks_UnitReadsTheLatestFiche(t *testing.T) {
 func TestPlanLinks_StoppedContainerNothingPointsAtIsNotAUnit(t *testing.T) {
 	app := composeContainer("m1", "cloud-app-1", "cloud", "app")
 	initial := composeContainer("m1", "cloud-init-1", "cloud", "init")
-	initial.State = service.StateExited
+	initial.State = container.StateExited
 	restarting := composeContainer("m1", "cloud-worker-1", "cloud", "worker")
-	restarting.State = service.StateRestarting
+	restarting.State = container.StateRestarting
 	paused := composeContainer("m1", "cloud-cron-1", "cloud", "cron")
-	paused.State = service.StatePaused
+	paused.State = container.StatePaused
 
-	got := plan(t, []service.Service{app, initial, restarting, paused}, linkedSet(app), nil)
+	got := plan(t, []container.Container{app, initial, restarting, paused}, linkedSet(app), nil)
 
 	if len(got.Created) != 1 {
 		t.Fatalf("un seul service attendu: %+v", got.Created)
@@ -395,7 +395,7 @@ func TestPlanLinks_StoppedContainerNothingPointsAtIsNotAUnit(t *testing.T) {
 	if names := unitNames(got.Created[0]); !slices.Equal(names, []string{"app", "worker"}) {
 		t.Fatalf("unités = %v, want app et worker (qui redémarre)", names)
 	}
-	for _, left := range []service.Service{initial, paused} {
+	for _, left := range []container.Container{initial, paused} {
 		if slices.ContainsFunc(got.Links, func(link LinkedFiche) bool { return link.ContainerID == left.ID }) {
 			t.Errorf("%s n'est visé par rien et ne tourne pas : il reste non déclaré", left.Name)
 		}
@@ -406,9 +406,9 @@ func TestPlanLinks_StoppedContainerNothingPointsAtIsNotAUnit(t *testing.T) {
 // unité : le lien l'emporte sur l'état.
 func TestPlanLinks_StoppedContainerThatIsLinkedKeepsItsUnit(t *testing.T) {
 	app := composeContainer("m1", "cloud-app-1", "cloud", "app")
-	app.State = service.StateExited
+	app.State = container.StateExited
 
-	got := plan(t, []service.Service{app}, linkedSet(app), nil)
+	got := plan(t, []container.Container{app}, linkedSet(app), nil)
 
 	if len(got.Created) != 1 || !slices.Equal(unitNames(got.Created[0]), []string{"app"}) {
 		t.Fatalf("service = %+v", got.Created)
@@ -428,7 +428,7 @@ func TestPlanLinks_FullDeclaredProjectNeverGetsASecondComposeService(t *testing.
 	extra := composeContainer("m1", "big-extra-1", "big", "extra")
 	other := composeContainer("m1", "big-other-1", "big", "other")
 
-	got := plan(t, []service.Service{extra, other}, linkedSet(extra), declared)
+	got := plan(t, []container.Container{extra, other}, linkedSet(extra), declared)
 
 	if len(got.Added) != 0 || len(got.Reviewed) != 0 {
 		t.Fatalf("le service plein ne reçoit rien: %+v", got)
@@ -440,7 +440,7 @@ func TestPlanLinks_FullDeclaredProjectNeverGetsASecondComposeService(t *testing.
 	if created.Origin != OriginContainer || created.ComposeProject != "" || created.Units[0].ContainerName != "big-extra-1" {
 		t.Fatalf("service = %+v", created)
 	}
-	if link := linkOf(t, got, extra); link.ServiceID != created.ID || link.Level != service.MatchName {
+	if link := linkOf(t, got, extra); link.ServiceID != created.ID || link.Level != container.MatchName {
 		t.Fatalf("lien = %+v", link)
 	}
 	if slices.ContainsFunc(got.Links, func(link LinkedFiche) bool { return link.ContainerID == other.ID }) {
@@ -460,7 +460,7 @@ func TestPlanLinks_ContainerNameAlreadyHeldByADeclaredUnitJoinsIt(t *testing.T) 
 	front := aloneContainer("m1", "shop-front")
 	otherMachine := aloneContainer("m2", "shop-front")
 
-	got := plan(t, []service.Service{front, otherMachine}, linkedSet(front, otherMachine), declared)
+	got := plan(t, []container.Container{front, otherMachine}, linkedSet(front, otherMachine), declared)
 
 	if link := linkOf(t, got, front); link.UnitID != "unit_shop_web" || link.ServiceID != "svc_1" {
 		t.Fatalf("le conteneur doit rejoindre l'unité qui porte son nom: %+v", link)
@@ -478,11 +478,11 @@ func TestPlanLinks_UnlinkedFichesOfADeclaredServiceAreAttachedToo(t *testing.T) 
 	declared := []Service{declaredCompose("svc_1", "m1", "nextcloud", "app")}
 	linkedFiche := composeContainer("m1", "nextcloud-app-1", "nextcloud", "app")
 	old := archived(composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"))
-	old.ID = service.ID("m1", "old-docker-id")
+	old.ID = container.ID("m1", "old-docker-id")
 
-	got := plan(t, []service.Service{linkedFiche, old}, linkedSet(linkedFiche), declared)
+	got := plan(t, []container.Container{linkedFiche, old}, linkedSet(linkedFiche), declared)
 
-	for _, fiche := range []service.Service{linkedFiche, old} {
+	for _, fiche := range []container.Container{linkedFiche, old} {
 		if link := linkOf(t, got, fiche); link.UnitID != "unit_nextcloud_app" || link.ServiceID != "svc_1" {
 			t.Errorf("%s = %+v", fiche.ID, link)
 		}

@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Kind est le genre d'un service ; un seul aujourd'hui.
+// Kind est le genre d'un conteneur ; un seul aujourd'hui.
 type Kind string
 
 const KindContainer Kind = "container"
@@ -46,7 +46,7 @@ const (
 	// L'agent redonne l'inventaire complet à ce rythme, en plus de la
 	// connexion : ce qu'un événement manqué aurait laissé faux se corrige.
 	InventoryInterval = 5 * time.Minute
-	// Passé ce délai sans échantillon, la mesure d'un service est
+	// Passé ce délai sans échantillon, la mesure d'un conteneur est
 	// « indisponible », jamais à zéro.
 	StaleAfter = 90 * time.Second
 
@@ -71,9 +71,9 @@ const (
 	MaxSnippetBytes = 10 << 10
 	maxFutureSkew   = 5 * time.Minute
 
-	// Rétentions : les transitions d'un service vivant, la fiche d'un
+	// Rétentions : les transitions d'un conteneur vivant, la fiche d'un
 	// conteneur détruit (ses transitions partent avec elle), le brut des
-	// mesures. Pas d'agrégat par service : l'historique long attendra.
+	// mesures. Pas d'agrégat par conteneur : l'historique long attendra.
 	TransitionRetention = 90 * 24 * time.Hour
 	ArchivedRetention   = 30 * 24 * time.Hour
 	SampleRetention     = 48 * time.Hour
@@ -120,9 +120,9 @@ func (l MatchLevel) IsWeak() bool {
 	return l == MatchName
 }
 
-// Service est une fiche telle que la base la connaît. Les dates zéro
+// Container est une fiche telle que la base la connaît. Les dates zéro
 // disent « jamais » ; ArchivedAt non nul dit que le conteneur est détruit.
-type Service struct {
+type Container struct {
 	ID          string
 	MachineID   string
 	Kind        Kind
@@ -183,7 +183,7 @@ func (p Port) IsPublic() bool {
 	return p.IP == "" || p.IP == "0.0.0.0" || p.IP == "::"
 }
 
-// Attachment est la présence d'un service sur un réseau de sa machine ;
+// Attachment est la présence d'un conteneur sur un réseau de sa machine ;
 // l'adresse est vide quand le conteneur est arrêté, l'appartenance reste.
 type Attachment struct {
 	NetworkID string   `json:"network_id"`
@@ -237,7 +237,7 @@ func ID(machineID, containerID string) string {
 }
 
 // IsArchived dit si le conteneur n'existe plus.
-func (s Service) IsArchived() bool {
+func (s Container) IsArchived() bool {
 	return !s.ArchivedAt.IsZero()
 }
 
@@ -245,7 +245,7 @@ func (s Service) IsArchived() bool {
 // arrêt anormal, Snippet garde les dernières lignes du journal.
 type Transition struct {
 	ID             int64
-	ServiceID      string
+	ContainerID    string
 	At             time.Time
 	Action         string
 	PreviousState  State
@@ -259,22 +259,22 @@ type Transition struct {
 	Snippet        string
 }
 
-// Sample est une mesure d'un service : processeur en pourcentage d'un
+// Sample est une mesure d'un conteneur : processeur en pourcentage d'un
 // cœur (200 % = deux cœurs), mémoire en octets, limite en octets.
 type Sample struct {
-	ServiceID  string
-	SampledAt  time.Time
-	CPUPercent float64
-	MemUsed    int64
-	MemLimit   int64
+	ContainerID string
+	SampledAt   time.Time
+	CPUPercent  float64
+	MemUsed     int64
+	MemLimit    int64
 }
 
-// Current est la mesure courante d'un service, et si elle est assez
+// Current est la mesure courante d'un conteneur, et si elle est assez
 // fraîche pour être montrée.
 type Current struct {
-	ServiceID string
-	Available bool
-	Sample    *Sample
+	ContainerID string
+	Available   bool
+	Sample      *Sample
 }
 
 // Engine est ce que la machine dit de son Docker : présent ou non, et
@@ -298,8 +298,8 @@ const (
 )
 
 var (
-	ErrNotFound       = errors.New("service not found")
-	ErrReportInvalid  = errors.New("service report out of range")
+	ErrNotFound       = errors.New("container not found")
+	ErrReportInvalid  = errors.New("container report out of range")
 	ErrMachineOffline = errors.New("machine offline")
 	ErrLogsBusy       = errors.New("too many log follows")
 	ErrLogsTimeout    = errors.New("logs did not arrive in time")

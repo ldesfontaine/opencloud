@@ -6,8 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/registry"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Proposal est ce que « Adopter » pré-remplit dans le formulaire. Avec un
@@ -27,31 +27,31 @@ type Proposal struct {
 // unités sont plafonnées à MaxUnits : un projet plus gros s'adopte en
 // plusieurs fois, l'unité du conteneur demandé toujours en tête de la
 // coupe. Un service déjà plein ne peut plus rien recevoir : ErrUnitsFull.
-func Propose(container service.Service, siblings []service.Service, declared []Service) (Proposal, error) {
-	if container.UnitID != "" {
+func Propose(item container.Container, siblings []container.Container, declared []Service) (Proposal, error) {
+	if item.UnitID != "" {
 		return Proposal{}, ErrContainerDeclared
 	}
-	if container.Group == "" || container.ComposeService == "" {
-		return proposeContainer(container, declared), nil
+	if item.Group == "" || item.ComposeService == "" {
+		return proposeContainer(item, declared), nil
 	}
-	missing := composeUnitsToAdopt(container, siblings)
+	missing := composeUnitsToAdopt(item, siblings)
 	for _, existing := range declared {
-		if existing.Origin == OriginCompose && existing.MachineID == container.MachineID && existing.ComposeProject == container.Group {
-			return proposeIntoService(existing, container, missing)
+		if existing.Origin == OriginCompose && existing.MachineID == item.MachineID && existing.ComposeProject == item.Group {
+			return proposeIntoService(existing, item, missing)
 		}
 	}
-	return proposeComposeProject(container, requestedFirst(missing, container, MaxUnits), declared), nil
+	return proposeComposeProject(item, requestedFirst(missing, item, MaxUnits), declared), nil
 }
 
 // requestedFirst met l'unité du conteneur demandé devant. La coupe à
 // MaxUnits tombe sur la fin de la liste triée : elle ne doit pas emporter ce
 // sur quoi l'opérateur a cliqué. Sans coupe, l'ordre par nom reste celui que
 // l'opérateur retrouvera dans la fiche.
-func requestedFirst(units []service.Service, container service.Service, room int) []service.Service {
+func requestedFirst(units []container.Container, item container.Container, room int) []container.Container {
 	if len(units) <= room {
 		return units
 	}
-	at := slices.IndexFunc(units, func(candidate service.Service) bool { return candidate.ComposeService == container.ComposeService })
+	at := slices.IndexFunc(units, func(candidate container.Container) bool { return candidate.ComposeService == item.ComposeService })
 	if at <= 0 {
 		return units
 	}
@@ -64,55 +64,55 @@ func requestedFirst(units []service.Service, container service.Service, room int
 // composeUnitsToAdopt rend, par service Compose, le conteneur du projet qui
 // n'est rattaché à rien, par nom de service Compose ; le conteneur demandé y
 // est toujours. Des répliques ne font qu'une unité.
-func composeUnitsToAdopt(container service.Service, siblings []service.Service) []service.Service {
-	candidates := []service.Service{container}
+func composeUnitsToAdopt(item container.Container, siblings []container.Container) []container.Container {
+	candidates := []container.Container{item}
 	for _, sibling := range siblings {
-		isSameProject := sibling.MachineID == container.MachineID && sibling.Group == container.Group
-		if isSameProject && sibling.ID != container.ID && sibling.UnitID == "" && !sibling.IsArchived() && sibling.ComposeService != "" {
+		isSameProject := sibling.MachineID == item.MachineID && sibling.Group == item.Group
+		if isSameProject && sibling.ID != item.ID && sibling.UnitID == "" && !sibling.IsArchived() && sibling.ComposeService != "" {
 			candidates = append(candidates, sibling)
 		}
 	}
 	candidates = sortedByName(candidates)
-	byService := map[string]service.Service{}
+	byService := map[string]container.Container{}
 	for _, candidate := range candidates {
 		if _, seen := byService[candidate.ComposeService]; !seen {
 			byService[candidate.ComposeService] = candidate
 		}
 	}
-	units := make([]service.Service, 0, len(byService))
+	units := make([]container.Container, 0, len(byService))
 	for _, found := range byService {
 		units = append(units, found)
 	}
-	slices.SortFunc(units, func(a, b service.Service) int { return strings.Compare(a.ComposeService, b.ComposeService) })
+	slices.SortFunc(units, func(a, b container.Container) int { return strings.Compare(a.ComposeService, b.ComposeService) })
 	return units
 }
 
-func proposeIntoService(existing Service, requested service.Service, missing []service.Service) (Proposal, error) {
+func proposeIntoService(existing Service, requested container.Container, missing []container.Container) (Proposal, error) {
 	if len(existing.Units) >= MaxUnits {
 		return Proposal{}, ErrUnitsFull
 	}
 	definition := definitionOf(existing)
-	for _, container := range requestedFirst(missing, requested, MaxUnits-len(existing.Units)) {
+	for _, item := range requestedFirst(missing, requested, MaxUnits-len(existing.Units)) {
 		if len(definition.Units) >= MaxUnits {
 			break
 		}
-		if slices.ContainsFunc(definition.Units, func(unit UnitDefinition) bool { return unit.Name == container.ComposeService }) {
+		if slices.ContainsFunc(definition.Units, func(unit UnitDefinition) bool { return unit.Name == item.ComposeService }) {
 			continue
 		}
-		unit := unitProposal(container)
-		unit.Name = container.ComposeService
+		unit := unitProposal(item)
+		unit.Name = item.ComposeService
 		definition.Units = append(definition.Units, unit)
 	}
 	return Proposal{ServiceID: existing.ID, Definition: definition}, nil
 }
 
-func proposeComposeProject(container service.Service, missing []service.Service, declared []Service) Proposal {
+func proposeComposeProject(item container.Container, missing []container.Container, declared []Service) Proposal {
 	definition := ServiceDefinition{
-		MachineID:      container.MachineID,
-		Name:           freeName(slug(container.Group), container.MachineID, declared),
+		MachineID:      item.MachineID,
+		Name:           freeName(slug(item.Group), item.MachineID, declared),
 		Nature:         NatureApplication,
 		Origin:         OriginCompose,
-		ComposeProject: container.Group,
+		ComposeProject: item.Group,
 	}
 	for _, found := range missing {
 		if len(definition.Units) >= MaxUnits {
@@ -125,13 +125,13 @@ func proposeComposeProject(container service.Service, missing []service.Service,
 	return Proposal{Definition: definition}
 }
 
-func proposeContainer(container service.Service, declared []Service) Proposal {
-	unit := unitProposal(container)
-	unit.Name = unitNameOf(container.Name)
-	unit.ContainerName = container.Name
+func proposeContainer(item container.Container, declared []Service) Proposal {
+	unit := unitProposal(item)
+	unit.Name = unitNameOf(item.Name)
+	unit.ContainerName = item.Name
 	return Proposal{Definition: ServiceDefinition{
-		MachineID: container.MachineID,
-		Name:      freeName(slug(container.Name), container.MachineID, declared),
+		MachineID: item.MachineID,
+		Name:      freeName(slug(item.Name), item.MachineID, declared),
 		Nature:    NatureApplication,
 		Origin:    OriginContainer,
 		Units:     []UnitDefinition{unit},
@@ -167,9 +167,9 @@ func definitionOf(existing Service) ServiceDefinition {
 // dire de lui : l'image sans tag ni empreinte, la version, les ports. Ni
 // « latest » ni une empreinte lue après coup : la déclaration ne dit que ce
 // que l'image écrit.
-func unitProposal(container service.Service) UnitDefinition {
-	unit := UnitDefinition{Kind: UnitContainer, Image: container.Image, Ports: portsOf(container.Ports)}
-	reference, err := registry.Parse(container.Image)
+func unitProposal(item container.Container) UnitDefinition {
+	unit := UnitDefinition{Kind: UnitContainer, Image: item.Image, Ports: portsOf(item.Ports)}
+	reference, err := registry.Parse(item.Image)
 	if err != nil {
 		// L'opérateur corrigera l'image dans le formulaire.
 		return unit
@@ -184,7 +184,7 @@ func unitProposal(container service.Service) UnitDefinition {
 
 // portsOf écrit les ports publiés comme une unité les déclare. Docker publie
 // chaque port en IPv4 et en IPv6 : une seule ligne pour les deux.
-func portsOf(published []service.Port) []string {
+func portsOf(published []container.Port) []string {
 	ports := []string{}
 	for _, port := range published {
 		if port.ContainerPort < 1 {

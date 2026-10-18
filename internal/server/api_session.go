@@ -46,10 +46,10 @@ type languageRequest struct {
 
 // Les compteurs de la barre latérale et de la vue d'ensemble.
 type countsResponse struct {
-	Machines machineCounts `json:"machines"`
-	Jobs     jobCounts     `json:"jobs"`
-	Services serviceCounts `json:"services"`
-	Probes   jobCounts     `json:"probes"`
+	Machines   machineCounts   `json:"machines"`
+	Jobs       jobCounts       `json:"jobs"`
+	Containers containerCounts `json:"containers"`
+	Probes     jobCounts       `json:"probes"`
 	// Les certificats vus par les sondes actives : combien, combien
 	// approchent de leur fin, et la plus proche échéance.
 	Certificates certificateCounts `json:"certificates"`
@@ -83,9 +83,9 @@ type jobCounts struct {
 	Attention int `json:"attention"`
 }
 
-// Les services : ceux qui vont mal, et ceux qui ont une image plus
+// Les conteneurs : ceux qui vont mal, et ceux qui ont une image plus
 // récente à tirer, hors épinglés.
-type serviceCounts struct {
+type containerCounts struct {
 	Total     int `json:"total"`
 	Attention int `json:"attention"`
 	Updates   int `json:"updates"`
@@ -168,7 +168,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	services, failing, err := s.services.Count(ctx)
+	containers, failing, err := s.containers.Count(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}
@@ -195,7 +195,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	return countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
-		Services:     serviceCounts{Total: services, Attention: failing, Updates: updates},
+		Containers:   containerCounts{Total: containers, Attention: failing, Updates: updates},
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},

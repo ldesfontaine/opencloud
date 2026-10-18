@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -31,7 +31,7 @@ func declaredOnLocal(t *testing.T, db *DB) directory.Service {
 		Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator, CreatedAt: linksNow, UpdatedAt: linksNow,
 		Units: []directory.Unit{{
 			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
-			Image: "traefik/whoami", ContainerName: "whoami", UpdatePolicy: service.PolicyWatch,
+			Image: "traefik/whoami", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
 		}},
 	}
 	if err := db.InsertDeclaredService(ctx, declared); err != nil {
@@ -105,58 +105,58 @@ func TestListServices_ReadsThePolicyOfItsUnit(t *testing.T) {
 	ctx := context.Background()
 	declared := declaredOnLocal(t, db)
 	unitID := declared.Units[0].ID
-	container := func(id, name string) service.Service {
-		return service.Service{
-			ID: id, MachineID: machine.LocalID, Kind: service.KindContainer, Name: name, ContainerID: id,
-			State: service.StateRunning, CreatedAt: linksNow, FirstSeenAt: linksNow, LastSeenAt: linksNow,
+	item := func(id, name string) container.Container {
+		return container.Container{
+			ID: id, MachineID: machine.LocalID, Kind: container.KindContainer, Name: name, ContainerID: id,
+			State: container.StateRunning, CreatedAt: linksNow, FirstSeenAt: linksNow, LastSeenAt: linksNow,
 		}
 	}
-	err := db.ApplyChanges(ctx, service.Changes{
+	err := db.ApplyChanges(ctx, container.Changes{
 		MachineID: machine.LocalID, Now: linksNow,
-		Services: []service.Service{container("local:old", "whoami"), container("local:other", "other")},
+		Containers: []container.Container{item("local:old", "whoami"), item("local:other", "other")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: "local:old", UnitID: unitID, Level: service.MatchName}})
+	err = db.SetContainerUnits(ctx, []container.UnitAssignment{{ContainerID: "local:old", UnitID: unitID, Level: container.MatchName}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetUnitUpdatePolicy(ctx, unitID, service.PolicyIgnore); err != nil {
+	if err := db.SetUnitUpdatePolicy(ctx, unitID, container.PolicyIgnore); err != nil {
 		t.Fatal(err)
 	}
 
-	old, err := db.GetService(ctx, "local:old")
-	if err != nil || old.UpdatePolicy != service.PolicyIgnore || old.DeclaredServiceID != declared.ID {
+	old, err := db.GetContainer(ctx, "local:old")
+	if err != nil || old.UpdatePolicy != container.PolicyIgnore || old.DeclaredServiceID != declared.ID {
 		t.Fatalf("fiche rattachée = %+v, %v", old, err)
 	}
-	other, err := db.GetService(ctx, "local:other")
-	if err != nil || other.UpdatePolicy != service.PolicyWatch || other.DeclaredServiceID != "" {
+	other, err := db.GetContainer(ctx, "local:other")
+	if err != nil || other.UpdatePolicy != container.PolicyWatch || other.DeclaredServiceID != "" {
 		t.Fatalf("fiche non déclarée = %+v, %v", other, err)
 	}
 
 	// Le conteneur est recréé : une autre fiche, la même unité, la même politique.
-	err = db.ApplyChanges(ctx, service.Changes{MachineID: machine.LocalID, Now: linksNow, Services: []service.Service{container("local:new", "whoami")}})
+	err = db.ApplyChanges(ctx, container.Changes{MachineID: machine.LocalID, Now: linksNow, Containers: []container.Container{item("local:new", "whoami")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetServiceUnits(ctx, []service.UnitAssignment{{ServiceID: "local:new", UnitID: unitID, Level: service.MatchName}}); err != nil {
+	if err := db.SetContainerUnits(ctx, []container.UnitAssignment{{ContainerID: "local:new", UnitID: unitID, Level: container.MatchName}}); err != nil {
 		t.Fatal(err)
 	}
-	listed, err := db.ListServices(ctx, machine.LocalID)
+	listed, err := db.ListContainers(ctx, machine.LocalID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	policies := map[string]service.UpdatePolicy{}
+	policies := map[string]container.UpdatePolicy{}
 	for _, found := range listed {
 		policies[found.ID] = found.UpdatePolicy
 	}
-	if policies["local:new"] != service.PolicyIgnore || policies["local:old"] != service.PolicyIgnore || policies["local:other"] != service.PolicyWatch {
+	if policies["local:new"] != container.PolicyIgnore || policies["local:old"] != container.PolicyIgnore || policies["local:other"] != container.PolicyWatch {
 		t.Fatalf("politiques = %v", policies)
 	}
 
 	// Une politique ne s'écrit que sur l'unité : l'écriture de la fiche n'y touche pas.
-	if err := db.ApplyChanges(ctx, service.Changes{MachineID: machine.LocalID, Now: linksNow, Services: []service.Service{container("local:new", "whoami")}}); err != nil {
+	if err := db.ApplyChanges(ctx, container.Changes{MachineID: machine.LocalID, Now: linksNow, Containers: []container.Container{item("local:new", "whoami")}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := text(t, db, `SELECT update_policy FROM service_units WHERE id = ?`, unitID); got != "ignore" {
@@ -168,16 +168,16 @@ func TestSetUnitUpdatePolicy_UnknownUnit(t *testing.T) {
 	db := openTestDB(t)
 	declared := declaredOnLocal(t, db)
 
-	if err := db.SetUnitUpdatePolicy(context.Background(), "unit_inconnue", service.PolicyHold); !errors.Is(err, directory.ErrUnitNotFound) {
+	if err := db.SetUnitUpdatePolicy(context.Background(), "unit_inconnue", container.PolicyHold); !errors.Is(err, directory.ErrUnitNotFound) {
 		t.Fatalf("attendu %v, obtenu %v", directory.ErrUnitNotFound, err)
 	}
 	if _, err := db.GetUnit(context.Background(), "unit_inconnue"); !errors.Is(err, directory.ErrUnitNotFound) {
 		t.Fatalf("GetUnit: %v", err)
 	}
-	if err := db.SetUnitUpdatePolicy(context.Background(), declared.Units[0].ID, service.PolicyHold); err != nil {
+	if err := db.SetUnitUpdatePolicy(context.Background(), declared.Units[0].ID, container.PolicyHold); err != nil {
 		t.Fatal(err)
 	}
-	if unit, err := db.GetUnit(context.Background(), declared.Units[0].ID); err != nil || unit.UpdatePolicy != service.PolicyHold {
+	if unit, err := db.GetUnit(context.Background(), declared.Units[0].ID); err != nil || unit.UpdatePolicy != container.PolicyHold {
 		t.Fatalf("unité = %+v, %v", unit, err)
 	}
 }
