@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
 // La source des tests : PostgreSQL et Debian, et le compte de ce qu'on lui
@@ -44,9 +43,9 @@ func (s *supportSource) Product(_ context.Context, name string) (lifecycle.Produ
 	return lifecycle.Product{}, lifecycle.ErrNoProduct
 }
 
-func lifecycleSetting(preferences *settings.Store) func() bool {
+func lifecycleSetting(preferences SettingsStore) func() bool {
 	return func() bool {
-		current, err := preferences.Load()
+		current, err := preferences.LoadSettings(context.Background())
 		return err == nil && current.LifecycleEnabled()
 	}
 }
@@ -89,7 +88,7 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	if got.Code != http.StatusOK || !state.Enabled || state.FetchedAt != nil {
 		t.Fatalf("status %d: %+v", got.Code, state)
 	}
-	saved, err := server.settings.Load()
+	saved, err := server.settings.LoadSettings(context.Background())
 	if err != nil || !saved.LifecycleEnabled() || saved.Language != "en" {
 		t.Fatalf("file %+v %v", saved, err)
 	}

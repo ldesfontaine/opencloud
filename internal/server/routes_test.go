@@ -92,21 +92,20 @@ func newTestServer(t *testing.T) *testServer {
 	updates := update.New(db, logger)
 	updates.SetClock(func() time.Time { return testNow })
 	updates.SetWatcher(bus)
-	preferences := settings.New(root)
 	// Les réponses figées datent d'avant la fin de support : le serveur de
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
-	// dans le paquet settings.
-	if _, err := preferences.Update(func(current *settings.Settings) { current.LifecycleDisabled = true }); err != nil {
+	// dans le paquet store.
+	if _, err := db.UpdateSettings(context.Background(), func(current *settings.Settings) { current.LifecycleDisabled = true }); err != nil {
 		t.Fatal(err)
 	}
 	support := newSupportSource()
-	lifecycles := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(preferences), logger)
+	lifecycles := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(db), logger)
 	lifecycles.SetClock(func() time.Time { return testNow })
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
 	publicBus := live.New()
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, machines, db, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
@@ -138,7 +137,7 @@ func newTestServer(t *testing.T) *testServer {
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
-		Settings:   preferences,
+		Settings:   db,
 		Machines:   machines,
 		Heartbeats: heartbeats,
 		Resources:  resources,

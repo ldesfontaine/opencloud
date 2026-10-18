@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -31,16 +32,19 @@ func diskSettingsToJSON(thresholds alert.DiskThresholds) diskSettingsJSON {
 	}
 }
 
-// diskThresholds rend les seuils en vigueur : ceux du réglage, sinon ceux
+// diskThresholdsOf rend les seuils en vigueur : ceux du réglage, sinon ceux
 // du produit.
-func (s *Server) diskThresholds() alert.DiskThresholds {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return alert.DiskThresholdsOr(s.current.DiskAttentionPercent, s.current.DiskDangerPercent)
+func diskThresholdsOf(current settings.Settings) alert.DiskThresholds {
+	return alert.DiskThresholdsOr(current.DiskAttentionPercent, current.DiskDangerPercent)
 }
 
-func (s *Server) getDiskSettings(w http.ResponseWriter, _ *http.Request) {
-	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(s.diskThresholds()))
+func (s *Server) getDiskSettings(w http.ResponseWriter, r *http.Request) {
+	current, err := s.settings.LoadSettings(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(diskThresholdsOf(current)))
 }
 
 func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +53,7 @@ func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	thresholds := alert.DiskThresholds{Attention: request.Attention, Danger: request.Danger}
-	err := s.saveDiskThresholds(thresholds)
+	err := s.saveDiskThresholds(r.Context(), thresholds)
 	if errors.Is(err, alert.ErrDiskThresholdsInvalid) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "settings.disk_invalid")
 		return
@@ -62,20 +66,14 @@ func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveDiskThresholds ne touche que les deux seuils : la langue et la page
-// de statut vivent dans le même fichier, et Update les préserve.
-func (s *Server) saveDiskThresholds(thresholds alert.DiskThresholds) error {
+// de statut vivent sur la même ligne, et UpdateSettings les préserve.
+func (s *Server) saveDiskThresholds(ctx context.Context, thresholds alert.DiskThresholds) error {
 	if err := thresholds.Validate(); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, err := s.settings.Update(func(current *settings.Settings) {
+	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
 		current.DiskAttentionPercent = thresholds.Attention
 		current.DiskDangerPercent = thresholds.Danger
 	})
-	if err != nil {
-		return err
-	}
-	s.current = current
-	return nil
+	return err
 }

@@ -26,8 +26,8 @@ func DefaultDiskThresholds() DiskThresholds {
 }
 
 // DiskThresholdsOr rend les seuils réglés, ou ceux par défaut quand rien
-// n'est réglé ou que le fichier porte une valeur hors bornes : une faute
-// de frappe dans settings.toml ne coupe jamais l'alerte.
+// n'est réglé ou que la base porte une valeur hors bornes : une valeur
+// écrite à la main ne coupe jamais l'alerte.
 func DiskThresholdsOr(attention, danger int) DiskThresholds {
 	thresholds := DiskThresholds{Attention: attention, Danger: danger}
 	if thresholds.Validate() != nil {

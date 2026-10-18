@@ -247,8 +247,8 @@ func updatesToJSON(updates []status.Update) []updateJSON {
 
 // GET /statut/api/i18n : les chaînes de la page dans sa langue, et rien
 // d'autre du catalogue.
-func (s *Server) publicCatalog(w http.ResponseWriter, _ *http.Request) {
-	page, err := s.status.Page()
+func (s *Server) publicCatalog(w http.ResponseWriter, r *http.Request) {
+	page, err := s.status.Page(r.Context())
 	if err != nil {
 		s.logger.Error("status page settings", "error", err)
 		http.Error(w, "error", http.StatusInternalServerError)

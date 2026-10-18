@@ -233,9 +233,13 @@ func (s *Server) listMachinesTool(ctx context.Context, _ *gomcp.CallToolRequest,
 	if err != nil {
 		return s.toolInternal("list_machines", err)
 	}
+	withLifecycle, err := s.lifecycleEnabled(ctx)
+	if err != nil {
+		return s.toolInternal("list_machines", err)
+	}
 	response := machinesToolResponse{Machines: make([]machineJSON, 0, len(statuses))}
 	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status))
+		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
 	}
 	return toolJSON(response)
 }
@@ -256,7 +260,11 @@ func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("get_machine", err)
 	}
-	response := machineToolResponse{Machine: s.machineJSONOf(found), Resources: currentToJSON(current)}
+	withLifecycle, err := s.lifecycleEnabled(ctx)
+	if err != nil {
+		return s.toolInternal("get_machine", err)
+	}
+	response := machineToolResponse{Machine: s.machineJSONOf(found, withLifecycle), Resources: currentToJSON(current)}
 	for _, engine := range engines {
 		if engine.MachineID == found.ID {
 			converted := engineToJSON(engine)

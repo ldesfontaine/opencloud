@@ -504,9 +504,11 @@ erDiagram
         BLOB oidc_secret_sealed
     }
     settings {
-        TEXT key PK
-        TEXT value "JSON"
-        BLOB value_sealed "relais e-mail"
+        INTEGER id PK "une seule ligne"
+        TEXT language
+        INTEGER disk_attention_percent
+        TEXT mail_password_sealed "chiffre"
+        INTEGER lifecycle_disabled
         INTEGER updated_at
     }
     templates {
@@ -634,7 +636,7 @@ flowchart LR
 | `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle |
 | `accounts`, `sessions` | Compte local créé au premier démarrage ; page de connexion avec déconnexion. Comptes multiples et rôles plus tard | Nouvelles |
 | `auth_settings` | SSO de l'interface : forward-auth (existe), OIDC (à ajouter), secret chiffré | Transformée |
-| `settings` | Tout ce que l'interface change (décision 1), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` |
+| `settings` | Tout ce que l'interface change (décision 1), une seule ligne à colonnes typées (comme `auth_settings`), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` |
 | `templates` | Catalogue : nom, version, dépôt ; pré-règle nature, fournitures, chemins ouverts | Plus tard |
 
 ### Rattachement d'un conteneur à une unité

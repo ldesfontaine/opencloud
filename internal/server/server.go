@@ -9,7 +9,6 @@ import (
 	"mime"
 	"net/http"
 	"net/netip"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -31,10 +30,10 @@ import (
 	"github.com/ldesfontaine/opencloud/web"
 )
 
-// Ce que le serveur attend du composant qui mémorise les réglages.
+// Ce que le serveur attend de la base, qui mémorise les réglages.
 type SettingsStore interface {
-	Load() (settings.Settings, error)
-	Update(change func(*settings.Settings)) (settings.Settings, error)
+	LoadSettings(ctx context.Context) (settings.Settings, error)
+	UpdateSettings(ctx context.Context, change func(*settings.Settings)) (settings.Settings, error)
 }
 
 // Ce que le serveur attend du composant machine : l'API d'un côté,
@@ -148,7 +147,7 @@ type HeartbeatService interface {
 // l'autre.
 type StatusService interface {
 	Snapshot(ctx context.Context) (status.Snapshot, error)
-	Page() (status.Page, error)
+	Page(ctx context.Context) (status.Page, error)
 	SetPage(ctx context.Context, page status.Page) (status.Page, error)
 	Components(ctx context.Context) ([]status.Component, error)
 	GetComponent(ctx context.Context, id string) (status.Component, error)
@@ -235,10 +234,6 @@ type Server struct {
 	app     fs.FS
 	handler http.Handler
 	clock   func() time.Time
-
-	// Les réglages courants, relus à chaque requête, réécrits à chaque changement.
-	mu      sync.RWMutex
-	current settings.Settings
 }
 
 type Options struct {
@@ -279,10 +274,6 @@ func New(opts Options) (*Server, error) {
 	catalogs, err := lang.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load languages: %w", err)
-	}
-	current, err := opts.Settings.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load settings: %w", err)
 	}
 	app, err := web.Dist()
 	if err != nil {
@@ -325,7 +316,6 @@ func New(opts Options) (*Server, error) {
 		listen:         opts.Listen,
 		app:            app,
 		clock:          opts.Clock,
-		current:        current,
 	}
 	if opts.Clock != nil {
 		server.pingLimits.setClock(opts.Clock)
@@ -352,29 +342,28 @@ func (s *Server) now() time.Time {
 	return time.Now()
 }
 
-// La langue de l'interface : celle du réglage, sinon le français.
-func (s *Server) language() lang.Code {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.current.Language == "" {
-		return lang.Default
+// language rend la langue de l'interface : celle du réglage, sinon le
+// français. Les réglages se relisent dans la base à chaque usage, jamais
+// d'une copie : un autre processus, ou la reprise de settings.toml, a pu
+// les changer.
+func (s *Server) language(ctx context.Context) (lang.Code, error) {
+	current, err := s.settings.LoadSettings(ctx)
+	if err != nil {
+		return "", err
 	}
-	return s.current.Language
+	if current.Language == "" {
+		return lang.Default, nil
+	}
+	return current.Language, nil
 }
 
 // saveLanguage ne touche que la langue : la page de statut tient ses
-// propres clés dans le même fichier, et Update les préserve.
-func (s *Server) saveLanguage(code lang.Code) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, err := s.settings.Update(func(current *settings.Settings) {
+// propres clés sur la même ligne, et UpdateSettings les préserve.
+func (s *Server) saveLanguage(ctx context.Context, code lang.Code) error {
+	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
 		current.Language = code
 	})
-	if err != nil {
-		return err
-	}
-	s.current = current
-	return nil
+	return err
 }
 
 // Command fait du serveur le commandeur des agents : c'est lui qui tient

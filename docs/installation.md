@@ -167,7 +167,7 @@ commenté : [`installation/config.toml`](installation/config.toml).
 | Clé | Défaut | Rôle |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:8080` | Adresse d'écoute, `hôte:port`, en HTTP. Le seul port d'openCloud |
-| `state_dir` | `/var/lib/opencloud` | La base `opencloud.db` (et `-wal`, `-shm`) et `settings.toml`. Créé en `0700` s'il manque |
+| `state_dir` | `/var/lib/opencloud` | La base `opencloud.db` (et `-wal`, `-shm`), réglages de l'interface compris, et le cache `lifecycle.json`. Créé en `0700` s'il manque |
 | `public_url` | vide | L'adresse publique, par exemple `https://opencloud.example.org`. Voir ci-dessous |
 | `trusted_proxies` | `[]` | Les mandataires dont les en-têtes `X-Forwarded-*` sont crus, en CIDR |
 | `docker_socket` | `/var/run/docker.sock` | La socket Docker de cette machine. Absente : la machine n'a pas de service, ce n'est pas une erreur |
@@ -447,8 +447,8 @@ des envois de l'alerte : « le relais refuse l'identifiant ou le mot de passe »
 (code SMTP 535 en général), « le relais refuse le message ou un
 destinataire », « chiffrement refusé avec le relais ».
 
-Le relais vit dans `settings.toml`, **mot de passe compris, en clair** :
-le fichier est en `0600` sous `state_dir`, comme la base ; l'interface et
+Le relais vit dans la base, **mot de passe compris, en clair** pour
+l'instant : `opencloud.db` est sous `state_dir`, en `0700` ; l'interface et
 l'API ne le réaffichent jamais.
 
 ## Ajouter une machine
@@ -611,14 +611,13 @@ machine donne le commit.
 
 | Où | Quoi | Perte |
 | --- | --- | --- |
-| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages MCP et d'authentification |
-| Serveur, `state_dir` | `settings.toml` | La langue de l'interface, le titre et l'annonce de la page de statut, les seuils du disque, le relais d'e-mails (mot de passe compris) |
+| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |
 
-**La base contient des secrets en clair** : les jetons de ping et les
-secrets de signature des canaux d'alerte ; `settings.toml`, le mot de passe
-du relais d'e-mails. Protégez la sauvegarde (`0600`,
+**La base contient des secrets en clair** : les jetons de ping, les
+secrets de signature des canaux d'alerte et le mot de passe du relais
+d'e-mails. Protégez la sauvegarde (`0600`,
 chiffrée hors de la machine). Les jetons d'enrôlement, les jetons MCP et le
 mot de passe y sont hachés.
 
@@ -633,7 +632,6 @@ compte du service :
 ```sh
 runuser -u opencloud -- sqlite3 /var/lib/opencloud/opencloud.db \
   ".backup '/var/lib/opencloud/opencloud-$(date +%F).db'"
-cp /var/lib/opencloud/settings.toml /var/lib/opencloud/settings-$(date +%F).toml
 ```
 
 Vérifié avec le client `sqlite3` 3.45, service en marche : copie
@@ -653,9 +651,12 @@ systemctl start opencloud
 systemctl stop opencloud
 rm -f /var/lib/opencloud/opencloud.db-wal /var/lib/opencloud/opencloud.db-shm
 install -m 0600 -o opencloud -g opencloud opencloud-2026-10-10.db /var/lib/opencloud/opencloud.db
-install -m 0600 -o opencloud -g opencloud settings-2026-10-10.toml /var/lib/opencloud/settings.toml
 systemctl start opencloud
 ```
+
+Une sauvegarde d'avant les réglages en base a aussi son `settings.toml` :
+posez-le dans `/var/lib/opencloud/` avec la base, en `0600` pour
+`opencloud`. Au démarrage, il est repris dans la base puis effacé.
 
 Retirez les `-wal` et `-shm` de l'ancienne base avant de poser la copie :
 SQLite les rejouerait sur elle. Une base plus ancienne que le binaire est

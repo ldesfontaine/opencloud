@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -60,32 +61,42 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 	return &converted
 }
 
-func (s *Server) lifecycleEnabled() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.current.LifecycleEnabled()
+// lifecycleEnabled relit le réglage dans la base : un autre processus a pu
+// le changer.
+func (s *Server) lifecycleEnabled(ctx context.Context) (bool, error) {
+	current, err := s.settings.LoadSettings(ctx)
+	if err != nil {
+		return false, err
+	}
+	return current.LifecycleEnabled(), nil
 }
 
 // lifecycleOf rend le support de l'image d'un service, ou nil quand le
 // réglage est coupé : la fiche ne montre alors rien.
-func (s *Server) lifecycleOf(image string) *lifecycleJSON {
-	if !s.lifecycleEnabled() {
-		return nil
+func (s *Server) lifecycleOf(ctx context.Context, image string) (*lifecycleJSON, error) {
+	enabled, err := s.lifecycleEnabled(ctx)
+	if err != nil || !enabled {
+		return nil, err
 	}
-	return lifecycleToJSON(s.lifecycle.Of(image))
+	return lifecycleToJSON(s.lifecycle.Of(image)), nil
 }
 
-func (s *Server) lifecycleSettings() lifecycleSettingsJSON {
+func (s *Server) lifecycleSettings(enabled bool) lifecycleSettingsJSON {
 	state := s.lifecycle.State()
 	return lifecycleSettingsJSON{
-		Enabled: s.lifecycleEnabled(), Source: lifecycleSourceName,
+		Enabled: enabled, Source: lifecycleSourceName,
 		FetchedAt: timeOrNil(state.FetchedAt), Products: state.Products,
 		IsFailing: state.IsFailing, LastAttemptAt: timeOrNil(state.LastAttemptAt),
 	}
 }
 
-func (s *Server) getLifecycleSettings(w http.ResponseWriter, _ *http.Request) {
-	s.writeAPI(w, http.StatusOK, s.lifecycleSettings())
+func (s *Server) getLifecycleSettings(w http.ResponseWriter, r *http.Request) {
+	enabled, err := s.lifecycleEnabled(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.lifecycleSettings(enabled))
 }
 
 func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
@@ -93,8 +104,12 @@ func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	wasEnabled := s.lifecycleEnabled()
-	if err := s.saveLifecycleEnabled(request.Enabled); err != nil {
+	wasEnabled, err := s.lifecycleEnabled(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	if err := s.saveLifecycleEnabled(r.Context(), request.Enabled); err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
@@ -103,20 +118,14 @@ func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 	if request.Enabled && !wasEnabled {
 		s.lifecycle.Kick()
 	}
-	s.writeAPI(w, http.StatusOK, s.lifecycleSettings())
+	s.writeAPI(w, http.StatusOK, s.lifecycleSettings(request.Enabled))
 }
 
-// saveLifecycleEnabled ne touche que sa clé : Update préserve le reste du
-// fichier.
-func (s *Server) saveLifecycleEnabled(enabled bool) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, err := s.settings.Update(func(current *settings.Settings) {
+// saveLifecycleEnabled ne touche que sa clé : UpdateSettings préserve le
+// reste de la ligne.
+func (s *Server) saveLifecycleEnabled(ctx context.Context, enabled bool) error {
+	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
 		current.LifecycleDisabled = !enabled
 	})
-	if err != nil {
-		return err
-	}
-	s.current = current
-	return nil
+	return err
 }

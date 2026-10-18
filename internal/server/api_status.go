@@ -334,7 +334,7 @@ func (s *Server) deleteIncident(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getStatusPage(w http.ResponseWriter, r *http.Request) {
-	page, err := s.status.Page()
+	page, err := s.status.Page(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return

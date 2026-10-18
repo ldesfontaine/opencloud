@@ -232,7 +232,10 @@ func (s *Server) serviceResponseOf(ctx context.Context, item service.Service) (s
 		return serviceResponse{}, err
 	}
 	response := serviceResponse{Service: serviceToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
-	response.Service.Lifecycle = s.lifecycleOf(item.Image)
+	response.Service.Lifecycle, err = s.lifecycleOf(ctx, item.Image)
+	if err != nil {
+		return serviceResponse{}, err
+	}
 	for _, engine := range engines {
 		if engine.MachineID == item.MachineID {
 			converted := engineToJSON(engine)

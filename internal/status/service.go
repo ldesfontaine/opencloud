@@ -65,8 +65,8 @@ type Machines interface {
 // Ce que le service attend des réglages : le titre, l'annonce et la langue
 // de la page y vivent, à côté de la langue de l'interface.
 type Settings interface {
-	Load() (settings.Settings, error)
-	Update(change func(*settings.Settings)) (settings.Settings, error)
+	LoadSettings(ctx context.Context) (settings.Settings, error)
+	UpdateSettings(ctx context.Context, change func(*settings.Settings)) (settings.Settings, error)
 }
 
 // Watcher reçoit « la page a changé » : le bus interne pour l'administration,
@@ -481,8 +481,8 @@ func (s *Service) checkComponents(ctx context.Context, ids []string) error {
 
 // Page rend les réglages de la page, la langue résolue : celle du réglage,
 // sinon celle de l'interface.
-func (s *Service) Page() (Page, error) {
-	current, err := s.settings.Load()
+func (s *Service) Page(ctx context.Context) (Page, error) {
+	current, err := s.settings.LoadSettings(ctx)
 	if err != nil {
 		return Page{}, err
 	}
@@ -501,12 +501,12 @@ func pageOf(current settings.Settings) Page {
 }
 
 // SetPage ne touche que les clés de la page : la langue de l'interface, que
-// le serveur tient dans le même fichier, est préservée par Update.
+// le serveur tient sur la même ligne, est préservée par UpdateSettings.
 func (s *Service) SetPage(ctx context.Context, page Page) (Page, error) {
 	if err := page.Validate(); err != nil {
 		return Page{}, err
 	}
-	current, err := s.settings.Update(func(current *settings.Settings) {
+	current, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
 		current.StatusTitle = strings.TrimSpace(page.Title)
 		current.StatusAnnouncement = strings.TrimSpace(page.Announcement)
 		current.StatusLanguage = page.Language
@@ -524,7 +524,7 @@ func (s *Service) SetPage(ctx context.Context, page Page) (Page, error) {
 // compte et qu'aucun incident ne touche n'y est pas : rien à en dire.
 func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 	now := s.now()
-	page, err := s.Page()
+	page, err := s.Page(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
