@@ -30,7 +30,7 @@ func (e *Engine) ProbeChanged(ctx context.Context, found probe.Probe) {
 	if found.Status == probe.StatusDown {
 		e.Open(ctx, Fact{
 			Kind: KindProbeDown, Severity: SeverityDanger, Object: object, MachineID: found.MachineID,
-			Details: Details{Target: found.Target, Reason: string(found.LastReason)},
+			Details: Details{Target: probe.RedactTarget(found.Target), Reason: string(found.LastReason)},
 		})
 	} else {
 		e.Resolve(ctx, KindProbeDown, object)

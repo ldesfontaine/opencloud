@@ -173,7 +173,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	if err != nil {
 		return Probe{}, err
 	}
-	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", created.Target)
+	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", RedactTarget(created.Target))
 	s.Assign(ctx, created.MachineID)
 	s.changed(created.MachineID)
 	return s.store.GetProbe(ctx, id)
@@ -233,7 +233,7 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 		return Probe{}, err
 	}
 	s.logger.Info("probe updated", "probe_id", id, "name", revision.Probe.Name, "machine_id", revision.Probe.MachineID,
-		"target", revision.Probe.Target, "state_reset", revision.ResetsState)
+		"target", RedactTarget(revision.Probe.Target), "state_reset", revision.ResetsState)
 	updated, err := s.store.GetProbe(ctx, id)
 	if err != nil {
 		return Probe{}, err
@@ -255,8 +255,8 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 func (s *Service) revisionOf(before Probe, definition Definition) Revision {
 	revision := Revision{
 		Probe:             before,
-		ResetsState:       definition.resetsState(before),
-		ClearsCertificate: definition.clearsCertificate(before),
+		ResetsState:       definition.ResetsState(before),
+		ClearsCertificate: definition.ClearsCertificate(before),
 	}
 	revised := &revision.Probe
 	revised.Name = definition.Name

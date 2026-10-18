@@ -1,4 +1,4 @@
-package manifest
+package manifest_test
 
 import (
 	"context"
@@ -16,9 +16,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 var updateGolden = flag.Bool("update", false, "réécrit les fichiers de référence dans testdata/")
@@ -35,9 +37,17 @@ const (
 // L'export se teste sur la vraie base SQLite, temporaire, avec la machine
 // openCloud et une machine distante nommée app-1.
 type bench struct {
-	db       *store.DB
-	manifest *Manifest
-	localID  string
+	db         *store.DB
+	manifest   *manifest.Manifest
+	localID    string
+	directory  *directory.Directory
+	probes     *probe.Service
+	heartbeats *heartbeat.Service
+	machines   *machine.Service
+	containers *container.Tracker
+	// writes note chaque geste d'écriture que le fichier fait ; il peut aussi
+	// en faire échouer un.
+	writes *spy
 }
 
 func newBench(t *testing.T) *bench {
@@ -75,13 +85,24 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	declared := directory.New(db, logger)
-	manifest := New(Dependencies{
-		Directory:  declared,
-		Probes:     probe.New(db, logger),
-		Heartbeats: heartbeat.New(db, logger),
+	containers := container.New(db, logger)
+	containers.SetClock(func() time.Time { return testNow })
+	containers.SetUnits(declared)
+	declared.SetObserved(containers, update.New(db, logger))
+	declared.SetRematcher(containers)
+	probes := probe.New(db, logger)
+	heartbeats := heartbeat.New(db, logger)
+	writes := &spy{}
+	component := manifest.New(manifest.Dependencies{
+		Directory:  spyDirectory{Directory: declared, spy: writes},
+		Probes:     spyProbes{Probes: probes, spy: writes},
+		Heartbeats: spyHeartbeats{Heartbeats: heartbeats, spy: writes},
 		Machines:   db,
+		History:    db,
+		Journal:    db,
 	}, logger)
-	return &bench{db: db, manifest: manifest, localID: machine.LocalID}
+	component.SetErrorKeys(testErrorKey)
+	return &bench{db: db, manifest: component, localID: machine.LocalID, directory: declared, probes: probes, heartbeats: heartbeats, machines: machines, containers: containers, writes: writes}
 }
 
 // inOrder rend la liste telle quelle, ou renversée : le contenu de la base ne
@@ -133,7 +154,8 @@ func (b *bench) seed(t *testing.T, reversed bool) {
 			ID: "svc_00000000000000b1", MachineID: remoteID, Name: "wiki", Title: "Wiki", Nature: directory.NatureApplication,
 			Origin: directory.OriginCompose, ComposeProject: "wiki", PublicURL: "https://wiki.example.org",
 			DeclaredBy: directory.ByOperator, CreatedAt: testNow, UpdatedAt: testNow,
-			Units:      []directory.Unit{wikiApp, wikiDB},
+			// Pas dans l'ordre alphabétique : l'ordre des unités se garde.
+			Units:      []directory.Unit{wikiDB, wikiApp},
 			ProjectIDs: inOrder([]string{"prj_00000000000000a1"}, reversed),
 		},
 		{
@@ -170,6 +192,13 @@ func (b *bench) seed(t *testing.T, reversed bool) {
 			MachineID: remoteID, Status: probe.StatusPaused,
 			Interval: 90 * time.Second, Timeout: 5 * time.Second, FailureThreshold: 3, RecoveryThreshold: 2,
 			TLS: true, CreatedAt: testNow,
+		},
+		// Une sonde HTTP loin des valeurs par défaut.
+		{
+			ID: "00000000000000c5", Name: "api-post", Kind: probe.KindHTTP, Target: "https://api.example.org/hook",
+			MachineID: remoteID, Status: probe.StatusUp,
+			Interval: 5 * time.Minute, Timeout: 20 * time.Second, FailureThreshold: 5, RecoveryThreshold: 4,
+			Method: "POST", ExpectedStatus: "200,204", ExpectedBody: "accepted", FollowRedirects: false, CreatedAt: testNow,
 		},
 		// Deux sondes du même nom : l'identifiant les départage.
 		{

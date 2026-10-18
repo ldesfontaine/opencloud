@@ -320,3 +320,15 @@ func heartbeatNotFoundIfNoRow(result sql.Result) error {
 	}
 	return nil
 }
+
+// CountHeartbeatHistory compte ce qu'emporte la suppression d'une tâche : ses
+// pings bruts et ses exécutions.
+func (db *DB) CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error) {
+	err = db.sql.QueryRowContext(ctx, `
+		SELECT (SELECT COUNT(*) FROM heartbeat_pings WHERE heartbeat_id = ?),
+		       (SELECT COUNT(*) FROM heartbeat_runs WHERE heartbeat_id = ?)`, heartbeatID, heartbeatID).Scan(&pings, &runs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count heartbeat history: %w", err)
+	}
+	return pings, runs, nil
+}

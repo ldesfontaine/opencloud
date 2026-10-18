@@ -3,16 +3,22 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
 var (
@@ -190,8 +196,20 @@ func TestManifest_ProblemKeysExistInEveryCatalogWithTheirArguments(t *testing.T)
 	}
 }
 
+// newTestManifest câble le fichier comme serve : les mêmes composants que
+// l'interface, la même traduction des refus, le direct prévenu.
+func newTestManifest(declared *directory.Directory, probes *probe.Service, heartbeats *heartbeat.Service, db *store.DB, bus *live.Bus, logger *slog.Logger) *manifest.Manifest {
+	component := manifest.New(manifest.Dependencies{
+		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
+	}, logger)
+	component.SetErrorKeys(RefusalKey)
+	component.SetWatcher(bus)
+	component.SetClock(func() time.Time { return testNow })
+	return component
+}
+
 // tooLargeManifest simule un annuaire qui ne tiendrait pas dans un fichier.
-type tooLargeManifest struct{}
+type tooLargeManifest struct{ ManifestService }
 
 func (tooLargeManifest) Export(context.Context, manifest.Annotations) ([]byte, error) {
 	return nil, fmt.Errorf("export: %w", manifest.ErrExportTooLarge)

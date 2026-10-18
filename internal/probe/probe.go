@@ -221,6 +221,26 @@ func (p Probe) IsPaused() bool {
 	return p.Status == StatusPaused
 }
 
+// Definition redonne la sonde sous la forme que l'édition remplace entière.
+func (p Probe) Definition() Definition {
+	return Definition{
+		Name:              p.Name,
+		Kind:              p.Kind,
+		Target:            p.Target,
+		MachineID:         p.MachineID,
+		ServiceID:         p.ServiceID,
+		Interval:          p.Interval,
+		Timeout:           p.Timeout,
+		FailureThreshold:  p.FailureThreshold,
+		RecoveryThreshold: p.RecoveryThreshold,
+		Method:            p.Method,
+		ExpectedStatus:    p.ExpectedStatus,
+		ExpectedBody:      p.ExpectedBody,
+		FollowRedirects:   p.FollowRedirects,
+		TLS:               p.TLS,
+	}
+}
+
 // Task rend ce que l'agent a besoin de savoir pour sonder, et rien d'autre.
 func (p Probe) Task() Task {
 	return Task{
@@ -392,12 +412,13 @@ func (d Definition) Complete() Definition {
 	return d
 }
 
-// resetsState dit si l'édition change ce que la sonde mesure : l'état et les
+// ResetsState dit si l'édition change ce que la sonde mesure : l'état et les
 // compteurs ne disent plus rien de ce qu'elle mesurera. Le nom, le service,
 // l'intervalle et les seuils n'y touchent pas. d doit être complétée, comme
-// la sonde d'avant l'a été à sa création.
-func (d Definition) resetsState(before Probe) bool {
-	return d.clearsCertificate(before) ||
+// la sonde d'avant l'a été à sa création. Le plan d'un fichier s'en sert
+// pour prévenir avant d'appliquer.
+func (d Definition) ResetsState(before Probe) bool {
+	return d.ClearsCertificate(before) ||
 		d.Method != before.Method ||
 		d.ExpectedStatus != before.ExpectedStatus ||
 		d.ExpectedBody != before.ExpectedBody ||
@@ -405,10 +426,10 @@ func (d Definition) resetsState(before Probe) bool {
 		d.Timeout != before.Timeout
 }
 
-// clearsCertificate dit si l'édition change ce que la sonde regarde : le
+// ClearsCertificate dit si l'édition change ce que la sonde regarde : le
 // certificat gardé serait celui d'une autre cible. Un simple réglage de
 // l'essai le laisserait en place, la cible étant la même.
-func (d Definition) clearsCertificate(before Probe) bool {
+func (d Definition) ClearsCertificate(before Probe) bool {
 	return d.Kind != before.Kind ||
 		d.Target != before.Target ||
 		d.MachineID != before.MachineID ||

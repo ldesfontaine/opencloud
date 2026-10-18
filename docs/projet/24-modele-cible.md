@@ -631,7 +631,7 @@ flowchart LR
 | `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) |
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
 | `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles |
-| `applies` | Un passage d'`apply` : empreinte du fichier, plan, confirmé ou non, `prune` ou non | Nouvelle |
+| `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
 | `audit_events` | Qui, quoi, quand, sur quoi, diff sans secret. Sans clé étrangère vers l'objet : survit à tout | Nouvelle |
 | `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle |
 | `accounts`, `sessions` | Compte local créé au premier démarrage ; page de connexion avec déconnexion. Comptes multiples et rôles plus tard | Nouvelles |
@@ -778,12 +778,16 @@ Les tables nouvelles sont listées au-dessus du [diagramme](#diagramme-des-entit
 
 ## 3. Le fichier d'apply et l'export
 
-Cet exemple dit la cible. L'export de l'annuaire (4a/7, voir « 8. Ce que
-l'annuaire (4a/7) a fixé ») n'en écrit que `machines`, `projects`, `services`,
+Cet exemple dit la cible. L'export et l'application de l'annuaire (4a/7 et 4b/7,
+voir « 8. Ce que l'annuaire (4a/7) a fixé » et « 9. Ce que l'annuaire (4b/7) a
+fixé ») n'en portent que `machines`, `projects`, `services`,
 `probes`, `heartbeats` et `ignored` ; `status_pages`, `channels`,
 `backup_destinations`, `backups`, `settings`, ainsi que `protected`,
 `open_paths`, `eol_product` et le genre d'une tâche, attendent les
-fonctionnalités qui les créent, et la lecture les refuse d'ici là.
+fonctionnalités qui les créent, et la lecture les refuse d'ici là. Deux écarts
+à la table des règles ci-dessous, tranchés par la 4b : l'application **n'est pas
+une transaction unique** (voir la section 9), et le journal n'écrit pas encore
+d'`audit_events`.
 
 ```yaml
 version: 1
@@ -903,7 +907,7 @@ settings:
 | Règle d'apply | Détail |
 | --- | --- |
 | Reconnaissance | Par `id` s'il est là, sinon par `name` (unique par type ; pour un service, machine + nom). Deux fois le même `id` (copier-coller) : refus du fichier |
-| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit dans une transaction ; une ligne `applies` et un `audit_events` par objet |
+| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit objet par objet par le geste de son domaine (pas de transaction unique, voir la section 9) ; une ligne `applies` par passage (un `audit_events` par objet viendra avec l'audit) |
 | Jamais | Recréer un objet ; toucher un jeton, un id, un historique ; créer ou enrôler une machine ; agir sur une machine (apply écrit l'annuaire, les runs viennent après) |
 | `--prune` | Seul chemin de suppression de ce qui n'est pas déclaré ; le plan dit ce que chaque suppression emporte |
 | Fichier invalide | Refusé en entier ; rien n'est écrit |
@@ -1022,3 +1026,25 @@ rien appliquer. Ce que le code a tranché en l'écrivant, et que la 4b lit :
 | **Durées avec unité** (`60s`, `5m`, `24h`) ; une sonde en secondes entières, une tâche en minutes entières | Ce que la base sait stocker ; une durée ronde sinon refusée plutôt qu'arrondie |
 | **Lecture par nœuds, pas décodée d'un coup** : clé inconnue, clé répétée, alias, plusieurs documents, type inattendu, plus de 256 Kio sont refusés à leur ligne | Un refus cite une ligne ; le décodage direct ne voit pas les doublons et lit `"1"` comme `1` |
 | **La socket `state_dir/control.sock`** (0600, `state_dir` fermé au groupe et aux autres, jamais prise à un `serve` vivant) sert `/api/manifest/…` et rien d'autre ; la commande `opencloud export` passe par elle | Pas d'identifiants à saisir sur une machine où l'on est déjà le compte du service ; la commande n'ouvre pas la base et ne crée donc pas de fichier au nom de root |
+
+## 9. Ce que l'annuaire (4b/7) a fixé
+
+L'application du fichier, le journal et la commande `opencloud apply`. Ce que
+le code a tranché, et que la suite (4c, l'audit, les runs) lit :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Pas de transaction unique** : chaque objet passe par le geste de son domaine (`CreateService`, `Update` d'une sonde, d'une tâche…), dans sa propre transaction | Ces gestes poussent aux agents leurs sondes, refont le rattachement des conteneurs, déplacent les échéances et préviennent les alertes ; une transaction qui les contournerait les ferait dériver de l'interface. Ce qui tient lieu de garantie : fichier jugé en entier avant d'écrire, plan rejoué sous verrou et comparé à l'empreinte confirmée, exécution détachée du client, arrêt au premier refus avec une ligne `failed` qui dit où, relance qui reprend (ce qui est fait ressort « inchangé ») |
+| **L'empreinte du plan couvre `--prune` et les changements avec leurs valeurs d'avant**, pas ce qu'une suppression emporte | L'historique d'une sonde grossit pendant qu'on lit le plan : il ne doit pas le périmer. Une édition faite dans l'interface entre le plan et l'écriture, elle, le périme |
+| **Reconnaissance : l'`id` d'abord (inconnu = refus), puis le nom parmi les objets qu'aucune entrée ne réclame** ; les références (projet d'un service, service d'une sonde) se résolvent sur l'état visé, fichier plus objets restants | Un renommage par `id` garde l'objet ; deux sondes de même nom, dont une réclamée, ne sont pas ambiguës ; un projet, un service et sa sonde naissent dans le même fichier |
+| **Les validations sont celles des domaines** (`Complete` puis `Validate`), appelées sur les seules entrées que le plan écrirait ; un refus de domaine garde la clé de son domaine (`directory.*`, `probe.*`, `job.*`, `project.*`) | Un seul jeu de règles, et un plan qui refuse ce que l'interface refuserait ; une entrée inchangée n'est pas re-jugée, une base qui a des écarts anciens ne bloque pas un fichier qui n'y touche pas |
+| **`--prune` ne touche jamais une machine** et un service visé par un composant de statut ne se supprime pas (le plan le refuse, avec la liste) | Le fichier ne porte ni les machines ni les composants : il ne peut pas les détacher ; supprimer sans détacher ferait disparaître un composant de la page publique |
+| **Les clés d'unicité se libèrent avant d'être reprises** ; un échange de clés (`swap_refused`) et la reprise d'une clé que `--prune` libère dans le même passage (`key_from_pruned`) sont refusés | Aucun ordre d'écriture ne réussit l'échange, et la suppression vient en dernier : « en deux fois » |
+| **Chaque objet est relu juste avant son écriture** et comparé à la définition que le plan a vue ; s'il diffère (édition de l'interface pendant l'application), l'application s'arrête en `manifest.plan_changed`. La clé de nom d'une création prise entre-temps est le même arrêt. **`-yes` ne confirme jamais un plan qu'il n'a pas montré** : sous `-yes`, un `409` affiche le nouveau plan et sort en `1` | Sans transaction unique, l'empreinte ne couvre que l'instant du rejeu ; la garde par objet couvre les secondes d'écriture. Redemander sous `-yes` ferait passer une suppression que personne n'a lue |
+| **Un jeton existant n'est jamais régénéré** ; une tâche créée reçoit le jeton que le serveur tire, et le plan le note (`token_generated`) sans le montrer | Le fichier va dans Git et ne porte aucun secret ; l'URL de ping se lit dans l'interface |
+| **La cible d'une sonde est masquée dans le plan et le journal** (`user:…@hôte`) ; un mot de passe qui change seul est un changement, noté `password_changed` | Le plan va à l'écran et dans `applies.plan`. La création d'une sonde accepte encore un mot de passe dans la cible (donc l'export l'écrit) : à corriger à part |
+| **Acteur : `cli` sur la socket, sous le compte que la commande déclare ; `operator` sur le port web** | Indicatif, jamais une preuve : qui atteint la socket peut déjà lire la base. Le champ est `actor_kind`, les agents et les règles auront le leur |
+| **Pas de CHECK sur `state` ni `actor_kind`** dans `applies` ; `planned` est réservé | Le code valide la liste ; ajouter un état ne demande pas de reconstruire la table |
+| **Une ligne `confirmed` au démarrage est un arrêt brutal** : `serve` la passe `failed` (`manifest.interrupted`) ; l'arrêt propre du serveur ne coupe pas un changement, il empêche le suivant et le journalise | Le journal dit vrai après n'importe quelle fin de processus |
+| **Un fichier refusé est une réponse, pas une panne** : `POST /api/manifest/plan` rend `200` avec `applicable: false` et les refus, chacun avec sa ligne | La commande et l'interface montrent tous les refus d'un coup |
+| **Pas d'apply depuis l'interface** ; elle lit le journal et le plan de chaque passage (`PlanView`, prêt pour la 4c) | Le chemin de l'opérateur est Git puis la commande ; la 4c attendra l'usage |

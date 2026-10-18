@@ -39,6 +39,9 @@ export function DirectoryTab() {
         subtitle={services.data ? directorySubtitle(t, all.length) : ""}
         actions={
           <>
+            <Button icon="clock" to="/services/annuaire/journal">
+              {t("manifest.journal")}
+            </Button>
             <Button icon="file" href="/api/manifest/export" download="">
               {t("manifest.export")}
             </Button>

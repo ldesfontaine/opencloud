@@ -62,12 +62,16 @@ func (b *bench) ProbesChanged(machineID string) {
 
 func newBench(t *testing.T) *bench {
 	t.Helper()
+	return newBenchLogging(t, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+}
+
+func newBenchLogging(t *testing.T, logger *slog.Logger) *bench {
+	t.Helper()
 	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { root.Close() })
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	db, err := store.Open(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)

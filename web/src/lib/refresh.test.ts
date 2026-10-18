@@ -9,6 +9,11 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/directory/projects")).toEqual(["directory"]);
   });
 
+  it("rereads the file journal when the directory changes", () => {
+    expect(topicsOf("/api/manifest/applies")).toEqual(["directory"]);
+    expect(topicsOf("/api/manifest/applies/apl_0123456789abcdef")).toEqual(["directory"]);
+  });
+
   it("rereads the gap when either the directory or the containers change", () => {
     expect(topicsOf("/api/directory/gaps")).toEqual(["directory", "containers"]);
     expect(topicsOf("/api/directory/gaps?machine=m1&project=prj_1")).toEqual(["directory", "containers"]);

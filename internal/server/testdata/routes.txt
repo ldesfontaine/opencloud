@@ -39,6 +39,10 @@ GET /api/directory/proposal
 POST /api/directory/ignored
 DELETE /api/directory/ignored
 GET /api/manifest/export
+POST /api/manifest/plan
+POST /api/manifest/apply
+GET /api/manifest/applies
+GET /api/manifest/applies/{id}
 GET /api/probes
 POST /api/probes
 GET /api/probes/{id}

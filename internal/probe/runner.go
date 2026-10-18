@@ -138,7 +138,7 @@ func (r *Runner) once(ctx context.Context, task Task) {
 	if ctx.Err() != nil {
 		return
 	}
-	r.logger.Debug("probe checked", "probe_id", task.ID, "target", task.Target,
+	r.logger.Debug("probe checked", "probe_id", task.ID, "target", RedactTarget(task.Target),
 		"outcome", string(result.Outcome), "duration_ms", result.DurationMs)
 	r.sink.Deliver(Report{Results: []Result{result}})
 }

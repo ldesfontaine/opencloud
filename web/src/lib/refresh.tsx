@@ -24,8 +24,9 @@ export function topicsOf(path: string): Topic[] {
   if (path.startsWith("/api/directory/gaps")) {
     return ["directory", "containers"];
   }
-  // L'annuaire a son propre sujet, distinct de celui des conteneurs.
-  if (path.startsWith("/api/directory")) {
+  // L'annuaire a son propre sujet, distinct de celui des conteneurs ; le
+  // journal des fichiers appliqués le suit : un passage le touche.
+  if (path.startsWith("/api/directory") || path.startsWith("/api/manifest")) {
     return ["directory"];
   }
   // La fiche d'un conteneur dit aussi de quelle unité elle relève : elle suit

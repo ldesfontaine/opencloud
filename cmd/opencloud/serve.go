@@ -225,8 +225,21 @@ func runServe(args []string) error {
 	updates.Assign(ctx, machine.LocalID)
 	logServicesToReview(ctx, declared, logger)
 
-	// Le fichier de l'annuaire lit les mêmes composants que l'interface.
-	manifests := manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db}, logger)
+	// Le fichier de l'annuaire lit et écrit par les mêmes composants que
+	// l'interface : les agents reçoivent leurs sondes, le rapprochement se
+	// refait, les alertes suivent. Son arrêt suit celui du serveur : un apply
+	// en cours finit son changement puis se journalise « interrompu ».
+	manifests := manifest.New(manifest.Dependencies{
+		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
+	}, logger)
+	manifests.SetErrorKeys(server.RefusalKey)
+	manifests.SetWatcher(bus)
+	manifests.SetLifetime(ctx)
+	// Un passage resté « en cours » est celui d'un arrêt brutal : plus rien
+	// ne l'écrit, il passe en échec pour que le journal dise vrai.
+	if _, err := manifests.FailInterrupted(ctx); err != nil {
+		logger.Warn("mark interrupted applies", "error", err)
+	}
 
 	server, err := server.New(server.Options{
 		Logger:         logger,

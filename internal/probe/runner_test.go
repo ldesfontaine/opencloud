@@ -1,11 +1,13 @@
 package probe
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -167,4 +169,49 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 	if runner.Count() != 0 {
 		t.Fatalf("l'arrêt devait tout fermer, %d en cours", runner.Count())
 	}
+}
+
+// La ligne de journal d'un essai ne porte pas le mot de passe de la cible.
+func TestRunner_LogsNeverCarryATargetPassword(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+	var logs lockedBuffer
+	sink := newSink()
+	runner := NewRunner(sink, NewChecker(nil), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runner.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	task := httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1))
+	runner.Assign(Assignment{Probes: []Task{task}})
+	sink.waitFor(t, 1)
+	cancel()
+	<-done
+	text := logs.String()
+	if !strings.Contains(text, "probe checked") || strings.Contains(text, "secret") {
+		t.Fatalf("log:\n%s", text)
+	}
+}
+
+type lockedBuffer struct {
+	mu   sync.Mutex
+	data bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.data.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.data.String()
 }

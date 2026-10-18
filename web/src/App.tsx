@@ -5,6 +5,8 @@ import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
 import { AlertSilenceNew } from "./pages/AlertSilenceNew";
+import { ApplyDetail } from "./pages/ApplyDetail";
+import { Applies } from "./pages/Applies";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
@@ -55,6 +57,9 @@ export function App() {
         {/* L'ancienne adresse de l'onglet : les liens enregistrés suivent. */}
         <Route path="services/annuaire" element={<Navigate to="/services" replace />} />
         <Route path="services/annuaire/nouveau" element={<DeclaredServiceForm />} />
+        {/* Le journal des fichiers appliqués : des segments fixes, avant l'identifiant d'un service. */}
+        <Route path="services/annuaire/journal" element={<Applies />} />
+        <Route path="services/annuaire/journal/:id" element={<ApplyDetail />} />
         <Route path="services/annuaire/:id/modifier" element={<DeclaredServiceForm />} />
         <Route path="services/annuaire/:id" element={<DeclaredServicePage />} />
         <Route path="services/projets" element={<Services tab="projets" />} />

@@ -448,3 +448,15 @@ func probeNotFoundIfNoRow(result sql.Result) error {
 	}
 	return nil
 }
+
+// CountProbeHistory compte ce qu'emporte la suppression d'une sonde : ses
+// essais bruts et ses jours agrégés.
+func (db *DB) CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error) {
+	err = db.sql.QueryRowContext(ctx, `
+		SELECT (SELECT COUNT(*) FROM probe_results WHERE probe_id = ?),
+		       (SELECT COUNT(*) FROM probe_days WHERE probe_id = ?)`, probeID, probeID).Scan(&results, &days)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count probe history: %w", err)
+	}
+	return results, days, nil
+}

@@ -262,6 +262,16 @@ func (r *reader) duration(node *yaml.Node, name string, grain time.Duration) tim
 	return parsed
 }
 
+// refuseZero refuse un zéro écrit : le domaine lit zéro comme « absent » et
+// poserait le défaut, là où l'opérateur a écrit autre chose. Une clé absente,
+// elle, prend le défaut sans ambiguïté. Une valeur déjà refusée (before
+// compte les refus d'avant sa lecture) ne l'est pas deux fois.
+func (r *reader) refuseZero(node *yaml.Node, name string, before int, value int64) {
+	if len(r.problems) == before && value == 0 && !isNull(node) {
+		r.add(KeyZeroValue, node, name)
+	}
+}
+
 func parseDuration(text string, grain time.Duration) (time.Duration, bool) {
 	if text == "" || strings.ContainsAny(text[len(text)-1:], "0123456789.") {
 		return 0, false
@@ -436,13 +446,21 @@ func (r *reader) readProbes(node *yaml.Node) []Probe {
 			case "target":
 				item.Target = r.text(value, key)
 			case "interval":
+				before := len(r.problems)
 				item.Interval = r.duration(value, key, probeGrain)
+				r.refuseZero(value, key, before, int64(item.Interval))
 			case "timeout":
+				before := len(r.problems)
 				item.Timeout = r.duration(value, key, probeGrain)
+				r.refuseZero(value, key, before, int64(item.Timeout))
 			case "failure_threshold":
+				before := len(r.problems)
 				item.FailureThreshold = r.integer(value, key)
+				r.refuseZero(value, key, before, int64(item.FailureThreshold))
 			case "recovery_threshold":
+				before := len(r.problems)
 				item.RecoveryThreshold = r.integer(value, key)
+				r.refuseZero(value, key, before, int64(item.RecoveryThreshold))
 			case "method":
 				item.Method = r.text(value, key)
 			case "expected_status":

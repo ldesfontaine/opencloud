@@ -26,14 +26,18 @@ const (
 )
 
 func (s *Server) readAPI(w http.ResponseWriter, r *http.Request, into any) bool {
-	body := http.MaxBytesReader(w, r.Body, maxAPIBody)
-	decoder := json.NewDecoder(body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(into); err != nil {
+	if !readBounded(w, r, into, maxAPIBody) {
 		s.writeAPIError(w, http.StatusBadRequest, codeBadJSON)
 		return false
 	}
 	return true
+}
+
+// readBounded lit le corps JSON, d'au plus limit octets, sans champ inconnu.
+func readBounded(w http.ResponseWriter, r *http.Request, into any, limit int64) bool {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(into) == nil
 }
 
 func (s *Server) writeAPI(w http.ResponseWriter, status int, payload any) {

@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> annuaire, l'export en fichier (4a/7), 18 octobre 2026.
+> annuaire, le fichier appliqué (4b/7), 18 octobre 2026.
 
 ## Les acteurs
 
@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base, et le rôle d'agent pour elle-même |
-| La commande locale | `opencloud export`, lancée sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elle parle au `serve` qui tourne par la socket `state_dir/control.sock` et écrit ce qu'il répond. Elle n'ouvre pas la base |
+| La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
 | Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
@@ -89,7 +89,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée : `read` (défaut d'un jeton d'API) ou `write` (un jeton OAuth, toujours) ; une écriture la juge à chaque requête et refuse un `read` par `mcp.read_only`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
 | Agent IA | client MCP → `/oauth/authorize`, `/oauth/token` | TLS de Traefik | Le `redirect_uri` est jugé avant tout redirect, y compris pour dire une erreur : la boucle locale toujours, n'importe quel port, sinon une adresse déclarée sous Paramètres, comparée telle quelle. Pas de page de consentement : le secret du client, jamais envoyé à l'autorisation, est vérifié à l'échange en temps constant. Un code sert une fois, dix minutes ; un rafraîchissement rejoué révoque toute sa famille. Débit borné par adresse, plus serré sur `/oauth/token` |
 | Agent IA local | `opencloud mcp` ↔ le client, sur stdin/stdout | Aucun : deux processus de la même machine, rien ne passe par le réseau | Les droits Unix sur `state_dir`, en 0700 : il faut tourner sous le compte du service. Lecture seule : les écritures répondent `mcp.read_only`, ce processus ne tient ni le bus du direct ni les flux des agents. Il lit aussi `secret.key` et refuse de démarrer sans elle : il ne la crée jamais. Au démarrage, il chiffre aussi les clairs restés (une base d'avant), donc il écrit dans la base ce jour-là, une fois |
-| Commande locale | `opencloud export` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que `/api/manifest/…`, tout le reste y répond 404 |
+| Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
@@ -101,7 +101,7 @@ réseau est déjà chiffré.
 
 Au repos, les secrets que l'opérateur saisit dans l'interface sont chiffrés dans la
 base ; voir « Ce qui est stocké, et où ». Le fichier de l'annuaire exporté n'en
-porte aucun : voir « Comment l'annuaire s'exporte ».
+porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 
 ## Ce qui est stocké, et où
 
@@ -112,6 +112,7 @@ porte aucun : voir « Comment l'annuaire s'exporte ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit (migration `026_applies.sql`) | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
@@ -691,10 +692,10 @@ déjà déclaré sur la machine porte l'identifiant de ce service.
   relit quand l'un ou l'autre change. La fiche d'un conteneur suit aussi
   l'annuaire.
 
-## Comment l'annuaire s'exporte
+## Comment l'annuaire s'exporte et s'applique
 
 L'annuaire déclaré sort en un fichier YAML, `opencloud.yaml`, que l'opérateur
-relit, garde dans Git et, à la prochaine étape, rejouera. Le format est un
+relit, garde dans Git et rejoue avec `opencloud apply`. Le format est un
 contrat : ce qui l'écrit et ce qui le lit sont le même paquet,
 `internal/manifest`, et un test exige qu'un export relu puis réécrit redonne
 les mêmes octets, **commentaires exceptés** : celui d'un service « à vérifier »
@@ -767,8 +768,152 @@ tâche en minutes entières), un secret qui n'est pas exactement
 `{secret: kept}` ou qu'un fichier tente d'écrire en clair, plus de 256 Kio.
 La lecture rend les refus d'un coup, cent au plus, pas le premier seulement.
 
-Rien ne l'applique encore : 4a écrit et relit le fichier, ne modifie jamais
-l'annuaire. Le plan, l'application et le journal viennent avec la suite.
+### Le plan
+
+`apply` ne lit pas le fichier lui-même : il l'envoie à `serve`, qui le juge.
+Le plan est une fonction pure (`manifest.BuildPlan`) du fichier, de l'annuaire
+tel qu'il est et de `--prune` : le même fichier face à la même base donne le
+même plan, octet pour octet. Il liste, dans l'ordre où ils s'écriront, les
+changements (créer, modifier, supprimer) avec, pour une modification, chaque
+champ **avant → après** dans le vocabulaire du fichier, et les conséquences
+(`probe_resets`, `heartbeat_deadline_moves`, `unit_removed`, `unit_added`,
+`service_moves`, `token_generated`, `password_changed`). Il compte aussi ce qui est inchangé et ce
+que la base garde sans que le fichier le nomme.
+
+- **Reconnaître un objet.** Une entrée qui donne un `id` vise cet objet, et un
+  `id` inconnu est refusé (`id_unknown`) : c'est ainsi qu'un renommage garde
+  l'objet, son historique et ses liens. Sans `id`, l'entrée se reconnaît à son
+  nom (machine et nom pour un service) **parmi les objets que aucune autre
+  entrée ne réclame** : deux sondes de même nom, dont l'une est réclamée par son
+  `id`, ne sont pas ambiguës ; deux entrées sans `id` pour deux objets du même
+  nom le sont (`name_ambiguous`). Un `id` donné deux fois est refusé
+  (`id_duplicate`, avec la ligne de la première), un nom donné deux fois aussi
+  (`name_duplicate`). Une entrée sans objet est une création.
+- **Les références se résolvent sur l'état visé**, pas sur l'état d'avant : un
+  projet, un service et la sonde qui vise ce service peuvent naître dans le
+  même fichier, et un service renommé reste celui que sa sonde nomme. Une
+  machine, un service ou un projet inconnus sont refusés à la ligne de
+  l'entrée (`machine_unknown`, `service_unknown`, `project_unknown`).
+- **La validation est celle des domaines.** Le parseur n'exige pas les champs
+  obligatoires : le plan appelle `Complete` puis `Validate` du service, de la
+  sonde, de la tâche et du projet, sur les seules entrées qu'il écrirait. Un
+  seuil négatif, une durée `0s`, des fournitures sur une application, un nom
+  invalide y sont refusés avec la clé de leur domaine (`directory.*`, `probe.*`,
+  `job.*`, `project.*`), à la ligne de l'entrée. Les doublons de `machines`
+  aussi. **Un seul refus interdit tout** : un plan refusé n'écrit rien, il est
+  rendu avec ses refus et `applicable: false`.
+- **L'ordre.** Projets, services, puis sondes, tâches et clés ignorées ; les
+  suppressions de ce que `--prune` retire viennent **après** ce qui les visait
+  (sondes avant leur service, service avant son projet). Les clés d'unicité
+  (nom, projet Compose, unité observée) se libèrent avant d'être reprises : un
+  service qui prend le nom qu'un autre quitte passe après lui. Deux services qui
+  se prennent la clé l'un de l'autre n'ont pas d'ordre : `swap_refused`, « en
+  deux fois ». Une clé qu'un objet supprimé par `--prune` tient encore ne se
+  reprend pas dans le même passage (`key_from_pruned`).
+- **`--prune` ne touche jamais une machine**, et supprimer un service que des
+  composants de statut visent est refusé dans le plan, avec leur liste
+  (`prune_blocked`) : le fichier ne porte pas les composants, il ne peut pas
+  les détacher. Ce qu'une suppression emporte est affiché avant : les essais et
+  les jours d'une sonde, les pings et les exécutions d'une tâche, les unités et
+  les liens d'un service. Ces comptes sont lus au moment du plan et **ne
+  comptent pas dans l'empreinte** : l'historique grossit pendant qu'on lit.
+- **Aucun secret dans un plan.** Un jeton existant n'est jamais régénéré
+  (`token: {secret: kept}` ne fait rien) ; une tâche créée reçoit le jeton que le
+  serveur tire, et le plan le dit sans le montrer. La cible d'une sonde est
+  montrée sans son mot de passe.
+
+L'**empreinte du plan** (`plan_hash`) est le sha256 du JSON de `--prune` et des
+changements avec leurs valeurs d'avant, leurs conséquences et ce qu'une
+suppression emporte **de structure** (unités, liens de projet) ; l'historique
+(essais, jours, pings, exécutions) n'y est pas, il grossit pendant qu'on lit.
+Toute modification faite dans l'interface entre le plan et l'application la
+change. Un mot de passe de cible qui change seul est un changement du plan : le
+champ `target` reste masqué (`user:…@hôte`) et la conséquence
+`password_changed` le dit.
+
+### L'application
+
+Il n'y a **pas de transaction unique** : chaque objet passe par le geste de son
+domaine (`CreateService`, `UpdateProbe`, `Assign` des sondes, `Rematch` des
+conteneurs, échéances des tâches, alertes), dans sa propre transaction. C'est
+ce qui pousse aux agents leurs sondes et refait le rattachement des
+conteneurs, comme une saisie dans l'interface ; un service modifié retrouve
+d'abord ses unités **par leur nom** pour leur garder leur identifiant, leur
+politique de mise à jour et leurs conteneurs rattachés. Ce qui tient lieu de
+garantie :
+
+1. **Le fichier est jugé en entier avant la première écriture.**
+2. **Le plan est rejoué sous verrou** (un seul apply à la fois, un second
+   répond `409 manifest.busy`) et comparé à l'empreinte que l'opérateur a
+   confirmée ; s'il diffère, rien n'est écrit, la réponse est
+   `409 manifest.plan_changed` avec le plan d'aujourd'hui.
+3. **L'exécution est détachée du client** (`context.WithoutCancel`, bornée à
+   deux minutes) : un Ctrl-C ou une connexion coupée ne laisse pas un
+   fichier à moitié écrit sans journal.
+4. **Chaque objet est relu juste avant d'être écrit.** Le plan garde la
+   définition qu'il a vue (service, sonde, tâche, projet) ; l'écriture relit
+   l'objet et la compare. Une édition faite dans l'interface *pendant*
+   l'application (un titre, une unité renommée) arrête l'écriture avec
+   `manifest.plan_changed` au lieu d'être écrasée sans bruit ; de même pour
+   un nom que le plan avait trouvé libre et qu'une autre main a pris. La
+   relance recalcule le plan sur l'annuaire d'aujourd'hui.
+5. **Un refus au milieu arrête tout.** La ligne du journal passe `failed`
+   avec `done` (les changements écrits), l'erreur et l'objet refusé. Ce qui est
+   écrit reste écrit ; relancer le même fichier reprend où il s'est arrêté, car
+   ce qui est fait ressort « inchangé ». Une panique ferme aussi la ligne.
+6. **L'arrêt du serveur** (`SIGTERM`) est jugé entre deux changements : un
+   changement commencé va jusqu'au bout, le suivant n'est pas écrit et la ligne
+   dit `manifest.interrupted`. Si un changement dépasse le délai d'arrêt du
+   processus, celui-ci s'arrête avant d'avoir fermé la ligne : elle reste
+   `confirmed` et passe `failed` (`manifest.interrupted`) au démarrage suivant,
+   comme tout arrêt brutal (voir « Ce qui est stocké »).
+
+Le journal est écrit **avant** le premier changement (`confirmed`) et fermé
+après le dernier, quoi qu'il arrive. Un plan qui n'a rien à changer n'ouvre
+aucune ligne (`422 manifest.nothing_to_apply`).
+
+### Les routes, la commande, l'interface
+
+| Route | Ce qu'elle fait |
+| --- | --- |
+| `POST /api/manifest/plan` | Juge le fichier (`file`, `file_name`, `prune`), rend le plan. Un fichier refusé reste un `200` avec `applicable: false` et ses `problems` ; un corps illisible est un `422 manifest.request_invalid` |
+| `POST /api/manifest/apply` | Écrit le fichier si `plan_hash` est celui d'aujourd'hui : `201` avec le passage et ses changements (`state` `applied` ou `failed`) ; `409 manifest.plan_changed` ou `manifest.busy` ; `422 manifest.not_applicable` (avec le plan) ou `manifest.nothing_to_apply` |
+| `GET /api/manifest/applies?limit=` | Le journal, du plus récent au plus ancien, sans les plans (40 par défaut, 200 au plus) |
+| `GET /api/manifest/applies/{id}` | Un passage avec son plan ; `404` sinon |
+
+Le corps d'un plan ou d'un apply est borné à 1 Mio (le fichier, à 256 Kio,
+dans une chaîne JSON). Sur le port web, ces routes sont des routes d'opérateur
+comme le reste de l'API (authentification, garde même-origine) ; sur la
+socket, aucune garde. **L'acteur** d'un apply est `cli` sur la socket, sous le
+compte système que la commande déclare (`actor_name`, indicatif, jamais une
+preuve), et `operator` sur le port web, sous l'identifiant Basic ou l'identité
+transmise par le mandataire. Seules les quatre routes `/api/manifest/…` sont
+servies sur la socket, et chacune avec sa méthode.
+
+`opencloud apply [-config] [-prune] [-yes] [-dry-run] <fichier>` :
+
+- montre le plan dans la langue de l'interface (genres, conséquences et refus
+  viennent des catalogues), puis demande `Appliquer ces changements ? [o/N]` ;
+- **sans terminal et sans `-yes`, elle refuse** : rien ne s'applique jamais sans
+  confirmation ; `-dry-run` montre le plan et s'arrête ;
+- si l'empreinte a changé entre la question et l'écriture (`409`), elle montre
+  le nouveau plan et redemande, **une fois, seulement en interactif** : c'est
+  quelqu'un qui lit le nouveau plan et le confirme. Sous `-yes`, personne ne
+  l'a lu (avec `-prune`, une suppression apparue entre-temps passerait) : le
+  nouveau plan est montré, rien n'est écrit, et la commande sort en `1`
+  (« l'annuaire a changé pendant la commande : relancez-la ») ;
+- « Rien à changer. » sort en `0` sans appeler l'application ;
+- codes de sortie : `0` appliqué ou rien à changer, `2` fichier refusé ou plan
+  non confirmé, `1` erreur (serveur absent, application arrêtée) ;
+- un arrêt au milieu dit où : `Arrêté au changement 3/5 (sonde wiki-http) : …
+  Les 2 premiers sont écrits ; corrigez puis relancez`.
+
+Dans l'interface, le lien « Journal des fichiers » de l'onglet Annuaire mène à
+`/services/annuaire/journal` (date, acteur, fichier et empreinte courte, état,
+`+1 ~2 −0`) et chaque ligne au détail d'un passage (`…/journal/:id`) : ses faits,
+pourquoi il s'est arrêté, et son plan, avec ce qui est écrit. **L'interface
+n'applique pas de fichier** : le chemin est Git puis la commande.
+
 
 ## Comment le réseau des services se lit
 
@@ -1888,7 +2033,9 @@ refusés avant d'envoyer quoi que ce soit.
 | L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par le projet Compose et par le nom du conteneur ; pas encore par label (rien ne déploie), et un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | Annuaire 4/6 et suivantes |
 | Alertes, silences et historique pas encore sur l'annuaire | Une alerte, un silence, les transitions et les mesures restent sur le **conteneur** (son identifiant Docker) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau, et l'historique d'un service déclaré est celui de la fiche courante. Seules les sondes, les membres de composants et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
-| Le fichier de l'annuaire ne s'applique pas encore | `opencloud export` écrit, le format se relit et se vérifie, rien ne modifie l'annuaire à partir d'un fichier. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4b (plan, application, journal) pour l'application ; le reste à décider |
+| Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
+| Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
+| Une cible de sonde avec mot de passe | `https://user:motdepasse@hôte` est accepté à la création d'une sonde, et s'exporte donc dans le fichier, qui va dans Git. Le plan et le journal la masquent, pas l'export ni la base | À corriger à la création d'une sonde, chantier à part |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
@@ -1953,3 +2100,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Annuaire (3/6) | Les liens : la migration `024_directory_links.sql` et son étape Go `store.linkContainersToDirectory` (`internal/store/migrate_024.go`, requêtes figées sur le schéma 23, vérification de ce qui devait survivre), le runner de migrations hors clés étrangères avec `PRAGMA foreign_key_check` avant le COMMIT (`internal/store/store.go`, pour toutes les migrations), le plan pur `directory.PlanLinks`, `service_units.update_policy` (`watch`, `hold`, `ignore`) à la place de `services.update_policy`, `probes.service_id` et le membre `service` d'un composant vers `declared_services` en `restrict`, la suppression refusée avec la liste (409 `directory.service_linked`, `links` sur la fiche), les routes `POST /api/directory/services/{id}/actions/review` et `PUT /api/directory/units/{id}/update-policy`, l'outil MCP `set_update_policy` sur une unité, la règle d'état d'un service déclaré dans la page de statut, la ligne `declared services to review` au journal, la marque « à vérifier » et l'action Valider, la sonde sur n'importe quelle machine, la carte Mise à jour qui lit la politique de l'unité |
 | Annuaire (3b/6) | Le renommage du conteneur observé, sans changement de comportement : la migration `025_containers.sql` (`services`, `service_transitions`, `service_samples`, `service_networks` deviennent `containers`, `container_events`, `container_samples`, `container_networks`, les colonnes `service_id` des mesures, des événements, des réseaux et des alertes deviennent `container_id`, les index refaits sous leur nom), le paquet `internal/container` (`Container`, `Tracker`, `Transition`, et `Observed` pour le conteneur tel que le rapport le transporte), les routes `/api/containers…` et `/api/machines/{id}/containers`, les outils MCP `list_containers`, `get_container` et `get_container_logs` (leur argument s'appelle `id`, le champ `id` de `list_containers`, pas son `container_id` qui est l'identifiant Docker), le sujet direct `containers`, la clé `containers` de `/api/counts`, du réseau et de la liste, la fiche front sous `/services/conteneurs/:id` (l'ancienne adresse `/services/:id` y redirige), les clés de catalogue `container.*`, les goldens renommés. Gardés exprès : le protocole agent ↔ serveur (section `services` du signal, codes `service.logs_*`), les types d'alerte `service_*` et le genre d'objet `service` |
 | Annuaire (4a/7) | Le paquet `internal/manifest` (format YAML `version: 1`, lecture stricte par nœuds avec lignes citées, écriture déterministe, export), `GET /api/manifest/export`, la socket `state_dir/control.sock` servie par `serve` (`internal/server/control.go`, `cmd/opencloud/control_socket.go`) et la sous-commande `opencloud export` (`-config`, `-o`), le bouton « Exporter » de l'onglet Annuaire, l'outil MCP `export_directory` (dix-huit lectures), la section `manifest` des catalogues, `store.MachineNames` et `Directory.IgnoredKeys`, la dépendance `go.yaml.in/yaml/v3`, les goldens `manifest/testdata/export.golden.yaml`, `server/testdata/manifest_export.golden.yaml` et `mcp_export_directory.golden.json`. Pas de migration |
+| Annuaire (4b/7) | Le plan pur `manifest.BuildPlan` (reconnaissance par `id` puis par nom, références sur l'état visé, validation par les domaines, ordre des clés d'unicité, `--prune`), l'application par les gestes des domaines (`Manifest.Apply`, verrou, plan rejoué et empreinte, exécution détachée, arrêt au premier refus), le journal (`manifest.Journal`, table `applies`, migration `026_applies.sql`, `store/applies.go`, `FailInterrupted` au démarrage), `POST /api/manifest/plan`, `POST /api/manifest/apply`, `GET /api/manifest/applies` et `…/{id}`, l'acteur `cli` sur la socket et `operator` sur le port web, `server.RefusalKey`, la sous-commande `opencloud apply` (`-prune`, `-yes`, `-dry-run`), la page « Journal des fichiers » et le détail d'un passage (`PlanView`), les clés `manifest.*` du plan, des refus et du journal, `Definition()` exportée par les composants directory, probe et heartbeat, `CountProbeHistory` et `CountHeartbeatHistory`, les goldens `manifest_plan`, `manifest_apply` et `manifest_applies`. Pas d'apply depuis l'interface |

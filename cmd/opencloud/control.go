@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,9 @@ const (
 	// Un export est lu dans la base et écrit d'un trait : trente secondes
 	// disent qu'il y a un autre souci.
 	controlTimeout = 30 * time.Second
+	// Un apply écrit objet par objet, chacun par le geste de l'interface : le
+	// serveur lui donne deux minutes, la commande lui en laisse une de plus.
+	applyTimeout = 3 * time.Minute
 	// Ce qu'on lit d'une réponse : le fichier d'un annuaire, et de la marge.
 	maxControlResponse = 4 << 20
 )
@@ -42,29 +46,57 @@ func newControlClient(statePath string) *controlClient {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}
-	return &controlClient{statePath: statePath, socket: socket, http: &http.Client{Transport: transport, Timeout: controlTimeout}}
+	return &controlClient{statePath: statePath, socket: socket, http: &http.Client{Transport: transport}}
 }
 
 // get rend le corps d'une réponse 200. Un serveur absent, une socket fermée
 // à ce compte, un refus du serveur : chacun a son message.
 func (c *controlClient) get(ctx context.Context, path string) ([]byte, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+controlHost+path, nil)
+	status, body, err := c.do(ctx, http.MethodGet, path, nil, controlTimeout)
 	if err != nil {
 		return nil, err
 	}
-	response, err := c.http.Do(request)
-	if err != nil {
-		return nil, c.explainDial(err)
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxControlResponse))
-	if err != nil {
-		return nil, fmt.Errorf("read the server's answer: %w", err)
-	}
-	if response.StatusCode != http.StatusOK {
-		return nil, serverRefusal(response.StatusCode, body)
+	if status != http.StatusOK {
+		return nil, serverRefusal(status, body)
 	}
 	return body, nil
+}
+
+// post envoie un corps JSON et rend le statut et le corps de la réponse, quel
+// que soit le statut : un 409 ou un 422 y portent le plan d'aujourd'hui, que
+// l'appelant lit.
+func (c *controlClient) post(ctx context.Context, path string, payload any, timeout time.Duration) (int, []byte, error) {
+	var body bytes.Buffer
+	encoder := json.NewEncoder(&body)
+	// Un fichier YAML a des « < » et des « & » : pas la peine de les écrire
+	// en \u003c, le serveur les relit pareil.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(payload); err != nil {
+		return 0, nil, fmt.Errorf("encode the request: %w", err)
+	}
+	return c.do(ctx, http.MethodPost, path, &body, timeout)
+}
+
+func (c *controlClient) do(ctx context.Context, method, path string, body io.Reader, timeout time.Duration) (int, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, method, "http://"+controlHost+path, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		return 0, nil, c.explainDial(err)
+	}
+	defer response.Body.Close()
+	answer, err := io.ReadAll(io.LimitReader(response.Body, maxControlResponse))
+	if err != nil {
+		return 0, nil, fmt.Errorf("read the server's answer: %w", err)
+	}
+	return response.StatusCode, answer, nil
 }
 
 // explainDial dit ce que l'opérateur peut faire d'une socket qui ne répond

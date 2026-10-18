@@ -108,6 +108,7 @@ Les sous-commandes :
 | `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
 | `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
 | `opencloud export [-config <chemin>] [-o <fichier>]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), voir [Exporter l'annuaire](#exporter-lannuaire) |
+| `opencloud apply [-config <chemin>] [-prune] [-yes] [-dry-run] <fichier>` | Applique un fichier YAML à l'annuaire, après avoir montré le plan et demandé confirmation, voir [Appliquer un fichier](#appliquer-un-fichier) |
 | `opencloud version` | La version et le commit |
 
 ## Installer le serveur
@@ -152,7 +153,7 @@ locale.
 `SupplementaryGroups=`. Le compte dédié limite ce que le processus touche
 en dehors de Docker.
 
-**Les commandes `auth`, `secrets`, `mcp` et `export` se lancent sous le compte du service** :
+**Les commandes `auth`, `secrets` et `mcp` se lancent sous le compte du service** :
 
 ```sh
 runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
@@ -160,8 +161,9 @@ runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
 
 Lancées en root, elles peuvent créer `opencloud.db-wal` (ou `secret.key`) au
 nom de root si le service est arrêté, et `serve` ne pourrait plus écrire dans
-sa base. `export` fait exception : il n'ouvre pas la base, il parle
-au serveur qui tourne, et peut se lancer en root.
+sa base. `export` et `apply` font exception : elles n'ouvrent pas la base,
+elles parlent au serveur qui tourne par sa socket, et peuvent se lancer en
+root (voir [Exporter l'annuaire](#exporter-lannuaire)).
 
 ## Configuration
 
@@ -736,6 +738,61 @@ mesures, ni canaux, ni pages de statut, ni réglages, et aucun secret : un jeton
 de tâche s'y lit `token: {secret: kept}`, pas sa valeur. Il ne remplace ni
 `opencloud.db` ni `secret.key`. La socket n'est pas à sauvegarder : `serve` la
 recrée. L'unité systemd ne change pas.
+
+### Appliquer un fichier
+
+`opencloud apply` rejoue un fichier comme celui de `export` : ce que vous
+y avez changé (une version, le nom d'une sonde, un service ajouté) est écrit
+dans l'annuaire, **par les mêmes gestes que l'interface**, pour que les
+agents reçoivent leurs sondes et que le rattachement des conteneurs se refasse.
+
+```sh
+opencloud apply -config /etc/opencloud/config.toml opencloud.yaml
+```
+
+La commande montre d'abord le plan, puis demande confirmation :
+
+```
+Plan pour opencloud.yaml (sha256:1a2b3c4d…)
+  + projet docs
+  ~ service app-1/wiki (svc_7f3k…)
+      units[app].version : 2.4.0 → 2.4.1
+  ~ sonde wiki-http : interval 1m → 30s
+  - sonde old-check (a1b2…) — emporte 1204 essais, 80 jours
+  = 14 inchangés · 3 hors fichier, gardés (-prune pour les supprimer)
+Appliquer ces changements ? [o/N]
+```
+
+| Option | Effet |
+| --- | --- |
+| `-dry-run` | Montre le plan et s'arrête : rien n'est écrit |
+| `-yes` | Confirme sans poser la question. **Obligatoire sans terminal** (un script, un cron) : sans lui et sans terminal, la commande refuse |
+| `-prune` | Supprime aussi ce que le fichier ne nomme pas. Sans lui, ces objets sont gardés et comptés « hors fichier ». Ne supprime jamais une machine ; refuse de supprimer un service qu'un composant de la page de statut montre (détachez-le d'abord) |
+
+- **Le serveur doit tourner**, comme pour `export` : sinon la commande le dit
+  et sort en `1`.
+- **L'`id` rattache l'entrée à son objet.** Renommer une sonde en gardant son
+  `id` la renomme, avec son historique ; retirer l'`id` d'une entrée la rattache
+  par son nom. Un `id` qui n'existe pas est refusé, pour qu'un copier-coller ne
+  crée pas un doublon sans que vous le sachiez. Une entrée sans `id` ni objet de
+  ce nom est une création.
+- **Un fichier refusé n'écrit rien**, et la commande liste tous les refus avec
+  leur ligne (sortie `2`). `token: {secret: kept}` garde le jeton du serveur ;
+  une tâche créée reçoit un jeton que le serveur tire, à lire dans l'interface.
+- **Pas une transaction.** Si un changement est refusé au milieu, les
+  précédents sont écrits et la commande dit lequel s'est arrêté et pourquoi ;
+  corrigez puis **relancez la même commande** : ce qui est écrit ressort
+  « inchangé ». Si l'annuaire est modifié dans l'interface pendant que vous
+  lisez le plan, la commande montre le nouveau plan et redemande, une fois. Avec
+  `-yes`, personne n'a lu ce nouveau plan : il est montré, rien n'est écrit, et
+  la commande sort en `1` : relancez-la.
+- **Le journal.** Chaque fichier appliqué laisse une ligne (qui, quand, quelle
+  empreinte, le plan, comment ça s'est fini), lisible sous Services, Annuaire,
+  « Journal des fichiers ». Elle ne contient ni le fichier ni aucun secret, et
+  elle est dans `opencloud.db` : la sauvegarde de la base la garde.
+- **Codes de sortie** : `0` appliqué ou rien à changer, `2` fichier refusé,
+  plan non confirmé ou option inconnue, `1` erreur (serveur absent, application
+  arrêtée, annuaire changé sous `-yes`).
 
 ### Restaurer
 
