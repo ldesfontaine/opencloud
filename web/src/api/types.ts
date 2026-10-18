@@ -943,7 +943,10 @@ export interface ProjectsResponse {
 // des faits : le front en fait une pastille et un libellé.
 export type GapState = "conform" | "absent" | "diverged" | "unverifiable" | "unobserved";
 export type GapReason = "image_differs" | "digest_differs" | "tag_latest" | "version_unpinned" | "tag_differs" | "digest_unknown" | "image_unreadable";
-export type MatchLevel = "compose" | "name";
+export type MatchLevel = "label" | "compose" | "name";
+// Pourquoi les labels d'un conteneur ne le rattachent à rien ; le serveur
+// dit vide quand il n'y a pas de label orphelin.
+export type LabelProblem = "invalid" | "incomplete" | "service_unknown" | "unit_unknown" | "unit_binary";
 export type IgnoreKind = "compose_project" | "container_name";
 
 export interface ContainerVerdict {
@@ -979,6 +982,9 @@ export interface UndeclaredContainer {
   state: ContainerState;
   image: string;
   compose_service: string;
+  label_service: string;
+  label_unit: string;
+  label_problem: LabelProblem | "";
 }
 
 // Ce qui tourne sans être déclaré, regroupé par la clé qu'on peut ignorer.
@@ -990,6 +996,9 @@ export interface UndeclaredGroup {
   ignored: boolean;
   // Le service déclaré du même projet Compose : là où « Adopter » ajoute une unité.
   service_id: string;
+  // Au moins un conteneur du groupe n'a pas de label : un groupe d'orphelins
+  // se corrige par le label, pas par l'adoption.
+  adoptable: boolean;
   containers: UndeclaredContainer[];
 }
 
@@ -1029,6 +1038,13 @@ export interface ContainerDirectory {
   key_kind: IgnoreKind;
   key_value: string;
   ignored: boolean;
+  // Les labels du conteneur, et pourquoi ils ne le rattachent à rien ;
+  // label_machine_name nomme la machine qui déclare le service visé quand
+  // c'en est une autre.
+  label_service: string;
+  label_unit: string;
+  label_problem: LabelProblem | "";
+  label_machine_name: string;
 }
 
 // Le fichier de l'annuaire : un plan est ce que le fichier changerait, un

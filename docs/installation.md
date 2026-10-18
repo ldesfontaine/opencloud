@@ -107,7 +107,7 @@ Les sous-commandes :
 | `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) |
 | `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
 | `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
-| `opencloud export [-config <chemin>] [-o <fichier>]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), voir [Exporter l'annuaire](#exporter-lannuaire) |
+| `opencloud export [-config <chemin>] [-o <fichier>] [-propose]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), avec `-propose` y ajoute ce que les conteneurs non déclarés laissent deviner, voir [Exporter l'annuaire](#exporter-lannuaire) |
 | `opencloud apply [-config <chemin>] [-prune] [-yes] [-dry-run] <fichier>` | Applique un fichier YAML à l'annuaire, après avoir montré le plan et demandé confirmation, voir [Appliquer un fichier](#appliquer-un-fichier) |
 | `opencloud version` | La version et le commit |
 
@@ -596,6 +596,14 @@ systemctl restart opencloud-agent
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
 le nouveau prend effet au redémarrage.
 
+**Le niveau label demande des agents à jour ; mettez à jour le serveur d'abord, puis les agents.**
+Un agent plus ancien ne transmet pas les labels : un conteneur étiqueté reste rattaché par son projet Compose ou
+par son nom (ou non déclaré) tant que son agent n'est pas mis à jour ; un
+agent à jour contre un serveur plus ancien fonctionne, le serveur ignore ce
+qu'il ne connaît pas. À la mise à jour de l'agent, un conteneur étiqueté passe
+au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
+« label orphelin », sans repli.
+
 **Le premier démarrage d'une version qui chiffre les secrets** crée
 `secret.key` dans `state_dir`, chiffre sur place le mot de passe du relais,
 l'URL et le secret des canaux et les jetons de ping, puis réécrit le fichier
@@ -738,6 +746,50 @@ mesures, ni canaux, ni pages de statut, ni réglages, et aucun secret : un jeton
 de tâche s'y lit `token: {secret: kept}`, pas sa valeur. Il ne remplace ni
 `opencloud.db` ni `secret.key`. La socket n'est pas à sauvegarder : `serve` la
 recrée. L'unité systemd ne change pas.
+
+**Avec propositions.** `opencloud export -propose` ajoute à la fin du fichier
+ce que les conteneurs non déclarés laissent deviner : un service par projet
+Compose ou par conteneur, sans `id`, précédé d'un commentaire « Proposé depuis
+des conteneurs non déclarés : relisez avant apply », et les unités qui manquent
+à un projet déjà déclaré. Rien n'est écrit dans l'annuaire. Relisez, corrigez
+ce qui doit l'être, puis passez par `apply` comme pour tout fichier ; sans
+`-propose`, le fichier est celui d'avant.
+
+```sh
+opencloud export -config /etc/opencloud/config.toml -propose > propose.yaml
+opencloud apply -config /etc/opencloud/config.toml -dry-run propose.yaml
+```
+
+Un conteneur dont le label vise une unité qui n'existe pas, ou dont le label
+est mal formé (« label orphelin ») n'est pas proposé : on corrige le label.
+
+### Étiqueter un conteneur
+
+Un conteneur se rattache à une unité déclarée par deux labels, sans projet
+Compose ni nom à garder. Le préfixe est celui du produit (`opencloud.` ici) ;
+l'identifiant du service se lit dans l'export (`svc_…`, ligne `id`),
+et l'unité porte le nom que le service lui donne :
+
+```yaml
+services:
+  app:
+    image: nginx:1.27
+    labels:
+      opencloud.service: svc_0123456789abcdef
+      opencloud.unit: app
+```
+
+Le label ne crée rien : le service et l'unité doivent déjà être déclarés **sur
+la machine où tourne le conteneur**, et l'unité doit être un conteneur (pas un
+binaire). Sinon le conteneur reste non déclaré, avec le motif (« label
+orphelin ») sur sa fiche et dans la liste des non déclarés, et ne se rattache
+ni par son projet Compose ni par son nom. Un label mal écrit en fait autant :
+une clé en majuscules (`opencloud.Service`), une valeur de plus de 255 octets ou
+qui contient un caractère de contrôle, un identifiant qui n'est pas de la forme
+`svc_` suivi de 16 hexadécimaux, un nom d'unité illisible. Le motif dit « mal
+formé : clé en minuscules, valeur de 255 octets au plus » ; corrigez le label. L'agent ne transmet au serveur que
+les labels qui commencent par le préfixe ; ceux de Traefik et de Compose
+restent sur la machine.
 
 ### Appliquer un fichier
 

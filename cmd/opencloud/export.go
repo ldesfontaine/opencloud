@@ -14,12 +14,17 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 )
 
-const exportUsage = `Usage : {command} export [-config chemin] [-o fichier]
+const exportUsage = `Usage : {command} export [-config chemin] [-o fichier] [-propose]
 
   Écrit l'annuaire (projets, services déclarés, sondes, tâches, clés
   ignorées) dans un fichier YAML, sur la sortie standard par défaut. Les
   identifiants y sont, jamais un secret. Le serveur doit tourner : la
   commande lui parle par la socket de state_dir.
+
+  Avec -propose, le fichier gagne à la fin ce que les conteneurs non
+  déclarés laissent deviner (services sans identifiant, unités à ajouter à un
+  service déclaré), chacun précédé d'un commentaire. Rien n'est déclaré avant
+  que vous ayez relu le fichier et lancé {command} apply.
 `
 
 // exportFileMode : le fichier ne porte aucun secret, mais il décrit
@@ -39,6 +44,7 @@ func exportCommand(args []string, out io.Writer) error {
 	flags.Usage = func() { fmt.Fprint(os.Stderr, strings.ReplaceAll(exportUsage, "{command}", brand.Command)) }
 	configPath := flags.String("config", config.DefaultPath, "chemin du fichier de configuration")
 	outputPath := flags.String("o", "", "fichier à écrire (défaut : la sortie standard)")
+	propose := flags.Bool("propose", false, "ajouter les propositions tirées des conteneurs non déclarés")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -50,7 +56,11 @@ func exportCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	data, err := newControlClient(cfg.StateDir).get(context.Background(), "/api/manifest/export")
+	path := "/api/manifest/export"
+	if *propose {
+		path += "?propose=1"
+	}
+	data, err := newControlClient(cfg.StateDir).get(context.Background(), path)
 	if err != nil {
 		return err
 	}

@@ -27,9 +27,17 @@ type Proposal struct {
 // unités sont plafonnées à MaxUnits : un projet plus gros s'adopte en
 // plusieurs fois, l'unité du conteneur demandé toujours en tête de la
 // coupe. Un service déjà plein ne peut plus rien recevoir : ErrUnitsFull.
+//
+// Un conteneur qui porte des labels n'est pas adoptable : il n'est non
+// déclaré que parce que ses labels ne visent aucune unité de sa machine, et
+// l'unité qu'on lui créerait ne le rattacherait pas (ErrContainerLabelled).
+// Ses voisins étiquetés sont laissés de côté pour la même raison.
 func Propose(item container.Container, siblings []container.Container, declared []Service) (Proposal, error) {
 	if item.UnitID != "" {
 		return Proposal{}, ErrContainerDeclared
+	}
+	if !item.Labels.IsEmpty() {
+		return Proposal{}, ErrContainerLabelled
 	}
 	if item.Group == "" || item.ComposeService == "" {
 		return proposeContainer(item, declared), nil
@@ -68,7 +76,7 @@ func composeUnitsToAdopt(item container.Container, siblings []container.Containe
 	candidates := []container.Container{item}
 	for _, sibling := range siblings {
 		isSameProject := sibling.MachineID == item.MachineID && sibling.Group == item.Group
-		if isSameProject && sibling.ID != item.ID && sibling.UnitID == "" && !sibling.IsArchived() && sibling.ComposeService != "" {
+		if isSameProject && sibling.ID != item.ID && sibling.UnitID == "" && !sibling.IsArchived() && sibling.ComposeService != "" && sibling.Labels.IsEmpty() {
 			candidates = append(candidates, sibling)
 		}
 	}
@@ -85,6 +93,48 @@ func composeUnitsToAdopt(item container.Container, siblings []container.Containe
 	}
 	slices.SortFunc(units, func(a, b container.Container) int { return strings.Compare(a.ComposeService, b.ComposeService) })
 	return units
+}
+
+// ProposeAll propose une définition par groupe de conteneurs non déclarés
+// que l'opérateur n'ignore pas, sans rien écrire : export -propose l'écrit
+// dans le fichier ; une découverte, si elle vient un jour, partira d'ici.
+//
+// Le représentant d'un groupe est son premier conteneur sans label ; un
+// groupe où tous en portent est sauté. Chaque nouvelle définition entre dans
+// une copie des services déclarés, pour que deux groupes ne reçoivent jamais
+// le même nom sur une machine. Un service déjà plein saute son groupe. Le
+// résultat suit l'ordre des groupes de l'écart : le même état donne les mêmes
+// propositions.
+func ProposeAll(declared []Service, containers []container.Container, ignored []IgnoredKey) []Proposal {
+	living := make([]container.Container, 0, len(containers))
+	for _, item := range containers {
+		if !item.IsArchived() {
+			living = append(living, item)
+		}
+	}
+	known := slices.Clone(declared)
+	var proposals []Proposal
+	for _, group := range undeclaredOf(declared, living, ignored) {
+		if group.Ignored || !group.Adoptable {
+			continue
+		}
+		representative := group.Containers[slices.IndexFunc(group.Containers, func(item container.Container) bool { return item.Labels.IsEmpty() })]
+		proposal, err := Propose(representative, living, known)
+		if err != nil {
+			// Un service plein (ErrUnitsFull) ne reçoit plus rien ; les autres
+			// refus ne peuvent pas arriver ici, le représentant n'a ni unité
+			// ni label.
+			continue
+		}
+		if proposal.ServiceID == "" {
+			known = append(known, Service{
+				MachineID: proposal.Definition.MachineID, Name: proposal.Definition.Name,
+				Origin: proposal.Definition.Origin, ComposeProject: proposal.Definition.ComposeProject,
+			})
+		}
+		proposals = append(proposals, proposal)
+	}
+	return proposals
 }
 
 func proposeIntoService(existing Service, requested container.Container, missing []container.Container) (Proposal, error) {

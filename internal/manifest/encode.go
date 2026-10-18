@@ -20,6 +20,11 @@ type Annotations struct {
 	Header string
 	// Au-dessus d'un service « à vérifier ».
 	NeedsReview string
+	// Au-dessus d'un service que l'export propose, et d'une unité qu'il
+	// ajoute à un service déclaré : ils viennent de conteneurs non déclarés,
+	// l'opérateur les relit avant d'appliquer.
+	Proposed     string
+	ProposedUnit string
 }
 
 // Encode écrit le fichier, dans l'ordre des listes de file. Les mêmes
@@ -186,6 +191,9 @@ func serviceNodes(services []Service, annotations Annotations) []*yaml.Node {
 		if item.NeedsReview {
 			entry.HeadComment = annotations.NeedsReview
 		}
+		if item.Proposed {
+			entry.HeadComment = annotations.Proposed
+		}
 		entry.addText("id", item.ID)
 		entry.add("machine", text(item.Machine))
 		entry.add("name", text(item.Name))
@@ -205,17 +213,20 @@ func serviceNodes(services []Service, annotations Annotations) []*yaml.Node {
 			entry.add("projects", shortList(item.Projects, text))
 		}
 		if len(item.Units) > 0 {
-			entry.add("units", sequence(unitNodes(item.Units)))
+			entry.add("units", sequence(unitNodes(item.Units, annotations)))
 		}
 		nodes = append(nodes, entry.Node)
 	}
 	return nodes
 }
 
-func unitNodes(units []Unit) []*yaml.Node {
+func unitNodes(units []Unit, annotations Annotations) []*yaml.Node {
 	nodes := make([]*yaml.Node, 0, len(units))
 	for _, item := range units {
 		entry := block()
+		if item.Proposed {
+			entry.HeadComment = annotations.ProposedUnit
+		}
 		entry.add("name", text(item.Name))
 		entry.addText("image", item.Image)
 		if item.Version != "" {

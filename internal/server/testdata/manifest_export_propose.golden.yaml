@@ -1,0 +1,55 @@
+# Annuaire d'openCloud, exporté par « opencloud export ».
+# Les identifiants (id) rattachent chaque entrée à son objet : gardez-les.
+# Un jeton ne s'écrit jamais ici : « secret: kept » garde celui du serveur.
+version: 1
+machines:
+  - name: opencloud
+  - name: vps-paris-1
+projects: []
+services:
+  - id: svc_ID
+    machine: opencloud
+    name: backup
+    nature: infra
+    origin: binary
+    units:
+      - name: restic
+        version: "0.17.1"
+        systemd_unit: restic.service
+  - id: svc_ID
+    machine: vps-paris-1
+    name: nextcloud
+    title: Nextcloud
+    nature: application
+    origin: compose
+    compose_project: nextcloud
+    units:
+      - name: nextcloud
+        image: nextcloud
+        version: "29.0.4"
+        ports: ["8080:80"]
+        updates: watch
+      - name: redis
+        image: redis
+        version: "7.4"
+        updates: watch
+      # Unité proposée depuis un conteneur non déclaré
+      - name: nextcloud-db
+        image: postgres
+        version: "16.4"
+        ports: ["5432:5432"]
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply
+  - machine: vps-paris-1
+    name: front
+    nature: application
+    origin: container
+    units:
+      - name: front
+        image: traefik/whoami
+        version: "v1.10"
+        container_name: front
+        updates: watch
+probes: []
+heartbeats: []
+ignored: []

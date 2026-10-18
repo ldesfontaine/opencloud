@@ -20,23 +20,28 @@ const manifestFileName = brand.ID + ".yaml"
 
 // exportedDirectory écrit l'annuaire, commentaires dans la langue de
 // l'interface : le paquet manifest n'importe pas les catalogues, il reçoit
-// ses deux textes d'ici.
-func (s *Server) exportedDirectory(ctx context.Context) ([]byte, error) {
+// ses textes d'ici.
+func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportOptions) ([]byte, error) {
 	code, err := s.language(ctx)
 	if err != nil {
 		return nil, err
 	}
 	catalog := s.catalogs.For(code)
 	return s.manifest.Export(ctx, manifest.Annotations{
-		Header:      catalog.Get("manifest.export_header"),
-		NeedsReview: catalog.Get("manifest.export_needs_review"),
-	})
+		Header:       catalog.Get("manifest.export_header"),
+		NeedsReview:  catalog.Get("manifest.export_needs_review"),
+		Proposed:     catalog.Get("manifest.export_proposed"),
+		ProposedUnit: catalog.Get("manifest.export_proposed_unit"),
+	}, options)
 }
 
 // exportManifest sert le fichier tel quel, en téléchargement : le même
-// chemin pour le bouton de l'interface et pour la commande locale.
+// chemin pour le bouton de l'interface et pour la commande locale. Seul
+// « ?propose=1 » ajoute des propositions ; toute autre valeur, ou son absence,
+// sert l'annuaire seul.
 func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
-	data, err := s.exportedDirectory(r.Context())
+	options := manifest.ExportOptions{Propose: r.URL.Query().Get("propose") == "1"}
+	data, err := s.exportedDirectory(r.Context(), options)
 	if errors.Is(err, manifest.ErrExportTooLarge) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, manifest.KeyExportTooLarge)
 		return

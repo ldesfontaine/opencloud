@@ -20,7 +20,7 @@ var testAnnotations = manifest.Annotations{
 
 func (b *bench) export(t *testing.T) []byte {
 	t.Helper()
-	data, err := b.manifest.Export(context.Background(), testAnnotations)
+	data, err := b.manifest.Export(context.Background(), testAnnotations, manifest.ExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestExport_ParseGivesBackTheSameFile(t *testing.T) {
 	// « À vérifier » est un commentaire : la relecture ne le sait pas, le
 	// fichier relu se réécrit donc sans lui.
 	annotations := manifest.Annotations{Header: testAnnotations.Header}
-	data, err := b.manifest.Export(context.Background(), annotations)
+	data, err := b.manifest.Export(context.Background(), annotations, manifest.ExportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestExport_FailsClearlyWhenTheFileWouldNotReadBack(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	data, err := b.manifest.Export(ctx, manifest.Annotations{})
+	data, err := b.manifest.Export(ctx, manifest.Annotations{}, manifest.ExportOptions{})
 	if !errors.Is(err, manifest.ErrExportTooLarge) || data != nil {
 		t.Fatalf("got %d bytes, %v", len(data), err)
 	}

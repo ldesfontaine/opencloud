@@ -2,9 +2,11 @@ package directory
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 )
@@ -262,4 +264,169 @@ func TestPropose_DeclaredServiceOneBelowTheLimitTakesTheRequestedUnit(t *testing
 	if len(units) != MaxUnits || units[len(units)-1].Name != "zz" {
 		t.Fatalf("le conteneur demandé passe avant ses voisins: %d unités, dernière %q", len(units), units[len(units)-1].Name)
 	}
+}
+
+// Un conteneur étiqueté n'est non déclaré que parce que son label ne vise
+// rien : l'unité qu'on lui créerait ne le rattacherait pas.
+func TestPropose_LabelledContainerRefused(t *testing.T) {
+	for name, item := range map[string]container.Container{
+		"compose": labelledTo(composeContainer("m1", "blog-web-1", "blog", "web"), "svc_inconnu", "web"),
+		"seul":    labelledTo(aloneContainer("m1", "whoami"), "svc_inconnu", "whoami"),
+		"moitié":  labelledTo(aloneContainer("m1", "whoami"), "svc_inconnu", ""),
+	} {
+		if _, err := Propose(item, []container.Container{item}, nil); !errors.Is(err, ErrContainerLabelled) {
+			t.Errorf("%s : err = %v", name, err)
+		}
+	}
+}
+
+func TestPropose_LabelledSiblingsAreLeftOut(t *testing.T) {
+	web := composeContainer("m1", "blog-web-1", "blog", "web")
+	orphan := labelledTo(composeContainer("m1", "blog-db-1", "blog", "db"), "svc_inconnu", "db")
+	cache := composeContainer("m1", "blog-cache-1", "blog", "cache")
+
+	proposal, err := Propose(web, []container.Container{web, orphan, cache}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, 2)
+	for _, unit := range proposal.Definition.Units {
+		names = append(names, unit.Name)
+	}
+	if !slices.Equal(names, []string{"cache", "web"}) {
+		t.Fatalf("units = %v, le voisin étiqueté doit rester de côté", names)
+	}
+}
+
+func TestProposeAll_SkipsIgnoredAndOrphans(t *testing.T) {
+	blog := composeContainer("m1", "blog-web-1", "blog", "web")
+	front := aloneContainer("m1", "front")
+	ignoredOne := aloneContainer("m1", "scratch")
+	orphan := labelledTo(aloneContainer("m1", "lonely"), "svc_inconnu", "lonely")
+	gone := aloneContainer("m1", "gone")
+	gone.ArchivedAt = time.Unix(1_800_000_000, 0)
+	ignored := []IgnoredKey{{MachineID: "m1", Kind: IgnoreContainerName, Value: "scratch"}}
+
+	proposals := ProposeAll(nil, []container.Container{blog, front, ignoredOne, orphan, gone}, ignored)
+
+	got := proposalNames(proposals)
+	if !slices.Equal(got, []string{"blog", "front"}) {
+		t.Fatalf("proposals = %v : ni l'ignoré, ni l'orphelin, ni l'archivé", got)
+	}
+}
+
+// Deux groupes que le nom confond ne reçoivent pas le même nom : chaque
+// définition entre dans la liste des services connus avant la suivante.
+func TestProposeAll_NamesNeverCollide(t *testing.T) {
+	project := composeContainer("m1", "x-1", "Blog", "web")
+	alone := aloneContainer("m1", "blog")
+	other := aloneContainer("m1", "BLOG")
+	declared := []Service{{ID: "svc_9", MachineID: "m1", Name: "blog"}}
+	onOtherMachine := aloneContainer("m2", "blog")
+
+	proposals := ProposeAll(declared, []container.Container{project, alone, other, onOtherMachine}, nil)
+
+	seen := map[string]bool{}
+	for _, proposal := range proposals {
+		key := proposal.Definition.MachineID + " " + proposal.Definition.Name
+		if seen[key] {
+			t.Fatalf("deux propositions s'appellent %q : %v", key, proposalNames(proposals))
+		}
+		seen[key] = true
+	}
+	if len(proposals) != 4 || !seen["m2 blog"] {
+		t.Fatalf("proposals = %v", proposalNames(proposals))
+	}
+}
+
+func TestProposeAll_AddsToADeclaredProject(t *testing.T) {
+	declared := declaredCompose("svc_1", "m1", "nextcloud", "app")
+	app := attached(composeContainer("m1", "nextcloud-app-1", "nextcloud", "app"), "unit_nextcloud_app", container.MatchCompose)
+	db := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
+	db.Image = "postgres:16.4"
+
+	proposals := ProposeAll([]Service{declared}, []container.Container{app, db}, nil)
+
+	if len(proposals) != 1 || proposals[0].ServiceID != "svc_1" {
+		t.Fatalf("proposals = %+v", proposals)
+	}
+	units := proposals[0].Definition.Units
+	if len(units) != 2 || units[0].ID != "unit_nextcloud_app" || units[1].ID != "" || units[1].Name != "db" {
+		t.Fatalf("units = %+v : l'unité déclarée garde son id, la nouvelle n'en a pas", units)
+	}
+}
+
+// Un service déjà plein saute son groupe, les autres sont proposés.
+func TestProposeAll_FullServiceSkipsItsGroup(t *testing.T) {
+	names := make([]string, 0, MaxUnits)
+	for index := range MaxUnits {
+		names = append(names, string(rune('a'+index/26))+string(rune('a'+index%26)))
+	}
+	declared := declaredCompose("svc_1", "m1", "big", names...)
+	extra := composeContainer("m1", "big-zz", "big", "zz")
+	alone := aloneContainer("m1", "front")
+
+	proposals := ProposeAll([]Service{declared}, []container.Container{extra, alone}, nil)
+
+	if got := proposalNames(proposals); !slices.Equal(got, []string{"front"}) {
+		t.Fatalf("proposals = %v", got)
+	}
+}
+
+func TestProposeAll_DefinitionsPassValidate(t *testing.T) {
+	web := composeContainer("m1", "blog-web-1", "blog", "web")
+	web.Image = "ghcr.io/org/blog:2.1"
+	db := composeContainer("m1", "blog-db-1", "blog", "db")
+	db.Image = "postgres@" + digestA
+	alone := aloneContainer("m1", "My_Front.1")
+	alone.Image = "nginx"
+	declared := declaredCompose("svc_1", "m1", "nextcloud", "app")
+	declared.Units[0].Image = "nextcloud"
+	nextcloudDB := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
+	nextcloudDB.Image = "postgres:16.4"
+
+	proposals := ProposeAll([]Service{declared}, []container.Container{web, db, alone, nextcloudDB}, nil)
+
+	if len(proposals) != 3 {
+		t.Fatalf("proposals = %v", proposalNames(proposals))
+	}
+	for _, proposal := range proposals {
+		if err := proposal.Definition.Complete().Validate(); err != nil {
+			t.Errorf("%s : refusée par Validate : %v (%+v)", proposal.Definition.Name, err, proposal.Definition)
+		}
+	}
+}
+
+// Le même état donne les mêmes propositions, dans le même ordre, quel que
+// soit l'ordre dans lequel les conteneurs sont lus.
+func TestProposeAll_IsDeterministic(t *testing.T) {
+	containers := []container.Container{
+		composeContainer("m2", "blog-web-1", "blog", "web"),
+		aloneContainer("m1", "front"),
+		composeContainer("m1", "wiki-web-1", "wiki", "web"),
+		composeContainer("m1", "wiki-db-1", "wiki", "db"),
+		aloneContainer("m2", "back"),
+		aloneContainer("m1", "Front"),
+	}
+	want := ProposeAll(nil, containers, nil)
+	if len(want) != 5 {
+		t.Fatalf("proposals = %v", proposalNames(want))
+	}
+	for round := range 8 {
+		shuffled := slices.Clone(containers)
+		rotation := round % len(shuffled)
+		shuffled = append(shuffled[rotation:], shuffled[:rotation]...)
+		slices.Reverse(shuffled[:round%4+1])
+		if got := ProposeAll(nil, shuffled, nil); !reflect.DeepEqual(got, want) {
+			t.Fatalf("tour %d : %v, want %v", round, proposalNames(got), proposalNames(want))
+		}
+	}
+}
+
+func proposalNames(proposals []Proposal) []string {
+	names := make([]string, 0, len(proposals))
+	for _, proposal := range proposals {
+		names = append(names, proposal.Definition.Name)
+	}
+	return names
 }

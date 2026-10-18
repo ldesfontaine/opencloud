@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { api, errorKey } from "../api/client";
 import type { DeclaredService, UndeclaredGroup } from "../api/types";
 import { useT } from "../i18n/context";
-import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, ignoredCount, ignoreBody, shownUndeclared, unignorePath } from "../lib/gaps";
+import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreBody, orphanKey, proposedExportPath, shownUndeclared, unignorePath } from "../lib/gaps";
 import { useRefresh } from "../lib/refresh";
 import { Button } from "./Button";
 import { Card, CardHeader, Empty, Note } from "./Card";
@@ -15,7 +15,10 @@ import "./ServiceTable.scss";
 // Ce que les machines montrent sans que l'annuaire le déclare, par clé :
 // le projet Compose entier, ou le conteneur seul. L'opérateur l'adopte
 // (le formulaire se pré-remplit) ou le dit voulu en l'ignorant ; les ignorés
-// se cachent derrière un bouton, mais ne disparaissent pas.
+// se cachent derrière un bouton, mais ne disparaissent pas. Un conteneur dont
+// le label ne vise rien porte une pastille avec le motif : on le corrige par le
+// label, on ne l'adopte pas. Le fichier de l'annuaire peut aussi se proposer
+// d'un coup, à relire avant de l'appliquer.
 export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]; declared: DeclaredService[] }) {
   const t = useT();
   const { refresh } = useRefresh();
@@ -38,7 +41,19 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
 
   return (
     <Card className="scroll-x">
-      <CardHeader title={t("gap.undeclared_title")} aside={<span className="num">{containerCount(shown)}</span>} />
+      <CardHeader
+        title={t("gap.undeclared_title")}
+        aside={
+          <span className="cluster">
+            {hasProposals(groups) && (
+              <Button small variant="ghost" icon="file" href={proposedExportPath} download="">
+                {t("manifest.export_propose")}
+              </Button>
+            )}
+            <span className="num">{containerCount(shown)}</span>
+          </span>
+        }
+      />
       {error !== null && <Note tone="danger">{t(error)}</Note>}
       {shown.length === 0 ? (
         <Empty text={t("gap.undeclared_empty")} action={toggle} />
@@ -67,9 +82,18 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
                   <td>
                     <span className="stack">
                       {group.containers.map((container) => (
-                        <Link key={container.id} className="mono" to={`/services/conteneurs/${container.id}`}>
-                          {container.name}
-                        </Link>
+                        <span key={container.id} className="cluster">
+                          <Link className="mono" to={`/services/conteneurs/${container.id}`}>
+                            {container.name}
+                          </Link>
+                          {container.label_problem !== "" && (
+                            <span title={t(orphanKey(container.label_problem))}>
+                              <Pill tone="warn" dot={false}>
+                                {t("gap.orphan")}
+                              </Pill>
+                            </span>
+                          )}
+                        </span>
                       ))}
                     </span>
                   </td>
@@ -81,9 +105,11 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
                         </Button>
                       ) : (
                         <>
-                          <Button small variant="primary" to={group.service_id === "" ? adoptPath(adoptionTarget(group)) : adoptIntoPath(group.service_id, adoptionTarget(group))}>
-                            {group.service_id === "" ? t("gap.adopt") : t("gap.adopt_into", names.get(group.service_id) ?? group.key_value)}
-                          </Button>
+                          {group.adoptable && (
+                            <Button small variant="primary" to={group.service_id === "" ? adoptPath(adoptionTarget(group)) : adoptIntoPath(group.service_id, adoptionTarget(group))}>
+                              {group.service_id === "" ? t("gap.adopt") : t("gap.adopt_into", names.get(group.service_id) ?? group.key_value)}
+                            </Button>
+                          )}
                           <Button small variant="ghost" onClick={() => send(api.post("/api/directory/ignored", ignoreBody(group)))}>
                             {t("gap.ignore")}
                           </Button>

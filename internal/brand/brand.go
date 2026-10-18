@@ -43,10 +43,14 @@ const (
 // illisibles.
 const SecretKeyIDDomain = ID + "-key-id\x00"
 
+// LabelPrefix est lu par l'agent sur les conteneurs. Dérivé de ID comme les
+// chemins : le changer, c'est que les conteneurs déjà étiquetés ne sont plus
+// lus et retombent aux niveaux Compose et nom.
+const LabelPrefix = ID + "."
+
 // Réservées : pas encore lues, posées pour que le nom n'ait pas à être
 // réécrit le jour où elles servent.
 const (
-	LabelPrefix     = ID + "."
 	WorkspaceMarker = "." + ID
 	ServerUnit      = ID + ".service"
 	AgentUnit       = ID + "-agent.service"

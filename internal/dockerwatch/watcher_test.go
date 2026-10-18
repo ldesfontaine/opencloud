@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 )
@@ -461,4 +462,150 @@ func TestToContainer_SkipsANetworkWithoutIdentifier(t *testing.T) {
 	if observed.Name != "rd-test" || observed.State != container.StateCreated || len(observed.Networks) != 0 {
 		t.Fatalf("container = %+v", observed)
 	}
+}
+
+// Seuls nos labels partent : un label Traefik, Compose ou d'une autre marque
+// ne quitte jamais la machine, et le préfixe est retiré.
+func TestToContainer_ReadsOnlyOwnLabels(t *testing.T) {
+	var inspected dockerapi.Container
+	if err := json.Unmarshal(fixture(t, "inspect_networked.json"), &inspected); err != nil {
+		t.Fatal(err)
+	}
+	// La fixture porte déjà des labels Compose : ils restent chez elle.
+	if len(inspected.Config.Labels) == 0 {
+		t.Fatal("la fixture doit porter des labels Compose")
+	}
+	inspected.Config.Labels[brand.LabelPrefix+container.LabelService] = "svc_0123456789abcdef"
+	inspected.Config.Labels[brand.LabelPrefix+container.LabelUnit] = "web"
+	inspected.Config.Labels["traefik.http.routers.web.rule"] = "Host(`example.org`)"
+	inspected.Config.Labels["org.opencontainers.image.source"] = "https://example.org/repo"
+	// Même racine que le préfixe, sans le point : ce n'est pas notre label.
+	inspected.Config.Labels[brand.ID+"y.service"] = "svc_autre"
+
+	got := toContainer(inspected).Labels
+	want := map[string]string{container.LabelService: "svc_0123456789abcdef", container.LabelUnit: "web"}
+	if len(got) != len(want) || got[container.LabelService] != want[container.LabelService] || got[container.LabelUnit] != want[container.LabelUnit] {
+		t.Fatalf("labels = %v, want %v", got, want)
+	}
+
+	delete(inspected.Config.Labels, brand.LabelPrefix+container.LabelService)
+	delete(inspected.Config.Labels, brand.LabelPrefix+container.LabelUnit)
+	if labels := toContainer(inspected).Labels; labels != nil {
+		t.Fatalf("sans label de la marque, labels = %v, want nil", labels)
+	}
+}
+
+func TestToContainer_BoundsOwnLabels(t *testing.T) {
+	prefix := brand.LabelPrefix
+	t.Run("keys and values out of bounds are dropped", func(t *testing.T) {
+		got := ownLabels(map[string]string{
+			prefix + "service":                     "svc_ok",
+			prefix + "unit":                        "web",
+			prefix + "Majuscule":                   "refusé : hors de l'alphabet",
+			prefix + "-tiret":                      "refusé : commence par un tiret",
+			prefix + "":                            "refusé : suffixe vide",
+			prefix + strings.Repeat("k", 64):       "refusé : suffixe trop long",
+			prefix + strings.Repeat("k", 63):       "accepté : 63 caractères",
+			prefix + "vide":                        "",
+			prefix + "long":                        strings.Repeat("v", container.MaxNameLength+1),
+			prefix + "limite":                      strings.Repeat("v", container.MaxNameLength),
+			prefix + "avec.des_points-et-tirets-1": "accepté",
+		})
+		for _, suffix := range []string{"service", "unit", strings.Repeat("k", 63), "limite", "avec.des_points-et-tirets-1"} {
+			if _, kept := got[suffix]; !kept {
+				t.Errorf("le suffixe %q devait rester", suffix)
+			}
+		}
+		if len(got) != 5 {
+			t.Errorf("labels = %d, want 5 : %v", len(got), got)
+		}
+	})
+	t.Run("seventeen keys are cut to sixteen, the two read ones first", func(t *testing.T) {
+		labels := map[string]string{}
+		for index := range 17 {
+			labels[prefix+"a"+string(rune('a'+index))] = "x"
+		}
+		labels[prefix+container.LabelService] = "svc_ok"
+		labels[prefix+container.LabelUnit] = "web"
+		got := ownLabels(labels)
+		if len(got) != container.MaxLabelsPerContainer {
+			t.Fatalf("labels = %d, want %d", len(got), container.MaxLabelsPerContainer)
+		}
+		if got[container.LabelService] != "svc_ok" || got[container.LabelUnit] != "web" {
+			t.Fatalf("les deux labels lus doivent passer avant la coupe : %v", got)
+		}
+	})
+	t.Run("a label that cannot be kept is never a silent absence", func(t *testing.T) {
+		// Rien de lisible mais des labels de la marque écartés : la clé réservée
+		// dit au serveur que le conteneur est étiqueté, mal. Sans elle, il
+		// retomberait sur Compose ou sur son nom.
+		cases := map[string]map[string]string{
+			"uppercase suffix":      {prefix + "Service": "svc_0123456789abcdef", prefix + "unit": ""},
+			"uppercase prefix":      {strings.ToUpper(prefix) + "service": "svc_0123456789abcdef"},
+			"mixed case prefix":     {strings.ToUpper(prefix[:1]) + prefix[1:] + "service": "svc_0123456789abcdef"},
+			"value too long":        {prefix + "service": strings.Repeat("v", container.MaxNameLength+1)},
+			"control character":     {prefix + "service": "svc_0123456789abcdef\n"},
+			"empty value":           {prefix + "unit": ""},
+			"only an extra is kept": {prefix + "extra": "ok", prefix + "Service": "svc_0123456789abcdef"},
+			"half a pair is kept":   {prefix + "unit": "web", prefix + "Service": "svc_0123456789abcdef"},
+		}
+		for name, labels := range cases {
+			got := ownLabels(labels)
+			if _, flagged := got[container.LabelInvalid]; !flagged {
+				t.Errorf("%s : labels = %v, want the reserved invalid key", name, got)
+			}
+			if got[container.LabelService] != "" {
+				t.Errorf("%s : labels = %v, the service was discarded", name, got)
+			}
+		}
+		if got := ownLabels(cases["uppercase suffix"]); got[container.LabelInvalid] != "2" {
+			t.Errorf("la valeur compte les clés écartées : %v", got)
+		}
+	})
+	t.Run("a complete pair is not flagged, junk or not", func(t *testing.T) {
+		got := ownLabels(map[string]string{prefix + "service": "svc_0123456789abcdef", prefix + "unit": "web", prefix + "Autre": "x", prefix + "extra": "ok"})
+		if _, flagged := got[container.LabelInvalid]; flagged {
+			t.Fatalf("labels = %v, the pair is readable: a junk key beside it costs nothing", got)
+		}
+		if got[container.LabelService] == "" || got[container.LabelUnit] == "" || got["extra"] != "ok" {
+			t.Fatalf("labels = %v", got)
+		}
+	})
+	t.Run("a pair with nothing discarded is the server's to judge", func(t *testing.T) {
+		got := ownLabels(map[string]string{prefix + "service": "svc_0123456789abcdef"})
+		if _, flagged := got[container.LabelInvalid]; flagged || len(got) != 1 {
+			t.Fatalf("labels = %v, an incomplete pair is reported as such by the server", got)
+		}
+	})
+	t.Run("an image cannot write the reserved key", func(t *testing.T) {
+		got := ownLabels(map[string]string{prefix + "service": "svc_0123456789abcdef", prefix + "unit": "web", prefix + container.LabelInvalid: "0"})
+		if _, kept := got[container.LabelInvalid]; kept {
+			t.Fatalf("labels = %v, the reserved key is the agent's alone", got)
+		}
+		alone := ownLabels(map[string]string{prefix + container.LabelInvalid: "0"})
+		if alone[container.LabelInvalid] != "1" {
+			t.Fatalf("labels = %v, a lone reserved key is one discarded key", alone)
+		}
+	})
+	t.Run("the flag holds a slot when all sixteen are taken", func(t *testing.T) {
+		labels := map[string]string{prefix + "Majuscule": "écarté"}
+		for index := range 20 {
+			labels[prefix+"a"+string(rune('a'+index))] = "x"
+		}
+		got := ownLabels(labels)
+		if len(got) != container.MaxLabelsPerContainer {
+			t.Fatalf("labels = %d, want %d", len(got), container.MaxLabelsPerContainer)
+		}
+		if _, flagged := got[container.LabelInvalid]; !flagged {
+			t.Fatalf("labels = %v, want the reserved key", got)
+		}
+	})
+	t.Run("nothing left gives nil", func(t *testing.T) {
+		if got := ownLabels(map[string]string{"traefik.enable": "true"}); got != nil {
+			t.Fatalf("labels = %v, want nil", got)
+		}
+		if got := ownLabels(nil); got != nil {
+			t.Fatalf("labels = %v, want nil", got)
+		}
+	})
 }

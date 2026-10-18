@@ -16,7 +16,7 @@ import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
-import { adoptPath } from "../lib/gaps";
+import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, transitionTitle } from "../lib/containers";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatDecimal } from "../lib/units";
@@ -65,7 +65,8 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               {t("probe.watch_service")}
             </Button>
           ) : (
-            container.archived_at === null && (
+            container.archived_at === null &&
+            !isOrphan(response.directory) && (
               <Button icon="plus" to={adoptPath(container.id)}>
                 {t("gap.adopt")}
               </Button>

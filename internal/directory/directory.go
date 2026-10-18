@@ -123,6 +123,9 @@ var (
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
 	ErrContainerNotFound = errors.New("container not found, or already gone")
 	ErrContainerDeclared = errors.New("container already belongs to a declared service")
+	// Le conteneur porte un label qui ne vise aucune unité de sa machine :
+	// l'adopter créerait une unité que ce label empêcherait de rattacher.
+	ErrContainerLabelled = errors.New("container carries a label that targets no unit of its machine")
 	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
 	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
 

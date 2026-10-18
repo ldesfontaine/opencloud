@@ -452,6 +452,7 @@ func (p *planner) fromContainer(observed Observed, previous Container, existed b
 		Privileged:     observed.Privileged,
 		Networks:       observed.Networks,
 		DependsOn:      observed.DependsOn,
+		Labels:         labelsOf(observed.Labels),
 		CreatedAt:      observed.CreatedAt.UTC(),
 		FirstSeenAt:    p.now,
 		LastSeenAt:     p.now,
@@ -472,6 +473,15 @@ func (p *planner) fromContainer(observed Observed, previous Container, existed b
 		container.MatchLevel = previous.MatchLevel
 	}
 	return container
+}
+
+// labelsOf ne retient que les deux labels que l'annuaire lit, et le signe
+// que d'autres ont été écartés. Les valeurs ne sont pas rognées : un label
+// tronqué désignerait peut-être une autre unité, mieux vaut qu'il ne désigne
+// rien.
+func labelsOf(observed map[string]string) Labels {
+	_, invalid := observed[LabelInvalid]
+	return Labels{Service: observed[LabelService], Unit: observed[LabelUnit], Invalid: invalid}
 }
 
 // record garde la fiche et note la transition si l'état ou la santé a

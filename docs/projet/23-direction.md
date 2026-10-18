@@ -69,8 +69,9 @@ composants, canaux se créent **dans l'interface ou par l'API**, uniquement ;
 pas d'import, pas d'export ([« Ce qui manque encore »](22-fonctionnement.md#ce-qui-manque-encore)).
 Une sonde et une tâche s'éditent sur place (voir
 [« Comment une cible est sondée »](22-fonctionnement.md#comment-une-cible-est-sondée)) :
-l'historique et le jeton restent. L'agent ne lit que les labels Compose,
-aucun label `opencloud.*`. Les 33 clés étrangères sont toutes `cascade` ou
+l'historique et le jeton restent. L'agent lit les labels Compose et ceux du
+produit : il transmet toutes les clés `<préfixe>.*` bornées (16 au plus), le
+serveur n'en garde que deux, `<préfixe>.service` et `<préfixe>.unit`. Les 33 clés étrangères sont toutes `cascade` ou
 `set null` : supprimer une machine vide 17 tables.
 
 **Cible** : la base reste l'état courant ; **un fichier** est la vérité
@@ -96,7 +97,7 @@ statut. Le **service déclaré** en est l'objet central.
 | Suppressions en `restrict` + plan | migration, chaque suppression | La base refuse toute perte silencieuse | Moyen : chaque suppression écrit son plan |
 | `export` / `apply` | `cmd/opencloud`, API | Reproductibilité de l'annuaire | Moyen à fort : le diff et sa confirmation sont le vrai travail |
 | Pages de statut par projet | `internal/status`, front | La page globale ne sert à rien | Moyen ; la page actuelle devient un projet |
-| Labels `<préfixe>.*` lus par l'agent | `internal/dockerapi`, `dockerwatch` | Rattacher ce qu'openCloud déploie sans ambiguïté ; préfixe tiré du paquet de constantes | Faible, **après** le fichier |
+| Labels `<préfixe>.*` lus par l'agent | `internal/dockerapi`, `dockerwatch` | Rattacher ce qu'openCloud déploie sans ambiguïté ; préfixe tiré du paquet de constantes | Faible, **après** le fichier. **Fait** : annuaire 7/7 (lus, pas encore posés par un déploiement) |
 
 Uptime Kuma a retiré son import/export en v2 et dit de son API interne
 « breaking changes may occur » : c'est le piège exact d'une config qui ne vit

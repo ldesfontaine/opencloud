@@ -65,6 +65,12 @@ const (
 	MaxNetworksPerContainer = 32
 	MaxAliasesPerNetwork    = 16
 	MaxDependencies         = 64
+	// Les labels <préfixe>.* d'un conteneur : une carte courte, dont une
+	// valeur va jusqu'à MaxNameLength. Deux seulement sont lus
+	// (LabelService, LabelUnit) ; la carte entière part pour qu'un serveur
+	// futur lise un autre suffixe sans mettre les agents à jour.
+	MaxLabelsPerContainer = 16
+	MaxLabelKeyLength     = 63
 	// L'extrait de journal capturé sur un arrêt anormal : les dernières
 	// lignes, bornées en nombre et en taille.
 	SnippetLines    = 50
@@ -77,6 +83,18 @@ const (
 	TransitionRetention = 90 * 24 * time.Hour
 	ArchivedRetention   = 30 * 24 * time.Hour
 	SampleRetention     = 48 * time.Hour
+)
+
+// Les deux suffixes de label qu'openCloud lit, après le préfixe de la
+// marque. Des suffixes, jamais le nom du produit.
+const (
+	LabelService = "service"
+	LabelUnit    = "unit"
+	// LabelInvalid est la clé réservée que l'agent ajoute quand il a dû écarter
+	// des labels de la marque et qu'il ne reste pas la paire service et unité : le
+	// conteneur est étiqueté, mais mal. La valeur dit combien de clés sont
+	// parties. Un label de ce nom écrit par l'image n'est jamais lu comme tel.
+	LabelInvalid = "invalid"
 )
 
 // UpdatePolicy est ce que l'opérateur veut des mises à jour d'une unité de
@@ -100,22 +118,28 @@ func IsUpdatePolicy(policy UpdatePolicy) bool {
 }
 
 // MatchLevel dit par quoi un conteneur a été rattaché à une unité de
-// l'annuaire. Le niveau « compose » tient au projet et au service Compose,
-// que le conteneur porte même recréé ; le niveau « name » ne tient qu'au
-// nom du conteneur, qu'un renommage perd : il est dit faible.
+// l'annuaire. Le niveau « label » tient aux deux labels que l'opérateur a
+// posés sur le conteneur : il désigne l'unité par son identifiant, et il
+// survit à un renommage comme à une recréation. Le niveau « compose » tient
+// au projet et au service Compose, que le conteneur porte même recréé ; le
+// niveau « name » ne tient qu'au nom du conteneur, qu'un renommage perd : il
+// est dit faible.
 type MatchLevel string
 
 const (
 	MatchNone    MatchLevel = ""
+	MatchLabel   MatchLevel = "label"
 	MatchCompose MatchLevel = "compose"
 	MatchName    MatchLevel = "name"
 )
 
+// MatchLevels liste les niveaux du plus fort au plus faible.
 func MatchLevels() []MatchLevel {
-	return []MatchLevel{MatchCompose, MatchName}
+	return []MatchLevel{MatchLabel, MatchCompose, MatchName}
 }
 
-// IsWeak dit si le rattachement ne tient qu'au nom du conteneur.
+// IsWeak dit si le rattachement ne tient qu'au nom du conteneur : un label,
+// qui désigne l'unité par son identifiant, n'est jamais faible.
 func (l MatchLevel) IsWeak() bool {
 	return l == MatchName
 }
@@ -153,6 +177,9 @@ type Container struct {
 	Privileged  bool
 	Networks    []Attachment
 	DependsOn   []Dependency
+	// Les labels que le conteneur porte et qu'openCloud lit. Ils désignent
+	// une unité ; ils ne déclarent rien.
+	Labels      Labels
 	CreatedAt   time.Time
 	StartedAt   time.Time
 	FinishedAt  time.Time
@@ -167,6 +194,25 @@ type Container struct {
 	// Le service de l'annuaire qui porte l'unité de la fiche ; vide : non
 	// déclaré.
 	DeclaredServiceID string
+}
+
+// Labels sont les labels <préfixe>.* que le conteneur porte et qu'openCloud
+// lit : l'identifiant du service déclaré et le nom de son unité. Ils
+// désignent une unité ; ils ne déclarent rien.
+type Labels struct {
+	Service string
+	Unit    string
+	// Invalid : des labels de la marque sont là mais mal formés (hors bornes,
+	// clé en majuscules, valeur illisible), et l'agent n'a rien pu en garder.
+	// Le conteneur est étiqueté quand même : sans cela, un label mal écrit
+	// retomberait en silence sur Compose ou sur le nom.
+	Invalid bool
+}
+
+// IsEmpty dit que le conteneur ne porte aucun label de la marque, bon ou
+// mauvais.
+func (l Labels) IsEmpty() bool {
+	return l.Service == "" && l.Unit == "" && !l.Invalid
 }
 
 // Port est un port publié sur l'hôte. Une IP vide, 0.0.0.0 ou :: dit

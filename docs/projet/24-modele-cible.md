@@ -645,7 +645,7 @@ Calculé par le serveur à chaque inventaire. Le niveau le plus fort gagne. Jama
 
 | Niveau | Clé | Pour | Force | Conteneur recréé |
 | --- | --- | --- | --- | --- |
-| 1 · label | `<préfixe>.service=<id>` + `<préfixe>.unit=<nom>` (préfixe tiré du paquet de constantes) | ce qu'openCloud déploie | forte | même label : même unité |
+| 1 · label | `<préfixe>.service=<id>` + `<préfixe>.unit=<nom>` (préfixe tiré du paquet de constantes), **sur la machine de l'agent**, vers une unité conteneur d'un service déclaré | ce que l'opérateur étiquette (et, plus tard, ce qu'openCloud déploiera) | forte, **sans repli** | même label : même unité |
 | 2 · Compose | machine + `com.docker.compose.project` + `com.docker.compose.service` | Compose observé | forte tant que le projet garde son nom | même couple : même unité |
 | 3 · nom | machine + nom du conteneur | conteneur seul | **faible, signalée** | tant que le nom reste |
 | aucun | — | — | `unit_id` NULL : **présent non déclaré** | — |
@@ -653,7 +653,7 @@ Calculé par le serveur à chaque inventaire. Le niveau le plus fort gagne. Jama
 | Cas | Ce qui arrive |
 | --- | --- |
 | Présent non déclaré | Observé et alerté comme aujourd'hui (alerte sur `container_id`). Fiche « non déclaré », deux gestes dans la vue écart : « Adopter » (formulaire pré-rempli depuis les labels Compose) ou « Ignorer » (ligne `ignored_keys`) |
-| Label vers un service inconnu | Traité comme non déclaré, signalé « label orphelin » |
+| Label vers un service inconnu, une unité inconnue, une unité binaire, un service d'une autre machine, ou incomplet | Traité comme non déclaré, signalé « label orphelin » avec son motif (`invalid`, `incomplete`, `service_unknown`, `unit_unknown`, `unit_binary`) ; jamais rattaché par Compose ni par le nom ; « Adopter » refusé |
 | Deux conteneurs pour une unité | Admis (réplicas, `scale`), montrés tous les deux |
 | Unité sans conteneur | Écart « déclaré et absent » |
 | Image ou version différente de l'épinglée | Écart « divergent » |
@@ -663,12 +663,12 @@ L'écart n'est pas stocké : il se calcule à la lecture, par service et par uni
 
 Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-fonctionnement.md`, « Comment un conteneur se rattache à l'annuaire ») :
 
-- Les niveaux 2 et 3 seulement ; le niveau 1 (label) viendra avec ce qu'openCloud déploiera. Les niveaux 2 et 3 sont **disjoints par l'origine du service** (Compose ou conteneur seul), le niveau fort gagnant si un conteneur répond aux deux.
+- Les niveaux 2 et 3 seulement (le niveau 1 est venu avec l'annuaire 7/7, voir la section 10). Les niveaux 2 et 3 sont **disjoints par l'origine du service** (Compose ou conteneur seul), le niveau fort gagnant si un conteneur répond aux deux.
 - Une fiche archivée **garde son dernier rattachement** et n'est plus recalculée : l'historique d'un conteneur dit à quelle unité il appartenait.
 - `ignored_keys` porte deux genres : `compose_project` (tout le projet) et `container_name` ; la clé est une observation, jamais un id Docker.
 - Le verdict d'un conteneur suit dix règles ordonnées : image observée illisible, image déclarée illisible, autre image, autre empreinte, empreinte épinglée que l'image écrit elle-même (conforme, quel que soit le tag), `latest` ou sans tag, version non déclarée, autre tag, empreinte épinglée inconnue, conforme. Tout verdict autre que « conforme » porte l'un des sept motifs nommés (`image_unreadable`, `image_differs`, `digest_differs`, `tag_latest`, `version_unpinned`, `tag_differs`, `digest_unknown`).
 - L'empreinte observée est celle que l'image écrit, à défaut celle du dernier constat sur l'image ; seule la première fait conclure à « conforme » (un tag mobile peut avoir bougé). Un conteneur arrêté compte comme présent.
-- Pas de motif « label orphelin » tant que le niveau 1 n'existe pas.
+- Le motif « label orphelin » est venu avec le niveau 1 (annuaire 7/7).
 
 ### Projets, canaux, taire : règles de lecture
 
@@ -1048,3 +1048,23 @@ le code a tranché, et que la suite (4c, l'audit, les runs) lit :
 | **Une ligne `confirmed` au démarrage est un arrêt brutal** : `serve` la passe `failed` (`manifest.interrupted`) ; l'arrêt propre du serveur ne coupe pas un changement, il empêche le suivant et le journalise | Le journal dit vrai après n'importe quelle fin de processus |
 | **Un fichier refusé est une réponse, pas une panne** : `POST /api/manifest/plan` rend `200` avec `applicable: false` et les refus, chacun avec sa ligne | La commande et l'interface montrent tous les refus d'un coup |
 | **Pas d'apply depuis l'interface** ; elle lit le journal et le plan de chaque passage (`PlanView`, prêt pour la 4c) | Le chemin de l'opérateur est Git puis la commande ; la 4c attendra l'usage |
+
+## 10. Ce que l'annuaire (7/7) a fixé
+
+Le niveau de rattachement par label, et l'export avec propositions. Ce que le
+code a tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Un label ne crée ni ne modifie jamais rien dans l'annuaire** ; il choisit, parmi les unités conteneur déjà déclarées sur la machine de l'agent, celle d'un conteneur. `TestLabels_NeverWriteTheDirectory` (vrai store) compare l'annuaire avant et après | Le conteneur est sous la main de qui contrôle la machine, et l'image peut porter des labels : ce qu'il écrit ne doit pas pouvoir fabriquer un service, une unité ou un projet |
+| **Un label ne vise que la machine de l'agent** : l'index est clé de (machine du service déclaré, service, unité) et la recherche part de la machine de l'agent | Un agent compromis ne rattache pas à un service d'une autre machine, ni n'en trouble l'état |
+| **Un conteneur qui porte un label ne cherche que par label, sans repli sur Compose ni sur le nom** ; les motifs d'un orphelin sont `invalid`, `incomplete`, `service_unknown`, `unit_unknown`, `unit_binary` | Un label faux qui retomberait en silence sur Compose cacherait l'erreur à l'opérateur |
+| **Un label de la marque que l'agent ou le serveur ont dû écarter rend le conteneur « label orphelin » (`invalid`), il ne le replie pas** : l'agent ajoute la clé réservée `invalid` (nombre de clés écartées) quand il ne reste pas la paire service et unité, que l'image ne peut pas écrire ; le serveur la stocke (`containers.label_invalid`) et refait la garde (carte hors bornes, `service` hors de la forme `svc_` + 16 hexadécimaux, `unit` hors de la forme d'un nom d'unité, caractère de contrôle) | Une clé en majuscules (`opencloud.Service`) ou une valeur trop longue ne doit pas rétrograder en silence un conteneur sur son projet Compose ou son nom : la faute se voit. Le préfixe se compare sans tenir compte de la casse pour qu'une casse fausse compte comme une tentative |
+| **La clé de l'index est une structure, pas une concaténation** | La valeur d'un label est libre : `a/b` + `c` ne doit pas valoir `a` + `b/c` |
+| **L'agent ne transmet que les clés qui commencent par `brand.LabelPrefix`**, préfixe retiré, bornées (suffixe `^[a-z0-9][a-z0-9_.-]{0,62}$`, valeur de 255 octets, 16 clés, `service` et `unit` avant la coupe) ; le serveur borne encore à la réception et n'en garde que `service`, `unit` et le signe `invalid` | Un label de Traefik (règles d'hôtes) ou de Compose ne doit pas quitter la machine ; la borne est reposée côté serveur parce qu'un agent n'est pas une preuve |
+| **Compatibilité du protocole** : le champ `labels` d'un conteneur du signal est nouveau et optionnel, aucune clé existante ne change ; un agent plus ancien contre ce serveur ne l'envoie pas, un agent nouveau contre un serveur plus ancien est ignoré (le décodeur est tolérant, `TestAgentSignal_UnknownFieldInAContainerIsIgnored`) | Mise à jour du serveur d'abord, puis des agents, sans coupure |
+| **Un groupe fait seulement d'orphelins n'est pas adoptable** ; `Propose` répond `ErrContainerLabelled` (409) et le représentant d'un groupe mixte est le premier conteneur sans label | L'unité qu'on créerait pour lui ne le rattacherait pas : le label continuerait de gagner |
+| **`ProposeAll` ne construit que le socle d'une découverte** : un service par groupe adoptable non ignoré, nom unique par machine, `needs_review` et `declared_by` ne sont pas construits | L'export avec propositions s'en sert aujourd'hui ; la découverte qui écrirait toute seule viendra plus tard et devra refaire le même calcul |
+| **`export -propose` est un fichier à relire, jamais une écriture** : les entrées nouvelles sont sans `id`, commentées, triées ; sans `-propose`, les octets sont ceux d'avant | `TestExport_ProposedFileGivesAnApplicablePlan` : le fichier proposé donne un plan applicable avec le vrai `BuildPlan` |
+| **Le préfixe des labels dérive de `ID`** ; le catalogue le dit par `{label_prefix}`, jamais en littéral | `TestNameOnlyInBrand` interdit le nom hors de `internal/brand` ; un renommage coûte un changement dans chaque Compose étiqueté |
+| **Trois colonnes, pas une table** : `containers.label_service`, `label_unit` et `label_invalid`, vides par défaut (migration `027_container_labels.sql`) | Seuls ces deux labels servent au rapprochement ; garder tous les labels stockerait ce que l'opérateur n'a pas demandé |

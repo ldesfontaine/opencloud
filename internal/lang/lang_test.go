@@ -202,4 +202,8 @@ func TestExpand_RejectsUnknownPlaceholder(t *testing.T) {
 	if err != nil || got != brand.ProductName+" : "+brand.Command {
 		t.Errorf("expand known = %q, %v", got, err)
 	}
+	got, err = expand("{label_prefix}service")
+	if err != nil || got != brand.LabelPrefix+"service" {
+		t.Errorf("expand label prefix = %q, %v", got, err)
+	}
 }

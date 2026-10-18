@@ -108,6 +108,41 @@ func TestExportCommand_WritesTheFile(t *testing.T) {
 	}
 }
 
+// Sans -propose, la commande demande le fichier tel qu'il est ; avec, elle le
+// demande avec ses propositions (?propose=1), et rien d'autre ne change.
+func TestExportCommand_ProposeAsksForProposals(t *testing.T) {
+	configPath, stateDir := writeShortConfig(t)
+	var queries []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/manifest/export", func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		if r.URL.Query().Get("propose") == "1" {
+			_, _ = w.Write([]byte(exportedYAML + "  # Proposé\n  - name: front\n"))
+			return
+		}
+		_, _ = w.Write([]byte(exportedYAML))
+	})
+	serveOnControlSocket(t, stateDir, mux)
+
+	var plain, proposed bytes.Buffer
+	if err := exportCommand([]string{"-config", configPath}, &plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := exportCommand([]string{"-config", configPath, "-propose"}, &proposed); err != nil {
+		t.Fatal(err)
+	}
+	if plain.String() != exportedYAML {
+		t.Fatalf("sans -propose : %q", plain.String())
+	}
+	if !strings.Contains(proposed.String(), "# Proposé") {
+		t.Fatalf("avec -propose : %q", proposed.String())
+	}
+	if len(queries) != 2 || queries[0] != "" || queries[1] != "propose=1" {
+		t.Fatalf("requêtes = %q", queries)
+	}
+}
+
 func TestExportCommand_ServerDownSaysSo(t *testing.T) {
 	configPath, stateDir := writeShortConfig(t)
 	for name, prepare := range map[string]func(t *testing.T){

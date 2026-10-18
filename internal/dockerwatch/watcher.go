@@ -5,11 +5,17 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 )
@@ -516,6 +522,7 @@ func toContainer(inspected dockerapi.Container) container.Observed {
 		Privileged:   inspected.Host.Privileged,
 		Networks:     attachments(inspected),
 		DependsOn:    dependencies(inspected),
+		Labels:       ownLabels(inspected.Config.Labels),
 		CreatedAt:    dockerapi.ParseTime(inspected.Created),
 	}
 	if composeService := inspected.Config.Labels[dockerapi.LabelComposeService]; composeService != "" {
@@ -534,6 +541,84 @@ func toContainer(inspected dockerapi.Container) container.Observed {
 		observed.FinishedAt = &finished
 	}
 	return observed
+}
+
+// labelSuffix est ce qu'un suffixe de label peut être : le même alphabet que
+// le nom d'une unité, en minuscules.
+var labelSuffix = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,62}$`)
+
+// ownLabels ne garde que nos labels (ceux du préfixe de la marque), préfixe
+// retiré : seuls nos labels partent, jamais un label Traefik ou Compose de
+// plus. Docker fusionne dans Config.Labels ceux de l'image, que son auteur
+// a écrits ; l'identifiant du service, tiré au hasard, les rend inoffensifs.
+// Un suffixe ou une valeur hors bornes est écarté, et la carte est coupée à
+// sa taille maximale : les deux labels qu'openCloud lit passent d'abord, pour
+// qu'une image bavarde ne les chasse pas.
+//
+// Le préfixe se reconnaît sans tenir compte de la casse : « Opencloud.service »
+// est une tentative d'étiquette, pas un label d'autrui. Si des labels ont dû
+// partir et qu'il ne reste pas la paire service et unité, la carte porte la
+// clé réservée LabelInvalid (le nombre de clés écartées) : le conteneur est étiqueté, mal,
+// et le serveur ne le laissera pas retomber sur Compose ou sur son nom.
+func ownLabels(labels map[string]string) map[string]string {
+	suffixes := make([]string, 0, len(labels))
+	discarded := 0
+	for key, value := range labels {
+		suffix, ours := cutLabelPrefix(key)
+		if !ours {
+			continue
+		}
+		if suffix == container.LabelInvalid || !labelSuffix.MatchString(suffix) || value == "" || len(value) > container.MaxNameLength || hasControl(value) || key != brand.LabelPrefix+suffix {
+			discarded++
+			continue
+		}
+		suffixes = append(suffixes, suffix)
+	}
+	sort.Slice(suffixes, func(i, j int) bool {
+		first, second := isReadLabel(suffixes[i]), isReadLabel(suffixes[j])
+		if first != second {
+			return first
+		}
+		return suffixes[i] < suffixes[j]
+	})
+	// Les deux labels lus passent d'abord (tri ci-dessus), donc ce qu'on garde
+	// d'eux ne dépend pas de la coupe. Le signe d'un label mal formé tient la
+	// place d'une clé.
+	flagged := discarded > 0 && !(slices.Contains(suffixes, container.LabelService) && slices.Contains(suffixes, container.LabelUnit))
+	room := container.MaxLabelsPerContainer
+	if flagged {
+		room--
+	}
+	if len(suffixes) > room {
+		suffixes = suffixes[:room]
+	}
+	own := make(map[string]string, len(suffixes)+1)
+	for _, suffix := range suffixes {
+		own[suffix] = labels[brand.LabelPrefix+suffix]
+	}
+	if flagged {
+		own[container.LabelInvalid] = strconv.Itoa(discarded)
+	}
+	if len(own) == 0 {
+		return nil
+	}
+	return own
+}
+
+// cutLabelPrefix retire le préfixe de la marque, majuscules comprises.
+func cutLabelPrefix(key string) (string, bool) {
+	if len(key) < len(brand.LabelPrefix) || !strings.EqualFold(key[:len(brand.LabelPrefix)], brand.LabelPrefix) {
+		return "", false
+	}
+	return key[len(brand.LabelPrefix):], true
+}
+
+func hasControl(text string) bool {
+	return !utf8.ValidString(text) || strings.ContainsFunc(text, unicode.IsControl)
+}
+
+func isReadLabel(suffix string) bool {
+	return suffix == container.LabelService || suffix == container.LabelUnit
 }
 
 // publishedPorts lit « 80/tcp » → [{127.0.0.1 18080}] ; un port exposé

@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import type { ContainerDirectory, Container, UpdatePolicy } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
-import { adoptPath } from "../lib/gaps";
+import { adoptPath, isOrphan } from "../lib/gaps";
 import { useRefresh } from "../lib/refresh";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
@@ -132,7 +132,7 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
             ) : (
               <span className="secondary">
                 {t("update.policy_needs_declaration")}
-                {container.archived_at === null && (
+                {container.archived_at === null && !isOrphan(directory) && (
                   <>
                     {" "}
                     <Link to={adoptPath(container.id)}>{t("gap.adopt")}</Link>

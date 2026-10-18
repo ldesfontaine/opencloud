@@ -95,6 +95,8 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
 		{prefix: "gap.level_", values: names(container.MatchLevels())},
 		{prefix: "gap.key_", values: names(directory.IgnoreKinds())},
+		// Le motif pour lequel un label ne rattache le conteneur à rien.
+		{prefix: "gap.orphan_", values: names(directory.LabelProblems())},
 		// Le journal des fichiers et le plan : l'état d'un passage, le geste,
 		// le genre d'objet, la conséquence, ce qu'une suppression emporte.
 		{prefix: "manifest.state_", values: names(manifest.ApplyStates())},

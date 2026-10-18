@@ -30,6 +30,9 @@ type Directory interface {
 	// de statut où il figure.
 	ServiceLinks(ctx context.Context, id string) (directory.Links, error)
 	IgnoredKeys(ctx context.Context) ([]directory.IgnoredKey, error)
+	// Proposals rend ce que l'export propose d'ajouter, depuis les conteneurs
+	// que les machines montrent sans que rien ne les déclare. Rien n'est écrit.
+	Proposals(ctx context.Context) ([]directory.Proposal, error)
 	Ignore(ctx context.Context, key directory.IgnoredKey) error
 	Unignore(ctx context.Context, key directory.IgnoredKey) error
 }
