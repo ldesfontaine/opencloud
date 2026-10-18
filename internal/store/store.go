@@ -26,6 +26,9 @@ const (
 
 type DB struct {
 	sql *sql.DB
+	// Chiffre les secrets qui entrent en base et les ouvre à la lecture ;
+	// posé par SetSealer au démarrage.
+	sealer Sealer
 }
 
 // Open crée ou ouvre la base sous le répertoire d'état, en WAL, et la met

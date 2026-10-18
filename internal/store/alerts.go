@@ -231,16 +231,53 @@ func alertNotFoundIfNoRow(result sql.Result) error {
 
 const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at`
 
+// InsertChannel crée le canal en deux temps dans une transaction : le chiffré
+// de l'URL et du secret est lié à l'id de la ligne, qui n'existe qu'après
+// l'INSERT.
 func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, error) {
-	result, err := db.sql.ExecContext(ctx, `
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin channel insert: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		channel.Name, channel.URL, string(channel.Format), channel.Destination, channel.Secret, string(channel.MinSeverity),
+		VALUES (?, '', ?, ?, '', ?, ?, ?, ?)`,
+		channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
 		channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
 	if err != nil {
 		return 0, fmt.Errorf("insert channel: %w", err)
 	}
-	return result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("read channel id: %w", err)
+	}
+	channel.ID = id
+	if err := db.writeChannelSecrets(ctx, tx, channel); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit channel insert: %w", err)
+	}
+	return id, nil
+}
+
+// writeChannelSecrets chiffre l'URL et le secret du canal pour sa ligne.
+func (db *DB) writeChannelSecrets(ctx context.Context, tx *sql.Tx, channel alert.Channel) error {
+	sealedURL, err := db.sealSecret(channel.URL, channelScope("url", channel.ID))
+	if err != nil {
+		return fmt.Errorf("seal channel url: %w", err)
+	}
+	sealedSecret, err := db.sealSecret(channel.Secret, channelScope("secret", channel.ID))
+	if err != nil {
+		return fmt.Errorf("seal channel secret: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE alert_channels SET url = ?, secret = ? WHERE id = ?`,
+		sealedURL, sealedSecret, channel.ID); err != nil {
+		return fmt.Errorf("write channel secrets: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) ListChannels(ctx context.Context) ([]alert.Channel, error) {
@@ -251,7 +288,7 @@ func (db *DB) ListChannels(ctx context.Context) ([]alert.Channel, error) {
 	defer rows.Close()
 	channels := []alert.Channel{}
 	for rows.Next() {
-		channel, err := scanChannel(rows)
+		channel, err := db.scanChannel(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -261,13 +298,21 @@ func (db *DB) ListChannels(ctx context.Context) ([]alert.Channel, error) {
 }
 
 func (db *DB) GetChannel(ctx context.Context, id int64) (alert.Channel, error) {
-	return scanChannel(db.sql.QueryRowContext(ctx, `SELECT `+channelColumns+` FROM alert_channels WHERE id = ?`, id))
+	return db.scanChannel(db.sql.QueryRowContext(ctx, `SELECT `+channelColumns+` FROM alert_channels WHERE id = ?`, id))
 }
 
 func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
+	sealedURL, err := db.sealSecret(channel.URL, channelScope("url", channel.ID))
+	if err != nil {
+		return fmt.Errorf("seal channel url: %w", err)
+	}
+	sealedSecret, err := db.sealSecret(channel.Secret, channelScope("secret", channel.ID))
+	if err != nil {
+		return fmt.Errorf("seal channel secret: %w", err)
+	}
 	result, err := db.sql.ExecContext(ctx, `
 		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, enabled = ? WHERE id = ?`,
-		channel.Name, channel.URL, string(channel.Format), channel.Destination, channel.Secret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
+		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -282,7 +327,7 @@ func (db *DB) DeleteChannel(ctx context.Context, id int64) error {
 	return alertNotFoundIfNoRow(result)
 }
 
-func scanChannel(row scanner) (alert.Channel, error) {
+func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 	var channel alert.Channel
 	var createdAt int64
 	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Destination, &channel.Secret, &channel.MinSeverity,
@@ -292,6 +337,14 @@ func scanChannel(row scanner) (alert.Channel, error) {
 	}
 	if err != nil {
 		return alert.Channel{}, fmt.Errorf("scan channel: %w", err)
+	}
+	channel.URL, err = db.openSecret(channel.URL, channelScope("url", channel.ID))
+	if err != nil {
+		return alert.Channel{}, err
+	}
+	channel.Secret, err = db.openSecret(channel.Secret, channelScope("secret", channel.ID))
+	if err != nil {
+		return alert.Channel{}, err
 	}
 	channel.HasSecret = channel.Secret != ""
 	channel.CreatedAt = time.Unix(createdAt, 0)

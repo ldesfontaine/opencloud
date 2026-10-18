@@ -18,6 +18,8 @@ Commandes :
   mcp       parle MCP sur stdin/stdout à un client IA local, en lecture seule (option -config)
   auth      status | disable : état de l'authentification de l'interface,
             ou la couper en cas de mot de passe oublié (option -config)
+  secrets   forget : clé de chiffrement perdue, repart d'une clé neuve et oublie
+            les secrets qu'elle chiffrait (option -config)
   version   affiche la version
 `
 
@@ -36,6 +38,8 @@ func main() {
 		err = runMCP(os.Args[2:])
 	case "auth":
 		err = runAuth(os.Args[2:])
+	case "secrets":
+		err = runSecrets(os.Args[2:])
 	case "version":
 		err = runVersion()
 	default:

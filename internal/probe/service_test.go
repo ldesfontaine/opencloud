@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -69,6 +70,7 @@ func newBench(t *testing.T) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	machines := machine.New(db, machine.NewSessions(), logger)
 	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{

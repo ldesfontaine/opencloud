@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -53,6 +54,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	f := &fixture{bus: live.New(), published: &counter{}, now: testNow}
 	clock := func() time.Time { return f.now }

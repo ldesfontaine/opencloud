@@ -85,6 +85,11 @@ func runServe(args []string) error {
 		return err
 	}
 	defer db.Close()
+	// La clé avant tout ce qui lit un secret, et avant la reprise des
+	// réglages, qui en écrit un.
+	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
+		return err
+	}
 	if err := db.PurgeExpiredTokens(ctx, time.Now()); err != nil {
 		logger.Warn("purge expired tokens", "error", err)
 	}

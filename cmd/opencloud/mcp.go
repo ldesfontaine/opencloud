@@ -31,9 +31,11 @@ import (
 
 // opencloud mcp : un client IA local (Claude Code, Claude Desktop) lance
 // ce processus et lui parle en JSON-RPC sur stdin/stdout. Il lit la même
-// base que serve, sans socket ni identifiants, et n'écrit rien : il ne
-// tient ni le bus du direct ni les flux des agents. Les journaux vont sur
-// stderr, stdout est le canal du protocole.
+// base que serve, sans socket ni identifiants, et n'écrit rien d'autre que
+// le chiffrement des secrets restés en clair par une montée de version : il
+// ne tient ni le bus du direct ni les flux des agents. Il lit la clé de
+// serve, sans jamais la créer. Les journaux vont sur stderr, stdout est le
+// canal du protocole.
 func runMCP(args []string) error {
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -63,6 +65,9 @@ func runMCP(args []string) error {
 		return err
 	}
 	defer db.Close()
+	if err := openSecrets(ctx, stateDir, db, logger, false); err != nil {
+		return err
+	}
 
 	// Les mêmes composants que serve, sans aucune boucle ni écouteur : ils
 	// ne servent qu'à lire. Le bus n'a pas d'abonné, les flux pas d'agent.

@@ -22,6 +22,9 @@ const (
 	StateDir      = "/var/lib/" + ID
 	AgentStateDir = StateDir + "/agent"
 	DatabaseFile  = ID + ".db"
+	// La clé qui chiffre les secrets saisis dans l'interface, à côté de la
+	// base et jamais dedans.
+	SecretKeyFile = "secret.key" // #nosec G101 -- un nom de fichier, pas un secret.
 
 	// Le nom de la machine qui héberge le serveur, dans la base.
 	LocalMachineName = ID
@@ -30,6 +33,12 @@ const (
 	// Préfixe des identifiants de transaction envoyés à Matrix.
 	MatrixTransactionPrefix = ID + "-"
 )
+
+// SecretKeyIDDomain sépare l'identifiant d'une clé de toute autre empreinte
+// de la même clé. Il entre dans le calcul de l'identifiant inscrit dans
+// chaque secret chiffré : le changer rend les secrets déjà chiffrés
+// illisibles.
+const SecretKeyIDDomain = ID + "-key-id\x00"
 
 // Réservées : pas encore lues, posées pour que le nom n'ait pas à être
 // réécrit le jour où elles servent.

@@ -20,7 +20,7 @@ const settingsSelect = `SELECT language, status_title, status_announcement, stat
 // LoadSettings rend les réglages de l'opérateur ; sans ligne, des réglages
 // vides : une installation neuve n'a encore rien réglé.
 func (db *DB) LoadSettings(ctx context.Context) (settings.Settings, error) {
-	current, err := scanSettings(db.sql.QueryRowContext(ctx, settingsSelect))
+	current, err := db.scanSettings(db.sql.QueryRowContext(ctx, settingsSelect))
 	if errors.Is(err, sql.ErrNoRows) {
 		return settings.Settings{}, nil
 	}
@@ -40,12 +40,12 @@ func (db *DB) UpdateSettings(ctx context.Context, change func(*settings.Settings
 	}
 	defer tx.Rollback()
 
-	current, err := scanSettings(tx.QueryRowContext(ctx, settingsSelect))
+	current, err := db.scanSettings(tx.QueryRowContext(ctx, settingsSelect))
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return settings.Settings{}, fmt.Errorf("load settings: %w", err)
 	}
 	change(&current)
-	if err := saveSettings(ctx, tx, current, time.Now()); err != nil {
+	if err := db.saveSettings(ctx, tx, current, time.Now()); err != nil {
 		return settings.Settings{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -71,7 +71,7 @@ func (db *DB) ImportSettings(ctx context.Context, imported settings.Settings) (b
 	if present > 0 {
 		return false, nil
 	}
-	if err := saveSettings(ctx, tx, imported, time.Now()); err != nil {
+	if err := db.saveSettings(ctx, tx, imported, time.Now()); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -80,7 +80,7 @@ func (db *DB) ImportSettings(ctx context.Context, imported settings.Settings) (b
 	return true, nil
 }
 
-func scanSettings(row scanner) (settings.Settings, error) {
+func (db *DB) scanSettings(row scanner) (settings.Settings, error) {
 	var current settings.Settings
 	var language, statusLanguage string
 	var lifecycleDisabled int
@@ -91,6 +91,10 @@ func scanSettings(row scanner) (settings.Settings, error) {
 	if err != nil {
 		return settings.Settings{}, err
 	}
+	current.MailPassword, err = db.openSecret(current.MailPassword, settingsPasswordScope())
+	if err != nil {
+		return settings.Settings{}, err
+	}
 	current.Language = lang.Code(language)
 	current.StatusLanguage = lang.Code(statusLanguage)
 	current.LifecycleDisabled = lifecycleDisabled != 0
@@ -98,8 +102,12 @@ func scanSettings(row scanner) (settings.Settings, error) {
 }
 
 // saveSettings remplace la ligne unique, créée au premier appel.
-func saveSettings(ctx context.Context, tx *sql.Tx, current settings.Settings, at time.Time) error {
-	_, err := tx.ExecContext(ctx, `
+func (db *DB) saveSettings(ctx context.Context, tx *sql.Tx, current settings.Settings, at time.Time) error {
+	mailPassword, err := db.sealSecret(current.MailPassword, settingsPasswordScope())
+	if err != nil {
+		return fmt.Errorf("seal mail password: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO settings (id, language, status_title, status_announcement, status_language,
 			disk_attention_percent, disk_danger_percent,
 			mail_host, mail_port, mail_tls, mail_username, mail_password, mail_from,
@@ -122,7 +130,7 @@ func saveSettings(ctx context.Context, tx *sql.Tx, current settings.Settings, at
 			updated_at = excluded.updated_at`,
 		string(current.Language), current.StatusTitle, current.StatusAnnouncement, string(current.StatusLanguage),
 		current.DiskAttentionPercent, current.DiskDangerPercent,
-		current.MailHost, current.MailPort, current.MailTLS, current.MailUsername, current.MailPassword, current.MailFrom,
+		current.MailHost, current.MailPort, current.MailTLS, current.MailUsername, mailPassword, current.MailFrom,
 		boolToInt(current.LifecycleDisabled), at.Unix())
 	if err != nil {
 		return fmt.Errorf("save settings: %w", err)

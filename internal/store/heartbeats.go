@@ -16,11 +16,17 @@ const heartbeatColumns = `h.id, h.token, h.name, h.machine_id, COALESCE(m.name, 
 
 const heartbeatFrom = ` FROM heartbeats h LEFT JOIN machines m ON m.id = h.machine_id`
 
+// InsertHeartbeat garde le jeton chiffré, lié à l'id du moniteur, et son
+// empreinte, par laquelle un ping le retrouve.
 func (db *DB) InsertHeartbeat(ctx context.Context, h heartbeat.Heartbeat) error {
-	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO heartbeats (id, token, name, machine_id, status, interval_seconds, grace_seconds, next_deadline_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		h.ID, h.Token, h.Name, nullableString(h.MachineID), string(h.Status),
+	sealedToken, err := db.sealSecret(h.Token, heartbeatTokenScope(h.ID))
+	if err != nil {
+		return fmt.Errorf("seal heartbeat token: %w", err)
+	}
+	_, err = db.sql.ExecContext(ctx, `
+		INSERT INTO heartbeats (id, token, token_hash, name, machine_id, status, interval_seconds, grace_seconds, next_deadline_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		h.ID, sealedToken, heartbeat.HashToken(h.Token), h.Name, nullableString(h.MachineID), string(h.Status),
 		int64(h.Interval.Seconds()), int64(h.Grace.Seconds()), nullableTime(h.NextDeadlineAt), h.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert heartbeat: %w", err)
@@ -35,12 +41,12 @@ func (db *DB) ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 
 func (db *DB) GetHeartbeat(ctx context.Context, id string) (heartbeat.Heartbeat, error) {
 	row := db.sql.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.id = ?`, id)
-	return scanHeartbeat(row)
+	return db.scanHeartbeat(row)
 }
 
 func (db *DB) GetHeartbeatByToken(ctx context.Context, token string) (heartbeat.Heartbeat, error) {
-	row := db.sql.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.token = ?`, token)
-	return scanHeartbeat(row)
+	row := db.sql.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.token_hash = ?`, heartbeat.HashToken(token))
+	return db.scanHeartbeat(row)
 }
 
 func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
@@ -83,7 +89,7 @@ func (db *DB) Transact(ctx context.Context, id string, decide heartbeat.Decision
 	}
 	defer tx.Rollback()
 
-	current, err := scanHeartbeat(tx.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.id = ?`, id))
+	current, err := db.scanHeartbeat(tx.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.id = ?`, id))
 	if err != nil {
 		return err
 	}
@@ -251,7 +257,7 @@ func (db *DB) queryHeartbeats(ctx context.Context, query string, args ...any) ([
 	defer rows.Close()
 	var heartbeats []heartbeat.Heartbeat
 	for rows.Next() {
-		h, err := scanHeartbeat(rows)
+		h, err := db.scanHeartbeat(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -260,7 +266,7 @@ func (db *DB) queryHeartbeats(ctx context.Context, query string, args ...any) ([
 	return heartbeats, rows.Err()
 }
 
-func scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
+func (db *DB) scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
 	var h heartbeat.Heartbeat
 	var machineID sql.NullString
 	var status string
@@ -272,6 +278,10 @@ func scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return heartbeat.Heartbeat{}, heartbeat.ErrNotFound
 	}
+	if err != nil {
+		return heartbeat.Heartbeat{}, err
+	}
+	h.Token, err = db.openSecret(h.Token, heartbeatTokenScope(h.ID))
 	if err != nil {
 		return heartbeat.Heartbeat{}, err
 	}

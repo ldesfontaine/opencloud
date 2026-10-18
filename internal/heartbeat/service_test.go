@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -56,6 +57,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	f := &fixture{db: db, Service: heartbeat.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil))), clock: testNow, listener: &recordingListener{}}
 	f.SetClock(func() time.Time { return f.clock })

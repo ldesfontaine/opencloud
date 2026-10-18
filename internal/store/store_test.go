@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 )
 
 func openTestDB(t *testing.T) *DB {
@@ -26,6 +27,7 @@ func openTestDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	return db
 }

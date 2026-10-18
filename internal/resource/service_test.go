@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -45,6 +46,7 @@ func newBench(t *testing.T) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	err = db.SaveLocalMachine(context.Background(), machine.Machine{
 		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, EnrolledAt: testNow, CreatedAt: testNow,

@@ -16,6 +16,8 @@ func TestValues_AreFrozen(t *testing.T) {
 		"StateDir":                {StateDir, "/var/lib/opencloud"},
 		"AgentStateDir":           {AgentStateDir, "/var/lib/opencloud/agent"},
 		"DatabaseFile":            {DatabaseFile, "opencloud.db"},
+		"SecretKeyFile":           {SecretKeyFile, "secret.key"},
+		"SecretKeyIDDomain":       {SecretKeyIDDomain, "opencloud-key-id\x00"},
 		"LocalMachineName":        {LocalMachineName, "opencloud"},
 		"MCPServerKey":            {MCPServerKey, "opencloud"},
 		"MatrixTransactionPrefix": {MatrixTransactionPrefix, "opencloud-"},

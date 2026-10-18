@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/mcp"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -38,6 +39,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	f := &fixture{db: db, clock: testNow}
 	f.Service = mcp.New(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
