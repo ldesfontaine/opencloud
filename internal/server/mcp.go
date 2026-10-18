@@ -56,7 +56,7 @@ const (
 	mcpMaxLimit     = 500
 	codeReadOnly    = "mcp.read_only"
 	// Les comptes du catalogue, figés par un test qui énumère les outils.
-	mcpReadToolCount  = 17
+	mcpReadToolCount  = 18
 	mcpWriteToolCount = 9
 	// Les mêmes bornes que /ping et /statut par adresse résolue ; le point
 	// de jeton, où un secret se devine, est tenu plus serré.

@@ -66,6 +66,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/directory/proposal", s.getDirectoryProposal},
 		{"POST", "/api/directory/ignored", s.ignoreKey},
 		{"DELETE", "/api/directory/ignored", s.unignoreKey},
+		{"GET", "/api/manifest/export", s.exportManifest},
 		{"GET", "/api/probes", s.listProbes},
 		{"POST", "/api/probes", s.createProbe},
 		{"GET", "/api/probes/{id}", s.getProbe},

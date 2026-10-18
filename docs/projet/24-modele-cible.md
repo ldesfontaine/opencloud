@@ -778,6 +778,13 @@ Les tables nouvelles sont listées au-dessus du [diagramme](#diagramme-des-entit
 
 ## 3. Le fichier d'apply et l'export
 
+Cet exemple dit la cible. L'export de l'annuaire (4a/7, voir « 8. Ce que
+l'annuaire (4a/7) a fixé ») n'en écrit que `machines`, `projects`, `services`,
+`probes`, `heartbeats` et `ignored` ; `status_pages`, `channels`,
+`backup_destinations`, `backups`, `settings`, ainsi que `protected`,
+`open_paths`, `eol_product` et le genre d'une tâche, attendent les
+fonctionnalités qui les créent, et la lecture les refuse d'ici là.
+
 ```yaml
 version: 1
 machines:                        # référencées par nom, jamais créées par apply
@@ -788,11 +795,11 @@ projects:
   - id: prj_4m8d1x               # écrit par export ; absent = création
     name: docs
     title: Documentation
-    services: [wiki, auth, proxy]   # un service peut être dans plusieurs projets
 services:
   - id: svc_7f3k2q
     name: wiki
     machine: app-1
+    projects: [docs]             # l'appartenance se lit sur le service, par nom de projet
     nature: application          # application | infra
     origin: deployed             # deployed | compose | container | binary
     public_url: https://wiki.example.org
@@ -812,6 +819,7 @@ services:
   - id: svc_2p9w6n
     name: auth
     machine: edge-1
+    projects: [docs]
     nature: infra
     provides: [sso]              # sso | proxy | tls | backup-target
     public_url: https://auth.example.org
@@ -822,6 +830,7 @@ services:
         version: "4.38.0"
   - name: proxy
     machine: edge-1
+    projects: [docs]
     nature: infra
     origin: compose
     compose_project: edge
@@ -833,21 +842,20 @@ services:
         version: "3.1.2"
 probes:
   - name: wiki-http
-    service: wiki
+    service: app-1/wiki          # machine/nom : deux machines peuvent avoir un « wiki »
     runner: edge-1               # n'importe quelle machine : ici, vue de dehors
     kind: http                   # http | tcp | nrpe
     target: https://wiki.example.org/healthz
     interval: 60s
   - name: wiki-disk
-    service: wiki
+    service: app-1/wiki
     runner: app-1
     kind: nrpe
     check: disk_data             # commande définie dans le fichier de l'agent
     interval: 5m
 heartbeats:
   - name: wiki-dump
-    service: wiki
-    kind: cron                   # cron | webhook
+    machine: app-1               # la tâche n'a pas encore de service ; ni de genre cron | webhook
     every: 24h
     grace: 1h
     token: { secret: kept }      # chiffré en base, jamais exporté
@@ -995,3 +1003,22 @@ vers l'annuaire. Ce que le code a tranché en l'écrivant :
 | `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée |
 | Une sonde peut viser un service de **n'importe quelle machine** | Sonder depuis l'extérieur un service d'une autre machine est le cas courant ; le service existe, c'est tout ce que la création vérifie |
 | Pas de retour arrière par le binaire seul | Rien n'est détruit, mais l'ancien binaire ne marche pas sur cette base : son inventaire écrit `services.update_policy`, colonne supprimée, donc tout rapport de conteneurs échoue ; créer une sonde sur un identifiant de conteneur échoue contre la clé vers `declared_services`. Revenir, c'est remettre l'ancien binaire **et** la copie faite avant la montée (`installation.md`) |
+
+## 8. Ce que l'annuaire (4a/7) a fixé
+
+Le paquet `internal/manifest` écrit et relit le fichier de la section 3, sans
+rien appliquer. Ce que le code a tranché en l'écrivant, et que la 4b lit :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **L'appartenance à un projet s'écrit sur le service** (`projects: [docs]`, des noms), pas sur le projet | La base la tient sur le service (`project_services`) ; une seule écriture, pas deux listes à accorder |
+| **Une sonde vise `machine/nom`** (`service: app-1/wiki`) ; le `runner` est toujours écrit, la machine openCloud y a son nom | Un nom de service n'est unique que par machine ; le fichier ne cite jamais l'identifiant interne d'une machine |
+| **Les tâches n'ont ni `service` ni genre** (`cron`, `webhook`) pour l'instant | `heartbeats` n'a pas encore de `service_id` (annuaire 5) ; le fichier n'écrit pas ce que la base ne tient pas |
+| **Les identifiants sont toujours écrits** ; la 4b refusera un identifiant inconnu et demandera l'identifiant pour un nom ambigu ; les unités n'en ont pas | L'identifiant rattache à l'objet quand on renomme ; une unité se reconnaît à son nom dans son service |
+| **Un champ absent veut dire la valeur par défaut**, un champ nul aussi (sauf `token:`, nul = refusé) | Un fichier écrit à la main n'a pas à répéter les défauts ; l'export, lui, écrit tout ce qui a une valeur |
+| **L'état n'est jamais dans le fichier** : pause, essais, conteneurs rattachés, « à vérifier » (commentaire seulement), historique | Le fichier dit ce que l'opérateur déclare ; l'état est ce que le système observe |
+| **Un secret ne s'écrit que `{secret: kept}`** | Garder la valeur du serveur ; le fichier peut aller dans Git |
+| **Sections refusées** : tout ce qui n'est pas dans la liste de la section 3 ci-dessus (canaux, pages, réglages, sauvegardes), avec sa ligne | Mieux vaut refuser que lire en ignorant : un fichier qui semble tout dire et ne dit pas tout |
+| **Durées avec unité** (`60s`, `5m`, `24h`) ; une sonde en secondes entières, une tâche en minutes entières | Ce que la base sait stocker ; une durée ronde sinon refusée plutôt qu'arrondie |
+| **Lecture par nœuds, pas décodée d'un coup** : clé inconnue, clé répétée, alias, plusieurs documents, type inattendu, plus de 256 Kio sont refusés à leur ligne | Un refus cite une ligne ; le décodage direct ne voit pas les doublons et lit `"1"` comme `1` |
+| **La socket `state_dir/control.sock`** (0600, `state_dir` fermé au groupe et aux autres, jamais prise à un `serve` vivant) sert `/api/manifest/…` et rien d'autre ; la commande `opencloud export` passe par elle | Pas d'identifiants à saisir sur une machine où l'on est déjà le compte du service ; la commande n'ouvre pas la base et ne crée donc pas de fichier au nom de root |

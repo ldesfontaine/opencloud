@@ -25,6 +25,9 @@ const (
 	// La clé qui chiffre les secrets saisis dans l'interface, à côté de la
 	// base et jamais dedans.
 	SecretKeyFile = "secret.key" // #nosec G101 -- un nom de fichier, pas un secret.
+	// La socket de commande, dans state_dir : serve y sert les routes du
+	// fichier de l'annuaire à la commande locale, sans rien ouvrir au réseau.
+	ControlSocketFile = "control.sock"
 
 	// Le nom de la machine qui héberge le serveur, dans la base.
 	LocalMachineName = ID

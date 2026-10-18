@@ -38,6 +38,7 @@ GET /api/directory/gaps
 GET /api/directory/proposal
 POST /api/directory/ignored
 DELETE /api/directory/ignored
+GET /api/manifest/export
 GET /api/probes
 POST /api/probes
 GET /api/probes/{id}

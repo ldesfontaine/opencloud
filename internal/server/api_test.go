@@ -235,6 +235,10 @@ var (
 	// Les identifiants de l'annuaire sont tirés à chaque création, préfixe
 	// en tête.
 	directoryID = regexp.MustCompile(`"(svc|unit|prj)_[0-9a-f]{16}"`)
+	// Le fichier de l'annuaire, rendu dans une chaîne JSON par l'outil MCP :
+	// ses identifiants y sont dans le texte, pas entre guillemets.
+	yamlInJSONDirectoryID = regexp.MustCompile(`\b(svc|prj)_[0-9a-f]{16}\b`)
+	yamlInJSONShortID     = regexp.MustCompile(`\bid: [0-9a-f]{16}\\n`)
 )
 
 // Les identifiants de tâche et de jeton, les jetons de ping et
@@ -246,6 +250,8 @@ func normalize(body string) string {
 	body = sessionID.ReplaceAllString(body, `"$1":"ID"`)
 	body = probeKey.ReplaceAllString(body, `"ID":[`)
 	body = directoryID.ReplaceAllString(body, `"${1}_ID"`)
+	body = yamlInJSONDirectoryID.ReplaceAllString(body, "${1}_ID")
+	body = yamlInJSONShortID.ReplaceAllString(body, `id: ID\n`)
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 

@@ -1,0 +1,91 @@
+# Annuaire d'openCloud, exporté par « opencloud export ».
+# Les identifiants (id) rattachent chaque entrée à son objet : gardez-les.
+# Un jeton ne s'écrit jamais ici : « secret: kept » garde celui du serveur.
+version: 1
+machines:
+  - name: opencloud
+  - name: vps-paris-1
+projects:
+  - id: prj_ID
+    name: client-a
+    title: Client A
+services:
+  - id: svc_ID
+    machine: opencloud
+    name: caddy
+    nature: infra
+    origin: binary
+    provides: [proxy, tls]
+    units:
+      - name: caddy
+        version: "2.8.4"
+        systemd_unit: caddy.service
+        ports: ["80/tcp", "443"]
+  - id: svc_ID
+    machine: vps-paris-1
+    name: nextcloud
+    title: Nextcloud
+    nature: application
+    origin: compose
+    compose_project: nextcloud
+    public_url: https://cloud.exemple.fr
+    projects: [client-a]
+    units:
+      - name: app
+        image: nextcloud
+        version: "29.0.4"
+        ports: ["8080:80"]
+        updates: watch
+      - name: db
+        image: postgres
+        version: "16.4"
+        updates: watch
+  - id: svc_ID
+    machine: vps-paris-1
+    name: whoami
+    nature: application
+    origin: container
+    units:
+      - name: whoami
+        image: traefik/whoami
+        version: "v1.10"
+        container_name: whoami
+        updates: watch
+probes:
+  - id: ID
+    name: base nextcloud
+    runner: opencloud
+    kind: tcp
+    target: 127.0.0.1:5432
+    interval: 1m
+    timeout: 10s
+    failure_threshold: 3
+    recovery_threshold: 2
+  - id: ID
+    name: site nextcloud
+    runner: vps-paris-1
+    service: vps-paris-1/nextcloud
+    kind: http
+    target: https://cloud.exemple.fr/status.php
+    interval: 1m
+    timeout: 10s
+    failure_threshold: 3
+    recovery_threshold: 2
+    method: GET
+    expected_status: 2xx
+    expected_body: installed
+heartbeats:
+  - id: ID
+    name: certbot renew
+    every: 12h
+    grace: 0s
+    token: {secret: kept}
+  - id: ID
+    name: sauvegarde nextcloud
+    machine: vps-paris-1
+    every: 24h
+    grace: 1h
+    token: {secret: kept}
+ignored:
+  - machine: vps-paris-1
+    compose_project: scratch

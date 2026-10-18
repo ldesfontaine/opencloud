@@ -22,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
@@ -135,6 +136,13 @@ type DirectoryService interface {
 	ContainerLink(ctx context.Context, item container.Container) (directory.ContainerLink, error)
 }
 
+// Ce que le serveur attend du composant manifest : le fichier de l'annuaire.
+type ManifestService interface {
+	// Export écrit tout l'annuaire, commentaires dans la langue donnée par
+	// les annotations. Jamais un secret.
+	Export(ctx context.Context, annotations manifest.Annotations) ([]byte, error)
+}
+
 // Ce que le serveur attend du composant update : l'API lit et règle, le
 // signal de l'agent écrit, et le flux qui s'ouvre repart avec les
 // exclusions de sa machine.
@@ -237,6 +245,7 @@ type Server struct {
 	containers   ContainerTracker
 	probes       ProbeService
 	directory    DirectoryService
+	manifest     ManifestService
 	updates      UpdateService
 	lifecycle    LifecycleService
 	status       StatusService
@@ -256,8 +265,10 @@ type Server struct {
 	eventTabs  *slots
 	publicTabs *slots
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
-	mcpServer      *gomcp.Server
-	mcpHandler     http.Handler
+	mcpServer  *gomcp.Server
+	mcpHandler http.Handler
+	// La socket de commande ne sert que les routes du fichier de l'annuaire.
+	controlHandler http.Handler
 	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
@@ -278,6 +289,7 @@ type Options struct {
 	Containers ContainerTracker
 	Probes     ProbeService
 	Directory  DirectoryService
+	Manifest   ManifestService
 	Updates    UpdateService
 	Lifecycle  LifecycleService
 	Status     StatusService
@@ -328,6 +340,7 @@ func New(opts Options) (*Server, error) {
 		containers:     opts.Containers,
 		probes:         opts.Probes,
 		directory:      opts.Directory,
+		manifest:       opts.Manifest,
 		updates:        opts.Updates,
 		lifecycle:      opts.Lifecycle,
 		status:         opts.Status,
@@ -361,6 +374,7 @@ func New(opts Options) (*Server, error) {
 	server.mcpServer = server.newMCPServer(false)
 	server.mcpHandler = server.newMCPHandler()
 	server.handler = server.chain(securityHeaders(server.mux()))
+	server.controlHandler = server.chain(server.controlMux())
 	return server, nil
 }
 

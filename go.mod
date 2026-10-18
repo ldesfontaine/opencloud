@@ -6,6 +6,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.4
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.55.0
 	modernc.org/sqlite v1.58.0
 )

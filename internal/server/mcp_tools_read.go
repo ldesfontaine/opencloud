@@ -13,11 +13,12 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Les dix-sept lectures : chacune rend les faits de l'API, sous le même JSON.
+// Les dix-huit lectures : chacune rend les faits de l'API, sous le même JSON.
 // Aucun secret d'openCloud n'en sort : ni l'URL de ping d'une tâche, ni les
 // jetons en attente d'une machine, ni l'URL complète d'un canal. Les
 // journaux d'un conteneur, eux, sont bruts et peuvent en contenir un.
@@ -57,6 +58,11 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 		Description: "Declared services of the directory with their gap against what Docker shows (conform, absent, diverged, unverifiable on latest or untagged, unobserved for binaries, weak name match), and the containers present but undeclared, grouped by Compose project or name, flagged when ignored.",
 		Annotations: readOnlyHints(),
 	}, s.listDeclaredServicesTool)
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "export_directory",
+		Description: "The whole directory as the YAML file the " + brand.Command + " export command writes: projects, declared services and their units, probes, jobs, ignored keys. Ids included, never a secret (a job's token is only the marker `secret: kept`). Returns {yaml}.",
+		Annotations: readOnlyHints(),
+	}, s.exportDirectoryTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_container_logs",
 		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with container.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (" + brand.Command + " mcp) the agents' streams are not held: it always fails with container.logs_unavailable_locally, use the HTTP transport.",
@@ -377,6 +383,21 @@ func (s *Server) listDeclaredServicesTool(ctx context.Context, _ *gomcp.CallTool
 		response.Services = append(response.Services, declaredServiceGapJSON{declaredServiceJSON: declaredServiceToJSON(found), Gap: gaps.Services[index]})
 	}
 	return toolJSON(response)
+}
+
+type exportDirectoryResponse struct {
+	YAML string `json:"yaml"`
+}
+
+func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolRequest, _ emptyInput) (*gomcp.CallToolResult, any, error) {
+	data, err := s.exportedDirectory(ctx)
+	if errors.Is(err, manifest.ErrExportTooLarge) {
+		return toolRefuse(manifest.KeyExportTooLarge)
+	}
+	if err != nil {
+		return s.toolInternal("export_directory", err)
+	}
+	return toolJSON(exportDirectoryResponse{YAML: string(data)})
 }
 
 func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerInput) (*gomcp.CallToolResult, any, error) {

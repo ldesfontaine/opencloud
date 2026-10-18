@@ -528,6 +528,11 @@ func (d *Directory) Ignore(ctx context.Context, key IgnoredKey) error {
 	return nil
 }
 
+// IgnoredKeys rend toutes les clés ignorées, par machine, genre et valeur.
+func (d *Directory) IgnoredKeys(ctx context.Context) ([]IgnoredKey, error) {
+	return d.store.ListIgnoredKeys(ctx, "")
+}
+
 func (d *Directory) Unignore(ctx context.Context, key IgnoredKey) error {
 	key = key.Complete()
 	if err := d.store.DeleteIgnoredKey(ctx, key); err != nil {
