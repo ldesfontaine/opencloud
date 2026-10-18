@@ -23,7 +23,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/service"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -76,30 +75,29 @@ func runMCP(args []string) error {
 	services := service.New(db, logger)
 	probes := probe.New(db, logger)
 	updates := update.New(db, logger)
-	preferences := settings.New(stateDir)
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, machines, db, logger)
 	catalogs, err := lang.Load()
 	if err != nil {
 		return fmt.Errorf("load languages: %w", err)
 	}
 	alerts := alert.New(db, logger)
-	notifier := alert.NewNotifier(db, catalogs, languageOf(preferences), logger)
+	notifier := alert.NewNotifier(db, catalogs, languageOf(db), logger)
 	notifier.SetPublicURL(cfg.PublicURL)
-	notifier.SetMail(mailRelayOf(preferences), mail.NewSender(alert.MailTimeout))
+	notifier.SetMail(mailRelayOf(db), mail.NewSender(alert.MailTimeout))
 	access, err := auth.New(db, logger)
 	if err != nil {
 		return err
 	}
 	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
 	// processus ne lit jamais la source lui-même.
-	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(preferences, logger), logger)
+	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
 	if err := support.Load(); err != nil {
 		logger.Warn("load lifecycle snapshot", "error", err)
 	}
 	srv, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
-		Settings:       preferences,
+		Settings:       db,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,

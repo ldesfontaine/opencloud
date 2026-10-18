@@ -74,9 +74,9 @@ func machineToJSON(status machine.Status) machineJSON {
 
 // machineJSONOf ajoute aux faits de la machine le support de son système,
 // quand la fin de support est activée.
-func (s *Server) machineJSONOf(status machine.Status) machineJSON {
+func (s *Server) machineJSONOf(status machine.Status, withLifecycle bool) machineJSON {
 	converted := machineToJSON(status)
-	if s.lifecycleEnabled() {
+	if withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(status.OS))
 	}
 	return converted
@@ -103,12 +103,17 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
+	withLifecycle, err := s.lifecycleEnabled(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	response := machinesResponse{
 		Machines: make([]machineJSON, 0, len(statuses)),
 		Pending:  make([]pendingTokenJSON, 0, len(pending)),
 	}
 	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status))
+		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -132,7 +137,12 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(status))
+	withLifecycle, err := s.lifecycleEnabled(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(status, withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.
@@ -155,10 +165,15 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string) {
 	url, isLocal := s.resolvePublicURL(r)
+	language, err := s.language(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
 		Name:      token.Name,
 		Token:     cleartext,
-		Command:   installCommand(url, cleartext, s.language()),
+		Command:   installCommand(url, cleartext, language),
 		ExpiresAt: token.ExpiresAt.UTC(),
 		URLLocal:  isLocal,
 	})

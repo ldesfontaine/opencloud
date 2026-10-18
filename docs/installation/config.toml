@@ -9,8 +9,9 @@
 # Traefik en conteneur : l'IP du pont Docker, par exemple 172.17.0.1:8080.
 listen = "127.0.0.1:8080"
 
-# Répertoire d'état : la base SQLite (opencloud.db, avec -wal et -shm) et
-# settings.toml. Créé en 0700 s'il manque. Par défaut /var/lib/opencloud.
+# Répertoire d'état : la base SQLite (opencloud.db, avec -wal et -shm), qui
+# porte aussi les réglages de l'interface, et le cache lifecycle.json. Créé
+# en 0700 s'il manque. Par défaut /var/lib/opencloud.
 state_dir = "/var/lib/opencloud"
 
 # Adresse publique d'openCloud, telle que les machines et le navigateur

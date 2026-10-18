@@ -91,17 +91,26 @@ type serviceCounts struct {
 	Updates   int `json:"updates"`
 }
 
-func (s *Server) session(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) session(w http.ResponseWriter, r *http.Request) {
+	current, err := s.settings.LoadSettings(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	language := current.Language
+	if language == "" {
+		language = lang.Default
+	}
 	languages := make([]string, 0, len(lang.Codes()))
 	for _, code := range lang.Codes() {
 		languages = append(languages, string(code))
 	}
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
-		Language:     string(s.language()),
+		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
-		Disks:        diskThresholdsToJSON(s.diskThresholds()),
+		Disks:        diskThresholdsToJSON(diskThresholdsOf(current)),
 	})
 }
 
@@ -117,7 +126,7 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusBadRequest, "error.unknown_language")
 		return
 	}
-	if err := s.saveLanguage(code); err != nil {
+	if err := s.saveLanguage(r.Context(), code); err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}

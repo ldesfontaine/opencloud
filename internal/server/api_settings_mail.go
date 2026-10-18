@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -44,14 +45,13 @@ func mailSettingsToJSON(relay mail.Relay) mailSettingsJSON {
 	}
 }
 
-func (s *Server) mailRelay() mail.Relay {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.current.MailRelay()
-}
-
-func (s *Server) getMailSettings(w http.ResponseWriter, _ *http.Request) {
-	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(s.mailRelay()))
+func (s *Server) getMailSettings(w http.ResponseWriter, r *http.Request) {
+	current, err := s.settings.LoadSettings(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(current.MailRelay()))
 }
 
 func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +59,7 @@ func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	relay, err := s.saveMailRelay(request)
+	relay, err := s.saveMailRelay(r.Context(), request)
 	if key, refused := mailRefusal(err); refused {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
 		return
@@ -73,17 +73,15 @@ func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // saveMailRelay valide puis n'écrit que les clés du relais : la langue et
-// les seuils vivent dans le même fichier, et Update les préserve.
-func (s *Server) saveMailRelay(request mailSettingsRequest) (mail.Relay, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// les seuils vivent sur la même ligne, et UpdateSettings les préserve.
+func (s *Server) saveMailRelay(ctx context.Context, request mailSettingsRequest) (mail.Relay, error) {
 	relay := mail.Relay{
 		Host: strings.TrimSpace(request.Host), Port: request.Port, TLS: mail.TLSMode(request.TLS),
 		Username: request.Username, Password: request.Password, From: strings.TrimSpace(request.From),
 	}
-	if relay.Password == "" && !request.ClearPassword {
-		relay.Password = s.current.MailPassword
-	}
+	// Un mot de passe laissé vide garde celui de la base, relu dans la même
+	// transaction ; il a été validé quand il a été écrit.
+	keepPassword := relay.Password == "" && !request.ClearPassword
 	if relay.Port == 0 {
 		relay.Port = mail.DefaultPortFor(relay.TLS)
 	}
@@ -92,13 +90,15 @@ func (s *Server) saveMailRelay(request mailSettingsRequest) (mail.Relay, error) 
 			return mail.Relay{}, err
 		}
 	}
-	current, err := s.settings.Update(func(current *settings.Settings) {
+	current, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
+		if keepPassword {
+			relay.Password = current.MailPassword
+		}
 		current.SetMailRelay(relay)
 	})
 	if err != nil {
 		return mail.Relay{}, err
 	}
-	s.current = current
 	return current.MailRelay(), nil
 }
 

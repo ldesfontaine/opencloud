@@ -18,7 +18,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -68,7 +67,7 @@ func newFixture(t *testing.T) *fixture {
 	f.services.SetClock(clock)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
-	f.status = status.New(db, f.machines, settings.New(root), logger)
+	f.status = status.New(db, f.machines, db, logger)
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)
@@ -395,7 +394,7 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 
 func TestPage_KeepsTheInterfaceLanguageAndDefaultsToIt(t *testing.T) {
 	f := newFixture(t)
-	page, err := f.status.Page()
+	page, err := f.status.Page(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
