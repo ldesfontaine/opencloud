@@ -6,6 +6,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -85,6 +86,10 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "mcp.scope_", values: names(mcp.Scopes())},
 		// La pastille de la carte « Accès à l'interface », par mode.
 		{prefix: "auth.state_", values: names(auth.Modes())},
+		{prefix: "directory.nature_", values: names(directory.Natures())},
+		{prefix: "directory.origin_", values: names(directory.Origins())},
+		{prefix: "directory.provides_", values: names(directory.Capabilities())},
+		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
 	}
 	for _, list := range lists {
 		if len(list.values) == 0 {

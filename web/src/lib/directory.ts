@@ -1,0 +1,154 @@
+import type { Capability, DeclaredService, Nature, Origin, ServiceUnit } from "../api/types";
+import type { Translate } from "../i18n/context";
+
+// Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
+// vérifie que chaque valeur a son libellé dans les deux langues.
+export const natures: readonly Nature[] = ["application", "infra"];
+export const origins: readonly Origin[] = ["compose", "container", "binary"];
+export const capabilities: readonly Capability[] = ["sso", "proxy", "tls", "backup-target"];
+
+// Une unité telle que l'opérateur la tape : des textes. Les ports se
+// saisissent sur une ligne, séparés par des virgules ou des espaces.
+export interface UnitFormValues {
+  // Vide pour une unité nouvelle ; à l'édition, celui de l'unité gardée.
+  id: string;
+  name: string;
+  image: string;
+  version: string;
+  digest: string;
+  containerName: string;
+  systemdUnit: string;
+  ports: string;
+}
+
+export interface ServiceFormValues {
+  machineID: string;
+  name: string;
+  title: string;
+  nature: Nature;
+  origin: Origin;
+  composeProject: string;
+  publicURL: string;
+  provides: Capability[];
+  units: UnitFormValues[];
+  projectIDs: string[];
+}
+
+export function emptyUnitForm(): UnitFormValues {
+  return { id: "", name: "", image: "", version: "", digest: "", containerName: "", systemdUnit: "", ports: "" };
+}
+
+// Un service neuf : une application Compose et sa première unité vide. Une
+// fonction, pas une constante : les listes ne se partagent pas entre deux
+// formulaires.
+export function emptyServiceForm(): ServiceFormValues {
+  return {
+    machineID: "",
+    name: "",
+    title: "",
+    nature: "application",
+    origin: "compose",
+    composeProject: "",
+    publicURL: "",
+    provides: [],
+    units: [emptyUnitForm()],
+    projectIDs: [],
+  };
+}
+
+export function unitFormOf(unit: ServiceUnit): UnitFormValues {
+  return {
+    id: unit.id,
+    name: unit.name,
+    image: unit.image,
+    version: unit.version,
+    digest: unit.digest,
+    containerName: unit.container_name,
+    systemdUnit: unit.systemd_unit,
+    ports: formatPorts(unit.ports),
+  };
+}
+
+// Le formulaire d'édition part du service tel que le serveur le garde.
+export function serviceFormOf(service: DeclaredService): ServiceFormValues {
+  return {
+    machineID: service.machine_id,
+    name: service.name,
+    title: service.title,
+    nature: service.nature,
+    origin: service.origin,
+    composeProject: service.compose_project,
+    publicURL: service.public_url,
+    provides: [...service.provides],
+    units: service.units.map(unitFormOf),
+    projectIDs: [...service.project_ids],
+  };
+}
+
+export function parsePorts(text: string): string[] {
+  return text.split(/[\s,]+/).filter((port) => port !== "");
+}
+
+export function formatPorts(ports: readonly string[]): string {
+  return ports.join(", ");
+}
+
+// Le corps de la création comme de l'édition : le serveur remplace la
+// définition entière et refuse ce qui n'a pas d'objet pour l'origine. Le
+// formulaire garde ce que l'opérateur a tapé en changeant d'origine ; la
+// requête, elle, ne porte que ce qui compte.
+export function serviceRequestOf(values: ServiceFormValues) {
+  const isCompose = values.origin === "compose";
+  const isContainer = values.origin === "container";
+  const isBinary = values.origin === "binary";
+  return {
+    machine_id: values.machineID,
+    name: values.name,
+    title: values.title,
+    nature: values.nature,
+    origin: values.origin,
+    compose_project: isCompose ? values.composeProject : "",
+    public_url: values.publicURL,
+    provides: values.nature === "infra" ? values.provides : [],
+    units: values.units.map((unit) => ({
+      id: unit.id,
+      name: unit.name,
+      image: isBinary ? "" : unit.image,
+      version: unit.version,
+      digest: isBinary ? "" : unit.digest,
+      container_name: isContainer ? unit.containerName : "",
+      systemd_unit: isBinary ? unit.systemdUnit : "",
+      ports: parsePorts(unit.ports),
+    })),
+    project_ids: values.projectIDs,
+  };
+}
+
+export function unitKeyOf(unit: ServiceUnit, origin: Origin): string {
+  switch (origin) {
+    case "compose":
+      return unit.name;
+    case "container":
+      return unit.container_name;
+    case "binary":
+      return unit.systemd_unit;
+  }
+}
+
+export function toggled<Value>(values: readonly Value[], value: Value): Value[] {
+  return values.includes(value) ? values.filter((candidate) => candidate !== value) : [...values, value];
+}
+
+export function directorySubtitle(t: Translate, count: number): string {
+  if (count === 0) {
+    return t("directory.subtitle_none");
+  }
+  return count === 1 ? t("directory.subtitle_one") : t("directory.subtitle", count);
+}
+
+export function projectsSubtitle(t: Translate, count: number): string {
+  if (count === 0) {
+    return t("project.subtitle_none");
+  }
+  return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
+}

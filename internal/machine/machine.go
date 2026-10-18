@@ -92,6 +92,10 @@ var (
 	ErrIsOpenCloud   = errors.New("the agent runs on the " + brand.ProductName + " machine itself")
 )
 
+// Une machine qui porte des services déclarés ne se retire pas : ils
+// seraient orphelins, et leur suppression revient à l'opérateur.
+var ErrHasDeclaredServices = errors.New("the machine carries declared services")
+
 // Un nom de machine se lit comme une étiquette DNS : il servira dans des
 // noms d'hôte (whoami.vps-paris-1…).
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

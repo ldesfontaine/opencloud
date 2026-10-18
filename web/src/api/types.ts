@@ -853,3 +853,60 @@ export interface AuthState {
 export interface AuthEnableResponse extends AuthState {
   mcp_revoked: { api_tokens: number; sessions: number };
 }
+
+// L'annuaire : ce que l'opérateur déclare, à côté de ce que Docker montre.
+// Les listes sont fermées côté serveur ; le front les traduit par leur mot.
+export type Nature = "application" | "infra";
+export type Origin = "compose" | "container" | "binary";
+export type Capability = "sso" | "proxy" | "tls" | "backup-target";
+export type DeclaredBy = "operator" | "migration";
+
+// Une pièce d'un service déclaré. Pour un service Compose, son nom est celui
+// du service dans le projet.
+export interface ServiceUnit {
+  id: string;
+  name: string;
+  kind: "container" | "binary";
+  image: string;
+  version: string;
+  digest: string;
+  container_name: string;
+  systemd_unit: string;
+  ports: string[];
+}
+
+export interface DeclaredService {
+  id: string;
+  machine_id: string;
+  machine_name: string;
+  name: string;
+  title: string;
+  nature: Nature;
+  origin: Origin;
+  compose_project: string;
+  public_url: string;
+  declared_by: DeclaredBy;
+  needs_review: boolean;
+  provides: Capability[];
+  units: ServiceUnit[];
+  project_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  title: string;
+  service_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeclaredServicesResponse {
+  services: DeclaredService[];
+}
+
+export interface ProjectsResponse {
+  projects: Project[];
+}

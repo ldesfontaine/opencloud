@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 // Les sujets du direct, tels que le serveur les nomme.
-export type Topic = "machines" | "jobs" | "resources" | "services" | "probes" | "status" | "alerts";
+export type Topic = "machines" | "jobs" | "resources" | "services" | "probes" | "status" | "alerts" | "directory";
 
 type Versions = Record<Topic, number>;
 
@@ -16,7 +16,12 @@ const RefreshContext = createContext<Refresh>({ refresh: () => {}, versionFor: (
 
 // Le chemin d'une ressource dit son sujet ; les compteurs relèvent de
 // tout ce qui se compte.
-function topicsOf(path: string): Topic[] {
+export function topicsOf(path: string): Topic[] {
+  // Avant « /services » : l'annuaire en porte aussi le mot, et ce n'est pas
+  // le sujet des conteneurs.
+  if (path.startsWith("/api/directory")) {
+    return ["directory"];
+  }
   if (path.startsWith("/api/status")) {
     return ["status"];
   }
@@ -38,14 +43,14 @@ function topicsOf(path: string): Topic[] {
   if (path.startsWith("/api/jobs")) {
     return ["jobs"];
   }
-  return ["machines", "jobs", "services", "probes", "status", "alerts"];
+  return ["machines", "jobs", "services", "probes", "status", "alerts", "directory"];
 }
 
 // Un seul signal pour relire : après une action de l'opérateur, ou à
 // l'arrivée d'un sujet du direct. Chaque sujet a son compteur, pour que la
 // page des tâches ne relise pas quand une machine signale.
 export function RefreshProvider({ children }: { children: ReactNode }) {
-  const [versions, setVersions] = useState<Versions>({ machines: 0, jobs: 0, resources: 0, services: 0, probes: 0, status: 0, alerts: 0 });
+  const [versions, setVersions] = useState<Versions>({ machines: 0, jobs: 0, resources: 0, services: 0, probes: 0, status: 0, alerts: 0, directory: 0 });
   const refresh = useCallback((topic?: Topic) => {
     setVersions((current) => ({
       machines: topic === undefined || topic === "machines" ? current.machines + 1 : current.machines,
@@ -55,6 +60,7 @@ export function RefreshProvider({ children }: { children: ReactNode }) {
       probes: topic === undefined || topic === "probes" ? current.probes + 1 : current.probes,
       status: topic === undefined || topic === "status" ? current.status + 1 : current.status,
       alerts: topic === undefined || topic === "alerts" ? current.alerts + 1 : current.alerts,
+      directory: topic === undefined || topic === "directory" ? current.directory + 1 : current.directory,
     }));
   }, []);
   const value = useMemo<Refresh>(

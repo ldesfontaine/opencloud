@@ -206,6 +206,10 @@ func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
 		return
 	}
+	if errors.Is(err, machine.ErrHasDeclaredServices) {
+		s.apiRefuse(w, http.StatusConflict, "machine.has_declared_services")
+		return
+	}
 	s.finishAPIAction(w, r, err, machine.ErrNotFound)
 }
 

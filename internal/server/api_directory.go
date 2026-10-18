@@ -1,0 +1,396 @@
+package server
+
+import (
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/directory"
+)
+
+// Un service déclaré tel que le front le lit : des faits, les listes
+// fermées en mots ; les libellés se traduisent dans le navigateur.
+type declaredServiceJSON struct {
+	ID             string     `json:"id"`
+	MachineID      string     `json:"machine_id"`
+	MachineName    string     `json:"machine_name"`
+	Name           string     `json:"name"`
+	Title          string     `json:"title"`
+	Nature         string     `json:"nature"`
+	Origin         string     `json:"origin"`
+	ComposeProject string     `json:"compose_project"`
+	PublicURL      string     `json:"public_url"`
+	DeclaredBy     string     `json:"declared_by"`
+	NeedsReview    bool       `json:"needs_review"`
+	Provides       []string   `json:"provides"`
+	Units          []unitJSON `json:"units"`
+	ProjectIDs     []string   `json:"project_ids"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type unitJSON struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Image         string   `json:"image"`
+	Version       string   `json:"version"`
+	Digest        string   `json:"digest"`
+	ContainerName string   `json:"container_name"`
+	SystemdUnit   string   `json:"systemd_unit"`
+	Ports         []string `json:"ports"`
+}
+
+type projectJSON struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Title      string    `json:"title"`
+	ServiceIDs []string  `json:"service_ids"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+type declaredServicesResponse struct {
+	Services []declaredServiceJSON `json:"services"`
+}
+
+type projectsResponse struct {
+	Projects []projectJSON `json:"projects"`
+}
+
+// Le corps d'une création ou d'une édition : ce que l'opérateur dit, sans
+// ce que le serveur pose (identifiant, provenance, dates). Une unité qui
+// garde son identifiant reste la même.
+type declaredServiceRequest struct {
+	MachineID      string        `json:"machine_id"`
+	Name           string        `json:"name"`
+	Title          string        `json:"title"`
+	Nature         string        `json:"nature"`
+	Origin         string        `json:"origin"`
+	ComposeProject string        `json:"compose_project"`
+	PublicURL      string        `json:"public_url"`
+	Provides       []string      `json:"provides"`
+	Units          []unitRequest `json:"units"`
+	ProjectIDs     []string      `json:"project_ids"`
+}
+
+type unitRequest struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Image         string   `json:"image"`
+	Version       string   `json:"version"`
+	Digest        string   `json:"digest"`
+	ContainerName string   `json:"container_name"`
+	SystemdUnit   string   `json:"systemd_unit"`
+	Ports         []string `json:"ports"`
+}
+
+type projectRequest struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
+}
+
+func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
+	provides := make([]string, 0, len(found.Provides))
+	for _, capability := range found.Provides {
+		provides = append(provides, string(capability))
+	}
+	units := make([]unitJSON, 0, len(found.Units))
+	for _, unit := range found.Units {
+		units = append(units, unitToJSON(unit))
+	}
+	return declaredServiceJSON{
+		ID:             found.ID,
+		MachineID:      found.MachineID,
+		MachineName:    found.MachineName,
+		Name:           found.Name,
+		Title:          found.Title,
+		Nature:         string(found.Nature),
+		Origin:         string(found.Origin),
+		ComposeProject: found.ComposeProject,
+		PublicURL:      found.PublicURL,
+		DeclaredBy:     string(found.DeclaredBy),
+		NeedsReview:    found.NeedsReview,
+		Provides:       provides,
+		Units:          units,
+		ProjectIDs:     nonNil(found.ProjectIDs),
+		CreatedAt:      found.CreatedAt.UTC(),
+		UpdatedAt:      found.UpdatedAt.UTC(),
+	}
+}
+
+func unitToJSON(unit directory.Unit) unitJSON {
+	return unitJSON{
+		ID:            unit.ID,
+		Name:          unit.Name,
+		Kind:          string(unit.Kind),
+		Image:         unit.Image,
+		Version:       unit.Version,
+		Digest:        unit.Digest,
+		ContainerName: unit.ContainerName,
+		SystemdUnit:   unit.SystemdUnit,
+		Ports:         nonNil(unit.Ports),
+	}
+}
+
+func projectToJSON(found directory.Project) projectJSON {
+	return projectJSON{
+		ID:         found.ID,
+		Name:       found.Name,
+		Title:      found.Title,
+		ServiceIDs: nonNil(found.ServiceIDs),
+		CreatedAt:  found.CreatedAt.UTC(),
+		UpdatedAt:  found.UpdatedAt.UTC(),
+	}
+}
+
+// nonNil garde une liste vide en [] : le front ne distingue pas null d'une
+// liste.
+func nonNil(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+func declaredServiceDefinition(request declaredServiceRequest) directory.ServiceDefinition {
+	provides := make([]directory.Capability, 0, len(request.Provides))
+	for _, capability := range request.Provides {
+		provides = append(provides, directory.Capability(capability))
+	}
+	units := make([]directory.UnitDefinition, 0, len(request.Units))
+	for _, unit := range request.Units {
+		units = append(units, directory.UnitDefinition{
+			ID:            unit.ID,
+			Name:          unit.Name,
+			Image:         unit.Image,
+			Version:       unit.Version,
+			Digest:        unit.Digest,
+			ContainerName: unit.ContainerName,
+			SystemdUnit:   unit.SystemdUnit,
+			Ports:         unit.Ports,
+		})
+	}
+	return directory.ServiceDefinition{
+		MachineID:      request.MachineID,
+		Name:           request.Name,
+		Title:          request.Title,
+		Nature:         directory.Nature(request.Nature),
+		Origin:         directory.Origin(request.Origin),
+		ComposeProject: request.ComposeProject,
+		PublicURL:      request.PublicURL,
+		Provides:       provides,
+		Units:          units,
+		ProjectIDs:     request.ProjectIDs,
+	}
+}
+
+func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
+	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
+	found, err := s.directory.ListServices(r.Context(), filter)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	response := declaredServicesResponse{Services: make([]declaredServiceJSON, 0, len(found))}
+	for _, service := range found {
+		response.Services = append(response.Services, declaredServiceToJSON(service))
+	}
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
+	found, err := s.directory.GetService(r.Context(), r.PathValue("id"))
+	if errors.Is(err, directory.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(found))
+}
+
+// L'opérateur déclare le service, ses unités et ce qu'il fournit ; le
+// composant valide et répond par la clé du refus.
+func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
+	var request declaredServiceRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	created, err := s.directory.CreateService(r.Context(), declaredServiceDefinition(request))
+	if key, refused := directoryRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, declaredServiceToJSON(created))
+}
+
+// L'édition remplace la définition entière : les unités dont le corps
+// redonne l'identifiant restent, celles qu'il omet sont supprimées.
+func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
+	var request declaredServiceRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	updated, err := s.directory.UpdateService(r.Context(), r.PathValue("id"), declaredServiceDefinition(request))
+	if errors.Is(err, directory.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if key, refused := directoryRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
+}
+
+func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
+	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
+}
+
+func directoryRefusalKey(err error) (string, bool) {
+	switch {
+	case errors.Is(err, directory.ErrMachineInvalid):
+		return "directory.machine_invalid", true
+	case errors.Is(err, directory.ErrNameInvalid):
+		return "directory.name_invalid", true
+	case errors.Is(err, directory.ErrTitleInvalid):
+		return "directory.title_invalid", true
+	case errors.Is(err, directory.ErrNatureInvalid):
+		return "directory.nature_invalid", true
+	case errors.Is(err, directory.ErrOriginInvalid):
+		return "directory.origin_invalid", true
+	case errors.Is(err, directory.ErrComposeProjectInvalid):
+		return "directory.compose_project_invalid", true
+	case errors.Is(err, directory.ErrPublicURLInvalid):
+		return "directory.public_url_invalid", true
+	case errors.Is(err, directory.ErrProvidesInvalid):
+		return "directory.provides_invalid", true
+	case errors.Is(err, directory.ErrProvidesNeedInfra):
+		return "directory.provides_need_infra", true
+	case errors.Is(err, directory.ErrUnitsInvalid):
+		return "directory.units_invalid", true
+	case errors.Is(err, directory.ErrUnitNameInvalid):
+		return "directory.unit_name_invalid", true
+	case errors.Is(err, directory.ErrUnitNameTaken):
+		return "directory.unit_name_taken", true
+	case errors.Is(err, directory.ErrImageInvalid):
+		return "directory.image_invalid", true
+	case errors.Is(err, directory.ErrVersionInvalid):
+		return "directory.version_invalid", true
+	case errors.Is(err, directory.ErrVersionLatest):
+		return "directory.version_latest", true
+	case errors.Is(err, directory.ErrDigestInvalid):
+		return "directory.digest_invalid", true
+	case errors.Is(err, directory.ErrContainerNameInvalid):
+		return "directory.container_name_invalid", true
+	case errors.Is(err, directory.ErrSystemdUnitInvalid):
+		return "directory.systemd_unit_invalid", true
+	case errors.Is(err, directory.ErrPortsInvalid):
+		return "directory.ports_invalid", true
+	case errors.Is(err, directory.ErrNameTaken):
+		return "directory.name_taken", true
+	case errors.Is(err, directory.ErrComposeProjectTaken):
+		return "directory.compose_project_taken", true
+	case errors.Is(err, directory.ErrUnitKeyDuplicate):
+		return "directory.unit_key_duplicate", true
+	case errors.Is(err, directory.ErrMatchKeyTaken):
+		return "directory.match_key_taken", true
+	case errors.Is(err, directory.ErrUnitInvalid):
+		return "directory.unit_invalid", true
+	case errors.Is(err, directory.ErrProjectInvalid):
+		return "directory.project_invalid", true
+	}
+	return "", false
+}
+
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	found, err := s.directory.ListProjects(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	response := projectsResponse{Projects: make([]projectJSON, 0, len(found))}
+	for _, project := range found {
+		response.Projects = append(response.Projects, projectToJSON(project))
+	}
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
+	found, err := s.directory.GetProject(r.Context(), r.PathValue("id"))
+	if errors.Is(err, directory.ErrProjectNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, projectToJSON(found))
+}
+
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
+	var request projectRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	created, err := s.directory.CreateProject(r.Context(), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
+	if key, refused := projectRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, projectToJSON(created))
+}
+
+func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
+	var request projectRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	updated, err := s.directory.UpdateProject(r.Context(), r.PathValue("id"), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
+	if errors.Is(err, directory.ErrProjectNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if key, refused := projectRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, projectToJSON(updated))
+}
+
+// Supprimer un projet défait le groupe : ses services restent déclarés.
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
+	s.finishAPIAction(w, r, s.directory.DeleteProject(r.Context(), r.PathValue("id")), directory.ErrProjectNotFound)
+}
+
+func projectRefusalKey(err error) (string, bool) {
+	switch {
+	case errors.Is(err, directory.ErrProjectNameInvalid):
+		return "project.name_invalid", true
+	case errors.Is(err, directory.ErrProjectTitleInvalid):
+		return "project.title_invalid", true
+	case errors.Is(err, directory.ErrProjectNameTaken):
+		return "project.name_taken", true
+	}
+	return "", false
+}
