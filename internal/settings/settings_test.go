@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -39,6 +40,7 @@ func openStateDir(t *testing.T) (*os.Root, *store.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	return root, db
 }

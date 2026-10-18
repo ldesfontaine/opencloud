@@ -105,7 +105,8 @@ Les sous-commandes :
 | `opencloud serve -config <chemin>` | Le serveur web. `-config` vaut `/etc/opencloud/config.toml` par défaut |
 | `opencloud agent [options]` | L'agent d'une machine, voir [Ajouter une machine](#ajouter-une-machine) |
 | `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) |
-| `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule |
+| `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
+| `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
 | `opencloud version` | La version et le commit |
 
 ## Installer le serveur
@@ -150,14 +151,15 @@ locale.
 `SupplementaryGroups=`. Le compte dédié limite ce que le processus touche
 en dehors de Docker.
 
-**Les commandes `auth` et `mcp` se lancent sous le compte du service** :
+**Les commandes `auth`, `secrets` et `mcp` se lancent sous le compte du service** :
 
 ```sh
 runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
 ```
 
-Lancées en root, elles peuvent créer `opencloud.db-wal` au nom de root si
-le service est arrêté, et `serve` ne pourrait plus écrire dans sa base.
+Lancées en root, elles peuvent créer `opencloud.db-wal` (ou `secret.key`) au
+nom de root si le service est arrêté, et `serve` ne pourrait plus écrire dans
+sa base.
 
 ## Configuration
 
@@ -447,9 +449,10 @@ des envois de l'alerte : « le relais refuse l'identifiant ou le mot de passe »
 (code SMTP 535 en général), « le relais refuse le message ou un
 destinataire », « chiffrement refusé avec le relais ».
 
-Le relais vit dans la base, **mot de passe compris, en clair** pour
-l'instant : `opencloud.db` est sous `state_dir`, en `0700` ; l'interface et
-l'API ne le réaffichent jamais.
+Le relais vit dans la base, **mot de passe compris, chiffré** avec les
+autres secrets saisis dans l'interface (voir
+[Sauvegarder et restaurer](#sauvegarder-et-restaurer)) : `opencloud.db` est
+sous `state_dir`, en `0700` ; l'interface et l'API ne le réaffichent jamais.
 
 ## Ajouter une machine
 
@@ -589,6 +592,17 @@ systemctl restart opencloud-agent
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
 le nouveau prend effet au redémarrage.
 
+**Le premier démarrage d'une version qui chiffre les secrets** crée
+`secret.key` dans `state_dir`, chiffre sur place le mot de passe du relais,
+l'URL et le secret des canaux et les jetons de ping, puis réécrit le fichier
+de la base (une ligne `plaintext secrets sealed` au journal). Les URL de ping
+ne changent pas. **Sauvegardez `secret.key` tout de suite** (voir
+[Sauvegarder](#sauvegarder)). La copie `avant-maj.db` faite plus haut garde ces
+secrets en clair : gardez-la le temps de vérifier la montée, puis effacez-la.
+**Pas de retour arrière par le binaire** : un ancien binaire ne lit pas une
+base chiffrée (il prendrait les chiffrés pour des secrets). Pour revenir en
+arrière, remettez l'ancien binaire **et** la copie faite avant la mise à jour.
+
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 
 | Situation | Effet |
@@ -612,16 +626,37 @@ machine donne le commit.
 | Où | Quoi | Perte |
 | --- | --- | --- |
 | Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification |
+| Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping (voir [Clé perdue](#clé-perdue)) |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |
 
-**La base contient des secrets en clair** : les jetons de ping, les
-secrets de signature des canaux d'alerte et le mot de passe du relais
-d'e-mails. Protégez la sauvegarde (`0600`,
-chiffrée hors de la machine). Les jetons d'enrôlement, les jetons MCP et le
-mot de passe y sont hachés.
+**La base chiffre ses secrets** : les jetons de ping, l'URL et le secret des
+canaux d'alerte (un webhook Discord, Slack ou ntfy porte son jeton dans
+l'URL) et le mot de passe du relais d'e-mails sont chiffrés (AES-256-GCM) avec
+la clé de `secret.key`. Les jetons d'enrôlement, les jetons MCP et le mot de
+passe de l'interface y sont hachés. Une copie de `opencloud.db` seule ne livre
+donc plus ces secrets.
+
+**La clé est à côté de la base, pas dedans.** Elle protège une copie de la
+base prise seule, pas quelqu'un qui lit tout `state_dir` : gardez-la `0600`,
+au compte du service (le serveur refuse une clé que d'autres comptes peuvent
+lire). Ce qui reste en clair : la cible d'une sonde (des identifiants mis
+dans l'adresse), les extraits de journaux d'un arrêt anormal, le corps des
+pings. **Une sauvegarde faite avant le chiffrement garde les clairs** : si
+vous les craignez, changez ces secrets (mot de passe du relais, URL des
+canaux, tâches à recréer) et effacez les anciennes copies.
 
 ### Sauvegarder
+
+**La clé, une fois, à part.** `secret.key` ne change pas tant qu'on ne la
+remplace pas : copiez-la une fois dans un gestionnaire de mots de passe ou un
+coffre, **pas à côté des sauvegardes de la base** (qui perdraient leur
+intérêt). La sauvegarde à chaud ci-dessous ne la contient pas ; la sauvegarde
+à froid (`tar` du dossier) l'inclut, protégez-la comme un secret.
+
+```sh
+cat /var/lib/opencloud/secret.key
+```
 
 La base est en mode WAL : copier `opencloud.db` seul pendant que `serve`
 tourne donne une copie incomplète. Deux façons sûres.
@@ -654,6 +689,17 @@ install -m 0600 -o opencloud -g opencloud opencloud-2026-10-10.db /var/lib/openc
 systemctl start opencloud
 ```
 
+Posez aussi la clé avec la base, en `0600` pour `opencloud` : sans elle, le
+serveur refuse de démarrer (la base contient des secrets chiffrés).
+
+```sh
+install -m 0600 -o opencloud -g opencloud secret.key /var/lib/opencloud/secret.key
+```
+
+La clé doit être celle de la base restaurée. Une sauvegarde d'avant le
+chiffrement n'en a pas : le premier démarrage en crée une et chiffre ce qu'il
+trouve. Une sauvegarde à froid (`tar`) rend les deux ensemble.
+
 Une sauvegarde d'avant les réglages en base a aussi son `settings.toml` :
 posez-le dans `/var/lib/opencloud/` avec la base, en `0600` pour
 `opencloud`. Au démarrage, il est repris dans la base puis effacé.
@@ -665,6 +711,33 @@ migrée au démarrage.
 Les agents gardent leur identité : ceux que la copie connaît se
 reconnectent seuls. Une machine enrôlée après la sauvegarde est refusée
 (« openCloud ne reconnaît plus cette machine ») : ré-enrôlez-la.
+
+### Clé perdue
+
+Sans `secret.key`, le serveur refuse de démarrer : « `opencloud.db` contient
+des secrets chiffrés mais `secret.key` est absent de `state_dir` ». Si la clé
+est introuvable (aucune copie, aucune sauvegarde à froid), il n'y a pas de
+moyen de relire ces secrets. La sortie de secours, serveur arrêté :
+
+```sh
+runuser -u opencloud -- opencloud secrets forget -config /etc/opencloud/config.toml
+systemctl start opencloud
+```
+
+Elle écrit une clé neuve et **efface ce que l'ancienne chiffrait** :
+
+| Ce qui est perdu | Ce qu'il faut faire |
+| --- | --- |
+| Le mot de passe du relais d'e-mails | Le ressaisir sous Paramètres → Envoi d'e-mails |
+| L'URL et le secret des canaux d'alerte (webhook, Matrix) | Les canaux sont **désactivés** et vidés : ressaisir l'URL et le secret de chacun, puis le réactiver. Un canal e-mail reste actif mais n'envoie rien tant que le mot de passe du relais n'est pas ressaisi |
+| Le jeton de chaque tâche | Chaque tâche reçoit un **nouveau jeton** : l'ancienne URL de ping ne répond plus, remplacez-la dans les crons |
+
+Tout le reste de la base reste. La commande affiche le nombre de canaux
+désactivés et de jetons renouvelés. Elle **garde l'ancienne clé** sous
+`secret.key.forgotten-<horodatage>` : elle ne rouvre plus cette base, mais
+elle relit une sauvegarde plus ancienne de la base ; effacez-la sinon. Elle
+**refuse** si `secret.key` est présente, intacte et ouvre déjà tous les
+secrets (rien à oublier). Si elle échoue en route, relancez-la.
 
 ## Désinstaller
 
@@ -711,6 +784,9 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `docker_socket` ou `-docker-socket` ne vise pas la bonne socket | Corriger le chemin |
 | `serve: listen tcp 172.17.0.1:8080: bind: cannot assign requested address` | `docker0` pas encore là au démarrage | L'unité redémarre seule ; vérifier `After=docker.service` |
 | `serve: listen tcp …: bind: address already in use` | Un autre processus tient le port | `ss -ltnp` ; changer `listen` |
+| Le serveur ou `opencloud mcp` refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |
+| « secret.key est lisible par d'autres comptes » | Le fichier a un mode plus large que `0600` | `chmod 600 /var/lib/opencloud/secret.key`, propriétaire le compte du service |
+| `opencloud mcp` : « secret.key absent : démarrez serve une fois, ou restaurez la clé » | `mcp` ne crée jamais la clé | Démarrer le serveur une fois, ou restaurer la clé |
 | Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs | Attendre ; mot de passe perdu : `opencloud auth disable` |
 | `sudo: command not found` | Debian minimal, installé sans `sudo` | En root, retirer `sudo` ; sous le compte du service, `runuser -u opencloud -- …` |
 | Tous les utilisateurs bloqués ensemble en `429` | `trusted_proxies` absent : tout le monde a l'adresse de Traefik | Déclarer Traefik dans `trusted_proxies` |

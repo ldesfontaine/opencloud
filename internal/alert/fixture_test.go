@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -73,6 +74,7 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	f := &fixture{Engine: alert.New(db, logger), db: db, clock: testNow, sender: &recordingSender{}, watcher: &countingWatcher{}, maintenance: &fakeMaintenance{under: map[string]bool{}}}

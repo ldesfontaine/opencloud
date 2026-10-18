@@ -170,3 +170,21 @@ func TestPing_IsRateLimitedPerSourceAndPerToken(t *testing.T) {
 		t.Fatalf("other token: %d", got.Code)
 	}
 }
+
+// L'URL de ping qu'une page réaffiche vient de la base, où le jeton est
+// chiffré : elle doit ouvrir le même moniteur que celle donnée à la création.
+func TestPing_ByTheTokenTheDatabaseGivesBack(t *testing.T) {
+	server := newTestServer(t)
+	job := server.createJob(t, "job")
+	stored, err := server.heartbeats.Get(context.Background(), job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Token != job.Token {
+		t.Fatalf("the stored token %q is not the one given at creation %q", stored.Token, job.Token)
+	}
+	recorder := ping(server.Server, http.MethodGet, "/ping/"+stored.Token, "", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("ping by the re-displayed token: %d", recorder.Code)
+	}
+}
