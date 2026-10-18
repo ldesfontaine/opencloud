@@ -19,7 +19,7 @@ Commandes :
   auth      status | disable : état de l'authentification de l'interface,
             ou la couper en cas de mot de passe oublié (option -config)
   export    écrit l'annuaire dans un fichier YAML, par le serveur qui tourne
-            (options -config -o)
+            (options -config -o -propose)
   apply     applique un fichier YAML à l'annuaire, après avoir montré le plan et
             demandé confirmation (options -config -prune -yes -dry-run)
   secrets   forget : clé de chiffrement perdue, repart d'une clé neuve et oublie

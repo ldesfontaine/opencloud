@@ -1,0 +1,183 @@
+# Annuaire exporté.
+# Les identifiants rattachent chaque entrée à son objet : gardez-les.
+version: 1
+machines:
+  - name: app-1
+  - name: opencloud
+projects:
+  - id: prj_00000000000000a1
+    name: docs
+    title: Documentation
+  - id: prj_00000000000000a2
+    name: infra
+services:
+  - id: svc_00000000000000b3
+    machine: app-1
+    name: backup
+    nature: infra
+    origin: binary
+    provides: [backup-target]
+    units:
+      - name: restic
+        version: "0.17.1"
+        systemd_unit: restic.service
+  - id: svc_00000000000000b2
+    machine: app-1
+    name: proxy
+    nature: infra
+    origin: container
+    provides: [proxy, tls]
+    projects: [docs, infra]
+    units:
+      - name: proxy
+        image: docker.io/library/traefik
+        version: "3.1.2"
+        container_name: traefik
+        updates: ignore
+  - id: svc_00000000000000b1
+    machine: app-1
+    name: wiki
+    title: Wiki
+    nature: application
+    origin: compose
+    compose_project: wiki
+    public_url: https://wiki.example.org
+    projects: [docs]
+    units:
+      - name: db
+        image: docker.io/library/postgres
+        version: "16.4"
+        digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        updates: hold
+      - name: app
+        image: ghcr.io/example/wiki
+        version: "2.4.1"
+        ports: ["8080:3000/tcp", "80"]
+        updates: watch
+      # Unité proposée depuis un conteneur non déclaré.
+      - name: cache
+        image: redis
+        version: "7.4"
+        updates: watch
+  # À vérifier : repris de l'existant.
+  - id: svc_00000000000000b4
+    machine: opencloud
+    name: legacy
+    nature: application
+    origin: container
+    units:
+      - name: legacy
+        image: docker.io/library/nginx
+        container_name: legacy
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply.
+  - machine: app-1
+    name: blog
+    nature: application
+    origin: compose
+    compose_project: blog
+    units:
+      - name: db
+        image: postgres
+        version: "16.4"
+        updates: watch
+      - name: web
+        image: nginx
+        version: "1.27"
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply.
+  - machine: app-1
+    name: front
+    nature: application
+    origin: container
+    units:
+      - name: front
+        image: ghcr.io/example/front
+        version: "3.2"
+        container_name: front
+        updates: watch
+  # Proposé depuis des conteneurs non déclarés : relisez avant apply.
+  - machine: opencloud
+    name: another
+    nature: application
+    origin: container
+    units:
+      - name: another
+        image: traefik/whoami
+        version: "v1.10"
+        container_name: another
+        updates: watch
+probes:
+  - id: 00000000000000c5
+    name: api-post
+    runner: app-1
+    kind: http
+    target: https://api.example.org/hook
+    interval: 5m
+    timeout: 20s
+    failure_threshold: 5
+    recovery_threshold: 4
+    method: POST
+    expected_status: 200,204
+    expected_body: accepted
+  - id: 00000000000000c2
+    name: mail-imaps
+    runner: app-1
+    kind: tcp
+    target: mail.example.org:993
+    interval: 90s
+    timeout: 5s
+    failure_threshold: 3
+    recovery_threshold: 2
+    tls: true
+  - id: 00000000000000c3
+    name: twin
+    runner: opencloud
+    kind: tcp
+    target: db:5433
+    interval: 1m
+    timeout: 10s
+    failure_threshold: 3
+    recovery_threshold: 2
+  - id: 00000000000000c4
+    name: twin
+    runner: opencloud
+    kind: tcp
+    target: db:5432
+    interval: 1m
+    timeout: 10s
+    failure_threshold: 3
+    recovery_threshold: 2
+  - id: 00000000000000c1
+    name: wiki-http
+    runner: opencloud
+    service: app-1/wiki
+    kind: http
+    target: https://wiki.example.org/healthz
+    interval: 1m
+    timeout: 10s
+    failure_threshold: 3
+    recovery_threshold: 2
+    method: GET
+    expected_status: 2xx
+    expected_body: ok
+    follow_redirects: true
+heartbeats:
+  - id: 00000000000000d2
+    name: certbot
+    every: 90m
+    grace: 0s
+    token: {secret: kept}
+  - id: 00000000000000d1
+    name: wiki-dump
+    machine: app-1
+    every: 24h
+    grace: 1h
+    token: {secret: kept}
+ignored:
+  - machine: app-1
+    compose_project: scratch
+  - machine: app-1
+    container_name: tmp-debug
+  - machine: opencloud
+    container_name: portainer

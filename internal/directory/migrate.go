@@ -77,8 +77,7 @@ type linkPlanner struct {
 	// known : les services déclarés puis ceux que le plan crée, pour que les
 	// noms libres tiennent compte des deux.
 	known         []Service
-	byCompose     map[string]string
-	byName        map[string]string
+	index         unitIndex
 	serviceOfUnit map[string]string
 	// Le nom de conteneur (machine comprise) que chaque unité déclare, de
 	// toute origine : l'annuaire n'en admet pas deux, et aucun index unique
@@ -97,10 +96,9 @@ type linkPlanner struct {
 }
 
 func newLinkPlanner(linked map[string]bool, declared []Service, newID func(prefix string) (string, error)) *linkPlanner {
-	byCompose, byName := indexUnits(declared)
 	planner := &linkPlanner{
 		linked: linked, newID: newID, known: slices.Clone(declared),
-		byCompose: byCompose, byName: byName,
+		index:         indexUnits(declared),
 		serviceOfUnit: map[string]string{}, containerNames: map[string]string{}, projects: map[string]string{}, unitCount: map[string]int{},
 		mapped: map[string]bool{},
 	}
@@ -162,7 +160,7 @@ func (p *linkPlanner) resolveDeclared(fiches []container.Container) ([]container
 			}
 			continue
 		}
-		if match, ok := matchOne(p.byCompose, p.byName, fiche); ok {
+		if match, ok := matchOne(p.index, fiche); ok {
 			if err := p.linkToDeclared(fiche, match.UnitID, match.Level); err != nil {
 				return nil, err
 			}

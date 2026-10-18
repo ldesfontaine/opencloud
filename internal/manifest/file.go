@@ -49,9 +49,9 @@ type Project struct {
 	Line  int
 }
 
-// Service est le service déclaré. NeedsReview ne vient que de l'export, qui
-// en fait un commentaire : la lecture ne le pose jamais, l'état n'est pas
-// dans le fichier.
+// Service est le service déclaré. NeedsReview et Proposed ne viennent que de
+// l'export, qui en fait un commentaire : la lecture ne les pose jamais, l'état
+// n'est pas dans le fichier.
 type Service struct {
 	ID             string
 	Machine        string
@@ -66,7 +66,10 @@ type Service struct {
 	Projects    []string
 	Units       []Unit
 	NeedsReview bool
-	Line        int
+	// Proposé par l'export depuis des conteneurs non déclarés, pas encore
+	// déclaré.
+	Proposed bool
+	Line     int
 }
 
 // Unit n'a pas d'identifiant dans le fichier : le modèle n'en écrit pas.
@@ -80,7 +83,10 @@ type Unit struct {
 	Ports         []string
 	// Vide pour un binaire, qui n'a que « watch ».
 	Updates container.UpdatePolicy
-	Line    int
+	// Proposée par l'export à un service déjà déclaré : elle vient d'un
+	// conteneur non déclaré. Même règle que Service.Proposed.
+	Proposed bool
+	Line     int
 }
 
 // Probe : Runner vide veut dire la machine openCloud. Service s'écrit

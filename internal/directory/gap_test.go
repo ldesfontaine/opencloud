@@ -234,3 +234,50 @@ func TestGaps_UndeclaredInDeclaredProjectPointsToIt(t *testing.T) {
 		t.Fatalf("le projet déclaré sur m1 ne vaut pas pour m2: %+v", report.Undeclared[1])
 	}
 }
+
+// Un conteneur dont le label ne vise rien reste non déclaré, avec le motif :
+// même s'il a un projet Compose déclaré, il ne s'y rattache pas.
+func TestGaps_OrphanLabelIsUndeclaredWithItsProblem(t *testing.T) {
+	declared := []Service{nextcloudWithRedis()}
+	typo := labelledTo(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "svc_inconnu", "nextcloud")
+	typo.Image = "nextcloud:29.0.4"
+
+	report := Gaps(declared, []container.Container{typo}, nil, nil)
+
+	if report.Services[0].Units[0].State != GapAbsent {
+		t.Fatalf("l'unité Compose reste absente, le label ne se replie pas : %+v", report.Services[0])
+	}
+	if len(report.Undeclared) != 1 {
+		t.Fatalf("undeclared = %+v", report.Undeclared)
+	}
+	group := report.Undeclared[0]
+	if group.LabelProblems[typo.ID] != LabelServiceUnknown || group.Containers[0].ID != typo.ID {
+		t.Fatalf("group = %+v", group)
+	}
+}
+
+// Adopter un conteneur étiqueté ne changerait rien : seul un groupe où l'un
+// au moins n'a pas de label s'adopte.
+func TestGaps_GroupOfOrphansIsNotAdoptable(t *testing.T) {
+	orphanWeb := labelledTo(composeContainer("m1", "blog-web-1", "blog", "web"), "svc_inconnu", "web")
+	orphanDB := labelledTo(composeContainer("m1", "blog-db-1", "blog", "db"), "svc_inconnu", "db")
+	plain := composeContainer("m1", "blog-cache-1", "blog", "cache")
+	alone := aloneContainer("m1", "whoami")
+
+	onlyOrphans := Gaps(nil, []container.Container{orphanWeb, orphanDB, alone}, nil, nil).Undeclared
+	if len(onlyOrphans) != 2 {
+		t.Fatalf("undeclared = %+v", onlyOrphans)
+	}
+	blog, whoami := onlyOrphans[0], onlyOrphans[1]
+	if blog.Key.Value != "blog" || blog.Adoptable || len(blog.LabelProblems) != 2 {
+		t.Fatalf("blog = %+v", blog)
+	}
+	if whoami.Key.Value != "whoami" || !whoami.Adoptable || len(whoami.LabelProblems) != 0 {
+		t.Fatalf("whoami = %+v", whoami)
+	}
+
+	mixed := Gaps(nil, []container.Container{orphanWeb, plain}, nil, nil).Undeclared[0]
+	if !mixed.Adoptable || len(mixed.LabelProblems) != 1 || mixed.LabelProblems[orphanWeb.ID] != LabelServiceUnknown {
+		t.Fatalf("mixed = %+v", mixed)
+	}
+}

@@ -6,18 +6,33 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
+// ExportOptions règle ce que l'export ajoute à l'annuaire tel qu'il est.
+type ExportOptions struct {
+	// Propose ajoute à la fin du fichier ce que les conteneurs non déclarés
+	// laissent deviner, pour que l'opérateur le relise avant d'appliquer.
+	// Sans lui, l'export est l'annuaire et rien d'autre.
+	Propose bool
+}
+
 // Export écrit tout l'annuaire dans le format que la lecture comprend :
 // projets, services déclarés et leurs unités, sondes, tâches, clés
-// ignorées. Les identifiants y sont toujours, jamais un secret.
-func (m *Manifest) Export(ctx context.Context, annotations Annotations) ([]byte, error) {
+// ignorées. Les identifiants y sont toujours, jamais un secret. Avec
+// Propose, il y ajoute des propositions (voir addProposals).
+func (m *Manifest) Export(ctx context.Context, annotations Annotations, options ExportOptions) ([]byte, error) {
 	file, err := m.Read(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if options.Propose {
+		if file, err = m.addProposals(ctx, file); err != nil {
+			return nil, err
+		}
 	}
 	data, err := Encode(file, annotations)
 	if err != nil {
@@ -30,6 +45,92 @@ func (m *Manifest) Export(ctx context.Context, annotations Annotations) ([]byte,
 	}
 	m.logger.Debug("directory exported", "bytes", len(data), "services", len(file.Services), "probes", len(file.Probes), "heartbeats", len(file.Heartbeats))
 	return data, nil
+}
+
+// addProposals ajoute au fichier ce que l'annuaire propose d'adopter. Une
+// proposition vers un service déjà déclaré ajoute ses unités manquantes à la
+// fin de son entrée. Une proposition nouvelle devient une entrée sans
+// identifiant, à la fin de la liste, triée par machine puis par nom : le
+// fichier appliqué la crée par (machine, nom), comme tout service nouveau.
+// Les commentaires disent que cela vient des conteneurs, pas de l'opérateur.
+func (m *Manifest) addProposals(ctx context.Context, file File) (File, error) {
+	proposals, err := m.deps.Directory.Proposals(ctx)
+	if err != nil {
+		return File{}, fmt.Errorf("read proposals: %w", err)
+	}
+	names, err := m.deps.Machines.MachineNames(ctx)
+	if err != nil {
+		return File{}, fmt.Errorf("read machine names: %w", err)
+	}
+	var added []Service
+	for _, proposal := range proposals {
+		if proposal.ServiceID != "" {
+			addProposedUnits(&file, proposal)
+			continue
+		}
+		// Une machine retirée entre les deux lectures n'a plus de nom à écrire.
+		if machine, found := names[proposal.Definition.MachineID]; found {
+			added = append(added, proposedService(proposal.Definition, machine))
+		}
+	}
+	slices.SortFunc(added, func(a, b Service) int {
+		return cmp.Or(cmp.Compare(a.Machine, b.Machine), cmp.Compare(a.Name, b.Name))
+	})
+	file.Services = append(file.Services, added...)
+	return file, nil
+}
+
+// addProposedUnits ajoute à un service déclaré les unités que la proposition
+// lui gagne : celles qui n'ont pas encore d'identifiant. Chacune porte son
+// commentaire ; dans une entrée nouvelle, celui de l'entrée suffit.
+func addProposedUnits(file *File, proposal directory.Proposal) {
+	at := slices.IndexFunc(file.Services, func(item Service) bool { return item.ID == proposal.ServiceID })
+	if at < 0 {
+		// Supprimé entre les deux lectures : rien à compléter.
+		return
+	}
+	for _, unit := range proposal.Definition.Units {
+		if unit.ID == "" {
+			added := proposedUnit(unit)
+			added.Proposed = true
+			file.Services[at].Units = append(file.Services[at].Units, added)
+		}
+	}
+}
+
+func proposedService(definition directory.ServiceDefinition, machine string) Service {
+	service := Service{
+		Machine:        machine,
+		Name:           definition.Name,
+		Title:          definition.Title,
+		Nature:         definition.Nature,
+		Origin:         definition.Origin,
+		ComposeProject: definition.ComposeProject,
+		Proposed:       true,
+	}
+	for _, unit := range definition.Units {
+		service.Units = append(service.Units, proposedUnit(unit))
+	}
+	return service
+}
+
+// proposedUnit écrit « updates: watch » comme pour toute unité conteneur :
+// la proposition ne laisse pas le défaut à deviner.
+func proposedUnit(definition directory.UnitDefinition) Unit {
+	unit := Unit{
+		Name:          definition.Name,
+		Image:         definition.Image,
+		Version:       definition.Version,
+		Digest:        definition.Digest,
+		ContainerName: definition.ContainerName,
+		SystemdUnit:   definition.SystemdUnit,
+		Ports:         definition.Ports,
+		Updates:       definition.UpdatePolicy,
+	}
+	if unit.Updates == "" {
+		unit.Updates = container.PolicyWatch
+	}
+	return unit
 }
 
 // Read lit l'annuaire courant dans le vocabulaire du fichier, trié : deux

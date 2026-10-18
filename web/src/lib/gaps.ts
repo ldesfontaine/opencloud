@@ -1,5 +1,6 @@
-import type { GapsResponse, GapState, ServiceGap, UndeclaredGroup } from "../api/types";
+import type { ContainerDirectory, GapsResponse, GapState, LabelProblem, ServiceGap, UndeclaredGroup } from "../api/types";
 import type { Tone } from "../components/Pill";
+import type { Translate } from "../i18n/context";
 
 // La teinte de l'écart : conforme se tait, un conteneur qui diverge ou qui
 // manque se voit, ce qu'on ne peut pas vérifier reste discret.
@@ -61,9 +62,46 @@ export function adoptIntoPath(serviceID: string, containerID: string): string {
   return `/services/annuaire/${serviceID}/modifier?container=${encodeURIComponent(containerID)}`;
 }
 
-// Le conteneur par lequel un groupe s'adopte : le premier, dans l'ordre du serveur.
+// Le conteneur par lequel un groupe s'adopte : le premier sans label, dans
+// l'ordre du serveur. Un conteneur étiqueté ne s'adopte pas, le serveur le
+// refuse ; le groupe ne s'adopte que par un voisin qui n'en porte pas.
 export function adoptionTarget(group: UndeclaredGroup): string {
-  return group.containers[0]?.id ?? "";
+  return group.containers.find((container) => container.label_service === "" && container.label_unit === "")?.id ?? "";
+}
+
+// Le fichier de l'annuaire avec, en plus, ce que les conteneurs non déclarés
+// laissent deviner.
+export const proposedExportPath = "/api/manifest/export?propose=1";
+
+// Il y a de quoi proposer dès qu'un groupe que l'opérateur n'ignore pas est
+// adoptable : c'est la règle de l'export du serveur.
+export function hasProposals(groups: readonly UndeclaredGroup[]): boolean {
+  return groups.some((group) => !group.ignored && group.adoptable);
+}
+
+// La clé du catalogue qui dit pourquoi un label ne rattache rien.
+export function orphanKey(problem: LabelProblem): string {
+  return `gap.orphan_${problem}`;
+}
+
+// Le motif d'un label orphelin sur la fiche d'un conteneur. Un service
+// déclaré sur une autre machine le dit, avec son nom : un label ne rattache
+// que les conteneurs de sa propre machine.
+export function orphanText(t: Translate, directory: ContainerDirectory): string {
+  if (directory.label_problem === "") {
+    return "";
+  }
+  if (directory.label_problem === "service_unknown" && directory.label_machine_name !== "") {
+    return t("gap.orphan_elsewhere", directory.label_machine_name);
+  }
+  return t(orphanKey(directory.label_problem));
+}
+
+// Le conteneur porte-t-il des labels qui ne le rattachent à rien ? Mal formés
+// (aucune valeur à montrer) ou non, le motif est là : « Adopter » n'y changerait
+// rien, le label continuerait de gagner.
+export function isOrphan(directory: Pick<ContainerDirectory, "label_problem"> | null): boolean {
+  return directory !== null && directory.label_problem !== "";
 }
 
 // La requête d'ignorance : la clé d'observation, pas un id Docker.

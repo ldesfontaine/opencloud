@@ -55,12 +55,12 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getContainerTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_declared_services",
-		Description: "Declared services of the directory with their gap against what Docker shows (conform, absent, diverged, unverifiable on latest or untagged, unobserved for binaries, weak name match), and the containers present but undeclared, grouped by Compose project or name, flagged when ignored.",
+		Description: "Declared services of the directory with their gap against what Docker shows (conform, absent, diverged, unverifiable on latest or untagged, unobserved for binaries, weak name match, strong label match), and the containers present but undeclared, grouped by Compose project or name, flagged when ignored or when their label is orphan.",
 		Annotations: readOnlyHints(),
 	}, s.listDeclaredServicesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "export_directory",
-		Description: "The whole directory as the YAML file the " + brand.Command + " export command writes: projects, declared services and their units, probes, jobs, ignored keys. Ids included, never a secret (a job's token is only the marker `secret: kept`). Returns {yaml}.",
+		Description: "The whole directory as the YAML file the " + brand.Command + " export command writes: projects, declared services and their units, probes, jobs, ignored keys. Ids included, never a secret (a job's token is only the marker `secret: kept`). With propose=true, entries proposed from the undeclared containers that are not ignored are added, without ids, for the operator to review before apply. Returns {yaml}.",
 		Annotations: readOnlyHints(),
 	}, s.exportDirectoryTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -389,8 +389,12 @@ type exportDirectoryResponse struct {
 	YAML string `json:"yaml"`
 }
 
-func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolRequest, _ emptyInput) (*gomcp.CallToolResult, any, error) {
-	data, err := s.exportedDirectory(ctx)
+type exportDirectoryInput struct {
+	Propose bool `json:"propose,omitempty" jsonschema:"Add entries proposed from the undeclared containers that are not ignored, without ids, for the operator to review before apply"`
+}
+
+func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolRequest, input exportDirectoryInput) (*gomcp.CallToolResult, any, error) {
+	data, err := s.exportedDirectory(ctx, manifest.ExportOptions{Propose: input.Propose})
 	if errors.Is(err, manifest.ErrExportTooLarge) {
 		return toolRefuse(manifest.KeyExportTooLarge)
 	}

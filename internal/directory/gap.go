@@ -93,6 +93,15 @@ type Undeclared struct {
 	ServiceID  string
 	Ignored    bool
 	Containers []container.Container
+	// Les conteneurs du groupe dont les labels ne visent aucune unité de leur
+	// machine, par identifiant de fiche, avec le motif. Un label orphelin
+	// laisse le conteneur non déclaré : rien ne se replie sur Compose ni sur
+	// le nom.
+	LabelProblems map[string]LabelProblem
+	// Adoptable : au moins un conteneur du groupe n'a pas de label. Adopter
+	// un conteneur étiqueté créerait une unité que son label empêcherait de
+	// rattacher ; un groupe d'orphelins se corrige par le label.
+	Adoptable bool
 }
 
 // GapReport porte les services déclarés qu'il a jugés, dans le même ordre
@@ -264,10 +273,14 @@ func undeclaredOf(declared []Service, living []container.Container, ignored []Ig
 		key := keyOf(item)
 		group, found := groups[key]
 		if !found {
-			group = &Undeclared{MachineID: item.MachineID, Key: key, ServiceID: composeServiceOf(declared, key)}
+			group = &Undeclared{MachineID: item.MachineID, Key: key, ServiceID: composeServiceOf(declared, key), LabelProblems: map[string]LabelProblem{}}
 			groups[key] = group
 		}
 		group.Containers = append(group.Containers, item)
+		if problem := LabelProblemOf(declared, item); problem != LabelOK {
+			group.LabelProblems[item.ID] = problem
+		}
+		group.Adoptable = group.Adoptable || item.Labels.IsEmpty()
 	}
 	undeclared := make([]Undeclared, 0, len(groups))
 	for _, group := range groups {

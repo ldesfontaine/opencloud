@@ -14,7 +14,7 @@ import (
 
 const containerColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
-	compose_service, compose_dir, compose_file, oom_killed, killed`
+	compose_service, compose_dir, compose_file, oom_killed, killed, label_service, label_unit, label_invalid`
 
 // Le rattachement à l'annuaire se lit avec la fiche. Il ne s'écrit pas
 // comme le reste, l'unité est vérifiée à l'écriture : voir upsertContainer.
@@ -163,7 +163,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 	// plutôt que de faire échouer la clé étrangère et perdre le rapport.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO containers (`+containerColumns+`, unit_id, match_level)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			(SELECT id FROM service_units WHERE id = ?),
 			CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END)
 		ON CONFLICT (id) DO UPDATE SET
@@ -174,6 +174,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 			created_at = excluded.created_at, started_at = excluded.started_at, finished_at = excluded.finished_at,
 			last_seen_at = excluded.last_seen_at, archived_at = excluded.archived_at,
 			compose_service = excluded.compose_service, compose_dir = excluded.compose_dir, compose_file = excluded.compose_file,
+			label_service = excluded.label_service, label_unit = excluded.label_unit, label_invalid = excluded.label_invalid,
 			unit_id = excluded.unit_id, match_level = excluded.match_level`,
 		item.ID, item.MachineID, string(item.Kind), item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
 		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, ports,
@@ -181,6 +182,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
 		item.ComposeService, item.ComposeDir, item.ComposeFile, boolToInt(item.OOMKilled), boolToInt(item.Killed),
+		item.Labels.Service, item.Labels.Unit, boolToInt(item.Labels.Invalid),
 		item.UnitID, item.UnitID, string(item.MatchLevel))
 	if err != nil {
 		return fmt.Errorf("upsert container %s: %w", item.ID, err)
@@ -444,13 +446,13 @@ func scanContainer(row scanner) (container.Container, error) {
 	var item container.Container
 	var kind, state, health, ports, dependsOn, matchLevel, policy string
 	var unitID sql.NullString
-	var privileged, oomKilled, killed int
+	var privileged, oomKilled, killed, labelInvalid int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
-		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed,
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed, &item.Labels.Service, &item.Labels.Unit, &labelInvalid,
 		&unitID, &matchLevel, &policy, &item.DeclaredServiceID)
 	if err != nil {
 		return container.Container{}, err
@@ -462,6 +464,7 @@ func scanContainer(row scanner) (container.Container, error) {
 	}
 	item.OOMKilled = oomKilled != 0
 	item.Killed = killed != 0
+	item.Labels.Invalid = labelInvalid != 0
 	item.Kind, item.State, item.Health = container.Kind(kind), container.State(state), container.Health(health)
 	item.UpdatePolicy = container.UpdatePolicy(policy)
 	item.Privileged = privileged != 0

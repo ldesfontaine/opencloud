@@ -3,9 +3,12 @@ package container
 import (
 	"math"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // discard dit un élément écarté d'un rapport, et pourquoi : une ligne de
@@ -98,6 +101,9 @@ func validateNetwork(network NetworkReport) error {
 func validateContainer(container Observed, now time.Time) (Observed, []discard, error) {
 	var discards []discard
 	container.Networks, discards = keepAttachments(container)
+	var labelDiscards []discard
+	container.Labels, labelDiscards = keepLabels(container)
+	discards = append(discards, labelDiscards...)
 	return container, discards, checkContainer(container, now)
 }
 
@@ -142,6 +148,50 @@ func keepAttachments(container Observed) ([]Attachment, []discard) {
 		kept = append(kept, attachment)
 	}
 	return kept, discards
+}
+
+var (
+	// Ce que valent les deux labels qu'openCloud lit : l'identifiant d'un
+	// service déclaré (préfixe et 16 hexadécimaux) et le nom d'une unité.
+	// Une valeur d'une autre forme ne désigne rien : elle rend le conteneur
+	// étiqueté mais orphelin, jamais rattaché par défaut.
+	labelServiceValue = regexp.MustCompile(`^svc_[0-9a-f]{16}$`)
+	labelUnitValue    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
+)
+
+// keepLabels écarte les labels d'un conteneur dont la carte sort des bornes,
+// et lui seul : le conteneur reste dans l'inventaire, étiqueté mais mal
+// (LabelInvalid), donc orphelin : il ne retombe ni sur Compose ni sur le nom,
+// parce qu'un label faux qui se replierait en silence cacherait l'erreur. Un
+// conteneur fautif ne doit pas faire perdre les autres, et des labels
+// tronqués pourraient désigner autre chose que ce que l'opérateur a écrit.
+func keepLabels(container Observed) (map[string]string, []discard) {
+	if len(container.Labels) == 0 {
+		return nil, nil
+	}
+	what := "labels of container " + container.Name
+	refuse := func(reason string) (map[string]string, []discard) {
+		return map[string]string{LabelInvalid: "1"}, []discard{{what, invalid(reason).Error()}}
+	}
+	if len(container.Labels) > MaxLabelsPerContainer {
+		return refuse("trop de labels")
+	}
+	for key, value := range container.Labels {
+		if key == "" || len(key) > MaxLabelKeyLength || len(value) > MaxNameLength || hasControlOrBadUTF8(key) || hasControlOrBadUTF8(value) {
+			return refuse("clé ou valeur de label hors limites")
+		}
+	}
+	if value, found := container.Labels[LabelService]; found && !labelServiceValue.MatchString(value) {
+		return refuse("identifiant de service illisible")
+	}
+	if value, found := container.Labels[LabelUnit]; found && !labelUnitValue.MatchString(value) {
+		return refuse("nom d'unité illisible")
+	}
+	return container.Labels, nil
+}
+
+func hasControlOrBadUTF8(text string) bool {
+	return !utf8.ValidString(text) || strings.ContainsFunc(text, unicode.IsControl)
 }
 
 func checkAttachment(attachment Attachment) error {

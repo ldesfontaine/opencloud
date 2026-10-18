@@ -60,9 +60,13 @@ type Observed struct {
 	Privileged   bool         `json:"privileged,omitempty"`
 	Networks     []Attachment `json:"networks,omitempty"`
 	DependsOn    []Dependency `json:"depends_on,omitempty"`
-	CreatedAt    time.Time    `json:"created_at"`
-	StartedAt    *time.Time   `json:"started_at,omitempty"`
-	FinishedAt   *time.Time   `json:"finished_at,omitempty"`
+	// Les labels <préfixe>.* du conteneur, préfixe retiré : aucun autre label
+	// ne quitte la machine. Absent chez un agent plus vieux ; un serveur plus
+	// vieux l'ignore (décodeur du signal tolérant).
+	Labels     map[string]string `json:"labels,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	StartedAt  *time.Time        `json:"started_at,omitempty"`
+	FinishedAt *time.Time        `json:"finished_at,omitempty"`
 }
 
 // Event est un événement Docker traduit par l'agent : l'action, l'état et

@@ -113,6 +113,7 @@ var placeholders = strings.NewReplacer(
 	"{product}", brand.ProductName,
 	"{command}", brand.Command,
 	"{signature_header}", brand.WebhookSignatureHeader,
+	"{label_prefix}", brand.LabelPrefix,
 )
 
 // expand remplace les marqueurs d'une valeur. Une accolade qui reste est un

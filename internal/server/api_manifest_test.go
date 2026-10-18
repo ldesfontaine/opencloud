@@ -211,7 +211,7 @@ func newTestManifest(declared *directory.Directory, probes *probe.Service, heart
 // tooLargeManifest simule un annuaire qui ne tiendrait pas dans un fichier.
 type tooLargeManifest struct{ ManifestService }
 
-func (tooLargeManifest) Export(context.Context, manifest.Annotations) ([]byte, error) {
+func (tooLargeManifest) Export(context.Context, manifest.Annotations, manifest.ExportOptions) ([]byte, error) {
 	return nil, fmt.Errorf("export: %w", manifest.ErrExportTooLarge)
 }
 

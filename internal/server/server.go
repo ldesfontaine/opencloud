@@ -140,8 +140,9 @@ type DirectoryService interface {
 // de l'export au journal des passages.
 type ManifestService interface {
 	// Export écrit tout l'annuaire, commentaires dans la langue donnée par
-	// les annotations. Jamais un secret.
-	Export(ctx context.Context, annotations manifest.Annotations) ([]byte, error)
+	// les annotations, avec en plus des propositions si les options le disent.
+	// Jamais un secret.
+	Export(ctx context.Context, annotations manifest.Annotations, options manifest.ExportOptions) ([]byte, error)
 	// Plan dit ce que le fichier changerait, sans rien écrire.
 	Plan(ctx context.Context, request manifest.Request) (manifest.Plan, error)
 	// Apply écrit ce que le fichier demande si le plan est celui que

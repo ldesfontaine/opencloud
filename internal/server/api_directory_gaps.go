@@ -38,7 +38,9 @@ type containerVerdictJSON struct {
 	Reason     string `json:"reason"`
 }
 
-// Ce que la machine montre sans que rien ne le déclare, par clé.
+// Ce que la machine montre sans que rien ne le déclare, par clé. Adoptable :
+// au moins un conteneur du groupe n'a pas de label ; un groupe d'orphelins se
+// corrige par le label, pas par l'adoption.
 type undeclaredJSON struct {
 	MachineID   string                `json:"machine_id"`
 	MachineName string                `json:"machine_name"`
@@ -46,15 +48,21 @@ type undeclaredJSON struct {
 	KeyValue    string                `json:"key_value"`
 	Ignored     bool                  `json:"ignored"`
 	ServiceID   string                `json:"service_id"`
+	Adoptable   bool                  `json:"adoptable"`
 	Containers  []undeclaredContainer `json:"containers"`
 }
 
+// label_problem dit pourquoi les labels du conteneur ne le rattachent à rien ;
+// vide : pas de label orphelin.
 type undeclaredContainer struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	State          string `json:"state"`
 	Image          string `json:"image"`
 	ComposeService string `json:"compose_service"`
+	LabelService   string `json:"label_service"`
+	LabelUnit      string `json:"label_unit"`
+	LabelProblem   string `json:"label_problem"`
 }
 
 type gapsResponse struct {
@@ -76,18 +84,25 @@ type ignoredRequest struct {
 	Value     string `json:"value"`
 }
 
-// Ce que la fiche d'un conteneur dit de l'annuaire.
+// Ce que la fiche d'un conteneur dit de l'annuaire. Les labels sont ceux du
+// conteneur ; label_problem dit, s'il n'est pas rattaché, pourquoi ils ne
+// visent aucune unité de sa machine, et label_machine_name nomme la machine
+// qui déclare le service visé quand c'en est une autre.
 type containerDirectoryJSON struct {
-	Declared    bool   `json:"declared"`
-	ServiceID   string `json:"service_id"`
-	ServiceName string `json:"service_name"`
-	UnitID      string `json:"unit_id"`
-	UnitName    string `json:"unit_name"`
-	MatchLevel  string `json:"match_level"`
-	Weak        bool   `json:"weak"`
-	KeyKind     string `json:"key_kind"`
-	KeyValue    string `json:"key_value"`
-	Ignored     bool   `json:"ignored"`
+	Declared         bool   `json:"declared"`
+	ServiceID        string `json:"service_id"`
+	ServiceName      string `json:"service_name"`
+	UnitID           string `json:"unit_id"`
+	UnitName         string `json:"unit_name"`
+	MatchLevel       string `json:"match_level"`
+	Weak             bool   `json:"weak"`
+	KeyKind          string `json:"key_kind"`
+	KeyValue         string `json:"key_value"`
+	Ignored          bool   `json:"ignored"`
+	LabelService     string `json:"label_service"`
+	LabelUnit        string `json:"label_unit"`
+	LabelProblem     string `json:"label_problem"`
+	LabelMachineName string `json:"label_machine_name"`
 }
 
 func serviceGapToJSON(gap directory.ServiceGap) serviceGapJSON {
@@ -112,11 +127,12 @@ func undeclaredToJSON(group directory.Undeclared, machineNames map[string]string
 	for _, found := range group.Containers {
 		containers = append(containers, undeclaredContainer{
 			ID: found.ID, Name: found.Name, State: string(found.State), Image: found.Image, ComposeService: found.ComposeService,
+			LabelService: found.Labels.Service, LabelUnit: found.Labels.Unit, LabelProblem: string(group.LabelProblems[found.ID]),
 		})
 	}
 	return undeclaredJSON{
 		MachineID: group.MachineID, MachineName: machineNames[group.MachineID], KeyKind: string(group.Key.Kind), KeyValue: group.Key.Value,
-		Ignored: group.Ignored, ServiceID: group.ServiceID, Containers: containers,
+		Ignored: group.Ignored, ServiceID: group.ServiceID, Adoptable: group.Adoptable, Containers: containers,
 	}
 }
 
@@ -162,6 +178,10 @@ func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.container_not_found")
 	case errors.Is(err, directory.ErrContainerDeclared):
 		s.apiRefuse(w, http.StatusConflict, "directory.container_declared")
+	case errors.Is(err, directory.ErrContainerLabelled):
+		// Un état du conteneur que l'opérateur corrige par le label : 409
+		// comme le conteneur déjà déclaré.
+		s.apiRefuse(w, http.StatusConflict, "directory.container_labelled")
 	case errors.Is(err, directory.ErrUnitsFull):
 		// Un état du service, pas une faute de saisie : 409 comme le conteneur déjà déclaré.
 		s.apiRefuse(w, http.StatusConflict, "directory.units_full")
@@ -238,5 +258,7 @@ func (s *Server) containerDirectoryOf(ctx context.Context, item container.Contai
 		Declared: link.UnitID != "", ServiceID: link.ServiceID, ServiceName: link.ServiceName,
 		UnitID: link.UnitID, UnitName: link.UnitName, MatchLevel: string(link.Level), Weak: link.Level.IsWeak(),
 		KeyKind: string(link.Key.Kind), KeyValue: link.Key.Value, Ignored: link.Ignored,
+		LabelService: link.Labels.Service, LabelUnit: link.Labels.Unit,
+		LabelProblem: string(link.LabelProblem), LabelMachineName: link.LabelMachineName,
 	}, nil
 }

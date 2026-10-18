@@ -113,7 +113,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit (migration `026_applies.sql`) | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
@@ -435,15 +435,31 @@ la table ; ils partiront avec la revue des alertes).
 | --- | --- | --- |
 | `GET /_ping` | en-têtes `Api-Version`, `Server` | présent, version, version d'API |
 | `GET /containers/json?all=1` | liste | id, labels Compose, état |
-| `GET /containers/{id}/json` | inspect | nom, image et son empreinte, état, code de sortie, `OOMKilled`, délai d'arrêt (`Config.StopTimeout`), santé, redémarrages, ports publiés, dates |
+| `GET /containers/{id}/json` | inspect | nom, labels du produit, image et son empreinte, état, code de sortie, `OOMKilled`, délai d'arrêt (`Config.StopTimeout`), santé, redémarrages, ports publiés, dates |
 | `GET /events?filters=container` | flux | action, id, instant, code de sortie, signal d'un `kill` (pour savoir si un arrêt était demandé) |
 | `GET /containers/{id}/stats?one-shot` | mesure | compteurs processeur, mémoire, limite |
 | `GET /containers/{id}/logs` | journal multiplexé | lignes horodatées, stdout et stderr |
 | `GET /images/{nom}/json` | inspect d'une image | `RepoDigests` : l'empreinte que la machine a tirée, pour les mises à jour |
 
-Pas de label `opencloud.*` : openCloud déclarera ses services plus tard,
-les labels viendront avec. Les labels de Compose, eux, sont lus : le
-projet, le service, le dossier et le fichier du projet. Les ports publiés
+Les labels de Compose sont lus : le projet, le service, le dossier et le
+fichier du projet. Les labels du produit le sont aussi, et ceux-là seuls
+parmi les autres : l'agent ne garde que les clés qui commencent par
+`<préfixe>.` (le préfixe est celui de `brand.LabelPrefix`, dérivé de l'identifiant du produit),
+sans le préfixe, et les borne. Le suffixe suit `^[a-z0-9][a-z0-9_.-]{0,62}$`, la valeur est
+non vide et tient en 255 octets, 16 clés au plus ; `service` et `unit` passent avant la coupe.
+Un label de Traefik, de Compose ou hérité de l'image ne quitte jamais la
+machine. Le préfixe se reconnaît sans tenir compte de la casse, et une valeur
+ne porte aucun caractère de contrôle. Un label de la marque hors bornes est
+écarté sans perdre le conteneur ; si l'agent a écarté des labels de la marque
+et qu'il ne reste pas la paire service et unité, il ajoute la clé réservée `invalid` (le
+nombre de clés écartées), qu'une image ne peut pas écrire : le serveur sait
+alors le conteneur étiqueté, mal, et ne le laisse pas retomber sur Compose ni
+sur son nom. Le serveur refait la même garde à la réception : une carte hors
+bornes, un `service` qui n'est pas `svc_` suivi de 16 hexadécimaux ou une
+`unit` qui n'est pas un nom d'unité donnent le même constat (écart « labels of
+container … » au journal). Ils voyagent dans le champ `labels` de
+l'inventaire du signal ; un serveur plus ancien ignore ce champ, comme un
+agent plus ancien ne l'envoie pas (le décodeur du signal est tolérant, un test le fige). Les ports publiés
 s'affichent dans la colonne Domaine en attendant les domaines.
 
 **Ce que la fiche ne porte plus : la politique de mise à jour.** Elle vivait
@@ -582,19 +598,62 @@ Le serveur rapproche ce que l'opérateur a déclaré de ce que l'agent voit. Le
 résultat se garde sur la fiche du conteneur (`containers.unit_id`,
 `containers.match_level`) ; l'écart, lui, ne se stocke jamais.
 
-**Deux niveaux**, choisis par l'origine du service déclaré, donc disjoints :
+**Trois niveaux**, du plus fort au plus faible :
 
 | Niveau | Clé | Pour | Force |
 | --- | --- | --- | --- |
+| `label` | machine de l'agent + `<préfixe>.service` = identifiant du service déclaré + `<préfixe>.unit` = nom d'une unité conteneur de ce service | tout service déclaré, de toute origine, par son unité conteneur | la plus forte : survit à un renommage du service, du projet Compose ou du conteneur |
 | `compose` | machine + projet Compose du conteneur = `compose_project` du service + service Compose du conteneur = nom de l'unité | un service d'origine Compose | forte, tant que le projet garde son nom |
 | `name` | machine + nom du conteneur = `container_name` d'une unité | un service d'origine « conteneur seul » | **faible**, signalée « rattachement faible » : un renommage le perd |
 
-Un conteneur qui répond aux deux est rattaché par `compose` (le niveau fort
-gagne) ; l'unité « conteneur seul » qui portait son nom paraît alors absente.
+Les deux derniers niveaux sont choisis par l'origine du service déclaré, donc
+disjoints. Un conteneur qui répond à deux niveaux est rattaché par le plus fort ;
+l'unité « conteneur seul » qui portait son nom paraît alors absente.
 Une unité binaire ne rapproche jamais rien. Plusieurs conteneurs d'une même
-unité sont admis (répliques) et se montrent tous. Le niveau « label »
-(`<préfixe>.service`, `<préfixe>.unit`), prévu par le modèle cible, viendra
-avec ce qu'openCloud déploiera : aucun conteneur n'en porte encore.
+unité sont admis (répliques) et se montrent tous.
+
+**La priorité du label est sans repli.** Un conteneur qui porte au moins un
+label du produit ne cherche que par label : si l'identifiant ne désigne aucune
+unité conteneur d'un service déclaré **sur la machine de l'agent**, il reste
+non déclaré. Il ne retombe ni sur son projet Compose ni sur son nom, car un
+label faux qui se replierait en silence cacherait l'erreur à l'opérateur.
+La clé de l'index est structurée (machine, service, unité), jamais une
+concaténation : la valeur d'un label est libre, elle ne peut pas en imiter une autre. Le
+label se lit à la machine de l'agent, et le service déclaré à sa propre
+machine : un label vers un service d'une autre machine est donc orphelin.
+
+**Un label orphelin** est un conteneur non déclaré, avec le motif que la fiche
+et la liste « Non déclarés » montrent (`label_problem`), dans l'ordre où il est vérifié :
+
+| Motif | Quand |
+| --- | --- |
+| `invalid` | des labels de la marque sont là mais mal formés (clé en majuscules, valeur de plus de 255 octets, caractère de contrôle, identifiant ou nom illisible) et aucun n'est lisible |
+| `incomplete` | `service` ou `unit` manque |
+| `service_unknown` | aucun service déclaré de cette machine n'a cet identifiant (la fiche dit « sur la machine X » si le service existe ailleurs) |
+| `unit_unknown` | le service existe, il n'a pas d'unité de ce nom |
+| `unit_binary` | l'unité de ce nom est un binaire, qu'aucun conteneur ne rejoint |
+
+Un groupe de conteneurs non déclarés qui n'est fait que d'orphelins n'est pas
+adoptable (`adoptable: false`) : l'unité qu'on leur créerait ne les
+rattacherait pas, le label continuerait de gagner. `GET /api/directory/proposal` répond
+alors 409 `directory.container_labelled`, et la proposition d'un groupe mixte
+part du premier conteneur sans label. L'opérateur corrige le label (ou
+l'annuaire), puis le rapport suivant ou le rapprochement suivant rattache.
+
+**Ce qu'un label ne peut pas faire.** Il ne crée rien dans l'annuaire, il ne
+modifie rien dans l'annuaire, il ne rattache pas à un service d'une autre machine, il ne
+rattache pas à une unité binaire, il ne se replie sur rien. Tout ce qu'il peut faire est de choisir,
+parmi les unités déjà déclarées sur la machine de l'agent, celle d'un conteneur. Le
+conteneur qui l'écrit est du côté de la machine, donc sous la main de qui la contrôle ; le
+choix reste borné à ce que l'opérateur a déclaré. `TestLabels_NeverWriteTheDirectory`
+(vrai store) le garde. Les labels que l'image elle-même porte (`LABEL` du
+Dockerfile) sont lus comme les autres : une image qui écrirait
+`<préfixe>.service` rattacherait ou serait orpheline, jamais plus.
+
+**Passage de Compose à label.** Un agent plus ancien ne transmet pas les labels : tant qu'il n'est pas
+mis à jour, un conteneur étiqueté reste rattaché par Compose ou par son nom. Dès que l'agent est mis à jour
+(serveur d'abord), le niveau passe à `label` au rapport suivant ; si le label est faux, le conteneur devient
+orphelin au même moment, sans repli.
 
 - **Quand.** À chaque rapport de l'agent (les fiches que le rapport touche sont
   rapprochées dans la même écriture ; si le rapprochement échoue, le rapport
@@ -677,7 +736,8 @@ déjà déclaré sur la machine porte l'identifiant de ce service.
   retenue en tête ; un projet plus gros s'adopte en plusieurs fois. Un
   service déjà déclaré avec 32 unités ne peut plus rien recevoir : 409
   `directory.units_full`. 404 `directory.container_not_found` si la fiche a
-  disparu, 409 `directory.container_declared` si elle est déjà rattachée.
+  disparu, 409 `directory.container_declared` si elle est déjà rattachée,
+  409 `directory.container_labelled` si elle porte un label (orphelin, voir plus haut).
 - **Ignorer** (`POST /api/directory/ignored`, corps `machine_id`, `kind`,
   `value`) : une ligne de `ignored_keys`, idempotente. Le groupe reste dans la
   liste, derrière « Montrer les ignorés », et ne compte plus parmi les
@@ -707,6 +767,18 @@ est régénéré par l'export, la lecture ne le lit pas.
   `state_dir/control.sock`. L'outil MCP `export_directory` rend le même texte
   dans le champ `yaml`. Les commentaires du fichier sont dans la langue de
   l'interface.
+- **Avec propositions.** `opencloud export -propose` (route `?propose=1`,
+  outil MCP `export_directory` avec `propose: true`) ajoute à la fin du fichier
+  ce que les conteneurs non déclarés laissent deviner, avec le calcul de
+  « Adopter » (`directory.ProposeAll`) : un service nouveau par groupe adoptable
+  non ignoré, **sans `id`** et précédé d'un commentaire « Proposé depuis des
+  conteneurs non déclarés : relisez avant apply », et, pour un projet Compose
+  déjà déclaré, les unités qui manquent à la fin de son entrée, chacune
+  commentée. Les propositions sont triées par machine puis par nom, et deux
+  groupes ne reçoivent jamais le même nom. Un orphelin de label n'est pas proposé. Rien n'est écrit dans l'annuaire :
+  c'est un fichier à relire, que `opencloud apply` plane comme n'importe quel
+  autre (`TestExport_ProposedFileGivesAnApplicablePlan` l'exige avec le vrai
+  plan). Sans `-propose`, les octets sont ceux d'avant.
 - **La socket.** `serve` ouvre son port principal d'abord, puis la socket dans
   `state_dir`. Ce qui la protège, exactement : `state_dir` doit être fermé au
   groupe et aux autres (`mode & 0o077 == 0`, vérifié avant d'écouter ; sinon un
@@ -1816,7 +1888,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `get_overview` | La version et les compteurs de `/api/counts` | |
 | `list_machines`, `get_machine`, `get_machine_network` | Les machines sans leurs jetons en attente ; une machine avec sa dernière mesure et son Docker ; la topologie et les constats d'exposition | |
 | `list_declared_services` | Les services déclarés avec leur écart (état par service, par unité et par conteneur rattaché) et les conteneurs non déclarés, groupés et marqués ignorés ou non ; filtre par machine ou projet (un projet ne montre aucun non déclaré) | 100, 500 au plus ; la page ne porte que les services, les non déclarés sortent tous |
-| `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`) | 256 Kio ; au-delà, le refus `manifest.export_too_large` |
+| `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`) | 256 Kio ; au-delà, le refus `manifest.export_too_large`. Avec `propose: true`, les propositions en plus (voir l'export) |
 | `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais | 50 essais |
@@ -1964,6 +2036,13 @@ trois étages qui ne dérivent pas l'un de l'autre.
 | Identifiant technique (`ID`) | `/etc/opencloud`, `/var/lib/opencloud`, `opencloud.db`, nom de la machine locale, clé du serveur MCP, préfixe des transactions Matrix | Les chemins bougent : une installation existante doit migrer |
 | Empreinte du protocole | en-têtes `OpenCloud-…`, préfixes de jetons (`oc_`, `ocs_`…), empreinte `opencloud-host:`, client OAuth, code `machine_is_opencloud` | Casse les agents installés, les récepteurs de webhooks et les jetons émis : il faudrait d'abord une transition qui accepte les deux formes |
 
+Le préfixe des labels que l'agent lit (`LabelPrefix`, `opencloud` suivi d'un point) dérive de
+`ID` et sort du bloc des valeurs réservées. Renommer le produit coûte donc un
+changement dans chaque Compose qui porte déjà ces labels : les conteneurs
+déjà étiquetés deviennent des orphelins jusqu'à la mise à jour de leurs
+labels. Le catalogue le dit par le marqueur `{label_prefix}` (comme `{product}`),
+jamais en littéral.
+
 Le nom du binaire (`Command`) est un littéral à part : il suit
 `cmd/opencloud` et le Makefile, pas `ID`. Le jeton de ping `hb_` n'est pas
 une marque et reste dans `internal/heartbeat`.
@@ -2030,7 +2109,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se compile et se copie à la main. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
-| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par le projet Compose et par le nom du conteneur ; pas encore par label (rien ne déploie), et un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | Annuaire 4/6 et suivantes |
+| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
 | Alertes, silences et historique pas encore sur l'annuaire | Une alerte, un silence, les transitions et les mesures restent sur le **conteneur** (son identifiant Docker) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau, et l'historique d'un service déclaré est celui de la fiche courante. Seules les sondes, les membres de composants et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
@@ -2101,3 +2180,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Annuaire (3b/6) | Le renommage du conteneur observé, sans changement de comportement : la migration `025_containers.sql` (`services`, `service_transitions`, `service_samples`, `service_networks` deviennent `containers`, `container_events`, `container_samples`, `container_networks`, les colonnes `service_id` des mesures, des événements, des réseaux et des alertes deviennent `container_id`, les index refaits sous leur nom), le paquet `internal/container` (`Container`, `Tracker`, `Transition`, et `Observed` pour le conteneur tel que le rapport le transporte), les routes `/api/containers…` et `/api/machines/{id}/containers`, les outils MCP `list_containers`, `get_container` et `get_container_logs` (leur argument s'appelle `id`, le champ `id` de `list_containers`, pas son `container_id` qui est l'identifiant Docker), le sujet direct `containers`, la clé `containers` de `/api/counts`, du réseau et de la liste, la fiche front sous `/services/conteneurs/:id` (l'ancienne adresse `/services/:id` y redirige), les clés de catalogue `container.*`, les goldens renommés. Gardés exprès : le protocole agent ↔ serveur (section `services` du signal, codes `service.logs_*`), les types d'alerte `service_*` et le genre d'objet `service` |
 | Annuaire (4a/7) | Le paquet `internal/manifest` (format YAML `version: 1`, lecture stricte par nœuds avec lignes citées, écriture déterministe, export), `GET /api/manifest/export`, la socket `state_dir/control.sock` servie par `serve` (`internal/server/control.go`, `cmd/opencloud/control_socket.go`) et la sous-commande `opencloud export` (`-config`, `-o`), le bouton « Exporter » de l'onglet Annuaire, l'outil MCP `export_directory` (dix-huit lectures), la section `manifest` des catalogues, `store.MachineNames` et `Directory.IgnoredKeys`, la dépendance `go.yaml.in/yaml/v3`, les goldens `manifest/testdata/export.golden.yaml`, `server/testdata/manifest_export.golden.yaml` et `mcp_export_directory.golden.json`. Pas de migration |
 | Annuaire (4b/7) | Le plan pur `manifest.BuildPlan` (reconnaissance par `id` puis par nom, références sur l'état visé, validation par les domaines, ordre des clés d'unicité, `--prune`), l'application par les gestes des domaines (`Manifest.Apply`, verrou, plan rejoué et empreinte, exécution détachée, arrêt au premier refus), le journal (`manifest.Journal`, table `applies`, migration `026_applies.sql`, `store/applies.go`, `FailInterrupted` au démarrage), `POST /api/manifest/plan`, `POST /api/manifest/apply`, `GET /api/manifest/applies` et `…/{id}`, l'acteur `cli` sur la socket et `operator` sur le port web, `server.RefusalKey`, la sous-commande `opencloud apply` (`-prune`, `-yes`, `-dry-run`), la page « Journal des fichiers » et le détail d'un passage (`PlanView`), les clés `manifest.*` du plan, des refus et du journal, `Definition()` exportée par les composants directory, probe et heartbeat, `CountProbeHistory` et `CountHeartbeatHistory`, les goldens `manifest_plan`, `manifest_apply` et `manifest_applies`. Pas d'apply depuis l'interface |
+| Annuaire (7/7) | Le niveau de rattachement `label` : la migration `027_container_labels.sql` (`containers.label_service`, `containers.label_unit`), `brand.LabelPrefix` et le marqueur `{label_prefix}` des catalogues, `Observed.Labels` et la lecture bornée de l'agent (`dockerwatch.ownLabels`), `container.Labels` et `keepLabels`, l'index structuré de `directory.Match` (`labelKey`) et la priorité sans repli, `LabelProblem` (`invalid`, `incomplete`, `service_unknown`, `unit_unknown`, `unit_binary`) et `Undeclared.Adoptable`, `ErrContainerLabelled` (409 `directory.container_labelled`), `directory.ProposeAll`, `opencloud export -propose` (`?propose=1`, MCP `export_directory {propose}`), `label_*` sur la liste des non déclarés et la fiche d'un conteneur, la pastille « Label orphelin » et le lien « Exporter avec propositions », les goldens `export_propose`, `manifest_export_propose` et `mcp_export_directory_propose`, `TestLabels_NeverWriteTheDirectory` |
