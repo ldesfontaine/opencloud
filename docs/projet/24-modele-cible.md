@@ -950,3 +950,20 @@ Les six propositions que le modèle ajoutait ont été tranchées par Lucas le
 [23-direction.md, « Propositions du modèle »](23-direction.md#propositions-du-modèle).
 Ce document en tient compte : nom unique par machine, `declared_by` et
 `needs_review` sur le service déclaré.
+
+## 6. Ce que l'annuaire (1/5) a fixé
+
+La migration `022_directory.sql` crée cinq tables du modèle. Ce que le code a
+tranché en l'écrivant, et que les migrations suivantes prolongent :
+
+| Décision | Pourquoi |
+| --- | --- |
+| Pas de `CHECK` sur la nature, l'origine, `declared_by` et le genre d'unité ; le code valide, la liste est exposée (`Natures()`, `Origins()`, `Provenances()`, `Capabilities()`) et un test exige la clé de catalogue de chaque valeur | SQLite ne modifie pas un `CHECK` sans reconstruire la table ; les listes grandiront (`deployed`, `discovery`). `needs_review` garde son `CHECK 0/1` |
+| `title` sur `declared_services` et `position` sur `service_units` | Le titre est le nom affiché ; la position garde l'ordre saisi par l'opérateur |
+| Le genre de l'unité se déduit de l'origine du service : `container` pour Compose comme pour un conteneur seul, `binary` pour un binaire ; une unité Compose est un service du projet | L'opérateur ne le saisit pas ; le rattachement de niveau 2 s'appuie sur le nom |
+| Identifiants préfixés : `svc_`, `unit_`, `prj_` + 16 caractères hexadécimaux tirés par le serveur | Lisibles dans un journal, jamais confondus entre objets |
+| Unicité en base : `(machine_id, name)`, et `(machine_id, compose_project)` pour l'origine `compose` ; en code, dans la même transaction : nom de conteneur et unité systemd uniques par machine | La clé (`container_name`, `systemd_unit`) est dans `service_units` et la machine dans `declared_services` : un index unique ne porte pas sur deux tables |
+| L'origine `deployed` est réservée et refusée ; `declared_by` vaut `operator` (`migration` à venir) | Le déploiement par l'application et la migration de l'existant arrivent plus tard |
+| `latest` est refusé ; l'image s'écrit sans étiquette ni empreinte ; la version est facultative (sans elle, l'écart dira « version non vérifiable ») ; l'empreinte ne s'attache pas à un binaire | La déclaration ne ment pas sur ce qui tourne, et ne force pas à épingler ce qu'on ne sait pas encore |
+| Retirer un service supprime ses unités, ses fournitures et ses liens de projet ; retirer un projet ne retire que les liens ; retirer une machine qui porte un service est refusé (409) | `restrict` entre objets déclarés, `cascade` pour ce qui fait partie du service |
+| Ce qui n'est pas encore là : `protected`, `service_open_paths`, `update_policy`, `eol_product`, `template_id`, les ports lus du réel | Chacun arrive avec la migration de la PR qui s'en sert |

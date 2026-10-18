@@ -232,6 +232,9 @@ var (
 	sessionID = regexp.MustCompile(`"(id|family_id)":"[0-9a-f]{16}"`)
 	// Les jours d'une sonde sont rangés sous son identifiant, en clé.
 	probeKey = regexp.MustCompile(`"[0-9a-f]{16}":\[`)
+	// Les identifiants de l'annuaire sont tirés à chaque création, préfixe
+	// en tête.
+	directoryID = regexp.MustCompile(`"(svc|unit|prj)_[0-9a-f]{16}"`)
 )
 
 // Les identifiants de tâche et de jeton, les jetons de ping et
@@ -242,6 +245,7 @@ func normalize(body string) string {
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
 	body = sessionID.ReplaceAllString(body, `"$1":"ID"`)
 	body = probeKey.ReplaceAllString(body, `"ID":[`)
+	body = directoryID.ReplaceAllString(body, `"${1}_ID"`)
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 

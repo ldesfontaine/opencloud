@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -79,6 +80,7 @@ func runMCP(args []string) error {
 	resources := resource.New(db, logger)
 	services := service.New(db, logger)
 	probes := probe.New(db, logger)
+	declared := directory.New(db, logger)
 	updates := update.New(db, logger)
 	statusPage := status.New(db, machines, db, logger)
 	catalogs, err := lang.Load()
@@ -108,6 +110,7 @@ func runMCP(args []string) error {
 		Resources:      resources,
 		Services:       services,
 		Probes:         probes,
+		Directory:      declared,
 		Updates:        updates,
 		Lifecycle:      support,
 		Status:         statusPage,

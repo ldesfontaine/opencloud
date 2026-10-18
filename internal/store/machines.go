@@ -60,12 +60,35 @@ func (db *DB) GetMachine(ctx context.Context, id string) (machine.Machine, error
 	return m, err
 }
 
+// DeleteMachine refuse une machine qui porte des services déclarés. Le
+// compte et la suppression sont dans la même transaction : sinon un service
+// déclaré entre les deux ferait échouer la suppression sur la clé étrangère,
+// en erreur brute.
 func (db *DB) DeleteMachine(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND kind != 'local'`, id)
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete machine: %w", err)
+	}
+	defer tx.Rollback()
+	var declared int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE machine_id = ?`, id).Scan(&declared)
+	if err != nil {
+		return fmt.Errorf("count declared services: %w", err)
+	}
+	if declared > 0 {
+		return machine.ErrHasDeclaredServices
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND kind != 'local'`, id)
 	if err != nil {
 		return fmt.Errorf("delete machine: %w", err)
 	}
-	return notFoundIfNoRow(result)
+	if err := notFoundIfNoRow(result); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete machine: %w", err)
+	}
+	return nil
 }
 
 func (db *DB) TouchMachine(ctx context.Context, id string, at time.Time) error {

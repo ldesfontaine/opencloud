@@ -5,6 +5,8 @@ import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
 import { AlertSilenceNew } from "./pages/AlertSilenceNew";
+import { DeclaredServicePage } from "./pages/DeclaredService";
+import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
 import { JobPage } from "./pages/Job";
 import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
@@ -16,6 +18,7 @@ import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
 import { ProbeForm } from "./pages/ProbeForm";
 import { Probes } from "./pages/Probes";
+import { ProjectForm } from "./pages/ProjectForm";
 import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
@@ -39,6 +42,13 @@ export function App() {
         <Route path="machines/:id" element={<MachinePage />} />
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services />} />
+        <Route path="services/annuaire" element={<Services tab="annuaire" />} />
+        <Route path="services/annuaire/nouveau" element={<DeclaredServiceForm />} />
+        <Route path="services/annuaire/:id/modifier" element={<DeclaredServiceForm />} />
+        <Route path="services/annuaire/:id" element={<DeclaredServicePage />} />
+        <Route path="services/projets" element={<Services tab="projets" />} />
+        <Route path="services/projets/nouveau" element={<ProjectForm />} />
+        <Route path="services/projets/:id" element={<ProjectForm />} />
         <Route path="services/:id" element={<ServicePage />} />
         <Route path="domaines" element={<Probes />} />
         <Route path="domaines/nouvelle" element={<ProbeForm />} />

@@ -2,17 +2,32 @@ import { useState } from "react";
 
 import type { MachinesResponse, ServicesResponse } from "../api/types";
 import { Card, CardBody, Empty, Note } from "../components/Card";
+import { DirectoryTab } from "../components/DirectoryTab";
 import { Failure } from "../components/Failure";
 import { Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
+import { ProjectsTab } from "../components/ProjectsTab";
 import { filterServices, ServiceFilter, ServiceTable, useServiceFilter } from "../components/ServiceTable";
+import { ServicesTabs } from "../components/ServicesTabs";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { engineNote, needsAttention, servicesSubtitle } from "../lib/services";
 
-// La page Services : tous les services de toutes les machines, avec un
-// filtre par machine et le filtre Tous / Actifs / Arrêtés de la planche.
-export function Services() {
+// La page Services, sous trois onglets : les conteneurs que Docker montre
+// (par défaut), l'annuaire que l'opérateur déclare, et ses projets.
+export function Services({ tab }: { tab?: "annuaire" | "projets" }) {
+  if (tab === "annuaire") {
+    return <DirectoryTab />;
+  }
+  if (tab === "projets") {
+    return <ProjectsTab />;
+  }
+  return <ContainersTab />;
+}
+
+// Tous les conteneurs de toutes les machines, avec un filtre par machine et
+// le filtre Tous / Actifs / Arrêtés de la planche.
+function ContainersTab() {
   const t = useT();
   const services = useResource<ServicesResponse>("/api/services");
   const machines = useResource<MachinesResponse>("/api/machines");
@@ -40,6 +55,7 @@ export function Services() {
           </Select>
         }
       />
+      <ServicesTabs />
       {services.error && <Failure error={services.error} />}
       {services.data && all.length === 0 && (
         <Card>

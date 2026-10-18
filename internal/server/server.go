@@ -15,6 +15,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
@@ -104,6 +105,21 @@ type ProbeService interface {
 	Uptimes(ctx context.Context, id string) ([]probe.Uptime, error)
 	Assign(ctx context.Context, machineID string)
 	Record(ctx context.Context, machineID string, report probe.Report) error
+}
+
+// Ce que le serveur attend de l'annuaire : l'API lit et écrit les services
+// que l'opérateur déclare, et leurs projets.
+type DirectoryService interface {
+	ListServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
+	GetService(ctx context.Context, id string) (directory.Service, error)
+	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
+	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
+	DeleteService(ctx context.Context, id string) error
+	ListProjects(ctx context.Context) ([]directory.Project, error)
+	GetProject(ctx context.Context, id string) (directory.Project, error)
+	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
+	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
+	DeleteProject(ctx context.Context, id string) error
 }
 
 // Ce que le serveur attend du composant update : l'API lit et règle, le
@@ -208,6 +224,7 @@ type Server struct {
 	resources    ResourceService
 	services     ServiceTracker
 	probes       ProbeService
+	directory    DirectoryService
 	updates      UpdateService
 	lifecycle    LifecycleService
 	status       StatusService
@@ -248,6 +265,7 @@ type Options struct {
 	Resources  ResourceService
 	Services   ServiceTracker
 	Probes     ProbeService
+	Directory  DirectoryService
 	Updates    UpdateService
 	Lifecycle  LifecycleService
 	Status     StatusService
@@ -297,6 +315,7 @@ func New(opts Options) (*Server, error) {
 		resources:      opts.Resources,
 		services:       opts.Services,
 		probes:         opts.Probes,
+		directory:      opts.Directory,
 		updates:        opts.Updates,
 		lifecycle:      opts.Lifecycle,
 		status:         opts.Status,

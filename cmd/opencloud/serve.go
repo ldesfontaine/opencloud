@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -125,6 +126,8 @@ func runServe(args []string) error {
 	services.SetLocalLogSource(machine.LocalID, watcher)
 	probes := probe.New(db, logger)
 	probes.SetWatcher(bus)
+	declared := directory.New(db, logger)
+	declared.SetWatcher(bus)
 	// La machine openCloud exécute aussi ses propres sondes, sans passer
 	// par le réseau : son jeu ne sort pas du processus.
 	prober := probe.NewRunner(localProbes{ctx: ctx, probes: probes, logger: logger}, probe.NewChecker(roots), logger)
@@ -215,6 +218,7 @@ func runServe(args []string) error {
 		Resources:      resources,
 		Services:       services,
 		Probes:         probes,
+		Directory:      declared,
 		Updates:        updates,
 		Lifecycle:      support,
 		Status:         statusPage,

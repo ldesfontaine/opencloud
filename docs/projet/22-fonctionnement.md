@@ -2,8 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> fin de support activée par défaut, deux lectures par jour au plus,
-> 12 octobre 2026.
+> annuaire déclaré (1/5), 18 octobre 2026.
 
 ## Les acteurs
 
@@ -109,6 +108,7 @@ base ; voir « Ce qui est stocké, et où ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
@@ -425,6 +425,58 @@ Pas de label `opencloud.*` : openCloud déclarera ses services plus tard,
 les labels viendront avec. Les labels de Compose, eux, sont lus : le
 projet, le service, le dossier et le fichier du projet. Les ports publiés
 s'affichent dans la colonne Domaine en attendant les domaines.
+
+## Comment l'annuaire se déclare
+
+L'annuaire est ce que l'opérateur **dit** exister, par opposition aux conteneurs
+que l'agent **voit** (section précédente). Il ne lit rien sur les machines : la
+PR « annuaire (1/5) » ne fait que déclarer et ranger.
+
+- **Un service déclaré** a son propre identifiant (`svc_` + 16 caractères
+  hexadécimaux), jamais tiré de Docker : recréer un conteneur ne le change pas.
+  Il porte un nom, un titre facultatif, une machine, une nature
+  (`application` ou `infra`), une origine (`compose`, `container` ou `binary`),
+  une adresse publique facultative, `declared_by` (`operator` ; `migration` vient
+  avec la migration de l'existant) et `needs_review`.
+- **Le nom est unique par machine**, et le projet Compose l'est aussi
+  (un service par machine et par projet Compose), de même que le nom d'un
+  conteneur et celui d'une unité systemd. Un même nom peut vivre sur deux
+  machines : les regrouper est le rôle du projet.
+- **Ses unités** (une à 32) sont ce qui tourne : un service Compose, un
+  conteneur ou un binaire. Le genre de l'unité se déduit de l'origine du
+  service (`container` pour Compose comme pour un conteneur seul, `binary`
+  pour un binaire). Une unité garde son identifiant (`unit_` + 16
+  caractères) quand l'édition le renvoie ; une unité absente de la liste
+  renvoyée est retirée, un identifiant inconnu, d'un autre service ou donné
+  deux fois est refusé (`directory.unit_invalid`). Les noms d'unités, comme
+  leurs noms de conteneur, peuvent s'échanger dans une même édition ; deux
+  unités d'un même service ne déclarent pas le même conteneur ni la même
+  unité systemd (`directory.unit_key_duplicate`).
+- **Une version `latest`** est refusée ; l'image s'écrit sans étiquette ni
+  empreinte ; la version est facultative (sans elle, l'écart dira « version
+  non vérifiable »). L'empreinte `sha256:` est facultative et ne s'attache
+  qu'à une image, pas à un binaire.
+- **Ce qu'il fournit** (`sso`, `proxy`, `tls`, `backup-target`) n'est admis que
+  pour un outil d'infra ; une application n'en déclare aucun.
+- **Un projet** (`prj_` + 16 caractères) regroupe des services ; un service peut
+  être dans plusieurs projets, ou dans aucun. Supprimer un projet ne retire que
+  les liens : les services restent.
+- **Une machine qui porte un service déclaré ne se retire pas** (`restrict`) :
+  l'API répond 409 `machine.has_declared_services`. La machine locale reste
+  protégée comme avant (403).
+- **Les écritures** passent par `internal/directory`, une transaction par
+  opération dans `internal/store/directory.go`. Chacune publie le sujet
+  `directory` sur le bus.
+- **L'API** : `GET/POST /api/directory/services`, `GET/PUT/DELETE
+  /api/directory/services/{id}` (la liste accepte `?machine=` et `?project=`),
+  `GET/POST /api/directory/projects`, `GET/PUT/DELETE
+  /api/directory/projects/{id}`. Les refus sont des clés de catalogue
+  (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
+- **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
+  la fiche d'un service et le formulaire (déclaration et édition).
+
+Rien n'est encore rapproché du réel : un service déclaré ne sait pas si son
+conteneur tourne, et un conteneur observé ne sait pas qu'il est déclaré.
 
 ## Comment le réseau des services se lit
 
@@ -1372,9 +1424,10 @@ faits identiques à l'API par construction.
    suppression ; lot de mesures écrit ; rapport de services ou de réseaux
    écrit ; constat d'image écrit ou politique changée, sur le sujet des
    services ; essais de sondes écrits ; instantané public changé ; alerte
-   ouverte, aggravée, acquittée, résolue, canal ou silence changé. Le bus
-   ne porte que sept sujets, `machines`, `jobs`, `resources`, `services`,
-   `probes`, `status` et `alerts`.
+   ouverte, aggravée, acquittée, résolue, canal ou silence changé ; service
+   ou projet déclaré créé, modifié ou supprimé. Le bus ne porte que huit
+   sujets, `machines`, `jobs`, `resources`, `services`, `probes`, `status`,
+   `alerts` et `directory`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
    voyage dans le flux.
@@ -1518,6 +1571,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se compile et se copie à la main. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
+| L'annuaire ne voit pas le réel | Un service déclaré n'est pas rapproché des conteneurs : pas d'écart « absent » ou « divergent », pas de rattachement, pas d'adoption d'un conteneur non couvert ; l'origine `deployed` est réservée et refusée | Annuaire 2/5 et suivantes |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
@@ -1577,3 +1631,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Le nom du produit | Le paquet `internal/brand` (nom affiché, identifiant technique, empreinte du protocole), les marqueurs `{product}`, `{command}` et `{signature_header}` des catalogues et `expand` dans `internal/lang/lang.go`, le marqueur `{{product}}` des pages HTML et `expandProductName`, `web/src/lib/product.ts`, le champ `server_name` de `/api/mcp` et le golden `mcp.golden.json`, les tests `TestNameOnlyInBrand` et `TestFiles_NameOnlyThroughPlaceholders` |
 | Édition sur place | `PUT /api/probes/{id}` et `PUT /api/jobs/{id}` (la définition entière, mêmes refus que la création), `POST /api/jobs/{id}/actions/regenerate-token`, `Service.Update` des paquets `internal/probe` et `internal/heartbeat` et `RegenerateToken`, la migration `021_probe_revision.sql` (`probes.revised_at`) et sa garde dans `planChanges` et `updateProbeState`, la pause d'une tâche qui n'est plus reprise par un ping, les formulaires `ProbeForm` et `JobForm` (création et édition), les boutons Modifier et « Régénérer le jeton », les trois routes de `testdata/routes.txt` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |
+| Annuaire (1/5) | Le paquet `internal/directory` (identité propre, validation, création et édition sur place des services, unités, fournitures et projets), la migration `022_directory.sql` (`projects`, `declared_services`, `service_units`, `service_provides`, `project_services`), `internal/store/directory.go`, le refus 409 `machine.has_declared_services` au retrait d'une machine, les dix routes `/api/directory/…`, le sujet `directory`, les onglets Annuaire et Projets de la page Services, la fiche et le formulaire de service |
