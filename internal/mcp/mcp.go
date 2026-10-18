@@ -7,11 +7,13 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
 	// Le seul client OAuth : openCloud a un opérateur, pas des tenants.
-	ClientID = "opencloud"
+	ClientID = brand.OAuthClientID
 	// Un code d'autorisation vit dix minutes ; un accès une heure ; un
 	// rafraîchissement trente jours. Un jeton d'API vit la durée choisie à
 	// sa création (APITokenDays), sans échéance seulement si l'opérateur

@@ -8,6 +8,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const osReleasePath = "/etc/os-release"
@@ -23,7 +25,7 @@ const bootIDPath = "/proc/sys/kernel/random/boot_id"
 
 // L'empreinte est préfixée : elle ne se compare pas à une autre empreinte
 // du même identifiant faite par un autre logiciel.
-const fingerprintPrefix = "opencloud-host:"
+const fingerprintPrefix = brand.HostFingerprintPrefix
 
 type Info struct {
 	Hostname string

@@ -17,10 +17,10 @@ export function lifetimesOf(t: Translate, accessSeconds: number, refreshSeconds:
   return t("mcp.lifetimes", formatDuration(t, accessSeconds * 1000), formatDuration(t, refreshSeconds * 1000));
 }
 
-// La commande qui déclare openCloud à Claude Code, depuis celle du client
-// local que le serveur fabrique.
-export function claudeCodeCommand(stdioCommand: string): string {
-  return `claude mcp add opencloud -- ${stdioCommand}`;
+// La commande qui déclare le serveur à Claude Code, sous le nom que le
+// serveur donne, depuis celle du client local qu'il fabrique.
+export function claudeCodeCommand(serverName: string, stdioCommand: string): string {
+  return `claude mcp add ${serverName} -- ${stdioCommand}`;
 }
 
 // Les portées, lecture seule d'abord : c'est le choix par défaut.

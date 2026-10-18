@@ -6,11 +6,13 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
 	// Le préfixe rend un jeton reconnaissable dans un journal ou un presse-papier.
-	tokenScheme = "oc_" // #nosec G101 -- un préfixe, pas un secret.
+	tokenScheme = brand.EnrollmentTokenScheme
 	tokenBytes  = 32
 	// Le préfixe affiché : le schéma plus six caractères, 30 bits sur 256.
 	tokenPrefixLength = len(tokenScheme) + 6

@@ -33,7 +33,7 @@ test("lifetimesOf dit les durées du serveur en mots", () => {
 });
 
 test("claudeCodeCommand enveloppe la commande du client local", () => {
-  expect(claudeCodeCommand("opencloud mcp -config /etc/opencloud/config.toml")).toBe(
+  expect(claudeCodeCommand("opencloud", "opencloud mcp -config /etc/opencloud/config.toml")).toBe(
     "claude mcp add opencloud -- opencloud mcp -config /etc/opencloud/config.toml",
   );
 });

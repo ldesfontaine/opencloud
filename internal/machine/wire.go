@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/service"
@@ -11,22 +12,22 @@ import (
 // défi ; les clés et octets voyagent en base64 standard. Les en-têtes
 // portent la preuve signée qui ouvre le flux.
 const (
-	HeaderMachine      = "OpenCloud-Machine"
-	HeaderNonce        = "OpenCloud-Nonce"
-	HeaderTimestamp    = "OpenCloud-Timestamp"
-	HeaderSignature    = "OpenCloud-Signature"
-	HeaderAgentVersion = "OpenCloud-Agent-Version"
+	HeaderMachine      = brand.HeaderPrefix + "Machine"
+	HeaderNonce        = brand.HeaderPrefix + "Nonce"
+	HeaderTimestamp    = brand.HeaderPrefix + "Timestamp"
+	HeaderSignature    = brand.HeaderPrefix + "Signature"
+	HeaderAgentVersion = brand.HeaderPrefix + "Agent-Version"
 	// Le système de la machine, redit à chaque ouverture du flux :
 	// l'enrôlement le fige, une montée de version le change. Absent chez un
 	// agent plus vieux.
-	HeaderAgentOS = "OpenCloud-Agent-OS"
+	HeaderAgentOS = brand.HeaderPrefix + "Agent-OS"
 	// L'empreinte de l'identifiant de la machine de l'agent : à
 	// l'ouverture du flux, elle dit si un agent tourne sur la machine
 	// openCloud elle-même.
-	HeaderHostFingerprint = "OpenCloud-Host-Fingerprint"
+	HeaderHostFingerprint = brand.HeaderPrefix + "Host-Fingerprint"
 	// Posé par un agent qui sait lire un refus par section ; sans lui, le
 	// serveur répond comme avant, par un 400 global.
-	HeaderSignalSections = "OpenCloud-Signal-Sections"
+	HeaderSignalSections = brand.HeaderPrefix + "Signal-Sections"
 )
 
 type EnrollRequest struct {

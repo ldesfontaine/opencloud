@@ -11,12 +11,14 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
-	DefaultPath     = "/etc/opencloud/config.toml"
+	DefaultPath     = brand.ConfigPath
 	defaultListen   = "127.0.0.1:8080"
-	defaultStateDir = "/var/lib/opencloud"
+	defaultStateDir = brand.StateDir
 	// La socket du démon Docker de la machine openCloud, pour son rôle
 	// d'agent ; le processus doit pouvoir la lire.
 	defaultDockerSocket = "/var/run/docker.sock"

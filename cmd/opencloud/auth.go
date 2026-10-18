@@ -8,14 +8,16 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
-const authUsage = `Usage : opencloud auth <status|disable> [-config chemin]
+const authUsage = `Usage : {command} auth <status|disable> [-config chemin]
 
   status    dit si l'interface est protégée, par quel identifiant ou
             derrière quel en-tête d'identité du mandataire
@@ -32,12 +34,12 @@ func runAuth(args []string) error {
 
 func authCommand(args []string, out io.Writer) error {
 	if len(args) < 1 {
-		fmt.Fprint(os.Stderr, authUsage)
+		fmt.Fprint(os.Stderr, strings.ReplaceAll(authUsage, "{command}", brand.Command))
 		return &refusal{message: "sous-commande manquante"}
 	}
 	command := args[0]
 	if command != "status" && command != "disable" {
-		fmt.Fprint(os.Stderr, authUsage)
+		fmt.Fprint(os.Stderr, strings.ReplaceAll(authUsage, "{command}", brand.Command))
 		return &refusal{message: "sous-commande inconnue : " + command}
 	}
 	flags := flag.NewFlagSet("auth "+command, flag.ContinueOnError)

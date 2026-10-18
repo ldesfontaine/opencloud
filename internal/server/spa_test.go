@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 func get(server *Server, path string) *httptest.ResponseRecorder {
@@ -37,6 +39,46 @@ func TestSPA_ServesIndexForEveryClientRoute(t *testing.T) {
 	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/machines", nil))
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST on a page: %d", recorder.Code)
+	}
+}
+
+// Le front ne connaît pas le nom du produit : ses pages le demandent par
+// {{product}} et le serveur le pose à la livraison, dans le titre et dans la
+// balise que lit l'écran d'erreur de démarrage.
+func TestSPA_PagesCarryTheProductName(t *testing.T) {
+	server := newTestServer(t)
+	for _, path := range []string{"/", "/statut"} {
+		body := get(server.Server, path).Body.String()
+		for _, want := range []string{"<title>" + brand.ProductName + "</title>", `content="` + brand.ProductName + `"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: %s missing from the page", path, want)
+			}
+		}
+		if strings.Contains(body, "{{product}}") {
+			t.Errorf("%s: placeholder left in the page", path)
+		}
+	}
+}
+
+// Une page demandée par son nom de fichier ne passe pas à côté de la
+// substitution : index.html devient la page, statut.html un 404.
+func TestSPA_HTMLFilesByName_NeverServedRaw(t *testing.T) {
+	server := newTestServer(t)
+	for _, path := range []string{"/index.html", "/statut.html"} {
+		got := get(server.Server, path)
+		if strings.Contains(got.Body.String(), "{{product}}") {
+			t.Errorf("%s: raw page served (%d)", path, got.Code)
+		}
+	}
+	if got := get(server.Server, "/statut.html"); got.Code != http.StatusNotFound {
+		t.Errorf("/statut.html: %d, want 404", got.Code)
+	}
+}
+
+func TestExpandProductName_ReplacesEveryMarker(t *testing.T) {
+	got := string(expandProductName([]byte("<title>{{product}}</title>{{product}}")))
+	if got != "<title>"+brand.ProductName+"</title>"+brand.ProductName {
+		t.Errorf("expandProductName = %q", got)
 	}
 }
 

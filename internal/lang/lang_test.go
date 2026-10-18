@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 func TestLoad_EveryLanguageHasTheSameKeys(t *testing.T) {
@@ -132,5 +134,72 @@ func TestLoad_MCPCardAdmitsRawLogsAndPublicIncidents(t *testing.T) {
 		if tools := catalog.Get("mcp.tools"); !strings.Contains(tools, "public") && !strings.Contains(tools, "publique") {
 			t.Errorf("%s mcp.tools does not say that incidents are public: %s", code, tools)
 		}
+	}
+}
+
+// Le nom du produit s'écrit dans brand, pas dans les catalogues : une valeur
+// brute le nomme par un marqueur. Les clés, elles, gardent leur nom.
+func TestFiles_NameOnlyThroughPlaceholders(t *testing.T) {
+	for _, code := range Codes() {
+		content, err := files.ReadFile(string(code) + ".toml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := parse(content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, value := range raw {
+			if strings.Contains(strings.ToLower(value), "opencloud") {
+				t.Errorf("%s: %s names the product instead of a placeholder: %q", code, key, value)
+			}
+		}
+	}
+}
+
+func TestLoad_ExpandsPlaceholders(t *testing.T) {
+	catalogs, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range Codes() {
+		catalog := catalogs[code]
+		if got := catalog.Get("app.name"); got != brand.ProductName {
+			t.Errorf("%s: app.name = %q, want %q", code, got, brand.ProductName)
+		}
+		for _, key := range []string{"auth.unauthorized", "auth.forward_unauthorized"} {
+			if got := catalog.Get(key); !strings.Contains(got, brand.Command+" auth disable") {
+				t.Errorf("%s: %s = %q, want the command %q", code, key, got, brand.Command+" auth disable")
+			}
+		}
+		if got := catalog.Get("channel.secret_help"); !strings.Contains(got, brand.WebhookSignatureHeader) {
+			t.Errorf("%s: channel.secret_help = %q, want the header %q", code, got, brand.WebhookSignatureHeader)
+		}
+	}
+}
+
+func TestLoad_NoPlaceholderLeft(t *testing.T) {
+	catalogs, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for code, catalog := range catalogs {
+		for _, key := range catalog.Keys() {
+			if value := catalog.Get(key); strings.ContainsAny(value, "{}") {
+				t.Errorf("%s: %s keeps a brace: %q", code, key, value)
+			}
+		}
+	}
+}
+
+func TestExpand_RejectsUnknownPlaceholder(t *testing.T) {
+	for _, value := range []string{"{produt} est là", "ouvert {", "fermé }"} {
+		if _, err := expand(value); err == nil {
+			t.Errorf("expand(%q) accepted a stray brace", value)
+		}
+	}
+	got, err := expand("{product} : {command}")
+	if err != nil || got != brand.ProductName+" : "+brand.Command {
+		t.Errorf("expand known = %q, %v", got, err)
 	}
 }

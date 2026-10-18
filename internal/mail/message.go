@@ -9,6 +9,8 @@ import (
 	"mime/quotedprintable"
 	"strings"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 // Message est ce qu'on envoie : un sujet, un texte brut, et un HTML
@@ -21,7 +23,7 @@ type Message struct {
 }
 
 const (
-	senderName = "openCloud"
+	senderName = brand.ProductName
 	crlf       = "\r\n"
 )
 

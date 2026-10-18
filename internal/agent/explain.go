@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
@@ -40,7 +41,7 @@ var refusalKeys = map[string]string{ // #nosec G101 -- des codes de refus, pas d
 	"token_consumed":       "agent.token_consumed",
 	"token_expired":        "agent.token_expired",
 	"name_taken":           "agent.name_taken",
-	"machine_is_opencloud": "agent.machine_is_opencloud",
+	brand.AgentErrorIsHost: "agent.machine_is_opencloud",
 	"clock_skew":           "agent.clock_skew",
 	"machine_not_found":    "agent.identity_refused",
 	"bad_proof":            "agent.identity_refused",

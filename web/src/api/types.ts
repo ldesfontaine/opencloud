@@ -794,6 +794,7 @@ export interface MCPState {
   issuer: string;
   url_local: boolean;
   stdio_command: string;
+  server_name: string;
   tokens: MCPToken[];
   sessions: MCPSession[];
   limits: { tokens: number; redirect_uris: number };

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
@@ -38,7 +39,7 @@ const (
 	maxBody     = 4 << 20
 	// Un jeton sans durée annoncée vaut ce que la norme dit : 60 s.
 	defaultTokenLife = 60 * time.Second
-	userAgent        = "openCloud-agent"
+	userAgent        = brand.RegistryUserAgent
 	// Ce qu'un tag peut désigner : un index multi-architecture ou un
 	// manifeste seul, dans les deux écritures. L'empreinte rendue est
 	// celle de ce que le tag pointe, la même que Docker note en tirant.

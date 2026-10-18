@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 )
@@ -44,7 +45,7 @@ type MCPService interface {
 // Bearer, et stdin/stdout par « opencloud mcp », en lecture seule.
 const (
 	mcpPath          = "/mcp"
-	mcpServerName    = "openCloud"
+	mcpServerName    = brand.ProductName
 	mcpSessionIdle   = 30 * time.Minute
 	mcpResourcePath  = "/.well-known/oauth-protected-resource"
 	mcpAuthorizePath = "/oauth/authorize"
@@ -67,11 +68,11 @@ const (
 	mcpSweepIdle      = 10 * time.Minute
 )
 
-const mcpInstructions = "openCloud is a self-hosted dashboard that watches machines, their Docker services, " +
+const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that watches machines, their Docker services, " +
 	"scheduled jobs (heartbeats), HTTP/TCP probes with their TLS certificates, a public status page and alerts. " +
 	"Every read tool returns the same JSON facts as the web API: instants are ISO 8601 in UTC, durations are in " +
 	"seconds or milliseconds, states are closed lists of lowercase words. Nothing here can act on a machine: " +
-	"no restart, no deploy, no command, and openCloud's own secrets (passwords, channel secrets, ping URLs) are " +
+	"no restart, no deploy, no command, and " + brand.ProductName + "'s own secrets (passwords, channel secrets, ping URLs) are " +
 	"never returned; container logs are raw and can contain anything. open_incident and add_incident_update " +
 	"publish on the public status page. A read-only token gets {\"error\":\"mcp.read_only\"} from write tools. Errors come back as {\"error\":\"<code>\"} where the code is stable " +
 	"(not_found, internal) or a catalog key such as probe.not_paused."

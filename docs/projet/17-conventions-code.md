@@ -45,6 +45,13 @@ de journal. **Commentaires en français**, courts. **Tout ce que voit
 l'opérateur en français** — interface, refus, notifications, documentation.
 Un fichier de chaînes par langue dès le départ, même s'il n'y en a qu'une.
 
+**Le nom du produit ne s'écrit qu'à un seul endroit** : aucun littéral
+« openCloud », « opencloud » ni préfixe de jeton en dehors de `internal/brand`
+(`brand.ProductName`, `brand.Command`…). Les catalogues posent `{product}`,
+`{command}` ou `{signature_header}`, les pages HTML `{{product}}`. Un test
+(`TestNameOnlyInBrand`) l'impose ; les commentaires et les identifiants Go ne
+comptent pas.
+
 ## Lisible par un humain, avant d'être court
 
 Le risque nommé : du code fonctionnel, dense, efficace — et qu'il faut relire

@@ -1337,6 +1337,38 @@ nouveau remplace le plus ancien, et les défis expirés (deux minutes) sont
 balayés toutes les trente secondes au plus. Derrière Traefik sans
 `trusted_proxies`, tous les agents partagent un seul seau.
 
+## Le nom du produit
+
+Le nom s'écrit à un seul endroit, le paquet `internal/brand`, et ne change
+aucun comportement : toutes les valeurs restent celles d'avant. Il porte
+trois étages qui ne dérivent pas l'un de l'autre.
+
+| Étage | Exemples | Renommer coûte |
+| --- | --- | --- |
+| Nom affiché (`ProductName`) | titre des pages, User-Agent (sauf vers endoflife.date, qui porte `ID`), expéditeur des e-mails, domaine de l'authentification Basic | Rien d'installé : seuls les textes changent |
+| Identifiant technique (`ID`) | `/etc/opencloud`, `/var/lib/opencloud`, `opencloud.db`, nom de la machine locale, clé du serveur MCP, préfixe des transactions Matrix | Les chemins bougent : une installation existante doit migrer |
+| Empreinte du protocole | en-têtes `OpenCloud-…`, préfixes de jetons (`oc_`, `ocs_`…), empreinte `opencloud-host:`, client OAuth, code `machine_is_opencloud` | Casse les agents installés, les récepteurs de webhooks et les jetons émis : il faudrait d'abord une transition qui accepte les deux formes |
+
+Le nom du binaire (`Command`) est un littéral à part : il suit
+`cmd/opencloud` et le Makefile, pas `ID`. Le jeton de ping `hb_` n'est pas
+une marque et reste dans `internal/heartbeat`.
+
+Les catalogues `internal/lang/*.toml` n'écrivent jamais le nom : une valeur
+pose `{product}`, `{command}` ou `{signature_header}`, remplacés une fois au
+chargement (`expand` dans `internal/lang/lang.go`). Une accolade qui reste
+est un marqueur inconnu et le serveur refuse de démarrer. Le front reçoit
+donc les valeurs déjà substituées par `GET /api/i18n/{code}` et
+`GET /statut/api/i18n`. Les pages HTML du front disent `{{product}}` dans la
+balise `<title>` et dans `<meta name="application-name">` ; le serveur le
+remplace à la livraison (`expandProductName` dans `spa.go`), et l'écran
+« le serveur ne répond pas », écrit avant tout catalogue, lit le nom dans
+cette balise (`web/src/lib/product.ts`). Sous `vite dev` le serveur ne
+remplit rien : l'onglet affiche `{{product}}` jusqu'au premier `PageHead`, et l'écran « ne répond pas » aussi.
+
+Les élisions françaises des catalogues (« d'{product} ») supposent un nom
+qui commence par une voyelle. `TestNameOnlyInBrand` échoue si le nom ou un
+préfixe de jeton réapparaît en littéral dans le code Go hors du paquet.
+
 ## Ports
 
 | Port | Où | Sert à |
@@ -1436,4 +1468,5 @@ refusés avant d'envoyer quoi que ce soit.
 | Canal Matrix | Le format `matrix` (`internal/alert/matrix.go`), la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), l'envoi par `PUT` avec identifiant de transaction stable, les champs serveur d'accueil, salon et jeton du formulaire de canal |
 | Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_disabled` de `settings.toml` (aujourd'hui la table `settings`), l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |
 | Réglages en base | La table `settings` (migration `019_settings.sql`) et ses requêtes dans `internal/store/settings.go`, à la place de `settings.toml` ; la reprise de l'ancien fichier au démarrage de `serve` (`internal/settings/legacy.go`) |
+| Le nom du produit | Le paquet `internal/brand` (nom affiché, identifiant technique, empreinte du protocole), les marqueurs `{product}`, `{command}` et `{signature_header}` des catalogues et `expand` dans `internal/lang/lang.go`, le marqueur `{{product}}` des pages HTML et `expandProductName`, `web/src/lib/product.ts`, le champ `server_name` de `/api/mcp` et le golden `mcp.golden.json`, les tests `TestNameOnlyInBrand` et `TestFiles_NameOnlyThroughPlaceholders` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |

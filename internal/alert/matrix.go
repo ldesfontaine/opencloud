@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 // matrixMessage est un m.room.message : le texte brut pour les clients
@@ -43,13 +45,13 @@ func matrixBody(title string, text Text, link, openLabel string) (Body, error) {
 // un test en tire un neuf.
 func matrixTransactionID(delivery Delivery) (string, error) {
 	if delivery.ID != 0 {
-		return "opencloud-" + strconv.FormatInt(delivery.ID, 10) + "-" + strconv.FormatInt(delivery.CreatedAt.Unix(), 10), nil
+		return brand.MatrixTransactionPrefix + strconv.FormatInt(delivery.ID, 10) + "-" + strconv.FormatInt(delivery.CreatedAt.Unix(), 10), nil
 	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return "", err
 	}
-	return "opencloud-test-" + hex.EncodeToString(random), nil
+	return brand.MatrixTransactionPrefix + "test-" + hex.EncodeToString(random), nil
 }
 
 // matrixSendURL est l'adresse de l'envoi dans le salon, sous le serveur

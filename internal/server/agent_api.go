@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -83,7 +84,7 @@ func (s *Server) writeEnrollError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, machine.ErrNameTaken):
 		s.writeAgentError(w, http.StatusConflict, "name_taken")
 	case errors.Is(err, machine.ErrIsOpenCloud):
-		s.writeAgentError(w, http.StatusConflict, "machine_is_opencloud")
+		s.writeAgentError(w, http.StatusConflict, brand.AgentErrorIsHost)
 	default:
 		s.logger.Error("enroll", "path", r.URL.Path, "error", err)
 		s.writeAgentError(w, http.StatusInternalServerError, "internal")

@@ -16,13 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/egress"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 )
 
 const (
-	userAgent     = "openCloud"
+	userAgent     = brand.UserAgent
 	queueSize     = 1024
 	workerCount   = 4
 	maxErrorBytes = 64 << 10
@@ -235,7 +236,7 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 	}
 	request.Header.Set("Content-Type", body.ContentType)
 	request.Header.Set("User-Agent", userAgent)
-	request.Header.Set("OpenCloud-Event", string(event))
+	request.Header.Set(brand.WebhookEventHeader, string(event))
 	if channel.Format == FormatText {
 		// ntfy lit le titre et la priorité en en-tête ; les autres n'en font rien.
 		request.Header.Set("Title", body.Title)
@@ -245,7 +246,7 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 		}
 	}
 	if channel.Secret != "" {
-		request.Header.Set("OpenCloud-Signature", "sha256="+sign(channel.Secret, body.Content))
+		request.Header.Set(brand.WebhookSignatureHeader, "sha256="+sign(channel.Secret, body.Content))
 	}
 	response, err := n.client.Do(request)
 	if err != nil {
