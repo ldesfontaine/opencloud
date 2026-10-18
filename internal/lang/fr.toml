@@ -825,6 +825,29 @@ name_invalid = "Le nom doit commencer par une lettre minuscule ou un chiffre, pu
 title_invalid = "Le titre doit faire 80 caractères au plus."
 name_taken = "Un projet porte déjà ce nom."
 
+[manifest]
+export = "Exporter"
+export_header = """
+Annuaire d'{product}, exporté par « {command} export ».
+Les identifiants (id) rattachent chaque entrée à son objet : gardez-les.
+Un jeton ne s'écrit jamais ici : « secret: kept » garde celui du serveur."""
+export_needs_review = "À vérifier : ce service est repris de l'existant, il attend votre validation."
+export_too_large = "L'annuaire est trop gros pour un fichier : l'export dépasserait 256 Kio, la taille que la lecture accepte."
+yaml_invalid = "Ligne %d : le YAML est illisible (%s)."
+document_multiple = "Ligne %d : un seul document YAML par fichier."
+file_too_large = "Le fichier dépasse %s."
+alias_not_allowed = "Ligne %d : les ancres et les alias YAML ne sont pas admis."
+version_missing = "Ligne %d : le fichier doit donner « version: 1 »."
+version_unsupported = "Ligne %d : la version « %s » n'est pas prise en charge (seule la version 1 l'est)."
+unknown_key = "Ligne %d : clé inconnue « %s »."
+duplicate_key = "Ligne %d : la clé « %s » est déjà donnée dans ce bloc."
+section_not_supported = "Ligne %d : « %s » n'est pas encore pris en charge par le fichier."
+type_invalid = "Ligne %d : la valeur de « %s » n'a pas la forme attendue (un texte qui ressemble à un nombre ou à true s'écrit entre guillemets)."
+duration_invalid = "Ligne %d : « %s » n'est pas une durée valable : une unité est obligatoire (90s, 1m, 1h30m), en secondes entières pour une sonde, en minutes entières pour une tâche."
+secret_in_file = "Ligne %d : un secret ne s'écrit jamais dans le fichier, qui va dans Git. Écrivez « secret: kept » sous « token », ou retirez « token »."
+secret_invalid = "Ligne %d : le jeton s'écrit « secret: kept » sous « token », et rien d'autre."
+ignored_invalid = "Ligne %d : une clé ignorée donne sa machine et un seul de « compose_project » ou « container_name »."
+
 [network]
 internet = "Internet"
 internet_entries = "entrées %s"

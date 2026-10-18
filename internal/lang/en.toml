@@ -825,6 +825,29 @@ name_invalid = "The name must start with a lowercase letter or a digit, then low
 title_invalid = "The title must be 80 characters at most."
 name_taken = "A project already has this name."
 
+[manifest]
+export = "Export"
+export_header = """
+{product} directory, exported by "{command} export".
+The ids tie each entry to its object: keep them.
+A token is never written here: "secret: kept" keeps the server's own."""
+export_needs_review = "To check: this service was taken over from what already existed and awaits your review."
+export_too_large = "The directory is too big for one file: the export would exceed 256 KiB, the size reading accepts."
+yaml_invalid = "Line %d: the YAML cannot be read (%s)."
+document_multiple = "Line %d: one YAML document per file."
+file_too_large = "The file is larger than %s."
+alias_not_allowed = "Line %d: YAML anchors and aliases are not allowed."
+version_missing = "Line %d: the file must give \"version: 1\"."
+version_unsupported = "Line %d: version \"%s\" is not supported (only version 1 is)."
+unknown_key = "Line %d: unknown key \"%s\"."
+duplicate_key = "Line %d: the key \"%s\" is already given in this block."
+section_not_supported = "Line %d: \"%s\" is not supported by the file yet."
+type_invalid = "Line %d: the value of \"%s\" has the wrong form (a text that looks like a number or true is written in quotes)."
+duration_invalid = "Line %d: \"%s\" is not a valid duration: a unit is required (90s, 1m, 1h30m), whole seconds for a probe, whole minutes for a job."
+secret_in_file = "Line %d: a secret is never written in the file, which goes into Git. Write \"secret: kept\" under \"token\", or remove \"token\"."
+secret_invalid = "Line %d: the token is written \"secret: kept\" under \"token\", and nothing else."
+ignored_invalid = "Line %d: an ignored key gives its machine and only one of \"compose_project\" or \"container_name\"."
+
 [network]
 internet = "Internet"
 internet_entries = "entries %s"

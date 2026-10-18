@@ -12,6 +12,10 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: IconName;
   // Avec `to`, le bouton est un lien : même dessin, navigation du routeur.
   to?: string;
+  // Avec `href`, c'est un lien vers un fichier que le serveur sert : le
+  // navigateur le télécharge, avec les identifiants qu'il a déjà pour l'interface.
+  href?: string;
+  download?: string;
   children?: ReactNode;
 }
 
@@ -26,7 +30,7 @@ function classes(variant: Variant, small: boolean, iconOnly: boolean): string {
   return list.join(" ");
 }
 
-export function Button({ variant = "secondary", small = false, icon, to, children, type = "button", ...rest }: Props) {
+export function Button({ variant = "secondary", small = false, icon, to, href, download, children, type = "button", ...rest }: Props) {
   const className = classes(variant, small, icon !== undefined && children === undefined);
   const content = (
     <>
@@ -39,6 +43,13 @@ export function Button({ variant = "secondary", small = false, icon, to, childre
       <Link className={className} to={to}>
         {content}
       </Link>
+    );
+  }
+  if (href !== undefined) {
+    return (
+      <a className={className} href={href} download={download} title={rest.title} aria-label={rest["aria-label"]}>
+        {content}
+      </a>
     );
   }
   return (

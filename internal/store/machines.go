@@ -239,3 +239,22 @@ func scanMachine(row scanner) (machine.Machine, error) {
 	}
 	return m, nil
 }
+
+// MachineNames rend le nom de chaque machine, par identifiant. Le fichier
+// de l'annuaire nomme les machines et ne porte jamais leurs identifiants.
+func (db *DB) MachineNames(ctx context.Context) (map[string]string, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT id, name FROM machines`)
+	if err != nil {
+		return nil, fmt.Errorf("list machine names: %w", err)
+	}
+	defer rows.Close()
+	names := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
+}

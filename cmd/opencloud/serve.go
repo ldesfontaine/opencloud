@@ -29,6 +29,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
+	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
@@ -224,6 +225,9 @@ func runServe(args []string) error {
 	updates.Assign(ctx, machine.LocalID)
 	logServicesToReview(ctx, declared, logger)
 
+	// Le fichier de l'annuaire lit les mêmes composants que l'interface.
+	manifests := manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db}, logger)
+
 	server, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
@@ -234,6 +238,7 @@ func runServe(args []string) error {
 		Containers:     containers,
 		Probes:         probes,
 		Directory:      declared,
+		Manifest:       manifests,
 		Updates:        updates,
 		Lifecycle:      support,
 		Status:         statusPage,
@@ -255,7 +260,15 @@ func runServe(args []string) error {
 	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), cfg)
+	// Le port principal s'ouvre avant la socket de commande : un second serve
+	// sur le même state_dir échoue ici, avant d'avoir touché à la socket du
+	// premier.
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	control := startControlSocket(logger, stateDir, cfg.StateDir, server.ControlHandler())
+	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), listener, control, cfg)
 }
 
 // importLegacySettings reprend settings.toml, où vivaient les réglages avant
@@ -421,11 +434,18 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	return httpServer
 }
 
-func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, cfg config.Config) error {
+// listenUntilSignal sert sur listener jusqu'au signal d'arrêt. control, la
+// socket de commande, est nil quand elle n'a pas pu s'ouvrir.
+func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, listener net.Listener, control *http.Server, cfg config.Config) error {
+	if control != nil {
+		// Fermer retire aussi le fichier de la socket, quelle que soit la
+		// sortie.
+		defer control.Close()
+	}
 	failed := make(chan error, 1)
 	go func() {
 		logger.Info("listening", "addr", cfg.Listen, "state_dir", cfg.StateDir, "version", version.String())
-		failed <- httpServer.ListenAndServe()
+		failed <- httpServer.Serve(listener)
 	}()
 
 	select {
@@ -436,8 +456,21 @@ func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *htt
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("shutdown: %w", err)
+	// La socket de commande s'arrête en même temps que le serveur principal,
+	// pas avant lui : une requête de commande lente ne doit pas manger le
+	// délai du reste.
+	controlDone := make(chan error, 1)
+	if control != nil {
+		go func() { controlDone <- control.Shutdown(shutdownCtx) }()
+	} else {
+		controlDone <- nil
+	}
+	mainErr := httpServer.Shutdown(shutdownCtx)
+	if err := <-controlDone; err != nil {
+		logger.Warn("shutdown control socket", "error", err)
+	}
+	if mainErr != nil && !errors.Is(mainErr, http.ErrServerClosed) {
+		return fmt.Errorf("shutdown: %w", mainErr)
 	}
 	return nil
 }

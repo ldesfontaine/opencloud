@@ -107,6 +107,7 @@ Les sous-commandes :
 | `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) |
 | `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
 | `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
+| `opencloud export [-config <chemin>] [-o <fichier>]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), voir [Exporter l'annuaire](#exporter-lannuaire) |
 | `opencloud version` | La version et le commit |
 
 ## Installer le serveur
@@ -151,7 +152,7 @@ locale.
 `SupplementaryGroups=`. Le compte dédié limite ce que le processus touche
 en dehors de Docker.
 
-**Les commandes `auth`, `secrets` et `mcp` se lancent sous le compte du service** :
+**Les commandes `auth`, `secrets`, `mcp` et `export` se lancent sous le compte du service** :
 
 ```sh
 runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
@@ -159,7 +160,8 @@ runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
 
 Lancées en root, elles peuvent créer `opencloud.db-wal` (ou `secret.key`) au
 nom de root si le service est arrêté, et `serve` ne pourrait plus écrire dans
-sa base.
+sa base. `export` fait exception : il n'ouvre pas la base, il parle
+au serveur qui tourne, et peut se lancer en root.
 
 ## Configuration
 
@@ -704,6 +706,36 @@ systemctl stop opencloud
 tar -C /var/lib -czf /root/opencloud-$(date +%F).tar.gz opencloud
 systemctl start opencloud
 ```
+
+### Exporter l'annuaire
+
+`opencloud export` écrit l'annuaire déclaré (projets, services, sondes,
+tâches, clés ignorées) en YAML, à relire, versionner dans Git ou comparer :
+
+```sh
+opencloud export -config /etc/opencloud/config.toml > opencloud.yaml
+```
+
+La commande n'ouvre pas la base : lancée en root ou sous le compte du service
+(`runuser -u opencloud -- opencloud export …`), elle ne crée donc pas de
+fichier `-wal` au nom de root. Le fichier écrit se place où votre compte peut
+écrire : avec `-o` sous le compte du service, le dossier doit lui appartenir
+(il échoue sinon) ; la redirection `>` écrit avec vos droits. `-o` écrit en
+0600.
+
+La commande **demande le fichier au serveur qui tourne**, par la socket
+`state_dir/control.sock` (0600, créée au démarrage de `serve`, retirée à son
+arrêt) : serveur arrêté, elle répond que le serveur ne tourne pas et sort en
+`1`. Sans `-o`, le fichier va sur la sortie standard. Un second `serve` sur le
+même `state_dir` n'a pas de socket (le premier garde la sienne), et `serve`
+n'ouvre la socket que si `state_dir` est fermé au groupe et aux autres. Le
+bouton « Exporter » de l'onglet Annuaire donne le même fichier.
+
+**Ce n'est pas une sauvegarde.** Le fichier ne contient ni historique, ni
+mesures, ni canaux, ni pages de statut, ni réglages, et aucun secret : un jeton
+de tâche s'y lit `token: {secret: kept}`, pas sa valeur. Il ne remplace ni
+`opencloud.db` ni `secret.key`. La socket n'est pas à sauvegarder : `serve` la
+recrée. L'unité systemd ne change pas.
 
 ### Restaurer
 

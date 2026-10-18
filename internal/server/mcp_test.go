@@ -19,12 +19,12 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
-// Le catalogue, fermé : dix-sept lectures, neuf écritures. Un outil ajouté
+// Le catalogue, fermé : dix-huit lectures, neuf écritures. Un outil ajouté
 // ou renommé casse ce test, c'est voulu.
 var (
 	mcpReadTools = []string{
 		"get_overview", "list_machines", "get_machine", "get_machine_network",
-		"list_containers", "get_container", "get_container_logs", "list_declared_services",
+		"list_containers", "get_container", "get_container_logs", "list_declared_services", "export_directory",
 		"list_jobs", "get_job", "list_probes", "get_probe",
 		"get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
 	}
@@ -94,7 +94,7 @@ func toolErrorCode(t *testing.T, text string) string {
 	return response.Error
 }
 
-func TestMCP_ListsSeventeenReadsAndNineWritesWithHonestHints(t *testing.T) {
+func TestMCP_ListsEighteenReadsAndNineWritesWithHonestHints(t *testing.T) {
 	server := newTestServer(t)
 	session := connectMCP(t, server.mcpServer)
 	listed, err := session.ListTools(context.Background(), nil)
@@ -178,6 +178,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"list_containers":        {"limit": 1},
 		"get_container":          {"id": containerID},
 		"list_declared_services": {},
+		"export_directory":       {},
 		"list_jobs":              {},
 		"get_job":                {"job_id": jobID},
 		"list_probes":            {"machine_id": remoteID},

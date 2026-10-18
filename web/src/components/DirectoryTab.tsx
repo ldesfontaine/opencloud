@@ -38,9 +38,14 @@ export function DirectoryTab() {
         title={t("nav.services")}
         subtitle={services.data ? directorySubtitle(t, all.length) : ""}
         actions={
-          <Button variant="primary" icon="plus" to="/services/annuaire/nouveau">
-            {t("directory.add")}
-          </Button>
+          <>
+            <Button icon="file" href="/api/manifest/export" download="">
+              {t("manifest.export")}
+            </Button>
+            <Button variant="primary" icon="plus" to="/services/annuaire/nouveau">
+              {t("directory.add")}
+            </Button>
+          </>
         }
       />
       <ServicesTabs />
