@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 func composeDefinition() ServiceDefinition {
@@ -123,6 +125,8 @@ func TestValidate_RefusesEachRuleWithItsError(t *testing.T) {
 			d.Units = append(d.Units, UnitDefinition{Name: "bis", SystemdUnit: "caddy.service"})
 			return d
 		}, binaryDefinition, ErrUnitKeyDuplicate},
+		{"politique inconnue", func(d ServiceDefinition) ServiceDefinition { d.Units[0].UpdatePolicy = "pinned"; return d }, composeDefinition, ErrUpdatePolicyInvalid},
+		{"politique hors watch sur un binaire", func(d ServiceDefinition) ServiceDefinition { d.Units[0].UpdatePolicy = service.PolicyHold; return d }, binaryDefinition, ErrUpdatePolicyInvalid},
 		{"port illisible", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"http"}; return d }, composeDefinition, ErrPortsInvalid},
 		{"port nul", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"0"}; return d }, composeDefinition, ErrPortsInvalid},
 		{"port hors plage", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"8080:70000"}; return d }, composeDefinition, ErrPortsInvalid},
@@ -200,5 +204,27 @@ func TestNewID_CarriesItsPrefix(t *testing.T) {
 	id, err := NewID(ServicePrefix)
 	if err != nil || !strings.HasPrefix(id, "svc_") || len(id) != len("svc_")+16 {
 		t.Fatalf("id %q, err %v", id, err)
+	}
+}
+
+// Sans politique dite, une unité se suit ; les trois politiques passent, y
+// compris sur une unité de conteneur déclarée à la main.
+func TestComplete_DefaultsPolicyToWatch(t *testing.T) {
+	completed := composeDefinition().Complete()
+	for index, unit := range completed.Units {
+		if unit.UpdatePolicy != service.PolicyWatch {
+			t.Errorf("unité %d : politique %q, attendu watch", index, unit.UpdatePolicy)
+		}
+	}
+	spaced := ServiceDefinition{Origin: OriginCompose, Units: []UnitDefinition{{Name: "a", UpdatePolicy: " hold "}}}.Complete()
+	if spaced.Units[0].UpdatePolicy != service.PolicyHold {
+		t.Fatalf("les espaces d'une politique se retirent: %q", spaced.Units[0].UpdatePolicy)
+	}
+	for _, policy := range service.UpdatePolicies() {
+		definition := composeDefinition()
+		definition.Units[0].UpdatePolicy = policy
+		if err := definition.Complete().Validate(); err != nil {
+			t.Errorf("politique %q refusée: %v", policy, err)
+		}
 	}
 }

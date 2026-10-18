@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Un service déclaré tel que le front le lit : des faits, les listes
@@ -39,6 +40,33 @@ type unitJSON struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Ce que l'opérateur veut des mises à jour de l'image : watch, hold,
+	// ignore.
+	UpdatePolicy string `json:"update_policy"`
+}
+
+// La fiche d'un service déclaré dit en plus ce qui le lie : tant que des
+// sondes ou des composants de statut le visent, il ne se supprime pas.
+type declaredServiceDetailJSON struct {
+	declaredServiceJSON
+	Links linksJSON `json:"links"`
+}
+
+type linksJSON struct {
+	Probes     []linkedObjectJSON `json:"probes"`
+	Components []linkedObjectJSON `json:"components"`
+}
+
+type linkedObjectJSON struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Le refus de supprimer un service lié : la clé du catalogue, et la liste de
+// ce qui le lie, seule réponse d'erreur qui porte plus qu'une clé.
+type linkedRefusalJSON struct {
+	Error string    `json:"error"`
+	Links linksJSON `json:"links"`
 }
 
 type projectJSON struct {
@@ -83,6 +111,12 @@ type unitRequest struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Absente : watch.
+	UpdatePolicy string `json:"update_policy,omitempty"`
+}
+
+type unitPolicyRequest struct {
+	Policy string `json:"policy"`
 }
 
 type projectRequest struct {
@@ -130,7 +164,20 @@ func unitToJSON(unit directory.Unit) unitJSON {
 		ContainerName: unit.ContainerName,
 		SystemdUnit:   unit.SystemdUnit,
 		Ports:         nonNil(unit.Ports),
+		UpdatePolicy:  string(unit.UpdatePolicy),
 	}
+}
+
+func linksToJSON(links directory.Links) linksJSON {
+	return linksJSON{Probes: linkedObjectsToJSON(links.Probes), Components: linkedObjectsToJSON(links.Components)}
+}
+
+func linkedObjectsToJSON(objects []directory.LinkedObject) []linkedObjectJSON {
+	converted := make([]linkedObjectJSON, 0, len(objects))
+	for _, object := range objects {
+		converted = append(converted, linkedObjectJSON{ID: object.ID, Name: object.Name})
+	}
+	return converted
 }
 
 func projectToJSON(found directory.Project) projectJSON {
@@ -169,6 +216,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 			ContainerName: unit.ContainerName,
 			SystemdUnit:   unit.SystemdUnit,
 			Ports:         unit.Ports,
+			UpdatePolicy:  service.UpdatePolicy(unit.UpdatePolicy),
 		})
 	}
 	return directory.ServiceDefinition{
@@ -209,7 +257,12 @@ func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(found))
+	links, err := s.directory.ServiceLinks(r.Context(), found.ID)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: declaredServiceToJSON(found), Links: linksToJSON(links)})
 }
 
 // L'opérateur déclare le service, ses unités et ce qu'il fournit ; le
@@ -254,8 +307,59 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
 }
 
+// Supprimer un service que des sondes ou des composants de statut visent
+// encore est refusé, avec la liste : l'opérateur les détache d'abord.
 func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
-	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
+	err := s.directory.DeleteService(r.Context(), r.PathValue("id"))
+	var linked *directory.LinkedError
+	if errors.As(err, &linked) {
+		s.writeAPI(w, http.StatusConflict, linkedRefusalJSON{Error: "directory.service_linked", Links: linksToJSON(linked.Links)})
+		return
+	}
+	s.finishAPIAction(w, r, err, directory.ErrNotFound)
+}
+
+// Valider dit que l'opérateur a relu un service repris de l'existant. Une
+// définition qui ne passe pas la validation ne se valide pas : le refus est
+// celui de la première règle violée.
+func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
+	reviewed, err := s.directory.Review(r.Context(), r.PathValue("id"))
+	if errors.Is(err, directory.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if key, refused := directoryRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(reviewed))
+}
+
+// La politique de mise à jour se règle sur l'unité : ses conteneurs, ceux
+// qui seront recréés aussi, la suivent.
+func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
+	var request unitPolicyRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), service.UpdatePolicy(request.Policy))
+	if key, refused := directoryRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if errors.Is(err, directory.ErrUnitNotFound) {
+		s.apiRefuse(w, http.StatusNotFound, "directory.unit_not_found")
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func directoryRefusalKey(err error) (string, bool) {
@@ -310,6 +414,8 @@ func directoryRefusalKey(err error) (string, bool) {
 		return "directory.unit_invalid", true
 	case errors.Is(err, directory.ErrProjectInvalid):
 		return "directory.project_invalid", true
+	case errors.Is(err, directory.ErrUpdatePolicyInvalid):
+		return "directory.update_policy_invalid", true
 	case errors.Is(err, directory.ErrIgnoreInvalid):
 		return "directory.ignore_invalid", true
 	}

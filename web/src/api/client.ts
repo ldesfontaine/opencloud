@@ -5,6 +5,9 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    // Le corps de la réponse, quand le refus porte plus qu'une clé (la
+    // liste de ce qui lie un service qu'on voulait supprimer).
+    readonly payload: unknown = null,
   ) {
     super(code);
   }
@@ -25,18 +28,25 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     return undefined as T;
   }
   if (!response.ok) {
-    throw new ApiError(response.status, await errorCode(response));
+    const payload = await errorPayload(response);
+    throw new ApiError(response.status, errorCode(payload), payload);
   }
   return (await response.json()) as T;
 }
 
-async function errorCode(response: Response): Promise<string> {
+async function errorPayload(response: Response): Promise<unknown> {
   try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error ?? "internal";
+    return (await response.json()) as unknown;
   } catch {
-    return "internal";
+    return null;
   }
+}
+
+function errorCode(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string") {
+    return payload.error;
+  }
+  return "internal";
 }
 
 export const api = {

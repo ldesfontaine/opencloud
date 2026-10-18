@@ -52,3 +52,11 @@
 .diff-added {
   background: var(--ok-wash);
 }
+
+// Le sélecteur de la politique et la phrase qui dit sur quelle unité elle vit.
+.update-policy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

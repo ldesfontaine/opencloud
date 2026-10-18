@@ -58,7 +58,7 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
               {probe.service_id !== "" && (
                 <>
                   <span className="sep" />
-                  <Link to={`/services/${probe.service_id}`}>{probe.service_name}</Link>
+                  <Link to={`/services/annuaire/${probe.service_id}`}>{probe.service_name}</Link>
                 </>
               )}
               <span className="sep" />
@@ -121,7 +121,7 @@ function ProbeView({ response, reload }: { response: ProbeResponse; reload: () =
             <KeyValue label={t("probe.field_kind")} value={t(`probe.kind_${probe.kind}`)} />
             <KeyValue label={t("probe.field_machine")} value={<Link to={`/machines/${probe.machine_id}`}>{probe.machine_name}</Link>} />
             {probe.service_id !== "" && (
-              <KeyValue label={t("probe.field_service")} value={<Link to={`/services/${probe.service_id}`}>{probe.service_name}</Link>} />
+              <KeyValue label={t("probe.field_service")} value={<Link to={`/services/annuaire/${probe.service_id}`}>{probe.service_name}</Link>} />
             )}
             <KeyValue label={t("probe.field_interval")} value={formatDuration(t, probe.interval_seconds * 1000)} mono />
             <KeyValue label={t("probe.field_timeout")} value={formatDuration(t, probe.timeout_seconds * 1000)} mono />

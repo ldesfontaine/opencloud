@@ -10,12 +10,12 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // Les neuf écritures : ce que l'interface fait déjà, et qui ne touche
@@ -64,7 +64,7 @@ func (s *Server) registerWriteTools(server *gomcp.Server, readOnly bool) {
 	}, guarded(readOnly, s.createSilenceTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "set_update_policy",
-		Description: "Set what the operator wants about a service's image updates: '' follows updates, 'pinned' hides newer tags and digests, 'excluded' never queries the registry. Never pulls or restarts anything.",
+		Description: "Set what the operator wants about the image updates of a directory unit: watch follows updates, hold checks but never shows them, ignore never queries the registry. Every container attached to the unit follows it, recreated ones included. Never pulls or restarts anything.",
 		Annotations: writeHints(true),
 	}, guarded(readOnly, s.setUpdatePolicyTool))
 }
@@ -125,8 +125,8 @@ type silenceInput struct {
 }
 
 type updatePolicyInput struct {
-	ServiceID string `json:"service_id" jsonschema:"Service id, as returned by list_services"`
-	Policy    string `json:"policy" jsonschema:"'' to follow, 'pinned' or 'excluded'"`
+	UnitID string `json:"unit_id" jsonschema:"Unit id, as returned by list_declared_services"`
+	Policy string `json:"policy" jsonschema:"watch, hold or ignore"`
 }
 
 // --- Handlers ---
@@ -268,24 +268,17 @@ func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*go
 }
 
 func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInput) (*gomcp.CallToolResult, any, error) {
-	err := s.updates.SetPolicy(ctx, input.ServiceID, service.UpdatePolicy(input.Policy))
-	switch {
-	case errors.Is(err, update.ErrBadPolicy):
-		return toolRefuse("update.policy_invalid")
-	case errors.Is(err, service.ErrNotFound):
+	owner, err := s.directory.SetUnitUpdatePolicy(ctx, input.UnitID, service.UpdatePolicy(input.Policy))
+	if errors.Is(err, directory.ErrUnitNotFound) {
 		return toolRefuse(codeNotFound)
-	case err != nil:
-		return s.toolInternal("set_update_policy", err)
 	}
-	item, err := s.services.Get(ctx, input.ServiceID)
+	if key, refused := directoryRefusalKey(err); refused {
+		return toolRefuse(key)
+	}
 	if err != nil {
 		return s.toolInternal("set_update_policy", err)
 	}
-	response, err := s.serviceResponseOf(ctx, item)
-	if err != nil {
-		return s.toolInternal("set_update_policy", err)
-	}
-	return toolJSON(response.Service)
+	return toolJSON(declaredServiceToJSON(owner))
 }
 
 // parseInstant lit un instant RFC 3339 facultatif ; vide vaut zéro.

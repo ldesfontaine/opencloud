@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse } from "../api/types";
+import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse, UpdatePolicy } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -21,6 +21,7 @@ import {
   serviceFormOfDefinition,
   serviceRequestOf,
   toggled,
+  updatePolicies,
   type ServiceFormValues,
   type UnitFormValues,
 } from "../lib/directory";
@@ -269,7 +270,7 @@ export function DeclaredServiceForm() {
             <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || waiting}>
               {isEditing ? t("directory.save") : t("directory.create")}
             </Button>
-            <Button variant="ghost" to={isEditing ? `/services/annuaire/${id}` : "/services/annuaire"}>
+            <Button variant="ghost" to={isEditing ? `/services/annuaire/${id}` : "/services"}>
               {t("directory.cancel")}
             </Button>
           </div>
@@ -379,9 +380,21 @@ function UnitEditor({
         </Field>
       </div>
       {origin !== "binary" && (
-        <Field label={t("directory.unit_digest_label")} htmlFor={`${prefix}-digest`} help={t("directory.unit_digest_help")}>
-          <Input id={`${prefix}-digest`} mono type="text" value={unit.digest} onChange={(event) => change("digest", event.target.value)} maxLength={71} autoComplete="off" />
-        </Field>
+        <div className="grid-2">
+          <Field label={t("directory.unit_digest_label")} htmlFor={`${prefix}-digest`} help={t("directory.unit_digest_help")}>
+            <Input id={`${prefix}-digest`} mono type="text" value={unit.digest} onChange={(event) => change("digest", event.target.value)} maxLength={71} autoComplete="off" />
+          </Field>
+          {/* La politique ne vaut que pour un conteneur : un binaire se suit. */}
+          <Field label={t("directory.update_policy_label")} htmlFor={`${prefix}-policy`}>
+            <Select id={`${prefix}-policy`} value={unit.updatePolicy} onChange={(event) => change("updatePolicy", event.target.value as UpdatePolicy)}>
+              {updatePolicies.map((policy) => (
+                <option key={policy} value={policy}>
+                  {t(`update.policy_${policy}`)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
       )}
     </div>
   );

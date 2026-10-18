@@ -2,7 +2,7 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> annuaire, l'écart (2/5), 18 octobre 2026.
+> annuaire, les liens (3/6), 18 octobre 2026.
 
 ## Les acteurs
 
@@ -108,14 +108,14 @@ base ; voir « Ce qui est stocké, et où ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `services.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `services.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; le service effacé laisse la sonde et perd son rattachement. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`) et la politique de l'opérateur (`update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
+| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. Désactiver efface identifiant, empreinte et en-tête |
@@ -427,6 +427,11 @@ les labels viendront avec. Les labels de Compose, eux, sont lus : le
 projet, le service, le dossier et le fichier du projet. Les ports publiés
 s'affichent dans la colonne Domaine en attendant les domaines.
 
+**Ce que la fiche ne porte plus : la politique de mise à jour.** Elle vivait
+sur la fiche, donc sur l'identifiant Docker, et un conteneur recréé la
+perdait. Elle vit sur l'unité de l'annuaire (section suivante) : la fiche la
+lit par son unité, et une fiche qu'aucune unité ne rattache suit (`watch`).
+
 ## Comment l'annuaire se déclare
 
 L'annuaire est ce que l'opérateur **dit** exister, par opposition aux conteneurs
@@ -437,8 +442,8 @@ le rapprochement des deux est dit dans la section suivante.
   hexadécimaux), jamais tiré de Docker : recréer un conteneur ne le change pas.
   Il porte un nom, un titre facultatif, une machine, une nature
   (`application` ou `infra`), une origine (`compose`, `container` ou `binary`),
-  une adresse publique facultative, `declared_by` (`operator` ; `migration` vient
-  avec la migration de l'existant) et `needs_review`.
+  une adresse publique facultative, `declared_by` (`operator`, ou `migration` pour
+  un service que la montée de version a repris de l'existant) et `needs_review`.
 - **Le nom est unique par machine**, et le projet Compose l'est aussi
   (un service par machine et par projet Compose), de même que le nom d'un
   conteneur et celui d'une unité systemd. Un même nom peut vivre sur deux
@@ -463,9 +468,23 @@ le rapprochement des deux est dit dans la section suivante.
 - **Un projet** (`prj_` + 16 caractères) regroupe des services ; un service peut
   être dans plusieurs projets, ou dans aucun. Supprimer un projet ne retire que
   les liens : les services restent.
+- **La politique de mise à jour est sur l'unité** (`watch`, `hold`, `ignore` ;
+  par défaut `watch`). `PUT /api/directory/units/{id}/update-policy` la règle ;
+  un binaire n'a pas d'image à interroger et n'admet que `watch`
+  (`directory.update_policy_invalid`, 422 ; 404 `directory.unit_not_found`).
+  Éditer le service redit celle de chaque unité. Le détail est dans « Comment
+  une image est comparée à son registre ».
+- **Un service que des sondes ou des composants visent ne se supprime pas** :
+  `DELETE` répond 409 `directory.service_linked`, avec la liste de ce qui le lie
+  (`links.probes` et `links.components`, identifiant et nom). La fiche du
+  service donne la même liste. Détachez la sonde ou le composant, puis
+  supprimez.
 - **Une machine qui porte un service déclaré ne se retire pas** (`restrict`) :
   l'API répond 409 `machine.has_declared_services`. La machine locale reste
-  protégée comme avant (403).
+  protégée comme avant (403). Cela vaut aussi pour les services que la montée
+  de version a créés : pour retirer une machine, on retire dans l'ordre les
+  sondes et les composants qui visent ses services, puis ses services, puis la
+  machine (`restrict` à chaque étape, chacun avec sa liste).
 - **Les écritures** passent par `internal/directory`, une transaction par
   opération dans `internal/store/directory.go`. Chacune publie le sujet
   `directory` sur le bus.
@@ -476,6 +495,64 @@ le rapprochement des deux est dit dans la section suivante.
   (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
   la fiche d'un service et le formulaire (déclaration et édition).
+
+**La reprise de l'existant.** Avant cette version, une sonde, un composant de
+la page de statut et une politique de mise à jour visaient l'identifiant
+Docker d'un conteneur : le recréer (une mise à jour, un `compose up`) coupait
+le lien sans rien dire. La migration `024_directory_links.sql` les repointe sur
+l'annuaire, dans la même transaction que le reste, sans rien perdre :
+
+- **Seuls les conteneurs liés** reçoivent un service : ceux qu'une sonde, un
+  composant ou une politique visait. Les autres restent « non déclarés »,
+  adoptables comme avant. Un conteneur déjà rattaché par l'inventaire garde
+  son service.
+- **Le projet Compose, sans ce qui est arrêté.** Un conteneur lié d'un projet
+  Compose crée le service du projet, avec une unité par service Compose **lié
+  ou qui tourne** (`running` ou `restarting`), au plus 32. Un conteneur arrêté
+  que rien ne vise (l'`init` d'un projet, terminé en 0) n'a pas d'unité : il
+  reste « non déclaré », visible dans l'écart et adoptable. Sans cela, l'état
+  d'un service étant le pire de ses unités, le composant de la page de statut
+  passerait en panne le jour de la montée sans que rien n'ait changé. Les
+  fiches des services retenus sont toutes rattachées, archivées comprises.
+- **Les cas de repli.** Un nom de projet ou de service que l'annuaire refuse, ou
+  un service Compose qui ne tient pas dans les 32 unités, tombe sur un service
+  « conteneur seul ». Un projet que l'opérateur a **déjà déclaré** n'est jamais
+  recréé (un seul service Compose par machine et projet) : une fiche liée y
+  reçoit une unité, ou, si le service a déjà 32 unités, devient un conteneur
+  seul. Un nom de conteneur que l'unité d'un service déclaré porte déjà
+  rejoint cette unité plutôt que d'en créer une seconde. Un nom de service déjà
+  pris par la machine reçoit un suffixe (`-2`, `-3`).
+- **`declared_by` vaut `migration` et `needs_review` est levé** : ces services
+  sont les devinettes de la migration, pas la parole de l'opérateur. L'onglet
+  Annuaire les marque « à vérifier », `serve` écrit une ligne `declared
+  services to review` au journal avec leur nombre, et l'action **Valider**
+  (`POST /api/directory/services/{id}/actions/review`) lève le drapeau une fois
+  la définition relue. Valider refuse, avec la clé, une définition qui ne passe
+  pas la validation (une image que Docker montrait sous une forme que
+  l'annuaire n'admet pas) ; modifier le service ne le valide pas ; valider
+  deux fois ne change rien.
+- **Sondes et composants** : la sonde garde son historique (`probe_results`,
+  `probe_days`) et ses alertes, et vise le service ; deux conteneurs d'un même
+  projet qu'un composant affichait deviennent un seul membre (le premier dans
+  l'ordre).
+- **Politiques** : `''` devient `watch`, `pinned` devient `hold`, `excluded`
+  devient `ignore`. Plusieurs fiches pour une même unité : la plus récente qui
+  en portait une gagne, une vivante avant une archivée.
+- **Tout ou rien.** La migration tourne avec les clés étrangères coupées (un
+  `DROP TABLE` ne doit emporter ni les résultats des sondes ni les membres),
+  puis le runner les vérifie (`PRAGMA foreign_key_check`) et compte ce qui
+  devait survivre avant le COMMIT. Au moindre écart, rien n'est écrit et
+  `serve` refuse de démarrer. Voir `installation.md` pour le retour arrière.
+
+Ce que devient chaque lien quand un conteneur est recréé (nouvel identifiant
+Docker, même service) :
+
+| Lien | Avant | Après |
+| --- | --- | --- |
+| Sonde | Restait sur l'ancienne fiche, archivée ; à la purge (30 jours), `service_id` passait à NULL : la sonde survivait, sans service | Garde son service déclaré |
+| Membre d'un composant | Restait sur l'ancienne fiche : le composant la voyait « disparue » (panne), puis perdait le membre à la purge | Garde son service déclaré ; l'état se lit sur les conteneurs vivants de ses unités |
+| Politique de mise à jour | Restait sur l'ancienne fiche ; la nouvelle repartait à « suivre » | Sur l'unité : le nouveau conteneur la suit |
+| Alerte et silence | Sur la fiche | Toujours sur le conteneur (voir « Comment une alerte naît ») |
 
 Chaque écriture de l'annuaire demande ensuite à la machine concernée de
 rapprocher ses conteneurs (section suivante).
@@ -723,9 +800,13 @@ les CVE, le changelog, le score de risque, n'a pas été repris.
    la fiche dit de le recréer avec ses options, qu'openCloud ne connaît
    pas. Une rétrogradation est impossible par construction : seul un tag
    strictement plus récent est nommé.
-6. **La politique se règle sur la fiche** : suivre (par défaut),
-   **épingler** (vérifié, ni montré ni compté), **exclure** (le registre
-   n'est jamais interrogé). Le serveur pousse à l'agent la liste des
+6. **La politique se règle sur l'unité de l'annuaire**, pas sur la fiche :
+   `watch` (par défaut), `hold` (vérifié, ni montré ni compté), `ignore` (le
+   registre n'est jamais interrogé). Tous les conteneurs rattachés à l'unité
+   la suivent, les recréés comme les répliques ; une fiche qu'aucune unité
+   ne rattache suit (`watch`), et la carte de la fiche propose de déclarer le
+   service pour régler la politique. Les anciens `pinned` et `excluded` sont
+   devenus `hold` et `ignore` à la migration. Le serveur pousse à l'agent la liste des
    images exclues par la commande `image_checks` du flux, à l'ouverture
    et à chaque changement ; « Vérifier maintenant » pousse la même
    commande avec `now`, et l'agent repasse sur toutes ses images. Une
@@ -850,7 +931,7 @@ machine du service, la même sonde la voit depuis l'intérieur, ce qui
 marche derrière un NAT.
 
 1. L'opérateur crée la sonde : un nom, un type (HTTP ou TCP), une cible,
-   une machine, un service facultatif, un intervalle, un délai et deux
+   une machine, un service de l'annuaire facultatif, un intervalle, un délai et deux
    seuils. Venue d'une fiche de service, elle arrive pré-remplie sur le
    premier port publié. La sonde est « Nouveau » : rien n'est su tant
    qu'aucun essai n'est revenu.
@@ -923,9 +1004,12 @@ la clé du catalogue. Le compte et l'insertion se font sous un même verrou :
 deux créations simultanées ne passent pas toutes deux sur la dernière
 place, et il en va de même des composants, des canaux et des jetons d'API.
 L'intervalle va de 30 s à 24 h, le délai de 1 s à 30 s sans dépasser
-l'intervalle. Le service surveillé, quand il est donné, doit exister et
-tourner sur la machine qui sonde : sinon la création est refusée
-(`probe.service_invalid`, 422), jamais en erreur interne.
+l'intervalle. Le service surveillé, quand il est donné, est un **service de
+l'annuaire**, sur n'importe quelle machine : il doit exister, sinon la
+création est refusée (`probe.service_invalid`, 422), jamais en erreur
+interne. Le lien est en `restrict` : le service ne se supprime pas tant qu'une
+sonde le vise. La sonde qui sonde de l'extérieur un service d'une autre
+machine est le cas courant.
 
 **Une sonde s'édite sur place.** `PUT /api/probes/{id}` remplace la
 définition entière, comme la création la donne : un champ omis prend sa
@@ -1105,10 +1189,16 @@ choisit pas —, en clair ou en sombre selon son système.
 | Sonde | nouvelle, en pause | ne compte pas |
 | Tâche | en retard, en échec | dégradé |
 | Tâche | nouvelle, en pause | ne compte pas |
-| Service | arrêté, défaillant, mort, en pause, disparu | panne |
-| Service | redémarre, démarre | dégradé |
-| Service | créé sans avoir tourné | ne compte pas |
+| Service déclaré | une de ses unités conteneur est arrêtée, défaillante, morte, en pause, disparue, ou sans conteneur vivant | panne |
+| Service déclaré | une de ses unités redémarre ou démarre | dégradé |
+| Service déclaré | tous ses conteneurs sont créés sans avoir tourné, ou il n'a que des binaires | ne compte pas |
 | Machine | hors ligne | panne |
+
+**La règle d'état d'un service déclaré** : le pire de ses unités conteneur ;
+une unité prend le pire de ses conteneurs vivants rattachés, et une unité
+sans conteneur vivant est en panne, comme un conteneur disparu : le visiteur
+ne voit pas la différence, et l'état ne dépend plus d'un identifiant Docker.
+Un binaire ne compte pas, aucun agent ne le regarde encore.
 
 Quatre états et pas cinq : un composant est une chose pour le visiteur,
 s'il est en panne il est en panne. Une maintenance passe devant un dégradé,
@@ -1164,6 +1254,10 @@ composant qui sait, lui qui parle.
    Une alerte ouverte sous un silence, ou sur un objet rattaché à un
    composant sous **maintenance en cours** de la page de statut, est
    **silencieuse** : montrée, jamais envoyée, même quand le silence tombe.
+   Les alertes et les silences restent sur le **conteneur** (`object_kind
+   service` désigne toujours une fiche) ; la maintenance se lit par l'unité :
+   le conteneur rattaché à une unité est sous maintenance quand le service
+   déclaré de cette unité est membre d'un composant en maintenance.
 5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
    ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
    Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
@@ -1492,7 +1586,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `pause_probe`, `resume_probe`, `pause_job`, `resume_job` | Mettre en pause, reprendre | `probe.not_paused`, `job.not_paused` |
 | `open_incident`, `add_incident_update` | Ouvrir un incident public, ajouter au fil, résoudre | les clés de l'API : `incident.impact_invalid`, `incident.already_resolved`… |
 | `create_silence` | Faire taire un type, un objet, ou les deux, pendant une durée | `silence.invalid`, `silence.duration_invalid` |
-| `set_update_policy` | Suivre, épingler ou exclure une image | `update.policy_invalid` |
+| `set_update_policy` | Régler la politique d'une unité de l'annuaire : `watch`, `hold` ou `ignore` (`unit_id`, `policy`) | `directory.update_policy_invalid`, `not_found` |
 
 **Ce que MCP ne peut jamais faire** : agir sur une machine (aucune
 commande, aucun redémarrage, aucun déploiement), créer ou modifier un
@@ -1690,7 +1784,9 @@ refusés avant d'envoyer quoi que ce soit.
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se compile et se copie à la main. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
-| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par le projet Compose et par le nom du conteneur ; pas encore par label (rien ne déploie), et un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | Annuaire 3/5 et suivantes |
+| L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par le projet Compose et par le nom du conteneur ; pas encore par label (rien ne déploie), et un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | Annuaire 4/6 et suivantes |
+| Alertes, silences et historique pas encore sur l'annuaire | Une alerte, un silence, les transitions et les mesures restent sur le **conteneur** (son identifiant Docker) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau, et l'historique d'un service déclaré est celui de la fiche courante. Seules les sondes, les membres de composants et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
+| Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
@@ -1738,7 +1834,7 @@ refusés avant d'envoyer quoi que ce soit.
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
 | 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `alert_silences`, les crochets `Alerter` des composants et le `Listener` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
-| 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `services`, la purge, les routes `PUT /api/services/{id}/update-policy` et `POST /api/machines/{id}/actions/check-updates`, le champ `image_check` des services et `services.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
+| 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `services`, la purge, la route `POST /api/machines/{id}/actions/check-updates` (`PUT /api/services/{id}/update-policy` a été remplacée par `PUT /api/directory/units/{id}/update-policy`), le champ `image_check` des services et `services.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |
 | 14 · MCP | Le paquet `internal/mcp` et la migration `011_mcp.sql` (`mcp_clients`, `mcp_codes`, `mcp_tokens`), le serveur MCP et ses 25 outils dans `internal/server` (`mcp.go`, `mcp_tools_read.go`, `mcp_tools_write.go`), les routes `/mcp`, `/oauth/authorize`, `/oauth/token`, les deux `/.well-known/oauth-*`, l'API `/api/mcp…`, la purge toutes les 15 minutes, la sous-commande `opencloud mcp`, la page Paramètres (activer, secret montré une fois, adresses de retour, jetons d'API, sessions, commande du client local), la dépendance `github.com/modelcontextprotocol/go-sdk`, les goldens `mcp_*.golden.json` |
 | Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres |
@@ -1752,3 +1848,4 @@ refusés avant d'envoyer quoi que ce soit.
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |
 | Annuaire (1/5) | Le paquet `internal/directory` (identité propre, validation, création et édition sur place des services, unités, fournitures et projets), la migration `022_directory.sql` (`projects`, `declared_services`, `service_units`, `service_provides`, `project_services`), `internal/store/directory.go`, le refus 409 `machine.has_declared_services` au retrait d'une machine, les dix routes `/api/directory/…`, le sujet `directory`, les onglets Annuaire et Projets de la page Services, la fiche et le formulaire de service |
 | Annuaire (2/5) | Le rapprochement `internal/directory/match.go` (deux niveaux) et son application par le suivi des conteneurs (`Tracker.SetUnits`, `Rematch`, `RematchAll`, verrou par machine), la migration `023_container_units.sql` (`services.unit_id`, `services.match_level`, `ignored_keys`), le calcul de l'écart `gap.go`, la proposition d'adoption `propose.go`, les quatre routes `/api/directory/gaps`, `/proposal` et `/ignored`, `directory` sur la fiche d'un conteneur, l'outil MCP `list_declared_services`, la colonne Écart, la liste des non déclarés, l'adoption dans le formulaire et la carte Annuaire |
+| Annuaire (3/6) | Les liens : la migration `024_directory_links.sql` et son étape Go `store.linkContainersToDirectory` (`internal/store/migrate_024.go`, requêtes figées sur le schéma 23, vérification de ce qui devait survivre), le runner de migrations hors clés étrangères avec `PRAGMA foreign_key_check` avant le COMMIT (`internal/store/store.go`, pour toutes les migrations), le plan pur `directory.PlanLinks`, `service_units.update_policy` (`watch`, `hold`, `ignore`) à la place de `services.update_policy`, `probes.service_id` et le membre `service` d'un composant vers `declared_services` en `restrict`, la suppression refusée avec la liste (409 `directory.service_linked`, `links` sur la fiche), les routes `POST /api/directory/services/{id}/actions/review` et `PUT /api/directory/units/{id}/update-policy`, l'outil MCP `set_update_policy` sur une unité, la règle d'état d'un service déclaré dans la page de statut, la ligne `declared services to review` au journal, la marque « à vérifier » et l'action Valider, la sonde sur n'importe quelle machine, la carte Mise à jour qui lit la politique de l'unité |

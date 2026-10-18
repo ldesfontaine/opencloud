@@ -21,7 +21,20 @@ type Store interface {
 	UpdateDeclaredService(ctx context.Context, service Service) error
 	GetDeclaredService(ctx context.Context, id string) (Service, error)
 	ListDeclaredServices(ctx context.Context, filter Filter) ([]Service, error)
+	// DeleteDeclaredService compte ce qui vise le service et le supprime dans
+	// la même transaction : si des sondes ou des composants le visent encore,
+	// rien n'est supprimé et l'erreur est un *LinkedError.
 	DeleteDeclaredService(ctx context.Context, id string) error
+	// ListServiceLinks rend les sondes et les composants de statut qui
+	// visent le service.
+	ListServiceLinks(ctx context.Context, serviceID string) (Links, error)
+	// MarkServiceReviewed baisse « à vérifier » et date la validation.
+	MarkServiceReviewed(ctx context.Context, id string, at time.Time) error
+	// GetUnit rend une unité, ErrUnitNotFound si elle n'existe plus.
+	GetUnit(ctx context.Context, id string) (Unit, error)
+	// SetUnitUpdatePolicy écrit la politique de l'unité et rien d'autre ;
+	// ErrUnitNotFound si elle n'existe plus.
+	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) error
 	InsertProject(ctx context.Context, project Project) error
 	UpdateProject(ctx context.Context, project Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
@@ -56,6 +69,12 @@ type Rematcher interface {
 	Rematch(ctx context.Context, machineID string) error
 }
 
+// Assigner redit à une machine les images qu'elle ne doit plus interroger :
+// c'est la politique des unités qui les désigne. nil est toléré.
+type Assigner interface {
+	Assign(ctx context.Context, machineID string)
+}
+
 // Watcher reçoit chaque changement visible : le direct s'y branche. nil
 // est toléré.
 type Watcher interface {
@@ -68,6 +87,7 @@ type Directory struct {
 	containers Containers
 	checks     ImageChecks
 	rematcher  Rematcher
+	assigner   Assigner
 	logger     *slog.Logger
 	now        func() time.Time
 }
@@ -93,6 +113,10 @@ func (d *Directory) SetObserved(containers Containers, checks ImageChecks) {
 
 func (d *Directory) SetRematcher(rematcher Rematcher) {
 	d.rematcher = rematcher
+}
+
+func (d *Directory) SetAssigner(assigner Assigner) {
+	d.assigner = assigner
 }
 
 func (d *Directory) changed() {
@@ -135,7 +159,7 @@ func (d *Directory) CreateService(ctx context.Context, definition ServiceDefinit
 		return Service{}, err
 	}
 	d.logger.Info("declared service created", "service_id", id, "name", created.Name, "machine_id", created.MachineID)
-	d.rematch(ctx, created.MachineID)
+	d.settle(ctx, created.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
 }
@@ -165,25 +189,29 @@ func (d *Directory) UpdateService(ctx context.Context, id string, definition Ser
 		return Service{}, err
 	}
 	d.logger.Info("declared service updated", "service_id", id, "name", updated.Name, "machine_id", updated.MachineID)
-	d.rematch(ctx, before.MachineID, updated.MachineID)
+	d.settle(ctx, before.MachineID, updated.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
 }
 
-// rematch rattache de nouveau les conteneurs des machines dites, une fois
-// l'écriture validée : la règle lit l'annuaire, elle ne peut pas le faire
-// pendant la transaction. Un échec n'annule pas l'écriture, que
-// l'opérateur a faite ; le rapport suivant de la machine rattrapera.
-func (d *Directory) rematch(ctx context.Context, machineIDs ...string) {
-	if d.rematcher == nil {
-		return
-	}
+// settle rattache de nouveau les conteneurs des machines dites, une fois
+// l'écriture validée, puis leur redit les images à ne pas interroger : la
+// règle lit l'annuaire, elle ne peut pas le faire pendant la transaction, et
+// la politique d'un conteneur est celle de l'unité où il vient d'arriver ou
+// dont il vient de partir. Un échec n'annule pas l'écriture, que l'opérateur
+// a faite ; le rapport suivant de la machine rattrapera.
+func (d *Directory) settle(ctx context.Context, machineIDs ...string) {
 	for index, machineID := range machineIDs {
 		if index > 0 && machineID == machineIDs[0] {
 			continue
 		}
-		if err := d.rematcher.Rematch(ctx, machineID); err != nil {
-			d.logger.Warn("rematch containers", "machine", machineID, "error", err)
+		if d.rematcher != nil {
+			if err := d.rematcher.Rematch(ctx, machineID); err != nil {
+				d.logger.Warn("rematch containers", "machine", machineID, "error", err)
+			}
+		}
+		if d.assigner != nil {
+			d.assigner.Assign(ctx, machineID)
 		}
 	}
 }
@@ -268,21 +296,91 @@ func unitOf(id, serviceID string, definition UnitDefinition) Unit {
 		ContainerName: definition.ContainerName,
 		SystemdUnit:   definition.SystemdUnit,
 		Ports:         definition.Ports,
+		UpdatePolicy:  definition.UpdatePolicy,
 	}
 }
 
+// DeleteService retire le service. Des sondes ou des composants de statut
+// qui le visent encore le retiennent : l'erreur dit lesquels, et rien n'est
+// supprimé en silence.
 func (d *Directory) DeleteService(ctx context.Context, id string) error {
 	found, err := d.store.GetDeclaredService(ctx, id)
 	if err != nil {
 		return err
 	}
 	if err := d.store.DeleteDeclaredService(ctx, id); err != nil {
+		var linked *LinkedError
+		if errors.As(err, &linked) {
+			d.logger.Info("declared service deletion refused", "service_id", id,
+				"probes", len(linked.Links.Probes), "components", len(linked.Links.Components))
+		}
 		return err
 	}
 	d.logger.Info("declared service deleted", "service_id", id, "name", found.Name)
-	d.rematch(ctx, found.MachineID)
+	d.settle(ctx, found.MachineID)
 	d.changed()
 	return nil
+}
+
+// ServiceLinks dit ce qui vise le service : ses sondes et les composants de
+// statut où il figure.
+func (d *Directory) ServiceLinks(ctx context.Context, id string) (Links, error) {
+	return d.store.ListServiceLinks(ctx, id)
+}
+
+// Review valide un service repris de l'existant : « à vérifier » tombe, mais
+// seulement si sa définition passe la validation que l'opérateur subirait en
+// la créant. Sinon on validerait une unité mal reprise. Le refus est celui de
+// la première règle violée ; modifier le service ne le valide pas. Valider
+// deux fois ne change rien.
+func (d *Directory) Review(ctx context.Context, id string) (Service, error) {
+	found, err := d.store.GetDeclaredService(ctx, id)
+	if err != nil {
+		return Service{}, err
+	}
+	if !found.NeedsReview {
+		return found, nil
+	}
+	definition := definitionOf(found).Complete()
+	if err := definition.Validate(); err != nil {
+		return Service{}, err
+	}
+	if err := d.store.MarkServiceReviewed(ctx, id, d.now()); err != nil {
+		return Service{}, err
+	}
+	d.logger.Info("declared service reviewed", "service_id", id, "name", found.Name)
+	d.changed()
+	return d.store.GetDeclaredService(ctx, id)
+}
+
+// SetUnitUpdatePolicy règle ce que l'opérateur veut des mises à jour d'une
+// unité : tous ses conteneurs la suivent, ceux qui seront recréés aussi. Elle
+// ne tire ni ne redémarre rien. La machine est prévenue des images qu'elle ne
+// doit plus interroger.
+func (d *Directory) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) (Service, error) {
+	if !service.IsUpdatePolicy(policy) {
+		return Service{}, ErrUpdatePolicyInvalid
+	}
+	unit, err := d.store.GetUnit(ctx, unitID)
+	if err != nil {
+		return Service{}, err
+	}
+	if unit.Kind == UnitBinary && policy != service.PolicyWatch {
+		return Service{}, ErrUpdatePolicyInvalid
+	}
+	if err := d.store.SetUnitUpdatePolicy(ctx, unitID, policy); err != nil {
+		return Service{}, err
+	}
+	owner, err := d.store.GetDeclaredService(ctx, unit.ServiceID)
+	if err != nil {
+		return Service{}, err
+	}
+	d.logger.Info("unit update policy set", "service_id", owner.ID, "unit_id", unitID, "policy", policy)
+	if d.assigner != nil {
+		d.assigner.Assign(ctx, owner.MachineID)
+	}
+	d.changed()
+	return owner, nil
 }
 
 func (d *Directory) ListProjects(ctx context.Context) ([]Project, error) {

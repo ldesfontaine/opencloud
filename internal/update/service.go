@@ -20,8 +20,6 @@ const (
 // Ce que le composant attend de la base ; le package store le fournit.
 type Store interface {
 	ListServices(ctx context.Context, machineID string) ([]service.Service, error)
-	GetService(ctx context.Context, id string) (service.Service, error)
-	SetServiceUpdatePolicy(ctx context.Context, id string, policy service.UpdatePolicy) error
 	// ApplyImageChecks écrase le constat de chaque (machine, image).
 	ApplyImageChecks(ctx context.Context, checks []Check) error
 	// ListImageChecks rend les constats d'une machine ; de toutes si vide.
@@ -47,8 +45,8 @@ type Watcher interface {
 	ServicesChanged(machineID string)
 }
 
-// Service est le composant côté serveur : il écrit les constats, tient
-// la politique des fiches, et dit aux agents quoi ne pas interroger.
+// Service est le composant côté serveur : il écrit les constats, et dit aux
+// agents quoi ne pas interroger, d'après la politique des unités de l'annuaire.
 type Service struct {
 	store   Store
 	watcher Watcher
@@ -108,7 +106,7 @@ func (s *Service) Record(ctx context.Context, machineID string, report Report) e
 }
 
 // Assign dit à une machine les images à ne jamais interroger : celles
-// des services exclus. Une machine hors ligne le recevra à sa prochaine
+// des conteneurs dont l'unité est en politique « ignore ». Une machine hors ligne le recevra à sa prochaine
 // connexion, qui commence par là.
 func (s *Service) Assign(ctx context.Context, machineID string) {
 	if err := s.assign(ctx, machineID, false); err != nil {
@@ -129,7 +127,7 @@ func (s *Service) assign(ctx context.Context, machineID string, now bool) error 
 	}
 	assignment := Assignment{Now: now}
 	for _, found := range services {
-		if found.UpdatePolicy == service.PolicyExcluded && !found.IsArchived() {
+		if found.UpdatePolicy == service.PolicyIgnore && !found.IsArchived() {
 			assignment.Excluded = append(assignment.Excluded, found.Image)
 		}
 	}
@@ -146,26 +144,6 @@ func (s *Service) assign(ctx context.Context, machineID string, now bool) error 
 	}
 	if err := commander.Command(machineID, CommandImages, assignment); err != nil {
 		return ErrMachineOffline
-	}
-	return nil
-}
-
-// SetPolicy règle ce que l'opérateur veut des mises à jour d'un service,
-// puis redit à sa machine ce qu'elle ne doit plus interroger.
-func (s *Service) SetPolicy(ctx context.Context, serviceID string, policy service.UpdatePolicy) error {
-	if !service.IsUpdatePolicy(policy) {
-		return ErrBadPolicy
-	}
-	found, err := s.store.GetService(ctx, serviceID)
-	if err != nil {
-		return err
-	}
-	if err := s.store.SetServiceUpdatePolicy(ctx, serviceID, policy); err != nil {
-		return err
-	}
-	s.Assign(ctx, found.MachineID)
-	if s.watcher != nil {
-		s.watcher.ServicesChanged(found.MachineID)
 	}
 	return nil
 }
@@ -194,8 +172,8 @@ func CheckFor(checks map[string]Check, found service.Service) (Check, bool) {
 	return check, ok
 }
 
-// Count rend le nombre de services vivants qui ont une mise à jour et
-// dont l'opérateur veut la voir : c'est ce que la vue d'ensemble compte.
+// Count rend le nombre de conteneurs vivants qui ont une mise à jour et
+// dont l'opérateur veut la voir (politique « watch ») : c'est ce que la vue d'ensemble compte.
 func (s *Service) Count(ctx context.Context) (int, error) {
 	services, err := s.store.ListServices(ctx, "")
 	if err != nil {
@@ -207,7 +185,7 @@ func (s *Service) Count(ctx context.Context) (int, error) {
 	}
 	count := 0
 	for _, found := range services {
-		if found.IsArchived() || found.UpdatePolicy != service.PolicyFollow {
+		if found.IsArchived() || found.UpdatePolicy != service.PolicyWatch {
 			continue
 		}
 		if check, ok := CheckFor(checks, found); ok && check.HasUpdate() {

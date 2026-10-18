@@ -1,9 +1,12 @@
 import { useState } from "react";
 
+import { Link } from "react-router";
+
 import { api } from "../api/client";
-import type { Service, UpdatePolicy } from "../api/types";
+import type { ContainerDirectory, Service, UpdatePolicy } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
+import { adoptPath } from "../lib/gaps";
 import { useRefresh } from "../lib/refresh";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
@@ -12,6 +15,7 @@ import { Card, CardBody, CardHeader, KeyValue } from "./Card";
 import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
+import { Select } from "./Field";
 import { Pill } from "./Pill";
 import { SupportBlock } from "./SupportBlock";
 import "./UpdateCard.scss";
@@ -23,9 +27,13 @@ const defaultComposeFile = "compose.yaml";
 // l'image, la ligne du fichier Compose à changer, la commande à copier,
 // jamais exécutée, et vérifier maintenant. Quand la fin de support est
 // activée, le support de la version suit, sous un trait.
-// Les empreintes et le suivi (épingler, exclure) sont repliés : on les
-// règle une fois. Le pli s'ouvre seul quand une politique est posée.
-export function UpdateCard({ service, reload }: { service: Service; reload: () => void }) {
+// Les empreintes et la politique sont repliées : on les règle une fois. La
+// politique vit sur l'unité de l'annuaire, pas sur ce conteneur : elle
+// survit à sa recréation, et un conteneur non déclaré n'en a pas à régler.
+// Le pli s'ouvre seul quand une politique est posée.
+const policies: readonly UpdatePolicy[] = ["watch", "hold", "ignore"];
+
+export function UpdateCard({ service, directory, reload }: { service: Service; directory: ContainerDirectory | null; reload: () => void }) {
   const { t } = useI18n();
   const now = useNow();
   const { refresh } = useRefresh();
@@ -35,10 +43,11 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
   const available = updateAvailable(service);
   const lineChange = check !== null ? imageLineChange(service, check) : null;
 
+  const unitID = directory !== null && directory.declared ? directory.unit_id : "";
   const setPolicy = (policy: UpdatePolicy) => {
     setError(null);
     api
-      .put(`/api/services/${service.id}/update-policy`, { policy })
+      .put(`/api/directory/units/${unitID}/update-policy`, { policy })
       .then(() => {
         reload();
         refresh();
@@ -65,12 +74,12 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
       <CardBody gap={12}>
         {error !== null && <Failure error={error} />}
         <div className="update-state">
-          {service.update_policy !== "" && <Pill tone="neutral">{t(`update.policy_${service.update_policy}`)}</Pill>}
+          {service.update_policy !== "watch" && <Pill tone="neutral">{t(`update.policy_${service.update_policy}`)}</Pill>}
           {available && check !== null && <Pill tone="accent">{t(`update.kind_${check.kind}`)}</Pill>}
           <span>{check === null ? t("update.never_checked") : checkText(t, check)}</span>
         </div>
-        {service.update_policy === "pinned" && <span className="secondary">{t("update.pinned_note")}</span>}
-        {service.update_policy === "excluded" && <span className="secondary">{t("update.excluded_note")}</span>}
+        {service.update_policy === "hold" && <span className="secondary">{t("update.hold_note")}</span>}
+        {service.update_policy === "ignore" && <span className="secondary">{t("update.ignore_note")}</span>}
         {available && check !== null && check.command !== "" && (
           <div className="update-command">
             <span className="secondary">{t("update.command_title")}</span>
@@ -97,7 +106,7 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
           </Button>
           {checking === "asked" && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
-        <Fold label={t("update.details")} initiallyOpen={service.update_policy !== ""}>
+        <Fold label={t("update.details")} initiallyOpen={service.update_policy !== "watch"}>
           {check !== null && check.local_digest !== "" && (
             <div className="update-digests">
               <KeyValue label={t("update.local_digest")} value={shortDigest(check.local_digest)} mono />
@@ -105,24 +114,31 @@ export function UpdateCard({ service, reload }: { service: Service; reload: () =
               {check.newer_digest !== "" && <KeyValue label={t("update.newer_digest")} value={shortDigest(check.newer_digest)} mono />}
             </div>
           )}
-          <div className="update-actions">
-            {service.update_policy === "pinned" ? (
-              <Button small onClick={() => setPolicy("")}>
-                {t("update.unpin")}
-              </Button>
+          <div className="update-policy">
+            <Select
+              aria-label={t("directory.update_policy_label")}
+              value={service.update_policy}
+              disabled={unitID === ""}
+              onChange={(event) => setPolicy(event.target.value as UpdatePolicy)}
+            >
+              {policies.map((policy) => (
+                <option key={policy} value={policy}>
+                  {t(`update.policy_${policy}`)}
+                </option>
+              ))}
+            </Select>
+            {directory !== null && directory.declared ? (
+              <Link to={`/services/annuaire/${directory.service_id}`}>{t("update.policy_on_unit", directory.unit_name, directory.service_name)}</Link>
             ) : (
-              <Button small onClick={() => setPolicy("pinned")}>
-                {t("update.pin")}
-              </Button>
-            )}
-            {service.update_policy === "excluded" ? (
-              <Button small onClick={() => setPolicy("")}>
-                {t("update.include")}
-              </Button>
-            ) : (
-              <Button small onClick={() => setPolicy("excluded")}>
-                {t("update.exclude")}
-              </Button>
+              <span className="secondary">
+                {t("update.policy_needs_declaration")}
+                {service.archived_at === null && (
+                  <>
+                    {" "}
+                    <Link to={adoptPath(service.id)}>{t("gap.adopt")}</Link>
+                  </>
+                )}
+              </span>
             )}
           </div>
         </Fold>

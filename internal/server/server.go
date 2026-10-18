@@ -114,7 +114,12 @@ type DirectoryService interface {
 	GetService(ctx context.Context, id string) (directory.Service, error)
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
+	// DeleteService refuse avec un *directory.LinkedError tant que des
+	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
+	ServiceLinks(ctx context.Context, id string) (directory.Links, error)
+	Review(ctx context.Context, id string) (directory.Service, error)
+	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) (directory.Service, error)
 	ListProjects(ctx context.Context) ([]directory.Project, error)
 	GetProject(ctx context.Context, id string) (directory.Project, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
@@ -137,7 +142,6 @@ type UpdateService interface {
 	Record(ctx context.Context, machineID string, report update.Report) error
 	Checks(ctx context.Context, machineID string) (map[string]update.Check, error)
 	Count(ctx context.Context) (int, error)
-	SetPolicy(ctx context.Context, serviceID string, policy service.UpdatePolicy) error
 	CheckNow(ctx context.Context, machineID string) error
 	Assign(ctx context.Context, machineID string)
 }

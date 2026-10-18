@@ -4,7 +4,7 @@ import type { NetworkResponse, Probe, Service } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT, type Translate } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";
-import { internetID, peersOf, publicPorts } from "../lib/network";
+import { internetID, peersOf, probesOf, publicPorts } from "../lib/network";
 import { findingText, formatBindings, needsCaution, serviceIcon } from "../lib/services";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
@@ -42,7 +42,7 @@ function CertificateRow({ service, probes }: { service: Service; probes: Probe[]
   const t = useT();
   const now = useNow();
   const thresholds = useCertificateThresholds();
-  const watched = probes.filter((probe) => probe.service_id === service.id).map((probe) => probe.certificate);
+  const watched = probesOf(probes, service).map((probe) => probe.certificate);
   const certificate = soonest(watched);
   if (certificate === null) {
     return null;

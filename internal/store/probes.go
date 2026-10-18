@@ -11,7 +11,7 @@ import (
 )
 
 const probeColumns = `p.id, p.name, p.kind, p.target, p.machine_id, COALESCE(m.name, ''),
-	COALESCE(p.service_id, ''), COALESCE(s.name, ''), p.status,
+	COALESCE(p.service_id, ''), COALESCE(s.name, ''), COALESCE(sm.name, ''), p.status,
 	p.interval_seconds, p.timeout_seconds, p.failure_threshold, p.recovery_threshold,
 	p.method, p.expected_status, p.expected_body, p.follow_redirects, p.tls,
 	p.consecutive_failures, p.consecutive_successes,
@@ -22,7 +22,8 @@ const probeColumns = `p.id, p.name, p.kind, p.target, p.machine_id, COALESCE(m.n
 
 const probeFrom = ` FROM probes p
 	JOIN machines m ON m.id = p.machine_id
-	LEFT JOIN services s ON s.id = p.service_id`
+	LEFT JOIN declared_services s ON s.id = p.service_id
+	LEFT JOIN machines sm ON sm.id = s.machine_id`
 
 func (db *DB) InsertProbe(ctx context.Context, item probe.Probe) error {
 	_, err := db.sql.ExecContext(ctx, `
@@ -144,6 +145,17 @@ func (db *DB) CountProbeCertificates(ctx context.Context, now, before time.Time)
 	}
 	counted.Soonest = timeOf(soonest)
 	return counted, nil
+}
+
+// DeclaredServiceExists dit si le service de l'annuaire existe : la sonde
+// qui le vise le dit sur n'importe quelle machine.
+func (db *DB) DeclaredServiceExists(ctx context.Context, id string) (bool, error) {
+	var exists bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM declared_services WHERE id = ?)`, id).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check declared service: %w", err)
+	}
+	return exists, nil
 }
 
 func (db *DB) CountProbesOnMachine(ctx context.Context, machineID string) (int, error) {
@@ -372,7 +384,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	var revisedAt sql.NullInt64
 	err := row.Scan(
 		&item.ID, &item.Name, &kind, &item.Target, &item.MachineID, &item.MachineName,
-		&item.ServiceID, &item.ServiceName, &status,
+		&item.ServiceID, &item.ServiceName, &item.ServiceMachineName, &status,
 		&intervalSeconds, &timeoutSeconds, &item.FailureThreshold, &item.RecoveryThreshold,
 		&item.Method, &item.ExpectedStatus, &item.ExpectedBody, &followRedirects, &useTLS,
 		&item.ConsecutiveFailures, &item.ConsecutiveSuccesses,

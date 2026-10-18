@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { api, ApiError, errorKey } from "../api/client";
-import type { JobsResponse, MachinesResponse, MemberKind, ProbesResponse, ServicesResponse, StatusComponent, StatusMember } from "../api/types";
+import type { DeclaredServicesResponse, JobsResponse, MachinesResponse, MemberKind, ProbesResponse, StatusComponent, StatusMember } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -48,7 +48,8 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
   const navigate = useNavigate();
   const { refresh } = useRefresh();
   const machines = useResource<MachinesResponse>("/api/machines");
-  const services = useResource<ServicesResponse>("/api/services");
+  // Un membre « service » est un service déclaré : il survit à la recréation de ses conteneurs.
+  const services = useResource<DeclaredServicesResponse>("/api/directory/services");
   const jobs = useResource<JobsResponse>("/api/jobs");
   const probes = useResource<ProbesResponse>("/api/probes");
   const [name, setName] = useState(existing?.name ?? "");
@@ -61,7 +62,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
 
   const candidates: Record<MemberKind, Candidate[]> = {
     machine: machines.data?.machines ?? [],
-    service: (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine(service) })),
+    service: (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine({ name: service.title !== "" ? service.title : service.name, machine_name: service.machine_name }) })),
     heartbeat: (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: nameWithMachine(job) })),
     probe: (probes.data?.probes ?? []).map((probe) => ({ id: probe.id, name: nameWithMachine(probe) })),
   };

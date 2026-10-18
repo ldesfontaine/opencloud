@@ -176,10 +176,12 @@ type Probe struct {
 	// Sans son flux, la machine ne sonde pas : l'état montré est le dernier
 	// connu, et l'interface le dit.
 	MachineOnline bool
-	// Le service surveillé ; vide quand la sonde ne tient à aucun. Le
-	// service supprimé, la sonde reste et perd son rattachement.
-	ServiceID   string
-	ServiceName string
+	// Le service de l'annuaire surveillé, sur n'importe quelle machine ; vide
+	// quand la sonde ne tient à aucun. Un service que des sondes visent ne se
+	// supprime pas : il faut les détacher d'abord.
+	ServiceID          string
+	ServiceName        string
+	ServiceMachineName string
 
 	Status            Status
 	Interval          time.Duration
@@ -338,7 +340,7 @@ var (
 	ErrTargetInvalid    = errors.New("probe target is not a valid url or host:port")
 	ErrTargetForbidden  = errors.New("probe target is a link-local address")
 	ErrMachineInvalid   = errors.New("probe machine is required")
-	ErrServiceInvalid   = errors.New("probe service must exist and run on the probe machine")
+	ErrServiceInvalid   = errors.New("probe service must exist in the directory")
 	ErrIntervalInvalid  = errors.New("probe interval must be between 30 seconds and 24 hours")
 	ErrTimeoutInvalid   = errors.New("probe timeout must be between 1 second and the interval")
 	ErrThresholdInvalid = errors.New("probe thresholds must be between 1 and 10")

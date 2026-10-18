@@ -603,6 +603,28 @@ secrets en clair : gardez-la le temps de vérifier la montée, puis effacez-la.
 base chiffrée (il prendrait les chiffrés pour des secrets). Pour revenir en
 arrière, remettez l'ancien binaire **et** la copie faite avant la mise à jour.
 
+**Le premier démarrage d'une version qui relie l'annuaire** (migration
+`024_directory_links.sql`) repointe sur l'annuaire ce qui visait un
+conteneur : les sondes, les membres des composants de la page de statut et la
+politique de mise à jour (suivre, épingler, exclure). Pour chaque conteneur qui
+portait un de ces liens, `serve` crée un service dans l'annuaire, avec tout son
+projet Compose, marqué « à vérifier » : l'onglet **Annuaire** de la page
+Services les liste, et une ligne `declared services to review` au journal en
+donne le nombre. Seuls les conteneurs liés ou qui tournent y deviennent des
+unités : un conteneur arrêté que rien ne vise (l'`init` d'un projet) reste
+« non déclaré », visible dans l'écart. **Après la montée, vérifiez vos services
+à valider et vos composants de statut**, puis **Valider** chaque service. L'historique des sondes,
+leurs alertes et les membres des composants sont gardés ; la migration compte
+ce qui devait survivre et, au moindre écart, ne change rien et `serve` refuse de
+démarrer (le message dit lequel). Recréer un conteneur ne casse plus ces liens.
+**Pas de retour arrière par le binaire seul** : rien n'est détruit, mais
+l'ancien binaire ne marche pas sur cette base. Il démarre, puis ne suit plus
+les conteneurs : son inventaire écrit une colonne (`update_policy`) que la
+montée a retirée de `services`, donc chaque rapport échoue ; créer une sonde
+sur un conteneur échoue aussi, la sonde visant désormais un service de
+l'annuaire. Pour revenir en arrière, remettez l'ancien binaire **et** la copie
+`avant-maj.db` faite avant la mise à jour. La sauvegarde ne change pas.
+
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 
 | Situation | Effet |

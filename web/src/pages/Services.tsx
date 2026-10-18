@@ -13,16 +13,17 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { engineNote, needsAttention, servicesSubtitle } from "../lib/services";
 
-// La page Services, sous trois onglets : les conteneurs que Docker montre
-// (par défaut), l'annuaire que l'opérateur déclare, et ses projets.
-export function Services({ tab }: { tab?: "annuaire" | "projets" }) {
-  if (tab === "annuaire") {
-    return <DirectoryTab />;
+// La page Services, sous trois onglets : l'annuaire que l'opérateur déclare
+// (par défaut : c'est lui qui porte les liens), les conteneurs que Docker
+// montre, et les projets.
+export function Services({ tab }: { tab: "annuaire" | "conteneurs" | "projets" }) {
+  if (tab === "conteneurs") {
+    return <ContainersTab />;
   }
   if (tab === "projets") {
     return <ProjectsTab />;
   }
-  return <ContainersTab />;
+  return <DirectoryTab />;
 }
 
 // Tous les conteneurs de toutes les machines, avec un filtre par machine et

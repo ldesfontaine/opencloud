@@ -268,7 +268,11 @@ export interface Service {
   compose_service: string;
   compose_dir: string;
   compose_file: string;
+  // Lue sur l'unité de l'annuaire à laquelle la fiche est rattachée ; une
+  // fiche non déclarée vaut « watch ».
   update_policy: UpdatePolicy;
+  // Le service déclaré qui porte la fiche ; vide tant qu'elle n'est pas rattachée.
+  declared_service_id: string;
   // Le dernier constat de l'agent sur l'image ; nul tant qu'il n'a rien dit.
   image_check: ImageCheck | null;
   // Le support de l'image : sur la fiche seulement, et seulement quand la
@@ -332,9 +336,10 @@ export interface LifecycleSettings {
   last_attempt_at: string | null;
 }
 
-// Ce que l'opérateur veut des mises à jour d'un service : les suivre,
-// les taire (épinglé), ne jamais interroger le registre (exclu).
-export type UpdatePolicy = "" | "pinned" | "excluded";
+// Ce que l'opérateur veut des mises à jour d'une unité : les suivre (watch),
+// les taire (hold : vérifiées, jamais montrées), ne jamais interroger le
+// registre (ignore).
+export type UpdatePolicy = "watch" | "hold" | "ignore";
 
 export type UpdateKind = "" | "major" | "minor" | "patch" | "digest";
 
@@ -469,8 +474,10 @@ export interface Probe {
   machine_id: string;
   machine_name: string;
   machine_online: boolean;
+  // Le service déclaré que la sonde surveille, sur n'importe quelle machine.
   service_id: string;
   service_name: string;
+  service_machine_name: string;
   status: ProbeStatus;
   interval_seconds: number;
   timeout_seconds: number;
@@ -875,6 +882,20 @@ export interface ServiceUnit {
   container_name: string;
   systemd_unit: string;
   ports: string[];
+  // « watch » pour un binaire : la politique ne vaut que pour un conteneur.
+  update_policy: UpdatePolicy;
+}
+
+// Ce qui vise un service déclaré : tant que cette liste n'est pas vide, il
+// ne se supprime pas.
+export interface LinkedObject {
+  id: string;
+  name: string;
+}
+
+export interface ServiceLinks {
+  probes: LinkedObject[];
+  components: LinkedObject[];
 }
 
 export interface DeclaredService {
@@ -903,6 +924,11 @@ export interface Project {
   service_ids: string[];
   created_at: string;
   updated_at: string;
+}
+
+// La fiche d'un service déclaré dit en plus ce qui le lie.
+export interface DeclaredServiceDetail extends DeclaredService {
+  links: ServiceLinks;
 }
 
 export interface DeclaredServicesResponse {
@@ -985,7 +1011,8 @@ export interface ProposalResponse {
     compose_project: string;
     public_url: string;
     provides: Capability[];
-    units: Array<Omit<ServiceUnit, "kind">>;
+    // Une unité que la proposition ajoute n'a pas encore de politique.
+    units: Array<Omit<ServiceUnit, "kind" | "update_policy"> & { update_policy?: UpdatePolicy }>;
     project_ids: string[];
   };
 }

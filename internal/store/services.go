@@ -14,11 +14,16 @@ import (
 
 const serviceColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
-	compose_service, compose_dir, compose_file, update_policy, oom_killed, killed`
+	compose_service, compose_dir, compose_file, oom_killed, killed`
 
 // Le rattachement à l'annuaire se lit avec la fiche. Il ne s'écrit pas
 // comme le reste, l'unité est vérifiée à l'écriture : voir upsertService.
-const serviceReadColumns = serviceColumns + `, unit_id, match_level`
+// La politique de mise à jour et le service déclaré sont ceux de l'unité de
+// la fiche, lus en sous-requêtes corrélées plutôt qu'en jointure : les deux
+// tables partagent id, name, image et ports. Sans unité, la fiche suit.
+const serviceReadColumns = serviceColumns + `, unit_id, match_level,
+	COALESCE((SELECT u.update_policy FROM service_units u WHERE u.id = services.unit_id), 'watch'),
+	COALESCE((SELECT u.service_id FROM service_units u WHERE u.id = services.unit_id), '')`
 
 // ListServices rend les fiches d'une machine, ou de toutes si machineID
 // est vide, archivées comprises, par groupe puis par nom.
@@ -65,18 +70,6 @@ func (db *DB) GetService(ctx context.Context, id string) (service.Service, error
 		return service.Service{}, err
 	}
 	return services[0], nil
-}
-
-// IsServiceOnMachine dit si la fiche existe et appartient à la machine.
-func (db *DB) IsServiceOnMachine(ctx context.Context, serviceID, machineID string) (bool, error) {
-	var isOnMachine bool
-	err := db.sql.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM services WHERE id = ? AND machine_id = ?)`, serviceID, machineID,
-	).Scan(&isOnMachine)
-	if err != nil {
-		return false, fmt.Errorf("check service machine: %w", err)
-	}
-	return isOnMachine, nil
 }
 
 // attachNetworks lit en une requête les appartenances des fiches que la
@@ -170,7 +163,7 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 	// plutôt que de faire échouer la clé étrangère et perdre le rapport.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO services (`+serviceColumns+`, unit_id, match_level)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			(SELECT id FROM service_units WHERE id = ?),
 			CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END)
 		ON CONFLICT (id) DO UPDATE SET
@@ -187,7 +180,7 @@ func upsertService(ctx context.Context, tx *sql.Tx, item service.Service) error 
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
 		item.FirstSeenAt.Unix(), item.LastSeenAt.Unix(), nullableTime(item.ArchivedAt),
-		item.ComposeService, item.ComposeDir, item.ComposeFile, string(item.UpdatePolicy), boolToInt(item.OOMKilled), boolToInt(item.Killed),
+		item.ComposeService, item.ComposeDir, item.ComposeFile, boolToInt(item.OOMKilled), boolToInt(item.Killed),
 		item.UnitID, item.UnitID, string(item.MatchLevel))
 	if err != nil {
 		return fmt.Errorf("upsert service %s: %w", item.ID, err)
@@ -449,7 +442,7 @@ func (db *DB) PurgeServices(ctx context.Context, transitionsBefore, archivedBefo
 
 func scanService(row scanner) (service.Service, error) {
 	var item service.Service
-	var kind, state, health, ports, dependsOn, policy, matchLevel string
+	var kind, state, health, ports, dependsOn, matchLevel, policy string
 	var unitID sql.NullString
 	var privileged, oomKilled, killed int
 	var createdAt, firstSeen, lastSeen int64
@@ -457,8 +450,8 @@ func scanService(row scanner) (service.Service, error) {
 	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
-		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &policy, &oomKilled, &killed,
-		&unitID, &matchLevel)
+		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed,
+		&unitID, &matchLevel, &policy, &item.DeclaredServiceID)
 	if err != nil {
 		return service.Service{}, err
 	}

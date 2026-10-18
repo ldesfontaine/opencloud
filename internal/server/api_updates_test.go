@@ -12,51 +12,88 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
-// Épingler retire la mise à jour du compteur sans effacer le constat ;
-// exclure pousse l'image à la machine ; une politique inconnue est refusée.
-func TestUpdatePolicy_PinExcludeAndRefuse(t *testing.T) {
+// unitIDOf rend l'unité d'un service déclaré par son nom.
+func (ts *testServer) unitIDOf(t *testing.T, serviceID, unitName string) string {
+	t.Helper()
+	found, err := ts.directory.GetService(context.Background(), serviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range found.Units {
+		if unit.Name == unitName {
+			return unit.ID
+		}
+	}
+	t.Fatalf("unit %q not found in %+v", unitName, found.Units)
+	return ""
+}
+
+// La politique se règle sur l'unité : épingler (hold) retire la mise à jour
+// du compteur sans effacer le constat, ignorer pousse l'image à la machine,
+// une politique inconnue ou une unité disparue est refusée avec sa clé.
+func TestAPI_UnitUpdatePolicy_HoldIgnoreAndRefuseWithTheKey(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
+	server.seedServices(t)
+	cloudID := server.seedGaps(t)
+	unitID := server.unitIDOf(t, cloudID, "nextcloud")
 	var counts countsResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
 	if counts.Services.Updates != 2 {
 		t.Fatalf("updates = %d, want 2", counts.Services.Updates)
 	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/services/"+serviceID+"/update-policy", updatePolicyRequest{Policy: "pinned"}); got.Code != http.StatusNoContent {
-		t.Fatalf("pin: %d %s", got.Code, got.Body.String())
+	path := "/api/directory/units/" + unitID + "/update-policy"
+	if got := callAPI(server.Server, http.MethodPut, path, unitPolicyRequest{Policy: "hold"}); got.Code != http.StatusNoContent {
+		t.Fatalf("hold: %d %s", got.Code, got.Body.String())
 	}
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
 	if counts.Services.Updates != 1 {
-		t.Fatalf("pinned: updates = %d, want 1", counts.Services.Updates)
+		t.Fatalf("held: updates = %d, want 1", counts.Services.Updates)
 	}
 	var response serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil), &response)
-	if response.Service.UpdatePolicy != "pinned" || response.Service.ImageCheck == nil || response.Service.ImageCheck.Kind != "digest" {
-		t.Fatalf("pinned service = %+v", response.Service)
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudContainerID(), nil), &response)
+	if response.Service.UpdatePolicy != "hold" || response.Service.DeclaredServiceID != cloudID || response.Service.ImageCheck == nil || response.Service.ImageCheck.Kind == "" {
+		t.Fatalf("held container = %+v", response.Service)
 	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/services/"+serviceID+"/update-policy", updatePolicyRequest{Policy: "excluded"}); got.Code != http.StatusNoContent {
-		t.Fatalf("exclude: %d", got.Code)
+	if got := callAPI(server.Server, http.MethodPut, path, unitPolicyRequest{Policy: "ignore"}); got.Code != http.StatusNoContent {
+		t.Fatalf("ignore: %d", got.Code)
 	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/services/"+serviceID+"/update-policy", updatePolicyRequest{Policy: "later"}); got.Code != http.StatusBadRequest || errorCode(t, got) != "update.policy_invalid" {
+	if got := callAPI(server.Server, http.MethodPut, path, unitPolicyRequest{Policy: "pinned"}); got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "directory.update_policy_invalid" {
 		t.Fatalf("bad policy: %d %s", got.Code, got.Body.String())
 	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/services/nope/update-policy", updatePolicyRequest{Policy: ""}); got.Code != http.StatusNotFound {
-		t.Fatalf("unknown service: %d", got.Code)
+	if got := callAPI(server.Server, http.MethodPut, "/api/directory/units/nope/update-policy", unitPolicyRequest{Policy: "watch"}); got.Code != http.StatusNotFound {
+		t.Fatalf("unknown unit: %d", got.Code)
 	}
-	// La politique survit au rapport suivant de l'agent, qui redonne le
-	// conteneur entier.
-	db := service.Container{
-		ContainerID: strings.Repeat("b", 64), Name: "nextcloud-db", Group: "nextcloud", Image: "postgres:16.4",
-		ComposeService: "nextcloud-db", ComposeDir: "/srv/nextcloud", State: service.StateRunning, CreatedAt: testNow.Add(-48 * time.Hour),
+	// Un conteneur non déclaré suit toujours : il n'a pas d'unité à régler.
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudDBContainerID(), nil), &response)
+	if response.Service.UpdatePolicy != "watch" || response.Service.DeclaredServiceID != "" {
+		t.Fatalf("undeclared container = %+v", response.Service)
 	}
-	restarted := service.Report{Events: []service.Event{{At: testNow, Action: "start", ContainerID: db.ContainerID, State: service.StateRunning, Container: &db}}}
-	if err := server.services.Record(context.Background(), remoteID, restarted); err != nil {
+}
+
+// Le conteneur recréé change d'identifiant, pas d'unité : il retrouve la
+// politique que l'ancienne fiche avait perdue en disparaissant.
+func TestAPI_UnitUpdatePolicy_SurvivesTheRecreationOfTheContainer(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	server.seedServices(t)
+	cloudID := server.seedGaps(t)
+	unitID := server.unitIDOf(t, cloudID, "nextcloud")
+	if got := callAPI(server.Server, http.MethodPut, "/api/directory/units/"+unitID+"/update-policy", unitPolicyRequest{Policy: "ignore"}); got.Code != http.StatusNoContent {
+		t.Fatalf("ignore: %d", got.Code)
+	}
+	recreated := service.Container{
+		ContainerID: strings.Repeat("e", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4",
+		ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", State: service.StateRunning, CreatedAt: testNow,
+	}
+	report := service.Report{Complete: true, Inventory: []service.Container{recreated}}
+	if err := server.services.Record(context.Background(), remoteID, report); err != nil {
 		t.Fatal(err)
 	}
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+serviceID, nil), &response)
-	if response.Service.UpdatePolicy != "excluded" {
-		t.Fatalf("policy after inventory = %q", response.Service.UpdatePolicy)
+	var response serviceResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+service.ID(remoteID, recreated.ContainerID), nil), &response)
+	if response.Service.UpdatePolicy != "ignore" || response.Service.DeclaredServiceID != cloudID {
+		t.Fatalf("recreated container = %+v", response.Service)
 	}
 }
 

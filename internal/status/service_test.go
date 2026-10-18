@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -32,6 +33,7 @@ type fixture struct {
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	services   *service.Tracker
+	directory  *directory.Directory
 	probes     *probe.Service
 	bus        *live.Bus
 	published  *counter
@@ -67,6 +69,10 @@ func newFixture(t *testing.T) *fixture {
 	f.heartbeats.SetClock(clock)
 	f.services = service.New(db, logger)
 	f.services.SetClock(clock)
+	f.directory = directory.New(db, logger)
+	f.directory.SetClock(clock)
+	f.directory.SetRematcher(f.services)
+	f.services.SetUnits(f.directory)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
 	f.status = status.New(db, f.machines, db, logger)
@@ -124,14 +130,35 @@ func (f *fixture) enroll(t *testing.T, name string) string {
 	return enrolled.ID
 }
 
+// service pose un conteneur sur la machine openCloud et le déclare à l'annuaire :
+// un composant surveille le service déclaré, jamais le conteneur. Rend
+// l'identifiant du service déclaré.
 func (f *fixture) service(t *testing.T, name string, state service.State, exitCode int) string {
 	t.Helper()
-	container := service.Container{ContainerID: strings.Repeat("a", 64), Name: name, Image: name + ":1", State: state, ExitCode: exitCode, CreatedAt: f.now.Add(-time.Hour)}
+	f.container(t, name, strings.Repeat("a", 64), state, exitCode)
+	return f.declare(t, name)
+}
+
+func (f *fixture) container(t *testing.T, name, containerID string, state service.State, exitCode int) {
+	t.Helper()
+	container := service.Container{ContainerID: containerID, Name: name, Image: name + ":1", State: state, ExitCode: exitCode, CreatedAt: f.now.Add(-time.Hour)}
 	report := service.Report{Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: []service.Container{container}}
 	if err := f.services.Record(context.Background(), machine.LocalID, report); err != nil {
 		t.Fatal(err)
 	}
-	return service.ID(machine.LocalID, container.ContainerID)
+}
+
+// declare crée le service déclaré d'un conteneur, une unité du même nom.
+func (f *fixture) declare(t *testing.T, name string) string {
+	t.Helper()
+	created, err := f.directory.CreateService(context.Background(), directory.ServiceDefinition{
+		MachineID: machine.LocalID, Name: strings.ToLower(name), Title: name, Nature: directory.NatureApplication, Origin: directory.OriginContainer,
+		Units: []directory.UnitDefinition{{Name: strings.ToLower(name), Image: strings.ToLower(name), Version: "1", ContainerName: name}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return created.ID
 }
 
 func TestDerive_TheWorstObjectWins(t *testing.T) {

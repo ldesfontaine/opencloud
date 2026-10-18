@@ -1,4 +1,4 @@
-import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Service } from "../api/types";
+import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Probe, Service } from "../api/types";
 import { matchesFilter, type Filter } from "./services";
 
 // Le placement du graphe de la planche « Machine · Réseau » : le serveur a
@@ -374,4 +374,11 @@ function placeMachine(machine: NetworkResponse, left: number, top: number, frame
     },
     nodes,
   };
+}
+
+// Les sondes qui surveillent ce conteneur : elles visent son service déclaré,
+// jamais la fiche, qui change à chaque recréation. Un conteneur non déclaré
+// n'est surveillé par aucune.
+export function probesOf(probes: readonly Probe[], service: Pick<Service, "declared_service_id">): Probe[] {
+  return service.declared_service_id === "" ? [] : probes.filter((probe) => probe.service_id === service.declared_service_id);
 }

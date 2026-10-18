@@ -161,9 +161,9 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
 	serviceID := server.seedServices(t)
-	server.seedGaps(t)
-	probeID := server.seedProbes(t, serviceID)
-	server.seedStatus(t, serviceID, jobID, probeID)
+	cloudID := server.seedGaps(t)
+	probeID := server.seedProbes(t, cloudID)
+	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
 	job, err := server.heartbeats.Get(context.Background(), jobID)
 	if err != nil {
@@ -267,9 +267,10 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	jobID := server.seedJobs(t)
-	serviceID := server.seedServices(t)
-	probeID := server.seedProbes(t, serviceID)
-	componentID, incidentID := server.seedStatus(t, serviceID, jobID, probeID)
+	server.seedServices(t)
+	cloudID := server.seedGaps(t)
+	probeID := server.seedProbes(t, cloudID)
+	componentID, incidentID := server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
 	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
 	ctx := context.Background()
@@ -343,11 +344,15 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 		t.Fatalf("silences %d %v", len(silences), err)
 	}
 
-	if text, isError = callTool(t, session, "set_update_policy", map[string]any{"service_id": serviceID, "policy": "pinned"}); isError || !strings.Contains(text, `"update_policy":"pinned"`) {
+	unitID := server.unitIDOf(t, cloudID, "nextcloud")
+	if text, isError = callTool(t, session, "set_update_policy", map[string]any{"unit_id": unitID, "policy": "hold"}); isError || !strings.Contains(text, `"update_policy":"hold"`) {
 		t.Fatalf("policy: %s", text)
 	}
-	if text, _ = callTool(t, session, "set_update_policy", map[string]any{"service_id": serviceID, "policy": "never"}); toolErrorCode(t, text) != "update.policy_invalid" {
+	if text, _ = callTool(t, session, "set_update_policy", map[string]any{"unit_id": unitID, "policy": "never"}); toolErrorCode(t, text) != "directory.update_policy_invalid" {
 		t.Fatalf("bad policy: %s", text)
+	}
+	if text, _ = callTool(t, session, "set_update_policy", map[string]any{"unit_id": "nope", "policy": "watch"}); toolErrorCode(t, text) != codeNotFound {
+		t.Fatalf("unknown unit: %s", text)
 	}
 }
 

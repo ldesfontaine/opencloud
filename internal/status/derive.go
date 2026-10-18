@@ -3,6 +3,7 @@ package status
 import (
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -22,8 +23,8 @@ func machineState(status machine.Status) (State, bool) {
 	return StateDown, true
 }
 
-// Un service arrêté est une panne, quelle que soit la façon dont il s'est
-// arrêté : pour le visiteur, il ne répond pas. Un service qui redémarre ou
+// Un conteneur arrêté est une panne, quelle que soit la façon dont il s'est
+// arrêté : pour le visiteur, il ne répond pas. Un conteneur qui redémarre ou
 // démarre est dégradé. Un conteneur créé sans avoir tourné ne compte pas ;
 // un conteneur disparu est une panne, tant que sa fiche existe.
 func serviceState(found service.Service) (State, bool) {
@@ -45,6 +46,45 @@ func serviceState(found service.Service) (State, bool) {
 		return StateUnknown, false
 	}
 	return StateDown, true
+}
+
+// Ce qu'un service déclaré apporte à son composant : le pire de ses unités
+// conteneur qui comptent. Une unité sans conteneur vivant est en panne, comme
+// un conteneur disparu : le visiteur ne voit pas de différence, et c'est le
+// prix de ne plus dépendre de l'identifiant Docker. Une unité dont les
+// conteneurs sont tous « créés sans avoir tourné » ne compte pas, comme eux.
+// Un binaire ne compte pas : aucun agent ne le regarde encore. Un service
+// sans unité qui compte n'apporte rien.
+func declaredServiceState(found directory.Service, containersByUnit map[string][]service.Service) (State, bool) {
+	states := make([]State, 0, len(found.Units))
+	for _, unit := range found.Units {
+		if unit.Kind != directory.UnitContainer {
+			continue
+		}
+		if state, counts := unitState(containersByUnit[unit.ID]); counts {
+			states = append(states, state)
+		}
+	}
+	if len(states) == 0 {
+		return StateUnknown, false
+	}
+	return Worst(states), true
+}
+
+func unitState(containers []service.Service) (State, bool) {
+	if len(containers) == 0 {
+		return StateDown, true
+	}
+	states := make([]State, 0, len(containers))
+	for _, container := range containers {
+		if state, counts := serviceState(container); counts {
+			states = append(states, state)
+		}
+	}
+	if len(states) == 0 {
+		return StateUnknown, false
+	}
+	return Worst(states), true
 }
 
 // Une tâche en retard ou en échec dégrade : ce qu'elle fait n'est pas
@@ -80,11 +120,15 @@ func probeState(found probe.Probe, now time.Time) (State, bool) {
 // facts est ce que les composants lisent des objets : tout d'un coup,
 // rangé par identifiant, pour ne pas relire la base membre par membre.
 type facts struct {
-	machines   map[string]machine.Status
-	services   map[string]service.Service
-	heartbeats map[string]heartbeat.Heartbeat
-	probes     map[string]probe.Probe
-	now        time.Time
+	machines map[string]machine.Status
+	// Les services de l'annuaire, et pour chaque unité les conteneurs vivants
+	// qui lui sont rattachés : un conteneur recréé change d'identifiant, pas
+	// d'unité.
+	declared         map[string]directory.Service
+	containersByUnit map[string][]service.Service
+	heartbeats       map[string]heartbeat.Heartbeat
+	probes           map[string]probe.Probe
+	now              time.Time
 }
 
 // fill donne à chaque membre son nom et ce qu'il apporte.
@@ -100,13 +144,16 @@ func (f facts) fill(member *Member) {
 		member.Name = found.Name
 		member.State, member.Counts = machineState(found)
 	case KindService:
-		found, ok := f.services[member.ID]
+		found, ok := f.declared[member.ID]
 		if !ok {
 			member.Present = false
 			return
 		}
 		member.Name = found.Name
-		member.State, member.Counts = serviceState(found)
+		if found.Title != "" {
+			member.Name = found.Title
+		}
+		member.State, member.Counts = declaredServiceState(found, f.containersByUnit)
 	case KindHeartbeat:
 		found, ok := f.heartbeats[member.ID]
 		if !ok {

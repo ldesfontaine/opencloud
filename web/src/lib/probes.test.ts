@@ -64,6 +64,7 @@ const httpProbe: Probe = {
   machine_online: true,
   service_id: "service-1",
   service_name: "nextcloud",
+  service_machine_name: "vps",
   status: "up",
   interval_seconds: 120,
   timeout_seconds: 8,

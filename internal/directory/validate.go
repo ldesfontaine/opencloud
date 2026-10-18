@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/registry"
+	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 var (
@@ -54,6 +55,10 @@ func (u UnitDefinition) complete(kind UnitKind) UnitDefinition {
 		ports = append(ports, strings.TrimSpace(port))
 	}
 	u.Ports = ports
+	u.UpdatePolicy = service.UpdatePolicy(strings.TrimSpace(string(u.UpdatePolicy)))
+	if u.UpdatePolicy == "" {
+		u.UpdatePolicy = service.PolicyWatch
+	}
 	return u
 }
 
@@ -184,7 +189,22 @@ func (u UnitDefinition) validate(origin Origin) error {
 	if err := u.validateMatchKeys(origin); err != nil {
 		return err
 	}
-	return validatePorts(u.Ports)
+	if err := validatePorts(u.Ports); err != nil {
+		return err
+	}
+	return u.validateUpdatePolicy(origin)
+}
+
+// Un binaire n'a pas d'image à interroger : sa seule politique est celle par
+// défaut.
+func (u UnitDefinition) validateUpdatePolicy(origin Origin) error {
+	if !service.IsUpdatePolicy(u.UpdatePolicy) {
+		return ErrUpdatePolicyInvalid
+	}
+	if unitKindOf(origin) == UnitBinary && u.UpdatePolicy != service.PolicyWatch {
+		return ErrUpdatePolicyInvalid
+	}
+	return nil
 }
 
 // Une image porte son nom, la version et l'empreinte sont à côté : une

@@ -22,12 +22,13 @@ GET /api/services/{id}
 GET /api/services/{id}/transitions
 GET /api/services/{id}/logs
 GET /api/services/{id}/logs/stream
-PUT /api/services/{id}/update-policy
 GET /api/directory/services
 POST /api/directory/services
 GET /api/directory/services/{id}
 PUT /api/directory/services/{id}
 DELETE /api/directory/services/{id}
+POST /api/directory/services/{id}/actions/review
+PUT /api/directory/units/{id}/update-policy
 GET /api/directory/projects
 POST /api/directory/projects
 GET /api/directory/projects/{id}

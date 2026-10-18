@@ -79,19 +79,20 @@ const (
 	SampleRetention     = 48 * time.Hour
 )
 
-// UpdatePolicy est ce que l'opérateur veut des mises à jour d'un
-// service : les suivre, les taire (épinglé : vérifié, jamais montré), ou
-// ne jamais interroger le registre (exclu).
+// UpdatePolicy est ce que l'opérateur veut des mises à jour d'une unité de
+// l'annuaire : les suivre, les taire (hold : vérifiées, jamais montrées), ou
+// ne jamais interroger le registre (ignore). Elle se règle sur l'unité, pas
+// sur le conteneur : un conteneur recréé retrouve celle de son unité.
 type UpdatePolicy string
 
 const (
-	PolicyFollow   UpdatePolicy = ""
-	PolicyPinned   UpdatePolicy = "pinned"
-	PolicyExcluded UpdatePolicy = "excluded"
+	PolicyWatch  UpdatePolicy = "watch"
+	PolicyHold   UpdatePolicy = "hold"
+	PolicyIgnore UpdatePolicy = "ignore"
 )
 
 func UpdatePolicies() []UpdatePolicy {
-	return []UpdatePolicy{PolicyFollow, PolicyPinned, PolicyExcluded}
+	return []UpdatePolicy{PolicyWatch, PolicyHold, PolicyIgnore}
 }
 
 func IsUpdatePolicy(policy UpdatePolicy) bool {
@@ -135,10 +136,12 @@ type Service struct {
 	ComposeService string
 	ComposeDir     string
 	ComposeFile    string
-	UpdatePolicy   UpdatePolicy
-	State          State
-	ExitCode       int
-	OOMKilled      bool
+	// La politique de son unité, lue à chaque lecture ; watch sans unité.
+	// L'inventaire ne l'écrit jamais.
+	UpdatePolicy UpdatePolicy
+	State        State
+	ExitCode     int
+	OOMKilled    bool
 	// Tué en SIGKILL sans arrêt demandé : docker kill, un kill -9.
 	Killed       bool
 	Health       Health
@@ -161,6 +164,9 @@ type Service struct {
 	// rattachement.
 	UnitID     string
 	MatchLevel MatchLevel
+	// Le service de l'annuaire qui porte l'unité de la fiche ; vide : non
+	// déclaré.
+	DeclaredServiceID string
 }
 
 // Port est un port publié sur l'hôte. Une IP vide, 0.0.0.0 ou :: dit
