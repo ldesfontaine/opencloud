@@ -315,30 +315,10 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	if _, err := s.machines.Get(r.Context(), request.MachineID); err != nil {
-		if errors.Is(err, machine.ErrNotFound) {
-			s.apiRefuse(w, http.StatusUnprocessableEntity, "probe.machine_invalid")
-			return
-		}
-		s.apiInternalError(w, r, err)
+	if s.refuseUnknownProbeMachine(w, r, request.MachineID) {
 		return
 	}
-	created, err := s.probes.Create(r.Context(), probe.Definition{
-		Name:              request.Name,
-		Kind:              probe.Kind(request.Kind),
-		Target:            request.Target,
-		MachineID:         request.MachineID,
-		ServiceID:         request.ServiceID,
-		Interval:          time.Duration(request.IntervalSeconds) * time.Second,
-		Timeout:           time.Duration(request.TimeoutSeconds) * time.Second,
-		FailureThreshold:  request.FailureThreshold,
-		RecoveryThreshold: request.RecoveryThreshold,
-		Method:            request.Method,
-		ExpectedStatus:    request.ExpectedStatus,
-		ExpectedBody:      request.ExpectedBody,
-		FollowRedirects:   request.FollowRedirects,
-		TLS:               request.TLS,
-	})
+	created, err := s.probes.Create(r.Context(), probeDefinition(request))
 	if key, refused := probeRefusalKey(err); refused {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
 		return
@@ -353,6 +333,82 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, probeToJSON(created, online[created.MachineID]))
+}
+
+// L'édition remplace la définition entière, comme la création la donne :
+// un champ omis prend sa valeur par défaut. Le composant dit ce que
+// l'édition remet à zéro ; l'identifiant et l'histoire restent.
+func (s *Server) updateProbe(w http.ResponseWriter, r *http.Request) {
+	var request probeRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	// L'objet d'abord : une sonde inconnue est un 404, quoi que dise le corps.
+	_, err := s.probes.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, probe.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	if s.refuseUnknownProbeMachine(w, r, request.MachineID) {
+		return
+	}
+	updated, err := s.probes.Update(r.Context(), r.PathValue("id"), probeDefinition(request))
+	if errors.Is(err, probe.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if key, refused := probeRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	online, err := s.onlineMachines(r.Context())
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, probeToJSON(updated, online[updated.MachineID]))
+}
+
+// refuseUnknownProbeMachine répond 422 et rend true quand la machine n'existe
+// pas : la clé étrangère la refuserait en erreur brute.
+func (s *Server) refuseUnknownProbeMachine(w http.ResponseWriter, r *http.Request, machineID string) bool {
+	_, err := s.machines.Get(r.Context(), machineID)
+	if errors.Is(err, machine.ErrNotFound) {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "probe.machine_invalid")
+		return true
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return true
+	}
+	return false
+}
+
+func probeDefinition(request probeRequest) probe.Definition {
+	return probe.Definition{
+		Name:              request.Name,
+		Kind:              probe.Kind(request.Kind),
+		Target:            request.Target,
+		MachineID:         request.MachineID,
+		ServiceID:         request.ServiceID,
+		Interval:          time.Duration(request.IntervalSeconds) * time.Second,
+		Timeout:           time.Duration(request.TimeoutSeconds) * time.Second,
+		FailureThreshold:  request.FailureThreshold,
+		RecoveryThreshold: request.RecoveryThreshold,
+		Method:            request.Method,
+		ExpectedStatus:    request.ExpectedStatus,
+		ExpectedBody:      request.ExpectedBody,
+		FollowRedirects:   request.FollowRedirects,
+		TLS:               request.TLS,
+	}
 }
 
 func probeRefusalKey(err error) (string, bool) {

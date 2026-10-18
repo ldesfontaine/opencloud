@@ -498,6 +498,39 @@ func TestHeartbeat_NeverPinged_OpensTheLateAlertWithItsAge(t *testing.T) {
 	}
 }
 
+// Une tâche déplacée sur une autre machine : son alerte ouverte suit, avec
+// son nom, au lieu de rester attachée à l'ancienne.
+func TestHeartbeat_EditedWhileLate_TheOpenAlertFollowsItsNameAndMachine(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enrollRemote(t)
+	heartbeats := heartbeat.New(f.db, discardLogger())
+	heartbeats.SetClock(func() time.Time { return f.clock })
+	heartbeats.SetListener(f.Engine)
+	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.advance(2 * time.Minute)
+	if err := heartbeats.CheckDeadlines(ctx); err != nil || f.kinds(t) != "job_late:attention" {
+		t.Fatalf("kinds %q, %v", f.kinds(t), err)
+	}
+	if got := f.only(t, alert.StatusOpen); got.MachineID != "" {
+		t.Fatalf("la tâche n'a pas de machine: %+v", got)
+	}
+
+	if _, err := heartbeats.Update(ctx, job.ID, heartbeat.Definition{Name: "sauvegarde nextcloud", MachineID: remoteID, Interval: time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	got := f.only(t, alert.StatusOpen)
+	if got.Object.Name != "sauvegarde nextcloud" || got.MachineID != remoteID {
+		t.Fatalf("l'alerte doit suivre la tâche: %+v", got)
+	}
+	if len(f.open(t, alert.StatusOpen)) != 1 {
+		t.Fatalf("une seule alerte attendue, obtenu %q", f.kinds(t))
+	}
+}
+
 // --- Ressources ---
 
 func TestResource_DiskAlertsWithHysteresis_AndForgetsAVanishedVolume(t *testing.T) {

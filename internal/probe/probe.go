@@ -209,6 +209,10 @@ type Probe struct {
 	// disparaître ce que la cible sert.
 	Certificate *Certificate
 	CreatedAt   time.Time
+	// L'instant de la dernière édition qui a remis l'état à zéro ; zéro tant
+	// que la sonde n'a jamais été révisée. Un essai parti avant cet instant
+	// mesurait l'ancien réglage : il va dans l'histoire, pas dans l'état.
+	RevisedAt time.Time
 }
 
 func (p Probe) IsPaused() bool {
@@ -299,7 +303,8 @@ type Day struct {
 	DurationMs int64
 }
 
-// Definition est ce que l'opérateur donne pour créer une sonde.
+// Definition est ce que l'opérateur donne pour créer une sonde, ou pour
+// remplacer sa définition entière : un champ omis prend sa valeur par défaut.
 type Definition struct {
 	Name              string
 	Kind              Kind
@@ -315,6 +320,15 @@ type Definition struct {
 	ExpectedBody      string
 	FollowRedirects   bool
 	TLS               bool
+}
+
+// Revision est ce qu'une édition écrit : la sonde avec sa nouvelle définition
+// et son RevisedAt, et ce qu'elle remet à zéro. La base décide de l'état à
+// l'écriture : une sonde mise en pause entre-temps reste en pause.
+type Revision struct {
+	Probe             Probe
+	ResetsState       bool
+	ClearsCertificate bool
 }
 
 var (
@@ -374,6 +388,29 @@ func (d Definition) Complete() Definition {
 	}
 	d.ExpectedBody = strings.TrimSpace(d.ExpectedBody)
 	return d
+}
+
+// resetsState dit si l'édition change ce que la sonde mesure : l'état et les
+// compteurs ne disent plus rien de ce qu'elle mesurera. Le nom, le service,
+// l'intervalle et les seuils n'y touchent pas. d doit être complétée, comme
+// la sonde d'avant l'a été à sa création.
+func (d Definition) resetsState(before Probe) bool {
+	return d.clearsCertificate(before) ||
+		d.Method != before.Method ||
+		d.ExpectedStatus != before.ExpectedStatus ||
+		d.ExpectedBody != before.ExpectedBody ||
+		d.FollowRedirects != before.FollowRedirects ||
+		d.Timeout != before.Timeout
+}
+
+// clearsCertificate dit si l'édition change ce que la sonde regarde : le
+// certificat gardé serait celui d'une autre cible. Un simple réglage de
+// l'essai le laisserait en place, la cible étant la même.
+func (d Definition) clearsCertificate(before Probe) bool {
+	return d.Kind != before.Kind ||
+		d.Target != before.Target ||
+		d.MachineID != before.MachineID ||
+		d.TLS != before.TLS
 }
 
 func (d Definition) Validate() error {

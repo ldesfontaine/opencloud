@@ -146,23 +146,10 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	if request.MachineID != "" {
-		_, err := s.machines.Get(r.Context(), request.MachineID)
-		if errors.Is(err, machine.ErrNotFound) {
-			s.apiRefuse(w, http.StatusUnprocessableEntity, "job.machine_invalid")
-			return
-		}
-		if err != nil {
-			s.apiInternalError(w, r, err)
-			return
-		}
+	if s.refuseUnknownJobMachine(w, r, request.MachineID) {
+		return
 	}
-	created, err := s.heartbeats.Create(r.Context(), heartbeat.Definition{
-		Name:      request.Name,
-		MachineID: request.MachineID,
-		Interval:  time.Duration(request.IntervalMinutes) * time.Minute,
-		Grace:     time.Duration(request.GraceMinutes) * time.Minute,
-	})
+	created, err := s.heartbeats.Create(r.Context(), jobDefinition(request))
 	if key, refused := jobRefusalKey(err); refused {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
 		return
@@ -172,6 +159,69 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, jobToJSON(created))
+}
+
+// L'édition remplace le nom, la machine, l'intervalle et la marge ; le jeton
+// et l'identifiant restent.
+func (s *Server) updateJob(w http.ResponseWriter, r *http.Request) {
+	var request jobRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	// L'objet d'abord : une tâche inconnue est un 404, quoi que dise le corps.
+	_, err := s.heartbeats.Get(r.Context(), r.PathValue("id"))
+	if errors.Is(err, heartbeat.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	if s.refuseUnknownJobMachine(w, r, request.MachineID) {
+		return
+	}
+	updated, err := s.heartbeats.Update(r.Context(), r.PathValue("id"), jobDefinition(request))
+	if errors.Is(err, heartbeat.ErrNotFound) {
+		s.apiNotFound(w)
+		return
+	}
+	if key, refused := jobRefusalKey(err); refused {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+		return
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, jobToJSON(updated))
+}
+
+// La machine est facultative ; donnée, elle doit exister. Répond 422 et rend
+// true quand elle est refusée.
+func (s *Server) refuseUnknownJobMachine(w http.ResponseWriter, r *http.Request, machineID string) bool {
+	if machineID == "" {
+		return false
+	}
+	_, err := s.machines.Get(r.Context(), machineID)
+	if errors.Is(err, machine.ErrNotFound) {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "job.machine_invalid")
+		return true
+	}
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return true
+	}
+	return false
+}
+
+func jobDefinition(request jobRequest) heartbeat.Definition {
+	return heartbeat.Definition{
+		Name:      request.Name,
+		MachineID: request.MachineID,
+		Interval:  time.Duration(request.IntervalMinutes) * time.Minute,
+		Grace:     time.Duration(request.GraceMinutes) * time.Minute,
+	}
 }
 
 func jobRefusalKey(err error) (string, bool) {
@@ -241,6 +291,12 @@ func snippets(pingURL string) []snippetJSON {
 			"exit \"$code\""},
 		{Key: "docker", Code: "HEALTHCHECK --interval=5m CMD " + curl + pingURL + " || exit 1"},
 	}
+}
+
+// regenerateJobToken change le jeton de ping : l'ancienne URL cesse aussitôt
+// de répondre, et l'opérateur doit mettre la tâche à jour avec la nouvelle.
+func (s *Server) regenerateJobToken(w http.ResponseWriter, r *http.Request) {
+	s.finishAPIAction(w, r, s.heartbeats.RegenerateToken(r.Context(), r.PathValue("id")), heartbeat.ErrNotFound)
 }
 
 func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {

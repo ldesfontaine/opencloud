@@ -23,7 +23,7 @@ type Store interface {
 	ListAlerts(ctx context.Context, filter Filter) ([]Alert, error)
 	// ListOrphanAlerts rend les alertes ouvertes dont l'objet n'existe plus.
 	ListOrphanAlerts(ctx context.Context) ([]Alert, error)
-	// UpdateAlert réécrit ce qui bouge : type, gravité, détails, nom, dates.
+	// UpdateAlert réécrit ce qui bouge : type, gravité, détails, nom, machine, dates.
 	UpdateAlert(ctx context.Context, alert Alert) error
 	// AcknowledgeAlerts acquitte d'un seul tenant celles des alertes nommées
 	// qui sont ouvertes et pas encore acquittées ; rend combien.
@@ -204,7 +204,8 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 		aggravated = isLoop(fact.Kind, fact.Details) && !existing.IsLoop()
 	}
 	renamed := existing.Object.Name != fact.Object.Name
-	if !aggravated && !renamed && existing.Kind == fact.Kind && existing.Details.Equal(fact.Details) && existing.ClearSince.Equal(fact.ClearSince) {
+	moved := existing.MachineID != fact.MachineID
+	if !aggravated && !renamed && !moved && existing.Kind == fact.Kind && existing.Details.Equal(fact.Details) && existing.ClearSince.Equal(fact.ClearSince) {
 		return
 	}
 	if renamed {
@@ -212,6 +213,8 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 	}
 	existing.Kind = fact.Kind
 	existing.Object.Name = fact.Object.Name
+	// Une tâche ou une sonde éditée a pu changer de machine.
+	existing.MachineID = fact.MachineID
 	existing.Details = fact.Details
 	existing.ClearSince = fact.ClearSince
 	existing.UpdatedAt = e.now()

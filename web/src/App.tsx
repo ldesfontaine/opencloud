@@ -6,7 +6,7 @@ import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
 import { AlertSilenceNew } from "./pages/AlertSilenceNew";
 import { JobPage } from "./pages/Job";
-import { JobNew } from "./pages/JobNew";
+import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
 import { MachinePage } from "./pages/Machine";
 import { MachineNew } from "./pages/MachineNew";
@@ -14,7 +14,7 @@ import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
 import { ProbePage } from "./pages/Probe";
-import { ProbeNew } from "./pages/ProbeNew";
+import { ProbeForm } from "./pages/ProbeForm";
 import { Probes } from "./pages/Probes";
 import { Overview } from "./pages/Overview";
 import { ServicePage } from "./pages/Service";
@@ -41,12 +41,14 @@ export function App() {
         <Route path="services" element={<Services />} />
         <Route path="services/:id" element={<ServicePage />} />
         <Route path="domaines" element={<Probes />} />
-        <Route path="domaines/nouvelle" element={<ProbeNew />} />
+        <Route path="domaines/nouvelle" element={<ProbeForm />} />
+        <Route path="domaines/:id/modifier" element={<ProbeForm />} />
         <Route path="domaines/:id" element={<ProbePage />} />
         {/* Pas encore livrée : l'adresse mène à la vue d'ensemble. */}
         <Route path="sauvegardes" element={<Navigate to="/" replace />} />
         <Route path="taches" element={<Jobs />} />
-        <Route path="taches/nouvelle" element={<JobNew />} />
+        <Route path="taches/nouvelle" element={<JobForm />} />
+        <Route path="taches/:id/modifier" element={<JobForm />} />
         <Route path="taches/:id" element={<JobPage />} />
         <Route path="page-statut" element={<StatusAdmin />} />
         <Route path="page-statut/composants/nouveau" element={<StatusComponentForm />} />

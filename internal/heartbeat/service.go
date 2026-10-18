@@ -21,6 +21,8 @@ type Store interface {
 	GetHeartbeat(ctx context.Context, id string) (Heartbeat, error)
 	GetHeartbeatByToken(ctx context.Context, token string) (Heartbeat, error)
 	CountHeartbeats(ctx context.Context) (total, attention int, err error)
+	// SetHeartbeatToken remplace le jeton et son empreinte d'un coup.
+	SetHeartbeatToken(ctx context.Context, id, token string) error
 	DeleteHeartbeat(ctx context.Context, id string) error
 	ListOverdueHeartbeats(ctx context.Context, now time.Time) ([]Heartbeat, error)
 	// Transact relit le moniteur dans une transaction qui prend le verrou
@@ -143,6 +145,117 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 	return s.store.GetHeartbeat(ctx, id)
 }
 
+// Update remplace le nom, la machine, l'intervalle et la marge d'une tâche.
+// L'identifiant et le jeton ne changent jamais ici. Un intervalle ou une
+// marge qui change décale l'échéance en cours d'autant, sans la réinitialiser
+// à partir de maintenant : la tâche n'a pas pingé de plus ou de moins.
+func (s *Service) Update(ctx context.Context, id string, definition Definition) (Heartbeat, error) {
+	if err := definition.Validate(); err != nil {
+		return Heartbeat{}, err
+	}
+	now := s.now()
+	var before, after Heartbeat
+	err := s.store.Transact(ctx, id, func(current Heartbeat) *Transition {
+		before = current
+		after = revise(current, definition, now)
+		return &Transition{Heartbeat: after}
+	})
+	if err != nil {
+		return Heartbeat{}, err
+	}
+	s.logger.Info("heartbeat updated", "heartbeat_id", id, "name", after.Name, "previous_status", string(before.Status), "status", string(after.Status))
+	s.notifyAfterEdit(ctx, before, after)
+	s.changed(id)
+	return s.store.GetHeartbeat(ctx, id)
+}
+
+// revise porte la définition sur le moniteur et recalcule l'échéance si le
+// rythme a changé. Une échéance devenue passée n'est pas jugée ici :
+// CheckDeadlines s'en charge au prochain contrôle, comme pour toute autre.
+func revise(before Heartbeat, definition Definition, now time.Time) Heartbeat {
+	after := before
+	after.Name = strings.TrimSpace(definition.Name)
+	after.MachineID = definition.MachineID
+	after.Interval = definition.Interval
+	after.Grace = definition.Grace
+	rhythmChanged := after.Interval != before.Interval || after.Grace != before.Grace
+	if !rhythmChanged || before.IsPaused() {
+		return after
+	}
+	if before.Status == StatusLate {
+		return reviseLate(after, now)
+	}
+	if !before.NextDeadlineAt.IsZero() {
+		delta := (after.Interval + after.Grace) - (before.Interval + before.Grace)
+		after.NextDeadlineAt = before.NextDeadlineAt.Add(delta)
+	}
+	return after
+}
+
+// Une tâche en retard n'a plus d'échéance. Si le nouveau rythme laisse
+// encore du temps depuis son dernier signe de vie, elle n'est plus en
+// retard : l'échéance qu'elle aurait eue avec ce rythme revient.
+func reviseLate(late Heartbeat, now time.Time) Heartbeat {
+	lastSign := late.LastPingAt
+	if late.NeverPinged() {
+		lastSign = late.CreatedAt
+	}
+	deadline := lastSign.Add(late.Interval + late.Grace)
+	if !deadline.After(now) {
+		return late
+	}
+	late.NextDeadlineAt = deadline
+	late.Status = restoredStatus(late)
+	return late
+}
+
+// restoredStatus est l'état d'une tâche qui n'est plus en retard : celui
+// que son dernier ping lui avait laissé.
+func restoredStatus(heartbeat Heartbeat) Status {
+	if heartbeat.NeverPinged() {
+		return StatusNew
+	}
+	if heartbeat.LastExitCode != nil && *heartbeat.LastExitCode != 0 {
+		return StatusFailed
+	}
+	return StatusOnTime
+}
+
+// notifyAfterEdit tient les alertes au courant : une tâche encore en retard
+// ou en échec voit son alerte renommée, une tâche sortie du retard la lève.
+func (s *Service) notifyAfterEdit(ctx context.Context, before, after Heartbeat) {
+	if s.listener == nil {
+		return
+	}
+	switch {
+	case after.Status == StatusLate:
+		s.listener.Late(ctx, after)
+	case after.Status == StatusFailed && after.LastExitCode != nil:
+		s.listener.Failed(ctx, after, *after.LastExitCode)
+	case before.Status == StatusLate:
+		s.listener.Recovered(ctx, after)
+	}
+}
+
+// RegenerateToken tire un nouveau jeton : l'ancienne URL de ping cesse
+// aussitôt de répondre. L'état, l'échéance et l'historique ne bougent pas.
+func (s *Service) RegenerateToken(ctx context.Context, id string) error {
+	found, err := s.store.GetHeartbeat(ctx, id)
+	if err != nil {
+		return err
+	}
+	token, err := NewToken()
+	if err != nil {
+		return fmt.Errorf("generate token: %w", err)
+	}
+	if err := s.store.SetHeartbeatToken(ctx, id, token); err != nil {
+		return err
+	}
+	s.logger.Info("heartbeat token regenerated", "heartbeat_id", id, "name", found.Name)
+	s.changed(id)
+	return nil
+}
+
 func (s *Service) List(ctx context.Context) ([]Heartbeat, error) {
 	return s.store.ListHeartbeats(ctx)
 }
@@ -235,9 +348,10 @@ func (s *Service) Runs(ctx context.Context, id string, limit int) ([]Run, error)
 	return s.store.ListRuns(ctx, id, limit)
 }
 
-// Receive applique un ping au moniteur de ce jeton : il repousse l'échéance,
-// ouvre ou clôt une exécution, et reprend un moniteur en pause. Le corps est
-// tronqué à MaxPayloadBytes.
+// Receive applique un ping au moniteur de ce jeton : il repousse l'échéance
+// et ouvre ou clôt une exécution. Un moniteur en pause note le ping, rien de
+// plus : seule la reprise le remet en surveillance. Le corps est tronqué à
+// MaxPayloadBytes.
 func (s *Service) Receive(ctx context.Context, token string, ping Ping) (Heartbeat, error) {
 	if ping.Kind == KindExitCode && (ping.ExitCode == nil || *ping.ExitCode < 0 || *ping.ExitCode > MaxExitCode) {
 		return Heartbeat{}, ErrExitCodeInvalid
@@ -260,11 +374,22 @@ func (s *Service) Receive(ctx context.Context, token string, ping Ping) (Heartbe
 		if ping.Kind == KindStart {
 			transition = s.startTransition(current, ping, now)
 		}
+		// Une tâche en pause garde le ping brut pour qu'on voie que le cron
+		// tourne encore, sans que rien d'autre ne bouge : sinon un script
+		// oublié la remettrait en surveillance, et ses alertes avec.
+		if current.IsPaused() {
+			transition = Transition{Heartbeat: current, Ping: &ping}
+		}
 		after = transition.Heartbeat
 		return &transition
 	})
 	if err != nil {
 		return Heartbeat{}, err
+	}
+	if before.IsPaused() {
+		s.logger.Info("heartbeat ping while paused", "heartbeat_id", after.ID, "kind", string(ping.Kind), "source", ping.Source)
+		s.changed(after.ID)
+		return after, nil
 	}
 	s.logger.Info("heartbeat ping", "heartbeat_id", after.ID, "kind", string(ping.Kind), "status", string(after.Status), "source", ping.Source)
 	s.notifyAfterPing(ctx, before, after, ping)

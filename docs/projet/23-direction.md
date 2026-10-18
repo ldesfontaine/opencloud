@@ -67,8 +67,9 @@ machine + conteneur + sonde + tâche est le **composant** de l'unique page de
 statut (`status_components`, `status_component_members`). Sondes, tâches,
 composants, canaux se créent **dans l'interface ou par l'API**, uniquement ;
 pas d'import, pas d'export ([« Ce qui manque encore »](22-fonctionnement.md#ce-qui-manque-encore)).
-Une sonde **ne s'édite pas** : on la supprime et on la recrée, et son
-historique (`probe_days`) part avec. L'agent ne lit que les labels Compose,
+Une sonde et une tâche s'éditent sur place (voir
+[« Comment une cible est sondée »](22-fonctionnement.md#comment-une-cible-est-sondée)) :
+l'historique et le jeton restent. L'agent ne lit que les labels Compose,
 aucun label `opencloud.*`. Les 33 clés étrangères sont toutes `cascade` ou
 `set null` : supprimer une machine vide 17 tables.
 
@@ -90,7 +91,7 @@ statut. Le **service déclaré** en est l'objet central.
 
 | Changement | Où | Pourquoi | Coût |
 | --- | --- | --- | --- |
-| Éditer sur place sondes et tâches | `internal/probe`, `internal/heartbeat`, API | Sans ça, chaque `apply` efface 90 jours d'historique ou change un jeton | Faible, prérequis de tout le reste |
+| Éditer sur place sondes et tâches | `internal/probe`, `internal/heartbeat`, API | Sans ça, chaque `apply` efface 90 jours d'historique ou change un jeton | Faible, prérequis de tout le reste. **Fait** (PR « édition sur place ») |
 | Annuaire : services, unités, projets, nature | migration, `internal/…` | Le composant de statut est public ; il ne peut pas porter l'image, la version, les chemins | Moyen ; un rapprochement conteneur → unité à chaque inventaire |
 | Suppressions en `restrict` + plan | migration, chaque suppression | La base refuse toute perte silencieuse | Moyen : chaque suppression écrit son plan |
 | `export` / `apply` | `cmd/opencloud`, API | Reproductibilité de l'annuaire | Moyen à fort : le diff et sa confirmation sont le vrai travail |
@@ -279,7 +280,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 
 | Étape | Issue | Ce qu'elle livre | Écrit sur une machine ? |
 | --- | --- | --- | --- |
-| préalable | #153 | réglages en base (`settings.toml` disparaît) ; nom du produit à un seul endroit | non |
+| préalable | #153 | réglages en base (`settings.toml` disparaît) ; nom du produit à un seul endroit ; secrets de l'interface chiffrés en base. **Fait** : #155, #156, #157 | non |
 | 1 | #153 | la direction dans la doc ; l'annuaire : services déclarés et unités, projets, nature des services ; édition sur place des sondes et des tâches ; `export` / `apply` ; vue « écart » | non |
 | 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation | non |
 | 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination | oui : la sauvegarde chiffrée, chez l'agent de destination |
