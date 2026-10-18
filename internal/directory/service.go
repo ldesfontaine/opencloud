@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -34,7 +34,7 @@ type Store interface {
 	GetUnit(ctx context.Context, id string) (Unit, error)
 	// SetUnitUpdatePolicy écrit la politique de l'unité et rien d'autre ;
 	// ErrUnitNotFound si elle n'existe plus.
-	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) error
+	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) error
 	InsertProject(ctx context.Context, project Project) error
 	UpdateProject(ctx context.Context, project Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
@@ -53,8 +53,8 @@ type Store interface {
 // vivants d'une machine (de toutes si machineID est vide), et une fiche par
 // son identifiant, archivée comprise.
 type Containers interface {
-	List(ctx context.Context, machineID string) ([]service.Service, error)
-	Get(ctx context.Context, id string) (service.Service, error)
+	List(ctx context.Context, machineID string) ([]container.Container, error)
+	Get(ctx context.Context, id string) (container.Container, error)
 }
 
 // ImageChecks est ce que l'annuaire lit des constats sur les images, dont
@@ -218,7 +218,7 @@ func (d *Directory) settle(ctx context.Context, machineIDs ...string) {
 
 // MatchUnits applique la règle de rapprochement aux conteneurs d'une
 // machine : c'est ce que le suivi des services appelle à chaque rapport.
-func (d *Directory) MatchUnits(ctx context.Context, machineID string, containers []service.Service) (map[string]service.UnitMatch, error) {
+func (d *Directory) MatchUnits(ctx context.Context, machineID string, containers []container.Container) (map[string]container.UnitMatch, error) {
 	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: machineID})
 	if err != nil {
 		return nil, err
@@ -357,15 +357,15 @@ func (d *Directory) Review(ctx context.Context, id string) (Service, error) {
 // unité : tous ses conteneurs la suivent, ceux qui seront recréés aussi. Elle
 // ne tire ni ne redémarre rien. La machine est prévenue des images qu'elle ne
 // doit plus interroger.
-func (d *Directory) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) (Service, error) {
-	if !service.IsUpdatePolicy(policy) {
+func (d *Directory) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (Service, error) {
+	if !container.IsUpdatePolicy(policy) {
 		return Service{}, ErrUpdatePolicyInvalid
 	}
 	unit, err := d.store.GetUnit(ctx, unitID)
 	if err != nil {
 		return Service{}, err
 	}
-	if unit.Kind == UnitBinary && policy != service.PolicyWatch {
+	if unit.Kind == UnitBinary && policy != container.PolicyWatch {
 		return Service{}, ErrUpdatePolicyInvalid
 	}
 	if err := d.store.SetUnitUpdatePolicy(ctx, unitID, policy); err != nil {
@@ -470,7 +470,7 @@ func (d *Directory) Gaps(ctx context.Context, filter Filter) (GapReport, error) 
 
 // observed lit les conteneurs vivants et les constats d'images ; sans
 // source branchée, la machine ne montre rien.
-func (d *Directory) observed(ctx context.Context, machineID string) ([]service.Service, map[string]update.Check, error) {
+func (d *Directory) observed(ctx context.Context, machineID string) ([]container.Container, map[string]update.Check, error) {
 	if d.containers == nil || d.checks == nil {
 		return nil, nil, nil
 	}
@@ -491,25 +491,25 @@ func (d *Directory) Propose(ctx context.Context, containerID string) (Proposal, 
 	if d.containers == nil {
 		return Proposal{}, ErrContainerNotFound
 	}
-	container, err := d.containers.Get(ctx, containerID)
-	if errors.Is(err, service.ErrNotFound) {
+	item, err := d.containers.Get(ctx, containerID)
+	if errors.Is(err, container.ErrNotFound) {
 		return Proposal{}, ErrContainerNotFound
 	}
 	if err != nil {
 		return Proposal{}, err
 	}
-	if container.IsArchived() {
+	if item.IsArchived() {
 		return Proposal{}, ErrContainerNotFound
 	}
-	siblings, err := d.containers.List(ctx, container.MachineID)
+	siblings, err := d.containers.List(ctx, item.MachineID)
 	if err != nil {
 		return Proposal{}, err
 	}
-	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: container.MachineID})
+	declared, err := d.store.ListDeclaredServices(ctx, Filter{MachineID: item.MachineID})
 	if err != nil {
 		return Proposal{}, err
 	}
-	return Propose(container, siblings, declared)
+	return Propose(item, siblings, declared)
 }
 
 // Ignore dit que ce qui est présent sans être déclaré, c'est voulu. Le dire
@@ -546,17 +546,17 @@ type ContainerLink struct {
 	ServiceName string
 	UnitID      string
 	UnitName    string
-	Level       service.MatchLevel
+	Level       container.MatchLevel
 	Key         IgnoredKey
 	Ignored     bool
 }
 
-func (d *Directory) ContainerLink(ctx context.Context, container service.Service) (ContainerLink, error) {
-	link := ContainerLink{Key: keyOf(container)}
-	if container.UnitID != "" {
-		return d.linkToUnit(ctx, container, link)
+func (d *Directory) ContainerLink(ctx context.Context, item container.Container) (ContainerLink, error) {
+	link := ContainerLink{Key: keyOf(item)}
+	if item.UnitID != "" {
+		return d.linkToUnit(ctx, item, link)
 	}
-	ignored, err := d.store.ListIgnoredKeys(ctx, container.MachineID)
+	ignored, err := d.store.ListIgnoredKeys(ctx, item.MachineID)
 	if err != nil {
 		return ContainerLink{}, err
 	}
@@ -567,17 +567,17 @@ func (d *Directory) ContainerLink(ctx context.Context, container service.Service
 // linkToUnit cherche le service qui porte l'unité sur toutes les machines :
 // une fiche archivée garde son unité, et le service a pu changer de machine
 // depuis.
-func (d *Directory) linkToUnit(ctx context.Context, container service.Service, link ContainerLink) (ContainerLink, error) {
+func (d *Directory) linkToUnit(ctx context.Context, item container.Container, link ContainerLink) (ContainerLink, error) {
 	declared, err := d.store.ListDeclaredServices(ctx, Filter{})
 	if err != nil {
 		return ContainerLink{}, err
 	}
 	for _, found := range declared {
 		for _, unit := range found.Units {
-			if unit.ID == container.UnitID {
+			if unit.ID == item.UnitID {
 				link.ServiceID, link.ServiceName = found.ID, found.Name
 				link.UnitID, link.UnitName = unit.ID, unit.Name
-				link.Level = container.MatchLevel
+				link.Level = item.MatchLevel
 				return link, nil
 			}
 		}

@@ -1,9 +1,9 @@
-import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Probe, Service } from "../api/types";
-import { matchesFilter, type Filter } from "./services";
+import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Probe, Container } from "../api/types";
+import { matchesFilter, type Filter } from "./containers";
 
 // Le placement du graphe de la planche « Machine · Réseau » : le serveur a
 // dit les nœuds, les groupes et les arêtes ; ici on décide où. Trois
-// colonnes : Internet ; ce qu'Internet atteint, services publiés et
+// colonnes : Internet ; ce qu'Internet atteint, conteneurs publiés et
 // groupes qui en abritent un ; puis le reste. Ainsi une route publique ne
 // traverse jamais un nœud, et une dépendance ne traverse qu'un écart.
 // Tout est en pixels du graphe, avant zoom.
@@ -25,7 +25,7 @@ export interface PlacedNode {
   id: string;
   x: number;
   y: number;
-  service: Service | null;
+  container: Container | null;
   public: boolean;
 }
 
@@ -57,11 +57,11 @@ interface Box {
   y: number;
 }
 
-// Une unité d'une colonne : un service hors groupe, ou un groupe avec ses
+// Une unité d'une colonne : un conteneur hors groupe, ou un groupe avec ses
 // membres, publiés d'abord.
 interface Unit {
   group: Group | null;
-  services: Service[];
+  containers: Container[];
   public: boolean;
 }
 
@@ -72,14 +72,14 @@ interface Column {
 }
 
 export function layoutNetwork(response: NetworkResponse, filter: Filter): Layout {
-  const services = response.services.filter((service) => matchesFilter(service, filter));
-  const visible = new Set(services.map((service) => service.id));
+  const containers = response.containers.filter((container) => matchesFilter(container, filter));
+  const visible = new Set(containers.map((container) => container.id));
   const published = new Set(response.edges.filter((edge) => edge.kind === "public" && visible.has(edge.to)).map((edge) => edge.to));
-  const units = unitsOf(services, response.groups, published);
+  const units = unitsOf(containers, response.groups, published);
   const reached = [...units.filter((unit) => unit.public && unit.group === null), ...units.filter((unit) => unit.public && unit.group !== null)];
   const rest = [...units.filter((unit) => !unit.public && unit.group !== null), ...units.filter((unit) => !unit.public && unit.group === null)];
 
-  const internet: PlacedNode = { id: internetID, x: margin, y: margin, service: null, public: false };
+  const internet: PlacedNode = { id: internetID, x: margin, y: margin, container: null, public: false };
   const columns: Column[] = [];
   let x = margin + nodeWidth + columnGap;
   for (const column of [reached, rest]) {
@@ -110,30 +110,30 @@ export function layoutNetwork(response: NetworkResponse, filter: Filter): Layout
   return { width: x - columnGap + margin, height: margin + tallest + margin, nodes, groups, edges };
 }
 
-function unitsOf(services: Service[], groups: Group[], published: Set<string>): Unit[] {
-  const byID = new Map(services.map((service) => [service.id, service]));
+function unitsOf(containers: Container[], groups: Group[], published: Set<string>): Unit[] {
+  const byID = new Map(containers.map((container) => [container.id, container]));
   const grouped = new Set<string>();
   const units: Unit[] = [];
   for (const group of groups) {
-    const members = publishedFirst(group.members.map((id) => byID.get(id)).filter((service): service is Service => service !== undefined), published);
+    const members = publishedFirst(group.members.map((id) => byID.get(id)).filter((container): container is Container => container !== undefined), published);
     if (members.length === 0) {
       continue;
     }
     for (const member of members) {
       grouped.add(member.id);
     }
-    units.push({ group, services: members, public: members.some((member) => published.has(member.id)) });
+    units.push({ group, containers: members, public: members.some((member) => published.has(member.id)) });
   }
-  for (const service of services) {
-    if (!grouped.has(service.id)) {
-      units.push({ group: null, services: [service], public: published.has(service.id) });
+  for (const container of containers) {
+    if (!grouped.has(container.id)) {
+      units.push({ group: null, containers: [container], public: published.has(container.id) });
     }
   }
   return units;
 }
 
-function publishedFirst(services: Service[], published: Set<string>): Service[] {
-  return [...services.filter((service) => published.has(service.id)), ...services.filter((service) => !published.has(service.id))];
+function publishedFirst(containers: Container[], published: Set<string>): Container[] {
+  return [...containers.filter((container) => published.has(container.id)), ...containers.filter((container) => !published.has(container.id))];
 }
 
 // Empile les unités d'une colonne ; les nœuds hors groupe s'alignent sur
@@ -143,16 +143,16 @@ function placeColumn(units: Unit[], x: number, published: Set<string>): Column {
   let y = margin;
   for (const unit of units) {
     if (unit.group === null) {
-      const service = unit.services[0] as Service;
-      column.nodes.push({ id: service.id, x: x + groupPadding.left, y, service, public: published.has(service.id) });
+      const container = unit.containers[0] as Container;
+      column.nodes.push({ id: container.id, x: x + groupPadding.left, y, container, public: published.has(container.id) });
       y += nodeHeight + groupGap;
       continue;
     }
-    const height = groupPadding.top + unit.services.length * nodeHeight + (unit.services.length - 1) * rowGap + groupPadding.bottom;
+    const height = groupPadding.top + unit.containers.length * nodeHeight + (unit.containers.length - 1) * rowGap + groupPadding.bottom;
     column.groups.push({ ...unit.group, x, y, width: groupPadding.left + nodeWidth + groupPadding.right, height });
     let inner = y + groupPadding.top;
-    for (const service of unit.services) {
-      column.nodes.push({ id: service.id, x: x + groupPadding.left, y: inner, service, public: published.has(service.id) });
+    for (const container of unit.containers) {
+      column.nodes.push({ id: container.id, x: x + groupPadding.left, y: inner, container, public: published.has(container.id) });
       inner += nodeHeight + rowGap;
     }
     y += height + groupGap;
@@ -245,19 +245,19 @@ export function zoomView(view: View, factor: number, width: number, height: numb
   return { scale, x: width / 2 - (width / 2 - view.x) * ratio, y: height / 2 - (height / 2 - view.y) * ratio };
 }
 
-// Les services qui partagent un réseau avec celui-ci, par réseau : ce
+// Les conteneurs qui partagent un réseau avec celui-ci, par réseau : ce
 // qu'il peut joindre, sans que ce soit une dépendance.
 export interface Peers {
   network: string;
-  services: Service[];
+  containers: Container[];
 }
 
-export function peersOf(service: Service, all: Service[]): Peers[] {
+export function peersOf(container: Container, all: Container[]): Peers[] {
   const peers: Peers[] = [];
-  for (const attachment of service.networks) {
-    const services = all.filter((other) => other.id !== service.id && other.networks.some((candidate) => candidate.network_id === attachment.network_id));
-    if (services.length > 0) {
-      peers.push({ network: attachment.name, services });
+  for (const attachment of container.networks) {
+    const containers = all.filter((other) => other.id !== container.id && other.networks.some((candidate) => candidate.network_id === attachment.network_id));
+    if (containers.length > 0) {
+      peers.push({ network: attachment.name, containers });
     }
   }
   return peers;
@@ -275,7 +275,7 @@ export function publicPorts(edges: Edge[]): number[] {
 }
 
 // La vue d'ensemble : le même dessin, moins détaillé. Un seul nœud Internet,
-// puis chaque machine dans un cadre, ses services en nœuds compacts : les
+// puis chaque machine dans un cadre, ses conteneurs en nœuds compacts : les
 // publiés dans la première colonne, face à Internet, les autres en grille.
 // Ni groupes ni dépendances : l'onglet Réseau de la machine les dessine.
 // Une seule machine n'a pas de cadre.
@@ -286,7 +286,7 @@ const compactGap = 12;
 const frameGap = 20;
 const framePadding = { top: 30, right: 16, bottom: 14, left: 16 };
 const maxColumns = 4;
-// La hauteur d'un cadre sans service : sa légende seule.
+// La hauteur d'un cadre sans conteneur : sa légende seule.
 const emptyFrameHeight = 22;
 
 export interface PlacedMachine {
@@ -312,7 +312,7 @@ export interface OverviewLayout {
 
 export function layoutOverview(response: OverviewNetworkResponse): OverviewLayout {
   const framed = response.machines.length > 1;
-  const internet: PlacedNode = { id: internetID, x: margin, y: margin, service: null, public: false };
+  const internet: PlacedNode = { id: internetID, x: margin, y: margin, container: null, public: false };
   const machines: PlacedMachine[] = [];
   const nodes: PlacedNode[] = [];
   const edges: PlacedEdge[] = [];
@@ -343,28 +343,28 @@ export function layoutOverview(response: OverviewNetworkResponse): OverviewLayou
   return { width: left + widest + margin, height, framed, internet, machines, nodes, edges };
 }
 
-// Les services publiés en première colonne, les autres en grille à droite.
+// Les conteneurs publiés en première colonne, les autres en grille à droite.
 function placeMachine(machine: NetworkResponse, left: number, top: number, framed: boolean): { frame: PlacedMachine; nodes: PlacedNode[] } {
   const published = new Set(machine.edges.filter((edge) => edge.kind === "public").map((edge) => edge.to));
-  const publicServices = machine.services.filter((service) => published.has(service.id));
-  const others = machine.services.filter((service) => !published.has(service.id));
-  const gridColumns = publicServices.length > 0 ? maxColumns - 1 : maxColumns;
-  const rows = Math.max(publicServices.length, Math.ceil(others.length / gridColumns), 1);
-  const usedColumns = (publicServices.length > 0 ? 1 : 0) + Math.min(gridColumns, Math.ceil(others.length / rows));
+  const publicContainers = machine.containers.filter((container) => published.has(container.id));
+  const others = machine.containers.filter((container) => !published.has(container.id));
+  const gridColumns = publicContainers.length > 0 ? maxColumns - 1 : maxColumns;
+  const rows = Math.max(publicContainers.length, Math.ceil(others.length / gridColumns), 1);
+  const usedColumns = (publicContainers.length > 0 ? 1 : 0) + Math.min(gridColumns, Math.ceil(others.length / rows));
   const padding = framed ? framePadding : { top: 0, right: 0, bottom: 0, left: 0 };
   const nodes: PlacedNode[] = [];
   const originX = left + padding.left;
   const originY = top + padding.top;
-  publicServices.forEach((service, row) => {
-    nodes.push({ id: service.id, x: originX, y: originY + row * (compactHeight + compactGap), service, public: true });
+  publicContainers.forEach((container, row) => {
+    nodes.push({ id: container.id, x: originX, y: originY + row * (compactHeight + compactGap), container, public: true });
   });
-  const firstGridColumn = publicServices.length > 0 ? 1 : 0;
-  others.forEach((service, index) => {
+  const firstGridColumn = publicContainers.length > 0 ? 1 : 0;
+  others.forEach((container, index) => {
     const column = firstGridColumn + (index % gridColumns);
     const row = Math.floor(index / gridColumns);
-    nodes.push({ id: service.id, x: originX + column * (compactWidth + compactGap), y: originY + row * (compactHeight + compactGap), service, public: false });
+    nodes.push({ id: container.id, x: originX + column * (compactWidth + compactGap), y: originY + row * (compactHeight + compactGap), container, public: false });
   });
-  const empty = machine.services.length === 0;
+  const empty = machine.containers.length === 0;
   const contentHeight = empty ? emptyFrameHeight : rows * compactHeight + (rows - 1) * compactGap;
   const contentWidth = Math.max(usedColumns, 1) * compactWidth + (Math.max(usedColumns, 1) - 1) * compactGap;
   return {
@@ -379,6 +379,6 @@ function placeMachine(machine: NetworkResponse, left: number, top: number, frame
 // Les sondes qui surveillent ce conteneur : elles visent son service déclaré,
 // jamais la fiche, qui change à chaque recréation. Un conteneur non déclaré
 // n'est surveillé par aucune.
-export function probesOf(probes: readonly Probe[], service: Pick<Service, "declared_service_id">): Probe[] {
-  return service.declared_service_id === "" ? [] : probes.filter((probe) => probe.service_id === service.declared_service_id);
+export function probesOf(probes: readonly Probe[], container: Pick<Container, "declared_service_id">): Probe[] {
+  return container.declared_service_id === "" ? [] : probes.filter((probe) => probe.service_id === container.declared_service_id);
 }

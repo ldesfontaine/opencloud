@@ -285,7 +285,7 @@ Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml
 
 ### Les flux en direct
 
-`/agent/stream`, `/api/events`, `/api/services/{id}/logs/stream`,
+`/agent/stream`, `/api/events`, `/api/containers/{id}/logs/stream`,
 `/statut/api/events` et `/mcp` sont des flux SSE : une réponse qui dure des
 heures. Traefik les laisse passer par défaut. **N'ajoutez pas** de
 middleware `buffering` sur ce routeur ; `compress`, s'il est là, ne doit
@@ -622,7 +622,10 @@ l'ancien binaire ne marche pas sur cette base. Il démarre, puis ne suit plus
 les conteneurs : son inventaire écrit une colonne (`update_policy`) que la
 montée a retirée de `services`, donc chaque rapport échoue ; créer une sonde
 sur un conteneur échoue aussi, la sonde visant désormais un service de
-l'annuaire. Pour revenir en arrière, remettez l'ancien binaire **et** la copie
+l'annuaire. La 025 renomme en plus les tables du conteneur observé (`services`
+devient `containers`, `service_transitions` `container_events`, et de même
+les mesures et les réseaux) : un binaire d'avant elle ne les retrouve plus.
+Pour revenir en arrière, remettez l'ancien binaire **et** la copie
 `avant-maj.db` faite avant la mise à jour. La sauvegarde ne change pas.
 
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :

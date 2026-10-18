@@ -67,7 +67,7 @@ func (ts *testServer) seedAll(t *testing.T) (componentID, incidentID string) {
 	t.Helper()
 	ts.enroll(t, "vps-paris-1", remoteID)
 	jobID := ts.seedJobs(t)
-	ts.seedServices(t)
+	ts.seedContainers(t)
 	declaredID := ts.seedGaps(t)
 	probeID := ts.seedProbes(t, declaredID)
 	return ts.seedStatus(t, declaredID, jobID, probeID)

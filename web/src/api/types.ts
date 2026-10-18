@@ -36,8 +36,8 @@ export interface DiskThresholds {
 export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
-  // Les services qui vont mal, et ceux qui ont une image plus récente.
-  services: { total: number; attention: number; updates: number };
+  // Les conteneurs qui vont mal, et ceux qui ont une image plus récente.
+  containers: { total: number; attention: number; updates: number };
   probes: { total: number; attention: number };
   certificates: CertificateCounts;
   // Les incidents ouverts sur la page de statut.
@@ -215,7 +215,7 @@ export interface Port {
   protocol: string;
 }
 
-// La présence d'un service sur un réseau de sa machine ; l'adresse est
+// La présence d'un conteneur sur un réseau de sa machine ; l'adresse est
 // vide quand le conteneur est arrêté.
 export interface Attachment {
   network_id: string;
@@ -241,20 +241,20 @@ export interface Finding {
   protocol?: string;
 }
 
-export type ServiceState = "created" | "running" | "paused" | "restarting" | "removing" | "exited" | "dead";
-export type ServiceHealth = "" | "starting" | "healthy" | "unhealthy";
+export type ContainerState = "created" | "running" | "paused" | "restarting" | "removing" | "exited" | "dead";
+export type ContainerHealth = "" | "starting" | "healthy" | "unhealthy";
 
-// La mesure courante d'un service, absente si elle n'est pas fraîche.
-export interface ServiceSample {
+// La mesure courante d'un conteneur, absente si elle n'est pas fraîche.
+export interface ContainerSample {
   sampled_at: string;
   cpu_percent: number;
   mem_used: number;
   mem_limit: number;
 }
 
-// Un service : des faits ; la pastille se dérive ici de l'état, du code
+// Un conteneur : des faits ; la pastille se dérive ici de l'état, du code
 // de sortie et de la santé.
-export interface Service {
+export interface Container {
   id: string;
   machine_id: string;
   machine_name: string;
@@ -264,7 +264,7 @@ export interface Service {
   container_id: string;
   image: string;
   image_id: string;
-  // Ce que Compose dit du service : de quoi lire la commande fabriquée.
+  // Ce que Compose dit du conteneur : de quoi lire la commande fabriquée.
   compose_service: string;
   compose_dir: string;
   compose_file: string;
@@ -278,13 +278,13 @@ export interface Service {
   // Le support de l'image : sur la fiche seulement, et seulement quand la
   // fin de support est activée sous Paramètres.
   lifecycle?: Lifecycle;
-  state: ServiceState;
+  state: ContainerState;
   exit_code: number;
   // Tué par le noyau faute de mémoire : 137 comme un docker stop, mais pas demandé.
   oom_killed: boolean;
   // Tué en SIGKILL sans arrêt demandé : 137 aussi, mais à signaler.
   killed: boolean;
-  health: ServiceHealth;
+  health: ContainerHealth;
   restart_count: number;
   ports: Port[];
   // bridge, host, none, container:<id>, ou le nom du premier réseau joint.
@@ -299,7 +299,7 @@ export interface Service {
   first_seen_at: string;
   last_seen_at: string;
   archived_at: string | null;
-  current: ServiceSample | null;
+  current: ContainerSample | null;
 }
 
 export type LifecycleStatus = "maintained" | "eol" | "unknown_product" | "unknown_version" | "pending";
@@ -369,8 +369,8 @@ export interface Engine {
   checked_at: string;
 }
 
-export interface ServicesResponse {
-  services: Service[];
+export interface ContainersResponse {
+  containers: Container[];
   engines: Engine[];
 }
 
@@ -378,10 +378,10 @@ export interface Transition {
   id: number;
   at: string;
   action: string;
-  previous_state: ServiceState | "";
-  new_state: ServiceState | "";
-  previous_health: ServiceHealth;
-  new_health: ServiceHealth;
+  previous_state: ContainerState | "";
+  new_state: ContainerState | "";
+  previous_health: ContainerHealth;
+  new_health: ContainerHealth;
   exit_code: number | null;
   oom_killed: boolean;
   killed: boolean;
@@ -389,8 +389,8 @@ export interface Transition {
   snippet: string;
 }
 
-export interface ServiceResponse {
-  service: Service;
+export interface ContainerResponse {
+  container: Container;
   engine: Engine | null;
   transitions: Transition[];
   // Ce que l'annuaire sait de ce conteneur ; nul pour une fiche qui n'en a pas.
@@ -398,7 +398,7 @@ export interface ServiceResponse {
 }
 
 // Un groupe du graphe : un réseau créé par l'opérateur ou par Compose, et
-// les services que le serveur y a placés.
+// les conteneurs que le serveur y a placés.
 export interface Group {
   network_id: string;
   name: string;
@@ -406,7 +406,7 @@ export interface Group {
   members: string[];
 }
 
-// Une arête : d'Internet à un port publié, ou d'un service à celui dont il
+// Une arête : d'Internet à un port publié, ou d'un conteneur à celui dont il
 // dépend. Le nœud Internet a l'identifiant « internet ».
 export interface Edge {
   from: string;
@@ -422,7 +422,7 @@ export interface NetworkResponse {
   machine_name: string;
   online: boolean;
   engine: Engine | null;
-  services: Service[];
+  containers: Container[];
   groups: Group[];
   edges: Edge[];
 }
@@ -950,7 +950,7 @@ export interface ContainerVerdict {
   // L'identifiant de la fiche du conteneur, pas celui d'un service déclaré.
   id: string;
   name: string;
-  state: ServiceState;
+  state: ContainerState;
   image: string;
   match_level: MatchLevel | "";
   verdict: GapState;
@@ -976,7 +976,7 @@ export interface ServiceGap {
 export interface UndeclaredContainer {
   id: string;
   name: string;
-  state: ServiceState;
+  state: ContainerState;
   image: string;
   compose_service: string;
 }

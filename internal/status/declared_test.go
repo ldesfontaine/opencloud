@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -29,16 +29,16 @@ func (f *fixture) shop(t *testing.T) directory.Service {
 	return created
 }
 
-func (f *fixture) shopContainer(containerID, composeService string, state service.State) service.Container {
-	return service.Container{
+func (f *fixture) shopContainer(containerID, composeService string, state container.State) container.Observed {
+	return container.Observed{
 		ContainerID: containerID, Name: "shop-" + composeService + "-1", Group: "shop", ComposeService: composeService,
 		Image: composeService + ":1", State: state, CreatedAt: f.now.Add(-time.Hour),
 	}
 }
 
-func (f *fixture) inventory(t *testing.T, containers ...service.Container) {
+func (f *fixture) inventory(t *testing.T, containers ...container.Observed) {
 	t.Helper()
-	report := service.Report{Engine: &service.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: containers}
+	report := container.Report{Engine: &container.EngineReport{Present: true, Version: "29.8.0", APIVersion: "1.56"}, Complete: true, Inventory: containers}
 	if err := f.services.Record(context.Background(), machine.LocalID, report); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestDeclaredServiceState_UnitWithoutContainerIsDown(t *testing.T) {
 	f := newFixture(t)
 	declared := f.shop(t)
 	app, db := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning))
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning))
 
 	component := f.component(t, "Boutique", status.MemberRef{Kind: status.KindService, ID: declared.ID})
 	if component.Effective != status.StateDown {
@@ -60,13 +60,13 @@ func TestDeclaredServiceState_UnitWithoutContainerIsDown(t *testing.T) {
 		t.Fatalf("membre = %+v", component.Members)
 	}
 
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning), f.shopContainer(db, "db", service.StateRunning))
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), f.shopContainer(db, "db", container.StateRunning))
 	again, err := f.status.GetComponent(context.Background(), component.ID)
 	if err != nil || again.Effective != status.StateOperational {
 		t.Fatalf("toutes les unités tournent : %q, %v", again.Effective, err)
 	}
 
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning), f.shopContainer(db, "db", service.StateExited))
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), f.shopContainer(db, "db", container.StateExited))
 	stopped, _ := f.status.GetComponent(context.Background(), component.ID)
 	if stopped.Effective != status.StateDown {
 		t.Fatalf("une unité arrêtée : %q, want down", stopped.Effective)
@@ -98,7 +98,7 @@ func TestComponent_SurvivesContainerRecreation(t *testing.T) {
 	f := newFixture(t)
 	declared := f.shop(t)
 	app, db := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning), f.shopContainer(db, "db", service.StateRunning))
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), f.shopContainer(db, "db", container.StateRunning))
 	component := f.component(t, "Boutique", status.MemberRef{Kind: status.KindService, ID: declared.ID})
 	if component.Effective != status.StateOperational {
 		t.Fatalf("avant : %q", component.Effective)
@@ -107,7 +107,7 @@ func TestComponent_SurvivesContainerRecreation(t *testing.T) {
 	// L'ancien conteneur est détruit, un nouveau le remplace sous un autre identifiant.
 	f.now = f.now.Add(time.Minute)
 	recreated := strings.Repeat("c", 64)
-	f.inventory(t, f.shopContainer(recreated, "app", service.StateRunning), f.shopContainer(db, "db", service.StateRunning))
+	f.inventory(t, f.shopContainer(recreated, "app", container.StateRunning), f.shopContainer(db, "db", container.StateRunning))
 
 	after, err := f.status.GetComponent(context.Background(), component.ID)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestComponent_SurvivesContainerRecreation(t *testing.T) {
 	}
 
 	// Le conteneur recréé tombe : le composant le dit, sans que l'archivé ne le masque.
-	f.inventory(t, f.shopContainer(recreated, "app", service.StateExited), f.shopContainer(db, "db", service.StateRunning))
+	f.inventory(t, f.shopContainer(recreated, "app", container.StateExited), f.shopContainer(db, "db", container.StateRunning))
 	down, _ := f.status.GetComponent(context.Background(), component.ID)
 	if down.Effective != status.StateDown {
 		t.Fatalf("après l'arrêt : %q, want down", down.Effective)
@@ -135,11 +135,11 @@ func TestUnderMaintenance_ContainerAlertFindsItsDeclaredService(t *testing.T) {
 	declared := f.shop(t)
 	app := strings.Repeat("a", 64)
 	stranger := strings.Repeat("f", 64)
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning), service.Container{
-		ContainerID: stranger, Name: "stranger", Image: "stranger:1", State: service.StateRunning, CreatedAt: f.now.Add(-time.Hour),
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), container.Observed{
+		ContainerID: stranger, Name: "stranger", Image: "stranger:1", State: container.StateRunning, CreatedAt: f.now.Add(-time.Hour),
 	})
 	component := f.component(t, "Boutique", status.MemberRef{Kind: status.KindService, ID: declared.ID})
-	appFiche, strangerFiche := service.ID(machine.LocalID, app), service.ID(machine.LocalID, stranger)
+	appFiche, strangerFiche := container.ID(machine.LocalID, app), container.ID(machine.LocalID, stranger)
 
 	if under, err := f.status.UnderMaintenance(ctx, "service", appFiche); err != nil || under {
 		t.Fatalf("sans maintenance : %v, %v", under, err)
@@ -176,7 +176,7 @@ func TestDeclaredServiceState_UndeclaredStoppedInitDoesNotTurnTheComponentRed(t 
 		t.Fatal(err)
 	}
 	app, initial := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	f.inventory(t, f.shopContainer(app, "app", service.StateRunning), f.shopContainer(initial, "init", service.StateExited))
+	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), f.shopContainer(initial, "init", container.StateExited))
 
 	component := f.component(t, "Boutique", status.MemberRef{Kind: status.KindService, ID: declared.ID})
 

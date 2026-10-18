@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { ContainerDirectory, Service } from "../api/types";
+import type { ContainerDirectory, Container } from "../api/types";
 import { useT } from "../i18n/context";
 import { adoptPath } from "../lib/gaps";
 import { useRefresh } from "../lib/refresh";
@@ -14,14 +14,14 @@ import { Pill } from "./Pill";
 // rattache, ou, faute d'elle, de quoi l'adopter ou le dire voulu. Une fiche
 // archivée garde son dernier rattachement, mais n'a rien à adopter : le
 // conteneur n'existe plus.
-export function DirectoryCard({ service, directory }: { service: Service; directory: ContainerDirectory | null }) {
+export function DirectoryCard({ container, directory }: { container: Container; directory: ContainerDirectory | null }) {
   const t = useT();
   const { refresh } = useRefresh();
   const [error, setError] = useState<string | null>(null);
   if (directory === null) {
     return null;
   }
-  const isArchived = service.archived_at !== null;
+  const isArchived = container.archived_at !== null;
   if (!directory.declared && isArchived) {
     return null;
   }
@@ -29,7 +29,7 @@ export function DirectoryCard({ service, directory }: { service: Service; direct
     setError(null);
     request.then(() => refresh("directory")).catch((failed: unknown) => setError(errorKey(failed)));
   };
-  const key = { machine_id: service.machine_id, kind: directory.key_kind, value: directory.key_value };
+  const key = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
   const unignore = new URLSearchParams({ machine: key.machine_id, kind: key.kind, value: key.value });
   return (
     <Card>
@@ -68,7 +68,7 @@ export function DirectoryCard({ service, directory }: { service: Service; direct
                 </Button>
               ) : (
                 <>
-                  <Button small variant="primary" to={adoptPath(service.id)}>
+                  <Button small variant="primary" to={adoptPath(container.id)}>
                     {t("gap.adopt")}
                   </Button>
                   <Button small variant="ghost" onClick={() => send(api.post("/api/directory/ignored", key))}>

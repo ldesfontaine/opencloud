@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -20,5 +20,5 @@ func (s *Server) checkUpdates(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusServiceUnavailable, "update.machine_offline")
 		return
 	}
-	s.finishAPIAction(w, r, err, service.ErrNotFound)
+	s.finishAPIAction(w, r, err, container.ErrNotFound)
 }

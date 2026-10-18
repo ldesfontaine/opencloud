@@ -6,6 +6,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -14,7 +15,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -45,10 +45,10 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "job.status_", values: names(heartbeat.Statuses())},
 		{prefix: "job.kind_", values: names(heartbeat.Kinds())},
 		{prefix: "job.outcome_", values: names(heartbeat.Outcomes())},
-		{prefix: "service.health_", values: names(service.Healths())},
-		{prefix: "network.exposure_", values: names(service.FindingKinds())},
+		{prefix: "container.health_", values: names(container.Healths())},
+		{prefix: "network.exposure_", values: names(container.FindingKinds())},
 		// Les trois politiques ont leur libellé : le sélecteur de l'unité les montre toutes.
-		{prefix: "update.policy_", values: names(service.UpdatePolicies())},
+		{prefix: "update.policy_", values: names(container.UpdatePolicies())},
 		// Une vérification réussie dit ce qu'elle a trouvé, pas son issue.
 		{prefix: "update.outcome_", values: without(names(update.Outcomes()), string(update.OutcomeOK))},
 		{prefix: "update.kind_", values: names(update.Kinds())},
@@ -92,7 +92,7 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "directory.declared_by_", values: names(directory.Provenances())},
 		{prefix: "gap.state_", values: names(directory.GapStates())},
 		{prefix: "gap.reason_", values: names(directory.GapReasons())},
-		{prefix: "gap.level_", values: names(service.MatchLevels())},
+		{prefix: "gap.level_", values: names(container.MatchLevels())},
 		{prefix: "gap.key_", values: names(directory.IgnoreKinds())},
 	}
 	for _, list := range lists {

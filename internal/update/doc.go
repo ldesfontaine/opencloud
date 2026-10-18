@@ -1,4 +1,4 @@
-// Package update sait si l'image d'un service a une version plus
+// Package update sait si l'image d'un conteneur a une version plus
 // récente. L'agent d'une machine interroge le registre de chaque image
 // de ses conteneurs et rapporte des faits : l'empreinte tirée, celle que
 // le tag pointe aujourd'hui, le tag plus récent écrit de la même façon.

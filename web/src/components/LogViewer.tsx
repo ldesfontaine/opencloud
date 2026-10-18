@@ -24,7 +24,7 @@ interface Shown extends LogLine {
 // direct échoue avant la première ligne, l'autodéfilement tant que
 // l'opérateur reste en bas. Un flux qui se ferme ou échoue ne se suit
 // plus : le bouton repropose « Suivre », qui retente.
-export function LogViewer({ serviceID }: { serviceID: string }) {
+export function LogViewer({ containerID }: { containerID: string }) {
   const t = useT();
   const [lines, setLines] = useState<Shown[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
@@ -44,7 +44,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
   const fetchOnce = useCallback(() => {
     setStatus("connecting");
     api
-      .get<LogsResponse>(`/api/services/${serviceID}/logs?tail=${tail}`)
+      .get<LogsResponse>(`/api/containers/${containerID}/logs?tail=${tail}`)
       .then((response) => {
         setLines(response.lines.map((line) => ({ ...line, key: nextKey.current++ })));
         setStatus("fallback");
@@ -53,7 +53,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
         setError(failure instanceof ApiError ? failure : new ApiError(0, "internal"));
         setStatus("error");
       });
-  }, [serviceID]);
+  }, [containerID]);
 
   useEffect(() => {
     if (!following) {
@@ -63,7 +63,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
     setError(null);
     setStatus("connecting");
     let received = false;
-    const source = new EventSource(`/api/services/${serviceID}/logs/stream?tail=${tail}`);
+    const source = new EventSource(`/api/containers/${containerID}/logs/stream?tail=${tail}`);
     source.addEventListener("line", (event: MessageEvent<string>) => {
       received = true;
       setStatus("live");
@@ -90,7 +90,7 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
       }
     };
     return () => source.close();
-  }, [serviceID, following, append, fetchOnce]);
+  }, [containerID, following, append, fetchOnce]);
 
   useEffect(() => {
     const element = pane.current;
@@ -112,17 +112,17 @@ export function LogViewer({ serviceID }: { serviceID: string }) {
         <LogStatus status={status} />
         {following ? (
           <Button small icon="pause" onClick={() => setFollowing(false)}>
-            {t("service.logs_stop")}
+            {t("container.logs_stop")}
           </Button>
         ) : (
           <Button small icon="refresh" onClick={() => setFollowing(true)}>
-            {t("service.logs_follow")}
+            {t("container.logs_follow")}
           </Button>
         )}
       </div>
       {error !== null && <Failure error={error} />}
       <div className="logs-pane mono" ref={pane} onScroll={onScroll}>
-        {lines.length === 0 && status !== "connecting" && <span className="muted">{t("service.logs_empty")}</span>}
+        {lines.length === 0 && status !== "connecting" && <span className="muted">{t("container.logs_empty")}</span>}
         {lines.map((line) => (
           <div className={line.stream === "stderr" ? "log-line stderr" : "log-line"} key={line.key}>
             {line.at !== null && <span className="log-at">{formatClock(line.at)}</span>}
@@ -138,17 +138,17 @@ function LogStatus({ status }: { status: Status }) {
   const t = useT();
   switch (status) {
     case "live":
-      return <Pill tone="ok">{t("service.logs_live")}</Pill>;
+      return <Pill tone="ok">{t("container.logs_live")}</Pill>;
     case "fallback":
-      return <Pill tone="neutral">{t("service.logs_fallback")}</Pill>;
+      return <Pill tone="neutral">{t("container.logs_fallback")}</Pill>;
     case "ended":
-      return <Pill tone="neutral">{t("service.logs_paused")}</Pill>;
+      return <Pill tone="neutral">{t("container.logs_paused")}</Pill>;
     case "error":
-      return <Pill tone="danger">{t("service.logs_paused")}</Pill>;
+      return <Pill tone="danger">{t("container.logs_paused")}</Pill>;
     default:
       return (
         <Pill tone="accent" dot={false}>
-          {t("service.logs_connecting")}
+          {t("container.logs_connecting")}
         </Pill>
       );
   }

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/registry"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -59,9 +59,9 @@ type ContainerVerdict struct {
 	// service déclaré.
 	ServiceID string
 	Name      string
-	State     service.State
+	State     container.State
 	Image     string
-	Level     service.MatchLevel
+	Level     container.MatchLevel
 	Verdict   GapState
 	Reason    GapReason
 }
@@ -92,7 +92,7 @@ type Undeclared struct {
 	// c'est là que « Adopter » ajoute une unité.
 	ServiceID  string
 	Ignored    bool
-	Containers []service.Service
+	Containers []container.Container
 }
 
 // GapReport porte les services déclarés qu'il a jugés, dans le même ordre
@@ -107,17 +107,17 @@ type GapReport struct {
 // Gaps calcule l'écart. Il lit le rattachement que les fiches portent, sans
 // relancer le rapprochement : ce que l'écran montre est ce que la base
 // garde. Les conteneurs archivés ne comptent pas.
-func Gaps(declared []Service, containers []service.Service, checks map[string]update.Check, ignored []IgnoredKey) GapReport {
-	living := make([]service.Service, 0, len(containers))
-	for _, container := range containers {
-		if !container.IsArchived() {
-			living = append(living, container)
+func Gaps(declared []Service, containers []container.Container, checks map[string]update.Check, ignored []IgnoredKey) GapReport {
+	living := make([]container.Container, 0, len(containers))
+	for _, item := range containers {
+		if !item.IsArchived() {
+			living = append(living, item)
 		}
 	}
-	attached := map[string][]service.Service{}
-	for _, container := range living {
-		if container.UnitID != "" {
-			attached[container.UnitID] = append(attached[container.UnitID], container)
+	attached := map[string][]container.Container{}
+	for _, item := range living {
+		if item.UnitID != "" {
+			attached[item.UnitID] = append(attached[item.UnitID], item)
 		}
 	}
 	report := GapReport{Declared: declared, Services: make([]ServiceGap, 0, len(declared))}
@@ -128,7 +128,7 @@ func Gaps(declared []Service, containers []service.Service, checks map[string]up
 	return report
 }
 
-func gapOfService(declared Service, attached map[string][]service.Service, checks map[string]update.Check) ServiceGap {
+func gapOfService(declared Service, attached map[string][]container.Container, checks map[string]update.Check) ServiceGap {
 	gap := ServiceGap{ServiceID: declared.ID, State: GapConform, Units: make([]UnitGap, 0, len(declared.Units))}
 	for _, unit := range declared.Units {
 		unitGap := gapOfUnit(unit, attached[unit.ID], checks)
@@ -139,7 +139,7 @@ func gapOfService(declared Service, attached map[string][]service.Service, check
 	return gap
 }
 
-func gapOfUnit(unit Unit, containers []service.Service, checks map[string]update.Check) UnitGap {
+func gapOfUnit(unit Unit, containers []container.Container, checks map[string]update.Check) UnitGap {
 	gap := UnitGap{UnitID: unit.ID, Name: unit.Name, Kind: unit.Kind, Containers: []ContainerVerdict{}}
 	if unit.Kind == UnitBinary {
 		gap.State = GapUnobserved
@@ -150,22 +150,22 @@ func gapOfUnit(unit Unit, containers []service.Service, checks map[string]update
 		return gap
 	}
 	gap.State = GapConform
-	for _, container := range sortedByName(containers) {
-		state, reason := verdict(unit, container, checks)
+	for _, item := range sortedByName(containers) {
+		state, reason := verdict(unit, item, checks)
 		gap.Containers = append(gap.Containers, ContainerVerdict{
-			ServiceID: container.ID, Name: container.Name, State: container.State, Image: container.Image,
-			Level: container.MatchLevel, Verdict: state, Reason: reason,
+			ServiceID: item.ID, Name: item.Name, State: item.State, Image: item.Image,
+			Level: item.MatchLevel, Verdict: state, Reason: reason,
 		})
 		gap.State = worstOfContainers(gap.State, state)
-		gap.Weak = gap.Weak || container.MatchLevel.IsWeak()
+		gap.Weak = gap.Weak || item.MatchLevel.IsWeak()
 	}
 	return gap
 }
 
 // verdict juge un conteneur rattaché face à son unité. La première règle
 // qui s'applique décide ; l'ordre est celui du tableau de 22-fonctionnement.md.
-func verdict(unit Unit, container service.Service, checks map[string]update.Check) (GapState, GapReason) {
-	observed, err := registry.Parse(container.Image)
+func verdict(unit Unit, item container.Container, checks map[string]update.Check) (GapState, GapReason) {
+	observed, err := registry.Parse(item.Image)
 	if err != nil {
 		return GapUnverifiable, ReasonImageUnreadable
 	}
@@ -179,7 +179,7 @@ func verdict(unit Unit, container service.Service, checks map[string]update.Chec
 	if observed.Registry != declared.Registry || observed.Repository != declared.Repository {
 		return GapDiverged, ReasonImageDiffers
 	}
-	digest := observedDigest(observed, container, checks)
+	digest := observedDigest(observed, item, checks)
 	if unit.Digest != "" && digest != "" && digest != unit.Digest {
 		return GapDiverged, ReasonDigestDiffers
 	}
@@ -208,11 +208,11 @@ func verdict(unit Unit, container service.Service, checks map[string]update.Chec
 // observedDigest est l'empreinte de ce qui tourne : celle que l'image écrit,
 // sinon celle que le dernier constat sur l'image a lue localement. Vide : on
 // ne la connaît pas.
-func observedDigest(observed registry.Reference, container service.Service, checks map[string]update.Check) string {
+func observedDigest(observed registry.Reference, item container.Container, checks map[string]update.Check) string {
 	if observed.Digest != "" {
 		return observed.Digest
 	}
-	if check, ok := update.CheckFor(checks, container); ok {
+	if check, ok := update.CheckFor(checks, item); ok {
 		return check.LocalDigest
 	}
 	return ""
@@ -235,9 +235,9 @@ func worst(current, next GapState, scale []GapState) GapState {
 	return current
 }
 
-func sortedByName(containers []service.Service) []service.Service {
+func sortedByName(containers []container.Container) []container.Container {
 	sorted := slices.Clone(containers)
-	slices.SortFunc(sorted, func(a, b service.Service) int {
+	slices.SortFunc(sorted, func(a, b container.Container) int {
 		if byName := strings.Compare(a.Name, b.Name); byName != 0 {
 			return byName
 		}
@@ -248,26 +248,26 @@ func sortedByName(containers []service.Service) []service.Service {
 
 // keyOf est la clé par laquelle l'opérateur ignore un conteneur : son projet
 // Compose, sinon son nom.
-func keyOf(container service.Service) IgnoredKey {
-	if container.Group != "" {
-		return IgnoredKey{MachineID: container.MachineID, Kind: IgnoreComposeProject, Value: container.Group}
+func keyOf(item container.Container) IgnoredKey {
+	if item.Group != "" {
+		return IgnoredKey{MachineID: item.MachineID, Kind: IgnoreComposeProject, Value: item.Group}
 	}
-	return IgnoredKey{MachineID: container.MachineID, Kind: IgnoreContainerName, Value: container.Name}
+	return IgnoredKey{MachineID: item.MachineID, Kind: IgnoreContainerName, Value: item.Name}
 }
 
-func undeclaredOf(declared []Service, living []service.Service, ignored []IgnoredKey) []Undeclared {
+func undeclaredOf(declared []Service, living []container.Container, ignored []IgnoredKey) []Undeclared {
 	groups := map[IgnoredKey]*Undeclared{}
-	for _, container := range living {
-		if container.UnitID != "" {
+	for _, item := range living {
+		if item.UnitID != "" {
 			continue
 		}
-		key := keyOf(container)
+		key := keyOf(item)
 		group, found := groups[key]
 		if !found {
-			group = &Undeclared{MachineID: container.MachineID, Key: key, ServiceID: composeServiceOf(declared, key)}
+			group = &Undeclared{MachineID: item.MachineID, Key: key, ServiceID: composeServiceOf(declared, key)}
 			groups[key] = group
 		}
-		group.Containers = append(group.Containers, container)
+		group.Containers = append(group.Containers, item)
 	}
 	undeclared := make([]Undeclared, 0, len(groups))
 	for _, group := range groups {

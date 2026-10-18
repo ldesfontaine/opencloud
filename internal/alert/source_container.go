@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
-// Ce que le composant service constate après chaque rapport écrit : la
+// Ce que le composant conteneur constate après chaque rapport écrit : la
 // fiche telle qu'elle est, et les transitions que ce rapport a notées.
 // Un conteneur archivé ne compte plus.
-func (e *Engine) ServiceChanged(ctx context.Context, found service.Service, transitions []service.Transition) {
+func (e *Engine) ContainerChanged(ctx context.Context, found container.Container, transitions []container.Transition) {
 	object := Object{Kind: ObjectService, ID: found.ID, Name: found.Name}
 	if found.IsArchived() {
 		e.Gone(ctx, object)
@@ -23,8 +23,8 @@ func (e *Engine) ServiceChanged(ctx context.Context, found service.Service, tran
 // judgeHealth ouvre « défaillant » quand le contrôle de santé échoue. Revenu
 // bon, l'état n'est noté que comme calme : le balayage résout passé
 // ServiceClearDelay, et un échec qui revient avant reprend la même alerte.
-func (e *Engine) judgeHealth(ctx context.Context, found service.Service, object Object) {
-	if found.State == service.StateRunning && found.Health == service.HealthUnhealthy {
+func (e *Engine) judgeHealth(ctx context.Context, found container.Container, object Object) {
+	if found.State == container.StateRunning && found.Health == container.HealthUnhealthy {
 		e.Open(ctx, Fact{Kind: KindServiceUnhealthy, Severity: SeverityAttention, Object: object, MachineID: found.MachineID})
 		return
 	}
@@ -50,7 +50,7 @@ func (e *Engine) calm(ctx context.Context, kind Kind, object Object) {
 	e.update(ctx, existing, fact)
 }
 
-// judgeCrash tient l'unique alerte vivante d'un service qui plante. Arrêté
+// judgeCrash tient l'unique alerte vivante d'un conteneur qui plante. Arrêté
 // sans qu'on l'ait demandé (un code hors 0, 137 et 143, tué faute de
 // mémoire ou sans arrêt demandé, ou mort), elle dit « arrêté » ; relancé,
 // elle devient « redémarrage non demandé » et compte les redémarrages de
@@ -64,7 +64,7 @@ func (e *Engine) calm(ctx context.Context, kind Kind, object Object) {
 // « restarting », la politique de redémarrage de Docker. Un arrêt vu dans
 // un rapport précédent compte aussi, son alerte le dit. Les transitions
 // rejouées sont de l'histoire, pas du neuf.
-func (e *Engine) judgeCrash(ctx context.Context, found service.Service, object Object, transitions []service.Transition) {
+func (e *Engine) judgeCrash(ctx context.Context, found container.Container, object Object, transitions []container.Transition) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	existing, alive := e.openCrash(ctx, object)
@@ -79,7 +79,7 @@ func (e *Engine) judgeCrash(ctx context.Context, found service.Service, object O
 			continue
 		}
 		switch transition.NewState {
-		case service.StateExited, service.StateDead:
+		case container.StateExited, container.StateDead:
 			code := 0
 			if transition.ExitCode != nil {
 				code = *transition.ExitCode
@@ -89,9 +89,9 @@ func (e *Engine) judgeCrash(ctx context.Context, found service.Service, object O
 				details.ExitCode = code
 				details.Reason = reasonOf(transition.OOMKilled, transition.Killed)
 			}
-		case service.StateRestarting:
+		case container.StateRestarting:
 			pendingStop = true
-		case service.StateRunning:
+		case container.StateRunning:
 			if pendingStop {
 				restarts++
 			}
@@ -135,7 +135,7 @@ func (e *Engine) judgeCrash(ctx context.Context, found service.Service, object O
 	e.update(ctx, existing, fact)
 }
 
-// openCrash rend l'alerte vivante de plantage du service. Une base d'avant
+// openCrash rend l'alerte vivante de plantage du conteneur. Une base d'avant
 // l'anti-rebond peut en porter deux, arrêt et redémarrage : la plus
 // récente reste, l'autre est résolue.
 func (e *Engine) openCrash(ctx context.Context, object Object) (Alert, bool) {
@@ -175,7 +175,7 @@ func reasonOf(oomKilled, killed bool) string {
 	return ""
 }
 
-// Les motifs d'un service arrêté sans qu'on l'ait demandé : faute de
+// Les motifs d'un conteneur arrêté sans qu'on l'ait demandé : faute de
 // mémoire, ou tué en SIGKILL sans demande d'arrêt.
 const (
 	ReasonOOM    = "oom"
@@ -188,9 +188,9 @@ func ServiceDownReasons() []string {
 	return []string{ReasonOOM, ReasonKilled}
 }
 
-func isUnexpectedStop(state service.State, exitCode int, oomKilled, killed bool) bool {
-	if state == service.StateDead {
+func isUnexpectedStop(state container.State, exitCode int, oomKilled, killed bool) bool {
+	if state == container.StateDead {
 		return true
 	}
-	return state == service.StateExited && !service.IsCleanStop(exitCode, oomKilled, killed)
+	return state == container.StateExited && !container.IsCleanStop(exitCode, oomKilled, killed)
 }

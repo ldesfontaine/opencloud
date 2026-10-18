@@ -12,13 +12,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
@@ -53,8 +53,8 @@ type Store interface {
 	CountOpenIncidents(ctx context.Context) (int, error)
 	PurgeIncidents(ctx context.Context, resolvedBefore time.Time) error
 
-	ListServices(ctx context.Context, machineID string) ([]service.Service, error)
-	GetService(ctx context.Context, id string) (service.Service, error)
+	ListContainers(ctx context.Context, machineID string) ([]container.Container, error)
+	GetContainer(ctx context.Context, id string) (container.Container, error)
 	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
 	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 	ListProbes(ctx context.Context, machineID string) ([]probe.Probe, error)
@@ -178,8 +178,8 @@ func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID str
 // declaredServiceOf rend le service de l'annuaire qui porte l'unité d'un
 // conteneur ; vide si le conteneur n'existe plus ou n'est pas déclaré.
 func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (string, error) {
-	container, err := s.store.GetService(ctx, containerID)
-	if errors.Is(err, service.ErrNotFound) {
+	item, err := s.store.GetContainer(ctx, containerID)
+	if errors.Is(err, container.ErrNotFound) {
 		return "", nil
 	}
 	if err != nil {
@@ -187,7 +187,7 @@ func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (st
 	}
 	// La fiche porte déjà le service de son unité : pas besoin de relire
 	// l'annuaire à chaque alerte.
-	return container.DeclaredServiceID, nil
+	return item.DeclaredServiceID, nil
 }
 
 // --- Composants ---
@@ -310,7 +310,7 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 	known := facts{
 		machines:         map[string]machine.Status{},
 		declared:         map[string]directory.Service{},
-		containersByUnit: map[string][]service.Service{},
+		containersByUnit: map[string][]container.Container{},
 		heartbeats:       map[string]heartbeat.Heartbeat{},
 		probes:           map[string]probe.Probe{},
 		now:              s.now(),
@@ -329,7 +329,7 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 	for _, found := range declared {
 		known.declared[found.ID] = found
 	}
-	containers, err := s.store.ListServices(ctx, "")
+	containers, err := s.store.ListContainers(ctx, "")
 	if err != nil {
 		return facts{}, err
 	}

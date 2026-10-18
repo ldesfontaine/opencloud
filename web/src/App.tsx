@@ -1,10 +1,11 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 
 import { Layout } from "./components/Layout";
 import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
 import { AlertSilenceNew } from "./pages/AlertSilenceNew";
+import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
 import { JobPage } from "./pages/Job";
@@ -20,7 +21,6 @@ import { ProbeForm } from "./pages/ProbeForm";
 import { Probes } from "./pages/Probes";
 import { ProjectForm } from "./pages/ProjectForm";
 import { Overview } from "./pages/Overview";
-import { ServicePage } from "./pages/Service";
 import { Services } from "./pages/Services";
 import { Settings } from "./pages/Settings";
 import { StatusAdmin } from "./pages/StatusAdmin";
@@ -28,6 +28,15 @@ import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
 import { VisualSystem } from "./pages/VisualSystem";
+
+// La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
+// /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
+// (`#journaux`).
+function ContainerRedirect() {
+  const { id = "" } = useParams();
+  const location = useLocation();
+  return <Navigate replace to={{ pathname: `/services/conteneurs/${id}`, search: location.search, hash: location.hash }} />;
+}
 
 // Les adresses restent en français, comme l'opérateur les lit ; une route
 // par écran, l'API en dessous.
@@ -51,7 +60,9 @@ export function App() {
         <Route path="services/projets" element={<Services tab="projets" />} />
         <Route path="services/projets/nouveau" element={<ProjectForm />} />
         <Route path="services/projets/:id" element={<ProjectForm />} />
-        <Route path="services/:id" element={<ServicePage />} />
+        <Route path="services/conteneurs/:id" element={<ContainerPage />} />
+        {/* L'ancienne adresse d'une fiche de conteneur, gardée pour les liens déjà partagés. */}
+        <Route path="services/:id" element={<ContainerRedirect />} />
         <Route path="domaines" element={<Probes />} />
         <Route path="domaines/nouvelle" element={<ProbeForm />} />
         <Route path="domaines/:id/modifier" element={<ProbeForm />} />

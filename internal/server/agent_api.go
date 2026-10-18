@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -269,7 +269,7 @@ func (s *Server) recordSignal(r *http.Request, machineID string, request machine
 	keep(machine.SectionReadings, s.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
 	// Un agent plus vieux n'envoie pas toutes les sections : rien à écrire.
 	if request.Services != nil {
-		keep(machine.SectionServices, s.services.Record(ctx, machineID, *request.Services), service.ErrReportInvalid)
+		keep(machine.SectionServices, s.containers.Record(ctx, machineID, *request.Services), container.ErrReportInvalid)
 	}
 	if request.Probes != nil {
 		keep(machine.SectionProbes, s.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
@@ -305,13 +305,13 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
-	var batch service.LogBatch
+	var batch container.LogBatch
 	body := http.MaxBytesReader(w, r.Body, maxLogsBody)
 	if err := json.NewDecoder(body).Decode(&batch); err != nil {
 		s.writeAgentError(w, http.StatusBadRequest, "bad_json")
 		return
 	}
-	if !s.services.DeliverLogs(r.Context(), machineID, r.PathValue("request"), batch) {
+	if !s.containers.DeliverLogs(r.Context(), machineID, r.PathValue("request"), batch) {
 		s.writeAgentError(w, http.StatusNotFound, "request_unknown")
 		return
 	}

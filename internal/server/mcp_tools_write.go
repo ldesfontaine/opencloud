@@ -10,11 +10,11 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -117,7 +117,7 @@ type incidentUpdateInput struct {
 
 type silenceInput struct {
 	Kind            string `json:"kind,omitempty" jsonschema:"Alert kind to silence, or empty for every kind on the object"`
-	ObjectKind      string `json:"object_kind,omitempty" jsonschema:"machine, service, heartbeat, probe or volume; empty to silence a kind everywhere"`
+	ObjectKind      string `json:"object_kind,omitempty" jsonschema:"machine, service (a container), heartbeat, probe or volume; empty to silence a kind everywhere"`
 	ObjectID        string `json:"object_id,omitempty" jsonschema:"The object's id"`
 	ObjectName      string `json:"object_name,omitempty" jsonschema:"The object's name, kept for display"`
 	Reason          string `json:"reason,omitempty" jsonschema:"Why, for the operator"`
@@ -268,7 +268,7 @@ func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*go
 }
 
 func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInput) (*gomcp.CallToolResult, any, error) {
-	owner, err := s.directory.SetUnitUpdatePolicy(ctx, input.UnitID, service.UpdatePolicy(input.Policy))
+	owner, err := s.directory.SetUnitUpdatePolicy(ctx, input.UnitID, container.UpdatePolicy(input.Policy))
 	if errors.Is(err, directory.ErrUnitNotFound) {
 		return toolRefuse(codeNotFound)
 	}

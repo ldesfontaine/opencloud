@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -58,8 +58,8 @@ func TestVerdict_EachRuleInOrder(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			container := service.Service{ID: "m1:c", MachineID: "m1", Image: c.image, UnitID: "unit_1"}
-			state, reason := verdict(c.unit, container, checksWith("m1", c.image, c.localDigest))
+			item := container.Container{ID: "m1:c", MachineID: "m1", Image: c.image, UnitID: "unit_1"}
+			state, reason := verdict(c.unit, item, checksWith("m1", c.image, c.localDigest))
 			if state != c.state || reason != c.reason {
 				t.Fatalf("verdict = %s / %q, want %s / %q", state, reason, c.state, c.reason)
 			}
@@ -74,17 +74,17 @@ func nextcloudWithRedis() Service {
 	return declared
 }
 
-func attached(container service.Service, unitID string, level service.MatchLevel) service.Service {
-	container.UnitID, container.MatchLevel = unitID, level
-	return container
+func attached(item container.Container, unitID string, level container.MatchLevel) container.Container {
+	item.UnitID, item.MatchLevel = unitID, level
+	return item
 }
 
 func TestGaps_UnitWithoutContainerIsAbsent(t *testing.T) {
 	declared := []Service{nextcloudWithRedis()}
-	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", service.MatchCompose)
+	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", container.MatchCompose)
 	web.Image = "nextcloud:29.0.4"
 
-	report := Gaps(declared, []service.Service{web}, nil, nil)
+	report := Gaps(declared, []container.Container{web}, nil, nil)
 
 	gap := report.Services[0]
 	if gap.State != GapAbsent || gap.Units[0].State != GapConform || gap.Units[1].State != GapAbsent {
@@ -100,13 +100,13 @@ func TestGaps_UnitWithoutContainerIsAbsent(t *testing.T) {
 func TestGaps_StoppedContainerIsPresent(t *testing.T) {
 	declared := []Service{declaredContainer("svc_1", "m1", "whoami")}
 	declared[0].Units[0].Image, declared[0].Units[0].Version = "traefik/whoami", "v1"
-	stopped := attached(aloneContainer("m1", "whoami"), "unit_whoami", service.MatchName)
-	stopped.State = service.StateExited
+	stopped := attached(aloneContainer("m1", "whoami"), "unit_whoami", container.MatchName)
+	stopped.State = container.StateExited
 
-	report := Gaps(declared, []service.Service{stopped}, nil, nil)
+	report := Gaps(declared, []container.Container{stopped}, nil, nil)
 
 	unit := report.Services[0].Units[0]
-	if unit.State != GapConform || unit.Containers[0].State != service.StateExited {
+	if unit.State != GapConform || unit.Containers[0].State != container.StateExited {
 		t.Fatalf("unit = %+v", unit)
 	}
 }
@@ -148,9 +148,9 @@ func TestGaps_ServiceTakesTheWorstUnit(t *testing.T) {
 
 	// Et de bout en bout : un conteneur divergent, un non vérifiable, une absente.
 	declared := []Service{nextcloudWithRedis()}
-	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", service.MatchCompose)
+	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", container.MatchCompose)
 	web.Image = "nextcloud:29.0.6"
-	report := Gaps(declared, []service.Service{web}, nil, nil)
+	report := Gaps(declared, []container.Container{web}, nil, nil)
 	if got := report.Services[0]; got.State != GapAbsent || got.Units[0].State != GapDiverged || got.Units[0].Containers[0].Reason != ReasonTagDiffers {
 		t.Fatalf("gap = %+v", got)
 	}
@@ -159,11 +159,11 @@ func TestGaps_ServiceTakesTheWorstUnit(t *testing.T) {
 func TestGaps_UnitTakesTheWorstContainerAndIsWeakIfOneIs(t *testing.T) {
 	declared := []Service{declaredCompose("svc_1", "m1", "web", "app")}
 	declared[0].Units[0].Image, declared[0].Units[0].Version = "app", "1"
-	good := attached(composeContainer("m1", "web-app-1", "web", "app"), "unit_web_app", service.MatchCompose)
-	odd := attached(composeContainer("m1", "web-app-2", "web", "app"), "unit_web_app", service.MatchName)
+	good := attached(composeContainer("m1", "web-app-1", "web", "app"), "unit_web_app", container.MatchCompose)
+	odd := attached(composeContainer("m1", "web-app-2", "web", "app"), "unit_web_app", container.MatchName)
 	odd.Image = "app:2"
 
-	unit := Gaps(declared, []service.Service{odd, good}, nil, nil).Services[0].Units[0]
+	unit := Gaps(declared, []container.Container{odd, good}, nil, nil).Services[0].Units[0]
 
 	if unit.State != GapDiverged || !unit.Weak {
 		t.Fatalf("unit = %+v", unit)
@@ -171,7 +171,7 @@ func TestGaps_UnitTakesTheWorstContainerAndIsWeakIfOneIs(t *testing.T) {
 	if unit.Containers[0].Name != "web-app-1" || unit.Containers[1].Name != "web-app-2" || unit.Containers[1].Verdict != GapDiverged {
 		t.Fatalf("containers = %+v", unit.Containers)
 	}
-	if !Gaps(declared, []service.Service{odd, good}, nil, nil).Services[0].Weak {
+	if !Gaps(declared, []container.Container{odd, good}, nil, nil).Services[0].Weak {
 		t.Fatal("le service est faible si l'une de ses unités l'est")
 	}
 }
@@ -186,7 +186,7 @@ func TestGaps_UndeclaredGroupedByKeyAndIgnoredFlagged(t *testing.T) {
 	gone.ArchivedAt = time.Unix(1_800_000_000, 0)
 	ignored := []IgnoredKey{{MachineID: "m1", Kind: IgnoreContainerName, Value: "whoami"}}
 
-	report := Gaps(declared, []service.Service{whoami, blogWeb, elsewhere, blogDB, gone}, nil, ignored)
+	report := Gaps(declared, []container.Container{whoami, blogWeb, elsewhere, blogDB, gone}, nil, ignored)
 
 	if len(report.Undeclared) != 3 {
 		t.Fatalf("undeclared = %+v", report.Undeclared)
@@ -206,10 +206,10 @@ func TestGaps_UndeclaredGroupedByKeyAndIgnoredFlagged(t *testing.T) {
 	}
 }
 
-func containerNames(containers []service.Service) []string {
+func containerNames(containers []container.Container) []string {
 	names := make([]string, 0, len(containers))
-	for _, container := range containers {
-		names = append(names, container.Name)
+	for _, item := range containers {
+		names = append(names, item.Name)
 	}
 	return names
 }
@@ -218,11 +218,11 @@ func containerNames(containers []service.Service) []string {
 // « Adopter » le met dans ce service.
 func TestGaps_UndeclaredInDeclaredProjectPointsToIt(t *testing.T) {
 	declared := []Service{nextcloudWithRedis()}
-	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", service.MatchCompose)
+	web := attached(composeContainer("m1", "nextcloud-1", "nextcloud", "nextcloud"), "unit_nextcloud_nextcloud", container.MatchCompose)
 	db := composeContainer("m1", "nextcloud-db-1", "nextcloud", "db")
 	sameNameElsewhere := composeContainer("m2", "nextcloud-db-1", "nextcloud", "db")
 
-	report := Gaps(declared, []service.Service{web, db, sameNameElsewhere}, nil, nil)
+	report := Gaps(declared, []container.Container{web, db, sameNameElsewhere}, nil, nil)
 
 	if len(report.Undeclared) != 2 {
 		t.Fatalf("undeclared = %+v", report.Undeclared)

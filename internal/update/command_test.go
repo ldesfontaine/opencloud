@@ -3,12 +3,12 @@ package update
 import (
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 func TestCommand_ComposeOrPullOnly(t *testing.T) {
-	compose := service.Service{Image: "nextcloud:29.0.4", ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml"}
-	byHand := service.Service{Image: "alpine:3.20"}
+	compose := container.Container{Image: "nextcloud:29.0.4", ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", ComposeFile: "/srv/nextcloud/compose.yaml"}
+	byHand := container.Container{Image: "alpine:3.20"}
 	newer := Check{Image: "nextcloud:29.0.4", Kind: KindPatch, NewerTag: "29.0.6"}
 	rebuilt := Check{Image: "postgres:16.4", Kind: KindDigest}
 	upToDate := Check{Image: "alpine:3.20"}
@@ -28,7 +28,7 @@ func TestCommand_ComposeOrPullOnly(t *testing.T) {
 	if got := Command(byHand, upToDate); got != "" {
 		t.Fatalf("up to date must give nothing, got %q", got)
 	}
-	spaced := service.Service{Image: "ghcr.io/x/y:1", ComposeService: "web", ComposeDir: "/srv/mon appli"}
+	spaced := container.Container{Image: "ghcr.io/x/y:1", ComposeService: "web", ComposeDir: "/srv/mon appli"}
 	if got := Command(spaced, Check{Image: "ghcr.io/x/y:1", Kind: KindMajor, NewerTag: "2"}); got != "cd '/srv/mon appli' && docker compose pull web && docker compose up -d web" {
 		t.Fatalf("quoted: %q", got)
 	}

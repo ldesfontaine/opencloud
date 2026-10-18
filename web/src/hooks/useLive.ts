@@ -13,7 +13,7 @@ export function useLive(): void {
     const onMachines = () => refresh("machines");
     const onJobs = () => refresh("jobs");
     const onResources = () => refresh("resources");
-    const onServices = () => refresh("services");
+    const onContainers = () => refresh("containers");
     const onProbes = () => refresh("probes");
     const onStatus = () => refresh("status");
     const onAlerts = () => refresh("alerts");
@@ -22,7 +22,7 @@ export function useLive(): void {
     source.addEventListener("machines", onMachines);
     source.addEventListener("jobs", onJobs);
     source.addEventListener("resources", onResources);
-    source.addEventListener("services", onServices);
+    source.addEventListener("containers", onContainers);
     source.addEventListener("probes", onProbes);
     source.addEventListener("status", onStatus);
     source.addEventListener("alerts", onAlerts);

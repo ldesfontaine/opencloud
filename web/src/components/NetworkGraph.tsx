@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
-import type { Service } from "../api/types";
+import type { Container } from "../api/types";
 import { useT } from "../i18n/context";
 import { fitView, internetID, nodeHeight, nodeWidth, zoomView, type Layout, type PlacedEdge, type PlacedNode, type View } from "../lib/network";
-import { nodeSubtitle, nodeTone, serviceIcon } from "../lib/services";
+import { nodeSubtitle, nodeTone, containerIcon } from "../lib/containers";
 import { useSize } from "../hooks/useSize";
 import { Button } from "./Button";
 import { iconPaths, type IconName } from "./Icon";
@@ -122,7 +122,7 @@ export function NetworkGraph({ layout, ports, selected, onSelect }: Props) {
               node.id === internetID ? (
                 <InternetNode key={node.id} node={node} ports={ports} selected={selected === node.id} onSelect={selectNode} />
               ) : (
-                <ServiceNode key={node.id} node={node} selected={selected === node.id} onSelect={selectNode} />
+                <ContainerNode key={node.id} node={node} selected={selected === node.id} onSelect={selectNode} />
               ),
             )}
           </g>
@@ -224,18 +224,18 @@ export function fitPorts(ports: number[], limit: number, prefixLength: number): 
   return "";
 }
 
-function ServiceNode({ node, selected, onSelect }: NodeProps<MouseEvent | KeyboardEvent>) {
-  const service = node.service as Service;
+function ContainerNode({ node, selected, onSelect }: NodeProps<MouseEvent | KeyboardEvent>) {
+  const container = node.container as Container;
   return (
     <NodeFrame
       node={node}
       selected={selected}
       onSelect={onSelect}
       className="netgraph-node"
-      icon={serviceIcon(service)}
-      title={service.name}
-      subtitle={nodeSubtitle(service)}
-      tone={nodeTone(service)}
+      icon={containerIcon(container)}
+      title={container.name}
+      subtitle={nodeSubtitle(container)}
+      tone={nodeTone(container)}
     />
   );
 }

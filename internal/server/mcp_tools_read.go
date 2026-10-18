@@ -9,11 +9,11 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -24,7 +24,7 @@ import (
 func (s *Server) registerReadTools(server *gomcp.Server) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_overview",
-		Description: brand.ProductName + " version and the counters of the overview: machines (total, online), jobs and probes (total, needing attention), services (total, needing attention, with a newer image), certificates (total, expiring, expired, soonest expiry), open incidents, alerts (open, unacknowledged).",
+		Description: brand.ProductName + " version and the counters of the overview: machines (total, online), jobs and probes (total, needing attention), containers (total, needing attention, with a newer image), certificates (total, expiring, expired, soonest expiry), open incidents, alerts (open, unacknowledged).",
 		Annotations: readOnlyHints(),
 	}, s.getOverviewTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -39,29 +39,29 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getMachineTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_machine_network",
-		Description: "The Docker network topology of one machine: its services with their exposure findings, the networks grouping them, and the edges from the Internet to published ports and between dependent services.",
+		Description: "The Docker network topology of one machine: its containers with their exposure findings, the networks grouping them, and the edges from the Internet to published ports and between dependent containers.",
 		Annotations: readOnlyHints(),
 	}, s.getMachineNetworkTool)
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "list_services",
-		Description: "List Docker containers (services) across machines, optionally filtered by machine_id or Compose project (group), paged. Each service carries its state, exit code, health, restart count, image, published ports, exposure findings, the latest image check (a newer tag or digest) and its current CPU/memory sample. Derive 'failing' from state=exited with exit_code!=0 or health=unhealthy.",
+		Name:        "list_containers",
+		Description: "List Docker containers across machines, optionally filtered by machine_id or Compose project (group), paged. Each container carries its state, exit code, health, restart count, image, published ports, exposure findings, the latest image check (a newer tag or digest) and its current CPU/memory sample. Derive 'failing' from state=exited with exit_code!=0 or health=unhealthy.",
 		Annotations: readOnlyHints(),
-	}, s.listServicesTool)
+	}, s.listContainersTool)
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_service",
-		Description: "One service with the Docker engine of its machine and its last 50 state transitions (start, die, health changes, with the raw log snippet captured on an abnormal exit, which can contain secrets).",
+		Name:        "get_container",
+		Description: "One container with the Docker engine of its machine and its last 50 state transitions (start, die, health changes, with the raw log snippet captured on an abnormal exit, which can contain secrets).",
 		Annotations: readOnlyHints(),
-	}, s.getServiceTool)
+	}, s.getContainerTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_declared_services",
 		Description: "Declared services of the directory with their gap against what Docker shows (conform, absent, diverged, unverifiable on latest or untagged, unobserved for binaries, weak name match), and the containers present but undeclared, grouped by Compose project or name, flagged when ignored.",
 		Annotations: readOnlyHints(),
 	}, s.listDeclaredServicesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
-		Name:        "get_service_logs",
-		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (" + brand.Command + " mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
+		Name:        "get_container_logs",
+		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with container.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (" + brand.Command + " mcp) the agents' streams are not held: it always fails with container.logs_unavailable_locally, use the HTTP transport.",
 		Annotations: readOnlyHints(),
-	}, s.getServiceLogsTool)
+	}, s.getContainerLogsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_jobs",
 		Description: "List scheduled jobs watched by heartbeat pings: status (new, up, running, late, failed, paused), interval and grace in seconds, last ping, next deadline, last exit code and duration. The ping URL is never returned.",
@@ -94,7 +94,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.listIncidentsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_alerts",
-		Description: "List alerts, open by default or resolved with status=resolved (up to 200, most severe then most recent first), with the counters: kind, severity (attention, danger), the object (machine, service, heartbeat, probe, volume), details such as percent, mount point, exit code or reason, and whether it is acknowledged or silenced.",
+		Description: "List alerts, open by default or resolved with status=resolved (up to 200, most severe then most recent first), with the counters: kind, severity (attention, danger), the object (machine, service, heartbeat, probe, volume; a service object is a container), details such as percent, mount point, exit code or reason, and whether it is acknowledged or silenced.",
 		Annotations: readOnlyHints(),
 	}, s.listAlertsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -117,9 +117,9 @@ type machineInput struct {
 	MachineID string `json:"machine_id" jsonschema:"Machine id, or 'local' for the openCloud host itself"`
 }
 
-type listServicesInput struct {
-	MachineID string `json:"machine_id,omitempty" jsonschema:"Only the services of this machine"`
-	Group     string `json:"group,omitempty" jsonschema:"Only the services of this Compose project"`
+type listContainersInput struct {
+	MachineID string `json:"machine_id,omitempty" jsonschema:"Only the containers of this machine"`
+	Group     string `json:"group,omitempty" jsonschema:"Only the containers of this Compose project"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"Page size, default 100, max 500"`
 	Offset    int    `json:"offset,omitempty" jsonschema:"Items to skip, default 0"`
 }
@@ -131,13 +131,13 @@ type listDeclaredServicesInput struct {
 	Offset    int    `json:"offset,omitempty" jsonschema:"Items to skip, default 0"`
 }
 
-type serviceInput struct {
-	ServiceID string `json:"service_id" jsonschema:"Service id, as returned by list_services"`
+type containerInput struct {
+	ID string `json:"id" jsonschema:"Container id: the id field returned by list_containers, not its container_id (the Docker id)"`
 }
 
-type serviceLogsInput struct {
-	ServiceID string `json:"service_id" jsonschema:"Service id, as returned by list_services"`
-	Tail      int    `json:"tail,omitempty" jsonschema:"Number of trailing lines, default 100, max 500"`
+type containerLogsInput struct {
+	ID   string `json:"id" jsonschema:"Container id: the id field returned by list_containers, not its container_id (the Docker id)"`
+	Tail int    `json:"tail,omitempty" jsonschema:"Number of trailing lines, default 100, max 500"`
 }
 
 type pageInput struct {
@@ -190,12 +190,12 @@ type machineToolResponse struct {
 	Engine    *engineJSON `json:"engine"`
 }
 
-type servicesToolResponse struct {
-	Services []serviceJSON `json:"services"`
-	Engines  []engineJSON  `json:"engines"`
-	Total    int           `json:"total"`
-	Offset   int           `json:"offset"`
-	Limit    int           `json:"limit"`
+type containersToolResponse struct {
+	Containers []containerJSON `json:"containers"`
+	Engines    []engineJSON    `json:"engines"`
+	Total      int             `json:"total"`
+	Offset     int             `json:"offset"`
+	Limit      int             `json:"limit"`
 }
 
 // Un service déclaré et son écart, côte à côte : l'écart n'est pas stocké.
@@ -284,7 +284,7 @@ func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("get_machine", err)
 	}
-	engines, err := s.services.Engines(ctx)
+	engines, err := s.containers.Engines(ctx)
 	if err != nil {
 		return s.toolInternal("get_machine", err)
 	}
@@ -317,37 +317,37 @@ func (s *Server) getMachineNetworkTool(ctx context.Context, _ *gomcp.CallToolReq
 	return toolJSON(response)
 }
 
-func (s *Server) listServicesTool(ctx context.Context, _ *gomcp.CallToolRequest, input listServicesInput) (*gomcp.CallToolResult, any, error) {
-	services, err := s.services.List(ctx, input.MachineID)
+func (s *Server) listContainersTool(ctx context.Context, _ *gomcp.CallToolRequest, input listContainersInput) (*gomcp.CallToolResult, any, error) {
+	containers, err := s.containers.List(ctx, input.MachineID)
 	if err != nil {
-		return s.toolInternal("list_services", err)
+		return s.toolInternal("list_containers", err)
 	}
 	names, err := s.machineNames(ctx)
 	if err != nil {
-		return s.toolInternal("list_services", err)
+		return s.toolInternal("list_containers", err)
 	}
-	currents, err := s.currentByService(ctx)
+	currents, err := s.currentByContainer(ctx)
 	if err != nil {
-		return s.toolInternal("list_services", err)
+		return s.toolInternal("list_containers", err)
 	}
-	engines, err := s.services.Engines(ctx)
+	engines, err := s.containers.Engines(ctx)
 	if err != nil {
-		return s.toolInternal("list_services", err)
+		return s.toolInternal("list_containers", err)
 	}
 	checks, err := s.updates.Checks(ctx, input.MachineID)
 	if err != nil {
-		return s.toolInternal("list_services", err)
+		return s.toolInternal("list_containers", err)
 	}
-	kept := make([]service.Service, 0, len(services))
-	for _, item := range services {
+	kept := make([]container.Container, 0, len(containers))
+	for _, item := range containers {
 		if input.Group == "" || item.Group == input.Group {
 			kept = append(kept, item)
 		}
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := servicesToolResponse{Services: []serviceJSON{}, Engines: []engineJSON{}, Total: len(kept), Offset: offset, Limit: limit}
+	response := containersToolResponse{Containers: []containerJSON{}, Engines: []engineJSON{}, Total: len(kept), Offset: offset, Limit: limit}
 	for _, item := range sliceOf(kept, limit, offset) {
-		response.Services = append(response.Services, serviceToJSON(item, names[item.MachineID], currents[item.ID], checks))
+		response.Containers = append(response.Containers, containerToJSON(item, names[item.MachineID], currents[item.ID], checks))
 	}
 	for _, engine := range engines {
 		if input.MachineID == "" || engine.MachineID == input.MachineID {
@@ -379,39 +379,39 @@ func (s *Server) listDeclaredServicesTool(ctx context.Context, _ *gomcp.CallTool
 	return toolJSON(response)
 }
 
-func (s *Server) getServiceTool(ctx context.Context, _ *gomcp.CallToolRequest, input serviceInput) (*gomcp.CallToolResult, any, error) {
-	item, err := s.services.Get(ctx, input.ServiceID)
-	if errors.Is(err, service.ErrNotFound) {
+func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerInput) (*gomcp.CallToolResult, any, error) {
+	item, err := s.containers.Get(ctx, input.ID)
+	if errors.Is(err, container.ErrNotFound) {
 		return toolRefuse(codeNotFound)
 	}
 	if err != nil {
-		return s.toolInternal("get_service", err)
+		return s.toolInternal("get_container", err)
 	}
-	response, err := s.serviceResponseOf(ctx, item)
+	response, err := s.containerResponseOf(ctx, item)
 	if err != nil {
-		return s.toolInternal("get_service", err)
+		return s.toolInternal("get_container", err)
 	}
 	return toolJSON(response)
 }
 
-func (s *Server) getServiceLogsTool(ctx context.Context, _ *gomcp.CallToolRequest, input serviceLogsInput) (*gomcp.CallToolResult, any, error) {
-	item, err := s.services.Get(ctx, input.ServiceID)
-	if errors.Is(err, service.ErrNotFound) {
+func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerLogsInput) (*gomcp.CallToolResult, any, error) {
+	item, err := s.containers.Get(ctx, input.ID)
+	if errors.Is(err, container.ErrNotFound) {
 		return toolRefuse(codeNotFound)
 	}
 	if err != nil {
-		return s.toolInternal("get_service_logs", err)
+		return s.toolInternal("get_container_logs", err)
 	}
 	if !s.takeLogSlot() {
 		return toolRefuse(codeLogsBusy)
 	}
 	defer s.releaseLogSlot()
-	lines, err := s.services.FetchLogs(ctx, item.ID, input.Tail)
+	lines, err := s.containers.FetchLogs(ctx, item.ID, input.Tail)
 	if err != nil {
 		if code, _, refused := logsRefusal(err); refused {
 			return toolRefuse(code)
 		}
-		return s.toolInternal("get_service_logs", err)
+		return s.toolInternal("get_container_logs", err)
 	}
 	response := logsResponse{Lines: make([]logLineJSON, 0, len(lines))}
 	for _, line := range lines {

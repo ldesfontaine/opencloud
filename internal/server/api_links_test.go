@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -68,7 +68,7 @@ func TestAPI_Review_ClearsAndRefusesInvalid(t *testing.T) {
 		CreatedAt: testNow, UpdatedAt: testNow,
 		Units: []directory.Unit{{
 			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
-			Image: "Not A Valid Image", ContainerName: "whoami", UpdatePolicy: service.PolicyWatch,
+			Image: "Not A Valid Image", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
 		}},
 	}
 	if err := server.db.InsertDeclaredService(context.Background(), taken); err != nil {

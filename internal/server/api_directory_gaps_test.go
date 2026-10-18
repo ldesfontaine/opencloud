@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
-// L'annuaire face à ce que seedServices montre sur la machine distante :
+// L'annuaire face à ce que seedContainers montre sur la machine distante :
 // nextcloud est déclaré avec deux unités, l'application qui tourne à la
 // version déclarée et un redis qui ne tourne pas ; nextcloud-db tourne dans
 // ce projet sans être déclaré. Un binaire sur la machine openCloud,
@@ -42,13 +42,13 @@ func (ts *testServer) seedGaps(t *testing.T) (serviceID string) {
 	return cloud.ID
 }
 
-func nextcloudContainerID() string   { return service.ID(remoteID, strings.Repeat("a", 64)) }
-func nextcloudDBContainerID() string { return service.ID(remoteID, strings.Repeat("b", 64)) }
+func nextcloudContainerID() string   { return container.ID(remoteID, strings.Repeat("a", 64)) }
+func nextcloudDBContainerID() string { return container.ID(remoteID, strings.Repeat("b", 64)) }
 
 func TestDirectoryAPI_GapsAndProposalMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	server.seedGaps(t)
 	cases := map[string]string{
 		"directory_gaps":     "/api/directory/gaps",
@@ -68,7 +68,7 @@ func TestDirectoryAPI_GapsAndProposalMatchGoldenFiles(t *testing.T) {
 func TestDirectoryAPI_GapsFilterByMachineAndProject(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	server.seedGaps(t)
 	project, err := server.directory.CreateProject(context.Background(), directory.ProjectDefinition{Name: "client-a"})
 	if err != nil {
@@ -95,7 +95,7 @@ func TestDirectoryAPI_GapsFilterByMachineAndProject(t *testing.T) {
 func TestAPI_Ignore_RefusesWithTheKey(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	server.seedGaps(t)
 
 	refusals := []struct {
@@ -141,7 +141,7 @@ func TestAPI_Ignore_RefusesWithTheKey(t *testing.T) {
 func TestAPI_Proposal_DeclaredContainerAnswers409(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	server.seedGaps(t)
 
 	got := callAPI(server.Server, http.MethodGet, "/api/directory/proposal?container="+nextcloudContainerID(), nil)
@@ -163,7 +163,7 @@ func TestAPI_Proposal_DeclaredContainerAnswers409(t *testing.T) {
 func TestAPI_Proposal_FullServiceAnswers409(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	serviceID := server.seedGaps(t)
 
 	ctx := context.Background()
@@ -196,7 +196,7 @@ func TestAPI_Proposal_FullServiceAnswers409(t *testing.T) {
 func TestAPI_Proposal_CanBeSentBackAsTheEdit(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	serviceID := server.seedGaps(t)
 
 	var proposal proposalResponse
@@ -226,18 +226,18 @@ func TestAPI_Proposal_CanBeSentBackAsTheEdit(t *testing.T) {
 func TestAPI_ServiceSheet_SaysWhatTheDirectoryKnows(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	server.seedGaps(t)
 
-	var declared serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudContainerID(), nil), &declared)
+	var declared containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudContainerID(), nil), &declared)
 	link := declared.Directory
 	if link == nil || !link.Declared || link.ServiceName != "nextcloud" || link.UnitName != "nextcloud" || link.MatchLevel != "compose" || link.Weak {
 		t.Fatalf("rattaché: %+v", link)
 	}
 
-	var undeclared serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudDBContainerID(), nil), &undeclared)
+	var undeclared containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudDBContainerID(), nil), &undeclared)
 	link = undeclared.Directory
 	if link == nil || link.Declared || link.KeyKind != "compose_project" || link.KeyValue != "nextcloud" || link.Ignored || link.ServiceID != "" {
 		t.Fatalf("non rattaché: %+v", link)
@@ -245,13 +245,13 @@ func TestAPI_ServiceSheet_SaysWhatTheDirectoryKnows(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPost, "/api/directory/ignored", ignoredRequest{MachineID: remoteID, Kind: "compose_project", Value: "nextcloud"}); got.Code != http.StatusNoContent {
 		t.Fatalf("ignorer: %d", got.Code)
 	}
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudDBContainerID(), nil), &undeclared)
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudDBContainerID(), nil), &undeclared)
 	if !undeclared.Directory.Ignored {
 		t.Fatalf("ignoré: %+v", undeclared.Directory)
 	}
 
 	// Les listes ne portent pas le champ : leurs réponses figées n'ont pas bougé.
-	if got := callAPI(server.Server, http.MethodGet, "/api/services", nil); strings.Contains(got.Body.String(), `"directory"`) {
+	if got := callAPI(server.Server, http.MethodGet, "/api/containers", nil); strings.Contains(got.Body.String(), `"directory"`) {
 		t.Fatalf("la liste des services porte l'annuaire: %s", got.Body.String())
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 func composeDefinition() ServiceDefinition {
@@ -126,7 +126,7 @@ func TestValidate_RefusesEachRuleWithItsError(t *testing.T) {
 			return d
 		}, binaryDefinition, ErrUnitKeyDuplicate},
 		{"politique inconnue", func(d ServiceDefinition) ServiceDefinition { d.Units[0].UpdatePolicy = "pinned"; return d }, composeDefinition, ErrUpdatePolicyInvalid},
-		{"politique hors watch sur un binaire", func(d ServiceDefinition) ServiceDefinition { d.Units[0].UpdatePolicy = service.PolicyHold; return d }, binaryDefinition, ErrUpdatePolicyInvalid},
+		{"politique hors watch sur un binaire", func(d ServiceDefinition) ServiceDefinition { d.Units[0].UpdatePolicy = container.PolicyHold; return d }, binaryDefinition, ErrUpdatePolicyInvalid},
 		{"port illisible", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"http"}; return d }, composeDefinition, ErrPortsInvalid},
 		{"port nul", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"0"}; return d }, composeDefinition, ErrPortsInvalid},
 		{"port hors plage", func(d ServiceDefinition) ServiceDefinition { d.Units[0].Ports = []string{"8080:70000"}; return d }, composeDefinition, ErrPortsInvalid},
@@ -212,15 +212,15 @@ func TestNewID_CarriesItsPrefix(t *testing.T) {
 func TestComplete_DefaultsPolicyToWatch(t *testing.T) {
 	completed := composeDefinition().Complete()
 	for index, unit := range completed.Units {
-		if unit.UpdatePolicy != service.PolicyWatch {
+		if unit.UpdatePolicy != container.PolicyWatch {
 			t.Errorf("unité %d : politique %q, attendu watch", index, unit.UpdatePolicy)
 		}
 	}
 	spaced := ServiceDefinition{Origin: OriginCompose, Units: []UnitDefinition{{Name: "a", UpdatePolicy: " hold "}}}.Complete()
-	if spaced.Units[0].UpdatePolicy != service.PolicyHold {
+	if spaced.Units[0].UpdatePolicy != container.PolicyHold {
 		t.Fatalf("les espaces d'une politique se retirent: %q", spaced.Units[0].UpdatePolicy)
 	}
-	for _, policy := range service.UpdatePolicies() {
+	for _, policy := range container.UpdatePolicies() {
 		definition := composeDefinition()
 		definition.Units[0].UpdatePolicy = policy
 		if err := definition.Complete().Validate(); err != nil {

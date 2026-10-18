@@ -3,7 +3,7 @@ package agent
 import (
 	"sync"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // reports garde ce que le veilleur Docker a observé entre deux signaux :
@@ -12,11 +12,11 @@ import (
 // oublie le plus ancien.
 type reports struct {
 	mu      sync.Mutex
-	pending service.Report
+	pending container.Report
 }
 
 // Deliver fait de reports un Sink pour dockerwatch.
-func (r *reports) Deliver(report service.Report) {
+func (r *reports) Deliver(report container.Report) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if report.Engine != nil {
@@ -30,8 +30,8 @@ func (r *reports) Deliver(report service.Report) {
 		r.pending.NetworksComplete = true
 		r.pending.Networks = report.Networks
 	}
-	r.pending.Events = appendBounded(r.pending.Events, report.Events, service.MaxEventsPerReport)
-	r.pending.Stats = appendBounded(r.pending.Stats, report.Stats, service.MaxStatsPerReport)
+	r.pending.Events = appendBounded(r.pending.Events, report.Events, container.MaxEventsPerReport)
+	r.pending.Stats = appendBounded(r.pending.Stats, report.Stats, container.MaxStatsPerReport)
 }
 
 func appendBounded[T any](kept, added []T, limit int) []T {
@@ -43,20 +43,20 @@ func appendBounded[T any](kept, added []T, limit int) []T {
 }
 
 // take vide le tampon ; nil s'il n'y a rien à dire.
-func (r *reports) take() *service.Report {
+func (r *reports) take() *container.Report {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.pending.IsEmpty() {
 		return nil
 	}
 	taken := r.pending
-	r.pending = service.Report{}
+	r.pending = container.Report{}
 	return &taken
 }
 
 // restore remet devant ce qu'un signal n'a pas pu livrer ; ce qui a été
 // observé entre-temps passe derrière.
-func (r *reports) restore(report *service.Report) {
+func (r *reports) restore(report *container.Report) {
 	if report == nil {
 		return
 	}
@@ -71,8 +71,8 @@ func (r *reports) restore(report *service.Report) {
 	if !r.pending.NetworksComplete && report.NetworksComplete {
 		r.pending.NetworksComplete, r.pending.Networks = true, report.Networks
 	}
-	r.pending.Events = appendBounded(report.Events, r.pending.Events, service.MaxEventsPerReport)
-	r.pending.Stats = appendBounded(report.Stats, r.pending.Stats, service.MaxStatsPerReport)
+	r.pending.Events = appendBounded(report.Events, r.pending.Events, container.MaxEventsPerReport)
+	r.pending.Stats = appendBounded(report.Stats, r.pending.Stats, container.MaxStatsPerReport)
 }
 
 // markReplayed marque ce qui a attendu une reconnexion : le serveur

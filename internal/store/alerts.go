@@ -21,7 +21,7 @@ const alertFrom = ` FROM alerts a LEFT JOIN machines m ON m.id = a.machine_id`
 
 // objectColumns place l'identifiant de l'objet dans sa clé étrangère ; un
 // volume ne porte que sa machine.
-func objectColumns(found alert.Alert) (serviceID, heartbeatID, probeID any) {
+func objectColumns(found alert.Alert) (containerID, heartbeatID, probeID any) {
 	switch found.Object.Kind {
 	case alert.ObjectService:
 		return found.Object.ID, nil, nil
@@ -38,14 +38,14 @@ func (db *DB) InsertAlert(ctx context.Context, found alert.Alert) (int64, error)
 	if err != nil {
 		return 0, fmt.Errorf("encode alert details: %w", err)
 	}
-	serviceID, heartbeatID, probeID := objectColumns(found)
+	containerID, heartbeatID, probeID := objectColumns(found)
 	result, err := db.sql.ExecContext(ctx, `
 		INSERT INTO alerts (kind, severity, status, silenced, object_kind, object_id, object_name,
-			machine_id, service_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
+			machine_id, container_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		string(found.Kind), string(found.Severity), string(found.Status), found.Silenced,
 		string(found.Object.Kind), found.Object.ID, found.Object.Name,
-		nullableString(found.MachineID), serviceID, heartbeatID, probeID, string(details),
+		nullableString(found.MachineID), containerID, heartbeatID, probeID, string(details),
 		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince))
 	if err != nil {
 		return 0, fmt.Errorf("insert alert: %w", err)
@@ -109,7 +109,7 @@ func (db *DB) ListAlerts(ctx context.Context, filter alert.Filter) ([]alert.Aler
 func (db *DB) ListOrphanAlerts(ctx context.Context) ([]alert.Alert, error) {
 	return db.queryAlerts(ctx, `SELECT `+alertColumns+alertFrom+` WHERE a.status = 'open' AND (
 		(a.object_kind IN ('machine', 'volume') AND a.machine_id IS NULL) OR
-		(a.object_kind = 'service' AND a.service_id IS NULL) OR
+		(a.object_kind = 'service' AND a.container_id IS NULL) OR
 		(a.object_kind = 'heartbeat' AND a.heartbeat_id IS NULL) OR
 		(a.object_kind = 'probe' AND a.probe_id IS NULL))`)
 }

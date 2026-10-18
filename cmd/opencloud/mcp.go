@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -23,7 +24,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -78,13 +78,13 @@ func runMCP(args []string) error {
 	machines.SetPresence(machine.RecentSignal{})
 	heartbeats := heartbeat.New(db, logger)
 	resources := resource.New(db, logger)
-	services := service.New(db, logger)
+	containers := container.New(db, logger)
 	probes := probe.New(db, logger)
 	declared := directory.New(db, logger)
 	updates := update.New(db, logger)
 	// Ce processus ne fait que lire : l'écart voit les conteneurs que serve
 	// a rattachés, il n'écrit et ne rattache rien.
-	declared.SetObserved(services, updates)
+	declared.SetObserved(containers, updates)
 	statusPage := status.New(db, machines, db, logger)
 	catalogs, err := lang.Load()
 	if err != nil {
@@ -100,7 +100,7 @@ func runMCP(args []string) error {
 	}
 	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
 	// processus ne lit jamais la source lui-même.
-	support := lifecycle.New(services.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
+	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
 	if err := support.Load(); err != nil {
 		logger.Warn("load lifecycle snapshot", "error", err)
 	}
@@ -111,7 +111,7 @@ func runMCP(args []string) error {
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,
-		Services:       services,
+		Containers:     containers,
 		Probes:         probes,
 		Directory:      declared,
 		Updates:        updates,

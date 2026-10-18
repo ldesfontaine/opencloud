@@ -24,7 +24,7 @@ import (
 var (
 	mcpReadTools = []string{
 		"get_overview", "list_machines", "get_machine", "get_machine_network",
-		"list_services", "get_service", "get_service_logs", "list_declared_services",
+		"list_containers", "get_container", "get_container_logs", "list_declared_services",
 		"list_jobs", "get_job", "list_probes", "get_probe",
 		"get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
 	}
@@ -143,8 +143,8 @@ func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tool := range listed.Tools {
-		if tool.Name == "get_service_logs" && !strings.Contains(tool.Description, "can contain secrets") {
-			t.Errorf("get_service_logs does not warn about secrets: %s", tool.Description)
+		if tool.Name == "get_container_logs" && !strings.Contains(tool.Description, "can contain secrets") {
+			t.Errorf("get_container_logs does not warn about secrets: %s", tool.Description)
 		}
 	}
 }
@@ -160,7 +160,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	}
 	jobID := server.seedJobs(t)
 	server.seedResources(t)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	probeID := server.seedProbes(t, cloudID)
 	server.seedStatus(t, cloudID, jobID, probeID)
@@ -175,8 +175,8 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"list_machines":          {},
 		"get_machine":            {"machine_id": remoteID},
 		"get_machine_network":    {"machine_id": remoteID},
-		"list_services":          {"limit": 1},
-		"get_service":            {"service_id": serviceID},
+		"list_containers":        {"limit": 1},
+		"get_container":          {"id": containerID},
 		"list_declared_services": {},
 		"list_jobs":              {},
 		"get_job":                {"job_id": jobID},
@@ -206,16 +206,16 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 }
 
 // Les journaux passent par l'agent : hors ligne, la clé de l'API.
-func TestMCP_ServiceLogsRefuseLikeTheAPI(t *testing.T) {
+func TestMCP_ContainerLogsRefuseLikeTheAPI(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	session := connectMCP(t, server.mcpServer)
-	text, isError := callTool(t, session, "get_service_logs", map[string]any{"service_id": serviceID})
-	if !isError || toolErrorCode(t, text) != "service.machine_offline" {
+	text, isError := callTool(t, session, "get_container_logs", map[string]any{"id": containerID})
+	if !isError || toolErrorCode(t, text) != "container.machine_offline" {
 		t.Fatalf("%v %s", isError, text)
 	}
-	text, isError = callTool(t, session, "get_service_logs", map[string]any{"service_id": "nope"})
+	text, isError = callTool(t, session, "get_container_logs", map[string]any{"id": "nope"})
 	if !isError || toolErrorCode(t, text) != codeNotFound {
 		t.Fatalf("%v %s", isError, text)
 	}
@@ -251,14 +251,14 @@ func TestMCPStdio_OnlineComesFromTheLastSignal(t *testing.T) {
 	}
 }
 
-func TestMCPStdio_ServiceLogsPointToTheHTTPTransport(t *testing.T) {
+func TestMCPStdio_ContainerLogsPointToTheHTTPTransport(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	serviceID := server.seedServices(t)
-	server.services.SetCommander(nil)
+	containerID := server.seedContainers(t)
+	server.containers.SetCommander(nil)
 	session := connectMCP(t, server.newMCPServer(true))
-	text, isError := callTool(t, session, "get_service_logs", map[string]any{"service_id": serviceID})
-	if !isError || toolErrorCode(t, text) != "service.logs_unavailable_locally" {
+	text, isError := callTool(t, session, "get_container_logs", map[string]any{"id": containerID})
+	if !isError || toolErrorCode(t, text) != "container.logs_unavailable_locally" {
 		t.Fatalf("%v %s", isError, text)
 	}
 }
@@ -267,7 +267,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	jobID := server.seedJobs(t)
-	server.seedServices(t)
+	server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	probeID := server.seedProbes(t, cloudID)
 	componentID, incidentID := server.seedStatus(t, cloudID, jobID, probeID)

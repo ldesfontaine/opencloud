@@ -76,7 +76,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée, comme l'interface ; personne en mode `none`. Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
-| Journaux | navigateur → `/api/services/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée. En mode `none`, personne : qui atteint le port lit les journaux de n'importe quel conteneur, le même trou que l'interface, en plus lourd. Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
+| Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée. En mode `none`, personne : qui atteint le port lit les journaux de n'importe quel conteneur, le même trou que l'interface, en plus lourd. Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
@@ -109,13 +109,13 @@ base ; voir « Ce qui est stocké, et où ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `services.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `services.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les services : une fiche par conteneur dans `services` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `service_transitions`, ses mesures dans `service_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des services : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `service_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
-| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `services`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. Désactiver efface identifiant, empreinte et en-tête |
@@ -321,20 +321,33 @@ L'API rend des faits : octets, octets par seconde, pourcentage processeur ;
 les pourcentages de mémoire et de disque et les unités lisibles se
 calculent dans le navigateur.
 
-## Comment les services sont suivis
+## Comment les conteneurs sont suivis
 
-Un service est une application qui tourne sur une machine. Aujourd'hui,
-un service est un conteneur Docker ; la fiche porte un genre pour qu'une
-application native en soit un aussi plus tard. Le projet Compose est un
-groupe, pas une entité : `nextcloud` et `nextcloud-db` sont deux services
+Un conteneur est ce que Docker montre d'une machine : openCloud en garde une
+fiche, l'observé. Le mot « service » est celui de l'annuaire, ce que
+l'opérateur déclare (section suivante). La fiche porte un genre pour qu'une
+application native en soit une aussi plus tard. Le projet Compose est un
+groupe, pas une entité : `nextcloud` et `nextcloud-db` sont deux conteneurs
 du groupe `nextcloud`, comme sur la planche « Machine ».
+
+**Vocabulaire (annuaire 3b, migration `025_containers.sql`).** Les tables
+`containers`, `container_events`, `container_samples` et `container_networks`,
+les colonnes `container_id`, le paquet `internal/container`, les routes
+`/api/containers…` et `/api/machines/{id}/containers`, les outils MCP
+`list_containers`, `get_container` et `get_container_logs`, le sujet direct
+`containers` et la clé `containers` de `/api/counts` portaient « service »
+avant. Ce qui reste sous l'ancien mot l'est exprès : la section `services` du
+signal et les codes `service.logs_*` que les agents installés envoient (clés
+figées), et les types d'alerte `service_*` avec le genre d'objet `service` des
+alertes et des silences (le `CHECK` persisté ne change pas sans reconstruire
+la table ; ils partiront avec la revue des alertes).
 
 1. L'agent sonde la socket Docker au départ puis toutes les 60 s tant
    qu'elle ne répond pas, en lecture seule, API Engine épinglée à `1.41`
    (Docker 20.10, celui de Debian 12) ; un démon plus vieux est refusé. Il
    dit à openCloud si Docker est présent, sinon pourquoi : pas de socket,
    pas le droit, démon muet, trop vieux. Ce n'est pas une erreur : la
-   machine n'a aucun service, et l'interface l'écrit.
+   machine n'a aucun conteneur, et l'interface l'écrit.
 2. Docker répond : l'agent liste et inspecte chaque conteneur (un
    `docker compose run` est laissé de côté), envoie l'inventaire complet,
    puis le redonne toutes les 5 min. Une fiche que l'inventaire ne nomme
@@ -362,7 +375,8 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    le cache de fichiers, comme `docker stats`. Un compteur qui recule
    (conteneur relancé) vaut une première mesure : rien ce tour.
 5. Tout attend dans un tampon en mémoire et part dans le corps du signal,
-   section `services` à côté des lectures. Après une reconnexion, ce qui
+   section `services` à côté des lectures (clé figée : les agents installés
+   l'envoient sous ce nom). Après une reconnexion, ce qui
    attendait est marqué **rejoué** : le serveur l'écrit, mais la feature
    alertes n'y verra pas du neuf. Un agent plus vieux n'envoie pas de
    section : le serveur l'accepte.
@@ -394,7 +408,7 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    le dit pas, et 137 reste « Arrêté ». Docker ne garde pas ce fait :
    l'inventaire le conserve tant que la fiche reste sur le même arrêt
    (même état, même fin). Le compteur de la barre
-   latérale passe en rouge dès qu'un service est défaillant ou redémarre.
+   latérale passe en rouge dès qu'un conteneur est défaillant ou redémarre.
 8. Les journaux : l'opérateur ouvre une fiche, le serveur tire un
    identifiant de requête et pousse `logs` sur le flux de l'agent ; l'agent
    ouvre le journal (100 lignes par défaut, 500 au plus) et livre des lots
@@ -403,9 +417,9 @@ du groupe `nextcloud`, comme sur la planche « Machine ».
    de la machine à qui la requête a été poussée, et ne compte pas comme
    signe de vie : seul le signal publie `machines`. L'onglet fermé, le
    serveur pousse `logs_stop`. Quatre suivis par machine ; seize lectures
-   en tout, suivis, tirages uniques et `get_service_logs` confondus ;
+   en tout, suivis, tirages uniques et `get_container_logs` confondus ;
    au-delà, refusé avec la clé du catalogue. Une file de commandes pleine
-   est refusée aussi (`service.machine_busy`, 503). Le navigateur garde 1 200 lignes et
+   est refusée aussi (`container.machine_busy`, 503). Le navigateur garde 1 200 lignes et
    retombe sur un tirage unique si le direct échoue avant la première
    ligne. Une machine hors ligne le dit, sans attendre.
 9. La purge, au départ puis une fois par jour, efface les transitions de
@@ -560,8 +574,8 @@ rapprocher ses conteneurs (section suivante).
 ## Comment un conteneur se rattache à l'annuaire
 
 Le serveur rapproche ce que l'opérateur a déclaré de ce que l'agent voit. Le
-résultat se garde sur la fiche du conteneur (`services.unit_id`,
-`services.match_level`) ; l'écart, lui, ne se stocke jamais.
+résultat se garde sur la fiche du conteneur (`containers.unit_id`,
+`containers.match_level`) ; l'écart, lui, ne se stocke jamais.
 
 **Deux niveaux**, choisis par l'origine du service déclaré, donc disjoints :
 
@@ -723,7 +737,7 @@ groupes, les arêtes, les constats ; le navigateur place et trace.
    point d'un nœud dit le danger d'abord, puis l'attention d'un constat
    ou d'un redémarrage, puis l'état. Le filtre Tous, Actifs, Arrêtés cache
    des nœuds, les arêtes et les groupes vides avec eux. Le sujet
-   `services` du direct relit la topologie ; la sélection tient par
+   `containers` du direct relit la topologie ; la sélection tient par
    identifiant.
 
 | Constat | Règle | Niveau |
@@ -822,7 +836,7 @@ les CVE, le changelog, le score de risque, n'a pas été repris.
    tag trouvé, ou « reconstruite »), la fiche une carte Mise à jour
    (constat, empreintes, commande à copier, actions), la vue d'ensemble
    compte les services à jour à faire, `/api/counts` porte le chiffre.
-   Un constat écrit publie le sujet `services` du direct.
+   Un constat écrit publie le sujet `containers` du direct.
 9. Un constat qu'aucun passage n'a rafraîchi depuis 30 jours est purgé,
    au départ puis une fois par jour.
 
@@ -895,8 +909,8 @@ le système c'est une information seule : aucune commande n'est proposée.
    dans la carte « Mise à jour de l'image », sous un trait, et sur le
    résumé d'une machine, sous son système. Les listes ne la portent pas
    encore. `GET /api/machines` et `GET /api/machines/{id}` portent
-   `lifecycle` quand le réglage est activé. `GET /api/services/{id}` porte `lifecycle` quand le
-   réglage est activé, et rien sinon ; l'outil MCP `get_service` rend la
+   `lifecycle` quand le réglage est activé. `GET /api/containers/{id}` porte `lifecycle` quand le
+   réglage est activé, et rien sinon ; l'outil MCP `get_container` rend la
    même fiche.
 10. **Le réglage** : `GET`/`PUT /api/settings/lifecycle`, la clé
     `lifecycle_disabled` de la table `settings` (à 0 : activée). La carte
@@ -1555,7 +1569,7 @@ dernier signal en base, que serve y écrit toutes les 30 s.
 | Une machine est-elle en ligne ? | Oui si son dernier signal date de moins de 2 minutes (`machine.OnlineWindow`, la règle qui la déclare perdue), non sinon ou si elle n'a jamais signalé |
 | La machine openCloud ? | Toujours en ligne : c'est l'hôte qui fait tourner le processus |
 | `machine_online` des sondes, état de `get_status_page` | Dérivés de la même règle, pas d'une panne fantôme |
-| `get_service_logs` | `service.logs_unavailable_locally` : les journaux passent par l'agent, que ce processus ne tient pas ; utiliser le MCP HTTP |
+| `get_container_logs` | `container.logs_unavailable_locally` : les journaux passent par l'agent, que ce processus ne tient pas ; utiliser le MCP HTTP |
 
 Le coût : si serve est arrêté, les signaux cessent et les machines passent
 hors ligne au bout de 2 minutes, ce qui est vrai. Un signal tout juste manqué
@@ -1574,7 +1588,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `get_overview` | La version et les compteurs de `/api/counts` | |
 | `list_machines`, `get_machine`, `get_machine_network` | Les machines sans leurs jetons en attente ; une machine avec sa dernière mesure et son Docker ; la topologie et les constats d'exposition | |
 | `list_declared_services` | Les services déclarés avec leur écart (état par service, par unité et par conteneur rattaché) et les conteneurs non déclarés, groupés et marqués ignorés ou non ; filtre par machine ou projet (un projet ne montre aucun non déclaré) | 100, 500 au plus ; la page ne porte que les services, les non déclarés sortent tous |
-| `list_services`, `get_service`, `get_service_logs` | Les services, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
+| `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
@@ -1634,12 +1648,12 @@ faits identiques à l'API par construction.
    `status` et `alert` publient sur le bus interne (`internal/live`) à chaque
    changement visible : jeton, enrôlement, connexion, signal, déconnexion,
    retrait ; création, ping, échéance dépassée, pause, reprise,
-   suppression ; lot de mesures écrit ; rapport de services ou de réseaux
+   suppression ; lot de mesures écrit ; rapport de conteneurs ou de réseaux
    écrit ; constat d'image écrit ou politique changée, sur le sujet des
-   services ; essais de sondes écrits ; instantané public changé ; alerte
+   conteneurs ; essais de sondes écrits ; instantané public changé ; alerte
    ouverte, aggravée, acquittée, résolue, canal ou silence changé ; service
    ou projet déclaré créé, modifié ou supprimé. Le bus ne porte que huit
-   sujets, `machines`, `jobs`, `resources`, `services`, `probes`, `status`,
+   sujets, `machines`, `jobs`, `resources`, `containers`, `probes`, `status`,
    `alerts` et `directory`.
 3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
    avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
@@ -1653,7 +1667,7 @@ faits identiques à l'API par construction.
 
 L'agent garde son propre flux `/agent/stream`, authentifié, qui porte
 aussi les commandes du serveur ; le journal d'un service ouvre un
-troisième flux, `/api/services/{id}/logs/stream`, un par fiche ouverte.
+troisième flux, `/api/containers/{id}/logs/stream`, un par fiche ouverte.
 Tous traversent la même chaîne de middlewares (panique, identifiant de
 requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
@@ -1664,8 +1678,8 @@ qui marchent : ni page « Bientôt », ni onglet vide. Les adresses déjà
 connues restent valides et renvoient au parent : `/sauvegardes` à la vue
 d'ensemble ; `/machines/{id}/sauvegardes` et `/reglages` au résumé de la
 machine. L'onglet Journaux est un raccourci : les services de la machine
-(`/api/machines/{id}/services`), chacun avec son état et un bouton vers
-`/services/{id}#journaux`, la carte des journaux de sa fiche ; sans
+(`/api/machines/{id}/containers`), chacun avec son état et un bouton vers
+`/services/conteneurs/{id}#journaux`, la carte des journaux de sa fiche ; sans
 conteneur, il dit pourquoi (Docker absent, sans droit, arrêté). Aucune API
 de plus.
 
@@ -1778,7 +1792,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Authentification de l'interface désactivée par défaut | Tant que l'opérateur ne l'active pas sous Paramètres, qui atteint le port web peut tout faire ; un `WARN` au démarrage et une bannière le rappellent. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Par conception : `forward` derrière Authelia pour les comptes et le second facteur |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
 | Pas de page de consentement OAuth | Qui a le secret du client obtient un jeton sans écran de consentement ; avec l'authentification activée, `/oauth/authorize` exige au moins les identifiants de l'opérateur, ou l'identité transmise par le mandataire | À décider |
-| Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_service_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
+| Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_container_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
 | Une écriture par stdio n'est pas relayée | Le client local est en lecture seule : mettre en pause, acquitter, ouvrir un incident demandent le transport HTTP | Par conception, tant que `serve` seul tient les flux |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
 | Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se compile et se copie à la main. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
@@ -1829,12 +1843,12 @@ refusés avant d'envoyer quoi que ce soit.
 | Front React | L'API JSON sous `/api/…`, le front embarqué dans le binaire, la garde même-origine à la place du cookie anti-CSRF ; les temps relatifs se calculent dans le navigateur |
 | 4 · direct | Le bus `internal/live`, le flux `/api/events`, la chaîne de middlewares et `X-Request-ID`, la clé `log_level` de la configuration |
 | 5 · ressources | La mesure par l'agent et par `serve`, le corps du signal, les tables `machine_samples*` et `machine_disks`, le rollup et la purge, les routes `/api/resources` et `/api/machines/{id}/resources[/history]`, le sujet `resources` |
-| 6 · services | Le veilleur Docker de l'agent et de `serve`, la section `services` du signal, les commandes sur `/agent/stream` et `POST /agent/logs/{request}`, les tables `services`, `service_transitions`, `service_samples`, `machine_engines`, la clé `docker_socket` et le drapeau `-docker-socket`, les routes `/api/services…` et `/api/machines/{id}/services`, le sujet `services` |
-| 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `service_networks`, les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
+| 6 · services | Le veilleur Docker de l'agent et de `serve`, la section `services` du signal, les commandes sur `/agent/stream` et `POST /agent/logs/{request}`, les tables `containers`, `container_events`, `container_samples` (ex-`services`, `service_transitions`, `service_samples`, renommées par la 025), `machine_engines`, la clé `docker_socket` et le drapeau `-docker-socket`, les routes `/api/containers…` et `/api/machines/{id}/containers`, le sujet `containers` |
+| 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `container_networks` (ex-`service_networks`), les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
 | 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `alert_silences`, les crochets `Alerter` des composants et le `Listener` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
-| 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `services`, la purge, la route `POST /api/machines/{id}/actions/check-updates` (`PUT /api/services/{id}/update-policy` a été remplacée par `PUT /api/directory/units/{id}/update-policy`), le champ `image_check` des services et `services.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
+| 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `containers` (ex-`services`), la purge, la route `POST /api/machines/{id}/actions/check-updates` (`PUT /api/services/{id}/update-policy` a été remplacée par `PUT /api/directory/units/{id}/update-policy`), le champ `image_check` des conteneurs et `containers.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |
 | 14 · MCP | Le paquet `internal/mcp` et la migration `011_mcp.sql` (`mcp_clients`, `mcp_codes`, `mcp_tokens`), le serveur MCP et ses 25 outils dans `internal/server` (`mcp.go`, `mcp_tools_read.go`, `mcp_tools_write.go`), les routes `/mcp`, `/oauth/authorize`, `/oauth/token`, les deux `/.well-known/oauth-*`, l'API `/api/mcp…`, la purge toutes les 15 minutes, la sous-commande `opencloud mcp`, la page Paramètres (activer, secret montré une fois, adresses de retour, jetons d'API, sessions, commande du client local), la dépendance `github.com/modelcontextprotocol/go-sdk`, les goldens `mcp_*.golden.json` |
 | Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres |
@@ -1847,5 +1861,6 @@ refusés avant d'envoyer quoi que ce soit.
 | Édition sur place | `PUT /api/probes/{id}` et `PUT /api/jobs/{id}` (la définition entière, mêmes refus que la création), `POST /api/jobs/{id}/actions/regenerate-token`, `Service.Update` des paquets `internal/probe` et `internal/heartbeat` et `RegenerateToken`, la migration `021_probe_revision.sql` (`probes.revised_at`) et sa garde dans `planChanges` et `updateProbeState`, la pause d'une tâche qui n'est plus reprise par un ping, les formulaires `ProbeForm` et `JobForm` (création et édition), les boutons Modifier et « Régénérer le jeton », les trois routes de `testdata/routes.txt` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |
 | Annuaire (1/5) | Le paquet `internal/directory` (identité propre, validation, création et édition sur place des services, unités, fournitures et projets), la migration `022_directory.sql` (`projects`, `declared_services`, `service_units`, `service_provides`, `project_services`), `internal/store/directory.go`, le refus 409 `machine.has_declared_services` au retrait d'une machine, les dix routes `/api/directory/…`, le sujet `directory`, les onglets Annuaire et Projets de la page Services, la fiche et le formulaire de service |
-| Annuaire (2/5) | Le rapprochement `internal/directory/match.go` (deux niveaux) et son application par le suivi des conteneurs (`Tracker.SetUnits`, `Rematch`, `RematchAll`, verrou par machine), la migration `023_container_units.sql` (`services.unit_id`, `services.match_level`, `ignored_keys`), le calcul de l'écart `gap.go`, la proposition d'adoption `propose.go`, les quatre routes `/api/directory/gaps`, `/proposal` et `/ignored`, `directory` sur la fiche d'un conteneur, l'outil MCP `list_declared_services`, la colonne Écart, la liste des non déclarés, l'adoption dans le formulaire et la carte Annuaire |
+| Annuaire (2/5) | Le rapprochement `internal/directory/match.go` (deux niveaux) et son application par le suivi des conteneurs (`Tracker.SetUnits`, `Rematch`, `RematchAll`, verrou par machine), la migration `023_container_units.sql` (`unit_id`, `match_level` de la table des conteneurs, alors `services`, et `ignored_keys`), le calcul de l'écart `gap.go`, la proposition d'adoption `propose.go`, les quatre routes `/api/directory/gaps`, `/proposal` et `/ignored`, `directory` sur la fiche d'un conteneur, l'outil MCP `list_declared_services`, la colonne Écart, la liste des non déclarés, l'adoption dans le formulaire et la carte Annuaire |
 | Annuaire (3/6) | Les liens : la migration `024_directory_links.sql` et son étape Go `store.linkContainersToDirectory` (`internal/store/migrate_024.go`, requêtes figées sur le schéma 23, vérification de ce qui devait survivre), le runner de migrations hors clés étrangères avec `PRAGMA foreign_key_check` avant le COMMIT (`internal/store/store.go`, pour toutes les migrations), le plan pur `directory.PlanLinks`, `service_units.update_policy` (`watch`, `hold`, `ignore`) à la place de `services.update_policy`, `probes.service_id` et le membre `service` d'un composant vers `declared_services` en `restrict`, la suppression refusée avec la liste (409 `directory.service_linked`, `links` sur la fiche), les routes `POST /api/directory/services/{id}/actions/review` et `PUT /api/directory/units/{id}/update-policy`, l'outil MCP `set_update_policy` sur une unité, la règle d'état d'un service déclaré dans la page de statut, la ligne `declared services to review` au journal, la marque « à vérifier » et l'action Valider, la sonde sur n'importe quelle machine, la carte Mise à jour qui lit la politique de l'unité |
+| Annuaire (3b/6) | Le renommage du conteneur observé, sans changement de comportement : la migration `025_containers.sql` (`services`, `service_transitions`, `service_samples`, `service_networks` deviennent `containers`, `container_events`, `container_samples`, `container_networks`, les colonnes `service_id` des mesures, des événements, des réseaux et des alertes deviennent `container_id`, les index refaits sous leur nom), le paquet `internal/container` (`Container`, `Tracker`, `Transition`, et `Observed` pour le conteneur tel que le rapport le transporte), les routes `/api/containers…` et `/api/machines/{id}/containers`, les outils MCP `list_containers`, `get_container` et `get_container_logs` (leur argument s'appelle `id`, le champ `id` de `list_containers`, pas son `container_id` qui est l'identifiant Docker), le sujet direct `containers`, la clé `containers` de `/api/counts`, du réseau et de la liste, la fiche front sous `/services/conteneurs/:id` (l'ancienne adresse `/services/:id` y redirige), les clés de catalogue `container.*`, les goldens renommés. Gardés exprès : le protocole agent ↔ serveur (section `services` du signal, codes `service.logs_*`), les types d'alerte `service_*` et le genre d'objet `service` |

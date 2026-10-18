@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"sort"
@@ -12,21 +12,21 @@ const InternetNode = "internet"
 type EdgeKind string
 
 const (
-	// Une route publique : d'Internet au service, par un port publié.
+	// Une route publique : d'Internet au conteneur, par un port publié.
 	EdgePublic EdgeKind = "public"
-	// Une dépendance déclarée : du service vers celui dont il dépend.
+	// Une dépendance déclarée : du conteneur vers celui dont il dépend.
 	EdgeDepends EdgeKind = "depends"
 )
 
 // Topology est ce que l'onglet Réseau dessine : le serveur rend les faits,
-// le front place et trace. Les nœuds sont Internet et chaque service ;
+// le front place et trace. Les nœuds sont Internet et chaque conteneur ;
 // les groupes sont les réseaux créés par l'opérateur ou Compose, chacun
-// avec les services qu'il abrite ; un service dans plusieurs réseaux va
+// avec les conteneurs qu'il abrite ; un conteneur dans plusieurs réseaux va
 // dans celui où il a le plus de voisins.
 type Topology struct {
-	Services []Service
-	Groups   []Group
-	Edges    []Edge
+	Containers []Container
+	Groups     []Group
+	Edges      []Edge
 }
 
 type Group struct {
@@ -45,31 +45,31 @@ type Edge struct {
 	Source   DependencySource
 }
 
-// BuildTopology calcule la topologie d'une machine à partir de ses services
+// BuildTopology calcule la topologie d'une machine à partir de ses conteneurs
 // vivants et de ses réseaux. Un réseau que la machine n'a pas listé mais
-// qu'un service dit joindre compte quand même : l'appartenance fait foi.
-func BuildTopology(services []Service, networks []Network) Topology {
-	topology := Topology{Services: services, Groups: []Group{}, Edges: []Edge{}}
-	groups := groupsOf(services, networks)
-	placed := placeServices(services, groups)
+// qu'un conteneur dit joindre compte quand même : l'appartenance fait foi.
+func BuildTopology(containers []Container, networks []Network) Topology {
+	topology := Topology{Containers: containers, Groups: []Group{}, Edges: []Edge{}}
+	groups := groupsOf(containers, networks)
+	placed := placeContainers(containers, groups)
 	for _, group := range groups {
 		group.Members = placed[group.NetworkID]
 		if len(group.Members) > 0 {
 			topology.Groups = append(topology.Groups, group)
 		}
 	}
-	for _, item := range services {
+	for _, item := range containers {
 		topology.Edges = append(topology.Edges, publicEdges(item)...)
 	}
-	for _, item := range services {
-		topology.Edges = append(topology.Edges, dependencyEdges(item, services)...)
+	for _, item := range containers {
+		topology.Edges = append(topology.Edges, dependencyEdges(item, containers)...)
 	}
 	return topology
 }
 
 // groupsOf rend, par nom, les réseaux qui font un groupe : ceux de la liste
-// de la machine, complétés par ceux que les services joignent.
-func groupsOf(services []Service, networks []Network) []Group {
+// de la machine, complétés par ceux que les conteneurs joignent.
+func groupsOf(containers []Container, networks []Network) []Group {
 	byID := map[string]Group{}
 	for _, network := range networks {
 		if network.IsUserDefined() {
@@ -80,7 +80,7 @@ func groupsOf(services []Service, networks []Network) []Group {
 	for _, network := range networks {
 		listed[network.NetworkID] = true
 	}
-	for _, item := range services {
+	for _, item := range containers {
 		for _, attachment := range item.Networks {
 			if listed[attachment.NetworkID] {
 				continue
@@ -99,16 +99,16 @@ func groupsOf(services []Service, networks []Network) []Group {
 	return groups
 }
 
-// placeServices choisit le groupe de chaque service : le réseau où il a le
+// placeContainers choisit le groupe de chaque conteneur : le réseau où il a le
 // plus de voisins, le premier par le nom à égalité. Rend les membres par
-// réseau, dans l'ordre des services.
-func placeServices(services []Service, groups []Group) map[string][]string {
+// réseau, dans l'ordre des conteneurs.
+func placeContainers(containers []Container, groups []Group) map[string][]string {
 	population := map[string]int{}
 	names := map[string]string{}
 	for _, group := range groups {
 		names[group.NetworkID] = group.Name
 	}
-	for _, item := range services {
+	for _, item := range containers {
 		for _, attachment := range item.Networks {
 			if _, isGroup := names[attachment.NetworkID]; isGroup {
 				population[attachment.NetworkID]++
@@ -116,7 +116,7 @@ func placeServices(services []Service, groups []Group) map[string][]string {
 		}
 	}
 	placed := map[string][]string{}
-	for _, item := range services {
+	for _, item := range containers {
 		chosen := ""
 		for _, attachment := range item.Networks {
 			if _, isGroup := names[attachment.NetworkID]; !isGroup {
@@ -137,7 +137,7 @@ func placeServices(services []Service, groups []Group) map[string][]string {
 // publicEdges relie Internet à chaque port publié sur toutes les
 // interfaces ; 0.0.0.0 et :: sur le même port ne font qu'une arête. Un
 // conteneur en mode host n'a pas de port publié : Docker n'en dit rien.
-func publicEdges(item Service) []Edge {
+func publicEdges(item Container) []Edge {
 	edges := []Edge{}
 	seen := map[string]bool{}
 	for _, port := range item.Ports {
@@ -160,10 +160,10 @@ func publicEdges(item Service) []Edge {
 // dependencyEdges résout chaque dépendance déclarée : une dépendance
 // Compose vise un service du même projet, un lien vise un conteneur par
 // son nom. Ce qui ne se résout pas n'a pas d'arête : la fiche le dit.
-func dependencyEdges(item Service, services []Service) []Edge {
+func dependencyEdges(item Container, containers []Container) []Edge {
 	edges := []Edge{}
 	for _, dependency := range item.DependsOn {
-		target, found := resolveDependency(item, dependency, services)
+		target, found := resolveDependency(item, dependency, containers)
 		if !found || target.ID == item.ID {
 			continue
 		}
@@ -172,8 +172,8 @@ func dependencyEdges(item Service, services []Service) []Edge {
 	return edges
 }
 
-func resolveDependency(item Service, dependency Dependency, services []Service) (Service, bool) {
-	for _, candidate := range services {
+func resolveDependency(item Container, dependency Dependency, containers []Container) (Container, bool) {
+	for _, candidate := range containers {
 		if candidate.Name != dependency.Name {
 			continue
 		}
@@ -182,5 +182,5 @@ func resolveDependency(item Service, dependency Dependency, services []Service) 
 		}
 		return candidate, true
 	}
-	return Service{}, false
+	return Container{}, false
 }

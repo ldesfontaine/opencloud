@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -34,26 +34,26 @@ func (ts *testServer) unitIDOf(t *testing.T, serviceID, unitName string) string 
 func TestAPI_UnitUpdatePolicy_HoldIgnoreAndRefuseWithTheKey(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	unitID := server.unitIDOf(t, cloudID, "nextcloud")
 	var counts countsResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
-	if counts.Services.Updates != 2 {
-		t.Fatalf("updates = %d, want 2", counts.Services.Updates)
+	if counts.Containers.Updates != 2 {
+		t.Fatalf("updates = %d, want 2", counts.Containers.Updates)
 	}
 	path := "/api/directory/units/" + unitID + "/update-policy"
 	if got := callAPI(server.Server, http.MethodPut, path, unitPolicyRequest{Policy: "hold"}); got.Code != http.StatusNoContent {
 		t.Fatalf("hold: %d %s", got.Code, got.Body.String())
 	}
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
-	if counts.Services.Updates != 1 {
-		t.Fatalf("held: updates = %d, want 1", counts.Services.Updates)
+	if counts.Containers.Updates != 1 {
+		t.Fatalf("held: updates = %d, want 1", counts.Containers.Updates)
 	}
-	var response serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudContainerID(), nil), &response)
-	if response.Service.UpdatePolicy != "hold" || response.Service.DeclaredServiceID != cloudID || response.Service.ImageCheck == nil || response.Service.ImageCheck.Kind == "" {
-		t.Fatalf("held container = %+v", response.Service)
+	var response containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudContainerID(), nil), &response)
+	if response.Container.UpdatePolicy != "hold" || response.Container.DeclaredServiceID != cloudID || response.Container.ImageCheck == nil || response.Container.ImageCheck.Kind == "" {
+		t.Fatalf("held container = %+v", response.Container)
 	}
 	if got := callAPI(server.Server, http.MethodPut, path, unitPolicyRequest{Policy: "ignore"}); got.Code != http.StatusNoContent {
 		t.Fatalf("ignore: %d", got.Code)
@@ -65,9 +65,9 @@ func TestAPI_UnitUpdatePolicy_HoldIgnoreAndRefuseWithTheKey(t *testing.T) {
 		t.Fatalf("unknown unit: %d", got.Code)
 	}
 	// Un conteneur non déclaré suit toujours : il n'a pas d'unité à régler.
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+nextcloudDBContainerID(), nil), &response)
-	if response.Service.UpdatePolicy != "watch" || response.Service.DeclaredServiceID != "" {
-		t.Fatalf("undeclared container = %+v", response.Service)
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+nextcloudDBContainerID(), nil), &response)
+	if response.Container.UpdatePolicy != "watch" || response.Container.DeclaredServiceID != "" {
+		t.Fatalf("undeclared container = %+v", response.Container)
 	}
 }
 
@@ -76,24 +76,24 @@ func TestAPI_UnitUpdatePolicy_HoldIgnoreAndRefuseWithTheKey(t *testing.T) {
 func TestAPI_UnitUpdatePolicy_SurvivesTheRecreationOfTheContainer(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedServices(t)
+	server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	unitID := server.unitIDOf(t, cloudID, "nextcloud")
 	if got := callAPI(server.Server, http.MethodPut, "/api/directory/units/"+unitID+"/update-policy", unitPolicyRequest{Policy: "ignore"}); got.Code != http.StatusNoContent {
 		t.Fatalf("ignore: %d", got.Code)
 	}
-	recreated := service.Container{
+	recreated := container.Observed{
 		ContainerID: strings.Repeat("e", 64), Name: "nextcloud", Group: "nextcloud", Image: "nextcloud:29.0.4",
-		ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", State: service.StateRunning, CreatedAt: testNow,
+		ComposeService: "nextcloud", ComposeDir: "/srv/nextcloud", State: container.StateRunning, CreatedAt: testNow,
 	}
-	report := service.Report{Complete: true, Inventory: []service.Container{recreated}}
-	if err := server.services.Record(context.Background(), remoteID, report); err != nil {
+	report := container.Report{Complete: true, Inventory: []container.Observed{recreated}}
+	if err := server.containers.Record(context.Background(), remoteID, report); err != nil {
 		t.Fatal(err)
 	}
-	var response serviceResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/services/"+service.ID(remoteID, recreated.ContainerID), nil), &response)
-	if response.Service.UpdatePolicy != "ignore" || response.Service.DeclaredServiceID != cloudID {
-		t.Fatalf("recreated container = %+v", response.Service)
+	var response containerResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/containers/"+container.ID(remoteID, recreated.ContainerID), nil), &response)
+	if response.Container.UpdatePolicy != "ignore" || response.Container.DeclaredServiceID != cloudID {
+		t.Fatalf("recreated container = %+v", response.Container)
 	}
 }
 

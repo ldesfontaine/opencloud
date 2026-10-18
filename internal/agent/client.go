@@ -20,11 +20,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -263,7 +263,7 @@ func (s *Stream) Follow(handle func(name, data string)) error {
 // Signal donne signe de vie et livre ce qui attendait : les lectures de la
 // machine, ce que Docker a montré et ce que les sondes ont donné ; sans
 // rien, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *service.Report, checked *probe.Report, images *update.Report) (map[string]string, error) {
+func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *container.Report, checked *probe.Report, images *update.Report) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
@@ -303,7 +303,7 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 }
 
 // PostLogs livre un lot de journal pour une requête du serveur.
-func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch service.LogBatch) error {
+func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch container.LogBatch) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	content, err := json.Marshal(batch)

@@ -101,7 +101,7 @@ func (s *Service) SetLocalFingerprint(fingerprint string) {
 }
 
 // isOpenCloudHost dit si une empreinte d'agent est celle de la machine
-// openCloud : elle se supervise déjà, un agent doublerait services et
+// openCloud : elle se supervise déjà, un agent doublerait conteneurs et
 // alertes.
 func (s *Service) isOpenCloudHost(fingerprint string) bool {
 	return s.localFingerprint != "" && fingerprint == s.localFingerprint
@@ -113,7 +113,7 @@ func (s *Service) WarnIfOpenCloudHost(machine Machine, fingerprint string) {
 	if !s.isOpenCloudHost(fingerprint) {
 		return
 	}
-	s.logger.Warn("agent runs on the "+brand.ProductName+" machine itself: services and alerts are doubled; remove this machine and uninstall its agent",
+	s.logger.Warn("agent runs on the "+brand.ProductName+" machine itself: containers and alerts are doubled; remove this machine and uninstall its agent",
 		"machine_id", machine.ID, "name", machine.Name)
 }
 

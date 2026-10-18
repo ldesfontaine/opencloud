@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/registry"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 var (
@@ -55,9 +55,9 @@ func (u UnitDefinition) complete(kind UnitKind) UnitDefinition {
 		ports = append(ports, strings.TrimSpace(port))
 	}
 	u.Ports = ports
-	u.UpdatePolicy = service.UpdatePolicy(strings.TrimSpace(string(u.UpdatePolicy)))
+	u.UpdatePolicy = container.UpdatePolicy(strings.TrimSpace(string(u.UpdatePolicy)))
 	if u.UpdatePolicy == "" {
-		u.UpdatePolicy = service.PolicyWatch
+		u.UpdatePolicy = container.PolicyWatch
 	}
 	return u
 }
@@ -198,10 +198,10 @@ func (u UnitDefinition) validate(origin Origin) error {
 // Un binaire n'a pas d'image à interroger : sa seule politique est celle par
 // défaut.
 func (u UnitDefinition) validateUpdatePolicy(origin Origin) error {
-	if !service.IsUpdatePolicy(u.UpdatePolicy) {
+	if !container.IsUpdatePolicy(u.UpdatePolicy) {
 		return ErrUpdatePolicyInvalid
 	}
-	if unitKindOf(origin) == UnitBinary && u.UpdatePolicy != service.PolicyWatch {
+	if unitKindOf(origin) == UnitBinary && u.UpdatePolicy != container.PolicyWatch {
 		return ErrUpdatePolicyInvalid
 	}
 	return nil

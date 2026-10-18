@@ -25,7 +25,7 @@ type Product struct {
 
 // Snapshot est tout ce qu'openCloud garde de la source, remplacé d'un bloc
 // à chaque lecture réussie : quel dépôt d'images est quel produit, et les
-// branches des produits que les services utilisent.
+// branches des produits que les conteneurs utilisent.
 type Snapshot struct {
 	FetchedAt time.Time `json:"fetched_at"`
 	// Dépôt Docker (« library/postgres ») → nom du produit (« postgresql »).
@@ -62,7 +62,7 @@ type Newer struct {
 	EOLFrom string
 }
 
-// Verdict est ce que la fiche d'un service affiche : le produit reconnu,
+// Verdict est ce que la fiche d'un conteneur affiche : le produit reconnu,
 // la branche qui tourne, son support, et vers quoi monter.
 type Verdict struct {
 	Status  Status

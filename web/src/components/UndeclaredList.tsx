@@ -67,7 +67,7 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
                   <td>
                     <span className="stack">
                       {group.containers.map((container) => (
-                        <Link key={container.id} className="mono" to={`/services/${container.id}`}>
+                        <Link key={container.id} className="mono" to={`/services/conteneurs/${container.id}`}>
                           {container.name}
                         </Link>
                       ))}

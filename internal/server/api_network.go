@@ -5,22 +5,22 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
-// La topologie d'une machine telle que le front la dessine : les services
+// La topologie d'une machine telle que le front la dessine : les conteneurs
 // avec leurs faits, les groupes qu'un réseau créé par l'opérateur ou par
-// Compose forme, les arêtes d'Internet vers un port publié et d'un service
+// Compose forme, les arêtes d'Internet vers un port publié et d'un conteneur
 // vers ce dont il dépend. Le front place et trace ; rien ici ne dit où.
 type networkResponse struct {
-	MachineID   string        `json:"machine_id"`
-	MachineName string        `json:"machine_name"`
-	Online      bool          `json:"online"`
-	Engine      *engineJSON   `json:"engine"`
-	Services    []serviceJSON `json:"services"`
-	Groups      []groupJSON   `json:"groups"`
-	Edges       []edgeJSON    `json:"edges"`
+	MachineID   string          `json:"machine_id"`
+	MachineName string          `json:"machine_name"`
+	Online      bool            `json:"online"`
+	Engine      *engineJSON     `json:"engine"`
+	Containers  []containerJSON `json:"containers"`
+	Groups      []groupJSON     `json:"groups"`
+	Edges       []edgeJSON      `json:"edges"`
 }
 
 type groupJSON struct {
@@ -82,15 +82,15 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkResponse, error) {
-	topology, err := s.services.Topology(ctx, status.ID)
+	topology, err := s.containers.Topology(ctx, status.ID)
 	if err != nil {
 		return networkResponse{}, err
 	}
-	currents, err := s.currentByService(ctx)
+	currents, err := s.currentByContainer(ctx)
 	if err != nil {
 		return networkResponse{}, err
 	}
-	engines, err := s.services.Engines(ctx)
+	engines, err := s.containers.Engines(ctx)
 	if err != nil {
 		return networkResponse{}, err
 	}
@@ -100,10 +100,10 @@ func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkR
 	}
 	response := networkResponse{
 		MachineID: status.ID, MachineName: status.Name, Online: status.Online,
-		Services: make([]serviceJSON, 0, len(topology.Services)), Groups: []groupJSON{}, Edges: []edgeJSON{},
+		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: []edgeJSON{},
 	}
-	for _, item := range topology.Services {
-		response.Services = append(response.Services, serviceToJSON(item, status.Name, currents[item.ID], checks))
+	for _, item := range topology.Containers {
+		response.Containers = append(response.Containers, containerToJSON(item, status.Name, currents[item.ID], checks))
 	}
 	for _, group := range topology.Groups {
 		response.Groups = append(response.Groups, groupJSON{NetworkID: group.NetworkID, Name: group.Name, Internal: group.Internal, Members: group.Members})
@@ -120,6 +120,6 @@ func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkR
 	return response, nil
 }
 
-func edgeToJSON(edge service.Edge) edgeJSON {
+func edgeToJSON(edge container.Edge) edgeJSON {
 	return edgeJSON{From: edge.From, To: edge.To, Kind: string(edge.Kind), Port: edge.Port, Protocol: edge.Protocol, Source: string(edge.Source)}
 }

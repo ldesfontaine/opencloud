@@ -1,4 +1,4 @@
-package service
+package container
 
 import (
 	"context"
@@ -178,7 +178,7 @@ func newRequestID() string {
 	return hex.EncodeToString(raw)
 }
 
-// Les journaux d'un service, par son relais.
+// Les journaux d'un conteneur, par son relais.
 
 func (t *Tracker) SetLocalLogSource(machineID string, source LogSource) {
 	t.relay.SetLocal(machineID, source)
@@ -188,26 +188,26 @@ func (t *Tracker) SetCommander(commander Commander) {
 	t.relay.SetCommander(commander)
 }
 
-// FollowLogs ouvre le journal d'un service en direct ; le canal se ferme
+// FollowLogs ouvre le journal d'un conteneur en direct ; le canal se ferme
 // avec le journal ou le contexte.
-func (t *Tracker) FollowLogs(ctx context.Context, serviceID string, tail int) (<-chan LogBatch, error) {
-	service, err := t.store.GetService(ctx, serviceID)
+func (t *Tracker) FollowLogs(ctx context.Context, containerID string, tail int) (<-chan LogBatch, error) {
+	container, err := t.store.GetContainer(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
-	return t.relay.Open(ctx, service.MachineID, LogRequest{ContainerID: service.ContainerID, Tail: clampTail(tail), Follow: true})
+	return t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail), Follow: true})
 }
 
 // FetchLogs tire les dernières lignes en un coup ; passé le délai, la
 // machine n'a pas répondu.
-func (t *Tracker) FetchLogs(ctx context.Context, serviceID string, tail int) ([]LogLine, error) {
-	service, err := t.store.GetService(ctx, serviceID)
+func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) ([]LogLine, error) {
+	container, err := t.store.GetContainer(ctx, containerID)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, LogFetchTimeout)
 	defer cancel()
-	batches, err := t.relay.Open(ctx, service.MachineID, LogRequest{ContainerID: service.ContainerID, Tail: clampTail(tail)})
+	batches, err := t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail)})
 	if err != nil {
 		return nil, err
 	}

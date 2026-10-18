@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { DeclaredServicesResponse, MachinesResponse, Probe, ProbeKind, ProbeResponse, ServiceResponse } from "../api/types";
+import type { DeclaredServicesResponse, MachinesResponse, Probe, ProbeKind, ProbeResponse, ContainerResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -13,7 +13,7 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyProbeForm, probeFormOf, probeRequestOf, type ProbeFormValues } from "../lib/probes";
 import { useRefresh } from "../lib/refresh";
-import { isPublicIP } from "../lib/services";
+import { isPublicIP } from "../lib/containers";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier une sonde : l'opérateur dit ce qu'il faut joindre, tous
@@ -34,7 +34,7 @@ export function ProbeForm() {
   const fromContainer = params.get("container") ?? "";
   const machines = useResource<MachinesResponse>("/api/machines");
   const declared = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const container = useResource<ServiceResponse>(fromContainer === "" ? null : `/api/services/${fromContainer}`);
+  const container = useResource<ContainerResponse>(fromContainer === "" ? null : `/api/containers/${fromContainer}`);
   const existing = useResource<ProbeResponse>(isEditing ? `/api/probes/${id}` : null);
 
   const [values, setValues] = useState<ProbeFormValues>(emptyProbeForm);
@@ -73,7 +73,7 @@ export function ProbeForm() {
   // qui le porte : la vue depuis l'intérieur, qui marche derrière un NAT
   // comme ailleurs.
   const service = declared.data?.services.find((candidate) => candidate.id === fromService);
-  const carrier = container.data?.service;
+  const carrier = container.data?.container;
   const ready = service !== undefined && (fromContainer === "" || carrier !== undefined);
   useEffect(() => {
     if (prefilled || fromService === "" || !ready) {

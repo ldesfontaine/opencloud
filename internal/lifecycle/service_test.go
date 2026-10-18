@@ -61,7 +61,7 @@ func (m *memoryCache) Save(payload []byte) error {
 
 type countingWatcher struct{ count int }
 
-func (c *countingWatcher) ServicesChanged(string) { c.count++ }
+func (c *countingWatcher) ContainersChanged(string) { c.count++ }
 
 type harness struct {
 	service *Service

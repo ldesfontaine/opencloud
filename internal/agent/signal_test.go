@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -40,7 +40,7 @@ func answeringServer(t *testing.T, status int, body string) *Client {
 func filledPending() *pending {
 	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}}
 	filled.readings.push(sampler.Reading{SampledAt: time.Now(), CPUPercent: 1})
-	filled.reports.Deliver(service.Report{Events: []service.Event{{Action: "start"}}})
+	filled.reports.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
 	filled.results.Deliver(probe.Report{Results: []probe.Result{{ProbeID: "p"}}})
 	filled.images.Deliver(update.Report{Results: []update.Result{{Image: "nginx:1.27"}}})
 	return filled

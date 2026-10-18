@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
-import type { AlertKind, AlertObjectKind, JobsResponse, MachinesResponse, ProbesResponse, ServicesResponse, Silence } from "../api/types";
+import type { AlertKind, AlertObjectKind, JobsResponse, MachinesResponse, ProbesResponse, ContainersResponse, Silence } from "../api/types";
 import { alertKinds } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -163,14 +163,14 @@ interface Option {
 // lue seulement quand le genre est choisi.
 function useObjects(kind: PickKind): Option[] {
   const machines = useResource<MachinesResponse>(kind === "machine" ? "/api/machines" : null);
-  const services = useResource<ServicesResponse>(kind === "service" ? "/api/services" : null);
+  const containers = useResource<ContainersResponse>(kind === "service" ? "/api/containers" : null);
   const jobs = useResource<JobsResponse>(kind === "heartbeat" ? "/api/jobs" : null);
   const probes = useResource<ProbesResponse>(kind === "probe" ? "/api/probes" : null);
   switch (kind) {
     case "machine":
       return (machines.data?.machines ?? []).map((machine) => ({ id: machine.id, name: machine.name }));
     case "service":
-      return (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine(service) }));
+      return (containers.data?.containers ?? []).map((container) => ({ id: container.id, name: nameWithMachine(container) }));
     case "heartbeat":
       return (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: nameWithMachine(job) }));
     case "probe":

@@ -19,7 +19,7 @@ const (
 	RefreshEvery = 24 * time.Hour
 	// MinGap : jamais deux lectures à moins de douze heures, donc deux par
 	// jour au plus. La seconde sert à rejouer un essai raté, ou à lire le
-	// produit d'un service ou d'une machine arrivés depuis.
+	// produit d'un conteneur ou d'une machine arrivés depuis.
 	MinGap = 12 * time.Hour
 	// La boucle regarde toutes les heures s'il est l'heure de lire ; ce
 	// regard ne sort pas de la machine.
@@ -31,7 +31,7 @@ const (
 	maxProducts = 64
 )
 
-// Images rend les images des services présents ; le câblage la tire des
+// Images rend les images des conteneurs présents ; le câblage la tire des
 // fiches.
 type Images func(ctx context.Context) ([]string, error)
 
@@ -48,7 +48,7 @@ type Cache interface {
 // Watcher est prévenu après chaque essai de lecture : le direct s'y
 // branche, les fiches ouvertes et Paramètres se relisent. nil est toléré.
 type Watcher interface {
-	ServicesChanged(machineID string)
+	ContainersChanged(machineID string)
 }
 
 // Service lit la source quand le réglage le permet, garde la dernière
@@ -184,7 +184,7 @@ func latest(a, b time.Time) time.Time {
 	return b
 }
 
-// hasNewProduct : un service ou une machine arrivés depuis la dernière
+// hasNewProduct : un conteneur ou une machine arrivés depuis la dernière
 // lecture apportent un produit qu'on n'a pas encore demandé. Leur fiche
 // attend au plus MinGap, pas un jour.
 func (s *Service) hasNewProduct(ctx context.Context) bool {
@@ -203,7 +203,7 @@ func (s *Service) hasNewProduct(ctx context.Context) bool {
 }
 
 // inUse rend ce dont on veut connaître le support : les images des
-// services et les systèmes des machines.
+// conteneurs et les systèmes des machines.
 func (s *Service) inUse(ctx context.Context) (images, systems []string, err error) {
 	images, err = s.images(ctx)
 	if err != nil {
@@ -217,7 +217,7 @@ func (s *Service) inUse(ctx context.Context) (images, systems []string, err erro
 }
 
 // Refresh lit la source : quel dépôt est quel produit, puis les branches
-// des produits que les services et les machines utilisent. Un produit qui ne répond pas
+// des produits que les conteneurs et les machines utilisent. Un produit qui ne répond pas
 // garde ses branches de la lecture précédente. Sans le réglage, rien ne
 // sort.
 func (s *Service) Refresh(ctx context.Context) error {
@@ -241,7 +241,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 	// Réussi ou non, l'essai se voit : Paramètres relit l'état, les fiches
 	// ouvertes se relisent.
 	if s.watcher != nil {
-		s.watcher.ServicesChanged("")
+		s.watcher.ContainersChanged("")
 	}
 	if err != nil {
 		return err

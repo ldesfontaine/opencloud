@@ -15,6 +15,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -24,7 +25,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/service"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -60,20 +60,20 @@ type MachineService interface {
 	Command(machineID, name string, payload any) error
 }
 
-// Ce que le serveur attend du composant service : l'API lit, le signal de
+// Ce que le serveur attend du composant conteneur : l'API lit, le signal de
 // l'agent écrit, les journaux passent dans les deux sens.
-type ServiceTracker interface {
-	Record(ctx context.Context, machineID string, report service.Report) error
-	List(ctx context.Context, machineID string) ([]service.Service, error)
-	Get(ctx context.Context, id string) (service.Service, error)
-	Transitions(ctx context.Context, id string, limit int) ([]service.Transition, error)
-	Engines(ctx context.Context) ([]service.Engine, error)
-	Topology(ctx context.Context, machineID string) (service.Topology, error)
-	CurrentAll(ctx context.Context) ([]service.Current, error)
+type ContainerTracker interface {
+	Record(ctx context.Context, machineID string, report container.Report) error
+	List(ctx context.Context, machineID string) ([]container.Container, error)
+	Get(ctx context.Context, id string) (container.Container, error)
+	Transitions(ctx context.Context, id string, limit int) ([]container.Transition, error)
+	Engines(ctx context.Context) ([]container.Engine, error)
+	Topology(ctx context.Context, machineID string) (container.Topology, error)
+	CurrentAll(ctx context.Context) ([]container.Current, error)
 	Count(ctx context.Context) (total, attention int, err error)
-	FollowLogs(ctx context.Context, serviceID string, tail int) (<-chan service.LogBatch, error)
-	FetchLogs(ctx context.Context, serviceID string, tail int) ([]service.LogLine, error)
-	DeliverLogs(ctx context.Context, machineID, requestID string, batch service.LogBatch) bool
+	FollowLogs(ctx context.Context, containerID string, tail int) (<-chan container.LogBatch, error)
+	FetchLogs(ctx context.Context, containerID string, tail int) ([]container.LogLine, error)
+	DeliverLogs(ctx context.Context, machineID, requestID string, batch container.LogBatch) bool
 }
 
 // Ce que le serveur attend du composant resource : l'API lit, le signal de
@@ -119,7 +119,7 @@ type DirectoryService interface {
 	DeleteService(ctx context.Context, id string) error
 	ServiceLinks(ctx context.Context, id string) (directory.Links, error)
 	Review(ctx context.Context, id string) (directory.Service, error)
-	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy service.UpdatePolicy) (directory.Service, error)
+	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	ListProjects(ctx context.Context) ([]directory.Project, error)
 	GetProject(ctx context.Context, id string) (directory.Project, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
@@ -132,7 +132,7 @@ type DirectoryService interface {
 	Propose(ctx context.Context, containerID string) (directory.Proposal, error)
 	Ignore(ctx context.Context, key directory.IgnoredKey) error
 	Unignore(ctx context.Context, key directory.IgnoredKey) error
-	ContainerLink(ctx context.Context, container service.Service) (directory.ContainerLink, error)
+	ContainerLink(ctx context.Context, item container.Container) (directory.ContainerLink, error)
 }
 
 // Ce que le serveur attend du composant update : l'API lit et règle, le
@@ -234,7 +234,7 @@ type Server struct {
 	machines     MachineService
 	heartbeats   HeartbeatService
 	resources    ResourceService
-	services     ServiceTracker
+	containers   ContainerTracker
 	probes       ProbeService
 	directory    DirectoryService
 	updates      UpdateService
@@ -275,7 +275,7 @@ type Options struct {
 	Machines   MachineService
 	Heartbeats HeartbeatService
 	Resources  ResourceService
-	Services   ServiceTracker
+	Containers ContainerTracker
 	Probes     ProbeService
 	Directory  DirectoryService
 	Updates    UpdateService
@@ -325,7 +325,7 @@ func New(opts Options) (*Server, error) {
 		machines:       opts.Machines,
 		heartbeats:     opts.Heartbeats,
 		resources:      opts.Resources,
-		services:       opts.Services,
+		containers:     opts.Containers,
 		probes:         opts.Probes,
 		directory:      opts.Directory,
 		updates:        opts.Updates,
@@ -406,7 +406,7 @@ func (s *Server) saveLanguage(ctx context.Context, code lang.Code) error {
 func (s *Server) Command(machineID, name string, payload any) error {
 	err := s.machines.Command(machineID, name, payload)
 	if errors.Is(err, machine.ErrNotConnected) {
-		return service.ErrMachineOffline
+		return container.ErrMachineOffline
 	}
 	if errors.Is(err, machine.ErrBusy) {
 		// Les sondes lisent leur propre sentinelle : elles n'importent pas

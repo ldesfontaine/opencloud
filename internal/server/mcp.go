@@ -68,7 +68,7 @@ const (
 	mcpSweepIdle      = 10 * time.Minute
 )
 
-const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that watches machines, their Docker services, " +
+const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that watches machines, their Docker containers, " +
 	"the services its operator declares and how they differ from what Docker shows, " +
 	"scheduled jobs (heartbeats), HTTP/TCP probes with their TLS certificates, a public status page and alerts. " +
 	"Every read tool returns the same JSON facts as the web API: instants are ISO 8601 in UTC, durations are in " +
@@ -80,7 +80,7 @@ const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that wa
 
 const mcpReadOnlyInstructions = " This session runs over stdio and is read-only: write tools answer " +
 	"{\"error\":\"mcp.read_only\"}; use the HTTP transport to write. Online means a signal from the " +
-	"agent within the last 2 minutes, and get_service_logs answers {\"error\":\"service.logs_unavailable_locally\"}: " +
+	"agent within the last 2 minutes, and get_container_logs answers {\"error\":\"container.logs_unavailable_locally\"}: " +
 	"use the HTTP transport for container logs."
 
 type mcpLimits struct {

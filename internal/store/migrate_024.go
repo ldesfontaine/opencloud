@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/service"
 )
 
 // Cette étape et la migration 024_directory_links.sql qui la suit ne lisent ni
@@ -54,7 +54,7 @@ func linkContainersToDirectory(ctx context.Context, tx *sql.Tx) error {
 
 // readFichesV23 lit toutes les fiches de conteneur, archivées comprises, et
 // la politique de chacune qui en porte une.
-func readFichesV23(ctx context.Context, tx *sql.Tx) ([]service.Service, map[string]string, error) {
+func readFichesV23(ctx context.Context, tx *sql.Tx) ([]container.Container, map[string]string, error) {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id, machine_id, name, group_name, compose_service, image, state, ports, update_policy,
 			archived_at, last_seen_at, unit_id, match_level
@@ -63,10 +63,10 @@ func readFichesV23(ctx context.Context, tx *sql.Tx) ([]service.Service, map[stri
 		return nil, nil, fmt.Errorf("read containers: %w", err)
 	}
 	defer rows.Close()
-	var fiches []service.Service
+	var fiches []container.Container
 	policies := map[string]string{}
 	for rows.Next() {
-		var fiche service.Service
+		var fiche container.Container
 		var state, ports, policy, matchLevel string
 		var archivedAt sql.NullInt64
 		var lastSeenAt int64
@@ -79,11 +79,11 @@ func readFichesV23(ctx context.Context, tx *sql.Tx) ([]service.Service, map[stri
 		if err := json.Unmarshal([]byte(ports), &fiche.Ports); err != nil {
 			return nil, nil, fmt.Errorf("decode ports of %s: %w", fiche.ID, err)
 		}
-		fiche.State = service.State(state)
+		fiche.State = container.State(state)
 		fiche.ArchivedAt = timeOf(archivedAt)
 		fiche.LastSeenAt = time.Unix(lastSeenAt, 0).UTC()
 		if unitID.Valid {
-			fiche.UnitID, fiche.MatchLevel = unitID.String, service.MatchLevel(matchLevel)
+			fiche.UnitID, fiche.MatchLevel = unitID.String, container.MatchLevel(matchLevel)
 		}
 		if policy != "" {
 			policies[fiche.ID] = policy
@@ -315,17 +315,17 @@ func expectedMembers(ctx context.Context, tx *sql.Tx, plan directory.LinkPlan) (
 	kept := 0
 	for rows.Next() {
 		var component string
-		var container sql.NullString
-		if err := rows.Scan(&component, &container); err != nil {
+		var memberContainer sql.NullString
+		if err := rows.Scan(&component, &memberContainer); err != nil {
 			return 0, err
 		}
-		if !container.Valid {
+		if !memberContainer.Valid {
 			kept++
 			continue
 		}
-		serviceID, ok := serviceOf[container.String]
+		serviceID, ok := serviceOf[memberContainer.String]
 		if !ok {
-			return 0, fmt.Errorf("%w: member of component %s targets %s", directory.ErrLinkUnplanned, component, container.String)
+			return 0, fmt.Errorf("%w: member of component %s targets %s", directory.ErrLinkUnplanned, component, memberContainer.String)
 		}
 		if key := (pair{component, serviceID}); !seen[key] {
 			seen[key] = true

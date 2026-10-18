@@ -137,8 +137,8 @@ interface NavEntry {
   key: string;
   href: string;
   icon: IconName;
-  // Où mène l'entrée quand son compteur demande attention : les services du
-  // compteur sont des conteneurs, qui ne sont plus la première page de Services.
+  // Où mène l'entrée quand son compteur demande attention : les conteneurs du
+  // compteur ne sont plus la première page de Services.
   attentionHref?: string;
 }
 
@@ -226,7 +226,7 @@ interface Counter {
 }
 
 // Les machines comptent toutes, en rouge dès qu'une est hors ligne ; les
-// tâches ne comptent que celles à traiter ; les services et les sondes
+// tâches ne comptent que celles à traiter ; les conteneurs et les sondes
 // comptent tous, en rouge dès qu'un est défaillant ou hors ligne ; la page
 // de statut ne compte que les incidents ouverts ; les alertes comptent les
 // ouvertes, en rouge tant qu'une n'est pas acquittée. Rien tant que l'API
@@ -241,8 +241,8 @@ function counter(key: string, counts: Counts | null): Counter | null {
   if (key === "jobs" && counts.jobs.attention > 0) {
     return { value: counts.jobs.attention, hot: true };
   }
-  if (key === "services" && counts.services.total > 0) {
-    return { value: counts.services.total, hot: counts.services.attention > 0 };
+  if (key === "services" && counts.containers.total > 0) {
+    return { value: counts.containers.total, hot: counts.containers.attention > 0 };
   }
   if (key === "domains" && counts.probes.total > 0) {
     return { value: counts.probes.total, hot: counts.probes.attention > 0 };

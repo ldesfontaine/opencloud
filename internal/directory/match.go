@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ldesfontaine/opencloud/internal/service"
+	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
 // Match rattache les conteneurs vivants aux unités déclarées. La règle est
@@ -24,15 +24,15 @@ import (
 // conteneurs d'une même unité sont admis (répliques). Une unité binaire ne
 // rapproche jamais rien. Un conteneur archivé n'est pas considéré : il
 // garde le rattachement qu'il avait.
-func Match(declared []Service, containers []service.Service) map[string]service.UnitMatch {
+func Match(declared []Service, containers []container.Container) map[string]container.UnitMatch {
 	byCompose, byName := indexUnits(declared)
-	matches := make(map[string]service.UnitMatch, len(containers))
-	for _, container := range containers {
-		if container.IsArchived() {
+	matches := make(map[string]container.UnitMatch, len(containers))
+	for _, item := range containers {
+		if item.IsArchived() {
 			continue
 		}
-		if match, ok := matchOne(byCompose, byName, container); ok {
-			matches[container.ID] = match
+		if match, ok := matchOne(byCompose, byName, item); ok {
+			matches[item.ID] = match
 		}
 	}
 	return matches
@@ -41,27 +41,27 @@ func Match(declared []Service, containers []service.Service) map[string]service.
 // matchOne applique la règle à une fiche, vivante ou non : le projet gagne
 // sur le nom. Match n'y met que le filtre « vivant » ; la reprise de
 // l'existant s'en sert aussi pour les fiches archivées.
-func matchOne(byCompose, byName map[string]string, container service.Service) (service.UnitMatch, bool) {
-	if match, ok := matchCompose(byCompose, container); ok {
+func matchOne(byCompose, byName map[string]string, item container.Container) (container.UnitMatch, bool) {
+	if match, ok := matchCompose(byCompose, item); ok {
 		return match, true
 	}
-	return matchName(byName, container)
+	return matchName(byName, item)
 }
 
-func matchCompose(byCompose map[string]string, container service.Service) (service.UnitMatch, bool) {
-	if container.Group == "" || container.ComposeService == "" {
-		return service.UnitMatch{}, false
+func matchCompose(byCompose map[string]string, item container.Container) (container.UnitMatch, bool) {
+	if item.Group == "" || item.ComposeService == "" {
+		return container.UnitMatch{}, false
 	}
-	unitID, ok := byCompose[composeKey(container.MachineID, container.Group, container.ComposeService)]
-	return service.UnitMatch{UnitID: unitID, Level: service.MatchCompose}, ok
+	unitID, ok := byCompose[composeKey(item.MachineID, item.Group, item.ComposeService)]
+	return container.UnitMatch{UnitID: unitID, Level: container.MatchCompose}, ok
 }
 
-func matchName(byName map[string]string, container service.Service) (service.UnitMatch, bool) {
-	if container.Name == "" {
-		return service.UnitMatch{}, false
+func matchName(byName map[string]string, item container.Container) (container.UnitMatch, bool) {
+	if item.Name == "" {
+		return container.UnitMatch{}, false
 	}
-	unitID, ok := byName[nameKey(container.MachineID, container.Name)]
-	return service.UnitMatch{UnitID: unitID, Level: service.MatchName}, ok
+	unitID, ok := byName[nameKey(item.MachineID, item.Name)]
+	return container.UnitMatch{UnitID: unitID, Level: container.MatchName}, ok
 }
 
 // indexUnits range les unités par clé de rapprochement. Les index uniques

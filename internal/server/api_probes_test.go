@@ -68,7 +68,7 @@ func TestAPI_CreateProbe_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testin
 func TestAPI_CreateProbe_AcceptsADeclaredServiceOfAnyMachineAndRefusesTheRest(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	containerID := server.seedServices(t)
+	containerID := server.seedContainers(t)
 	declaredID := server.seedGaps(t)
 
 	cases := map[string]probeRequest{
