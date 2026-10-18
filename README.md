@@ -104,6 +104,7 @@ Mot de passe perdu : `opencloud auth disable -config dev/config.toml`.
 | [docs/installation.md](docs/installation.md) | Installer sur un VPS Debian avec Traefik, ajouter une machine, mettre à jour, sauvegarder, désinstaller |
 | [docs/installation/](docs/installation/) | Fichiers d'exemple : `config.toml` commenté, unités systemd, configuration Traefik |
 | [docs/projet/22-fonctionnement.md](docs/projet/22-fonctionnement.md) | Le fonctionnement détaillé : flux, chiffrement, données stockées, limites connues |
+| [docs/projet/23-direction.md](docs/projet/23-direction.md), [24-modele-cible.md](docs/projet/24-modele-cible.md) | La direction décidée (d'observateur à plan de contrôle) et le modèle de données cible : ce qu'on construit, pas l'existant |
 | [AGENTS.md](AGENTS.md), [docs/projet/](docs/projet/) | Contribuer : méthode, conventions de code, direction artistique |
 
 ## Licence
