@@ -15,11 +15,12 @@ import (
 
 	_ "modernc.org/sqlite" // pilote SQLite pur Go, enregistré sous le nom "sqlite"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
 
 const (
-	fileName      = "opencloud.db"
+	fileName      = brand.DatabaseFile
 	busyTimeoutMs = 5000
 )
 

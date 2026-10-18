@@ -1,10 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"html"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
@@ -32,7 +36,9 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 	if name == legacyFavicon {
 		name = brandFavicon
 	}
-	if name != "" && name != indexFile && s.isAppFile(name) {
+	// Une page HTML ne se sert jamais comme un fichier : elle attend le nom
+	// du produit, que seules ses routes (/ et /statut) lui donnent.
+	if name != "" && path.Ext(name) != ".html" && s.isAppFile(name) {
 		if strings.HasPrefix(r.URL.Path, assetsPrefix) {
 			w.Header().Set("Cache-Control", immutableYear)
 		} else {
@@ -42,6 +48,8 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if name != indexFile && path.Ext(name) != "" {
+		// statut.html demandé par son nom tombe ici : un 404, pas une page
+		// sans nom de produit.
 		http.NotFound(w, r)
 		return
 	}
@@ -54,9 +62,16 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(index); err != nil {
+	if _, err := w.Write(expandProductName(index)); err != nil {
 		s.logger.Warn("write index", "path", r.URL.Path, "error", err)
 	}
+}
+
+// Le front est construit une fois et ne connaît pas le nom du produit : ses
+// pages HTML le demandent par {{product}}, et le serveur le met à la
+// livraison. Échappé, parce qu'il tombe dans une balise et un attribut.
+func expandProductName(page []byte) []byte {
+	return bytes.ReplaceAll(page, []byte("{{product}}"), []byte(html.EscapeString(brand.ProductName)))
 }
 
 func (s *Server) isAppFile(name string) bool {

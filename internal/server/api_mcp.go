@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
@@ -22,8 +23,10 @@ type mcpResponse struct {
 	Endpoint     string   `json:"endpoint"`
 	Issuer       string   `json:"issuer"`
 	URLLocal     bool     `json:"url_local"`
-	// La commande d'un client local, qui lit la base sans passer par HTTP.
+	// La commande d'un client local, qui lit la base sans passer par HTTP, et
+	// le nom sous lequel il enregistre ce serveur.
 	StdioCommand string            `json:"stdio_command"`
+	ServerName   string            `json:"server_name"`
 	Tokens       []mcpTokenJSON    `json:"tokens"`
 	Sessions     []mcpSessionJSON  `json:"sessions"`
 	Limits       mcpLimitsJSON     `json:"limits"`
@@ -113,7 +116,8 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 		Endpoint:     publicURL + mcpPath,
 		Issuer:       publicURL,
 		URLLocal:     isLocal,
-		StdioCommand: "opencloud mcp -config " + s.configPath,
+		StdioCommand: brand.Command + " mcp -config " + s.configPath,
+		ServerName:   brand.MCPServerKey,
 		Tokens:       []mcpTokenJSON{},
 		Sessions:     []mcpSessionJSON{},
 		Limits:       mcpLimitsJSON{Tokens: mcp.MaxAPITokens, RedirectURIs: mcp.MaxRedirectURIs},

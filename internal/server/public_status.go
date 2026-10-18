@@ -118,7 +118,7 @@ func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(page); err != nil {
+	if _, err := w.Write(expandProductName(page)); err != nil {
 		s.logger.Warn("write status page", "error", err)
 	}
 }

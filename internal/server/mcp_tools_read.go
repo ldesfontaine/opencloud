@@ -8,6 +8,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -22,12 +23,12 @@ import (
 func (s *Server) registerReadTools(server *gomcp.Server) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_overview",
-		Description: "openCloud version and the counters of the overview: machines (total, online), jobs and probes (total, needing attention), services (total, needing attention, with a newer image), certificates (total, expiring, expired, soonest expiry), open incidents, alerts (open, unacknowledged).",
+		Description: brand.ProductName + " version and the counters of the overview: machines (total, online), jobs and probes (total, needing attention), services (total, needing attention, with a newer image), certificates (total, expiring, expired, soonest expiry), open incidents, alerts (open, unacknowledged).",
 		Annotations: readOnlyHints(),
 	}, s.getOverviewTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_machines",
-		Description: "List every machine openCloud manages: id, name, kind (local is the openCloud host itself), hostname, address, OS, architecture, agent version, whether its agent is connected (online) and when it was last seen. Over stdio (opencloud mcp), online means a signal within the last 2 minutes.",
+		Description: "List every machine " + brand.ProductName + " manages: id, name, kind (local is the " + brand.ProductName + " host itself), hostname, address, OS, architecture, agent version, whether its agent is connected (online) and when it was last seen. Over stdio (" + brand.Command + " mcp), online means a signal within the last 2 minutes.",
 		Annotations: readOnlyHints(),
 	}, s.listMachinesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -52,7 +53,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getServiceTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_service_logs",
-		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (opencloud mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
+		Description: "The last lines of a container's stdout/stderr, fetched live from the machine's agent (tail 1 to 500, default 100). Fails with service.machine_offline when the agent is not connected. Raw container output, not filtered: it can contain secrets and is sent to whoever runs the model. Over stdio (" + brand.Command + " mcp) the agents' streams are not held: it always fails with service.logs_unavailable_locally, use the HTTP transport.",
 		Annotations: readOnlyHints(),
 	}, s.getServiceLogsTool)
 	gomcp.AddTool(server, &gomcp.Tool{

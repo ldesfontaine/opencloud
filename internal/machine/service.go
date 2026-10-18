@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
 	TokenLifetime    = 24 * time.Hour
 	maxClockSkew     = 5 * time.Minute
-	localMachineName = "opencloud"
+	localMachineName = brand.LocalMachineName
 	// Une machine sans flux est perdue passé ce délai depuis son dernier
 	// signal : quatre signaux manqués, pas un hoquet de réseau.
 	LostAfter       = 2 * time.Minute
@@ -111,7 +113,7 @@ func (s *Service) WarnIfOpenCloudHost(machine Machine, fingerprint string) {
 	if !s.isOpenCloudHost(fingerprint) {
 		return
 	}
-	s.logger.Warn("agent runs on the openCloud machine itself: services and alerts are doubled; remove this machine and uninstall its agent",
+	s.logger.Warn("agent runs on the "+brand.ProductName+" machine itself: services and alerts are doubled; remove this machine and uninstall its agent",
 		"machine_id", machine.ID, "name", machine.Name)
 }
 
@@ -324,7 +326,7 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	}
 	// Avant la base : le jeton n'est pas consommé, il servira ailleurs.
 	if s.isOpenCloudHost(request.HostFingerprint) {
-		s.logger.Warn("enrollment refused: the agent runs on the openCloud machine itself", "hostname", request.Hostname)
+		s.logger.Warn("enrollment refused: the agent runs on the "+brand.ProductName+" machine itself", "hostname", request.Hostname)
 		return Machine{}, ErrIsOpenCloud
 	}
 	now := s.now()

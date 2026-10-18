@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 )
@@ -25,7 +26,7 @@ import (
 // du client) et les métadonnées well-known.
 
 const (
-	authRealmHeader  = `Basic realm="openCloud", charset="UTF-8"`
+	authRealmHeader  = `Basic realm="` + brand.ProductName + `", charset="UTF-8"`
 	codeUnauthorized = "unauthorized"
 	// Une vérification lente coûte ~100 ms : dix d'un coup, puis une toutes
 	// les six secondes par adresse. Des identifiants justes sont retenus et
@@ -150,7 +151,8 @@ func (s *Server) isCompiledAsset(r *http.Request) bool {
 	if name == legacyFavicon {
 		name = brandFavicon
 	}
-	return name != "" && name != indexFile && s.isAppFile(name)
+	// Même règle que serveApp : une page HTML n'est jamais un fichier libre.
+	return name != "" && path.Ext(name) != ".html" && s.isAppFile(name)
 }
 
 // checkBasic répond lui-même 401 ou 429 quand il refuse.

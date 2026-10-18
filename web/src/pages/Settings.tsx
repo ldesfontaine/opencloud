@@ -484,7 +484,7 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
               </div>
               <div className="field">
                 <span className="field-label">{t("mcp.claude_code_label")}</span>
-                <TokenBox value={claudeCodeCommand(state.stdio_command)} />
+                <TokenBox value={claudeCodeCommand(state.server_name, state.stdio_command)} />
               </div>
             </CardBody>
           </Card>

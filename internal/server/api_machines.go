@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -182,7 +183,7 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 // La commande à coller ; la langue n'y figure que si elle n'est pas celle
 // par défaut, pour rester courte.
 func installCommand(publicURL, token string, code lang.Code) string {
-	command := "sudo opencloud agent -server " + publicURL + " -token " + token
+	command := "sudo " + brand.Command + " agent -server " + publicURL + " -token " + token
 	if code != lang.Default {
 		command += " -lang " + string(code)
 	}

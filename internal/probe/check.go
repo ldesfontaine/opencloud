@@ -16,11 +16,12 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
 // Ce que la cible lit de nous dans ses journaux.
-const userAgent = "openCloud"
+const userAgent = brand.UserAgent
 
 // errTooManyRedirects : la cible renvoie plus loin que ce qu'on suit.
 var errTooManyRedirects = errors.New("too many redirects")

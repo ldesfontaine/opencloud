@@ -8,17 +8,19 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 // Chaque sorte de secret porte son préfixe : reconnaissable dans un
 // journal ou un presse-papier, jamais confondu avec un jeton d'enrôlement
 // (oc_) ni de ping (hb_).
 const (
-	secretScheme  = "ocs_" // #nosec G101 -- un préfixe, pas un secret.
-	codeScheme    = "occ_" // #nosec G101
-	accessScheme  = "oca_" // #nosec G101
-	refreshScheme = "ocr_" // #nosec G101
-	apiScheme     = "ock_" // #nosec G101
+	secretScheme  = brand.MCPSecretScheme
+	codeScheme    = brand.MCPCodeScheme
+	accessScheme  = brand.MCPAccessScheme
+	refreshScheme = brand.MCPRefreshScheme
+	apiScheme     = brand.MCPAPIScheme
 
 	secretBytes = 32
 	// Le préfixe affiché : le schéma plus six caractères, 30 bits sur 256.

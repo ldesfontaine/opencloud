@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 import { api } from "../api/client";
 import type { CertificateThresholds, DiskThresholds, Session } from "../api/types";
+import { productName } from "../lib/product";
 import { format } from "./format";
 
 export type Translate = (key: string, ...args: (string | number)[]) => string;
@@ -80,7 +81,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   if (unreachable) {
     // Sans catalogue, pas de traduction possible : les deux langues d'un coup.
-    return <p className="boot-error">openCloud ne répond pas. · openCloud is not answering.</p>;
+    const product = productName();
+    return (
+      <p className="boot-error">
+        {product} ne répond pas. · {product} is not answering.
+      </p>
+    );
   }
   if (!value) {
     return null;

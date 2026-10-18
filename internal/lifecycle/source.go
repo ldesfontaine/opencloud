@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
@@ -30,7 +31,7 @@ const (
 	// remplisse ni la base ni l'écran.
 	maxCycles      = 200
 	maxLabelLength = 80
-	userAgent      = "opencloud"
+	userAgent      = brand.LifecycleUserAgent
 )
 
 var (

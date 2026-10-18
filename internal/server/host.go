@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 // requireKnownHost ferme la porte au DNS rebinding : une page d'un autre
@@ -21,7 +23,7 @@ func (s *Server) requireKnownHost(next http.HandlerFunc) http.HandlerFunc {
 		}
 		for _, host := range hosts {
 			if !s.knownHost(host) {
-				s.logger.Warn("request refused: unknown Host, set public_url to the address used to reach openCloud",
+				s.logger.Warn("request refused: unknown Host, set public_url to the address used to reach "+brand.ProductName,
 					"host", host, "path", r.URL.Path, "public_url", s.publicURL)
 				s.writeAPIError(w, http.StatusForbidden, codeHost)
 				return

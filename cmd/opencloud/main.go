@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
-const usage = `Usage : opencloud <commande> [options]
+const usage = `Usage : {command} <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
@@ -20,7 +23,7 @@ Commandes :
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
+		fmt.Fprint(os.Stderr, strings.ReplaceAll(usage, "{command}", brand.Command))
 		os.Exit(2)
 	}
 	var err error
@@ -36,11 +39,11 @@ func main() {
 	case "version":
 		err = runVersion()
 	default:
-		fmt.Fprintf(os.Stderr, "commande inconnue : %s\n\n%s", os.Args[1], usage)
+		fmt.Fprintf(os.Stderr, "commande inconnue : %s\n\n%s", os.Args[1], strings.ReplaceAll(usage, "{command}", brand.Command))
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "opencloud :", err)
+		fmt.Fprintln(os.Stderr, brand.Command+" :", err)
 		var refused *refusal
 		if errors.As(err, &refused) {
 			os.Exit(2)

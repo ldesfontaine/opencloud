@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 //go:embed *.toml
@@ -85,6 +87,13 @@ func Load() (Catalogs, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse language %s: %w", code, err)
 		}
+		for key, value := range strings {
+			expanded, err := expand(value)
+			if err != nil {
+				return nil, fmt.Errorf("language %s, key %s: %w", code, key, err)
+			}
+			strings[key] = expanded
+		}
 		catalogs[code] = Catalog{code: code, strings: strings}
 	}
 	return catalogs, nil
@@ -96,6 +105,25 @@ func (c Catalogs) For(code Code) Catalog {
 		return catalog
 	}
 	return c[Default]
+}
+
+// Les catalogues n'écrivent jamais le nom du produit : ils posent un
+// marqueur, remplacé ici une fois pour toutes au chargement.
+var placeholders = strings.NewReplacer(
+	"{product}", brand.ProductName,
+	"{command}", brand.Command,
+	"{signature_header}", brand.WebhookSignatureHeader,
+)
+
+// expand remplace les marqueurs d'une valeur. Une accolade qui reste est un
+// marqueur inconnu, le plus souvent une faute de frappe : mieux vaut
+// refuser de démarrer que d'afficher « {produt} » à l'opérateur.
+func expand(value string) (string, error) {
+	expanded := placeholders.Replace(value)
+	if strings.ContainsAny(expanded, "{}") {
+		return "", fmt.Errorf("unknown placeholder in %q", value)
+	}
+	return expanded, nil
 }
 
 // Les fichiers sont des tables TOML imbriquées ; les clés s'aplatissent avec

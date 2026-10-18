@@ -11,13 +11,14 @@ import (
 	"syscall"
 
 	"github.com/ldesfontaine/opencloud/internal/agent"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
-const defaultAgentStateDir = "/var/lib/opencloud/agent"
+const defaultAgentStateDir = brand.AgentStateDir
 
 // Un refus se dit à l'opérateur dans sa langue et sort avec le code 2 ; une
 // erreur porte une phrase puis le détail, code 1.
@@ -33,9 +34,9 @@ func (r *refusal) Error() string {
 // s'enrôle ; les suivants relisent l'identité et se connectent.
 func runAgent(args []string) error {
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
-	server := flags.String("server", "", "adresse d'openCloud, premier lancement seulement")
+	server := flags.String("server", "", "adresse d'"+brand.ProductName+", premier lancement seulement")
 	token := flags.String("token", "", "jeton d'enrôlement, premier lancement seulement")
-	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé")
+	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'"+brand.ProductName+", s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
