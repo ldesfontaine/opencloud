@@ -1,11 +1,12 @@
 package auth
 
 import (
-	"errors"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Mode dit comment l'interface est gardée.
@@ -58,18 +59,18 @@ func (s State) Same(other State) bool {
 }
 
 var (
-	ErrAlreadyEnabled   = errors.New("auth: already enabled")
-	ErrDisabled         = errors.New("auth: disabled")
-	ErrUsernameInvalid  = errors.New("auth: username invalid")
-	ErrPasswordTooShort = errors.New("auth: password too short")
-	ErrPasswordTooLong  = errors.New("auth: password too long")
-	ErrHeaderInvalid    = errors.New("auth: header name invalid")
+	ErrAlreadyEnabled   = refusal.Conflict("auth.already_enabled", "auth: already enabled")
+	ErrDisabled         = refusal.Conflict("auth.disabled", "auth: disabled")
+	ErrUsernameInvalid  = refusal.Invalid("auth.username_invalid", "auth: username invalid")
+	ErrPasswordTooShort = refusal.Invalid("auth.password_too_short", "auth: password too short")
+	ErrPasswordTooLong  = refusal.Invalid("auth.password_too_long", "auth: password too long")
+	ErrHeaderInvalid    = refusal.Invalid("auth.header_invalid", "auth: header name invalid")
 	// En mode forward, c'est le mandataire qui authentifie : il n'y a pas
 	// de mot de passe à changer.
-	ErrNoPassword = errors.New("auth: no password in this mode")
+	ErrNoPassword = refusal.Conflict("auth.no_password", "auth: no password in this mode")
 	// L'état a changé entre l'instant où la requête a été autorisée et celui
 	// où elle aurait pris effet : elle ne s'applique pas.
-	ErrStateChanged = errors.New("auth: state changed")
+	ErrStateChanged = refusal.Conflict("auth.state_changed", "auth: state changed")
 )
 
 // ValidateUsername : un mot lisible, sans « : » que Basic prend pour le

@@ -1,7 +1,6 @@
 package alert
 
 import (
-	"errors"
 	"net"
 	"net/url"
 	"slices"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/egress"
 	"github.com/ldesfontaine/opencloud/internal/mail"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Format est la forme du corps envoyé : celle d'openCloud, structurée ;
@@ -96,19 +96,19 @@ type ChannelDefinition struct {
 }
 
 var (
-	ErrChannelNameInvalid     = errors.New("alert: channel name invalid")
-	ErrChannelURLInvalid      = errors.New("alert: channel url invalid")
-	ErrChannelURLForbidden    = errors.New("alert: channel url is a link-local address")
-	ErrChannelFormatInvalid   = errors.New("alert: channel format invalid")
-	ErrChannelSecretInvalid   = errors.New("alert: channel secret invalid")
-	ErrChannelSeverityInvalid = errors.New("alert: channel severity invalid")
-	ErrChannelRecipients      = errors.New("alert: channel recipients invalid")
-	ErrChannelHomeserver      = errors.New("alert: matrix homeserver must be an https url")
-	ErrChannelRoomInvalid     = errors.New("alert: matrix room id invalid")
-	ErrChannelTokenMissing    = errors.New("alert: matrix access token missing")
-	ErrTooManyChannels        = errors.New("alert: too many channels")
-	ErrSilenceInvalid         = errors.New("alert: silence needs a kind or an object")
-	ErrSilenceDurationInvalid = errors.New("alert: silence duration invalid")
+	ErrChannelNameInvalid     = refusal.Invalid("channel.name_invalid", "alert: channel name invalid")
+	ErrChannelURLInvalid      = refusal.Invalid("channel.url_invalid", "alert: channel url invalid")
+	ErrChannelURLForbidden    = refusal.Invalid("channel.url_forbidden", "alert: channel url is a link-local address")
+	ErrChannelFormatInvalid   = refusal.Invalid("channel.format_invalid", "alert: channel format invalid")
+	ErrChannelSecretInvalid   = refusal.Invalid("channel.secret_invalid", "alert: channel secret invalid")
+	ErrChannelSeverityInvalid = refusal.Invalid("channel.severity_invalid", "alert: channel severity invalid")
+	ErrChannelRecipients      = refusal.Invalid("channel.recipients_invalid", "alert: channel recipients invalid")
+	ErrChannelHomeserver      = refusal.Invalid("channel.matrix_homeserver_invalid", "alert: matrix homeserver must be an https url")
+	ErrChannelRoomInvalid     = refusal.Invalid("channel.matrix_room_invalid", "alert: matrix room id invalid")
+	ErrChannelTokenMissing    = refusal.Invalid("channel.matrix_token_missing", "alert: matrix access token missing")
+	ErrTooManyChannels        = refusal.Invalid("channel.too_many", "alert: too many channels")
+	ErrSilenceInvalid         = refusal.Invalid("silence.invalid", "alert: silence needs a kind or an object")
+	ErrSilenceDurationInvalid = refusal.Invalid("silence.duration_invalid", "alert: silence duration invalid")
 )
 
 // Validate vérifie ce qu'on peut vérifier sans réseau : ce que le nom

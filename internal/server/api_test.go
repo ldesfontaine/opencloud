@@ -510,9 +510,11 @@ func TestAPI_UnknownRoute_IsAJSON404(t *testing.T) {
 
 var refusalCall = regexp.MustCompile(`apiRefuse\(w, http\.Status[A-Za-z]+, "([^"]+)"\)`)
 
-// Le garde-fou : chaque refus porte une clé qui existe dans les deux
-// catalogues, jamais une phrase en dur.
-func TestAPI_RefusalKeysExistInEveryCatalog(t *testing.T) {
+// Le garde-fou des refus encore écrits à la main dans un handler (404 avec
+// clé, 503, refus sans sentinelle) : leur clé existe dans les deux
+// catalogues. Ceux des domaines sont vérifiés par
+// TestRefusals_KeysExistInEveryCatalog.
+func TestAPI_LiteralRefusalKeysExistInEveryCatalog(t *testing.T) {
 	server := newTestServer(t)
 	sources, err := filepath.Glob("*.go")
 	if err != nil {

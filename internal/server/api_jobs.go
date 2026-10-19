@@ -147,8 +147,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.heartbeats.Create(r.Context(), jobDefinition(request))
-	if key, refused := jobRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -183,8 +182,7 @@ func (s *Server) updateJob(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := jobRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -219,18 +217,6 @@ func jobDefinition(request jobRequest) heartbeat.Definition {
 		Interval:  time.Duration(request.IntervalMinutes) * time.Minute,
 		Grace:     time.Duration(request.GraceMinutes) * time.Minute,
 	}
-}
-
-func jobRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, heartbeat.ErrNameInvalid):
-		return "job.name_invalid", true
-	case errors.Is(err, heartbeat.ErrIntervalInvalid):
-		return "job.interval_invalid", true
-	case errors.Is(err, heartbeat.ErrGraceInvalid):
-		return "job.grace_invalid", true
-	}
-	return "", false
 }
 
 // La page d'une tâche : son état, l'URL de ping et les extraits à coller,

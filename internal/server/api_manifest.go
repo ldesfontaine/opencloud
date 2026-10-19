@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
-	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
@@ -377,25 +376,4 @@ func (s *Server) getApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, applyToJSON(found, true))
-}
-
-// RefusalKey traduit en clé du catalogue le refus qu'un composant du domaine
-// oppose à un geste du fichier ; vide si l'erreur n'est pas un refus. C'est
-// ce que manifest.SetErrorKeys reçoit : le paquet manifest ne connaît pas
-// les clés du serveur.
-func RefusalKey(err error) string {
-	return manifestProblemKey(err)
-}
-
-// manifestProblemKey essaie les refus de chaque domaine que le fichier écrit.
-func manifestProblemKey(err error) string {
-	if errors.Is(err, directory.ErrServiceLinked) {
-		return "directory.service_linked"
-	}
-	for _, refusal := range []func(error) (string, bool){directoryRefusalKey, projectRefusalKey, probeRefusalKey, jobRefusalKey} {
-		if key, refused := refusal(err); refused {
-			return key
-		}
-	}
-	return ""
 }

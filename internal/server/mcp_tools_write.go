@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -230,7 +231,7 @@ func (s *Server) openIncidentTool(ctx context.Context, input openIncidentInput) 
 		Title: input.Title, Impact: status.Impact(input.Impact), Status: status.IncidentStatus(input.Status),
 		Message: input.Message, ComponentIDs: input.ComponentIDs, StartsAt: startsAt, EndsAt: endsAt,
 	})
-	if key, refused := statusRefusalKey(err); refused {
+	if key, refused := refusal.KeyOf(err); refused {
 		return toolRefuse(key)
 	}
 	if err != nil {
@@ -247,7 +248,7 @@ func (s *Server) addIncidentUpdateTool(ctx context.Context, input incidentUpdate
 	case errors.Is(err, status.ErrResolved):
 		return toolRefuse("incident.already_resolved")
 	}
-	if key, refused := statusRefusalKey(err); refused {
+	if key, refused := refusal.KeyOf(err); refused {
 		return toolRefuse(key)
 	}
 	if err != nil {
@@ -269,7 +270,7 @@ func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*go
 		Reason:   input.Reason,
 		Duration: time.Duration(input.DurationMinutes) * time.Minute,
 	})
-	if key, refused := alertRefusalKey(err); refused {
+	if key, refused := refusal.KeyOf(err); refused {
 		return toolRefuse(key)
 	}
 	if err != nil {
@@ -283,7 +284,7 @@ func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInpu
 	if errors.Is(err, directory.ErrUnitNotFound) {
 		return toolRefuse(codeNotFound)
 	}
-	if key, refused := directoryRefusalKey(err); refused {
+	if key, refused := refusal.KeyOf(err); refused {
 		return toolRefuse(key)
 	}
 	if err != nil {

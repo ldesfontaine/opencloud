@@ -315,8 +315,7 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.probes.Create(r.Context(), probeDefinition(request))
-	if key, refused := probeRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -357,8 +356,7 @@ func (s *Server) updateProbe(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := probeRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -405,38 +403,6 @@ func probeDefinition(request probeRequest) probe.Definition {
 		FollowRedirects:   request.FollowRedirects,
 		TLS:               request.TLS,
 	}
-}
-
-func probeRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, probe.ErrNameInvalid):
-		return "probe.name_invalid", true
-	case errors.Is(err, probe.ErrKindInvalid):
-		return "probe.kind_invalid", true
-	case errors.Is(err, probe.ErrTargetInvalid):
-		return "probe.target_invalid", true
-	case errors.Is(err, probe.ErrTargetForbidden):
-		return "probe.target_forbidden", true
-	case errors.Is(err, probe.ErrMachineInvalid):
-		return "probe.machine_invalid", true
-	case errors.Is(err, probe.ErrServiceInvalid):
-		return "probe.service_invalid", true
-	case errors.Is(err, probe.ErrIntervalInvalid):
-		return "probe.interval_invalid", true
-	case errors.Is(err, probe.ErrTimeoutInvalid):
-		return "probe.timeout_invalid", true
-	case errors.Is(err, probe.ErrThresholdInvalid):
-		return "probe.threshold_invalid", true
-	case errors.Is(err, probe.ErrMethodInvalid):
-		return "probe.method_invalid", true
-	case errors.Is(err, probe.ErrStatusInvalid):
-		return "probe.status_invalid", true
-	case errors.Is(err, probe.ErrBodyInvalid):
-		return "probe.body_invalid", true
-	case errors.Is(err, probe.ErrTooMany):
-		return "probe.too_many", true
-	}
-	return "", false
 }
 
 func (s *Server) deleteProbe(w http.ResponseWriter, r *http.Request) {

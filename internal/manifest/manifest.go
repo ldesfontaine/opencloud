@@ -87,8 +87,7 @@ type Manifest struct {
 	logger *slog.Logger
 	now    func() time.Time
 
-	watcher  Watcher
-	errorKey ErrorKeyFunc
+	watcher Watcher
 	// lifetime est la vie du serveur : une fois finie, une application en
 	// cours s'arrête entre deux changements et se journalise « interrompue ».
 	lifetime context.Context
@@ -100,7 +99,6 @@ type Manifest struct {
 func New(deps Dependencies, logger *slog.Logger) *Manifest {
 	return &Manifest{
 		deps: deps, logger: logger, now: time.Now,
-		errorKey: func(error) string { return "" },
 		lifetime: context.Background(),
 	}
 }
@@ -111,12 +109,6 @@ func (m *Manifest) SetClock(now func() time.Time) {
 
 func (m *Manifest) SetWatcher(watcher Watcher) {
 	m.watcher = watcher
-}
-
-// SetErrorKeys donne la traduction d'une erreur du domaine en clé du
-// catalogue : manifest ne connaît pas le serveur, qui a les clés.
-func (m *Manifest) SetErrorKeys(errorKey ErrorKeyFunc) {
-	m.errorKey = errorKey
 }
 
 // SetLifetime donne la vie du serveur : l'arrêt du processus ne coupe jamais

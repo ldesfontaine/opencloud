@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Current est l'annuaire tel que la base le montre, lu d'un coup : ce que le
@@ -25,11 +26,6 @@ type Current struct {
 	Heartbeats     []heartbeat.Heartbeat
 	Ignored        []directory.IgnoredKey
 }
-
-// ErrorKeyFunc traduit l'erreur d'un composant du domaine en clé du
-// catalogue, ou rend « » quand elle n'en a pas. Le paquet server la
-// fournit : manifest n'importe pas server.
-type ErrorKeyFunc func(err error) string
 
 // step est un changement prêt à s'écrire : ce qu'on en affiche, et de quoi
 // le faire. Les identifiants des objets que le plan crée ne sont pas connus
@@ -85,10 +81,9 @@ type ignoredStep struct {
 // builder construit un plan. Il ne lit rien et n'écrit rien : le fichier, la
 // base lue, et des règles.
 type builder struct {
-	file     File
-	current  Current
-	prune    bool
-	errorKey ErrorKeyFunc
+	file    File
+	current Current
+	prune   bool
 
 	problems  []Problem
 	unchanged int
@@ -122,8 +117,8 @@ type builder struct {
 // même fichier face à la même base donne le même plan, octet pour octet. Les
 // refus de lecture (parsed) arrêtent tout : il n'y a pas de plan d'un fichier
 // qu'on ne sait pas lire.
-func BuildPlan(file File, parsed []Problem, current Current, prune bool, errorKey ErrorKeyFunc) Plan {
-	b := newBuilder(file, current, prune, errorKey)
+func BuildPlan(file File, parsed []Problem, current Current, prune bool) Plan {
+	b := newBuilder(file, current, prune)
 	if len(parsed) > 0 {
 		b.problems = slices.Clone(parsed)
 		return b.finish()
@@ -137,12 +132,9 @@ func BuildPlan(file File, parsed []Problem, current Current, prune bool, errorKe
 	return b.finish()
 }
 
-func newBuilder(file File, current Current, prune bool, errorKey ErrorKeyFunc) *builder {
-	if errorKey == nil {
-		errorKey = func(error) string { return "" }
-	}
+func newBuilder(file File, current Current, prune bool) *builder {
 	b := &builder{
-		file: file, current: current, prune: prune, errorKey: errorKey,
+		file: file, current: current, prune: prune,
 		machineIDs:     make(map[string]string, len(current.Machines)),
 		projectTargets: map[string]string{},
 		serviceTargets: map[string]string{},
@@ -172,7 +164,7 @@ func (b *builder) refuse(key string, line int, path, value string) {
 // erreur sans clé devient un refus générique : jamais le texte de l'erreur,
 // qui a pu citer ce que le fichier contient.
 func (b *builder) refuseError(err error, line int, path string) {
-	if key := b.errorKey(err); key != "" {
+	if key, refused := refusal.KeyOf(err); refused {
 		b.refuse(key, line, path, "")
 		return
 	}

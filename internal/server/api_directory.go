@@ -250,8 +250,7 @@ func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateService(r.Context(), declaredServiceDefinition(request))
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -273,8 +272,7 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -305,8 +303,7 @@ func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -324,8 +321,7 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), container.UpdatePolicy(request.Policy))
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if errors.Is(err, directory.ErrUnitNotFound) {
@@ -337,66 +333,6 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func directoryRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, directory.ErrMachineInvalid):
-		return "directory.machine_invalid", true
-	case errors.Is(err, directory.ErrNameInvalid):
-		return "directory.name_invalid", true
-	case errors.Is(err, directory.ErrTitleInvalid):
-		return "directory.title_invalid", true
-	case errors.Is(err, directory.ErrNatureInvalid):
-		return "directory.nature_invalid", true
-	case errors.Is(err, directory.ErrOriginInvalid):
-		return "directory.origin_invalid", true
-	case errors.Is(err, directory.ErrComposeProjectInvalid):
-		return "directory.compose_project_invalid", true
-	case errors.Is(err, directory.ErrPublicURLInvalid):
-		return "directory.public_url_invalid", true
-	case errors.Is(err, directory.ErrProvidesInvalid):
-		return "directory.provides_invalid", true
-	case errors.Is(err, directory.ErrProvidesNeedInfra):
-		return "directory.provides_need_infra", true
-	case errors.Is(err, directory.ErrUnitsInvalid):
-		return "directory.units_invalid", true
-	case errors.Is(err, directory.ErrUnitNameInvalid):
-		return "directory.unit_name_invalid", true
-	case errors.Is(err, directory.ErrUnitNameTaken):
-		return "directory.unit_name_taken", true
-	case errors.Is(err, directory.ErrImageInvalid):
-		return "directory.image_invalid", true
-	case errors.Is(err, directory.ErrVersionInvalid):
-		return "directory.version_invalid", true
-	case errors.Is(err, directory.ErrVersionLatest):
-		return "directory.version_latest", true
-	case errors.Is(err, directory.ErrDigestInvalid):
-		return "directory.digest_invalid", true
-	case errors.Is(err, directory.ErrContainerNameInvalid):
-		return "directory.container_name_invalid", true
-	case errors.Is(err, directory.ErrSystemdUnitInvalid):
-		return "directory.systemd_unit_invalid", true
-	case errors.Is(err, directory.ErrPortsInvalid):
-		return "directory.ports_invalid", true
-	case errors.Is(err, directory.ErrNameTaken):
-		return "directory.name_taken", true
-	case errors.Is(err, directory.ErrComposeProjectTaken):
-		return "directory.compose_project_taken", true
-	case errors.Is(err, directory.ErrUnitKeyDuplicate):
-		return "directory.unit_key_duplicate", true
-	case errors.Is(err, directory.ErrMatchKeyTaken):
-		return "directory.match_key_taken", true
-	case errors.Is(err, directory.ErrUnitInvalid):
-		return "directory.unit_invalid", true
-	case errors.Is(err, directory.ErrProjectInvalid):
-		return "directory.project_invalid", true
-	case errors.Is(err, directory.ErrUpdatePolicyInvalid):
-		return "directory.update_policy_invalid", true
-	case errors.Is(err, directory.ErrIgnoreInvalid):
-		return "directory.ignore_invalid", true
-	}
-	return "", false
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -428,8 +364,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateProject(r.Context(), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
-	if key, refused := projectRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -449,8 +384,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := projectRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -463,16 +397,4 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 // Supprimer un projet défait le groupe : ses services restent déclarés.
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.directory.DeleteProject(r.Context(), r.PathValue("id")), directory.ErrProjectNotFound)
-}
-
-func projectRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, directory.ErrProjectNameInvalid):
-		return "project.name_invalid", true
-	case errors.Is(err, directory.ErrProjectTitleInvalid):
-		return "project.title_invalid", true
-	case errors.Is(err, directory.ErrProjectNameTaken):
-		return "project.name_taken", true
-	}
-	return "", false
 }

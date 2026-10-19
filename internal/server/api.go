@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Ce que le navigateur peut envoyer d'un coup : un formulaire, jamais plus.
@@ -62,6 +64,22 @@ func (s *Server) apiInternalError(w http.ResponseWriter, r *http.Request, err er
 // Un refus : la clé du catalogue que le front affichera dans sa langue.
 func (s *Server) apiRefuse(w http.ResponseWriter, status int, key string) {
 	s.writeAPIError(w, status, key)
+}
+
+// refused répond au refus d'un domaine par sa clé, en 422 ou en 409, et dit
+// si la réponse est partie. Une erreur qui n'est pas un refus reste à
+// l'appelant.
+func (s *Server) refused(w http.ResponseWriter, err error) bool {
+	key, ok := refusal.KeyOf(err)
+	if !ok {
+		return false
+	}
+	status := http.StatusUnprocessableEntity
+	if refusal.IsConflict(err) {
+		status = http.StatusConflict
+	}
+	s.apiRefuse(w, status, key)
+	return true
 }
 
 // apiNotFound sert aussi le 404 d'un composant : errors.Is(err, ErrNotFound).

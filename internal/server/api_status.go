@@ -192,8 +192,7 @@ func (s *Server) createComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.status.CreateComponent(r.Context(), componentDefinitionOf(request))
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -213,8 +212,7 @@ func (s *Server) updateComponent(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -265,8 +263,7 @@ func (s *Server) openIncident(w http.ResponseWriter, r *http.Request) {
 		StartsAt:     timeOrZero(request.StartsAt),
 		EndsAt:       timeOrZero(request.EndsAt),
 	})
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -290,8 +287,7 @@ func (s *Server) addIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusConflict, "incident.already_resolved")
 		return
 	}
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -314,8 +310,7 @@ func (s *Server) changeIncident(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -344,8 +339,7 @@ func (s *Server) setStatusPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saved, err := s.status.SetPage(r.Context(), status.Page{Title: request.Title, Announcement: request.Announcement, Language: lang.Code(request.Language)})
-	if key, refused := statusRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
@@ -353,36 +347,4 @@ func (s *Server) setStatusPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, pageJSON{Title: saved.Title, Announcement: saved.Announcement, Language: string(saved.Language), PublicURL: s.statusPublicURL(r)})
-}
-
-func statusRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, status.ErrNameInvalid):
-		return "component.name_invalid", true
-	case errors.Is(err, status.ErrMemberInvalid):
-		return "component.member_invalid", true
-	case errors.Is(err, status.ErrTitleInvalid):
-		return "incident.title_invalid", true
-	case errors.Is(err, status.ErrMessageInvalid):
-		return "incident.message_invalid", true
-	case errors.Is(err, status.ErrUpdateEmpty):
-		return "incident.update_empty", true
-	case errors.Is(err, status.ErrImpactInvalid):
-		return "incident.impact_invalid", true
-	case errors.Is(err, status.ErrStatusInvalid):
-		return "incident.status_invalid", true
-	case errors.Is(err, status.ErrComponentInvalid):
-		return "incident.component_invalid", true
-	case errors.Is(err, status.ErrWindowInvalid):
-		return "incident.window_invalid", true
-	case errors.Is(err, status.ErrPageTitleInvalid):
-		return "statuspage.title_invalid", true
-	case errors.Is(err, status.ErrAnnouncementInvalid):
-		return "statuspage.announcement_invalid", true
-	case errors.Is(err, status.ErrLanguageInvalid):
-		return "statuspage.language_invalid", true
-	case errors.Is(err, status.ErrTooMany):
-		return "component.too_many", true
-	}
-	return "", false
 }

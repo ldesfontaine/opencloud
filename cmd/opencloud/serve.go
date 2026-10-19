@@ -249,7 +249,6 @@ func runServe(args []string) error {
 	manifests := manifest.New(manifest.Dependencies{
 		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
 	}, logger)
-	manifests.SetErrorKeys(server.RefusalKey)
 	manifests.SetWatcher(bus)
 	manifests.SetLifetime(ctx)
 	// Un passage resté « en cours » est celui d'un arrêt brutal : plus rien

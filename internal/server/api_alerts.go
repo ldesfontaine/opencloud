@@ -426,42 +426,9 @@ func (s *Server) refuseAlert(w http.ResponseWriter, r *http.Request, err error) 
 		s.apiNotFound(w)
 		return true
 	}
-	if key, refused := alertRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
+	if s.refused(w, err) {
 		return true
 	}
 	s.apiInternalError(w, r, err)
 	return true
-}
-
-func alertRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, alert.ErrChannelNameInvalid):
-		return "channel.name_invalid", true
-	case errors.Is(err, alert.ErrChannelURLInvalid):
-		return "channel.url_invalid", true
-	case errors.Is(err, alert.ErrChannelURLForbidden):
-		return "channel.url_forbidden", true
-	case errors.Is(err, alert.ErrChannelFormatInvalid):
-		return "channel.format_invalid", true
-	case errors.Is(err, alert.ErrChannelSecretInvalid):
-		return "channel.secret_invalid", true
-	case errors.Is(err, alert.ErrChannelRecipients):
-		return "channel.recipients_invalid", true
-	case errors.Is(err, alert.ErrChannelHomeserver):
-		return "channel.matrix_homeserver_invalid", true
-	case errors.Is(err, alert.ErrChannelRoomInvalid):
-		return "channel.matrix_room_invalid", true
-	case errors.Is(err, alert.ErrChannelTokenMissing):
-		return "channel.matrix_token_missing", true
-	case errors.Is(err, alert.ErrChannelSeverityInvalid):
-		return "channel.severity_invalid", true
-	case errors.Is(err, alert.ErrTooManyChannels):
-		return "channel.too_many", true
-	case errors.Is(err, alert.ErrSilenceInvalid):
-		return "silence.invalid", true
-	case errors.Is(err, alert.ErrSilenceDurationInvalid):
-		return "silence.duration_invalid", true
-	}
-	return "", false
 }

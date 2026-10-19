@@ -603,30 +603,15 @@ func (s *Server) disableAuth(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, authToJSON(auth.State{Mode: auth.ModeNone}, ""))
 }
 
-// refuseAuth traduit une erreur du composant en refus du catalogue, et
-// dit si la réponse est partie.
+// refuseAuth répond à une erreur du composant : le refus par sa clé,
+// sinon 500. Dit si la réponse est partie.
 func (s *Server) refuseAuth(w http.ResponseWriter, r *http.Request, err error) bool {
-	switch {
-	case err == nil:
+	if err == nil {
 		return false
-	case errors.Is(err, auth.ErrUsernameInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.username_invalid")
-	case errors.Is(err, auth.ErrPasswordTooShort):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.password_too_short")
-	case errors.Is(err, auth.ErrPasswordTooLong):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.password_too_long")
-	case errors.Is(err, auth.ErrHeaderInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.header_invalid")
-	case errors.Is(err, auth.ErrNoPassword):
-		s.apiRefuse(w, http.StatusConflict, "auth.no_password")
-	case errors.Is(err, auth.ErrAlreadyEnabled):
-		s.apiRefuse(w, http.StatusConflict, "auth.already_enabled")
-	case errors.Is(err, auth.ErrDisabled):
-		s.apiRefuse(w, http.StatusConflict, "auth.disabled")
-	case errors.Is(err, auth.ErrStateChanged):
-		s.apiRefuse(w, http.StatusConflict, codeAuthStateChanged)
-	default:
-		s.apiInternalError(w, r, err)
 	}
+	if s.refused(w, err) {
+		return true
+	}
+	s.apiInternalError(w, r, err)
 	return true
 }

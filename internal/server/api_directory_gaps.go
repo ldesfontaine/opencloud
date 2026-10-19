@@ -214,8 +214,7 @@ func (s *Server) ignoreKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key := directory.IgnoredKey{MachineID: request.MachineID, Kind: directory.IgnoreKind(request.Kind), Value: request.Value}
 	err := s.directory.Ignore(r.Context(), key)
-	if refusal, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, refusal)
+	if s.refused(w, err) {
 		return
 	}
 	if err != nil {
