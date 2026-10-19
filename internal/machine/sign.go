@@ -10,6 +10,8 @@ import (
 )
 
 const (
+	// La taille du défi : celle que les agents installés signent et exigent.
+	// Le défi tient dedans (challenges.go) ; l'agrandir casserait ces agents.
 	NonceSize = 32
 	idSize    = 16
 	// nonce(32) || id(16) || horodatage big-endian(8).
@@ -25,14 +27,6 @@ func NewID() (string, error) {
 	raw[6] = (raw[6] & 0x0f) | 0x40
 	raw[8] = (raw[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:]), nil
-}
-
-func NewNonce() ([]byte, error) {
-	nonce := make([]byte, NonceSize)
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return nonce, nil
 }
 
 // SignedPayload est l'octet-à-octet que l'agent signe et que le serveur

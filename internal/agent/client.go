@@ -50,19 +50,32 @@ func (e *ServerError) Error() string {
 const (
 	codeMachineNotFound = "machine_not_found"
 	codeBadProof        = "bad_proof"
-	codeNoSession       = "no_session"
-	codeClockSkew       = "clock_skew"
+	// Le défi signé est expiré, déjà utilisé ou perdu au redémarrage du
+	// serveur : l'agent en redemande un. Les agents installés ne
+	// connaissent pas ce code et le traitent comme tout 401 autre que
+	// bad_proof, c'est-à-dire en passager.
+	codeChallengeExpired = "challenge_expired"
+	codeNoSession        = "no_session"
+	codeClockSkew        = "clock_skew"
 )
 
 // Permanent dit si réessayer ne servira à rien : la machine n'existe plus,
 // sa clé n'est plus celle enrôlée, ou l'enrôlement est refusé. Un autre 401
 // ou 404 n'arrête rien : une horloge décalée se règle, une session perdue
-// se rouvre, un proxy en plein redéploiement revient.
+// se rouvre, un défi expiré se redemande, un proxy en plein redéploiement
+// revient. Un défi se perd sans que la clé y soit pour rien (serveur
+// redémarré, délai dépassé) ; seule une signature fausse dit que la clé
+// n'est plus la bonne.
 func (e *ServerError) Permanent() bool {
 	switch e.Status {
 	case http.StatusNotFound:
 		return e.Code == codeMachineNotFound
 	case http.StatusUnauthorized:
+		// Nommé plutôt que laissé au cas général : changer ce dernier ne
+		// doit pas arrêter l'agent sur un simple défi à redemander.
+		if e.Code == codeChallengeExpired {
+			return false
+		}
 		return e.Code == codeBadProof
 	case http.StatusConflict:
 		return true

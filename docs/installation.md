@@ -545,10 +545,13 @@ identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
-reconnecte seul, avec un délai de 1 à 60 s. Il s'arrête, code de sortie 2,
-quand openCloud refuse son identité (machine retirée) : l'unité ne le
-relance pas (`RestartPreventExitStatus=2`) et `systemctl status` la montre
-`failed`, code 2. C'est voulu : il faut un nouveau jeton.
+reconnecte seul, avec un délai de 1 à 60 s. Un défi perdu ou expiré
+(`challenge_expired`, par exemple si `serve` a redémarré entre le défi et
+l'ouverture du flux) ne l'arrête pas non plus : il en redemande un. Il
+s'arrête, code de sortie 2, quand openCloud refuse son identité (machine
+retirée, ou signature qui n'est plus celle de la clé enrôlée, `bad_proof`) :
+l'unité ne le relance pas (`RestartPreventExitStatus=2`) et `systemctl
+status` la montre `failed`, code 2. C'est voulu : il faut un nouveau jeton.
 
 ### Sans domaine : `-pin`
 

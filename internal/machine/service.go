@@ -69,13 +69,13 @@ type Alerter interface {
 }
 
 type Service struct {
-	store    Store
-	sessions *Sessions
-	presence Presence
-	nonces   *nonces
-	listener Listener
-	alerter  Alerter
-	logger   *slog.Logger
+	store      Store
+	sessions   *Sessions
+	presence   Presence
+	challenges *challenges
+	listener   Listener
+	alerter    Alerter
+	logger     *slog.Logger
 	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
 	// présente la même tourne sur elle. Vide, pas de contrôle.
 	localFingerprint string
@@ -85,12 +85,12 @@ type Service struct {
 
 func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 	return &Service{
-		store:    store,
-		sessions: sessions,
-		presence: openStreams{sessions: sessions},
-		nonces:   newNonces(),
-		logger:   logger,
-		now:      time.Now,
+		store:      store,
+		sessions:   sessions,
+		presence:   openStreams{sessions: sessions},
+		challenges: newChallenges(),
+		logger:     logger,
+		now:        time.Now,
 	}
 }
 
@@ -362,7 +362,7 @@ func (s *Service) Challenge(ctx context.Context, machineID string) ([]byte, erro
 	if machine.IsLocal() {
 		return nil, ErrNotFound
 	}
-	return s.nonces.issue(machineID, s.now())
+	return s.challenges.issue(machineID, s.now()), nil
 }
 
 // Ce que l'agent présente pour ouvrir son flux.
@@ -373,8 +373,12 @@ type Proof struct {
 	Signature []byte
 }
 
-// Authenticate vérifie la preuve : défi émis pour cette machine, horloge dans
-// la tolérance, signature de la clé enrôlée.
+// Authenticate vérifie la preuve : défi signé par ce serveur pour cette
+// machine et pas expiré, horloge dans la tolérance, signature de la clé
+// enrôlée. Le défi n'est marqué utilisé qu'une fois la signature vérifiée :
+// quelqu'un qui n'a pas la clé ne peut pas brûler le défi d'un autre.
+// ErrBadNonce (défi absent, expiré, d'un autre serveur ou déjà utilisé) se
+// répare en redemandant un défi ; ErrBadSignature, non.
 func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error) {
 	machine, err := s.store.GetMachine(ctx, proof.MachineID)
 	if err != nil {
@@ -384,7 +388,7 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 		return Machine{}, ErrNotFound
 	}
 	now := s.now()
-	if !s.nonces.consume(proof.Nonce, proof.MachineID, now) {
+	if !s.challenges.valid(proof.Nonce, proof.MachineID, now) {
 		return Machine{}, ErrBadNonce
 	}
 	skew := now.Sub(time.Unix(proof.Timestamp, 0))
@@ -397,6 +401,9 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 	}
 	if !Verify(machine.PublicKey, payload, proof.Signature) {
 		return Machine{}, ErrBadSignature
+	}
+	if !s.challenges.markUsed(proof.Nonce, now) {
+		return Machine{}, ErrBadNonce
 	}
 	return machine, nil
 }

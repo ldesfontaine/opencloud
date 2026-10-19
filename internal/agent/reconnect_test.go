@@ -179,6 +179,44 @@ func TestKeepConnected_ClockSkew_KeepsRetryingAndSaysToFixTheClock(t *testing.T)
 	}
 }
 
+// Un défi expiré, évincé ou perdu au redémarrage du serveur : l'agent n'a
+// rien à se reprocher, il en redemande un et réessaie, sans s'arrêter.
+func TestKeepConnected_ChallengeExpired_KeepsRetrying(t *testing.T) {
+	server := &fakeServer{streamRefusal: codeChallengeExpired}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := startAgent(t, ctx, server, &bytes.Buffer{})
+
+	waitUntil(t, "a second attempt", func() bool {
+		streams, _, _ := server.snapshot()
+		return len(streams) >= 2
+	})
+	select {
+	case err := <-done:
+		t.Fatalf("agent stopped on an expired challenge: %v", err)
+	default:
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("agent stopped with %v", err)
+	}
+}
+
+// Une signature que le serveur ne reconnaît pas : la clé n'est plus celle
+// enrôlée, l'agent s'arrête et le dit.
+func TestKeepConnected_BadProof_Stops(t *testing.T) {
+	server := &fakeServer{streamRefusal: codeBadProof}
+	done := startAgent(t, context.Background(), server, &bytes.Buffer{})
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrIdentityRefused) {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("agent kept retrying a refused identity")
+	}
+}
+
 // La machine a été retirée : réessayer ne sert à rien, l'agent s'arrête.
 func TestKeepConnected_MachineNotFound_Stops(t *testing.T) {
 	server := &fakeServer{streamRefusal: codeMachineNotFound}
@@ -203,6 +241,7 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		{http.StatusUnauthorized, "bad_proof", true},
 		{http.StatusConflict, "token_consumed", true},
 		{http.StatusConflict, "name_taken", true},
+		{http.StatusUnauthorized, "challenge_expired", false},
 		{http.StatusUnauthorized, "no_session", false},
 		{http.StatusUnauthorized, "clock_skew", false},
 		{http.StatusUnauthorized, "", false},

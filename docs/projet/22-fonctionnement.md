@@ -195,11 +195,28 @@ le client qui les garde.
    deux agents avec le même jeton, un seul passe. Le jeton ne sert plus jamais.
 4. À chaque connexion, l'agent demande un défi, le signe, ouvre un flux qui reste
    ouvert. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,
-   envoyé toutes les 30 s.
-5. Flux coupé : l'agent revient avec un délai croissant, 1 s à 60 s. Machine
-   retirée (`machine_not_found`) ou clé qui n'est plus celle enrôlée
-   (`bad_proof`) : l'agent s'arrête et le dit. Ré-enrôler garde
-   l'identifiant et l'historique, seule la clé change.
+   envoyé toutes les 30 s. **Le défi est signé par le serveur et sans état** :
+   32 octets (un aléa de 8, l'expiration de 8, un MAC HMAC-SHA256 de 16 lié à
+   l'identifiant de la machine), valable deux minutes. Le serveur n'en garde
+   aucun à l'émission ; il retient seulement ceux qui ont **déjà servi**, et
+   seulement après une signature vérifiée, jusqu'à leur expiration. La clé du
+   MAC est tirée au démarrage et n'existe qu'en mémoire. Conséquence : qui
+   connaît l'identifiant d'une machine peut demander des défis en boucle
+   (`/agent/challenge` est ouvert) sans rien évincer chez l'agent, et ne peut
+   rien inscrire dans l'ensemble des défis utilisés. Un défi n'est valable
+   qu'une fois : le même rejoué après succès est refusé.
+5. Flux coupé : l'agent revient avec un délai croissant, 1 s à 60 s. Trois
+   refus se lisent à part :
+
+   | Réponse | Sens | L'agent |
+   | --- | --- | --- |
+   | `401 challenge_expired` | défi expiré, déjà utilisé, altéré, d'une autre machine, ou émis avant un redémarrage du serveur | redemande un défi et réessaie |
+   | `401 bad_proof` | la signature n'est pas celle de la clé enrôlée | s'arrête (code 2) et le dit |
+   | `404 machine_not_found` | machine retirée | s'arrête (code 2) et le dit |
+
+   Ré-enrôler garde l'identifiant et l'historique, seule la clé change. Les
+   agents déjà installés traitent tout `401` autre que `bad_proof` comme
+   passager : `challenge_expired` leur suffit sans mise à jour.
 6. Serveur redémarré avant que l'agent ait vu la coupure : son signal arrive
    avec une session que le serveur ne connaît plus (`no_session`), l'agent
    relève aussitôt un nouveau défi. Horloge de la machine à plus de 5 min de
@@ -2027,11 +2044,13 @@ au lieu du jeton, et `/oauth/authorize?[redacted]` au lieu de sa requête
 | --- | --- | --- | --- |
 | Adresse source résolue | 1 par seconde | 10 | Qu'on ne devine pas les identifiants de machine à la chaîne |
 
-Au-delà : `429 too_many_requests` avec `Retry-After`. La table des défis
-reste bornée : une machine garde au plus quatre défis en attente, un
-nouveau remplace le plus ancien, et les défis expirés (deux minutes) sont
-balayés toutes les trente secondes au plus. Derrière Traefik sans
-`trusted_proxies`, tous les agents partagent un seul seau.
+Au-delà : `429 too_many_requests` avec `Retry-After`. Émettre un défi ne
+coûte rien au serveur : il n'est pas gardé (voir « Comment une machine
+entre »). L'ensemble des défis déjà utilisés ne reçoit que
+des authentifications réussies, donc il suit l'activité légitime ; ses
+entrées expirées (deux minutes) sont balayées toutes les trente secondes au
+plus. Derrière Traefik sans `trusted_proxies`, tous les agents partagent un
+seul seau.
 
 ## Le nom du produit
 
