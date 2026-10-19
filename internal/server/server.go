@@ -74,7 +74,7 @@ type ContainerTracker interface {
 	Count(ctx context.Context) (total, attention int, err error)
 	FollowLogs(ctx context.Context, containerID string, tail int) (<-chan container.LogBatch, error)
 	FetchLogs(ctx context.Context, containerID string, tail int) ([]container.LogLine, error)
-	DeliverLogs(ctx context.Context, machineID, requestID string, batch container.LogBatch) bool
+	DeliverLogs(ctx context.Context, machineID, requestID string, batch container.LogBatch) error
 }
 
 // Ce que le serveur attend du composant resource : l'API lit, le signal de
@@ -270,6 +270,7 @@ type Server struct {
 	statusLimits *statusLimits
 	mcpLimits    *mcpLimits
 	agentLimits  *challengeLimits
+	signalLimits *signalLimits
 	authLimits   *authLimits
 	// Les onglets en direct, administration et page publique.
 	eventTabs  *slots
@@ -373,6 +374,7 @@ func New(opts Options) (*Server, error) {
 		statusLimits:   newStatusLimits(),
 		mcpLimits:      newMCPLimits(),
 		agentLimits:    newChallengeLimits(),
+		signalLimits:   newSignalLimits(),
 		authLimits:     newAuthLimits(),
 		eventTabs:      newSlots(maxEventSubscribers),
 		publicTabs:     newSlots(maxPublicSubscribers),
@@ -391,6 +393,7 @@ func New(opts Options) (*Server, error) {
 		server.statusLimits.setClock(opts.Clock)
 		server.mcpLimits.setClock(opts.Clock)
 		server.agentLimits.setClock(opts.Clock)
+		server.signalLimits.setClock(opts.Clock)
 		server.authLimits.setClock(opts.Clock)
 	}
 	server.mcpServer = server.newMCPServer(false)

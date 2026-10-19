@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 )
@@ -76,8 +77,21 @@ type Job struct {
 	Delivery Delivery
 	Alert    Alert
 	Channel  Channel
-	// Held : pour un résumé, combien d'envois la limite a retenus.
-	Held int
+	// Held : pour un résumé, ce que la limite a retenu.
+	Held Held
+}
+
+// Held est ce qu'un résumé remplace : combien d'envois la limite d'un canal
+// a retenus, la gravité la plus haute parmi eux, et les machines qui les
+// ont causés. Un résumé qui taisait la gravité ferait passer pour banal ce
+// qu'une machine bruyante aurait masqué.
+type Held struct {
+	Count    int
+	Severity Severity
+	// Machines : les noms, triés, au plus MaxSummaryMachines ; Others compte
+	// celles qui ne tiennent pas dans la liste.
+	Machines []string
+	Others   int
 }
 
 type Engine struct {
@@ -95,12 +109,19 @@ type Engine struct {
 	// creatingChannel tient compter-puis-insérer d'un seul tenant : deux
 	// créations simultanées ne passent pas toutes deux sur la dernière place.
 	creatingChannel sync.Mutex
-	// limits tient la limite de débit de chaque canal ; sous mu.
+	// limits tient la limite de débit de chaque canal, shares la part de
+	// chaque machine sur chaque canal ; sous mu.
 	limits map[int64]*channelLimit
+	shares map[shareKey]*sendWindow
+}
+
+type shareKey struct {
+	channelID int64
+	machineID string
 }
 
 func New(store Store, logger *slog.Logger) *Engine {
-	return &Engine{store: store, logger: logger, now: time.Now, limits: map[int64]*channelLimit{}}
+	return &Engine{store: store, logger: logger, now: time.Now, limits: map[int64]*channelLimit{}, shares: map[shareKey]*sendWindow{}}
 }
 
 func (e *Engine) SetClock(now func() time.Time) {
@@ -430,7 +451,7 @@ func (e *Engine) deliver(ctx context.Context, alert Alert, event Event) {
 		limit := e.limitOf(channel.ID)
 		e.flushSummary(limit, channel, now)
 		delivery := Delivery{AlertID: alert.ID, ChannelID: channel.ID, Event: event, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}
-		allowed := limit.allow(now)
+		allowed := e.allowSend(limit, channel.ID, alert.MachineID, now)
 		if !allowed {
 			delivery.Status = DeliveryHeld
 		}
@@ -443,8 +464,8 @@ func (e *Engine) deliver(ctx context.Context, alert Alert, event Event) {
 			continue
 		}
 		if !allowed {
-			limit.held++
-			e.logger.Warn("alert delivery held by the channel rate limit", "alert_id", alert.ID, "channel_id", channel.ID, "event", string(event))
+			limit.held.note(alert)
+			e.logger.Warn("alert delivery held by the channel rate limit", "alert_id", alert.ID, "channel_id", channel.ID, "machine_id", alert.MachineID, "event", string(event))
 			continue
 		}
 		delivery.ID = id
@@ -482,17 +503,61 @@ func (e *Engine) limitOf(channelID int64) *channelLimit {
 	return limit
 }
 
+// allowSend accorde un envoi à une machine sur un canal, ou le refuse. Deux
+// plafonds : la part de la machine, qu'elle seule épuise, et celui du
+// canal. Une machine qui n'a rien envoyé sur la fenêtre peut dépasser le
+// plafond du canal de ChannelReserve : la première alerte d'une machine
+// calme n'est pas retenue parce que d'autres ont rempli le canal.
+func (e *Engine) allowSend(limit *channelLimit, channelID int64, machineID string, now time.Time) bool {
+	key := shareKey{channelID: channelID, machineID: machineID}
+	share, found := e.shares[key]
+	if !found {
+		share = &sendWindow{}
+		e.shares[key] = share
+	}
+	used := share.count(now)
+	if used >= MachineRateLimit {
+		return false
+	}
+	ceiling := ChannelRateLimit
+	if used == 0 {
+		ceiling += ChannelReserve
+	}
+	if limit.window.count(now) >= ceiling {
+		return false
+	}
+	share.add(now)
+	limit.window.add(now)
+	return true
+}
+
 // flushSummary envoie le résumé de ce que la limite a retenu, dès que la
 // fenêtre du canal a de la place : un message, quel que soit le nombre.
 // Il n'est la livraison d'aucune alerte, rien n'en reste en base.
 func (e *Engine) flushSummary(limit *channelLimit, channel Channel, now time.Time) {
-	if limit.held == 0 || !limit.allow(now) {
+	// Le résumé attend que la fenêtre ait de la place, pour le canal et pour
+	// chaque machine retenue : tant qu'une machine bruyante est à sa limite, la
+	// tempête dure et un résumé par alerte retenue serait un envoi de plus.
+	// Il prend une place du canal, mais pas dans la réserve : elle est aux
+	// machines calmes.
+	if limit.held.count == 0 || limit.window.count(now) >= ChannelRateLimit || !e.sharesHaveRoom(channel.ID, limit.held, now) {
 		return
 	}
-	held := limit.held
-	limit.held = 0
-	e.logger.Info("alert deliveries summarized", "channel_id", channel.ID, "held", held)
+	limit.window.add(now)
+	held := limit.held.summary()
+	limit.held = heldAlerts{}
+	e.logger.Info("alert deliveries summarized", "channel_id", channel.ID, "held", held.Count, "severity", string(held.Severity))
 	e.sender.Enqueue(Job{Delivery: Delivery{ChannelID: channel.ID, Event: EventSummary, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}, Channel: channel, Held: held})
+}
+
+func (e *Engine) sharesHaveRoom(channelID int64, held heldAlerts, now time.Time) bool {
+	for machineID := range held.machines {
+		share, found := e.shares[shareKey{channelID: channelID, machineID: machineID}]
+		if found && share.count(now) >= MachineRateLimit {
+			return false
+		}
+	}
+	return true
 }
 
 // flushSummaries passe sur chaque canal qui a retenu des envois ; le
@@ -504,7 +569,7 @@ func (e *Engine) flushSummaries(ctx context.Context) {
 	}
 	pending := false
 	for _, limit := range e.limits {
-		pending = pending || limit.held > 0
+		pending = pending || limit.held.count > 0
 	}
 	if !pending {
 		return
@@ -522,26 +587,71 @@ func (e *Engine) flushSummaries(ctx context.Context) {
 	}
 }
 
-// channelLimit compte les envois d'un canal sur une fenêtre glissante.
-type channelLimit struct {
+// sendWindow compte des envois sur une fenêtre glissante.
+type sendWindow struct {
 	sent []time.Time
-	held int
 }
 
-// allow prend une place dans la fenêtre s'il en reste une.
-func (l *channelLimit) allow(now time.Time) bool {
-	kept := l.sent[:0]
-	for _, at := range l.sent {
+// count oublie les envois sortis de la fenêtre et dit combien restent.
+func (w *sendWindow) count(now time.Time) int {
+	kept := w.sent[:0]
+	for _, at := range w.sent {
 		if at.After(now.Add(-ChannelRateWindow)) {
 			kept = append(kept, at)
 		}
 	}
-	l.sent = kept
-	if len(l.sent) >= ChannelRateLimit {
-		return false
+	w.sent = kept
+	return len(w.sent)
+}
+
+func (w *sendWindow) add(now time.Time) {
+	w.sent = append(w.sent, now)
+}
+
+// channelLimit tient les envois d'un canal sur la fenêtre, et ce que la
+// limite a retenu depuis le dernier résumé.
+type channelLimit struct {
+	window sendWindow
+	held   heldAlerts
+}
+
+// heldAlerts note ce que la limite retient, pour le résumé.
+type heldAlerts struct {
+	count    int
+	severity Severity
+	// machines : nom par identifiant, pour ne compter chaque machine qu'une
+	// fois. Une alerte sans machine y entre sous l'identifiant vide, sans nom.
+	machines map[string]string
+}
+
+func (h *heldAlerts) note(alert Alert) {
+	h.count++
+	if h.severity == "" || rank(alert.Severity) > rank(h.severity) {
+		h.severity = alert.Severity
 	}
-	l.sent = append(l.sent, now)
-	return true
+	if h.machines == nil {
+		h.machines = map[string]string{}
+	}
+	name := alert.MachineName
+	if name == "" {
+		name = alert.MachineID
+	}
+	h.machines[alert.MachineID] = name
+}
+
+func (h heldAlerts) summary() Held {
+	names := make([]string, 0, len(h.machines))
+	for _, name := range h.machines {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	held := Held{Count: h.count, Severity: h.severity, Machines: names}
+	if len(names) > MaxSummaryMachines {
+		held.Machines, held.Others = names[:MaxSummaryMachines], len(names)-MaxSummaryMachines
+	}
+	return held
 }
 
 // Requeue rejoue au démarrage les livraisons restées en attente : une
@@ -584,6 +694,17 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceDown, ClearBefore: now.Add(-ServiceClearDelay)})
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceUnhealthy, ClearBefore: now.Add(-ServiceClearDelay)})
 	e.flushSummaries(ctx)
+	e.forgetIdleShares(now)
+}
+
+// forgetIdleShares oublie les parts vides : une machine retirée ne laisse
+// rien en mémoire, et une machine calme repart d'une fenêtre neuve.
+func (e *Engine) forgetIdleShares(now time.Time) {
+	for key, share := range e.shares {
+		if share.count(now) == 0 {
+			delete(e.shares, key)
+		}
+	}
 }
 
 func (e *Engine) Purge(ctx context.Context) error {

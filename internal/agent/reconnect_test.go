@@ -73,8 +73,11 @@ func (f *fakeServer) signal(w http.ResponseWriter, r *http.Request) {
 
 func writeRefusal(w http.ResponseWriter, code string) {
 	status := http.StatusUnauthorized
-	if code == codeMachineNotFound {
+	switch code {
+	case codeMachineNotFound:
 		status = http.StatusNotFound
+	case "too_many_requests":
+		status = http.StatusTooManyRequests
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -138,6 +141,32 @@ func TestKeepConnected_ExpiredSession_ReconnectsAtOnce(t *testing.T) {
 	streams, refused, _ := server.snapshot()
 	if gap := streams[1].Sub(refused[0]); gap >= minBackoff/2 {
 		t.Fatalf("reconnected %v after the refusal, not at once", gap)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("agent stopped with %v", err)
+	}
+}
+
+// Le serveur freine les signaux de cette machine (429) : l'agent garde son
+// flux, ne se reconnecte pas, et le signal suivant passe.
+func TestKeepConnected_ThrottledSignals_KeepTheStreamOpen(t *testing.T) {
+	server := &fakeServer{signalRefusals: []string{"too_many_requests", "too_many_requests"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := startAgent(t, ctx, server, &bytes.Buffer{})
+
+	waitUntil(t, "a signal accepted after the two throttled ones", func() bool {
+		_, refused, accepted := server.snapshot()
+		return len(refused) == 2 && accepted > 0
+	})
+	select {
+	case err := <-done:
+		t.Fatalf("agent stopped on a 429: %v", err)
+	default:
+	}
+	if streams, _, _ := server.snapshot(); len(streams) != 1 {
+		t.Fatalf("the agent reopened the stream %d times after a 429", len(streams))
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -248,6 +277,7 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		{http.StatusNotFound, "", false},
 		{http.StatusBadRequest, "bad_proof", false},
 		{http.StatusInternalServerError, "internal", false},
+		{http.StatusTooManyRequests, "too_many_requests", false},
 	}
 	for _, c := range cases {
 		refused := &ServerError{Status: c.status, Code: c.code}

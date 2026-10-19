@@ -246,9 +246,17 @@ const (
 	// alerte, au lieu d'en ouvrir et d'en résoudre une à chaque tour.
 	ServiceClearDelay = 2 * time.Minute
 	// Un canal reçoit au plus ChannelRateLimit envois sur ChannelRateWindow ;
-	// le surplus est retenu et résumé en un seul message.
+	// le surplus est retenu et résumé en un seul message. Chaque machine y
+	// a sa part, MachineRateLimit : une machine bruyante, ou qui ment,
+	// n'épuise que la sienne. ChannelReserve est ce qui reste de place, au-delà
+	// de ChannelRateLimit, à la première alerte de chaque machine silencieuse
+	// sur la fenêtre : même si d'autres ont rempli le canal, elle passe.
 	ChannelRateLimit  = 10
 	ChannelRateWindow = 5 * time.Minute
+	MachineRateLimit  = 5
+	ChannelReserve    = 5
+	// Un résumé nomme au plus ces machines, puis compte les autres.
+	MaxSummaryMachines = 3
 	// Les seuils du disque tant que l'opérateur n'en a pas réglé d'autres :
 	// voir disk.go.
 	DefaultDiskAttentionPercent = 85

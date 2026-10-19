@@ -21,6 +21,10 @@ type Body struct {
 	Link          string
 	HTML          string
 	TransactionID string
+	// Urgent : le récepteur qui sait classer par priorité (ntfy) doit le
+	// lire tout de suite. Seul un résumé le pose : une alerte part toujours
+	// en priorité haute.
+	Urgent bool
 }
 
 // alertPath est la fiche d'une alerte dans l'interface, sous public_url.
@@ -45,25 +49,49 @@ func AlertsLink(publicURL string) string {
 }
 
 // RenderSummary fait le message qui remplace ce que la limite de débit
-// d'un canal a retenu : « N alertes de plus, voir openCloud ».
-func RenderSummary(catalog lang.Catalog, format Format, held int, now time.Time, link string) (Body, error) {
-	text := Text{Fact: catalog.Format("alert.summary_fact", held), Cause: catalog.Get("alert.summary_cause")}
+// d'un canal a retenu : « N alertes de plus, voir openCloud », avec les
+// machines concernées, et rendu à la gravité la plus haute des alertes
+// retenues.
+func RenderSummary(catalog lang.Catalog, format Format, held Held, now time.Time, link string) (Body, error) {
+	text := Text{Fact: catalog.Format("alert.summary_fact", held.Count), Cause: summaryCause(catalog, held)}
 	title := catalog.Get("alert.notify_summary") + " · " + text.Fact
 	openLabel := catalog.Get("alert.open_in_opencloud")
-	alert := Alert{Severity: SeverityAttention}
+	alert := Alert{Severity: held.Severity}
+	var rendered Body
+	var err error
 	switch format {
 	case FormatText:
-		return Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title, Link: link}, nil
+		rendered = Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title, Link: link}
 	case FormatDiscord:
-		return jsonBody(title, link, discordPayload(title, text, alert, EventSummary, now, link, openLabel))
+		rendered, err = jsonBody(title, link, discordPayload(title, text, alert, EventSummary, now, link, openLabel))
 	case FormatSlack:
-		return jsonBody(title, link, slackPayload(title, text, alert, EventSummary, link, openLabel))
+		rendered, err = jsonBody(title, link, slackPayload(title, text, alert, EventSummary, link, openLabel))
+	default:
+		rendered, err = jsonBody(title, link, payload{
+			Event: string(EventSummary), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
+			Text: payloadText(text), Held: held.Count, Severity: held.Severity, Machines: held.Machines, OtherMachines: held.Others, URL: link,
+		})
 	}
-	body := payload{
-		Event: string(EventSummary), SentAt: now.UTC(), Language: string(catalog.Code()), Title: title,
-		Text: payloadText(text), Held: held, URL: link,
+	rendered.Urgent = held.Severity == SeverityDanger
+	return rendered, err
+}
+
+// summaryCause dit pourquoi le résumé existe, puis ce qui compte à qui le
+// lit : si le danger est dedans, et quelles machines.
+func summaryCause(catalog lang.Catalog, held Held) string {
+	sentences := []string{catalog.Get("alert.summary_cause")}
+	if held.Severity == SeverityDanger {
+		sentences = append(sentences, catalog.Get("alert.summary_danger"))
 	}
-	return jsonBody(title, link, body)
+	if len(held.Machines) > 0 {
+		names := strings.Join(held.Machines, ", ")
+		if held.Others > 0 {
+			sentences = append(sentences, catalog.Format("alert.summary_machines_more", names, held.Others))
+		} else {
+			sentences = append(sentences, catalog.Format("alert.summary_machines", names))
+		}
+	}
+	return strings.Join(sentences, " ")
 }
 
 // Render fait le corps d'un événement pour un format. Le titre porte
@@ -135,9 +163,14 @@ type payload struct {
 	Text     payloadText `json:"text"`
 	// Alert manque au corps d'un test et d'un résumé : il n'y a rien en alerte.
 	Alert *payloadAlert `json:"alert,omitempty"`
-	// Held : ce qu'un résumé remplace ; URL : la page des alertes.
-	Held int    `json:"held,omitempty"`
-	URL  string `json:"url,omitempty"`
+	// Held : ce qu'un résumé remplace ; Severity, Machines et OtherMachines
+	// disent la gravité la plus haute retenue et les machines concernées ;
+	// URL : la page des alertes.
+	Held          int      `json:"held,omitempty"`
+	Severity      Severity `json:"severity,omitempty"`
+	Machines      []string `json:"machines,omitempty"`
+	OtherMachines int      `json:"other_machines,omitempty"`
+	URL           string   `json:"url,omitempty"`
 }
 
 type payloadText struct {

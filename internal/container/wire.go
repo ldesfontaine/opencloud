@@ -132,6 +132,15 @@ const (
 	MaxLogTail     = 500
 	// Un lot part toutes les secondes ou dès qu'il atteint ce nombre.
 	MaxLinesPerBatch = 64
+	// Une ligne plus longue est coupée par le serveur à la réception : la
+	// borne que vise le lecteur de journaux de Docker, côté agent.
+	MaxLogLineBytes = 64 << 10
+	// Le flux d'une ligne est « stdout » ou « stderr » : rien de plus long.
+	maxLogStreamBytes = 16
+	// Ce qu'un tirage unique accepte de recevoir en tout avant de couper la
+	// demande. Une machine honnête envoie au plus la fin demandée (500 lignes,
+	// des centaines d'octets chacune) ; au-delà, c'est une machine qui déborde.
+	MaxFetchLogBytes = 4 << 20
 	// Combien de suivis une machine sert à la fois ; au-delà, refusé.
 	MaxFollowsPerMachine = 4
 	// Ce que le serveur attend d'un tirage unique avant de renoncer.

@@ -133,6 +133,16 @@ func (db *DB) ApplyChanges(ctx context.Context, changes container.Changes) error
 			return err
 		}
 	}
+	if changes.MaxArchived > 0 && (changes.ArchiveMissing || len(changes.Containers) > 0) {
+		if err := capArchivedContainers(ctx, tx, changes.MachineID, changes.MaxArchived); err != nil {
+			return err
+		}
+	}
+	if changes.MaxTransitions > 0 && len(changes.Transitions) > 0 {
+		if err := capTransitions(ctx, tx, changes.MachineID, changes.MaxTransitions); err != nil {
+			return err
+		}
+	}
 	if changes.Engine != nil {
 		if err := saveEngine(ctx, tx, *changes.Engine); err != nil {
 			return err
@@ -309,6 +319,45 @@ func archiveMissing(ctx context.Context, tx *sql.Tx, machineID string, keep []st
 	return nil
 }
 
+// capArchivedContainers ne garde que les keep fiches archivées les plus
+// récentes de la machine ; leurs transitions et échantillons partent avec.
+// Les vivantes ne sont jamais touchées. Le tri se fait sur l'index de la
+// machine, sur ses seules fiches.
+func capArchivedContainers(ctx context.Context, tx *sql.Tx, machineID string, keep int) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM containers WHERE id IN (
+			SELECT id FROM containers WHERE machine_id = ? AND archived_at IS NOT NULL
+			ORDER BY archived_at DESC, id LIMIT -1 OFFSET ?)`, machineID, keep)
+	if err != nil {
+		return fmt.Errorf("cap archived containers: %w", err)
+	}
+	return nil
+}
+
+// capTransitions ne garde que les keep transitions les plus récentes de
+// la machine, tous conteneurs confondus. Le décompte passe d'abord : sous
+// le plafond, ce qui est le cas courant, rien n'est trié.
+func capTransitions(ctx context.Context, tx *sql.Tx, machineID string, keep int) error {
+	var total int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM container_events e JOIN containers c ON c.id = e.container_id
+		WHERE c.machine_id = ?`, machineID).Scan(&total)
+	if err != nil {
+		return fmt.Errorf("count transitions: %w", err)
+	}
+	if total <= keep {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM container_events WHERE id IN (
+			SELECT e.id FROM container_events e JOIN containers c ON c.id = e.container_id
+			WHERE c.machine_id = ? ORDER BY e.at ASC, e.id ASC LIMIT ?)`, machineID, total-keep)
+	if err != nil {
+		return fmt.Errorf("cap transitions: %w", err)
+	}
+	return nil
+}
+
 func insertTransition(ctx context.Context, tx *sql.Tx, t container.Transition) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO container_events (container_id, at, action, previous_state, new_state, previous_health, new_health, exit_code, oom_killed, killed, replayed, snippet)
@@ -321,12 +370,18 @@ func insertTransition(ctx context.Context, tx *sql.Tx, t container.Transition) e
 	return nil
 }
 
-// Un échantillon déjà là, rejoué après une coupure, est ignoré.
+// Un échantillon déjà là, rejoué après une coupure, est ignoré ; un autre
+// trop proche d'un échantillon du même conteneur aussi
+// (container.MinSampleSpacing). Le voisin se cherche sur la clé primaire.
 func insertSample(ctx context.Context, tx *sql.Tx, sample container.Sample) error {
+	at := sample.SampledAt.Unix()
+	spacing := int64(container.MinSampleSpacing / time.Second)
 	_, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO container_samples (container_id, sampled_at, cpu_percent, mem_used, mem_limit)
-		VALUES (?, ?, ?, ?, ?)`,
-		sample.ContainerID, sample.SampledAt.Unix(), sample.CPUPercent, sample.MemUsed, sample.MemLimit)
+		SELECT ?, ?, ?, ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM container_samples WHERE container_id = ? AND sampled_at > ? AND sampled_at < ?)`,
+		sample.ContainerID, at, sample.CPUPercent, sample.MemUsed, sample.MemLimit,
+		sample.ContainerID, at-spacing, at+spacing)
 	if err != nil {
 		return fmt.Errorf("insert container sample: %w", err)
 	}
