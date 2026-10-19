@@ -216,7 +216,8 @@ requête. Ce que ça change :
 - l'adresse enregistrée d'une machine est celle de Traefik ;
 - la limitation de débit des pings, de l'enrôlement et des échecs
   d'authentification compte **tous les clients comme un seul**, et un
-  attaquant peut bloquer l'opérateur ;
+  attaquant peut bloquer l'opérateur ; en IPv6, une source compte pour son
+  /64, pas pour son adresse complète ;
 - sans `public_url`, les adresses construites ne connaissent pas le nom
   public.
 
@@ -348,7 +349,7 @@ curl -X POST -H 'Content-Type: application/json' \
 | Mode | HTTP Basic, realm `openCloud`. Le navigateur demande les identifiants dans sa propre fenêtre |
 | Identifiant | 1 à 64 caractères, sans `:` |
 | Mot de passe | 12 caractères au moins, 72 octets au plus ; haché en bcrypt |
-| Échecs | 10 d'un coup, puis un toutes les 6 s par adresse, `429` au-delà |
+| Échecs | 10 d'un coup, puis un toutes les 6 s par adresse (en IPv6, par /64), `429` au-delà. La vérification lente fait la queue derrière neuf autres au plus : file pleine, `429` aussitôt |
 | Effet | Immédiat, sans redémarrage. Activer révoque tous les jetons MCP (jetons d'API et sessions OAuth) : recréez ceux qui servent |
 
 Ce qui reste ouvert : la liste du [tableau ci-dessus](#une-authentification-basic-au-niveau-de-traefik).
@@ -1040,6 +1041,6 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Le serveur ou `opencloud mcp` refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |
 | « secret.key est lisible par d'autres comptes » | Le fichier a un mode plus large que `0600` | `chmod 600 /var/lib/opencloud/secret.key`, propriétaire le compte du service |
 | `opencloud mcp` : « secret.key absent : démarrez serve une fois, ou restaurez la clé » | `mcp` ne crée jamais la clé | Démarrer le serveur une fois, ou restaurer la clé |
-| Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs | Attendre ; mot de passe perdu : `opencloud auth disable` |
+| Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs ; ou file de vérification pleine (des tentatives anonymes en cours) | Attendre `Retry-After` et réessayer ; mot de passe perdu : `opencloud auth disable` |
 | `sudo: command not found` | Debian minimal, installé sans `sudo` | En root, retirer `sudo` ; sous le compte du service, `runuser -u opencloud -- …` |
 | Tous les utilisateurs bloqués ensemble en `429` | `trusted_proxies` absent : tout le monde a l'adresse de Traefik | Déclarer Traefik dans `trusted_proxies` |

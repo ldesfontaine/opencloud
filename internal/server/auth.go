@@ -43,7 +43,7 @@ const (
 type AuthService interface {
 	State(ctx context.Context) (auth.State, error)
 	Remembered(state auth.State, username, password string) bool
-	Verify(state auth.State, username, password string) bool
+	Verify(ctx context.Context, state auth.State, username, password string) (bool, error)
 	EnableBasic(ctx context.Context, username, password string) (auth.State, error)
 	EnableForward(ctx context.Context, header string) (auth.State, error)
 	ChangePassword(ctx context.Context, password string) (auth.State, error)
@@ -103,7 +103,7 @@ func (l *authLimits) allowAttempt(source string) bool {
 	if due {
 		l.attempts.Sweep(authSweepIdle)
 	}
-	return l.attempts.Allow(source)
+	return l.attempts.Allow(ratelimit.SourceKey(source))
 }
 
 // requireOperator relit le mode à chaque requête : la commande de secours
@@ -173,7 +173,20 @@ func (s *Server) checkBasic(w http.ResponseWriter, r *http.Request, state auth.S
 		s.writeTooMany(w)
 		return false
 	}
-	if !s.auth.Verify(state, username, password) {
+	verified, err := s.auth.Verify(r.Context(), state, username, password)
+	switch {
+	case errors.Is(err, auth.ErrVerificationQueueFull):
+		// Même réponse que le limiteur : l'attente de bcrypt est bornée, et
+		// l'opérateur qui retombe là réessaie après Retry-After.
+		s.logger.Warn("interface authentication queue full", "source", source)
+		s.writeTooMany(w)
+		return false
+	case err != nil:
+		// La requête a pris fin pendant l'attente (client parti, arrêt) :
+		// ce n'est pas un mauvais mot de passe, et personne ne lira la réponse.
+		http.Error(w, "request canceled", http.StatusServiceUnavailable)
+		return false
+	case !verified:
 		s.logger.Warn("interface authentication failed", "source", source, "path", r.URL.Path)
 		s.writeUnauthorized(w, r)
 		return false

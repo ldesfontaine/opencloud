@@ -108,12 +108,12 @@ func (l *mcpLimits) setClock(now func() time.Time) {
 
 func (l *mcpLimits) allow(source string) bool {
 	l.sweepIfDue()
-	return l.bySource.Allow(source)
+	return l.bySource.Allow(ratelimit.SourceKey(source))
 }
 
 func (l *mcpLimits) allowToken(source string) bool {
 	l.sweepIfDue()
-	return l.byToken.Allow(source)
+	return l.byToken.Allow(ratelimit.SourceKey(source))
 }
 
 func (l *mcpLimits) sweepIfDue() {

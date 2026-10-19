@@ -274,6 +274,9 @@ type Server struct {
 	// Les onglets en direct, administration et page publique.
 	eventTabs  *slots
 	publicTabs *slots
+	// La part de chaque source dans publicTabs, et la durée d'un flux public.
+	publicStreamsBySource *sourceSlots
+	publicStreamLifetime  time.Duration
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
 	mcpServer  *gomcp.Server
 	mcpHandler http.Handler
@@ -381,6 +384,8 @@ func New(opts Options) (*Server, error) {
 		app:            app,
 		clock:          opts.Clock,
 	}
+	server.publicStreamsBySource = newSourceSlots(maxPublicStreamsPerSource)
+	server.publicStreamLifetime = maxPublicStreamLifetime
 	if opts.Clock != nil {
 		server.pingLimits.setClock(opts.Clock)
 		server.statusLimits.setClock(opts.Clock)

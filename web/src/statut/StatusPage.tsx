@@ -5,6 +5,7 @@ import { Mark } from "../components/Icon";
 import { useNow } from "../hooks/useNow";
 import { format } from "../i18n/format";
 import { dayKeys, dayTone } from "../lib/probes";
+import { followPublicLive } from "../lib/publicLive";
 import { formatPercent, incidentTones, isMaintenance, stateTones, uptimeOf } from "../lib/status";
 
 type Catalog = Record<string, string>;
@@ -40,15 +41,16 @@ export function StatusPage() {
     load().catch(() => setFailed(true));
   }, [load]);
 
-  useEffect(() => {
-    const source = new EventSource(eventsURL);
-    const reload = () => {
-      load().catch(() => setFailed(true));
-    };
-    source.addEventListener("status", reload);
-    source.addEventListener("reconnected", reload);
-    return () => source.close();
-  }, [load]);
+  useEffect(
+    () =>
+      followPublicLive(
+        () => new EventSource(eventsURL),
+        () => {
+          load().catch(() => setFailed(true));
+        },
+      ),
+    [load],
+  );
 
   const t = useMemo<Translate>(
     () => (key, ...args) => {
