@@ -8,7 +8,6 @@ import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyJobForm, jobFormOf, jobRequestOf, type JobFormValues } from "../lib/jobs";
@@ -105,7 +104,7 @@ export function JobForm() {
             </Field>
           </div>
           {isEditing && <Note tone="warn">{t("job.edit_note")}</Note>}
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || (isEditing && !filled)}>
               {isEditing ? t("job.save") : t("job.create")}

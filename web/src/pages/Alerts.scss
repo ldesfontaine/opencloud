@@ -27,6 +27,13 @@
     gap: 6px;
     margin-left: auto;
     white-space: nowrap;
+
+    // L'erreur d'acquittement passe à la ligne : sur téléphone, elle
+    // déborderait l'écran.
+    .note {
+      white-space: normal;
+      max-width: 360px;
+    }
   }
 
   .actions {
@@ -106,6 +113,11 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+
+  // La colonne se réduit au plus étroit : l'erreur y reste sur une ligne.
+  .note {
+    white-space: nowrap;
+  }
 }
 
 .channel-url {

@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey, segment } from "../api/client";
+import { api, ApiError, segment } from "../api/client";
 import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
@@ -11,11 +10,11 @@ import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, linksOfRefusal, projectNames, unitKeyOf } from "../lib/directory";
 import { gapsPath } from "../lib/gaps";
-import { useRefresh } from "../api/refresh";
 import { formatClock } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -222,17 +221,9 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
 // dit pourquoi par sa clé.
 function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const action = useAction();
   const review = () => {
-    setError(null);
-    setBusy(true);
-    api
-      .post(`/api/directory/services/${service.id}/actions/review`)
-      .then(() => refresh("directory"))
-      .catch((failed: unknown) => setError(errorKey(failed)))
-      .finally(() => setBusy(false));
+    action.run(() => api.post(`/api/directory/services/${service.id}/actions/review`), { topic: "directory" });
   };
   return (
     <Card>
@@ -244,9 +235,9 @@ function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
         ) : (
           <Note tone="warn">{t("directory.review_banner_completed")}</Note>
         )}
-        {error !== null && <Note tone="danger">{t(error)}</Note>}
+        <Failure error={action.error} />
         <span className="cluster">
-          <Button variant="primary" icon="check" onClick={review} disabled={busy}>
+          <Button variant="primary" icon="check" onClick={review} disabled={action.busy}>
             {t("directory.review")}
           </Button>
           <Button to={`/services/annuaire/${service.id}/modifier`}>{t("directory.edit")}</Button>
@@ -304,34 +295,20 @@ function LinkList({ label, objects, to }: { label: string; objects: LinkedObject
 function Actions({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
-  const [refused, setRefused] = useState<ServiceLinks | null>(null);
   const linked = hasLinks(service.links);
+  const action = useAction();
   const remove = () => {
-    if (!window.confirm(t("directory.delete_confirm", service.name))) {
-      return;
-    }
-    setError(null);
-    setRefused(null);
-    api
-      .delete(`/api/directory/services/${service.id}`)
-      .then(() => {
-        refresh("directory");
-        void navigate("/services");
-      })
-      .catch((failed: unknown) => {
-        const links = linksOfRefusal(failed);
-        if (links !== null) {
-          setRefused(links);
-          return;
-        }
-        setError(failed);
-      });
+    action.run(() => api.delete(`/api/directory/services/${service.id}`), {
+      confirm: t("directory.delete_confirm", service.name),
+      topic: "directory",
+      onDone: () => void navigate("/services"),
+    });
   };
+  // Le 409 porte la liste de ce qui vise le service : elle remplace le message.
+  const refused = linksOfRefusal(action.error);
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      {refused === null && <Failure error={action.error} />}
       {refused !== null && (
         <Note tone="danger">
           {t("directory.service_linked")} {[...refused.probes, ...refused.components].map((object) => object.name).join(", ")}

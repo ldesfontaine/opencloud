@@ -8,7 +8,6 @@ import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT, type Translate } from "../i18n/context";
 import {
@@ -265,7 +264,7 @@ export function DeclaredServiceForm() {
               </div>
             )}
           </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || waiting}>
               {isEditing ? t("directory.save") : t("directory.create")}

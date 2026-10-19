@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { api, ApiError, segment } from "../api/client";
@@ -12,11 +11,11 @@ import { Dot, ProbePill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { UptimeBar } from "../components/UptimeBar";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
-import { useRefresh } from "../api/refresh";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 import { NotFound } from "./NotFound";
@@ -235,34 +234,22 @@ function ResultRow({ result }: { result: ProbeResult }) {
 function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
 
-  const act = (action: "pause" | "resume") => {
-    api
-      .post(`/api/probes/${probe.id}/actions/${action}`)
-      .then(() => {
-        reload();
-        refresh();
-      })
-      .catch(setError);
+  const act = (name: "pause" | "resume") => {
+    action.run(() => api.post(`/api/probes/${probe.id}/actions/${name}`), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    if (!window.confirm(t("probe.delete_confirm", probe.name))) {
-      return;
-    }
-    api
-      .delete(`/api/probes/${probe.id}`)
-      .then(() => {
-        refresh();
-        void navigate("/domaines");
-      })
-      .catch(setError);
+    action.run(() => api.delete(`/api/probes/${probe.id}`), {
+      confirm: t("probe.delete_confirm", probe.name),
+      topic: "all",
+      onDone: () => void navigate("/domaines"),
+    });
   };
 
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Button icon="settings" to={`/domaines/${probe.id}/modifier`}>
         {t("probe.edit")}
       </Button>

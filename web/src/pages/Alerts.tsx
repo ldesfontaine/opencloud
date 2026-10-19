@@ -10,6 +10,7 @@ import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
 import { List, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
 import { acknowledgedMessage, coverage, groupByMachine, groupCountLabel, keepSelectable, selectableIDs, selectedLabel, toggleAll } from "../lib/alertSelection";
@@ -170,7 +171,7 @@ function SelectableAlerts({ alerts, notice: message, setNotice: setMessage }: { 
       {(message !== null || error !== null) && (
         <div className="alert-bulk-result" role="status">
           {message !== null && <Pill tone="ok">{message}</Pill>}
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
         </div>
       )}
       {groups.map((group) => {
@@ -273,7 +274,7 @@ export function AlertRow({
           <Pill tone={alertStateTones[state]}>{t(`alert.status_${state}`)}</Pill>
           <span className="secondary nowrap">{when(t, alert, now)}</span>
         </span>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         {!compact && state !== "resolved" && (
           <span className="actions">
             {state === "open" && (
@@ -344,17 +345,10 @@ function ChannelsTab() {
 function ChannelRow({ channel }: { channel: Channel }) {
   const t = useT();
   const [test, setTest] = useState<ChannelTest | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const runTest = () => {
-    setBusy(true);
+  const action = useAction();
+  const startTest = () => {
     setTest(null);
-    setError(null);
-    api
-      .post<ChannelTest>(`/api/alerts/channels/${channel.id}/actions/test`)
-      .then(setTest)
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+    action.run(() => api.post<ChannelTest>(`/api/alerts/channels/${channel.id}/actions/test`), { onDone: setTest });
   };
   return (
     <tr>
@@ -375,8 +369,8 @@ function ChannelRow({ channel }: { channel: Channel }) {
       <td className="td-end">
         <span className="channel-test">
           {test !== null && <Pill tone={test.ok ? "ok" : "danger"}>{channelTestResult(t, test)}</Pill>}
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
-          <Button small icon="refresh" onClick={runTest} disabled={busy}>
+          <Failure error={action.error} />
+          <Button small icon="refresh" onClick={startTest} disabled={action.busy}>
             {t("channel.test")}
           </Button>
         </span>

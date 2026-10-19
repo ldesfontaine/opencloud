@@ -8,7 +8,6 @@ import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyProbeForm, probeFormOf, probeRequestOf, type ProbeFormValues } from "../lib/probes";
@@ -233,7 +232,7 @@ export function ProbeForm() {
             </Field>
           )}
           {isEditing && <Note tone="warn">{t("probe.edit_reset_note")}</Note>}
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || (isEditing && !filled)}>
               {isEditing ? t("probe.save") : t("probe.create")}

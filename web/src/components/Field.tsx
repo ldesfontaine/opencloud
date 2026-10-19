@@ -1,21 +1,18 @@
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 import { Icon, type IconName } from "./Icon";
-import { Pill } from "./Pill";
 import "./Field.scss";
 
-// Un champ : étiquette, contrôle, aide, et le refus du serveur en pastille.
+// Un champ : étiquette, contrôle, aide.
 export function Field({
   label,
   htmlFor,
   help,
-  error,
   children,
 }: {
   label: string;
   htmlFor?: string;
   help?: string;
-  error?: string;
   children: ReactNode;
 }) {
   return (
@@ -27,7 +24,6 @@ export function Field({
       )}
       {children}
       {help !== undefined && <span className="field-help">{help}</span>}
-      {error !== undefined && <Pill tone="danger">{error}</Pill>}
     </div>
   );
 }

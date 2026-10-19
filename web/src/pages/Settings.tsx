@@ -22,6 +22,7 @@ import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
+import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
@@ -163,7 +164,7 @@ function AccessSection({ state }: { state: AuthState }) {
             </Select>
           </Field>
         )}
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
       </CardBody>
       {state.mode === "basic" && (
         <CredentialsForm
@@ -253,7 +254,7 @@ function CredentialsForm({
         <Input id="auth-confirm" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" required />
       </Field>
       <p className="secondary">{t("auth.browser_prompt")}</p>
-      {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+      <Failure error={error} />
       <div className="cluster">
         <Button type="submit" variant="primary" icon={withUsername ? "shield" : "check"} disabled={busy}>
           {t(withUsername ? "auth.enable" : "auth.change")}
@@ -311,7 +312,7 @@ function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () 
         </Field>
         <p className="secondary">{t("settings.disk_recovery", settings.recovery)}</p>
         <p className="secondary">{t("settings.disk_applies")}</p>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy}>
             {t("settings.disk_save")}
@@ -351,7 +352,7 @@ function LifecycleSection({ settings, reload }: { settings: LifecycleSettings; r
       <CardBody>
         <p>{t("lifecycle.settings_intro")}</p>
         <p className="secondary">{t("lifecycle.settings_cost", settings.source)}</p>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         {settings.enabled ? (
           <div className="cluster">
             <span className="secondary">{readingText(t, settings, now)}</span>
@@ -412,7 +413,7 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
           <p>{t("mcp.intro")}</p>
           <p className="secondary">{t("mcp.tools", state.tools.reads, state.tools.writes)}</p>
           <p className="secondary">{t("mcp.never")}</p>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           {!state.enabled && (
             <>
               <p className="secondary">{t("mcp.enable_text")}</p>
@@ -524,7 +525,7 @@ function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }
         <Field label={t("mcp.redirect_label")} htmlFor="mcp-redirects" help={t("mcp.redirect_help")}>
           <textarea id="mcp-redirects" className="input textarea mono" value={text} onChange={(event) => setText(event.target.value)} rows={3} />
         </Field>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy}>
             {t("mcp.save")}
@@ -574,23 +575,23 @@ function Tokens({
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));
   };
+  const revoking = useAction();
   const revoke = (token: MCPToken) => {
-    if (!window.confirm(t("mcp.revoke_confirm", token.name))) {
-      return;
-    }
-    if (created?.item.id === token.id) {
-      setCreated(null);
-    }
-    api
-      .delete(`/api/mcp/tokens/${token.id}`)
-      .then(reload)
-      .catch((failure: unknown) => setError(errorKey(failure)));
+    const perform = () => {
+      // Une fois confirmé, le jeton montré une seule fois ne se montre plus.
+      if (created?.item.id === token.id) {
+        setCreated(null);
+      }
+      return api.delete(`/api/mcp/tokens/${token.id}`);
+    };
+    revoking.run(perform, { confirm: t("mcp.revoke_confirm", token.name), onDone: reload });
   };
   return (
     <Card className="form-card-wide">
       <CardHeader title={t("mcp.tokens_title")} />
       <CardBody>
         <p className="secondary">{t("mcp.tokens_text")}</p>
+        <Failure error={revoking.error} />
       </CardBody>
       {created !== null && (
         <CardBody>
@@ -662,7 +663,7 @@ function Tokens({
               ))}
             </Select>
           </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon="plus" disabled={busy}>
               {t("mcp.create_token")}
@@ -676,22 +677,16 @@ function Tokens({
 
 function Sessions({ sessions, reload, now }: { sessions: MCPSession[]; reload: () => void; now: number }) {
   const t = useT();
-  const [error, setError] = useState<string | null>(null);
+  const action = useAction();
   const revoke = (session: MCPSession) => {
-    if (!window.confirm(t("mcp.session_revoke_confirm"))) {
-      return;
-    }
-    api
-      .delete(`/api/mcp/sessions/${session.id}`)
-      .then(reload)
-      .catch((failure: unknown) => setError(errorKey(failure)));
+    action.run(() => api.delete(`/api/mcp/sessions/${session.id}`), { confirm: t("mcp.session_revoke_confirm"), onDone: reload });
   };
   return (
     <Card className="form-card">
       <CardHeader title={t("mcp.sessions_title")} />
       <CardBody>
         <p className="secondary">{t("mcp.sessions_text")}</p>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={action.error} />
       </CardBody>
       {sessions.length === 0 ? (
         <Empty text={t("mcp.sessions_empty")} />

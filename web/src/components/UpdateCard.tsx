@@ -4,10 +4,10 @@ import { Link } from "react-router";
 
 import { api } from "../api/client";
 import type { ContainerDirectory, Container, UpdatePolicy } from "../api/types";
+import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
-import { useRefresh } from "../api/refresh";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
 import { Button } from "./Button";
@@ -36,43 +36,28 @@ const policies: readonly UpdatePolicy[] = ["watch", "hold", "ignore"];
 export function UpdateCard({ container, directory, reload }: { container: Container; directory: ContainerDirectory | null; reload: () => void }) {
   const { t } = useI18n();
   const now = useNow();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
-  const [checking, setChecking] = useState<"idle" | "asking" | "asked">("idle");
+  const action = useAction();
+  const [asked, setAsked] = useState(false);
   const check = container.image_check;
   const available = updateAvailable(container);
   const lineChange = check !== null ? imageLineChange(container, check) : null;
 
   const unitID = directory !== null && directory.declared ? directory.unit_id : "";
   const setPolicy = (policy: UpdatePolicy) => {
-    setError(null);
-    api
-      .put(`/api/directory/units/${unitID}/update-policy`, { policy })
-      .then(() => {
-        reload();
-        refresh();
-      })
-      .catch(setError);
+    action.run(() => api.put(`/api/directory/units/${unitID}/update-policy`, { policy }), { topic: "all", onDone: reload });
   };
   // La machine vérifie à son rythme : la carte dit que la demande est
   // partie, le constat se relit seul quand l'agent a répondu.
   const checkNow = () => {
-    setError(null);
-    setChecking("asking");
-    api
-      .post(`/api/machines/${container.machine_id}/actions/check-updates`)
-      .then(() => setChecking("asked"))
-      .catch((failure: unknown) => {
-        setError(failure);
-        setChecking("idle");
-      });
+    setAsked(false);
+    action.run(() => api.post(`/api/machines/${container.machine_id}/actions/check-updates`), { onDone: () => setAsked(true) });
   };
 
   return (
     <Card>
       <CardHeader title={t("update.title")} aside={check !== null ? t("update.checked_ago", ago(t, check.checked_at, now)) : undefined} />
       <CardBody gap={12}>
-        {error !== null && <Failure error={error} />}
+        <Failure error={action.error} />
         <div className="update-state">
           {container.update_policy !== "watch" && <Pill tone="neutral">{t(`update.policy_${container.update_policy}`)}</Pill>}
           {available && check !== null && <Pill tone="accent">{t(`update.kind_${check.kind}`)}</Pill>}
@@ -101,10 +86,10 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
           </div>
         )}
         <div className="update-actions">
-          <Button small icon="refresh" onClick={checkNow} disabled={checking === "asking"}>
+          <Button small icon="refresh" onClick={checkNow} disabled={action.busy}>
             {t("update.check_now")}
           </Button>
-          {checking === "asked" && <span className="secondary">{t("update.check_asked")}</span>}
+          {asked && <span className="secondary">{t("update.check_asked")}</span>}
         </div>
         <Fold label={t("update.details")} initiallyOpen={container.update_policy !== "watch"}>
           {check !== null && check.local_digest !== "" && (

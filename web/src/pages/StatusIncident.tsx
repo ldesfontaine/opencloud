@@ -10,6 +10,7 @@ import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
@@ -39,20 +40,16 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const navigate = useNavigate();
   const { refresh } = useRefresh();
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState<unknown>(null);
   const resolved = incident.status === "resolved";
 
+  const action = useAction();
+
   const remove = () => {
-    if (!window.confirm(t("incident.delete_confirm", incident.title))) {
-      return;
-    }
-    api
-      .delete(`/api/status/incidents/${incident.id}`)
-      .then(() => {
-        refresh("status");
-        void navigate("/page-statut/incidents");
-      })
-      .catch(setError);
+    action.run(() => api.delete(`/api/status/incidents/${incident.id}`), {
+      confirm: t("incident.delete_confirm", incident.title),
+      topic: "status",
+      onDone: () => void navigate("/page-statut/incidents"),
+    });
   };
 
   return (
@@ -72,7 +69,7 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
           </>
         }
       />
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">
@@ -192,7 +189,7 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
         <Field label={t("incident.message_label")} htmlFor="update-message" help={t("incident.update_help")}>
           <textarea id="update-message" className="input textarea" value={message} onChange={(event) => setMessage(event.target.value)} maxLength={2000} rows={3} />
         </Field>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy || saysNothing}>
             {status === "resolved" ? t("incident.resolve") : t("incident.update_button")}
@@ -261,7 +258,7 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
             ))}
           </div>
         </Field>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy || selected.length === 0}>
             {t("incident.save")}

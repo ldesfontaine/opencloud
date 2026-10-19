@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api, ApiError } from "../api/client";
+import { api, ApiError, failureOf } from "../api/client";
 import { useRefresh } from "../api/refresh";
 
 export interface Resource<T> {
@@ -27,7 +27,7 @@ export function resolvePath(source: ResourcePath): { path: string | null; failur
   try {
     return { path: source(), failure: null };
   } catch (error) {
-    return { path: null, failure: error instanceof ApiError ? error : new ApiError(0, "internal") };
+    return { path: null, failure: failureOf(error) };
   }
 }
 
@@ -54,8 +54,7 @@ export function useResource<T>(source: ResourcePath): Resource<T> {
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          const failed = error instanceof ApiError ? error : new ApiError(0, "internal");
-          setState((current) => ({ data: current.data, error: failed }));
+          setState((current) => ({ data: current.data, error: failureOf(error) }));
         }
       });
     return () => {

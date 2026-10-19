@@ -5,9 +5,9 @@ import { api, errorKey } from "../api/client";
 import type { Impact, Incident, IncidentStatus, StatusComponentsResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
+import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
@@ -126,7 +126,7 @@ export function StatusIncidentNew() {
               </div>
             )}
           </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon="plus" disabled={busy || selected.length === 0}>
               {kind === "maintenance" ? t("incident.schedule") : t("incident.open")}

@@ -4,6 +4,7 @@ import { api, errorKey } from "../api/client";
 import type { ChannelTest, MailSettings, MailTLSMode } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardHeader, Note } from "../components/Card";
+import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { Pill } from "../components/Pill";
 import { useT } from "../i18n/context";
@@ -119,7 +120,7 @@ export function MailSection({ settings, reload }: { settings: MailSettings; relo
         <Field label={t("settings.mail_from_label")} htmlFor="mail-from" help={t("settings.mail_from_help")}>
           <Input id="mail-from" mono type="email" value={from} onChange={(event) => setFrom(event.target.value)} maxLength={254} autoComplete="off" />
         </Field>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy}>
             {t("settings.mail_save")}

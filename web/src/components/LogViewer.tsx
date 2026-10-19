@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError } from "../api/client";
+import { api, ApiError, failureOf } from "../api/client";
 import type { LogLine, LogsResponse } from "../api/types";
 import { useT } from "../i18n/context";
 import { formatClock } from "../lib/time";
@@ -28,7 +28,7 @@ export function LogViewer({ containerID }: { containerID: string }) {
   const t = useT();
   const [lines, setLines] = useState<Shown[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [following, setFollowing] = useState(true);
   const nextKey = useRef(1);
   const stickToBottom = useRef(true);
@@ -50,7 +50,7 @@ export function LogViewer({ containerID }: { containerID: string }) {
         setStatus("fallback");
       })
       .catch((failure: unknown) => {
-        setError(failure instanceof ApiError ? failure : new ApiError(0, "internal"));
+        setError(failureOf(failure));
         setStatus("error");
       });
   }, [containerID]);

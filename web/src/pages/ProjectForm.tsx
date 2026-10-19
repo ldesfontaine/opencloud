@@ -8,7 +8,6 @@ import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT, type Translate } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
@@ -100,7 +99,7 @@ export function ProjectForm() {
           <Field label={t("project.title_label")} htmlFor="project-title" help={t("project.title_help")}>
             <Input id="project-title" type="text" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} autoComplete="off" />
           </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || (isEditing && !filled)}>
               {isEditing ? t("project.save") : t("project.create")}

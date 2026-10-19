@@ -14,10 +14,10 @@ import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
-import { useRefresh } from "../api/refresh";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -166,18 +166,12 @@ function Pings({ pings }: { pings: Ping[] }) {
 // confirmation : l'ancienne URL cesse aussitôt de répondre.
 function Installation({ response, reload, initiallyOpen }: { response: JobResponse; reload: () => void; initiallyOpen: boolean }) {
   const t = useT();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
   const regenerate = () => {
-    if (!window.confirm(t("job.regenerate_confirm", response.job.name))) {
-      return;
-    }
-    api
-      .post(`/api/jobs/${response.job.id}/actions/regenerate-token`)
-      .then(() => {
-        setError(null);
-        reload();
-      })
-      .catch(setError);
+    action.run(() => api.post(`/api/jobs/${response.job.id}/actions/regenerate-token`), {
+      confirm: t("job.regenerate_confirm", response.job.name),
+      onDone: reload,
+    });
   };
   return (
     <Disclosure title={t("job.install_title")} aside={t("job.install_text")} initiallyOpen={initiallyOpen}>
@@ -185,7 +179,7 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
         <FoldSection title={t("job.ping_url_title")} text={t("job.ping_url_text")}>
           <TokenBox value={response.ping_url} />
           {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
-          {error !== null && <Failure error={error} />}
+          <Failure error={action.error} />
           <div className="cluster">
             <Button variant="ghost" icon="refresh" onClick={regenerate}>
               {t("job.regenerate")}
@@ -253,34 +247,22 @@ function RunRow({ run, now }: { run: Run; now: number }) {
 function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
 
-  const act = (action: "pause" | "resume") => {
-    api
-      .post(`/api/jobs/${job.id}/actions/${action}`)
-      .then(() => {
-        reload();
-        refresh();
-      })
-      .catch(setError);
+  const act = (name: "pause" | "resume") => {
+    action.run(() => api.post(`/api/jobs/${job.id}/actions/${name}`), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    if (!window.confirm(t("job.delete_confirm", job.name))) {
-      return;
-    }
-    api
-      .delete(`/api/jobs/${job.id}`)
-      .then(() => {
-        refresh();
-        void navigate("/taches");
-      })
-      .catch(setError);
+    action.run(() => api.delete(`/api/jobs/${job.id}`), {
+      confirm: t("job.delete_confirm", job.name),
+      topic: "all",
+      onDone: () => void navigate("/taches"),
+    });
   };
 
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Button icon="settings" to={`/taches/${job.id}/modifier`}>
         {t("job.edit")}
       </Button>

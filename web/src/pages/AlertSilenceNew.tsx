@@ -6,9 +6,9 @@ import type { AlertKind, AlertObjectKind, JobsResponse, MachinesResponse, Probes
 import { alertKinds } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { silenceDurations } from "../lib/alerts";
@@ -128,7 +128,7 @@ export function AlertSilenceNew() {
               <Input id="silence-reason" type="text" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={200} autoComplete="off" />
             </Field>
           </div>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon="pause" disabled={busy || (kind === "" && objectID === "")}>
               {t("silence.create")}

@@ -175,7 +175,7 @@ export function AlertChannelForm() {
               {t("channel.enabled_label")}
             </label>
           </div>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           {test !== null && <Pill tone={test.ok ? "ok" : "danger"}>{channelTestResult(t, test)}</Pill>}
           <div className="cluster">
             <Button type="submit" variant="primary" icon={id === undefined ? "plus" : "check"} disabled={busy}>

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, NavLink, useParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, type ApiError } from "../api/client";
 import type { Incident, IncidentsResponse, StatusComponent, StatusComponentsResponse, StatusPageSettings, StatusState } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
@@ -82,7 +82,7 @@ export function StatusAdmin() {
   );
 }
 
-function ComponentsTab({ response, error }: { response: StatusComponentsResponse | null; error: unknown }) {
+function ComponentsTab({ response, error }: { response: StatusComponentsResponse | null; error: ApiError | null }) {
   const t = useT();
   if (error) {
     return <Failure error={error} />;
@@ -281,7 +281,7 @@ function SettingsTab() {
             ))}
           </Select>
         </Field>
-        {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+        <Failure error={error} />
         <div className="cluster">
           <Button type="submit" variant="primary" icon="check" disabled={busy}>
             {t("statuspage.save")}

@@ -74,6 +74,12 @@ export const api = {
   delete: <T>(path: string) => call<T>("DELETE", path),
 };
 
+// Ce qui n'est pas un refus du serveur (réseau coupé, levée imprévue) se
+// dit comme une erreur interne.
+export function failureOf(error: unknown): ApiError {
+  return error instanceof ApiError ? error : new ApiError(0, "internal");
+}
+
 // La clé à afficher pour une erreur : celle du serveur si c'est un refus,
 // sinon le message générique.
 export function errorKey(error: unknown): string {

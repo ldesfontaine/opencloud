@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "../api/client";
@@ -10,9 +9,9 @@ import { PageHead } from "../components/PageHead";
 import { Dot, Pill, StatePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../api/refresh";
 import { machinesSubtitle } from "../lib/machines";
 import { formatRemaining, seenAgo } from "../lib/time";
 
@@ -91,21 +90,14 @@ export function Machines() {
 // Les jetons émis dont la commande n'a pas encore été jouée.
 function Pending({ tokens, now, onChange }: { tokens: PendingToken[]; now: number; onChange: () => void }) {
   const t = useT();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
   const cancel = (id: string) => {
-    api
-      .delete(`/api/machines/tokens/${id}`)
-      .then(() => {
-        onChange();
-        refresh();
-      })
-      .catch(setError);
+    action.run(() => api.delete(`/api/machines/tokens/${id}`), { topic: "all", onDone: onChange });
   };
   return (
     <Card>
       <CardHeader title={t("machines.pending_title")} aside={t("machines.pending_text")} />
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <List>
         {tokens.map((token) => (
           <div className="row" key={token.id}>

@@ -17,10 +17,10 @@ import { SupportBlock } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
+import { useAction } from "../hooks/useAction";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
-import { useRefresh } from "../api/refresh";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { seenAgo } from "../lib/time";
 import { NotFound } from "./NotFound";
@@ -209,34 +209,25 @@ function MachineLogs({ machineID }: { machineID: string }) {
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
 
   const reenroll = () => {
-    api
-      .post<TokenResponse>(`/api/machines/${machine.id}/actions/reenroll`)
-      .then((token) => {
-        refresh();
-        void navigate("/machines/jeton", { state: token });
-      })
-      .catch(setError);
+    action.run(() => api.post<TokenResponse>(`/api/machines/${machine.id}/actions/reenroll`), {
+      topic: "all",
+      onDone: (token) => void navigate("/machines/jeton", { state: token }),
+    });
   };
   const remove = () => {
-    if (!window.confirm(t("machine.remove_confirm", machine.name))) {
-      return;
-    }
-    api
-      .delete(`/api/machines/${machine.id}`)
-      .then(() => {
-        refresh();
-        void navigate("/machines");
-      })
-      .catch(setError);
+    action.run(() => api.delete(`/api/machines/${machine.id}`), {
+      confirm: t("machine.remove_confirm", machine.name),
+      topic: "all",
+      onDone: () => void navigate("/machines"),
+    });
   };
 
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Button icon="refresh" onClick={reenroll}>
         {t("machine.reenroll")}
       </Button>

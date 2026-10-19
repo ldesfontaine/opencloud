@@ -169,7 +169,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
               </Button>
             </div>
           </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
+          <Failure error={error} />
           <div className="cluster">
             <Button type="submit" variant="primary" icon={existing ? "check" : "plus"} disabled={busy}>
               {existing ? t("component.save") : t("component.create")}
