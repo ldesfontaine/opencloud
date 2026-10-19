@@ -38,6 +38,12 @@ func TestExplain_SpeaksTheOperatorLanguageAndTellsRefusalsApart(t *testing.T) {
 	if refused || message == "" || message == "dial tcp: connection refused" {
 		t.Fatalf("plain error: %q %v", message, refused)
 	}
+	if _, refused := Explain(&ServerError{Status: 401, Code: codeChallengeExpired}, french); refused {
+		t.Fatal("an expired challenge is asked again, not a refusal")
+	}
+	if _, refused := Explain(&ServerError{Status: 401, Code: codeBadProof}, french); !refused {
+		t.Fatal("a bad proof is a refusal")
+	}
 	if _, refused := Explain(&ServerError{Status: 500, Code: "internal"}, french); refused {
 		t.Fatal("a server failure is not a refusal")
 	}

@@ -84,7 +84,7 @@ var (
 	ErrTokenExpired  = errors.New("enrollment token expired")
 	ErrBadKey        = errors.New("public key must be 32 bytes")
 	ErrBadID         = errors.New("machine id must be a uuid")
-	ErrBadNonce      = errors.New("unknown or expired nonce")
+	ErrBadNonce      = errors.New("challenge unknown, expired or already used")
 	ErrClockSkew     = errors.New("clock skew exceeds the tolerance")
 	ErrBadSignature  = errors.New("invalid signature")
 	ErrNotConnected  = errors.New("machine not connected")

@@ -227,6 +227,92 @@ func TestAuthenticate_RefusesSkewWrongKeyAndForeignNonce(t *testing.T) {
 	}
 }
 
+// signedBy signe un défi déjà émis, comme le fait l'agent entre le défi et
+// l'ouverture du flux.
+func signedBy(t *testing.T, m Machine, private ed25519.PrivateKey, challenge []byte, at time.Time) Proof {
+	t.Helper()
+	payload, err := SignedPayload(challenge, m.ID, at.Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Proof{MachineID: m.ID, Nonce: challenge, Timestamp: at.Unix(), Signature: Sign(private, payload)}
+}
+
+// Le scénario de l'audit : des défis anonymes pour la même machine, entre
+// le défi de l'agent et son flux, ne lui prennent rien.
+func TestAuthenticate_AnonymousChallengesDoNotEvictTheAgentsOwn(t *testing.T) {
+	h := newHarness(t)
+	m, private := h.enroll(t, "vps-paris-1")
+	agents, err := h.service.Challenge(context.Background(), m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 8 {
+		if _, err := h.service.Challenge(context.Background(), m.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, agents, h.now)); err != nil {
+		t.Fatalf("the agent's challenge was displaced: %v", err)
+	}
+}
+
+func TestAuthenticate_RefusesAnExpiredChallenge(t *testing.T) {
+	h := newHarness(t)
+	m, private := h.enroll(t, "vps-paris-1")
+	challenge, _ := h.service.Challenge(context.Background(), m.ID)
+	h.now = h.now.Add(challengeLifetime + time.Second)
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
+		t.Fatalf("expired challenge: %v", err)
+	}
+}
+
+func TestAuthenticate_RefusesAnAlteredChallenge(t *testing.T) {
+	h := newHarness(t)
+	m, private := h.enroll(t, "vps-paris-1")
+	challenge, _ := h.service.Challenge(context.Background(), m.ID)
+	challenge[NonceSize-1] ^= 0x01
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
+		t.Fatalf("altered challenge: %v", err)
+	}
+}
+
+// Un défi émis avant le redémarrage du serveur n'est plus reconnu : l'agent
+// doit lire un défi à redemander, pas un refus d'identité.
+func TestAuthenticate_RefusesAChallengeIssuedBeforeARestart(t *testing.T) {
+	h := newHarness(t)
+	m, private := h.enroll(t, "vps-paris-1")
+	challenge, _ := h.service.Challenge(context.Background(), m.ID)
+
+	restarted := New(h.store, NewSessions(), slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	restarted.SetClock(func() time.Time { return h.now })
+	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
+		t.Fatalf("challenge from before the restart: %v", err)
+	}
+	fresh, _ := restarted.Challenge(context.Background(), m.ID)
+	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, fresh, h.now)); err != nil {
+		t.Fatalf("a fresh challenge after the restart: %v", err)
+	}
+}
+
+// Qui n'a pas la clé ne brûle pas le défi d'un autre : le défi n'est
+// marqué utilisé qu'une fois la signature vérifiée.
+func TestAuthenticate_AWrongSignatureDoesNotBurnTheChallenge(t *testing.T) {
+	h := newHarness(t)
+	m, private := h.enroll(t, "vps-paris-1")
+	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
+	challenge, _ := h.service.Challenge(context.Background(), m.ID)
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, wrong, challenge, h.now)); !errors.Is(err, ErrBadSignature) {
+		t.Fatalf("wrong key: %v", err)
+	}
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); err != nil {
+		t.Fatalf("the agent's proof after a forged one: %v", err)
+	}
+	if got := h.service.challenges.size(); got != 1 {
+		t.Fatalf("%d used challenges, want only the successful one", got)
+	}
+}
+
 func TestLocalMachine_IsAlwaysOnlineAndNeverRemovedNorAuthenticated(t *testing.T) {
 	h := newHarness(t)
 	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc", OS: "Debian 12", Version: "v0.0.1"}); err != nil {

@@ -191,7 +191,11 @@ func (s *Server) writeAuthError(w http.ResponseWriter, err error) {
 		s.writeAgentError(w, http.StatusNotFound, "machine_not_found")
 	case errors.Is(err, machine.ErrClockSkew):
 		s.writeAgentError(w, http.StatusUnauthorized, "clock_skew")
-	case errors.Is(err, machine.ErrBadNonce), errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
+	// Un défi expiré, déjà utilisé ou perdu au redémarrage n'est pas un refus
+	// d'identité : l'agent en redemande un. Seul bad_proof l'arrête.
+	case errors.Is(err, machine.ErrBadNonce):
+		s.writeAgentError(w, http.StatusUnauthorized, "challenge_expired")
+	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
 		s.writeAgentError(w, http.StatusUnauthorized, "bad_proof")
 	default:
 		s.logger.Error("authenticate", "error", err)
