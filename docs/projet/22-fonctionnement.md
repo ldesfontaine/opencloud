@@ -72,7 +72,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
-| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, quand l'authentification est activée sous Paramètres (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut) que d'un pair de `trusted_proxies`, et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Mode `none` par défaut : personne, une ligne `WARN` au démarrage et une bannière dans l'interface le rappellent. Le front charge la page, puis parle à `/api/…` en JSON |
+| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, quand l'authentification est activée sous Paramètres (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut) que d'un pair de `trusted_proxies` qui porte aussi le secret partagé (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Mode `none` par défaut : personne, une ligne `WARN` au démarrage et une bannière dans l'interface le rappellent. Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` et sur `/oauth/authorize` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée, comme l'interface ; personne en mode `none`. Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
@@ -1775,21 +1775,54 @@ requête : `none` (par défaut), `basic` et `forward`.
   (Authelia en `forwardAuth` de Traefik) et lui transmet l'identité dans
   un en-tête, `Remote-User` par défaut (lettres, chiffres et `-`, 64
   caractères au plus). Passe seulement une requête venue d'un pair de
-  `trusted_proxies` **et** qui porte cet en-tête non vide ; tout le reste
+  `trusted_proxies`, **qui prouve être passée par le mandataire** (voir
+  ci-dessous) **et** qui porte cet en-tête non vide ; tout le reste
   répond `401`, sans `WWW-Authenticate` : pas de fenêtre Basic, pas de
   double connexion. Hors `/api/`, le corps dit en une ligne de passer par
   le mandataire, et que `opencloud auth disable -config …` rouvre l'accès.
   L'identité voyage dans le contexte de la requête jusqu'à `/api/auth`, et
   la barre latérale dit « Accès protégé · mandataire · identité ». Tout
-  repose sur deux réglages du déploiement : `trusted_proxies` limité à
-  l'adresse du mandataire seul, et un mandataire qui écrase l'en-tête
-  envoyé par le client (Traefik `authResponseHeaders`). openCloud en
-  rattrape une part : un préfixe de `trusted_proxies` plus large qu'une
-  adresse fait un `WARN` au démarrage, et un en-tête d'identité présent
-  plusieurs fois (le mandataire a ajouté au lieu d'écraser) répond `401`.
-  Un voisin qui joint le port en direct, ou un mandataire qui laisse
-  passer l'en-tête du client seul, ouvre tout. Un mode inconnu trouvé dans la base ferme encore
+  repose sur trois réglages du déploiement : `trusted_proxies` limité à
+  l'adresse du mandataire seul, un mandataire qui écrase l'en-tête
+  envoyé par le client (Traefik `authResponseHeaders`), et le secret
+  partagé. openCloud en rattrape une part : un préfixe de `trusted_proxies`
+  plus large qu'une adresse fait un `WARN` au démarrage, et un en-tête
+  d'identité présent plusieurs fois (le mandataire a ajouté au lieu
+  d'écraser) répond `401`. Un mandataire qui laisse passer l'en-tête du
+  client seul ouvre tout. Un mode inconnu trouvé dans la base ferme encore
   l'interface en `503`.
+
+  **Le secret du mandataire.** Une adresse de `trusted_proxies` ne prouve pas
+  que la requête vient du mandataire : en mode host, `127.0.0.1/32` est
+  l'adresse de tous les processus de la machine, et l'un d'eux qui joint le
+  port en direct écrirait `Remote-User` et serait l'opérateur. La clé
+  `forward_secret_file` désigne un fichier d'une ligne (32 caractères au
+  moins, ASCII visible), lu au démarrage par `internal/proxysecret` : un
+  fichier illisible, trop court, de plus d'une ligne ou lisible par les
+  autres comptes (`mode & 0007`, le groupe peut lire : `0640 root:opencloud`)
+  arrête `serve`, et le secret n'est jamais journalisé. Le mandataire le pose
+  dans l'en-tête `X-OpenCloud-Proxy-Secret` (`brand.ProxySecretHeader` ;
+  Traefik : `headers.customRequestHeaders`, qui remplace la valeur du
+  client). `checkForward` et `trustedIdentity` exigent **exactement une
+  valeur** égale au secret, comparée en temps constant sur des empreintes
+  SHA-256 pour ne rien dire de sa longueur, **en plus** du pair de confiance ;
+  sinon `401`, et un `WARN` qui ne cite pas la valeur reçue. L'en-tête est
+  retiré de la requête avant les gestionnaires. Sans secret configuré :
+  - si un préfixe de `trusted_proxies` couvre la boucle locale (`127.0.0.0/8`
+    ou `::1`, `TrustsLoopback`), l'activation du mode `forward` est refusée
+    (`422 auth.forward_secret_required`) ;
+  - si le mode `forward` est **déjà** actif dans la base (installation
+    d'avant), l'accès est gardé, mais `serve` écrit un `WARN` à chaque
+    démarrage (la configuration seule ne connaît pas le mode, il est dans la
+    base : l'avertissement est dans `runServe`, pas dans `wideProxyWarnings`)
+    et `GET /api/auth` ajoute `forward_insecure: true`, que la carte
+    « Accès à l'interface » de Paramètres montre en avertissement ;
+  - un pair qui n'est pas la boucle locale (Traefik en conteneur, en `/32`)
+    garde le comportement d'avant : cru sur son adresse. Le secret reste
+    recommandé.
+  Le secret protège de ce qui joint le port sans passer par le mandataire ;
+  il ne protège pas d'un compte qui lit `forward_secret_file` ou la
+  configuration de Traefik.
 
 Gardé : le front, tout `/api/…`, `/api/events`, les flux de journaux et
 `/oauth/authorize`, où l'opérateur consent pour un agent IA. Ouverts,
@@ -1810,15 +1843,19 @@ adresse (celle que `trusted_proxies` résout) : rafale de 10, puis un essai
 toutes les 6 s, `429` au-delà ; des identifiants retenus ne comptent pas.
 
 L'API : `GET /api/auth` (mode, identifiant — en `forward`, l'identité de
-la requête —, en-tête en `forward`, date d'activation, longueur minimale ;
+la requête —, en-tête en `forward`, `forward_insecure` quand le mode
+`forward` n'a pas de secret sur une boucle locale de confiance, date
+d'activation, longueur minimale ;
 jamais l'empreinte), `POST /api/auth/actions/enable`
 `{username,password}` ou `{mode:"forward",header}`,
 `POST /api/auth/actions/disable`, `PUT /api/auth/password` `{password}`
 (`409 auth.no_password` en `forward`) ; refus en clés `auth.*`. **Garde-fou
 du mode `forward`** : l'activation est refusée (`422
 auth.forward_header_missing`) si la requête qui active ne porte pas déjà
-l'en-tête, non vide, depuis un pair de confiance ; on ne peut donc pas
-s'enfermer dehors depuis l'interface. Mot de passe perdu ou mandataire en
+l'en-tête, non vide, depuis un pair de confiance, et le secret s'il est
+configuré ; on ne peut donc pas s'enfermer dehors depuis l'interface. Elle
+l'est aussi (`422 auth.forward_secret_required`) tant que le secret manque
+et que la boucle locale est de confiance. Mot de passe perdu ou mandataire en
 panne : `opencloud auth disable -config …` sous le compte du service, que
 `serve` suit à la requête suivante sans redémarrer ; `opencloud auth
 status` dit le mode et l'identifiant, ou l'en-tête en `forward`.
@@ -2193,7 +2230,7 @@ refusés avant d'envoyer quoi que ce soit.
 | 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `containers` (ex-`services`), la purge, la route `POST /api/machines/{id}/actions/check-updates` (`PUT /api/services/{id}/update-policy` a été remplacée par `PUT /api/directory/units/{id}/update-policy`), le champ `image_check` des conteneurs et `containers.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |
 | 14 · MCP | Le paquet `internal/mcp` et la migration `011_mcp.sql` (`mcp_clients`, `mcp_codes`, `mcp_tokens`), le serveur MCP et ses 25 outils dans `internal/server` (`mcp.go`, `mcp_tools_read.go`, `mcp_tools_write.go`), les routes `/mcp`, `/oauth/authorize`, `/oauth/token`, les deux `/.well-known/oauth-*`, l'API `/api/mcp…`, la purge toutes les 15 minutes, la sous-commande `opencloud mcp`, la page Paramètres (activer, secret montré une fois, adresses de retour, jetons d'API, sessions, commande du client local), la dépendance `github.com/modelcontextprotocol/go-sdk`, les goldens `mcp_*.golden.json` |
-| Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres |
+| Authentification de l'interface | Le paquet `internal/auth` et la migration `012_auth.sql` (`auth_settings`), le middleware `internal/server/auth.go`, l'API `/api/auth…`, la sous-commande `opencloud auth status` et `disable`, l'avertissement au démarrage, la carte « Accès à l'interface » de Paramètres, la bannière et la ligne d'accès de la barre latérale, le golden `auth.golden.json`. Puis le mode `forward` : la migration `018_auth_forward.sql` (`forward_header`), `EnableForward` et `ValidateHeader`, `checkForward` et l'identité dans le contexte de la requête, le garde-fou d'activation, le choix du mode dans la carte de Paramètres. Puis la preuve du mandataire : le paquet `internal/proxysecret` et la clé `forward_secret_file`, `brand.ProxySecretHeader`, `TrustsLoopback`, `forward_insecure` dans `GET /api/auth` et l'avertissement de la carte |
 | Canal e-mail | Le paquet `internal/mail` (relais, message RFC 5322, dialogue SMTP par `net/smtp`, faux relais `internal/mail/smtptest`), le format `email` et la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), les motifs `mail_not_configured` et `smtp_*`, les clés `mail_*` de `settings.toml` (aujourd'hui la table `settings`), l'API `/api/settings/mail` et son essai, la carte « Envoi d'e-mails » des Paramètres |
 | Canal Matrix | Le format `matrix` (`internal/alert/matrix.go`), la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), l'envoi par `PUT` avec identifiant de transaction stable, les champs serveur d'accueil, salon et jeton du formulaire de canal |
 | Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_disabled` de `settings.toml` (aujourd'hui la table `settings`), l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |

@@ -45,6 +45,12 @@ type Config struct {
 	// système seul. À poser sur chaque machine qui sonde : c'est elle qui
 	// juge, pas le serveur à sa place.
 	CAFile string `toml:"ca_file"`
+	// Fichier d'une ligne qui porte le secret partagé avec le mandataire
+	// d'authentification (32 caractères au moins, illisible pour les autres
+	// comptes). En mode forward, l'identité n'est crue que d'une requête qui
+	// porte ce secret dans l'en-tête X-OpenCloud-Proxy-Secret. Vide : l'adresse
+	// du pair seule, ce qu'une boucle locale de confiance ne prouve pas.
+	ForwardSecretFile string `toml:"forward_secret_file"`
 }
 
 func Default() Config {

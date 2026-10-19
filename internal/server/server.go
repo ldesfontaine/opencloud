@@ -282,7 +282,10 @@ type Server struct {
 	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
-	listen         string
+	// Le secret que le mandataire pose dans brand.ProxySecretHeader ; vide :
+	// aucun n'est configuré, l'adresse du pair seule décide (voir auth.go).
+	forwardSecret string
+	listen        string
 	// Le front compilé, embarqué : voir spa.go.
 	app     fs.FS
 	handler http.Handler
@@ -316,6 +319,9 @@ type Options struct {
 	// déduite de la requête.
 	PublicURL      string
 	TrustedProxies []netip.Prefix
+	// ForwardSecret est le secret partagé avec le mandataire du mode forward,
+	// lu par proxysecret.Load ; vide : aucun.
+	ForwardSecret string
 	// Listen est l'adresse d'écoute : son hôte est un Host reconnu.
 	Listen string
 	// ConfigPath est le fichier de configuration de ce serveur, cité dans
@@ -370,6 +376,7 @@ func New(opts Options) (*Server, error) {
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
+		forwardSecret:  opts.ForwardSecret,
 		listen:         opts.Listen,
 		app:            app,
 		clock:          opts.Clock,

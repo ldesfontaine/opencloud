@@ -113,6 +113,7 @@ var placeholders = strings.NewReplacer(
 	"{product}", brand.ProductName,
 	"{command}", brand.Command,
 	"{signature_header}", brand.WebhookSignatureHeader,
+	"{proxy_secret_header}", brand.ProxySecretHeader,
 	"{label_prefix}", brand.LabelPrefix,
 )
 

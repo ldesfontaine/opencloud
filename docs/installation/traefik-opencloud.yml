@@ -11,9 +11,24 @@ http:
       service: opencloud
       tls:
         certResolver: letsencrypt
+      # Mode forward (SSO devant openCloud) : décommentez, avec le middleware
+      # ci-dessous et celui d'Authelia, `authelia` d'abord : forwardAuth
+      # transmet les en-têtes de la requête à Authelia, le secret ne doit pas
+      # en être. Voir « Derrière un mandataire qui authentifie » dans
+      # docs/installation.md.
+      # middlewares: ["authelia", "opencloud-proxy-secret"]
       # Pas de middleware `buffering` ni `compress` ici : /agent/stream,
       # /api/events, les journaux, /statut/api/events et /mcp sont des
       # flux SSE qui doivent partir tels quels et durer.
+
+  # Mode forward seulement. `customRequestHeaders` remplace la valeur que le
+  # client enverrait : openCloud n'y croit que si elle égale le contenu de
+  # `forward_secret_file`. Ce fichier-ci doit être aussi peu lisible que lui.
+  # middlewares:
+  #   opencloud-proxy-secret:
+  #     headers:
+  #       customRequestHeaders:
+  #         X-OpenCloud-Proxy-Secret: "<le contenu de /etc/opencloud/forward.secret>"
 
   services:
     opencloud:

@@ -32,6 +32,7 @@ func TestValues_AreFrozen(t *testing.T) {
 		"HeaderPrefix":            {HeaderPrefix, "OpenCloud-"},
 		"WebhookEventHeader":      {WebhookEventHeader, "OpenCloud-Event"},
 		"WebhookSignatureHeader":  {WebhookSignatureHeader, "OpenCloud-Signature"},
+		"ProxySecretHeader":       {ProxySecretHeader, "X-OpenCloud-Proxy-Secret"},
 		"TokenPrefix":             {TokenPrefix, "oc"},
 		"EnrollmentTokenScheme":   {EnrollmentTokenScheme, "oc_"},
 		"MCPSecretScheme":         {MCPSecretScheme, "ocs_"},

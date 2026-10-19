@@ -27,6 +27,12 @@ export function isInterfaceOpen(state: AuthState | null): boolean {
   return state !== null && state.mode === "none";
 }
 
+// Le mode mandataire est actif mais sans preuve du passage par le mandataire :
+// la page des réglages le dit, sans couper l'accès.
+export function isForwardInsecure(state: AuthState | null): boolean {
+  return state !== null && state.mode === "forward" && state.forward_insecure === true;
+}
+
 // Vérifie le formulaire avant l'envoi, pour dire l'erreur sans attendre ;
 // le serveur reste le juge. Rend la clé du catalogue, ou null.
 export function passwordFormError(password: string, confirmation: string, minLength: number): string | null {

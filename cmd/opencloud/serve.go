@@ -17,6 +17,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -32,6 +33,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/proxysecret"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
@@ -70,6 +72,12 @@ func runServe(args []string) error {
 	// Les autorités avant tout le reste : un chemin faux doit arrêter le
 	// démarrage, jamais laisser les sondes juger sur un magasin vide.
 	roots, err := trust.Load(cfg.CAFile)
+	if err != nil {
+		return err
+	}
+	// Le secret du mandataire de même : un fichier faux ou trop ouvert ne doit
+	// jamais laisser le mode forward croire une adresse faute de mieux.
+	forwardSecret, err := proxysecret.Load(cfg.ForwardSecretFile)
 	if err != nil {
 		return err
 	}
@@ -184,6 +192,7 @@ func runServe(args []string) error {
 		return err
 	}
 	warnIfOpen(ctx, logger, operator, cfg.Listen)
+	warnIfForwardUnproven(ctx, logger, operator, cfg.TrustedPrefixes(), forwardSecret != "")
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. Cette machine lit endoflife.date une fois par jour, deux
 	// au plus, pour les produits des images présentes et les systèmes des
@@ -264,6 +273,7 @@ func runServe(args []string) error {
 		PublicURL:      cfg.PublicURL,
 		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),
+		ForwardSecret:  forwardSecret,
 		ConfigPath:     *configPath,
 	})
 	if err != nil {
@@ -386,6 +396,24 @@ func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service
 	}
 	logger.Warn("INTERFACE OPEN TO THE NETWORK WITHOUT AUTHENTICATION: anyone reaching this address can enroll machines, read logs and enable MCP; enable it under Settings now",
 		"listen", listen)
+}
+
+// warnIfForwardUnproven prévient quand le mode forward est actif sans que rien
+// prouve le passage par le mandataire : pas de secret, et un préfixe de
+// confiance couvre la boucle locale, donc tous les processus de la machine.
+// La config seule ne peut pas le dire, le mode est dans la base ; c'est ici
+// que les deux sont connus. L'accès n'est pas coupé : ce serait enfermer
+// l'opérateur d'une installation existante.
+func warnIfForwardUnproven(ctx context.Context, logger *slog.Logger, operator *auth.Service, trusted []netip.Prefix, hasSecret bool) {
+	if hasSecret || !server.TrustsLoopback(trusted) {
+		return
+	}
+	state, err := operator.State(ctx)
+	if err != nil || state.Mode != auth.ModeForward {
+		return
+	}
+	logger.Warn("forward authentication has no proof of the proxy: a loopback trusted proxy covers every process of this machine, any of them can send the identity header and be the operator; set forward_secret_file and have the proxy send the secret",
+		"header", state.Header, "secret_header", brand.ProxySecretHeader)
 }
 
 // isLoopbackListen : « 127.0.0.1:8080 », « [::1]:8080 », « localhost:8080 ».

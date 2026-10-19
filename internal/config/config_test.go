@@ -99,3 +99,16 @@ func TestParse_WideTrustedProxy_Warns(t *testing.T) {
 		t.Fatalf("want one warning naming 172.18.0.0/16, got %v", warnings)
 	}
 }
+
+func TestParse_ForwardSecretFile_IsAPathNotTheSecret(t *testing.T) {
+	cfg, warnings, err := Parse([]byte("forward_secret_file = \"/etc/opencloud/forward.secret\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ForwardSecretFile != "/etc/opencloud/forward.secret" || len(warnings) != 0 {
+		t.Fatalf("got %+v, warnings %v", cfg, warnings)
+	}
+	if Default().ForwardSecretFile != "" {
+		t.Fatal("no secret by default")
+	}
+}
