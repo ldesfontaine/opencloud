@@ -181,9 +181,14 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 }
 
 // La commande à coller ; la langue n'y figure que si elle n'est pas celle
-// par défaut, pour rester courte.
+// par défaut, pour rester courte. Le jeton passe par printf, un builtin du
+// shell : aucun processus ne le porte dans ses arguments, alors que
+// /proc/<pid>/cmdline de l'agent et de sudo se lit depuis tous les comptes de
+// la machine. Un jeton n'a que des minuscules, des chiffres et « _ » : les
+// guillemets simples suffisent. Pas de « sudo VAR=… » : la variable finirait
+// dans les arguments de sudo.
 func installCommand(publicURL, token string, code lang.Code) string {
-	command := "sudo " + brand.Command + " agent -server " + publicURL + " -token " + token
+	command := "printf '%s\\n' '" + token + "' | sudo " + brand.Command + " agent -server " + publicURL
 	if code != lang.Default {
 		command += " -lang " + string(code)
 	}

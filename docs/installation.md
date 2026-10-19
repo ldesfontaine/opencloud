@@ -467,15 +467,29 @@ minuscules, chiffres et tirets. openCloud affiche une seule fois la commande
 à coller :
 
 ```sh
-sudo opencloud agent -server https://opencloud.example.org -token oc_…
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
+
+Le jeton passe par l'**entrée standard** de l'agent, jamais par sa ligne de
+commande : une ligne de commande se lit dans `ps` et `/proc/<pid>/cmdline`
+depuis tous les comptes de la machine, et le premier qui copie le jeton
+prend l'identité de la machine. `printf` est une commande interne du shell,
+qui ne crée aucun processus : le jeton n'apparaît dans les arguments
+d'aucun. Si `sudo` demande un mot de passe, il le lit sur le terminal
+(`/dev/tty`), pas sur le tube : la commande se colle telle quelle. Collez-la
+dans une session ouverte sur la machine, pas en argument de
+`ssh machine '…'` : la commande entière, jeton compris, deviendrait les
+arguments du shell distant (et sans terminal, `sudo` ne pourrait pas
+demander son mot de passe).
 
 Pas d'agent sur la machine openCloud elle-même : elle se supervise déjà.
 Lancé là, l'agent est refusé (« cette machine est déjà supervisée par
 openCloud lui-même ») et le jeton reste valable pour une autre machine.
 
-Connecté en root sans `sudo` (Debian minimal) : collez la commande sans le
-mot `sudo`.
+Connecté en root sans `sudo` (Debian minimal) : collez la commande sans
+`sudo`. À la main, sur un terminal, `sudo opencloud agent -server https://…`
+seul demande le jeton (« Jeton d'enrôlement : ») et le lit sur la ligne
+suivante ; il s'affiche à la saisie.
 
 Le jeton sert **une fois** et expire en **24 h**. L'adresse vient de
 `public_url` : vérifiez-la avant de coller. `-lang en` s'ajoute si
@@ -493,7 +507,7 @@ ssh root@machine install -m 0755 /tmp/opencloud /usr/local/bin/opencloud
 Sur la machine, en root, la commande affichée :
 
 ```sh
-sudo opencloud agent -server https://opencloud.example.org -token oc_…
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
 
 L'agent tire une clé Ed25519, s'enrôle, écrit
@@ -504,7 +518,7 @@ relais.
 | Option | Retenue dans l'identité | Rôle |
 | --- | --- | --- |
 | `-server` | Oui | Adresse d'openCloud, premier lancement seulement |
-| `-token` | — | Jeton d'enrôlement, premier lancement seulement |
+| `-token` | — | **Déconseillé** : jeton d'enrôlement en argument, visible de tous les comptes via `ps` (l'agent l'écrit au journal en avertissement). Préférez l'entrée standard |
 | `-pin` | Oui | Empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé |
 | `-lang` | Oui | Langue des messages de l'agent, `fr` ou `en` |
 | `-state` | Non | Répertoire d'état, `/var/lib/opencloud/agent` par défaut |
@@ -526,7 +540,7 @@ journalctl -u opencloud-agent -f
 
 L'unité ([`opencloud-agent.service`](installation/opencloud-agent.service))
 lance `opencloud agent -state
-/var/lib/opencloud/agent`, sans `-server` ni `-token` : l'agent relit son
+/var/lib/opencloud/agent`, sans `-server` ni jeton : l'agent relit son
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
@@ -549,7 +563,7 @@ openssl x509 -in cert.pem -noout -fingerprint -sha256 | cut -d= -f2 | tr -d :
 openssl s_client -connect 203.0.113.10:443 </dev/null 2>/dev/null \
   | openssl x509 -outform DER | sha256sum | cut -d' ' -f1
 
-sudo opencloud agent -server https://203.0.113.10 -token oc_… -pin <empreinte>
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://203.0.113.10 -pin <empreinte>
 ```
 
 L'empreinte s'écrit en hexadécimal, majuscules ou minuscules, préfixe
@@ -567,10 +581,11 @@ ajoutez-le aussi à `ExecStart=` de l'unité.
 
 | Besoin | Faire |
 | --- | --- |
-| Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer avec `-server` et `-token`. L'identifiant et l'historique sont gardés |
+| Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). L'identifiant et l'historique sont gardés |
 | Retirer une machine | Machines → la machine → **Retirer**. Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
 
-Tant que `identity.json` existe, l'agent l'utilise et **ignore** `-token`.
+Tant que `identity.json` existe, l'agent l'utilise, **ignore** `-token` et ne lit jamais
+l'entrée standard : il ne bloque pas sous systemd.
 
 ## Mettre à jour
 
@@ -942,7 +957,8 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent, en boucle : `clock skew, reconnecting` avec « L'horloge de cette machine et celle d'openCloud diffèrent de plus de 5 minutes… » ; la machine reste hors ligne | Horloges décalées | `timedatectl set-ntp true` sur les deux machines ; l'agent réessaie seul |
 | Agent : « Jeton refusé : il a déjà servi. Un jeton n'enrôle qu'une machine, créez-en un nouveau. » | Jeton déjà consommé | Un nouveau jeton (Ajouter une machine, ou Ré-enrôler) |
 | Agent : « Jeton refusé : il a expiré. » / « openCloud ne le connaît pas. » | Plus de 24 h, ou jeton annulé, ou mauvais serveur | Un nouveau jeton ; vérifier `-server` |
-| Agent : « Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud, avec -server et -token. » | Service lancé avant l'enrôlement, ou `-state` différent | Faire le premier lancement avec le même `-state` |
+| Agent : « Jeton d'enrôlement absent : envoyez-le sur l'entrée standard… » | Premier lancement avec `-server` mais sans jeton sur l'entrée (lancé par systemd, ou `printf` oublié) | Coller la commande d'installation telle qu'openCloud l'affiche |
+| Agent : « Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud. » | Service lancé avant l'enrôlement, ou `-state` différent | Faire le premier lancement avec le même `-state` |
 | Agent : « openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. » | Machine retirée, ou restauration d'une base plus ancienne | Ré-enrôler |
 | Agent : « Certificat refusé : ce n'est pas celui dont l'empreinte a été épinglée… » | Le certificat d'openCloud a changé, ou quelqu'un s'interpose | Vérifier l'empreinte, puis ré-enrôler avec la nouvelle |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |

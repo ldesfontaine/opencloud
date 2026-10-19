@@ -47,7 +47,7 @@ make run          # builds bin/opencloud, writes dev/config.toml, starts on 127.
 Open <http://127.0.0.1:8080>, then **Settings → Interface access** to enable
 authentication. To add a machine: **Machines → Add a machine**, then paste
 the displayed command on it as root
-(`sudo opencloud agent -server https://… -token oc_…`). Do not enroll an
+(`printf '%s\n' 'oc_…' | sudo opencloud agent -server https://…`). Do not enroll an
 agent on the openCloud machine itself: it is already monitored, and an agent
 there would duplicate its services and alerts. To try it, use another machine
 or a VM.

@@ -16,6 +16,8 @@ func Explain(err error, text lang.Catalog) (string, bool) {
 	switch {
 	case errors.Is(err, ErrNotEnrolled):
 		return text.Get("agent.not_enrolled"), true
+	case errors.Is(err, ErrTokenMissing):
+		return text.Get("agent.token_missing"), true
 	case errors.Is(err, ErrIdentityRefused):
 		return text.Get("agent.identity_refused"), true
 	case errors.Is(err, ErrPlainRefused):
