@@ -163,7 +163,16 @@ le client qui les garde.
 
 1. L'opérateur nomme la machine. openCloud tire un jeton, en garde l'empreinte,
    affiche le clair une seule fois avec la commande à coller.
-2. Sur la machine : `sudo opencloud agent -server https://… -token oc_…`. L'agent
+2. Sur la machine : `printf '%s\n' 'oc_…' | sudo opencloud agent -server https://…`.
+   Le jeton entre par l'entrée standard de l'agent, lue seulement quand
+   il n'a pas d'identité et reçoit `-server` (invite « Jeton
+   d'enrôlement : » sur un terminal ; entrée vide ou fermée : refus, code 2).
+   Jamais dans les arguments d'un processus : `/proc/<pid>/cmdline` de
+   l'agent et de `sudo` se lit depuis tous les comptes de la machine, et le
+   premier qui copie le jeton prend l'identité (ou remplace la clé, au
+   ré-enrôlement) ; `printf` est une commande interne du shell, il ne
+   crée pas de processus. `-token` reste accepté, déconseillé, avec un avertissement au
+   journal. L'agent déjà enrôlé ne lit jamais l'entrée (systemd). L'agent
    tire une clé Ed25519 et un identifiant, envoie sa clé publique et le jeton.
    Il joint l'empreinte (SHA-256, préfixée) de l'identifiant de la machine
    (`/etc/machine-id`, sinon `/var/lib/dbus/machine-id`) **et** de

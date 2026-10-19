@@ -85,7 +85,7 @@ curl -X POST -H 'Content-Type: application/json' \
 openCloud affiche une commande à coller sur la machine, en root :
 
 ```sh
-sudo opencloud agent -server https://opencloud.example.org -token oc_…
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
 
 Le jeton sert une fois et expire en 24 h. N'enrôlez pas d'agent sur la

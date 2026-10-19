@@ -14,7 +14,7 @@ const usage = `Usage : {command} <commande> [options]
 
 Commandes :
   serve     démarre le serveur web (option -config)
-  agent     tourne sur une machine gérée (options -server -token -lang -pin -allow-plain -state)
+  agent     tourne sur une machine gérée (options -server -lang -pin -allow-plain -state ; jeton d'enrôlement sur l'entrée standard)
   mcp       parle MCP sur stdin/stdout à un client IA local, en lecture seule (option -config)
   auth      status | disable : état de l'authentification de l'interface,
             ou la couper en cas de mot de passe oublié (option -config)

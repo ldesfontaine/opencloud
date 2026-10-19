@@ -3,9 +3,44 @@ package server
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
+
+// Le jeton d'enrôlement est lisible de tous les comptes de la machine dès
+// qu'il est dans les arguments d'un processus : la commande ne le met qu'après
+// printf, un builtin qui ne crée pas de processus, et sudo ne reçoit rien.
+func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
+	safe := regexp.MustCompile(`^oc_[a-z0-9_]+$`)
+	for range 200 {
+		token, _, err := machine.NewToken("vps-paris-1", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Les guillemets simples ne se cassent que sur une apostrophe ; le
+		// jeton n'a que des minuscules, des chiffres et « _ ».
+		if !safe.MatchString(token) {
+			t.Fatalf("token %q has characters that need escaping", token)
+		}
+		for _, code := range []lang.Code{lang.French, lang.English} {
+			command := installCommand("https://opencloud.example.org", token, code)
+			builtin, executed, piped := strings.Cut(command, " | ")
+			if !piped || builtin != "printf '%s\\n' '"+token+"'" {
+				t.Fatalf("the token must only follow printf: %q", command)
+			}
+			if strings.Contains(executed, token) || strings.Contains(executed, "-token") || !strings.HasPrefix(executed, "sudo opencloud agent -server https://opencloud.example.org") {
+				t.Fatalf("the executed command must carry no token: %q", executed)
+			}
+		}
+	}
+	if command := installCommand("https://x", "oc_abc", lang.English); !strings.HasSuffix(command, " -lang en") {
+		t.Fatalf("language missing: %q", command)
+	}
+}
 
 func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.T) {
 	server := newTestServer(t)
@@ -15,7 +50,7 @@ func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.
 	}
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if !tokenValue.MatchString(response.Token) || !strings.HasPrefix(response.Command, "sudo opencloud agent -server http://example.com -token oc_") || response.URLLocal {
+	if !tokenValue.MatchString(response.Token) || response.Command != "printf '%s\\n' '"+response.Token+"' | sudo opencloud agent -server http://example.com" || response.URLLocal {
 		t.Fatalf("token response %+v", response)
 	}
 	pending, err := server.machines.PendingTokens(context.Background())

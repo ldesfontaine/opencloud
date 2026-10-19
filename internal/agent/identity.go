@@ -33,7 +33,11 @@ type Identity struct {
 	EnrolledAt time.Time `json:"enrolled_at"`
 }
 
-var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and -token")
+var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and send the token on stdin")
+
+// ErrTokenMissing : l'agent doit s'enrôler et l'entrée standard n'a donné
+// aucun jeton.
+var ErrTokenMissing = errors.New("no enrollment token on stdin")
 
 // NewIdentity tire une clé et un id ; rien n'est écrit avant l'enrôlement.
 func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
