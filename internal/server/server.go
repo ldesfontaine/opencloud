@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/netip"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -272,6 +273,10 @@ type Server struct {
 	agentLimits  *challengeLimits
 	signalLimits *signalLimits
 	authLimits   *authLimits
+	// authTransition sépare l'activation de l'authentification (changement
+	// d'état puis révocation) des écritures qui accordent une autorité :
+	// voir grantsAuthority.
+	authTransition sync.RWMutex
 	// Les onglets en direct, administration et page publique.
 	eventTabs  *slots
 	publicTabs *slots

@@ -24,10 +24,17 @@ func (m *memoryStore) GetAuthState(context.Context) (State, error) {
 	return m.state, nil
 }
 
-func (m *memoryStore) SaveAuthState(_ context.Context, state State, _ time.Time) error {
-	m.state = state
-	return nil
+func (m *memoryStore) SaveAuthStateIf(ctx context.Context, expected, next State, _ time.Time) (bool, error) {
+	current, _ := m.GetAuthState(ctx)
+	if !expected.Same(current) {
+		return false, nil
+	}
+	m.state = next
+	return true, nil
 }
+
+// none est l'état d'une installation neuve, celui sous lequel s'active l'accès.
+var none = State{Mode: ModeNone}
 
 func newTestService(t *testing.T) (*Service, *memoryStore) {
 	t.Helper()
@@ -53,7 +60,7 @@ func verifies(t *testing.T, service *Service, state State, username, password st
 
 func TestEnableBasic_StoresASlowHashNeverThePassword(t *testing.T) {
 	service, store := newTestService(t)
-	if _, err := service.EnableBasic(context.Background(), "lucas", "correct horse battery"); err != nil {
+	if _, err := service.EnableBasic(context.Background(), none, "lucas", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
 	if store.state.Mode != ModeBasic || !strings.HasPrefix(store.state.PasswordHash, "$2") {
@@ -86,7 +93,7 @@ func TestValidate_RefusesShortPasswordsAndSeparatorInUsername(t *testing.T) {
 func TestVerify_RemembersUntilThePasswordChanges(t *testing.T) {
 	service, store := newTestService(t)
 	ctx := context.Background()
-	state, err := service.EnableBasic(ctx, "lucas", "correct horse battery")
+	state, err := service.EnableBasic(ctx, none, "lucas", "correct horse battery")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,14 +112,14 @@ func TestVerify_RemembersUntilThePasswordChanges(t *testing.T) {
 	if verifies(t, service, state, "other", "correct horse battery") {
 		t.Fatal("a wrong username passed")
 	}
-	changed, err := service.ChangePassword(ctx, "another long passphrase")
+	changed, err := service.ChangePassword(ctx, state, "another long passphrase")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if service.Remembered(changed, "lucas", "correct horse battery") || verifies(t, service, changed, "lucas", "correct horse battery") {
 		t.Fatal("the old password survived the change")
 	}
-	if err := service.Disable(ctx); err != nil {
+	if err := service.Disable(ctx, changed); err != nil {
 		t.Fatal(err)
 	}
 	if store.state.Mode != ModeNone || store.state.PasswordHash != "" || store.state.Username != "" {
@@ -123,7 +130,7 @@ func TestVerify_RemembersUntilThePasswordChanges(t *testing.T) {
 func TestEnableForward_StoresTheHeaderAndNoCredentials(t *testing.T) {
 	service, store := newTestService(t)
 	ctx := context.Background()
-	state, err := service.EnableForward(ctx, DefaultForwardHeader)
+	state, err := service.EnableForward(ctx, none, DefaultForwardHeader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,19 +140,19 @@ func TestEnableForward_StoresTheHeaderAndNoCredentials(t *testing.T) {
 	if store.state.Mode != ModeForward || store.state.Header != "Remote-User" || store.state.Username != "" || store.state.PasswordHash != "" {
 		t.Fatalf("stored %+v", store.state)
 	}
-	if _, err := service.EnableForward(ctx, "X-Forwarded-User"); !errors.Is(err, ErrAlreadyEnabled) {
+	if _, err := service.EnableForward(ctx, state, "X-Forwarded-User"); !errors.Is(err, ErrAlreadyEnabled) {
 		t.Fatalf("enable twice: %v", err)
 	}
-	if _, err := service.EnableBasic(ctx, "lucas", "correct horse battery"); !errors.Is(err, ErrAlreadyEnabled) {
+	if _, err := service.EnableBasic(ctx, state, "lucas", "correct horse battery"); !errors.Is(err, ErrAlreadyEnabled) {
 		t.Fatalf("basic over forward: %v", err)
 	}
-	if _, err := service.ChangePassword(ctx, "another long passphrase"); !errors.Is(err, ErrNoPassword) {
+	if _, err := service.ChangePassword(ctx, state, "another long passphrase"); !errors.Is(err, ErrNoPassword) {
 		t.Fatalf("change password in forward mode: %v", err)
 	}
 	if verifies(t, service, store.state, "", "") {
 		t.Fatal("no credentials verify in forward mode")
 	}
-	if err := service.Disable(ctx); err != nil {
+	if err := service.Disable(ctx, state); err != nil {
 		t.Fatal(err)
 	}
 	if store.state.Mode != ModeNone || store.state.Header != "" {
@@ -156,7 +163,7 @@ func TestEnableForward_StoresTheHeaderAndNoCredentials(t *testing.T) {
 func TestEnableForward_RefusesAnInvalidHeaderName(t *testing.T) {
 	service, store := newTestService(t)
 	for _, header := range []string{"", "Remote User", "Remote-User:", "Remote_User", "Rémote-User", strings.Repeat("a", 65)} {
-		if _, err := service.EnableForward(context.Background(), header); !errors.Is(err, ErrHeaderInvalid) {
+		if _, err := service.EnableForward(context.Background(), none, header); !errors.Is(err, ErrHeaderInvalid) {
 			t.Errorf("%q: %v, want ErrHeaderInvalid", header, err)
 		}
 	}
@@ -220,7 +227,7 @@ func verifyInBackground(ctx context.Context, service *Service, state State, user
 
 func newBasicState(t *testing.T, service *Service) State {
 	t.Helper()
-	state, err := service.EnableBasic(context.Background(), "lucas", "correct horse battery")
+	state, err := service.EnableBasic(context.Background(), none, "lucas", "correct horse battery")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,5 +362,73 @@ func TestVerify_RightOperatorBehindAShortQueue_Passes(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the operator never got through")
+	}
+}
+
+// Une requête autorisée sous un état ne s'applique pas à un autre : le
+// mot de passe changé ou l'interface rouverte entre-temps, elle est refusée
+// et rien n'est écrit.
+func TestChangePasswordAndDisable_RefuseAnAuthorizingStateThatChanged(t *testing.T) {
+	service, store := newTestService(t)
+	ctx := context.Background()
+	authorizing, err := service.EnableBasic(ctx, none, "lucas", "correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed, err := service.ChangePassword(ctx, authorizing, "another long passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ChangePassword(ctx, authorizing, "a third long passphrase"); !errors.Is(err, ErrStateChanged) {
+		t.Fatalf("change under the old state: %v, want ErrStateChanged", err)
+	}
+	if err := service.Disable(ctx, authorizing); !errors.Is(err, ErrStateChanged) {
+		t.Fatalf("disable under the old state: %v, want ErrStateChanged", err)
+	}
+	if !store.state.Same(changed) {
+		t.Fatalf("a refused request wrote: %+v, want %+v", store.state, changed)
+	}
+	if err := service.Disable(ctx, changed); err != nil {
+		t.Fatalf("disable under the current state: %v", err)
+	}
+	if _, err := service.ChangePassword(ctx, changed, "a third long passphrase"); !errors.Is(err, ErrStateChanged) {
+		t.Fatalf("change after the interface reopened: %v, want ErrStateChanged", err)
+	}
+	if store.state.Mode != ModeNone {
+		t.Fatalf("a refused change reclosed the interface: %+v", store.state)
+	}
+}
+
+func TestEnable_RefusesAnAuthorizingStateThatIsNotTheStoredOne(t *testing.T) {
+	service, store := newTestService(t)
+	ctx := context.Background()
+	stale := State{Mode: ModeBasic, Username: "lucas", PasswordHash: "ancienne", EnabledAt: time.Unix(1, 0)}
+	if _, err := service.EnableBasic(ctx, stale, "lucas", "correct horse battery"); !errors.Is(err, ErrStateChanged) {
+		t.Fatalf("basic: %v, want ErrStateChanged", err)
+	}
+	if _, err := service.EnableForward(ctx, stale, DefaultForwardHeader); !errors.Is(err, ErrStateChanged) {
+		t.Fatalf("forward: %v, want ErrStateChanged", err)
+	}
+	if store.state.Mode != "" {
+		t.Fatalf("a refused activation wrote: %+v", store.state)
+	}
+}
+
+func TestStateSame_ComparesEveryField(t *testing.T) {
+	at := time.Unix(1_800_000_000, 0)
+	base := State{Mode: ModeBasic, Username: "lucas", PasswordHash: "empreinte", Header: "", EnabledAt: at}
+	if !base.Same(base) || !base.Same(State{Mode: ModeBasic, Username: "lucas", PasswordHash: "empreinte", EnabledAt: at.In(time.UTC)}) {
+		t.Fatal("the same state must be the same, whatever the time zone")
+	}
+	for name, other := range map[string]State{
+		"mode":      {Mode: ModeForward, Username: "lucas", PasswordHash: "empreinte", EnabledAt: at},
+		"username":  {Mode: ModeBasic, Username: "autre", PasswordHash: "empreinte", EnabledAt: at},
+		"hash":      {Mode: ModeBasic, Username: "lucas", PasswordHash: "autre", EnabledAt: at},
+		"header":    {Mode: ModeBasic, Username: "lucas", PasswordHash: "empreinte", Header: "Remote-User", EnabledAt: at},
+		"enabledAt": {Mode: ModeBasic, Username: "lucas", PasswordHash: "empreinte", EnabledAt: at.Add(time.Second)},
+	} {
+		if base.Same(other) {
+			t.Errorf("a different %s must not be the same state", name)
+		}
 	}
 }

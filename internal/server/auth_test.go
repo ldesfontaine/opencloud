@@ -22,7 +22,7 @@ const (
 // enableBasic passe le serveur en mode basic, par le composant.
 func (ts *testServer) enableBasic(t *testing.T) {
 	t.Helper()
-	if _, err := ts.operator.EnableBasic(context.Background(), testUsername, testPassword); err != nil {
+	if _, err := ts.operator.EnableBasic(context.Background(), auth.State{Mode: auth.ModeNone}, testUsername, testPassword); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -373,13 +373,17 @@ func TestAuthBasic_DisableFromAnotherProcessTakesEffectWithoutRestart(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := rescue.Disable(context.Background()); err != nil {
+	current, err := rescue.State(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rescue.Disable(context.Background(), current); err != nil {
 		t.Fatal(err)
 	}
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusOK {
 		t.Fatalf("after the rescue command: %d", got.Code)
 	}
-	if _, err := rescue.EnableBasic(context.Background(), testUsername, "a brand new passphrase"); err != nil {
+	if _, err := rescue.EnableBasic(context.Background(), auth.State{Mode: auth.ModeNone}, testUsername, "a brand new passphrase"); err != nil {
 		t.Fatal(err)
 	}
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusUnauthorized {
@@ -429,7 +433,7 @@ const (
 func (ts *testServer) enableForward(t *testing.T) {
 	t.Helper()
 	ts.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
-	if _, err := ts.operator.EnableForward(context.Background(), auth.DefaultForwardHeader); err != nil {
+	if _, err := ts.operator.EnableForward(context.Background(), auth.State{Mode: auth.ModeNone}, auth.DefaultForwardHeader); err != nil {
 		t.Fatal(err)
 	}
 }

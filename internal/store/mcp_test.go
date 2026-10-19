@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -73,5 +74,37 @@ func TestMCPToken_ScopeRoundTripsAndRevokeAllCounts(t *testing.T) {
 		if err != nil || !got.IsRevoked() {
 			t.Fatalf("%s not revoked: %+v %v", token.ID, got, err)
 		}
+	}
+}
+
+// Un code d'autorisation en attente se changerait encore en jetons : la
+// révocation générale l'efface avec eux, et la régénération du secret
+// efface ceux de l'ancien client.
+func TestMCPCodes_RevokeAllAndRevokeOAuthDropThePendingOnes(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	pending := mcp.Code{Hash: "h-code", ClientID: mcp.ClientID, RedirectURI: "http://localhost:1/cb", Challenge: "c", ExpiresAt: now.Add(mcp.CodeTTL), CreatedAt: now}
+	cases := map[string]func(*DB, context.Context) error{
+		"revoke all": func(db *DB, ctx context.Context) error {
+			_, err := db.RevokeAllMCPTokens(ctx, now)
+			return err
+		},
+		"revoke oauth": func(db *DB, ctx context.Context) error {
+			return db.RevokeMCPOAuthTokens(ctx, now)
+		},
+	}
+	for name, revoke := range cases {
+		t.Run(name, func(t *testing.T) {
+			db := openTestDB(t)
+			ctx := context.Background()
+			if err := db.InsertMCPCode(ctx, pending); err != nil {
+				t.Fatal(err)
+			}
+			if err := revoke(db, ctx); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ConsumeMCPCode(ctx, pending.Hash, now); !errors.Is(err, mcp.ErrCodeInvalid) {
+				t.Fatalf("a pending code survived the revocation: %v", err)
+			}
+		})
 	}
 }

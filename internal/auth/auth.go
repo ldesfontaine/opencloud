@@ -47,6 +47,16 @@ type State struct {
 	EnabledAt    time.Time
 }
 
+// Same dit si deux états sont le même, champ pour champ. Le service s'en sert
+// pour ne rien écrire sur un état que la requête n'a pas vu.
+func (s State) Same(other State) bool {
+	return s.Mode == other.Mode &&
+		s.Username == other.Username &&
+		s.PasswordHash == other.PasswordHash &&
+		s.Header == other.Header &&
+		s.EnabledAt.Equal(other.EnabledAt)
+}
+
 var (
 	ErrAlreadyEnabled   = errors.New("auth: already enabled")
 	ErrDisabled         = errors.New("auth: disabled")
@@ -57,6 +67,9 @@ var (
 	// En mode forward, c'est le mandataire qui authentifie : il n'y a pas
 	// de mot de passe à changer.
 	ErrNoPassword = errors.New("auth: no password in this mode")
+	// L'état a changé entre l'instant où la requête a été autorisée et celui
+	// où elle aurait pris effet : elle ne s'applique pas.
+	ErrStateChanged = errors.New("auth: state changed")
 )
 
 // ValidateUsername : un mot lisible, sans « : » que Basic prend pour le

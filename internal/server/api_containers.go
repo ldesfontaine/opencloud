@@ -329,6 +329,9 @@ func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
+			if s.authorizationLapsed(r) {
+				return
+			}
 			if err := writeComment(w, "ping"); err != nil {
 				return
 			}

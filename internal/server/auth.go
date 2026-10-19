@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"io"
 	"net/http"
 	"path"
 	"strings"
@@ -44,11 +46,15 @@ type AuthService interface {
 	State(ctx context.Context) (auth.State, error)
 	Remembered(state auth.State, username, password string) bool
 	Verify(ctx context.Context, state auth.State, username, password string) (bool, error)
-	EnableBasic(ctx context.Context, username, password string) (auth.State, error)
-	EnableForward(ctx context.Context, header string) (auth.State, error)
-	ChangePassword(ctx context.Context, password string) (auth.State, error)
-	Disable(ctx context.Context) error
+	EnableBasic(ctx context.Context, expected auth.State, username, password string) (auth.State, error)
+	EnableForward(ctx context.Context, expected auth.State, header string) (auth.State, error)
+	ChangePassword(ctx context.Context, expected auth.State, password string) (auth.State, error)
+	Disable(ctx context.Context, expected auth.State) error
 }
+
+// codeAuthStateChanged est le refus d'une écriture autorisée sous un état
+// d'authentification qui n'est plus le bon.
+const codeAuthStateChanged = "auth.state_changed"
 
 // Les préfixes qui ne passent jamais par l'authentification de
 // l'opérateur. Tout le reste, fourre-tout du front compris, y passe.
@@ -122,15 +128,15 @@ func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 		}
 		switch state.Mode {
 		case auth.ModeNone:
-			next(w, r)
+			s.admitOperator(w, r, state, next)
 		case auth.ModeBasic:
 			if s.checkBasic(w, r, state) {
-				next(w, r)
+				s.admitOperator(w, r, state, next)
 			}
 		case auth.ModeForward:
 			identity, ok := s.checkForward(w, r, state)
 			if ok {
-				next(w, r.WithContext(context.WithValue(r.Context(), forwardedIdentityKey{}, identity)))
+				s.admitOperator(w, r.WithContext(context.WithValue(r.Context(), forwardedIdentityKey{}, identity)), state, next)
 			}
 		default:
 			// Un mode inconnu dans la base : fermer plutôt que deviner.
@@ -138,6 +144,113 @@ func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 			http.Error(w, "authentication mode not supported", http.StatusServiceUnavailable)
 		}
 	}
+}
+
+// admitOperator laisse passer une requête admise sous state, et pose cet
+// état dans son contexte : les écritures qui accordent une autorité et les
+// flux s'y comparent à l'état du moment.
+//
+// Sans ReadTimeout, un client peut retenir le corps d'une écriture aussi
+// longtemps qu'il veut : un jugement rendu à l'arrivée des en-têtes vaudrait
+// encore une fois l'authentification activée. Le corps est donc lu en entier,
+// puis l'état relu ; s'il a changé entre-temps, 409. La lecture vient après
+// le jugement, et non avant, pour qu'un anonyme face à une interface gardée
+// reçoive son 401 sans faire tenir un Mio par connexion au serveur.
+func (s *Server) admitOperator(w http.ResponseWriter, r *http.Request, state auth.State, next http.HandlerFunc) {
+	if readWholeBody(w, r) {
+		current, err := s.auth.State(r.Context())
+		if err != nil {
+			s.apiInternalError(w, r, err)
+			return
+		}
+		if !current.Same(state) {
+			s.apiRefuse(w, http.StatusConflict, codeAuthStateChanged)
+			return
+		}
+	}
+	next(w, r.WithContext(context.WithValue(r.Context(), authorizingStateKey{}, state)))
+}
+
+// readWholeBody lit le corps d'une écriture, le remet à la disposition du
+// handler et dit s'il y en avait un. La borne est celle de limitBody, la plus
+// large des routes : les bornes plus serrées de chaque handler (readAPI)
+// jouent ensuite sur la copie. Un corps trop gros ou illisible n'est pas jugé
+// ici : l'erreur est rendue au handler à la fin de ce qui a été lu, et la
+// réponse reste la sienne (400 pour readAPI, 422 pour un fichier d'annuaire).
+func readWholeBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Body == nil || r.Body == http.NoBody {
+		return false
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
+	if err != nil {
+		r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), failingReader{err: err}))
+		return true
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return true
+}
+
+// failingReader rend toujours la même erreur.
+type failingReader struct{ err error }
+
+func (f failingReader) Read([]byte) (int, error) {
+	return 0, f.err
+}
+
+// authorizingStateKey porte, dans le contexte de la requête, l'état
+// d'authentification sous lequel requireOperator l'a laissée passer.
+type authorizingStateKey struct{}
+
+// authorizingStateFrom rend cet état. Une route ouverte n'en a pas : l'état
+// nul, qui n'égale aucun état stocké.
+func authorizingStateFrom(ctx context.Context) (auth.State, bool) {
+	state, ok := ctx.Value(authorizingStateKey{}).(auth.State)
+	return state, ok
+}
+
+// grantsAuthority garde une écriture qui accorde une autorité durable (un
+// jeton MCP, un code OAuth, le secret du client, un jeton d'enrôlement) : si
+// l'état d'authentification n'est plus celui qui a admis la requête, 409.
+//
+// L'activation révoque après avoir changé l'état : sans verrou, une écriture
+// qui a vu l'ancien état pourrait se glisser entre les deux, par exemple en
+// attendant le verrou de la base pendant que l'activation écrit, et survivre
+// à la révocation. Sous authTransition, elle s'écrit soit avant l'activation,
+// et la révocation l'emporte, soit après, et elle voit le nouvel état. Le
+// corps est déjà lu (admitOperator) : un client lent ne tient pas le verrou.
+func (s *Server) grantsAuthority(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.authTransition.RLock()
+		defer s.authTransition.RUnlock()
+		current, err := s.auth.State(r.Context())
+		if err != nil {
+			s.apiInternalError(w, r, err)
+			return
+		}
+		authorizing, _ := authorizingStateFrom(r.Context())
+		if !current.Same(authorizing) {
+			s.apiRefuse(w, http.StatusConflict, codeAuthStateChanged)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// authorizationLapsed dit si un flux ouvert sur une route de l'opérateur ne
+// doit plus continuer : l'état d'authentification n'est plus celui qui l'a
+// autorisé, ou n'a pas pu être relu. Un flux hors des routes de l'opérateur
+// n'a rien à perdre.
+func (s *Server) authorizationLapsed(r *http.Request) bool {
+	authorizing, ok := authorizingStateFrom(r.Context())
+	if !ok {
+		return false
+	}
+	current, err := s.auth.State(r.Context())
+	if err != nil {
+		return true
+	}
+	return !current.Same(authorizing)
 }
 
 // isCompiledAsset dit si la requête lit un fichier du front compilé, hors
@@ -394,6 +507,10 @@ func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
+	// Le changement d'état et la révocation forment un seul pas pour les
+	// écritures qui accordent une autorité : voir grantsAuthority.
+	s.authTransition.Lock()
+	defer s.authTransition.Unlock()
 	state, identity, ok := s.enableMode(w, r, request)
 	if !ok {
 		return
@@ -417,7 +534,8 @@ func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) enableMode(w http.ResponseWriter, r *http.Request, request authEnableRequest) (auth.State, string, bool) {
 	switch auth.Mode(request.Mode) {
 	case "", auth.ModeBasic:
-		state, err := s.auth.EnableBasic(r.Context(), request.Username, request.Password)
+		authorizing, _ := authorizingStateFrom(r.Context())
+		state, err := s.auth.EnableBasic(r.Context(), authorizing, request.Username, request.Password)
 		return state, "", !s.refuseAuth(w, r, err)
 	case auth.ModeForward:
 		return s.enableForward(w, r, request.Header)
@@ -450,7 +568,8 @@ func (s *Server) enableForward(w http.ResponseWriter, r *http.Request, header st
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.forward_header_missing")
 		return auth.State{}, "", false
 	}
-	state, err := s.auth.EnableForward(r.Context(), header)
+	authorizing, _ := authorizingStateFrom(r.Context())
+	state, err := s.auth.EnableForward(r.Context(), authorizing, header)
 	if s.refuseAuth(w, r, err) {
 		return auth.State{}, "", false
 	}
@@ -462,7 +581,8 @@ func (s *Server) changeAuthPassword(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	state, err := s.auth.ChangePassword(r.Context(), request.Password)
+	authorizing, _ := authorizingStateFrom(r.Context())
+	state, err := s.auth.ChangePassword(r.Context(), authorizing, request.Password)
 	if s.refuseAuth(w, r, err) {
 		return
 	}
@@ -476,7 +596,8 @@ func (s *Server) disableAuth(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.refuseAuth(w, r, s.auth.Disable(r.Context())) {
+	authorizing, _ := authorizingStateFrom(r.Context())
+	if s.refuseAuth(w, r, s.auth.Disable(r.Context(), authorizing)) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, authToJSON(auth.State{Mode: auth.ModeNone}, ""))
@@ -502,6 +623,8 @@ func (s *Server) refuseAuth(w http.ResponseWriter, r *http.Request, err error) b
 		s.apiRefuse(w, http.StatusConflict, "auth.already_enabled")
 	case errors.Is(err, auth.ErrDisabled):
 		s.apiRefuse(w, http.StatusConflict, "auth.disabled")
+	case errors.Is(err, auth.ErrStateChanged):
+		s.apiRefuse(w, http.StatusConflict, codeAuthStateChanged)
 	default:
 		s.apiInternalError(w, r, err)
 	}

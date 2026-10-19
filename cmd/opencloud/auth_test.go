@@ -47,7 +47,7 @@ func enableIn(t *testing.T, stateDir string) {
 		t.Fatal(err)
 	}
 	service.SetHashCost(bcrypt.MinCost)
-	if _, err := service.EnableBasic(context.Background(), "lucas", "correct horse battery"); err != nil {
+	if _, err := service.EnableBasic(context.Background(), auth.State{Mode: auth.ModeNone}, "lucas", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -106,7 +106,7 @@ func TestAuthCommand_StatusShowsTheForwardHeaderAndDisableReopens(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.EnableForward(context.Background(), "X-Forwarded-User"); err != nil {
+	if _, err := service.EnableForward(context.Background(), auth.State{Mode: auth.ModeNone}, "X-Forwarded-User"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -193,7 +193,7 @@ func TestWarnIfOpen_IsLouderWhenListeningBeyondLoopback(t *testing.T) {
 	}
 
 	service.SetHashCost(bcrypt.MinCost)
-	if _, err := service.EnableBasic(context.Background(), "lucas", "correct horse battery"); err != nil {
+	if _, err := service.EnableBasic(context.Background(), auth.State{Mode: auth.ModeNone}, "lucas", "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}
 	logs.Reset()
@@ -232,7 +232,7 @@ func TestWarnIfForwardUnproven_SpeaksOnlyForForwardWithLoopbackAndNoSecret(t *te
 	if speaks(loopback, false) {
 		t.Fatal("no forward mode yet: nothing to warn about")
 	}
-	if _, err := service.EnableForward(context.Background(), auth.DefaultForwardHeader); err != nil {
+	if _, err := service.EnableForward(context.Background(), auth.State{Mode: auth.ModeNone}, auth.DefaultForwardHeader); err != nil {
 		t.Fatal(err)
 	}
 	if !speaks(loopback, false) {
