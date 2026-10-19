@@ -78,6 +78,10 @@ const (
 	HeaderPrefix           = "OpenCloud-"
 	WebhookEventHeader     = HeaderPrefix + "Event"
 	WebhookSignatureHeader = HeaderPrefix + "Signature"
+	// L'en-tête où le mandataire d'authentification pose le secret qu'il
+	// partage avec le serveur : le mode forward ne croit l'identité que d'une
+	// requête qui le porte. Le nom est dans la configuration du mandataire.
+	ProxySecretHeader = "X-" + HeaderPrefix + "Proxy-Secret" // #nosec G101 -- un nom d'en-tête, pas un secret.
 )
 
 // Les préfixes de jetons : reconnaissables dans un journal ou un

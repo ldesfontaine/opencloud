@@ -81,6 +81,26 @@ func (s *Server) trustsAddress(address netip.Addr) bool {
 	return false
 }
 
+// loopbackRanges : tout ce que le noyau donne comme adresse source à un
+// processus de la même machine.
+var loopbackRanges = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
+
+// TrustsLoopback dit si un préfixe de confiance couvre des adresses de
+// boucle locale, par ce qu'il contient comme par ce qu'il enveloppe
+// (0.0.0.0/0). Sur une machine, la boucle locale n'est pas celle d'un
+// mandataire : c'est celle de tous les processus, et l'adresse du pair ne
+// prouve plus rien.
+func TrustsLoopback(prefixes []netip.Prefix) bool {
+	for _, prefix := range prefixes {
+		for _, loopback := range loopbackRanges {
+			if prefix.Overlaps(loopback) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func peerHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

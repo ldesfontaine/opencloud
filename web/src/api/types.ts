@@ -855,6 +855,9 @@ export interface AuthState {
   header?: string;
   enabled_at: string | null;
   password_min_length: number;
+  // En forward, présent et vrai quand rien ne prouve que la requête passe
+  // par le mandataire (pas de secret, boucle locale de confiance).
+  forward_insecure?: boolean;
 }
 
 // Activer l'authentification révoque tous les jetons MCP : la réponse dit

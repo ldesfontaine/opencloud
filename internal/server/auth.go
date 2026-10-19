@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"path"
@@ -205,10 +207,20 @@ func identityFrom(ctx context.Context) string {
 
 // checkForward ne croit l'en-tête d'identité que d'un mandataire déclaré :
 // de n'importe où ailleurs, un conteneur voisin pourrait l'écrire lui-même.
+// Quand un secret est configuré, il faut en plus que la requête le porte :
+// l'adresse d'un pair de boucle locale est celle de tous les processus de la
+// machine, pas la preuve de passer par le mandataire.
 // Il répond lui-même 401 quand il refuse.
 func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth.State) (string, bool) {
 	if !s.trustsPeer(r) {
 		s.logger.Warn("interface authentication refused: peer is not a trusted proxy", "peer", peerHost(r), "path", r.URL.Path)
+		s.writeForwardUnauthorized(w, r)
+		return "", false
+	}
+	if !s.hasProxySecret(r) {
+		// La valeur reçue ne se journalise pas : un secret presque juste
+		// resterait lisible dans le journal.
+		s.logger.Warn("interface authentication refused: proxy secret missing or wrong, the request did not go through the proxy", "header", brand.ProxySecretHeader, "peer", peerHost(r), "path", r.URL.Path)
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}
@@ -227,11 +239,14 @@ func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth
 }
 
 // trustedIdentity rend l'identité posée par un mandataire de confiance, ou
-// rien si la requête ne vient pas de l'un d'eux ou ne la porte pas.
+// rien si la requête ne vient pas de l'un d'eux, n'en prouve pas le passage
+// ou ne la porte pas. Le secret a fini de servir : il est ôté de la requête
+// pour qu'aucun gestionnaire ne le voie.
 func (s *Server) trustedIdentity(r *http.Request, header string) string {
-	if !s.trustsPeer(r) {
+	if !s.trustsPeer(r) || !s.hasProxySecret(r) {
 		return ""
 	}
+	r.Header.Del(brand.ProxySecretHeader)
 	// Plusieurs valeurs : le mandataire a ajouté la sienne au lieu
 	// d'écraser, et la première peut venir du client.
 	values := r.Header.Values(header)
@@ -239,6 +254,31 @@ func (s *Server) trustedIdentity(r *http.Request, header string) string {
 		return ""
 	}
 	return strings.TrimSpace(values[0])
+}
+
+// forwardSecretRequired dit si le mode forward manque de preuve : aucun
+// secret n'est configuré alors qu'un préfixe de confiance couvre la boucle
+// locale. Un pair non loopback (Traefik en conteneur, en /32) reste cru sur
+// son adresse, comme avant.
+func (s *Server) forwardSecretRequired() bool {
+	return s.forwardSecret == "" && TrustsLoopback(s.trustedProxies)
+}
+
+// hasProxySecret dit si la requête porte exactement une fois le secret du
+// mandataire. Sans secret configuré, il n'y a rien à prouver. Les valeurs
+// passent par une empreinte pour que la comparaison, à temps constant, ne
+// dise rien de la longueur du secret.
+func (s *Server) hasProxySecret(r *http.Request) bool {
+	if s.forwardSecret == "" {
+		return true
+	}
+	values := r.Header.Values(brand.ProxySecretHeader)
+	if len(values) != 1 {
+		return false
+	}
+	received := sha256.Sum256([]byte(values[0]))
+	expected := sha256.Sum256([]byte(s.forwardSecret))
+	return subtle.ConstantTimeCompare(received[:], expected[:]) == 1
 }
 
 // Le refus du mode forward, sans défi Basic : le navigateur n'a rien à
@@ -272,6 +312,10 @@ type authResponse struct {
 	// Le nom de l'en-tête d'identité, en forward seulement.
 	Header    string     `json:"header,omitempty"`
 	EnabledAt *time.Time `json:"enabled_at"`
+	// En forward, vrai quand rien ne prouve que la requête passe par le
+	// mandataire : pas de secret, et la boucle locale est de confiance. Le
+	// mode reste actif (le couper enfermerait l'opérateur), la page le dit.
+	ForwardInsecure bool `json:"forward_insecure,omitempty"`
 	// La longueur minimale, pour que le front la dise et la vérifie avant
 	// d'envoyer ; le serveur reste le juge.
 	PasswordMinLength int `json:"password_min_length"`
@@ -327,7 +371,9 @@ func (s *Server) getAuth(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	s.writeAPI(w, http.StatusOK, authToJSON(state, identityFrom(r.Context())))
+	response := authToJSON(state, identityFrom(r.Context()))
+	response.ForwardInsecure = state.Mode == auth.ModeForward && s.forwardSecretRequired()
+	s.writeAPI(w, http.StatusOK, response)
 }
 
 func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
@@ -377,6 +423,13 @@ func (s *Server) enableForward(w http.ResponseWriter, r *http.Request, header st
 	}
 	if err := auth.ValidateHeader(header); err != nil {
 		s.refuseAuth(w, r, err)
+		return auth.State{}, "", false
+	}
+	// Avant l'identité : sans secret, aucun en-tête reçu de la boucle locale
+	// ne prouve rien, et l'opérateur doit savoir quoi poser, pas seulement
+	// que l'en-tête manque.
+	if s.forwardSecretRequired() {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.forward_secret_required")
 		return auth.State{}, "", false
 	}
 	identity := s.trustedIdentity(r, header)

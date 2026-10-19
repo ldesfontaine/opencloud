@@ -4,8 +4,10 @@
 # (WARN « unknown key … ignored ») et ignorée ; une valeur invalide arrête
 # le démarrage.
 
-# Adresse d'écoute, hôte:port. Par défaut 127.0.0.1:8080 : seul un proxy
-# de la même machine (Traefik en mode host) peut joindre openCloud.
+# Adresse d'écoute, hôte:port. Par défaut 127.0.0.1:8080 : seuls les
+# processus de la même machine peuvent joindre openCloud, Traefik en mode host
+# comme tout autre. Un voisin qui atteint ce port en direct n'est pas arrêté
+# par l'adresse ; en mode forward, voir forward_secret_file plus bas.
 # Traefik en conteneur : l'IP du pont Docker, par exemple 172.17.0.1:8080.
 listen = "127.0.0.1:8080"
 
@@ -28,9 +30,24 @@ public_url = "https://opencloud.example.org"
 
 # Mandataires dont les en-têtes X-Forwarded-For, -Host et -Proto sont crus,
 # en notation CIDR. Vide (défaut) : aucun, l'adresse vue est celle du pair.
-# Traefik en mode host : 127.0.0.1/32. Traefik en conteneur : le sous-réseau
-# de son réseau Docker (docker network inspect <réseau>).
+# Traefik en mode host : 127.0.0.1/32, mais cette adresse est celle de tous
+# les processus de la machine, pas la preuve de passer par Traefik : en mode
+# forward, posez forward_secret_file. Traefik en conteneur : son IP fixe en
+# /32 (docker inspect <conteneur>), jamais le sous-réseau.
 trusted_proxies = ["127.0.0.1/32", "::1/128"]
+
+# Mode forward (SSO devant openCloud) : fichier d'une ligne qui porte le
+# secret partagé avec le mandataire, 32 caractères au moins. Le mandataire le
+# pose dans l'en-tête X-OpenCloud-Proxy-Secret (Traefik : headers.
+# customRequestHeaders, qui remplace la valeur du client) ; une requête qui ne
+# le porte pas exactement une fois répond 401. Obligatoire pour activer le mode
+# forward quand trusted_proxies couvre la boucle locale. Créez-le avec
+#   openssl rand -hex 32 > /etc/opencloud/forward.secret
+#   chown root:opencloud /etc/opencloud/forward.secret
+#   chmod 0640 /etc/opencloud/forward.secret
+# Un fichier illisible, trop court ou lisible par les autres comptes arrête le
+# démarrage. Vide (défaut) : l'adresse du pair seule décide.
+# forward_secret_file = "/etc/opencloud/forward.secret"
 
 # Socket du démon Docker de la machine openCloud, lue en lecture seule pour
 # suivre ses conteneurs. Absente : la machine n'a simplement aucun service.

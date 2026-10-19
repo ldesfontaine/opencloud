@@ -27,7 +27,7 @@ import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { diskSettingsError } from "../lib/disks";
 import { readingText } from "../lib/lifecycle";
-import { passwordFormError } from "../lib/auth";
+import { isForwardInsecure, passwordFormError } from "../lib/auth";
 import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
 import { MailSection } from "./SettingsMail";
@@ -135,10 +135,11 @@ function AccessSection({ state }: { state: AuthState }) {
 
   return (
     <Card className="form-card">
-      <CardHeader title={t("auth.title")} aside={<Pill tone={enabled ? "ok" : "warn"}>{t(`auth.state_${state.mode}`)}</Pill>} />
+      <CardHeader title={t("auth.title")} aside={<Pill tone={enabled && !isForwardInsecure(state) ? "ok" : "warn"}>{t(`auth.state_${state.mode}`)}</Pill>} />
       <CardBody>
         <p>{t("auth.intro")}</p>
         {!enabled && <Note tone="warn">{t("auth.open_text")}</Note>}
+        {isForwardInsecure(state) && <Note tone="warn">{t("auth.forward_insecure")}</Note>}
         {state.mode === "basic" && <KeyValue label={t("auth.username_label")} value={state.username} mono />}
         {state.mode === "forward" && (
           <>

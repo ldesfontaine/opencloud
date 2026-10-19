@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { AuthState } from "../api/types";
-import { accessLabel, isInterfaceOpen, passwordFormError } from "./auth";
+import { accessLabel, isForwardInsecure, isInterfaceOpen, passwordFormError } from "./auth";
 
 const open: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12 };
 const basic: AuthState = { mode: "basic", username: "lucas", enabled_at: "2026-10-10T08:00:00Z", password_min_length: 12 };
@@ -41,4 +41,12 @@ test("passwordFormError refuse un mot de passe trop court, compté en caractère
 test("passwordFormError refuse une confirmation différente", () => {
   expect(passwordFormError("correct horse battery", "correct horse batterie", 12)).toBe("auth.password_mismatch");
   expect(passwordFormError("correct horse battery", "correct horse battery", 12)).toBeNull();
+});
+
+test("isForwardInsecure ne parle que du mode mandataire que le serveur dit sans preuve", () => {
+  expect(isForwardInsecure({ ...forward, forward_insecure: true })).toBe(true);
+  expect(isForwardInsecure(forward)).toBe(false);
+  expect(isForwardInsecure({ ...basic, forward_insecure: true })).toBe(false);
+  expect(isForwardInsecure(open)).toBe(false);
+  expect(isForwardInsecure(null)).toBe(false);
 });

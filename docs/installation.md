@@ -176,6 +176,7 @@ commenté : [`installation/config.toml`](installation/config.toml).
 | `state_dir` | `/var/lib/opencloud` | La base `opencloud.db` (et `-wal`, `-shm`), réglages de l'interface compris, et le cache `lifecycle.json`. Créé en `0700` s'il manque |
 | `public_url` | vide | L'adresse publique, par exemple `https://opencloud.example.org`. Voir ci-dessous |
 | `trusted_proxies` | `[]` | Les mandataires dont les en-têtes `X-Forwarded-*` sont crus, en CIDR |
+| `forward_secret_file` | vide | Mode `forward` : le fichier d'une ligne qui porte le secret partagé avec le mandataire (32 caractères au moins, illisible pour les autres comptes). Illisible, trop court ou trop ouvert, il arrête le démarrage. Voir [Derrière un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie) |
 | `docker_socket` | `/var/run/docker.sock` | La socket Docker de cette machine. Absente : la machine n'a pas de service, ce n'est pas une erreur |
 | `ca_file` | vide | Un paquet PEM d'autorité interne, ajouté au magasin du système pour les sondes de cette machine. Un chemin illisible arrête le démarrage |
 | `log_level` | `info` | `debug`, `info`, `warn` ou `error`. En `debug`, une ligne par requête HTTP |
@@ -226,6 +227,13 @@ voisin écrirait `X-Forwarded-For` lui-même. Un préfixe plus large qu'une
 adresse fait un avertissement au démarrage. `X-Forwarded-For` se lit de la
 droite : ce qu'un client écrit lui-même à gauche ne compte pas.
 
+En mode host, `127.0.0.1/32` n'est pas « Traefik seul » : c'est l'adresse
+que le noyau donne à **tout processus de la machine**, un autre service, une
+application compromise, un conteneur en `network_mode: host`. Pour
+`X-Forwarded-*`, un processus local choisit l'adresse que voient le journal
+et les limiteurs. Pour l'identité du mode `forward`, ça ouvre tout : voir
+[`forward_secret_file`](#derrière-un-mandataire-qui-authentifie).
+
 ## Traefik
 
 openCloud écoute en HTTP ; Traefik termine TLS devant lui. Un seul routeur
@@ -262,7 +270,7 @@ http:
 
 | Cas | `listen` | URL du service Traefik | `trusted_proxies` |
 | --- | --- | --- | --- |
-| Traefik en mode host (`network_mode: host`, ou paquet sur l'hôte) | `127.0.0.1:8080` | `http://127.0.0.1:8080` | `["127.0.0.1/32", "::1/128"]` |
+| Traefik en mode host (`network_mode: host`, ou paquet sur l'hôte) | `127.0.0.1:8080` | `http://127.0.0.1:8080` | `["127.0.0.1/32", "::1/128"]` : cette adresse couvre tous les processus de la machine, pas Traefik seul. Sans mode `forward`, ça suffit ; avec, ajoutez `forward_secret_file` |
 | Traefik en conteneur, réseau créé par Compose, IP fixe | `172.17.0.1:8080` | `http://host.docker.internal:8080` | cette IP seule, par exemple `["172.30.0.2/32"]` |
 | Traefik en conteneur, réseau `bridge` par défaut | À éviter : l'IP du conteneur change au redémarrage, et seul un sous-réseau la couvrirait | | |
 
@@ -370,17 +378,54 @@ mode `forward` lui délègue tout : comptes, second facteur, déconnexion.
 openCloud laisse passer une requête seulement si elle vient d'une adresse
 de `trusted_proxies` **et** porte l'en-tête d'identité non vide
 (`Remote-User` par défaut). Tout le reste répond `401`, sans fenêtre Basic :
-pas de double connexion, et un conteneur voisin qui joint le port en direct
-n'a rien.
+pas de double connexion.
+
+Une adresse ne prouve pas que la requête vient du mandataire. Un conteneur
+voisin sur un réseau Docker, avec Traefik en conteneur et son IP en `/32`,
+n'a rien. Mais avec Traefik en mode host, `trusted_proxies` vaut `127.0.0.1/32`,
+l'adresse de **tous les processus de la machine** : l'un d'eux qui joint
+`127.0.0.1:8080` en direct écrit `Remote-User: x` et devient l'opérateur.
+Le secret partagé ferme ce cas, et il est recommandé dans tous les autres.
 
 | Prérequis | Pourquoi |
 | --- | --- |
+| **Un secret partagé** (`forward_secret_file`), que le mandataire pose dans l'en-tête `X-OpenCloud-Proxy-Secret` | Il prouve que la requête est passée par le mandataire. **Obligatoire** si `trusted_proxies` couvre la boucle locale : openCloud refuse alors d'activer le mode `forward` (`auth.forward_secret_required`). Sans lui, tout processus local est l'opérateur |
 | `trusted_proxies` = l'adresse du mandataire **seul**, en `/32` (par exemple `["172.30.0.2/32"]`), pas le sous-réseau | Tout pair de cette liste est cru sur parole : avec un `/24`, un voisin du réseau écrirait l'en-tête lui-même |
 | Le mandataire **écrase** l'en-tête envoyé par le client | Sinon un visiteur envoie `Remote-User: admin`. Traefik `forwardAuth` avec `authResponseHeaders: ["Remote-User"]` remplace la valeur du client par celle d'Authelia |
 | Deux Traefik en chaîne : `trusted_proxies` vise celui qui joint openCloud, l'en-tête est nettoyé par celui qui appelle Authelia | Le second ne doit être joignable que par le premier : sinon on le contourne, en-tête forgé compris |
-| Activer depuis une session **déjà authentifiée** par le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête depuis un pair de confiance. On ne peut pas s'enfermer dehors |
+| Activer depuis une session **déjà authentifiée** par le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête, et le secret s'il est configuré, depuis un pair de confiance. On ne peut pas s'enfermer dehors |
 
-Le middleware Traefik côté Authelia :
+**Le secret** : créez-le avant d'activer, lisible par le compte du service
+et pas par les autres, puis déclarez-le.
+
+```sh
+openssl rand -hex 32 > /etc/opencloud/forward.secret
+chown root:opencloud /etc/opencloud/forward.secret
+chmod 0640 /etc/opencloud/forward.secret
+# config.toml : forward_secret_file = "/etc/opencloud/forward.secret"
+systemctl restart opencloud
+```
+
+Au démarrage, un fichier illisible, de moins de 32 caractères, de plus d'une
+ligne ou lisible par les autres comptes (`mode & 0007`) arrête `serve`. Le
+secret n'est jamais journalisé. Le contenu du fichier va aussi dans la
+configuration de Traefik (ci-dessous) : ce fichier-là doit être aussi peu
+lisible. Une requête qui ne porte pas exactement une fois le secret répond
+`401`, et l'en-tête est retiré avant les gestionnaires. Changer le secret :
+écrire le nouveau dans les deux fichiers, puis redémarrer `serve`.
+
+Les middlewares Traefik : Authelia authentifie, puis le second pose le
+secret. `customRequestHeaders` **remplace** la valeur que le client enverrait,
+il ne s'ajoute pas. Ajoutez les deux au routeur `opencloud` de
+[`traefik-opencloud.yml`](installation/traefik-opencloud.yml) (pas un second
+routeur du même nom), **`authelia` d'abord** : `forwardAuth` transmet à
+Authelia les en-têtes de la requête, et dans l'autre ordre le secret partirait
+avec. Middleware Authelia déclaré par des labels Docker : `authelia@docker`.
+Les chemins qui ont leur propre preuve ou sont publics (le tableau
+[plus haut](#une-authentification-basic-au-niveau-de-traefik)) ne doivent pas
+être gardés par Authelia : une règle `policy: bypass` dans son
+`access_control`, sinon les agents, les pings et la page de statut sont
+renvoyés vers sa page de connexion.
 
 ```yaml
 http:
@@ -389,6 +434,14 @@ http:
       forwardAuth:
         address: "http://authelia:9091/api/authz/forward-auth"
         authResponseHeaders: ["Remote-User", "Remote-Groups", "Remote-Email", "Remote-Name"]
+    opencloud-proxy-secret:
+      headers:
+        customRequestHeaders:
+          X-OpenCloud-Proxy-Secret: "<le contenu de /etc/opencloud/forward.secret>"
+  routers:
+    opencloud:
+      # … rule, entryPoints, service, tls comme dans traefik-opencloud.yml
+      middlewares: ["authelia", "opencloud-proxy-secret"]
 ```
 
 **Activer** : ouvrez openCloud par son nom public, connectez-vous à
@@ -398,9 +451,21 @@ d'authentification ». Le corps de l'API est
 `POST /api/auth/actions/enable`. Comme en Basic, activer révoque tous les
 jetons MCP.
 
+**Installation déjà en `forward` sans secret** : openCloud ne coupe pas
+l'accès, mais écrit un `WARN` à chaque démarrage et la page Paramètres →
+Accès à l'interface affiche un avertissement tant que `trusted_proxies`
+couvre la boucle locale. Posez le secret, redémarrez : l'avertissement
+disparaît.
+
 **Vérifier** que le contournement est fermé :
 
 ```sh
+# depuis la machine openCloud, en direct, en-tête d'identité forgé : refusé
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: admin' http://127.0.0.1:8080/api/machines
+# 401
+# de même avec un faux secret
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: admin' -H 'X-OpenCloud-Proxy-Secret: faux' http://127.0.0.1:8080/api/machines
+# 401
 # depuis un autre conteneur du même réseau, en-tête forgé : refusé
 docker run --rm --network <réseau> curlimages/curl -s -o /dev/null -w '%{http_code}\n' \
   -H 'Remote-User: admin' http://172.30.0.1:8080/api/machines
@@ -417,9 +482,12 @@ runuser -u opencloud -- opencloud auth disable -config /etc/opencloud/config.tom
 runuser -u opencloud -- opencloud auth status  -config /etc/opencloud/config.toml
 ```
 
-La contrepartie : tout repose sur `trusted_proxies` juste et sur un
-mandataire qui nettoie l'en-tête. Un mandataire qui le laisse passer, ou un
-`trusted_proxies` trop large, et n'importe qui devient l'opérateur.
+La contrepartie : tout repose sur `trusted_proxies` juste, sur un
+mandataire qui nettoie l'en-tête, et sur un secret qui reste secret. Un
+mandataire qui laisse passer l'en-tête, ou un `trusted_proxies` trop large,
+et n'importe qui devient l'opérateur. Le secret protège de ce qui joint le
+port sans passer par le mandataire ; il ne protège pas d'un compte qui lit
+le fichier du secret ou la configuration de Traefik.
 
 ## Envoi d'e-mails
 

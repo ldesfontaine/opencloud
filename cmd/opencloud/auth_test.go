@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,5 +200,51 @@ func TestWarnIfOpen_IsLouderWhenListeningBeyondLoopback(t *testing.T) {
 	warnIfOpen(context.Background(), logger, service, ":8080")
 	if strings.Contains(logs.String(), "level=WARN") {
 		t.Fatalf("protected: %q", logs.String())
+	}
+}
+
+func TestWarnIfForwardUnproven_SpeaksOnlyForForwardWithLoopbackAndNoSecret(t *testing.T) {
+	_, stateDir := writeConfig(t)
+	root, err := openStateDir(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	db, err := store.Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	service, err := auth.New(db, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loopback := []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+	container := []netip.Prefix{netip.MustParsePrefix("172.18.0.2/32")}
+	speaks := func(trusted []netip.Prefix, hasSecret bool) bool {
+		logs.Reset()
+		warnIfForwardUnproven(context.Background(), logger, service, trusted, hasSecret)
+		return strings.Contains(logs.String(), "level=WARN")
+	}
+
+	if speaks(loopback, false) {
+		t.Fatal("no forward mode yet: nothing to warn about")
+	}
+	if _, err := service.EnableForward(context.Background(), auth.DefaultForwardHeader); err != nil {
+		t.Fatal(err)
+	}
+	if !speaks(loopback, false) {
+		t.Fatal("forward mode, loopback trusted, no secret: must warn")
+	}
+	if !strings.Contains(logs.String(), "forward_secret_file") {
+		t.Fatalf("the warning must name the key to set: %q", logs.String())
+	}
+	if speaks(loopback, true) {
+		t.Fatal("with a secret there is nothing to warn about")
+	}
+	if speaks(container, false) {
+		t.Fatal("a non-loopback proxy keeps its previous behavior")
 	}
 }
