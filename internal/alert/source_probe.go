@@ -93,7 +93,7 @@ func untrustReason(certificate *probe.Certificate, expired bool) string {
 func hostOf(found probe.Probe) string {
 	address, err := probe.ParseTarget(found.Kind, found.Target)
 	if err != nil {
-		return found.Target
+		return probe.RedactTarget(found.Target)
 	}
 	return address.Host
 }

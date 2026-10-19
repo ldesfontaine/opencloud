@@ -1,6 +1,6 @@
 import { useParams } from "react-router";
 
-import { ApiError } from "../api/client";
+import { ApiError, segment } from "../api/client";
 import type { Apply } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
@@ -18,7 +18,7 @@ import { NotFound } from "./NotFound";
 // le plan que l'opérateur avait confirmé, dans l'ordre d'écriture.
 export function ApplyDetail() {
   const { id = "" } = useParams();
-  const apply = useResource<Apply>(`/api/manifest/applies/${id}`);
+  const apply = useResource<Apply>(() => `/api/manifest/applies/${segment(id)}`);
   if (apply.error instanceof ApiError && apply.error.status === 404) {
     return <NotFound />;
   }

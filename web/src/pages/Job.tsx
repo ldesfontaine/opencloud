@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError } from "../api/client";
+import { api, ApiError, segment } from "../api/client";
 import type { Job, JobResponse, Ping, Run } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
@@ -26,7 +26,7 @@ import { NotFound } from "./NotFound";
 // l'installation passe devant, ouverte : c'est ce qu'il reste à faire.
 export function JobPage() {
   const { id = "" } = useParams();
-  const job = useResource<JobResponse>(`/api/jobs/${id}`);
+  const job = useResource<JobResponse>(() => `/api/jobs/${segment(id)}`);
   if (job.error instanceof ApiError && job.error.status === 404) {
     return <NotFound />;
   }

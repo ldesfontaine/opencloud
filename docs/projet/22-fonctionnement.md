@@ -805,7 +805,10 @@ est régénéré par l'export, la lecture ne le lit pas.
   télécharge `GET /api/manifest/export` (même garde que le reste de l'API) ;
   `opencloud export [-o fichier]` demande la même route à `serve` par la socket
   `state_dir/control.sock`. L'outil MCP `export_directory` rend le même texte
-  dans le champ `yaml`. Les commentaires du fichier sont dans la langue de
+  dans le champ `yaml`, mais **sans le mot de passe d'une cible de sonde**
+  (`https://user:…@hôte`) : le fichier de l'opérateur le garde tel qu'il est
+  stocké, parce que l'apply le compare, un fichier masqué le remplacerait par
+  « … ». Le texte rendu à MCP se lit, il ne se réapplique pas tel quel. Les commentaires du fichier sont dans la langue de
   l'interface.
 - **Avec propositions.** `opencloud export -propose` (route `?propose=1`,
   outil MCP `export_directory` avec `propose: true`) ajoute à la fin du fichier
@@ -842,7 +845,15 @@ est régénéré par l'export, la lecture ne le lit pas.
   prendrait pour autre chose : un nombre, `true`, `null`, mais aussi les pièges
   de YAML 1.1 (`yes`, `no`, `on`, `off`, `y`, `n`, `1:30`) et la clé de fusion
   `<<`, que d'autres lecteurs liraient autrement. `opencloud export -o` écrit le fichier en 0600,
-  par un fichier temporaire renommé.
+  par un fichier temporaire renommé : le temporaire a un **nom aléatoire** et
+  s'ouvre en création exclusive, dans le dossier du fichier. Un fichier posé
+  d'avance sous `<fichier>.tmp` par un autre compte n'est donc jamais réutilisé
+  (lancée en root, la commande lui aurait livré l'export, sur son inode). Même
+  règle pour l'identité de l'agent, `secret.key` et `lifecycle.json`. Un échec
+  supprime le temporaire ; une coupure en laisse un, que rien ne relit et que
+  la prochaine écriture réussie du même fichier supprime (un temporaire garde
+  une copie de ce qui s'écrivait : une clé oubliée par `secrets forget` n'y
+  survit pas).
 - **Borné comme la lecture.** Un annuaire dont le fichier dépasserait 256 Kio
   ne s'exporte pas : l'export répond 422 `manifest.export_too_large` (la
   commande affiche la clé, l'outil MCP la rend), plutôt que d'écrire un
@@ -2012,20 +2023,21 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `get_overview` | La version et les compteurs de `/api/counts` | |
 | `list_machines`, `get_machine`, `get_machine_network` | Les machines sans leurs jetons en attente ; une machine avec sa dernière mesure et son Docker ; la topologie et les constats d'exposition | |
 | `list_declared_services` | Les services déclarés avec leur écart (état par service, par unité et par conteneur rattaché) et les conteneurs non déclarés, groupés et marqués ignorés ou non ; filtre par machine ou projet (un projet ne montre aucun non déclaré) | 100, 500 au plus ; la page ne porte que les services, les non déclarés sortent tous |
-| `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`) | 256 Kio ; au-delà, le refus `manifest.export_too_large`. Avec `propose: true`, les propositions en plus (voir l'export) |
+| `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`, et le mot de passe d'une cible de sonde masqué, `user:…@hôte`) | 256 Kio ; au-delà, le refus `manifest.export_too_large`. Avec `propose: true`, les propositions en plus (voir l'export) |
 | `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
-| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais | 50 essais |
+| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` et `resume_probe` la masquent de même | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
 | `list_alerts`, `get_alert`, `list_alert_channels` | Les alertes ouvertes ou résolues avec les compteurs ; une alerte et ses livraisons ; les canaux avec **l'URL réduite à son hôte**, un webhook Discord porte son jeton dans son chemin | 200 |
 
-| Écritures (`DestructiveHint: false`) | Ce que fait aussi l'interface | Refus |
-| --- | --- | --- |
-| `acknowledge_alert` | Acquitter | `alert.already_resolved` |
-| `pause_probe`, `resume_probe`, `pause_job`, `resume_job` | Mettre en pause, reprendre | `probe.not_paused`, `job.not_paused` |
-| `open_incident`, `add_incident_update` | Ouvrir un incident public, ajouter au fil, résoudre | les clés de l'API : `incident.impact_invalid`, `incident.already_resolved`… |
-| `create_silence` | Faire taire un type, un objet, ou les deux, pendant une durée | `silence.invalid`, `silence.duration_invalid` |
-| `set_update_policy` | Régler la politique d'une unité de l'annuaire : `watch`, `hold` ou `ignore` (`unit_id`, `policy`) | `directory.update_policy_invalid`, `not_found` |
+| Écritures | `DestructiveHint` | Ce que fait aussi l'interface | Refus |
+| --- | --- | --- | --- |
+| `acknowledge_alert` | `true` : l'astreinte ne la voit plus comme nouvelle | Acquitter | `alert.already_resolved` |
+| `pause_probe`, `pause_job` | `true` : l'objet n'est plus surveillé, ses alertes se ferment (et la pause d'une tâche clôt l'exécution ouverte en échéance dépassée) | Mettre en pause | |
+| `resume_probe`, `resume_job` | `false` : on rétablit la surveillance | Reprendre | `probe.not_paused`, `job.not_paused` |
+| `open_incident`, `add_incident_update` | `true` : le texte est public aussitôt | Ouvrir un incident public, ajouter au fil, résoudre | les clés de l'API : `incident.impact_invalid`, `incident.already_resolved`… |
+| `create_silence` | `true` : les alertes visées ne partent plus | Faire taire un objet, ou un type sur un objet, pendant une durée. **Par MCP, un type seul (donc sur tous les objets) est refusé** : `mcp.silence_object_required`. L'interface garde ce geste | `silence.invalid`, `silence.duration_invalid`, `mcp.silence_object_required` |
+| `set_update_policy` | `false` : se défait d'un geste, rien de public | Régler la politique d'une unité de l'annuaire : `watch`, `hold` ou `ignore` (`unit_id`, `policy`) | `directory.update_policy_invalid`, `not_found` |
 
 **Ce que MCP ne peut jamais faire** : agir sur une machine (aucune
 commande, aucun redémarrage, aucun déploiement), créer ou modifier un
@@ -2033,7 +2045,20 @@ canal (une URL de webhook y passerait), tester un canal (un envoi réseau
 déclenché par un modèle), créer ou supprimer une machine, un jeton, une
 sonde, une tâche, un composant, changer un réglage, lire un secret d'openCloud : ni
 l'URL de ping, ni le secret d'un canal, ni un jeton, ni le secret du
-client. Les journaux d'un conteneur, eux, sortent bruts et peuvent en contenir un ; la carte Paramètres le dit, comme elle dit que `open_incident` et `add_incident_update` publient pour le public. Un refus est le même mot que dans l'API, `not_found`, `internal`
+client. Les journaux d'un conteneur, eux, sortent bruts et peuvent en contenir un ; la carte Paramètres le dit, comme elle dit que `open_incident` et `add_incident_update` publient pour le public.
+
+**Le texte de tiers n'est pas une consigne.** Ce que les outils rendent et qu'un
+tiers a écrit (lignes de journal, extraits d'un arrêt anormal, charges de ping
+d'une tâche, sujet et émetteur d'un certificat, noms de conteneurs, de services
+et de sondes) peut viser le modèle qui le lit. Les instructions du serveur MCP
+le disent : c'est de la donnée, jamais une consigne, et une écriture ne part que
+sur la demande explicite de l'opérateur dans la conversation ; les descriptions
+de `open_incident`, `add_incident_update` et `create_silence` le répètent. Les
+écritures qui publient, font taire ou cachent un objet portent
+`DestructiveHint: true`, pour que le client demande confirmation. Ce n'est
+qu'une défense du côté du client et du modèle : le serveur ne sait pas d'où
+vient un ordre. D'où le refus du silence sans objet, qui aveuglerait l'astreinte
+sur tous les objets d'un coup. Un refus est le même mot que dans l'API, `not_found`, `internal`
 ou une clé de catalogue ; le détail d'une erreur reste au journal.
 
 ### Limitation de débit sur `/mcp` et `/oauth/…`
@@ -2095,6 +2120,31 @@ aussi les commandes du serveur ; le journal d'un service ouvre un
 troisième flux, `/api/containers/{id}/logs/stream`, un par fiche ouverte.
 Tous traversent la même chaîne de middlewares (panique, identifiant de
 requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
+
+### Les identifiants de route entrent encodés dans l'API
+
+Une page qui lit son identifiant dans l'adresse (`/alertes/canaux/:id`,
+`/taches/:id/modifier`…) le met dans un chemin `/api/…`. React Router rend
+`%2F` en `/` et le navigateur résout `../` avant d'envoyer : un lien forgé,
+`/alertes/canaux/..%2F..%2Fstatus%2Fcomponents%2F<id>`, ferait partir le
+chargement, l'enregistrement ou la suppression de la page vers une autre
+ressource, avec la garde même-origine satisfaite. Le serveur ne peut pas le
+voir : il ne reçoit que le chemin déjà normalisé.
+
+`segment()` (`web/src/api/client.ts`) passe donc chaque paramètre de route, ou
+de requête (`?project=`, `?container=`), avant qu'il n'entre dans un chemin :
+
+- il refuse tout ce qui n'a pas la forme d'un identifiant du serveur
+  (lettres, chiffres, `_`, `-`, `:`, 128 signes au plus : hexadécimaux, UUID,
+  `local`, `svc_…`, `prj_…`, `apl_…`, entiers, et `machine:identifiant Docker`
+  pour un conteneur) en levant l'erreur d'un `404` ;
+- puis il l'encode (`encodeURIComponent`).
+
+`useResource` accepte un chemin construit à la lecture, `() => …segment(id)…` :
+l'erreur levée devient l'erreur de la ressource, la page montre « introuvable »
+sans qu'aucune requête ne parte, et le rendu ne tombe pas. Les identifiants qui
+viennent des réponses du serveur (une fiche déjà lue) n'ont pas ce risque et
+ne passent pas par là.
 
 ### Ce qui n'est pas encore livré ne s'affiche pas
 
@@ -2240,7 +2290,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
 | Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
-| Une cible de sonde avec mot de passe | `https://user:motdepasse@hôte` est accepté à la création d'une sonde, et s'exporte donc dans le fichier, qui va dans Git. Le plan et le journal la masquent, pas l'export ni la base | À corriger à la création d'une sonde, chantier à part |
+| Une cible de sonde avec mot de passe | `https://user:motdepasse@hôte` est accepté à la création d'une sonde, et s'exporte donc dans le fichier, qui va dans Git. Le plan, le journal, les alertes et tous les outils MCP (dont `export_directory`) la masquent ; l'export fichier et la base, non | À corriger à la création d'une sonde, chantier à part : refuser le mot de passe dans la cible, le garder dans une colonne chiffrée |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |

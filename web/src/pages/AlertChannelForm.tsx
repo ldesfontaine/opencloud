@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { AlertSeverity, Channel, ChannelFormat, ChannelTest, MailSettings } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
@@ -36,7 +36,7 @@ export function AlertChannelForm() {
   const [params] = useSearchParams();
   const justCreated = id !== undefined && params.get("cree") === "1";
   const { refresh } = useRefresh();
-  const existing = useResource<Channel>(id !== undefined ? `/api/alerts/channels/${id}` : null);
+  const existing = useResource<Channel>(id !== undefined ? () => `/api/alerts/channels/${segment(id)}` : null);
   const mail = useResource<MailSettings>("/api/settings/mail");
   const [name, setName] = useState("");
   const [url, setURL] = useState("");
@@ -75,7 +75,7 @@ export function AlertChannelForm() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    const request = id === undefined ? api.post<Channel>("/api/alerts/channels", body) : api.put<Channel>(`/api/alerts/channels/${id}`, body);
+    const request = id === undefined ? api.post<Channel>("/api/alerts/channels", body) : api.put<Channel>(`/api/alerts/channels/${segment(id)}`, body);
     request
       .then((saved) => {
         setError(null);
@@ -94,7 +94,7 @@ export function AlertChannelForm() {
     setBusy(true);
     setTest(null);
     api
-      .post<ChannelTest>(`/api/alerts/channels/${id}/actions/test`)
+      .post<ChannelTest>(`/api/alerts/channels/${segment(id)}/actions/test`)
       .then(setTest)
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));
@@ -105,7 +105,7 @@ export function AlertChannelForm() {
       return;
     }
     api
-      .delete(`/api/alerts/channels/${id}`)
+      .delete(`/api/alerts/channels/${segment(id)}`)
       .then(() => {
         refresh("alerts");
         void navigate("/alertes/canaux");

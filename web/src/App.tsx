@@ -37,7 +37,7 @@ import { VisualSystem } from "./pages/VisualSystem";
 function ContainerRedirect() {
   const { id = "" } = useParams();
   const location = useLocation();
-  return <Navigate replace to={{ pathname: `/services/conteneurs/${id}`, search: location.search, hash: location.hash }} />;
+  return <Navigate replace to={{ pathname: `/services/conteneurs/${encodeURIComponent(id)}`, search: location.search, hash: location.hash }} />;
 }
 
 // Les adresses restent en français, comme l'opérateur les lit ; une route

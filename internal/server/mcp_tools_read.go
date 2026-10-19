@@ -60,7 +60,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.listDeclaredServicesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "export_directory",
-		Description: "The whole directory as the YAML file the " + brand.Command + " export command writes: projects, declared services and their units, probes, jobs, ignored keys. Ids included, never a secret (a job's token is only the marker `secret: kept`). With propose=true, entries proposed from the undeclared containers that are not ignored are added, without ids, for the operator to review before apply. Returns {yaml}.",
+		Description: "The whole directory as the YAML file the " + brand.Command + " export command writes: projects, declared services and their units, probes, jobs, ignored keys. Ids included, never a secret (a job's token is only the marker `secret: kept`, and a password in a probe target is masked as `user:…@host`: do not apply this file as is). With propose=true, entries proposed from the undeclared containers that are not ignored are added, without ids, for the operator to review before apply. Returns {yaml}.",
 		Annotations: readOnlyHints(),
 	}, s.exportDirectoryTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -80,12 +80,12 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.getJobTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_probes",
-		Description: "List HTTP and TCP probes, optionally filtered by machine_id, paged: status (new, up, degraded, down, paused), target, machine that probes and whether it is online, interval, thresholds, last check with its reason, the TLS certificate last seen (subject, issuer, validity dates, fingerprint, chain_valid, hostname_match, OCSP), and per-probe daily counts over 30 days to compute uptime.",
+		Description: "List HTTP and TCP probes, optionally filtered by machine_id, paged: status (new, up, degraded, down, paused), target (a password in it is masked), machine that probes and whether it is online, interval, thresholds, last check with its reason, the TLS certificate last seen (subject, issuer, validity dates, fingerprint, chain_valid, hostname_match, OCSP), and per-probe daily counts over 30 days to compute uptime.",
 		Annotations: readOnlyHints(),
 	}, s.listProbesTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_probe",
-		Description: "One probe with its uptime windows (total and successful checks per window), 90 days of daily counts, and its last 50 checks (outcome, duration, HTTP code, reason).",
+		Description: "One probe (its target's password masked) with its uptime windows (total and successful checks per window), 90 days of daily counts, and its last 50 checks (outcome, duration, HTTP code, reason).",
 		Annotations: readOnlyHints(),
 	}, s.getProbeTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -394,7 +394,7 @@ type exportDirectoryInput struct {
 }
 
 func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolRequest, input exportDirectoryInput) (*gomcp.CallToolResult, any, error) {
-	data, err := s.exportedDirectory(ctx, manifest.ExportOptions{Propose: input.Propose})
+	data, err := s.exportedDirectory(ctx, manifest.ExportOptions{Propose: input.Propose, RedactSecrets: true})
 	if errors.Is(err, manifest.ErrExportTooLarge) {
 		return toolRefuse(manifest.KeyExportTooLarge)
 	}
@@ -484,6 +484,15 @@ func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input
 	return toolJSON(response)
 }
 
+// mcpProbeJSON est probeToJSON pour un client MCP : la cible y perd son mot
+// de passe, comme dans le plan d'apply et les alertes. La description des
+// outils promet qu'aucun secret n'en sort.
+func mcpProbeJSON(found probe.Probe, online bool) probeJSON {
+	converted := probeToJSON(found, online)
+	converted.Target = probe.RedactTarget(converted.Target)
+	return converted
+}
+
 func (s *Server) listProbesTool(ctx context.Context, _ *gomcp.CallToolRequest, input listProbesInput) (*gomcp.CallToolResult, any, error) {
 	probes, err := s.probes.List(ctx, input.MachineID)
 	if err != nil {
@@ -502,7 +511,7 @@ func (s *Server) listProbesTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	carried := map[string]bool{}
 	for _, found := range sliceOf(probes, limit, offset) {
 		carried[found.ID] = true
-		response.Probes = append(response.Probes, probeToJSON(found, online[found.MachineID]))
+		response.Probes = append(response.Probes, mcpProbeJSON(found, online[found.MachineID]))
 	}
 	for _, day := range days {
 		if carried[day.ProbeID] {
@@ -524,6 +533,7 @@ func (s *Server) getProbeTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 	if err != nil {
 		return s.toolInternal("get_probe", err)
 	}
+	response.Probe.Target = probe.RedactTarget(response.Probe.Target)
 	return toolJSON(response)
 }
 

@@ -49,6 +49,24 @@ function errorCode(payload: unknown): string {
   return "internal";
 }
 
+// Les identifiants du serveur : hexadécimaux (sondes, tâches, composants),
+// UUID (machines), « local », préfixés (svc_, unit_, prj_, apl_), entiers
+// (alertes), et « machine:identifiant Docker » pour un conteneur. Ni point,
+// ni barre, ni « ? » ni « # » : rien qui change le chemin d'une requête.
+const idPattern = /^[A-Za-z0-9_:-]{1,128}$/;
+
+// segment prépare un paramètre de route (ou de requête) à entrer dans un
+// chemin d'API. react-router rend « %2F » en « / » et le navigateur résout
+// « ../ » avant d'envoyer : un lien forgé ferait partir la requête de la
+// page vers une autre ressource. Ce qui n'a pas la forme d'un identifiant
+// lève la même erreur qu'une ressource absente.
+export function segment(value: string): string {
+  if (!idPattern.test(value)) {
+    throw new ApiError(404, "not_found");
+  }
+  return encodeURIComponent(value);
+}
+
 export const api = {
   get: <T>(path: string) => call<T>("GET", path),
   post: <T>(path: string, body?: unknown) => call<T>("POST", path, body),

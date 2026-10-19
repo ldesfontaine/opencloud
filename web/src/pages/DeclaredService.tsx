@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey } from "../api/client";
+import { api, ApiError, errorKey, segment } from "../api/client";
 import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
@@ -25,7 +25,7 @@ import { NotFound } from "./NotFound";
 // rattachés. Un service repris de l'existant se valide ici.
 export function DeclaredServicePage() {
   const { id = "" } = useParams();
-  const service = useResource<DeclaredServiceDetail>(`/api/directory/services/${id}`);
+  const service = useResource<DeclaredServiceDetail>(() => `/api/directory/services/${segment(id)}`);
   const projects = useResource<ProjectsResponse>("/api/directory/projects");
   // L'écart se lit pour la machine du service ; le service s'y retrouve par son id.
   const gaps = useResource<GapsResponse>(service.data ? gapsPath(service.data.machine_id, "") : null);

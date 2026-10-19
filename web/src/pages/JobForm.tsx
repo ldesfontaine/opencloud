@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { Job, JobResponse, MachinesResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
@@ -26,7 +26,7 @@ export function JobForm() {
   const navigate = useNavigate();
   const { refresh } = useRefresh();
   const machines = useResource<MachinesResponse>("/api/machines");
-  const existing = useResource<JobResponse>(isEditing ? `/api/jobs/${id}` : null);
+  const existing = useResource<JobResponse>(isEditing ? () => `/api/jobs/${segment(id)}` : null);
   const [values, setValues] = useState<JobFormValues>(emptyJobForm);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +54,7 @@ export function JobForm() {
     event.preventDefault();
     setBusy(true);
     const body = jobRequestOf(values);
-    const request = isEditing ? api.put<Job>(`/api/jobs/${id}`, body) : api.post<Job>("/api/jobs", body);
+    const request = isEditing ? api.put<Job>(`/api/jobs/${segment(id)}`, body) : api.post<Job>("/api/jobs", body);
     request
       .then((saved) => {
         refresh();

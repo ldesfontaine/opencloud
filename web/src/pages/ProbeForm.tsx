@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { DeclaredServicesResponse, MachinesResponse, Probe, ProbeKind, ProbeResponse, ContainerResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
@@ -34,8 +34,8 @@ export function ProbeForm() {
   const fromContainer = params.get("container") ?? "";
   const machines = useResource<MachinesResponse>("/api/machines");
   const declared = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const container = useResource<ContainerResponse>(fromContainer === "" ? null : `/api/containers/${fromContainer}`);
-  const existing = useResource<ProbeResponse>(isEditing ? `/api/probes/${id}` : null);
+  const container = useResource<ContainerResponse>(fromContainer === "" ? null : () => `/api/containers/${segment(fromContainer)}`);
+  const existing = useResource<ProbeResponse>(isEditing ? () => `/api/probes/${segment(id)}` : null);
 
   const [values, setValues] = useState<ProbeFormValues>(emptyProbeForm);
   const [serviceID, setServiceID] = useState(fromService);
@@ -105,7 +105,7 @@ export function ProbeForm() {
     event.preventDefault();
     setBusy(true);
     const body = probeRequestOf(values, serviceID);
-    const request = isEditing ? api.put<Probe>(`/api/probes/${id}`, body) : api.post<Probe>("/api/probes", body);
+    const request = isEditing ? api.put<Probe>(`/api/probes/${segment(id)}`, body) : api.post<Probe>("/api/probes", body);
     request
       .then((saved) => {
         refresh();

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse, UpdatePolicy } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -50,7 +50,7 @@ export function DeclaredServiceForm() {
   const { refresh } = useRefresh();
   const machines = useResource<MachinesResponse>("/api/machines");
   const projects = useResource<ProjectsResponse>("/api/directory/projects");
-  const existing = useResource<DeclaredService>(isEditing ? `/api/directory/services/${id}` : null);
+  const existing = useResource<DeclaredService>(isEditing ? () => `/api/directory/services/${segment(id)}` : null);
   const proposal = useResource<ProposalResponse>(container === "" ? null : `/api/directory/proposal?container=${encodeURIComponent(container)}`);
 
   const [values, setValues] = useState<ServiceFormValues>(emptyServiceForm);
@@ -123,7 +123,7 @@ export function DeclaredServiceForm() {
     event.preventDefault();
     setBusy(true);
     const body = serviceRequestOf(values);
-    const request = isEditing ? api.put<DeclaredService>(`/api/directory/services/${id}`, body) : api.post<DeclaredService>("/api/directory/services", body);
+    const request = isEditing ? api.put<DeclaredService>(`/api/directory/services/${segment(id)}`, body) : api.post<DeclaredService>("/api/directory/services", body);
     request
       .then((saved) => {
         refresh("directory");
