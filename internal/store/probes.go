@@ -80,7 +80,7 @@ func (db *DB) UpdateProbe(ctx context.Context, revision probe.Revision) error {
 	if err != nil {
 		return fmt.Errorf("update probe: %w", err)
 	}
-	return probeNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, probe.ErrNotFound)
 }
 
 // ListProbes rend les sondes d'une machine, ou de toutes si machineID est
@@ -96,16 +96,7 @@ func (db *DB) ListProbes(ctx context.Context, machineID string) ([]probe.Probe, 
 	if err != nil {
 		return nil, fmt.Errorf("list probes: %w", err)
 	}
-	defer rows.Close()
-	probes := []probe.Probe{}
-	for rows.Next() {
-		item, err := scanProbe(rows)
-		if err != nil {
-			return nil, err
-		}
-		probes = append(probes, item)
-	}
-	return probes, rows.Err()
+	return collect(rows, scanProbe)
 }
 
 func (db *DB) GetProbe(ctx context.Context, id string) (probe.Probe, error) {
@@ -173,7 +164,7 @@ func (db *DB) DeleteProbe(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete probe: %w", err)
 	}
-	return probeNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, probe.ErrNotFound)
 }
 
 // SetProbeStatus met l'état et remet les compteurs à zéro : après une
@@ -185,7 +176,7 @@ func (db *DB) SetProbeStatus(ctx context.Context, id string, status probe.Status
 	if err != nil {
 		return fmt.Errorf("set probe status: %w", err)
 	}
-	return probeNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, probe.ErrNotFound)
 }
 
 // ApplyProbeResults écrit les essais et l'état des sondes touchées en une
@@ -194,28 +185,26 @@ func (db *DB) SetProbeStatus(ctx context.Context, id string, status probe.Status
 // n'y est pas, et personne ne doit la croire dans l'état qu'on lui avait
 // calculé.
 func (db *DB) ApplyProbeResults(ctx context.Context, changes probe.Changes) ([]probe.Probe, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin apply probes: %w", err)
-	}
-	defer tx.Rollback()
-	for _, result := range changes.Results {
-		if err := insertProbeResult(ctx, tx, result); err != nil {
-			return nil, err
-		}
-	}
 	written := make([]probe.Probe, 0, len(changes.Probes))
-	for _, item := range changes.Probes {
-		isWritten, err := updateProbeState(ctx, tx, item)
-		if err != nil {
-			return nil, err
+	err := db.inTx(ctx, "apply probes", func(tx *sql.Tx) error {
+		for _, result := range changes.Results {
+			if err := insertProbeResult(ctx, tx, result); err != nil {
+				return err
+			}
 		}
-		if isWritten {
-			written = append(written, item)
+		for _, item := range changes.Probes {
+			isWritten, err := updateProbeState(ctx, tx, item)
+			if err != nil {
+				return err
+			}
+			if isWritten {
+				written = append(written, item)
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit apply probes: %w", err)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return written, nil
 }
@@ -271,23 +260,22 @@ func (db *DB) ListProbeResults(ctx context.Context, probeID string, limit int) (
 	if err != nil {
 		return nil, fmt.Errorf("list probe results: %w", err)
 	}
-	defer rows.Close()
-	results := []probe.Result{}
-	for rows.Next() {
-		result := probe.Result{ProbeID: probeID}
-		var checkedAt int64
-		var code sql.NullInt64
-		var outcome, reason string
-		if err := rows.Scan(&checkedAt, &outcome, &result.DurationMs, &code, &reason); err != nil {
-			return nil, fmt.Errorf("scan probe result: %w", err)
-		}
-		result.CheckedAt = time.Unix(checkedAt, 0).UTC()
-		result.Outcome = probe.Outcome(outcome)
-		result.Reason = probe.Reason(reason)
-		result.Code = intPointer(code)
-		results = append(results, result)
+	return collect(rows, func(row scanner) (probe.Result, error) { return scanProbeResult(row, probeID) })
+}
+
+func scanProbeResult(row scanner, probeID string) (probe.Result, error) {
+	result := probe.Result{ProbeID: probeID}
+	var checkedAt int64
+	var code sql.NullInt64
+	var outcome, reason string
+	if err := row.Scan(&checkedAt, &outcome, &result.DurationMs, &code, &reason); err != nil {
+		return probe.Result{}, fmt.Errorf("scan probe result: %w", err)
 	}
-	return results, rows.Err()
+	result.CheckedAt = time.Unix(checkedAt, 0).UTC()
+	result.Outcome = probe.Outcome(outcome)
+	result.Reason = probe.Reason(reason)
+	result.Code = intPointer(code)
+	return result, nil
 }
 
 // ListDays rend les jours agrégés d'une sonde, ou de toutes si probeID est
@@ -303,18 +291,17 @@ func (db *DB) ListProbeDays(ctx context.Context, probeID string, from time.Time)
 	if err != nil {
 		return nil, fmt.Errorf("list probe days: %w", err)
 	}
-	defer rows.Close()
-	days := []probe.Day{}
-	for rows.Next() {
-		var day probe.Day
-		var at int64
-		if err := rows.Scan(&day.ProbeID, &at, &day.Total, &day.Success, &day.Degraded, &day.DurationMs); err != nil {
-			return nil, fmt.Errorf("scan probe day: %w", err)
-		}
-		day.Day = time.Unix(at, 0).UTC()
-		days = append(days, day)
+	return collect(rows, scanProbeDay)
+}
+
+func scanProbeDay(row scanner) (probe.Day, error) {
+	var day probe.Day
+	var at int64
+	if err := row.Scan(&day.ProbeID, &at, &day.Total, &day.Success, &day.Degraded, &day.DurationMs); err != nil {
+		return probe.Day{}, fmt.Errorf("scan probe day: %w", err)
 	}
-	return days, rows.Err()
+	day.Day = time.Unix(at, 0).UTC()
+	return day, nil
 }
 
 // CountResults compte les essais et les succès d'une fenêtre dans le brut ;
@@ -436,17 +423,6 @@ func timeOfMillis(value sql.NullInt64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(value.Int64)
-}
-
-func probeNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return probe.ErrNotFound
-	}
-	return nil
 }
 
 // CountProbeHistory compte ce qu'emporte la suppression d'une sonde : ses

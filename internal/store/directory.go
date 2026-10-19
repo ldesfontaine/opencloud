@@ -26,39 +26,33 @@ const unitColumns = `id, service_id, name, kind, image, version, digest, contain
 // liens de projet d'un coup. Les refus se lisent avant d'écrire : un index
 // unique violé ne dirait pas lequel des noms est pris.
 func (db *DB) InsertDeclaredService(ctx context.Context, service directory.Service) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert declared service: %w", err)
-	}
-	defer tx.Rollback()
-	if err := checkServiceWrite(ctx, tx, service); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `
+	return db.inTx(ctx, "insert declared service", func(tx *sql.Tx) error {
+		if err := checkServiceWrite(ctx, tx, service); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `
 		INSERT INTO declared_services (id, machine_id, name, title, nature, origin, compose_project,
 			public_url, declared_by, needs_review, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		service.ID, service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
-		service.ComposeProject, service.PublicURL, string(service.DeclaredBy), boolToInt(service.NeedsReview),
-		service.CreatedAt.Unix(), service.UpdatedAt.Unix())
-	if err != nil {
-		return fmt.Errorf("insert declared service: %w", err)
-	}
-	for position, unit := range service.Units {
-		if err := insertUnit(ctx, tx, unit, position); err != nil {
+			service.ID, service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
+			service.ComposeProject, service.PublicURL, string(service.DeclaredBy), boolToInt(service.NeedsReview),
+			service.CreatedAt.Unix(), service.UpdatedAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert declared service: %w", err)
+		}
+		for position, unit := range service.Units {
+			if err := insertUnit(ctx, tx, unit, position); err != nil {
+				return err
+			}
+		}
+		if err := writeProvides(ctx, tx, service); err != nil {
 			return err
 		}
-	}
-	if err := writeProvides(ctx, tx, service); err != nil {
-		return err
-	}
-	if err := writeProjectLinks(ctx, tx, service); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert declared service: %w", err)
-	}
-	return nil
+		if err := writeProjectLinks(ctx, tx, service); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // UpdateDeclaredService réécrit la définition. Les unités dont l'identifiant
@@ -66,53 +60,47 @@ func (db *DB) InsertDeclaredService(ctx context.Context, service directory.Servi
 // fournitures et les liens sont remplacés, pas rapprochés. La provenance et
 // « à vérifier » ne se réécrivent pas ici.
 func (db *DB) UpdateDeclaredService(ctx context.Context, service directory.Service) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update declared service: %w", err)
-	}
-	defer tx.Rollback()
-	var found int
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE id = ?`, service.ID).Scan(&found)
-	if err != nil {
-		return fmt.Errorf("find declared service: %w", err)
-	}
-	if found == 0 {
-		return directory.ErrNotFound
-	}
-	if err := checkUnitsBelong(ctx, tx, service); err != nil {
-		return err
-	}
-	if err := checkServiceWrite(ctx, tx, service); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `
+	return db.inTx(ctx, "update declared service", func(tx *sql.Tx) error {
+		var found int
+		err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE id = ?`, service.ID).Scan(&found)
+		if err != nil {
+			return fmt.Errorf("find declared service: %w", err)
+		}
+		if found == 0 {
+			return directory.ErrNotFound
+		}
+		if err := checkUnitsBelong(ctx, tx, service); err != nil {
+			return err
+		}
+		if err := checkServiceWrite(ctx, tx, service); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
 		UPDATE declared_services SET machine_id = ?, name = ?, title = ?, nature = ?, origin = ?,
 			compose_project = ?, public_url = ?, updated_at = ?
 		WHERE id = ?`,
-		service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
-		service.ComposeProject, service.PublicURL, service.UpdatedAt.Unix(), service.ID)
-	if err != nil {
-		return fmt.Errorf("update declared service: %w", err)
-	}
-	if err := rewriteUnits(ctx, tx, service); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM service_provides WHERE service_id = ?`, service.ID); err != nil {
-		return fmt.Errorf("clear provides: %w", err)
-	}
-	if err := writeProvides(ctx, tx, service); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM project_services WHERE service_id = ?`, service.ID); err != nil {
-		return fmt.Errorf("clear project links: %w", err)
-	}
-	if err := writeProjectLinks(ctx, tx, service); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit update declared service: %w", err)
-	}
-	return nil
+			service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
+			service.ComposeProject, service.PublicURL, service.UpdatedAt.Unix(), service.ID)
+		if err != nil {
+			return fmt.Errorf("update declared service: %w", err)
+		}
+		if err := rewriteUnits(ctx, tx, service); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM service_provides WHERE service_id = ?`, service.ID); err != nil {
+			return fmt.Errorf("clear provides: %w", err)
+		}
+		if err := writeProvides(ctx, tx, service); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM project_services WHERE service_id = ?`, service.ID); err != nil {
+			return fmt.Errorf("clear project links: %w", err)
+		}
+		if err := writeProjectLinks(ctx, tx, service); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // checkServiceWrite lit tout ce qui peut refuser l'écriture, du plus
@@ -439,16 +427,8 @@ func (db *DB) ListDeclaredServices(ctx context.Context, filter directory.Filter)
 	if err != nil {
 		return nil, fmt.Errorf("list declared services: %w", err)
 	}
-	defer rows.Close()
-	services := []directory.Service{}
-	for rows.Next() {
-		service, err := scanDeclaredService(rows)
-		if err != nil {
-			return nil, err
-		}
-		services = append(services, service)
-	}
-	if err := rows.Err(); err != nil {
+	services, err := collect(rows, scanDeclaredService)
+	if err != nil {
 		return nil, err
 	}
 	if err := db.attachServiceParts(ctx, services, partsScope{filter: filter}); err != nil {
@@ -555,16 +535,7 @@ func (db *DB) listUnits(ctx context.Context, scope partsScope) ([]directory.Unit
 	if err != nil {
 		return nil, fmt.Errorf("list units: %w", err)
 	}
-	defer rows.Close()
-	units := []directory.Unit{}
-	for rows.Next() {
-		unit, err := scanUnit(rows)
-		if err != nil {
-			return nil, err
-		}
-		units = append(units, unit)
-	}
-	return units, rows.Err()
+	return collect(rows, scanUnit)
 }
 
 func scanUnit(row scanner) (directory.Unit, error) {
@@ -607,16 +578,15 @@ func (db *DB) listServiceLinks(ctx context.Context, query string, args ...any) (
 	if err != nil {
 		return nil, fmt.Errorf("list service links: %w", err)
 	}
-	defer rows.Close()
-	links := []serviceLink{}
-	for rows.Next() {
-		var link serviceLink
-		if err := rows.Scan(&link.owner, &link.member); err != nil {
-			return nil, err
-		}
-		links = append(links, link)
+	return collect(rows, scanServiceLink)
+}
+
+func scanServiceLink(row scanner) (serviceLink, error) {
+	var link serviceLink
+	if err := row.Scan(&link.owner, &link.member); err != nil {
+		return serviceLink{}, err
 	}
-	return links, rows.Err()
+	return link, nil
 }
 
 // DeleteDeclaredService efface le service ; ses unités, ses fournitures et
@@ -625,43 +595,32 @@ func (db *DB) listServiceLinks(ctx context.Context, query string, args ...any) (
 // supprimer se font dans la même transaction, pour qu'un lien posé entre les
 // deux ne passe pas. La clé étrangère en restrict reste le filet.
 func (db *DB) DeleteDeclaredService(ctx context.Context, id string) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin delete declared service: %w", err)
-	}
-	defer tx.Rollback()
-	var found int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE id = ?`, id).Scan(&found); err != nil {
-		return fmt.Errorf("find declared service: %w", err)
-	}
-	if found == 0 {
-		return directory.ErrNotFound
-	}
-	links, err := listServiceLinks(ctx, tx, id)
-	if err != nil {
-		return err
-	}
-	if !links.IsEmpty() {
-		return &directory.LinkedError{Links: links}
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM declared_services WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("delete declared service: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit delete declared service: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "delete declared service", func(tx *sql.Tx) error {
+		var found int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE id = ?`, id).Scan(&found); err != nil {
+			return fmt.Errorf("find declared service: %w", err)
+		}
+		if found == 0 {
+			return directory.ErrNotFound
+		}
+		links, err := listServiceLinks(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !links.IsEmpty() {
+			return &directory.LinkedError{Links: links}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM declared_services WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("delete declared service: %w", err)
+		}
+		return nil
+	})
 }
 
 // ListServiceLinks rend les sondes et les composants de statut qui visent le
 // service, par nom.
 func (db *DB) ListServiceLinks(ctx context.Context, serviceID string) (directory.Links, error) {
 	return listServiceLinks(ctx, db.sql, serviceID)
-}
-
-// querier est ce que la base et une transaction ont en commun pour lire.
-type querier interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func listServiceLinks(ctx context.Context, db querier, serviceID string) (directory.Links, error) {
@@ -685,16 +644,15 @@ func linkedObjects(ctx context.Context, db querier, query string, args ...any) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	objects := []directory.LinkedObject{}
-	for rows.Next() {
-		var object directory.LinkedObject
-		if err := rows.Scan(&object.ID, &object.Name); err != nil {
-			return nil, err
-		}
-		objects = append(objects, object)
+	return collect(rows, scanLinkedObject)
+}
+
+func scanLinkedObject(row scanner) (directory.LinkedObject, error) {
+	var object directory.LinkedObject
+	if err := row.Scan(&object.ID, &object.Name); err != nil {
+		return directory.LinkedObject{}, err
 	}
-	return objects, rows.Err()
+	return object, nil
 }
 
 // MarkServiceReviewed baisse « à vérifier » : l'opérateur a relu ce que la
@@ -705,7 +663,7 @@ func (db *DB) MarkServiceReviewed(ctx context.Context, id string, at time.Time) 
 	if err != nil {
 		return fmt.Errorf("mark declared service reviewed: %w", err)
 	}
-	return directoryNotFoundIfNoRow(result, directory.ErrNotFound)
+	return notFoundIfNoRow(result, directory.ErrNotFound)
 }
 
 func (db *DB) GetUnit(ctx context.Context, id string) (directory.Unit, error) {
@@ -716,67 +674,44 @@ func (db *DB) GetUnit(ctx context.Context, id string) (directory.Unit, error) {
 	return unit, err
 }
 
-func directoryNotFoundIfNoRow(result sql.Result, notFound error) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return notFound
-	}
-	return nil
-}
-
 // --- Projets ---
 
 func (db *DB) InsertProject(ctx context.Context, project directory.Project) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert project: %w", err)
-	}
-	defer tx.Rollback()
-	if err := checkProjectNameFree(ctx, tx, project); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO projects (id, name, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		project.ID, project.Name, project.Title, project.CreatedAt.Unix(), project.UpdatedAt.Unix())
-	if err != nil {
-		return fmt.Errorf("insert project: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert project: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "insert project", func(tx *sql.Tx) error {
+		if err := checkProjectNameFree(ctx, tx, project); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO projects (id, name, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			project.ID, project.Name, project.Title, project.CreatedAt.Unix(), project.UpdatedAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert project: %w", err)
+		}
+		return nil
+	})
 }
 
 // UpdateProject réécrit le nom et le titre ; les liens de services ne se
 // règlent que depuis le service.
 func (db *DB) UpdateProject(ctx context.Context, project directory.Project) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update project: %w", err)
-	}
-	defer tx.Rollback()
-	var found int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id = ?`, project.ID).Scan(&found); err != nil {
-		return fmt.Errorf("find project: %w", err)
-	}
-	if found == 0 {
-		return directory.ErrProjectNotFound
-	}
-	if err := checkProjectNameFree(ctx, tx, project); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE projects SET name = ?, title = ?, updated_at = ? WHERE id = ?`,
-		project.Name, project.Title, project.UpdatedAt.Unix(), project.ID)
-	if err != nil {
-		return fmt.Errorf("update project: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit update project: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "update project", func(tx *sql.Tx) error {
+		var found int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id = ?`, project.ID).Scan(&found); err != nil {
+			return fmt.Errorf("find project: %w", err)
+		}
+		if found == 0 {
+			return directory.ErrProjectNotFound
+		}
+		if err := checkProjectNameFree(ctx, tx, project); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE projects SET name = ?, title = ?, updated_at = ? WHERE id = ?`,
+			project.Name, project.Title, project.UpdatedAt.Unix(), project.ID)
+		if err != nil {
+			return fmt.Errorf("update project: %w", err)
+		}
+		return nil
+	})
 }
 
 func checkProjectNameFree(ctx context.Context, tx *sql.Tx, project directory.Project) error {
@@ -813,16 +748,8 @@ func (db *DB) ListProjects(ctx context.Context) ([]directory.Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	defer rows.Close()
-	projects := []directory.Project{}
-	for rows.Next() {
-		project, err := scanProject(rows)
-		if err != nil {
-			return nil, err
-		}
-		projects = append(projects, project)
-	}
-	if err := rows.Err(); err != nil {
+	projects, err := collect(rows, scanProject)
+	if err != nil {
 		return nil, err
 	}
 	if err := db.attachProjectServices(ctx, projects, ""); err != nil {
@@ -874,7 +801,7 @@ func (db *DB) DeleteProject(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
-	return directoryNotFoundIfNoRow(result, directory.ErrProjectNotFound)
+	return notFoundIfNoRow(result, directory.ErrProjectNotFound)
 }
 
 // --- Clés ignorées ---
@@ -892,48 +819,41 @@ func (db *DB) ListIgnoredKeys(ctx context.Context, machineID string) ([]director
 	if err != nil {
 		return nil, fmt.Errorf("list ignored keys: %w", err)
 	}
-	defer rows.Close()
-	keys := []directory.IgnoredKey{}
-	for rows.Next() {
-		var key directory.IgnoredKey
-		var kind string
-		var createdAt int64
-		if err := rows.Scan(&key.MachineID, &kind, &key.Value, &createdAt); err != nil {
-			return nil, err
-		}
-		key.Kind = directory.IgnoreKind(kind)
-		key.CreatedAt = time.Unix(createdAt, 0)
-		keys = append(keys, key)
+	return collect(rows, scanIgnoredKey)
+}
+
+func scanIgnoredKey(row scanner) (directory.IgnoredKey, error) {
+	var key directory.IgnoredKey
+	var kind string
+	var createdAt int64
+	if err := row.Scan(&key.MachineID, &kind, &key.Value, &createdAt); err != nil {
+		return directory.IgnoredKey{}, err
 	}
-	return keys, rows.Err()
+	key.Kind = directory.IgnoreKind(kind)
+	key.CreatedAt = time.Unix(createdAt, 0)
+	return key, nil
 }
 
 // InsertIgnoredKey est idempotent : dire deux fois qu'une clé est ignorée
 // garde la première date. Lire la machine avant d'écrire donne le refus
 // précis, là où une clé étrangère violée ne dirait rien.
 func (db *DB) InsertIgnoredKey(ctx context.Context, key directory.IgnoredKey) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert ignored key: %w", err)
-	}
-	defer tx.Rollback()
-	var machines int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM machines WHERE id = ?`, key.MachineID).Scan(&machines); err != nil {
-		return fmt.Errorf("find ignored key machine: %w", err)
-	}
-	if machines == 0 {
-		return directory.ErrMachineInvalid
-	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT OR IGNORE INTO ignored_keys (machine_id, kind, value, created_at) VALUES (?, ?, ?, ?)`,
-		key.MachineID, string(key.Kind), key.Value, key.CreatedAt.Unix())
-	if err != nil {
-		return fmt.Errorf("insert ignored key: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert ignored key: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "insert ignored key", func(tx *sql.Tx) error {
+		var machines int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM machines WHERE id = ?`, key.MachineID).Scan(&machines); err != nil {
+			return fmt.Errorf("find ignored key machine: %w", err)
+		}
+		if machines == 0 {
+			return directory.ErrMachineInvalid
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO ignored_keys (machine_id, kind, value, created_at) VALUES (?, ?, ?, ?)`,
+			key.MachineID, string(key.Kind), key.Value, key.CreatedAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert ignored key: %w", err)
+		}
+		return nil
+	})
 }
 
 func (db *DB) DeleteIgnoredKey(ctx context.Context, key directory.IgnoredKey) error {
@@ -943,5 +863,5 @@ func (db *DB) DeleteIgnoredKey(ctx context.Context, key directory.IgnoredKey) er
 	if err != nil {
 		return fmt.Errorf("delete ignored key: %w", err)
 	}
-	return directoryNotFoundIfNoRow(result, directory.ErrIgnoredNotFound)
+	return notFoundIfNoRow(result, directory.ErrIgnoredNotFound)
 }
