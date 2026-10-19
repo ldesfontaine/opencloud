@@ -174,7 +174,22 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		ResourceMetadataURL:    publicURL + mcpResourcePath,
 		AllowMissingExpiration: true,
 	})
-	require(s.mcpHandler).ServeHTTP(w, r)
+	// Le Bearer est jugé sur les en-têtes, et un client peut retenir le corps
+	// aussi longtemps qu'il veut : un jeton révoqué entre-temps (activation de
+	// l'authentification, révocation depuis Paramètres) ferait encore passer
+	// l'appel d'outil. Le corps est donc lu en entier, puis le Bearer rejugé.
+	// Le premier jugement reste avant la lecture : un anonyme reçoit son 401
+	// sans faire tenir son corps au serveur.
+	require(readBodyThen(require(s.mcpHandler))).ServeHTTP(w, r)
+}
+
+// readBodyThen lit le corps en entier avant de passer la main ; voir
+// readWholeBody.
+func readBodyThen(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		readWholeBody(w, r)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) verifyBearer(ctx context.Context, bearer string, _ *http.Request) (*auth.TokenInfo, error) {

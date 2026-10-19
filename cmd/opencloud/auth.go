@@ -75,7 +75,16 @@ func authCommand(args []string, out io.Writer) error {
 }
 
 func disableAuth(ctx context.Context, access *auth.Service, out io.Writer) error {
-	err := access.Disable(ctx)
+	// Accès local direct à la base : l'état lu ici est celui que la
+	// commande désactive.
+	current, err := access.State(ctx)
+	if err != nil {
+		return err
+	}
+	err = access.Disable(ctx, current)
+	if errors.Is(err, auth.ErrStateChanged) {
+		return &refusal{message: "l'authentification a changé pendant la commande : relancez-la"}
+	}
 	if errors.Is(err, auth.ErrDisabled) {
 		_, writeErr := fmt.Fprintln(out, "L'authentification de l'interface était déjà désactivée.")
 		return writeErr

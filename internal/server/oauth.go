@@ -171,6 +171,12 @@ func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	if user, password, ok := r.BasicAuth(); ok {
 		clientID, clientSecret = user, password
 	}
+	// Un code ou un rafraîchissement consommé avant la révocation de
+	// l'activation ne doit pas en ressortir des jetons écrits après elle :
+	// voir grantsAuthority. Le formulaire est déjà lu, un client lent ne
+	// tient pas le verrou.
+	s.authTransition.RLock()
+	defer s.authTransition.RUnlock()
 	var grant mcp.Grant
 	var err error
 	switch r.PostFormValue("grant_type") {

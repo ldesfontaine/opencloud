@@ -62,6 +62,12 @@ func (s *Server) streamTopics(w http.ResponseWriter, r *http.Request, bus Live) 
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
+			// Le flux n'est jugé qu'à l'ouverture : si l'authentification a
+			// changé depuis, il se ferme ici et le navigateur revient se
+			// faire juger.
+			if s.authorizationLapsed(r) {
+				return
+			}
 			if err := writeComment(w, "ping"); err != nil {
 				return
 			}

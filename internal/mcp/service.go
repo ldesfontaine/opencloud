@@ -99,7 +99,8 @@ func (s *Service) Disable(ctx context.Context) error {
 }
 
 // RegenerateSecret remplace le secret et révoque les autorisations OAuth
-// obtenues avec l'ancien ; les jetons d'API, indépendants, restent.
+// obtenues avec l'ancien, codes en attente compris ; les jetons d'API,
+// indépendants, restent.
 func (s *Service) RegenerateSecret(ctx context.Context) (string, error) {
 	if _, err := s.store.GetMCPClient(ctx); err != nil {
 		return "", err
@@ -189,9 +190,10 @@ func (s *Service) APITokens(ctx context.Context) ([]Token, error) {
 	return slices.DeleteFunc(tokens, func(token Token) bool { return token.IsExpired(now) }), nil
 }
 
-// RevokeAll coupe tous les jetons vivants, d'API et OAuth, et dit combien.
-// Le client et son secret restent : une nouvelle autorisation passe par
-// /oauth/authorize, que l'authentification de l'interface garde désormais.
+// RevokeAll coupe tous les jetons vivants, d'API et OAuth, et les codes
+// OAuth en attente, et dit combien de jetons. Le client et son secret
+// restent : une nouvelle autorisation passe par /oauth/authorize, que
+// l'authentification de l'interface garde désormais.
 func (s *Service) RevokeAll(ctx context.Context) (Revoked, error) {
 	revoked, err := s.store.RevokeAllMCPTokens(ctx, s.now())
 	if err != nil {

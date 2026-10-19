@@ -1617,6 +1617,7 @@ mode_invalid = "Mode inconnu : identifiant et mot de passe, ou mandataire d'auth
 password_mismatch = "Les deux mots de passe ne sont pas identiques."
 already_enabled = "Requête refusée : l'authentification est déjà activée."
 disabled = "Requête refusée : l'authentification n'est pas activée."
+state_changed = "L'authentification de l'interface a changé pendant la requête : rechargez la page."
 forward_header_missing = "Requête refusée : cette page ne passe pas par un mandataire de trusted_proxies qui pose l'en-tête d'identité (et le secret partagé, s'il est configuré). Ouvrez {product} par le mandataire, puis activez."
 forward_secret_required = "Activation refusée : sur la boucle locale, l'adresse du mandataire ne prouve rien, tout processus de cette machine peut joindre {product} directement et se faire passer pour l'opérateur. Posez forward_secret_file dans la configuration, puis faites poser ce secret par le mandataire dans l'en-tête {proxy_secret_header} (Traefik : headers.customRequestHeaders)."
 no_password = "Requête refusée : en mode mandataire, il n'y a pas de mot de passe ; c'est le mandataire qui authentifie."

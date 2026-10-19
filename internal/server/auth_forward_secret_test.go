@@ -28,7 +28,7 @@ func (ts *testServer) enableForwardOnLoopback(t *testing.T, secret string) {
 	t.Helper()
 	ts.trustedProxies = parsePrefixes(t, "127.0.0.1/32", "::1/128")
 	ts.forwardSecret = secret
-	if _, err := ts.operator.EnableForward(context.Background(), auth.DefaultForwardHeader); err != nil {
+	if _, err := ts.operator.EnableForward(context.Background(), auth.State{Mode: auth.ModeNone}, auth.DefaultForwardHeader); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -195,20 +195,34 @@ func (db *DB) RevokeMCPFamily(ctx context.Context, familyID string, at time.Time
 	return mcpNotFoundIfNoRow(result)
 }
 
-// RevokeMCPOAuthTokens révoque tout ce qui vient d'une autorisation OAuth ;
-// les jetons d'API restent.
+// RevokeMCPOAuthTokens révoque tout ce qui vient d'une autorisation OAuth,
+// codes en attente compris : un code non échangé se changerait encore en
+// jetons. Les jetons d'API restent.
 func (db *DB) RevokeMCPOAuthTokens(ctx context.Context, at time.Time) error {
-	_, err := db.sql.ExecContext(ctx,
+	tx, err := db.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke mcp oauth tokens: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx,
 		`UPDATE mcp_tokens SET revoked_at = ? WHERE kind != ? AND revoked_at IS NULL`, at.Unix(), string(mcp.KindAPI))
 	if err != nil {
 		return fmt.Errorf("revoke mcp oauth tokens: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
+		return fmt.Errorf("revoke mcp codes: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke mcp oauth tokens: %w", err)
+	}
 	return nil
 }
 
-// RevokeAllMCPTokens révoque, en une transaction, tout jeton vivant : non
-// révoqué et non échu. Rend combien de jetons d'API et combien de familles
-// OAuth tombent ; un jeton déjà échu ne compte pas, il ne servait plus.
+// RevokeAllMCPTokens révoque, en une transaction, tout jeton vivant (non
+// révoqué et non échu) et efface les codes OAuth en attente, qui se
+// changeraient encore en jetons. Rend combien de jetons d'API et combien de
+// familles OAuth tombent ; un jeton déjà échu ne compte pas, il ne servait
+// plus.
 func (db *DB) RevokeAllMCPTokens(ctx context.Context, at time.Time) (mcp.Revoked, error) {
 	tx, err := db.sql.BeginTx(ctx, nil)
 	if err != nil {
@@ -227,6 +241,9 @@ func (db *DB) RevokeAllMCPTokens(ctx context.Context, at time.Time) (mcp.Revoked
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE mcp_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, at.Unix()); err != nil {
 		return mcp.Revoked{}, fmt.Errorf("revoke mcp tokens: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
+		return mcp.Revoked{}, fmt.Errorf("revoke mcp codes: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return mcp.Revoked{}, fmt.Errorf("commit revoke mcp tokens: %w", err)

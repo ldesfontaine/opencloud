@@ -36,7 +36,9 @@ var ErrVerificationQueueFull = errors.New("auth: verification queue full")
 // Ce que le service attend du store.
 type Store interface {
 	GetAuthState(ctx context.Context) (State, error)
-	SaveAuthState(ctx context.Context, state State, at time.Time) error
+	// SaveAuthStateIf n'écrit que si l'état stocké vaut encore expected, et
+	// dit s'il a écrit.
+	SaveAuthStateIf(ctx context.Context, expected, next State, at time.Time) (bool, error)
 }
 
 // remembered est l'empreinte des derniers identifiants vérifiés, liée à
@@ -95,8 +97,14 @@ func (s *Service) State(ctx context.Context) (State, error) {
 	return s.store.GetAuthState(ctx)
 }
 
+// Les quatre changements d'état prennent l'état sous lequel la requête a été
+// autorisée (expected) : une requête dont le corps a traîné ne s'applique pas
+// à un état qu'elle n'a pas vu. La comparaison et l'écriture se font d'un seul
+// tenant dans la base ; la lecture qui précède évite seulement un hachage
+// inutile.
+
 // EnableBasic choisit identifiant et mot de passe, et passe en mode basic.
-func (s *Service) EnableBasic(ctx context.Context, username, password string) (State, error) {
+func (s *Service) EnableBasic(ctx context.Context, expected State, username, password string) (State, error) {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {
 		return State{}, err
@@ -112,10 +120,9 @@ func (s *Service) EnableBasic(ctx context.Context, username, password string) (S
 		return State{}, err
 	}
 	next := State{Mode: ModeBasic, Username: username, PasswordHash: hash, EnabledAt: s.now()}
-	if err := s.store.SaveAuthState(ctx, next, s.now()); err != nil {
+	if err := s.replaceState(ctx, expected, next); err != nil {
 		return State{}, err
 	}
-	s.forget()
 	s.logger.Info("interface authentication enabled", "mode", string(ModeBasic), "username", username)
 	return next, nil
 }
@@ -123,7 +130,7 @@ func (s *Service) EnableBasic(ctx context.Context, username, password string) (S
 // EnableForward passe en mode forward : l'identité vient de l'en-tête
 // que pose le mandataire. Le serveur vérifie d'abord que la requête qui
 // active le porte déjà, sans quoi l'opérateur s'enfermerait dehors.
-func (s *Service) EnableForward(ctx context.Context, header string) (State, error) {
+func (s *Service) EnableForward(ctx context.Context, expected State, header string) (State, error) {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {
 		return State{}, err
@@ -135,19 +142,21 @@ func (s *Service) EnableForward(ctx context.Context, header string) (State, erro
 		return State{}, err
 	}
 	next := State{Mode: ModeForward, Header: header, EnabledAt: s.now()}
-	if err := s.store.SaveAuthState(ctx, next, s.now()); err != nil {
+	if err := s.replaceState(ctx, expected, next); err != nil {
 		return State{}, err
 	}
-	s.forget()
 	s.logger.Info("interface authentication enabled", "mode", string(ModeForward), "header", header)
 	return next, nil
 }
 
 // ChangePassword garde l'identifiant et remplace l'empreinte.
-func (s *Service) ChangePassword(ctx context.Context, password string) (State, error) {
+func (s *Service) ChangePassword(ctx context.Context, expected State, password string) (State, error) {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {
 		return State{}, err
+	}
+	if !current.Same(expected) {
+		return State{}, ErrStateChanged
 	}
 	if current.Mode == ModeForward {
 		return State{}, ErrNoPassword
@@ -159,29 +168,45 @@ func (s *Service) ChangePassword(ctx context.Context, password string) (State, e
 	if err != nil {
 		return State{}, err
 	}
-	current.PasswordHash = hash
-	if err := s.store.SaveAuthState(ctx, current, s.now()); err != nil {
+	next := current
+	next.PasswordHash = hash
+	if err := s.replaceState(ctx, expected, next); err != nil {
 		return State{}, err
 	}
-	s.forget()
-	s.logger.Info("interface password changed", "username", current.Username)
-	return current, nil
+	s.logger.Info("interface password changed", "username", next.Username)
+	return next, nil
 }
 
 // Disable rouvre l'interface et efface identifiant, empreinte et en-tête.
-func (s *Service) Disable(ctx context.Context) error {
+func (s *Service) Disable(ctx context.Context, expected State) error {
 	current, err := s.store.GetAuthState(ctx)
 	if err != nil {
 		return err
 	}
+	if !current.Same(expected) {
+		return ErrStateChanged
+	}
 	if current.Mode == ModeNone {
 		return ErrDisabled
 	}
-	if err := s.store.SaveAuthState(ctx, State{Mode: ModeNone}, s.now()); err != nil {
+	if err := s.replaceState(ctx, expected, State{Mode: ModeNone}); err != nil {
 		return err
 	}
-	s.forget()
 	s.logger.Warn("interface authentication disabled", "previous_mode", string(current.Mode))
+	return nil
+}
+
+// replaceState écrit next si l'état stocké vaut encore expected, et oublie
+// les identifiants retenus.
+func (s *Service) replaceState(ctx context.Context, expected, next State) error {
+	swapped, err := s.store.SaveAuthStateIf(ctx, expected, next, s.now())
+	if err != nil {
+		return err
+	}
+	if !swapped {
+		return ErrStateChanged
+	}
+	s.forget()
 	return nil
 }
 

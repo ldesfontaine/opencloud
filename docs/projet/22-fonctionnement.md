@@ -121,7 +121,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. Désactiver efface identifiant, empreinte et en-tête |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. Avant la base, ces réglages vivaient dans `settings.toml` : `serve` le reprend au démarrage s'il le trouve, puis l'efface ; si la base a déjà des réglages, elle l'emporte, et le journal le dit. Un fichier illisible arrête le démarrage, rien n'est perdu ; un fichier qui ne s'efface pas est seulement signalé. `opencloud mcp` ne reprend rien : il lit la base |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -1871,6 +1871,28 @@ jugement porte sur le motif de route enregistré, et le test
 liste des ouvertes ; son jumeau `TestAuthForward_…` vérifie la même liste
 en mode `forward`.
 
+**Un changement d'état ne laisse rien derrière lui.** `serve` n'a pas de
+délai de lecture : un client peut retenir le corps d'une écriture aussi
+longtemps qu'il veut. Une fois la requête admise sur ses en-têtes, le corps
+d'une écriture est donc lu en entier (jusqu'à 1 Mio, la borne commune ; un
+corps trop gros est rendu tel quel au handler, qui répond comme avant), puis
+l'état relu : s'il a changé entre-temps, `409 auth.state_changed`. Un anonyme
+face à une interface gardée est refusé avant toute lecture du corps. L'état
+qui a admis la requête voyage dans son contexte. Changer le mot de passe,
+désactiver et activer le comparent à l'état stocké **dans la même transaction
+que l'écriture** : de deux activations simultanées, une seule gagne. Les
+écritures qui accordent une autorité durable (jeton d'API MCP, code OAuth,
+secret du client, adresses de retour, activation de MCP, jeton d'enrôlement,
+réenrôlement) le comparent aussi juste avant d'agir, sous un verrou que
+l'activation prend du changement d'état jusqu'à la révocation MCP ; l'échange
+et le rafraîchissement de `/oauth/token` passent sous le même verrou. Ainsi
+rien de ce qu'elles accordent ne s'écrit entre les deux. Sur `/mcp`, le
+Bearer est jugé sur les en-têtes, puis le corps lu en entier et le Bearer
+rejugé : un appel d'outil retenu ne passe pas avec un jeton révoqué
+entre-temps, et sans Bearer valide le corps n'est pas lu. Un flux ouvert (le
+direct, le suivi d'un journal) relit l'état à chaque ping de 15 s et se ferme
+s'il n'est plus le même : le navigateur revient et se fait juger.
+
 Vérifier coûte un bcrypt (~100 ms) : une seule vérification lente à la
 fois, et les derniers identifiants justes sont retenus en mémoire sous
 forme d'un HMAC à clé tirée au démarrage, comparé en temps constant et lié
@@ -1975,11 +1997,14 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    l'a obtenu derrière `/oauth/authorize`. La portée voyage avec la requête
    (`TokenInfo` du SDK, posé par la vérification du Bearer) et chaque
    écriture la juge : un `read` reçoit `mcp.read_only`, comme le mode local.
-   Régénérer le secret coupe les familles OAuth et garde les jetons d'API.
+   Régénérer le secret coupe les familles OAuth, codes en attente compris, et
+   garde les jetons d'API.
    **Activer l'authentification de l'interface** (`none` → `basic` ou
    `forward`) révoque
-   tous les jetons, d'API et OAuth : tant que l'interface était ouverte,
-   n'importe qui pouvait en tirer. La réponse de
+   tous les jetons, d'API et OAuth, et efface les codes d'autorisation en
+   attente (dix minutes de validité, sans quoi ils s'échangeraient encore
+   contre une session) : tant que l'interface était ouverte, n'importe qui
+   pouvait en tirer. La réponse de
    `POST /api/auth/actions/enable` dit combien (`mcp_revoked` : jetons
    d'API, sessions OAuth), l'interface l'affiche. Le client et son secret
    restent : une nouvelle autorisation passe désormais par les
