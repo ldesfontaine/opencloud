@@ -83,6 +83,31 @@ const (
 	TransitionRetention = 90 * 24 * time.Hour
 	ArchivedRetention   = 30 * 24 * time.Hour
 	SampleRetention     = 48 * time.Hour
+
+	// Ce qu'une machine garde au plus, quoi que son agent envoie : la
+	// rétention borne la durée, ces plafonds bornent le volume, sans quoi un
+	// agent qui ment remplit le disque que toutes les machines se partagent.
+	//
+	// Vivants : un inventaire complet n'en porte pas plus de
+	// MaxContainersPerReport ; la marge couvre ceux que des événements
+	// ajoutent entre deux inventaires. Un événement qui décrit une fiche
+	// neuve au-delà est écarté, l'inventaire suivant dira la vérité.
+	MaxLiveContainersPerMachine = 2 * MaxContainersPerReport
+	// Archivés : un hôte qui redéploie une cinquantaine de services par jour
+	// en garde moins de 1 500 sur ArchivedRetention. Au-delà, les plus
+	// anciennes fiches archivées partent avant leur échéance.
+	MaxArchivedPerMachine = 2000
+	// Transitions, tous conteneurs confondus : un plafond par conteneur ne
+	// borne rien tant que le nombre de conteneurs ne l'est pas. 20 000 lignes
+	// font plus de 200 par jour sur TransitionRetention ; au pire, avec des
+	// extraits pleins, environ 200 Mio par machine.
+	MaxTransitionsPerMachine = 20000
+	// Mesures : la clé en permet une par conteneur et par seconde, 170 000
+	// lignes par conteneur sur SampleRetention. L'agent mesure toutes les
+	// 30 s ; une mesure à moins de MinSampleSpacing d'une autre du même
+	// conteneur est écartée, et un agent qui en envoie plus ne stocke rien
+	// de plus.
+	MinSampleSpacing = SampleInterval / 2
 )
 
 // Les deux suffixes de label qu'openCloud lit, après le préfixe de la
@@ -350,6 +375,11 @@ var (
 	ErrLogsBusy       = errors.New("too many log follows")
 	ErrLogsTimeout    = errors.New("logs did not arrive in time")
 	ErrLogsFailed     = errors.New("logs unavailable")
+	// ErrLogRequestUnknown : personne n'attend plus cette requête, ou elle a
+	// été poussée à une autre machine. ErrLogBatchTooLarge : le lot sort de
+	// ce qu'un agent produit (nombre de lignes, nom du flux).
+	ErrLogRequestUnknown = errors.New("log request unknown")
+	ErrLogBatchTooLarge  = errors.New("log batch too large")
 )
 
 // Ce processus ne tient pas les flux des agents (opencloud mcp) : la

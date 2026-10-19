@@ -240,10 +240,14 @@ func TestRecord_HealthChange_IsATransitionOfItsOwn(t *testing.T) {
 
 func TestRecord_DestroyArchivesAndAReplayedEventIsMarked(t *testing.T) {
 	b := newBench(t)
+	// Un fait qui arrive n'est jamais daté d'après l'heure du serveur : le
+	// destroy rejoué est d'une minute avant, l'inventaire d'avant lui.
+	b.now = testNow.Add(-5 * time.Minute)
 	b.record(t, inventory(running(webID, "web", "")))
-	b.record(t, container.Report{Events: []container.Event{{At: testNow.Add(time.Minute), Action: container.ActionDestroy, ContainerID: webID, Replayed: true}}})
+	b.now = testNow
+	b.record(t, container.Report{Events: []container.Event{{At: testNow.Add(-time.Minute), Action: container.ActionDestroy, ContainerID: webID, Replayed: true}}})
 	web := b.get(t, webID)
-	if web.ArchivedAt != testNow.Add(time.Minute) {
+	if web.ArchivedAt != testNow.Add(-time.Minute) {
 		t.Fatalf("web = %+v", web)
 	}
 	transitions := b.transitions(t, webID)
@@ -251,7 +255,7 @@ func TestRecord_DestroyArchivesAndAReplayedEventIsMarked(t *testing.T) {
 		t.Fatalf("transition = %+v", transitions[0])
 	}
 	// Un second destroy ne fait rien.
-	b.record(t, container.Report{Events: []container.Event{{At: testNow.Add(2 * time.Minute), Action: container.ActionDestroy, ContainerID: webID}}})
+	b.record(t, container.Report{Events: []container.Event{{At: testNow.Add(-30 * time.Second), Action: container.ActionDestroy, ContainerID: webID}}})
 	if transitions := b.transitions(t, webID); len(transitions) != 2 {
 		t.Fatalf("transitions = %+v", transitions)
 	}

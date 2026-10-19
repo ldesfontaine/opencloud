@@ -262,7 +262,8 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 
 // signal livre le tampon par lots, tant qu'il reste de quoi faire un lot
 // plein : un rattrapage se vide en quelques signaux serrés. Une erreur
-// réseau remet le lot dans le tampon. Une section refusée est jetée, elle
+// réseau remet le lot dans le tampon ; un 429 du serveur aussi, mais sans
+// rompre le flux. Une section refusée est jetée, elle
 // ne passera jamais ; les autres sont écrites et ne repartent pas. Les
 // essais des sondes partent dans le même corps, à côté des mesures et des
 // conteneurs.
@@ -277,6 +278,13 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 		rejected, err := client.Signal(ctx, session, sent.readings, sent.containers, sent.probes, sent.images)
 		var refused *ServerError
 		switch {
+		case errors.As(err, &refused) && refused.Status == http.StatusTooManyRequests:
+			// Le serveur freine cette machine : rien n'est perdu, tout repart au
+			// prochain signal, et le flux reste ouvert. Le fermer ferait
+			// redemander un défi, ce qui ajoute au flot qu'on cherche à calmer.
+			logger.Warn("signal throttled by the server, will retry on the next one")
+			sent.restoreAfter(pending, "")
+			return nil
 		case errors.As(err, &refused) && refused.Status == http.StatusBadRequest:
 			// Un serveur plus vieux s'arrête à la première section refusée :
 			// celles d'avant sont écrites, celles d'après ne l'ont pas été.

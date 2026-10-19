@@ -71,21 +71,21 @@ func TestRelay_RemoteCommandsTheAgentAndRelaysItsBatches(t *testing.T) {
 	if commander.commands[0] != "vps:logs" {
 		t.Fatalf("commands = %v", commander.commands)
 	}
-	if !relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Lines: []LogLine{{Text: "a"}}}) {
-		t.Fatal("delivery refused")
+	if err := relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Lines: []LogLine{{Text: "a"}}}); err != nil {
+		t.Fatalf("delivery refused: %v", err)
 	}
 	if batch := <-batches; batch.Lines[0].Text != "a" {
 		t.Fatalf("batch = %+v", batch)
 	}
-	relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Done: true})
+	_ = relay.Deliver(context.Background(), "vps", "req-1", LogBatch{Done: true})
 	if batch := <-batches; !batch.Done {
 		t.Fatalf("batch = %+v", batch)
 	}
 	if _, open := <-batches; open {
 		t.Fatal("channel should close after Done")
 	}
-	if relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}) {
-		t.Fatal("a finished request accepts nothing")
+	if err := relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}); !errors.Is(err, ErrLogRequestUnknown) {
+		t.Fatalf("a finished request accepts nothing: %v", err)
 	}
 }
 
@@ -150,11 +150,11 @@ func TestRelay_BatchForAnotherMachine_IsRefused(t *testing.T) {
 	if _, err := relay.Open(ctx, "vps", LogRequest{Follow: true}); err != nil {
 		t.Fatal(err)
 	}
-	if relay.Deliver(context.Background(), "other", "req-1", LogBatch{Lines: []LogLine{{Text: "intrus"}}}) {
-		t.Fatal("another machine delivered into this request")
+	if err := relay.Deliver(context.Background(), "other", "req-1", LogBatch{Lines: []LogLine{{Text: "intrus"}}}); !errors.Is(err, ErrLogRequestUnknown) {
+		t.Fatalf("another machine delivered into this request: %v", err)
 	}
-	if !relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}) {
-		t.Fatal("the machine that was asked is refused")
+	if err := relay.Deliver(context.Background(), "vps", "req-1", LogBatch{}); err != nil {
+		t.Fatalf("the machine that was asked is refused: %v", err)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestRelay_DeliveriesWhileTheReaderLeaves_NeverSendOnAClosedChannel(t *testi
 			go func() {
 				defer senders.Done()
 				for range batchBacklog * 2 {
-					relay.Deliver(context.Background(), "vps", requestID, LogBatch{Lines: []LogLine{{Text: "x"}}})
+					_ = relay.Deliver(context.Background(), "vps", requestID, LogBatch{Lines: []LogLine{{Text: "x"}}})
 				}
 			}()
 		}

@@ -75,7 +75,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, quand l'authentification est activée sous Paramètres (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut) que d'un pair de `trusted_proxies` qui porte aussi le secret partagé (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Mode `none` par défaut : personne, une ligne `WARN` au démarrage et une bannière dans l'interface le rappellent. Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` et sur `/oauth/authorize` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée, comme l'interface ; personne en mode `none`. Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
-| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
+| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, quand l'authentification est activée. En mode `none`, personne : qui atteint le port lit les journaux de n'importe quel conteneur, le même trou que l'interface, en plus lourd. Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
@@ -114,7 +114,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit (migration `026_applies.sql`) | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h. **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -324,8 +324,12 @@ parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
    zéro. `disk_used` et `disk_total` font la somme des volumes.
 3. Les lectures attendent dans un tampon en mémoire d'une heure au plus. Le
    signal de toutes les 30 s les emporte dans son corps, par lots de 120 ; un
-   rattrapage après une coupure enchaîne les signaux jusqu'à vider le tampon.
-   Un redémarrage de l'agent perd le tampon : pas de spool sur disque.
+   rattrapage après une coupure enchaîne les signaux jusqu'à vider le tampon
+   (quatre au plus : 360 lectures gardées, trois lots pleins et un dernier).
+   Un redémarrage de l'agent perd le tampon : pas de spool sur disque. Le
+   serveur borne le débit des signaux de chaque machine (« Limitation de
+   débit sur `/agent/signal` ») ; sur un `429`, l'agent garde son flux et son
+   tampon, et réessaie au signal suivant.
 4. La machine openCloud se mesure elle-même dans `opencloud serve`, à la même
    cadence, sans passer par le réseau : c'est son rôle d'agent.
 5. openCloud refuse en bloc un lot dont une lecture est hors de mesure
@@ -438,7 +442,25 @@ la table ; ils partiront avec la revue des alertes).
    suivant. Sinon il
    écrit tout en une transaction : fiches, transitions (une par changement
    d'état ou de santé, jamais par événement sans changement), mesures, état
-   du Docker.
+   du Docker. L'instant d'une transition est celui de l'événement, **au plus
+   tard l'heure du serveur** : la validation tolère cinq minutes d'avance aux
+   horloges, la base ne les garde pas.
+   Le volume que garde une machine est **plafonné**, quoi que son agent
+   envoie ; la rétention borne la durée, ces plafonds le volume :
+
+   | Plafond | Valeur | Au-delà |
+   | --- | --- | --- |
+   | Fiches vivantes (`MaxLiveContainersPerMachine`) | 512 : le double d'un inventaire complet (256) | L'événement qui décrirait une fiche neuve est écarté et la ligne de journal `container records refused` le dit ; l'inventaire suivant dit la vérité. Une fiche vivante déjà connue continue d'être suivie ; une archivée qu'un événement ranimerait compte comme une neuve |
+   | Fiches archivées (`MaxArchivedPerMachine`) | 2 000 : un hôte qui redéploie une cinquantaine de services par jour en garde moins de 1 500 sur 30 jours | Les plus anciennes sont effacées à l'écriture, avant leurs 30 jours, avec leurs transitions et mesures |
+   | Transitions (`MaxTransitionsPerMachine`) | 20 000, tous conteneurs confondus : plus de 200 par jour sur 90 jours | Les plus anciennes sont effacées à l'écriture. Au pire, avec des extraits pleins, environ 200 Mio par machine |
+   | Mesures (`MinSampleSpacing`) | Une par conteneur toutes les 15 s au plus : l'agent mesure toutes les 30 s | Une mesure à moins de 15 s d'une autre du même conteneur n'est pas écrite. Au pire 11 520 mesures par conteneur vivant sur 48 h, là où la clé en laissait passer une par seconde |
+
+   Les plafonds sont par machine, pas par conteneur : un plafond par
+   conteneur ne borne rien tant que le nombre de conteneurs ne l'est pas. Le
+   coût : une machine qui mentirait efface son propre historique le plus
+   ancien ; celui des autres machines n'est jamais touché. Les durées de
+   rétention ne changent pas. Les plafonds s'appliquent dans la transaction
+   qui écrit le rapport (`internal/store`).
    La machine openCloud fait tout cela dans `opencloud serve`, sans réseau.
 7. Le serveur rend des faits : l'état Docker brut, le code de sortie, la
    santé, `oom_killed` et `killed`. Le navigateur en fait les pastilles :
@@ -467,9 +489,23 @@ la table ; ils partiront avec la revue des alertes).
    est refusée aussi (`container.machine_busy`, 503). Le navigateur garde 1 200 lignes et
    retombe sur un tirage unique si le direct échoue avant la première
    ligne. Une machine hors ligne le dit, sans attendre.
+   Le serveur ne fait pas confiance aux bornes de l'agent. Un lot de plus de
+   64 lignes ou un nom de flux de plus de 16 octets est refusé en
+   `413 batch_too_large` ; la requête reste ouverte, le lot suivant dans
+   la limite passe. Une ligne de plus de 64 Kio (`MaxLogLineBytes`) est
+   coupée à la réception, sur une limite de caractère, pas refusée : le
+   lecteur de Docker des agents installés laisse passer un peu plus d'une
+   ligne multiplexée et ne coupe pas celle d'un terminal, un refus
+   arrêterait leur suivi. Un
+   tirage unique ne garde que les `tail` dernières lignes (100 par défaut,
+   500 au plus), quoi que l'agent envoie, et coupe la demande au-delà de
+   4 Mio reçus (`MaxFetchLogBytes`) : il rend ce qu'il a gardé et dit à
+   l'agent d'arrêter (`logs_stop`). Le coût : sur un agent qui déborde, la
+   réponse est la fin de ce qui est arrivé d'abord, sans avertissement.
 9. La purge, au départ puis une fois par jour, efface les transitions de
    plus de 90 jours, les fiches archivées depuis plus de 30 jours (leurs
-   transitions et mesures partent avec) et les mesures de plus de 48 h.
+   transitions et mesures partent avec) et les mesures de plus de 48 h. Les
+   plafonds du point 6 jouent à l'écriture, pas à la purge.
 
 | Ce que l'agent lit | Où | Ce qu'il en garde |
 | --- | --- | --- |
@@ -1662,13 +1698,28 @@ composant qui sait, lui qui parle.
    seuil entre-temps. L'URL et le secret du canal sont chiffrés en base, le
    notifieur les rouvre à chaque envoi.
    **Limite de débit** : un canal reçoit au plus **10 envois sur 5 min**
-   glissantes (`ChannelRateLimit`, `ChannelRateWindow`). Au-delà, la
+   glissantes (`ChannelRateLimit`, `ChannelRateWindow`), et **chaque machine
+   y a sa part de 5** (`MachineRateLimit`) : une machine bruyante, ou dont
+   l'agent ment, n'épuise que la sienne. Un objet sans machine (une tâche)
+   compte pour une part à part. Une machine qui n'a rien envoyé sur la
+   fenêtre peut dépasser le plafond du canal de 5 (`ChannelReserve`) : sa
+   première alerte part même quand d'autres ont rempli le canal. Le
+   plafond d'un canal vaut donc 10 pour qui a déjà envoyé, 15 pour qui
+   arrive. Le coût : un hôte qui a 15 alertes distinctes dans la même
+   fenêtre n'en reçoit que 5 d'un coup, les 10 autres sont résumées, là où
+   le plafond unique en aurait laissé passer 10. Au-delà de sa part, la
    livraison est notée « Retenu (limite du canal) » sur la fiche de son
-   alerte et n'est jamais envoyée ; dès que la fenêtre a de la place, à la
-   livraison suivante ou au balayage de 30 s, un seul message part :
-   « N alertes de plus, voir openCloud » (événement `summary`, lien vers
-   la page des alertes, aucune ligne en base). La limite vit en mémoire :
-   un redémarrage d'openCloud la remet à zéro et perd un résumé en attente.
+   alerte et n'est jamais envoyée ; quand le canal et chaque machine
+   retenue ont de la place sur la fenêtre, à la livraison suivante ou au
+   balayage de 30 s, un seul message part : « N alertes de plus, voir
+   openCloud » (événement `summary`, lien vers la page des alertes, aucune
+   ligne en base). Le résumé **porte la gravité la plus haute des alertes
+   retenues** et **nomme les machines concernées** (trois au plus, puis
+   « et N autres ») ; s'il retient du danger, il le dit, il est rendu en
+   rouge (Discord, Slack) et part en priorité haute chez ntfy, sinon en
+   priorité normale. Le corps JSON porte `severity`, `machines` et
+   `other_machines`. La limite vit en mémoire : un redémarrage d'openCloud
+   la remet à zéro et perd un résumé en attente.
 7. **La sortie passe par la garde `internal/egress`**, la même que les
    sondes : le nom est résolu par openCloud, le lien-local écarté, la
    connexion faite sur l'adresse retenue, à chaque saut. Une redirection
@@ -2185,6 +2236,31 @@ tous les pings semblent venir de la boucle locale et partagent un seul seau.
 Le journal des requêtes, en `log_level = "debug"`, écrit `/ping/[redacted]`
 au lieu du jeton, et `/oauth/authorize?[redacted]` au lieu de sa requête
 (`state`, défi PKCE) : un secret n'entre pas dans les journaux.
+
+### Limitation de débit sur `/agent/signal`
+
+| Clé | Débit continu | Rafale | Sert à |
+| --- | --- | --- | --- |
+| Machine de la session | 1 toutes les 2 s | 30 | Qu'un agent compromis ne remplisse pas le disque que toutes les machines se partagent |
+
+La clé est la machine que la session désigne, jamais l'adresse : des
+agents derrière un même proxy ne partagent pas de seau. Le seau se juge
+après la session (un jeton inconnu reste un `401`, sans seau) et avant la
+lecture du corps, qui peut aller jusqu'à 1 Mio.
+
+Le dimensionnement vient de la cadence de l'agent : un signal toutes les
+30 s, et après une coupure un rattrapage de quatre signaux serrés au plus
+(360 lectures gardées par lots de 120). La rafale de 30 couvre sept
+rattrapages d'affilée, la demi-requête par seconde quinze fois le régime
+normal : un agent sain n'est jamais refusé. L'agent n'envoie rien sur
+événement, tout part au signal.
+
+Au-delà : `429 too_many_requests` avec `Retry-After`. L'agent le traite
+comme passager : il remet son lot dans son tampon, garde son flux (le
+fermer ferait redemander un défi) et réessaie au signal suivant. Les seaux
+des machines silencieuses sont balayés au passage. Ce débit ne suffit pas
+seul : un signal accepté écrit jusqu'à un mégaoctet, d'où les plafonds par
+machine des conteneurs.
 
 ### Limitation de débit sur `/agent/challenge`
 

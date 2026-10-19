@@ -214,6 +214,19 @@ func (s *Server) agentSignal(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
+	// La session d'abord, sans rien écrire, puis le débit de sa machine : un
+	// corps d'un mégaoctet ne se lit pas pour être refusé ensuite, et le seau
+	// est celui de la machine, pas de l'adresse que des agents se partagent.
+	sessionMachine, err := s.machines.SessionMachine(token)
+	if err != nil {
+		s.writeAgentError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	if !s.signalLimits.allow(sessionMachine) {
+		w.Header().Set("Retry-After", retryAfterSeconds)
+		s.writeAgentError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
 	var request machine.SignalRequest
 	if r.ContentLength != 0 {
 		body := http.MaxBytesReader(w, r.Body, maxSignalBody)
@@ -315,11 +328,14 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeAgentError(w, http.StatusBadRequest, "bad_json")
 		return
 	}
-	if !s.containers.DeliverLogs(r.Context(), machineID, r.PathValue("request"), batch) {
+	switch err := s.containers.DeliverLogs(r.Context(), machineID, r.PathValue("request"), batch); {
+	case errors.Is(err, container.ErrLogBatchTooLarge):
+		s.writeAgentError(w, http.StatusRequestEntityTooLarge, "batch_too_large")
+	case err != nil:
 		s.writeAgentError(w, http.StatusNotFound, "request_unknown")
-		return
+	default:
+		w.WriteHeader(http.StatusNoContent)
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {

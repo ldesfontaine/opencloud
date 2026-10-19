@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"unicode/utf8"
 )
 
 // LogSource sait ouvrir un journal sur une machine : en processus pour la
@@ -134,24 +135,65 @@ func (r *Relay) forget(requestID string) {
 	r.open[pending.machineID]--
 }
 
-// Deliver fait suivre un lot livré par l'agent ; faux si personne ne
-// l'attend plus, ou si la requête n'a pas été poussée à cette machine. Un
-// lecteur qui ne lit pas fait attendre l'agent, jusqu'au contexte de son
-// POST.
-func (r *Relay) Deliver(ctx context.Context, machineID, requestID string, batch LogBatch) bool {
+// Deliver fait suivre un lot livré par l'agent. ErrLogRequestUnknown si
+// personne ne l'attend plus, ou si la requête n'a pas été poussée à cette
+// machine ; ErrLogBatchTooLarge si le lot sort de ce qu'un agent produit.
+// Une ligne trop longue est coupée, pas refusée. Un lecteur qui ne lit pas
+// fait attendre l'agent, jusqu'au contexte de son POST.
+func (r *Relay) Deliver(ctx context.Context, machineID, requestID string, batch LogBatch) error {
 	r.mu.Lock()
 	pending, ok := r.pending[requestID]
 	r.mu.Unlock()
 	if !ok || pending.machineID != machineID {
-		return false
+		return ErrLogRequestUnknown
 	}
+	// Après la requête connue : un lot hors normes n'apprend rien à qui ne
+	// sait pas déjà quelle requête on lui a poussée.
+	if err := checkLogBatch(batch); err != nil {
+		return err
+	}
+	clipLongLines(batch)
 	if !pending.send(ctx, batch) {
-		return false
+		return ErrLogRequestUnknown
 	}
 	if batch.Done || batch.Error != "" {
 		pending.markDone()
 	}
-	return true
+	return nil
+}
+
+// checkLogBatch refuse ce qu'aucun agent ne produit, même ancien : plus de
+// MaxLinesPerBatch lignes, un nom de flux plus long que « stdout ». Le
+// serveur ne se fie pas à la borne que l'agent s'applique : chaque ligne
+// reçue est retenue le temps de la demande.
+func checkLogBatch(batch LogBatch) error {
+	if len(batch.Lines) > MaxLinesPerBatch {
+		return ErrLogBatchTooLarge
+	}
+	for _, line := range batch.Lines {
+		if len(line.Stream) > maxLogStreamBytes {
+			return ErrLogBatchTooLarge
+		}
+	}
+	return nil
+}
+
+// clipLongLines coupe chaque ligne à MaxLogLineBytes, sur une limite de
+// caractère. Couper plutôt que refuser : le lecteur de Docker des agents
+// installés rend une ligne multiplexée un peu au-delà de 64 Kio et ne coupe
+// pas celle d'un terminal ; un refus arrêterait leur suivi, la coupe borne
+// la mémoire tout autant. Le décodeur JSON rend déjà de l'UTF-8 valide.
+func clipLongLines(batch LogBatch) {
+	for i, line := range batch.Lines {
+		if len(line.Text) <= MaxLogLineBytes {
+			continue
+		}
+		cut := MaxLogLineBytes
+		for cut > 0 && !utf8.RuneStart(line.Text[cut]) {
+			cut--
+		}
+		batch.Lines[i].Text = line.Text[:cut]
+	}
 }
 
 func (f *follow) send(ctx context.Context, batch LogBatch) bool {
@@ -211,7 +253,14 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 	if err != nil {
 		return nil, err
 	}
+	// Seules les dernières lignes demandées sont gardées, quoi que l'agent
+	// envoie : un agent honnête n'en envoie pas plus, un autre ne remplit pas
+	// la mémoire du serveur pendant les 15 s. Passé MaxFetchLogBytes reçus, la
+	// demande est coupée (le contexte annulé dit à l'agent d'arrêter) et ce
+	// qui est gardé est rendu.
+	limit := clampTail(tail)
 	lines := []LogLine{}
+	received := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -220,20 +269,33 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 			if !open {
 				return lines, nil
 			}
-			lines = append(lines, batch.Lines...)
+			lines = keepLastLines(lines, batch.Lines, limit)
+			for _, line := range batch.Lines {
+				received += len(line.Text) + len(line.Stream)
+			}
 			if batch.Error != "" {
 				return nil, &LogsError{Code: batch.Error}
 			}
-			if batch.Done {
+			if batch.Done || received > MaxFetchLogBytes {
 				return lines, nil
 			}
 		}
 	}
 }
 
-// DeliverLogs reçoit un lot de l'agent ; faux si la requête est inconnue
-// ou appartient à une autre machine.
-func (t *Tracker) DeliverLogs(ctx context.Context, machineID, requestID string, batch LogBatch) bool {
+// keepLastLines ajoute des lignes et ne garde que les limit dernières. La
+// coupe recopie : sans quoi le tableau d'origine, plein de lignes écartées,
+// resterait retenu.
+func keepLastLines(kept, added []LogLine, limit int) []LogLine {
+	kept = append(kept, added...)
+	if len(kept) > limit {
+		kept = append([]LogLine(nil), kept[len(kept)-limit:]...)
+	}
+	return kept
+}
+
+// DeliverLogs reçoit un lot de l'agent ; voir Relay.Deliver pour ses refus.
+func (t *Tracker) DeliverLogs(ctx context.Context, machineID, requestID string, batch LogBatch) error {
 	return t.relay.Deliver(ctx, machineID, requestID, batch)
 }
 

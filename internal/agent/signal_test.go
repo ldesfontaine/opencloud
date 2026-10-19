@@ -93,3 +93,18 @@ func TestSignal_ServerFails_EverythingIsReplayed(t *testing.T) {
 		}
 	}
 }
+
+// Un 429 est un conseil d'attendre : rien ne se perd, tout repart au signal
+// suivant, et l'erreur ne remonte pas (elle ferait fermer le flux).
+func TestSignal_ServerThrottles_EverythingIsReplayedWithoutAnError(t *testing.T) {
+	client := answeringServer(t, http.StatusTooManyRequests, `{"error":"too_many_requests"}`)
+	left := filledPending()
+	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("un 429 ne doit pas rompre le flux : %v", err)
+	}
+	for section, isLeft := range leftover(left) {
+		if !isLeft {
+			t.Errorf("%s perdu sur un 429", section)
+		}
+	}
+}

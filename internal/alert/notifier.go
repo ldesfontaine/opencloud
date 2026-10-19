@@ -240,7 +240,7 @@ func (n *Notifier) Send(ctx context.Context, channel Channel, event Event, body 
 	if channel.Format == FormatText {
 		// ntfy lit le titre et la priorité en en-tête ; les autres n'en font rien.
 		request.Header.Set("Title", body.Title)
-		request.Header.Set("Priority", priorityOf(event))
+		request.Header.Set("Priority", priorityOf(event, body.Urgent))
 		if body.Link != "" {
 			request.Header.Set("Click", body.Link)
 		}
@@ -267,7 +267,12 @@ func outcomeOf(statusCode int) Outcome {
 	return Outcome{Reason: ReasonStatus, Code: statusCode}
 }
 
-func priorityOf(event Event) string {
+// priorityOf : une alerte part en priorité haute ; une résolution, un test
+// et un résumé en priorité normale, sauf un résumé qui retient du danger.
+func priorityOf(event Event, urgent bool) string {
+	if event == EventSummary && urgent {
+		return "high"
+	}
 	if event == EventResolved || event == EventTest || event == EventSummary {
 		return "default"
 	}

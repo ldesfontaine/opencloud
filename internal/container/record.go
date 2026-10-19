@@ -68,6 +68,14 @@ type Changes struct {
 	Networks        []Network
 	Transitions     []Transition
 	Samples         []Sample
+	// Les plafonds de la machine, appliqués par le store dans la même
+	// transaction que l'écriture : les fiches archivées les plus anciennes, puis
+	// les transitions les plus anciennes, partent au-delà. Zéro : pas de plafond.
+	MaxArchived    int
+	MaxTransitions int
+	// Refused : des fiches neuves écartées faute de place parmi les vivantes ;
+	// le Tracker le journalise, le store n'en fait rien.
+	Refused int
 }
 
 // Watcher reçoit chaque écriture visible : le direct s'y branche. nil est
@@ -165,6 +173,10 @@ func (t *Tracker) write(ctx context.Context, machineID string, report Report, no
 		return Changes{}, err
 	}
 	changes := planChanges(machineID, stored, report, now)
+	changes.MaxArchived, changes.MaxTransitions = MaxArchivedPerMachine, MaxTransitionsPerMachine
+	if changes.Refused > 0 {
+		t.logger.Warn("container records refused, machine is full", "machine", machineID, "refused", changes.Refused, "limit", MaxLiveContainersPerMachine)
+	}
 	t.match(ctx, machineID, &changes)
 	if err := t.store.ApplyChanges(ctx, changes); err != nil {
 		return Changes{}, err
@@ -307,6 +319,9 @@ func planChanges(machineID string, stored []Container, report Report, now time.T
 	plan := &planner{machineID: machineID, now: now, known: make(map[string]Container, len(stored)), touched: make(map[string]int)}
 	for _, container := range stored {
 		plan.known[container.ID] = container
+		if !container.IsArchived() {
+			plan.living++
+		}
 	}
 	if report.Engine != nil {
 		plan.changes.Engine = &Engine{
@@ -338,6 +353,9 @@ type planner struct {
 	// touched donne la place de chaque fiche déjà dans changes.Containers :
 	// une fiche touchée deux fois par le même rapport n'est écrite qu'une.
 	touched map[string]int
+	// living compte les fiches vivantes, au fil du rapport, pour refuser les
+	// neuves au-delà de MaxLiveContainersPerMachine.
+	living  int
 	changes Changes
 }
 
@@ -375,19 +393,31 @@ func (p *planner) applyNetworks(networks []NetworkReport) {
 func (p *planner) applyEvent(event Event) {
 	id := ID(p.machineID, event.ContainerID)
 	previous, existed := p.known[id]
-	transition := Transition{At: event.At, Action: event.Action, ExitCode: event.ExitCode, Replayed: event.Replayed, Snippet: event.Snippet}
+	// Un instant dans le futur n'a pas de sens pour un fait déjà arrivé : la
+	// validation tolère l'avance des horloges, la base garde l'heure du serveur.
+	at := event.At
+	if at.After(p.now) {
+		at = p.now
+	}
+	transition := Transition{At: at, Action: event.Action, ExitCode: event.ExitCode, Replayed: event.Replayed, Snippet: event.Snippet}
 	if event.Action == ActionDestroy {
 		if !existed || previous.IsArchived() {
 			return
 		}
 		archived := previous
-		archived.ArchivedAt = event.At
+		archived.ArchivedAt = at
 		p.record(archived, previous, true, transition)
 		return
 	}
 	if !existed && event.Container == nil {
 		// Un événement sur un conteneur qu'on ne connaît pas et qu'on ne peut
 		// pas décrire : l'inventaire suivant le rattrapera.
+		return
+	}
+	// Une fiche archivée qu'un événement ranime compte comme une neuve : sans
+	// quoi les archivées, rendues vivantes, passeraient le plafond.
+	if (!existed || previous.IsArchived()) && p.living >= MaxLiveContainersPerMachine {
+		p.changes.Refused++
 		return
 	}
 	next := previous
@@ -503,6 +533,13 @@ func (p *planner) record(next, previous Container, existed bool, transition Tran
 			transition.NewHealth = ""
 		}
 		p.changes.Transitions = append(p.changes.Transitions, transition)
+	}
+	wasLiving := existed && !previous.IsArchived()
+	switch {
+	case !next.IsArchived() && !wasLiving:
+		p.living++
+	case next.IsArchived() && wasLiving:
+		p.living--
 	}
 	p.known[next.ID] = next
 	if index, seen := p.touched[next.ID]; seen {
