@@ -18,6 +18,11 @@ type ExportOptions struct {
 	// laissent deviner, pour que l'opérateur le relise avant d'appliquer.
 	// Sans lui, l'export est l'annuaire et rien d'autre.
 	Propose bool
+	// RedactSecrets masque le mot de passe des cibles de sonde
+	// (« https://user:…@hôte »), pour un export qui quitte l'application
+	// vers un client MCP. Le fichier d'export ne le met pas : l'apply compare
+	// ce mot de passe à celui du stockage, un fichier masqué le changerait en « … ».
+	RedactSecrets bool
 }
 
 // Export écrit tout l'annuaire dans le format que la lecture comprend :
@@ -28,6 +33,9 @@ func (m *Manifest) Export(ctx context.Context, annotations Annotations, options 
 	file, err := m.Read(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if options.RedactSecrets {
+		redactProbeTargets(file.Probes)
 	}
 	if options.Propose {
 		if file, err = m.addProposals(ctx, file); err != nil {
@@ -263,6 +271,12 @@ func probesOf(probes []probe.Probe) []Probe {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
 	return listed
+}
+
+func redactProbeTargets(probes []Probe) {
+	for index := range probes {
+		probes[index].Target = probe.RedactTarget(probes[index].Target)
+	}
 }
 
 func probeOf(item probe.Probe) Probe {

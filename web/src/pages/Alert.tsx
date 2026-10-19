@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router";
 
+import { segment } from "../api/client";
 import type { AlertResponse, ChannelsResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
@@ -23,7 +24,7 @@ export function AlertPage() {
   const t = useT();
   const now = useNow();
   const disks = useDiskThresholds();
-  const detail = useResource<AlertResponse>(`/api/alerts/${id}`);
+  const detail = useResource<AlertResponse>(() => `/api/alerts/${segment(id)}`);
   const channels = useResource<ChannelsResponse>("/api/alerts/channels");
   if (detail.error?.status === 404) {
     return <NotFound />;

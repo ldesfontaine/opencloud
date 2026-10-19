@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
 // Les alertes telles que le front les lit : des faits, jamais une phrase ;
@@ -142,7 +143,7 @@ func alertToJSON(found alert.Alert) alertJSON {
 		MachineID: found.MachineID, MachineName: found.MachineName,
 		Details: detailsJSON{
 			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
-			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: found.Details.Target,
+			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: probe.RedactTarget(found.Details.Target),
 			NotAfter: timeOrNil(found.Details.NotAfter), Since: timeOrNil(found.Details.Since),
 		},
 		OpenedAt: found.OpenedAt.UTC(), UpdatedAt: found.UpdatedAt.UTC(),

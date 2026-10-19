@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { ApiError } from "../api/client";
+import { ApiError, segment } from "../api/client";
 import type { ContainerResponse, Transition } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
@@ -25,7 +25,7 @@ import { formatBytes, formatDecimal } from "../lib/units";
 // journaux en direct, et de quoi le mettre sous sonde.
 export function ContainerPage() {
   const { id = "" } = useParams();
-  const response = useResource<ContainerResponse>(`/api/containers/${id}`);
+  const response = useResource<ContainerResponse>(() => `/api/containers/${segment(id)}`);
   if (response.error instanceof ApiError && response.error.status === 404) {
     return <ContainerNotFound />;
   }

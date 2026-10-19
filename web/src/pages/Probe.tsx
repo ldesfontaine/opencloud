@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError } from "../api/client";
+import { api, ApiError, segment } from "../api/client";
 import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
@@ -32,7 +32,7 @@ function checksLabel(t: Translate, total: number): string {
 // jour par jour et ses derniers essais.
 export function ProbePage() {
   const { id = "" } = useParams();
-  const response = useResource<ProbeResponse>(`/api/probes/${id}`);
+  const response = useResource<ProbeResponse>(() => `/api/probes/${segment(id)}`);
   if (response.error instanceof ApiError && response.error.status === 404) {
     return <NotFound />;
   }

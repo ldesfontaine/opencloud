@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey } from "../api/client";
+import { api, ApiError, errorKey, segment } from "../api/client";
 import type { Incident, IncidentStatus, StatusComponentsResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
@@ -23,7 +23,7 @@ import "./StatusAdmin.scss";
 // la fenêtre.
 export function StatusIncidentPage() {
   const { id = "" } = useParams();
-  const incident = useResource<Incident>(`/api/status/incidents/${id}`);
+  const incident = useResource<Incident>(() => `/api/status/incidents/${segment(id)}`);
   if (incident.error instanceof ApiError && incident.error.status === 404) {
     return <NotFound />;
   }

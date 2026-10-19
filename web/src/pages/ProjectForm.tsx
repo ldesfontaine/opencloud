@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { DeclaredServicesResponse, Project } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
@@ -23,8 +23,8 @@ export function ProjectForm() {
   const t = useT();
   const navigate = useNavigate();
   const { refresh } = useRefresh();
-  const existing = useResource<Project>(isEditing ? `/api/directory/projects/${id}` : null);
-  const members = useResource<DeclaredServicesResponse>(isEditing ? `/api/directory/services?project=${id}` : null);
+  const existing = useResource<Project>(isEditing ? () => `/api/directory/projects/${segment(id)}` : null);
+  const members = useResource<DeclaredServicesResponse>(isEditing ? () => `/api/directory/services?project=${segment(id)}` : null);
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export function ProjectForm() {
     event.preventDefault();
     setBusy(true);
     const body = { name, title };
-    const request = isEditing ? api.put<Project>(`/api/directory/projects/${id}`, body) : api.post<Project>("/api/directory/projects", body);
+    const request = isEditing ? api.put<Project>(`/api/directory/projects/${segment(id)}`, body) : api.post<Project>("/api/directory/projects", body);
     request
       .then(() => {
         refresh("directory");
@@ -65,7 +65,7 @@ export function ProjectForm() {
       return;
     }
     api
-      .delete(`/api/directory/projects/${id}`)
+      .delete(`/api/directory/projects/${segment(id)}`)
       .then(() => {
         refresh("directory");
         void navigate("/services/projets");

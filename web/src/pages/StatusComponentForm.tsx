@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey } from "../api/client";
+import { api, ApiError, errorKey, segment } from "../api/client";
 import type { DeclaredServicesResponse, JobsResponse, MachinesResponse, MemberKind, ProbesResponse, StatusComponent, StatusMember } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
@@ -33,7 +33,7 @@ interface Draft {
 // rattachés, choisis parmi ce qu'openCloud surveille déjà.
 export function StatusComponentForm() {
   const { id } = useParams();
-  const component = useResource<StatusComponent>(id !== undefined ? `/api/status/components/${id}` : null);
+  const component = useResource<StatusComponent>(id !== undefined ? () => `/api/status/components/${segment(id)}` : null);
   if (component.error instanceof ApiError && component.error.status === 404) {
     return <NotFound />;
   }

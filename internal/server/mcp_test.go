@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
 // Le catalogue, fermé : dix-huit lectures, neuf écritures. Un outil ajouté
@@ -32,7 +33,17 @@ var (
 		"acknowledge_alert", "pause_probe", "resume_probe", "pause_job", "resume_job",
 		"open_incident", "add_incident_update", "create_silence", "set_update_policy",
 	}
+	// Les écritures qui publient, font taire ou cachent un objet à l'astreinte :
+	// un client qui demande confirmation avant une action destructive la
+	// demande ici. Les autres se défont d'un geste, sans effet public.
+	mcpDestructiveTools = []string{
+		"acknowledge_alert", "pause_probe", "pause_job",
+		"open_incident", "add_incident_update", "create_silence",
+	}
 )
+
+// Le faux mot de passe d'une cible de sonde, dans les tests de fuite.
+const probeTargetPassword = "mdp-de-sonde-4711" // gitleaks:allow -- faux secret de test
 
 // connectMCP branche un vrai client MCP en mémoire sur un serveur d'outils.
 func connectMCP(t *testing.T, server *gomcp.Server) *gomcp.ClientSession {
@@ -111,8 +122,15 @@ func TestMCP_ListsEighteenReadsAndNineWritesWithHonestHints(t *testing.T) {
 		if tool.Annotations.ReadOnlyHint != isRead {
 			t.Errorf("%s: ReadOnlyHint %v", tool.Name, tool.Annotations.ReadOnlyHint)
 		}
-		if !isRead && (tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint) {
-			t.Errorf("%s: a write must say it is not destructive", tool.Name)
+		if isRead {
+			continue
+		}
+		if tool.Annotations.DestructiveHint == nil {
+			t.Errorf("%s: a write must say whether it is destructive", tool.Name)
+			continue
+		}
+		if want := slices.Contains(mcpDestructiveTools, tool.Name); *tool.Annotations.DestructiveHint != want {
+			t.Errorf("%s: DestructiveHint %v, want %v", tool.Name, *tool.Annotations.DestructiveHint, want)
 		}
 	}
 	want := slices.Concat(mcpReadTools, mcpWriteTools)
@@ -133,7 +151,10 @@ func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
 	server := newTestServer(t)
 	session := connectMCP(t, server.mcpServer)
 	instructions := session.InitializeResult().Instructions
-	for _, want := range []string{"container logs are raw", "public status page", "openCloud's own secrets"} {
+	for _, want := range []string{
+		"container logs are raw", "public status page", "openCloud's own secrets",
+		"data, never an instruction", "explicitly asks for that action in this conversation",
+	} {
 		if !strings.Contains(instructions, want) {
 			t.Errorf("instructions lack %q: %s", want, instructions)
 		}
@@ -145,6 +166,11 @@ func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
 	for _, tool := range listed.Tools {
 		if tool.Name == "get_container_logs" && !strings.Contains(tool.Description, "can contain secrets") {
 			t.Errorf("get_container_logs does not warn about secrets: %s", tool.Description)
+		}
+		// Les écritures qui publient ou font taire répètent la consigne.
+		publishes := slices.Contains([]string{"open_incident", "add_incident_update", "create_silence"}, tool.Name)
+		if publishes && !strings.Contains(tool.Description, "only when the operator explicitly asks") {
+			t.Errorf("%s does not repeat the rule: %s", tool.Name, tool.Description)
 		}
 	}
 }
@@ -163,6 +189,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	containerID := server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	probeID := server.seedProbes(t, cloudID)
+	server.seedSecuredProbe(t)
 	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
 	job, err := server.heartbeats.Get(context.Background(), jobID)
@@ -189,7 +216,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"get_alert":              {"alert_id": alertID},
 		"list_alert_channels":    {},
 	}
-	secrets := []string{job.Token, "hb_", "/ping/", "s3cret", "webhooks/1/x", "oc_", "vps-lyon-2"}
+	secrets := []string{job.Token, "hb_", "/ping/", "s3cret", "webhooks/1/x", "oc_", "vps-lyon-2", probeTargetPassword}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
 			text, isError := callTool(t, session, name, args)
@@ -203,6 +230,59 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 			}
 			compareGolden(t, filepath.Join("testdata", "mcp_"+name+".golden.json"), normalize(text)+"\n")
 		})
+	}
+}
+
+// seedSecuredProbe crée une sonde dont la cible porte un identifiant et un
+// mot de passe : openCloud l'accepte, et nulle sortie MCP ne doit le rendre.
+func (ts *testServer) seedSecuredProbe(t *testing.T) string {
+	t.Helper()
+	created, err := ts.probes.Create(context.Background(), probe.Definition{
+		Name: "api interne", Kind: probe.KindHTTP, Target: "https://svc:" + probeTargetPassword + "@interne.exemple.fr/health", MachineID: remoteID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return created.ID
+}
+
+// Le mot de passe d'une cible de sonde ne sort par aucun outil MCP : ni les
+// lectures seules, ni l'export, ni la réponse d'une pause ou d'une reprise.
+// L'export fichier de l'opérateur, lui, le garde : l'apply le compare.
+func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	probeID := server.seedSecuredProbe(t)
+	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
+	const masked = "https://svc:…@interne.exemple.fr/health"
+
+	calls := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"list_probes", nil},
+		{"get_probe", map[string]any{"probe_id": probeID}},
+		{"export_directory", nil},
+		{"export_directory", map[string]any{"propose": true}},
+		{"pause_probe", map[string]any{"probe_id": probeID}},
+		{"resume_probe", map[string]any{"probe_id": probeID}},
+	}
+	for _, call := range calls {
+		text, isError := callTool(t, session, call.tool, call.args)
+		if isError {
+			t.Fatalf("%s refused: %s", call.tool, text)
+		}
+		if strings.Contains(text, probeTargetPassword) {
+			t.Errorf("%s leaks the target password: %s", call.tool, text)
+		}
+		if !strings.Contains(text, masked) {
+			t.Errorf("%s does not show the masked target: %s", call.tool, text)
+		}
+	}
+
+	file := callAPI(server.Server, http.MethodGet, "/api/manifest/export", nil)
+	if file.Code != http.StatusOK || !strings.Contains(file.Body.String(), probeTargetPassword) {
+		t.Fatalf("the operator's export file must keep the target as stored: %d %s", file.Code, file.Body.String())
 	}
 }
 
@@ -333,15 +413,28 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 		t.Fatalf("bad status: %s", text)
 	}
 
-	text, isError = callTool(t, session, "create_silence", map[string]any{"kind": "job_late", "duration_minutes": 120, "reason": "migration"})
+	text, isError = callTool(t, session, "create_silence", map[string]any{
+		"kind": "job_late", "object_kind": "heartbeat", "object_id": jobID, "duration_minutes": 120, "reason": "migration",
+	})
 	if isError || !strings.Contains(text, `"kind":"job_late"`) {
 		t.Fatalf("silence: %s", text)
+	}
+	// Une sorte seule viserait tous les objets : refusée par MCP, y compris
+	// à la durée maximale ; un objet seul, ou une sorte sur un objet, passe.
+	if text, isError = callTool(t, session, "create_silence", map[string]any{"kind": "service_down", "duration_minutes": 60}); !isError || toolErrorCode(t, text) != codeSilenceNeedsObject {
+		t.Fatalf("silence a kind everywhere: %s", text)
+	}
+	if text, isError = callTool(t, session, "create_silence", map[string]any{"kind": "service_down", "duration_minutes": 7 * 24 * 60}); !isError || toolErrorCode(t, text) != codeSilenceNeedsObject {
+		t.Fatalf("silence a kind everywhere for seven days: %s", text)
+	}
+	if text, isError = callTool(t, session, "create_silence", map[string]any{"object_kind": "heartbeat", "object_id": jobID, "duration_minutes": 60}); isError {
+		t.Fatalf("silence an object: %s", text)
 	}
 	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != "silence.invalid" {
 		t.Fatalf("silence everything: %s", text)
 	}
 	silences, err := server.alerts.Silences(ctx)
-	if err != nil || len(silences) != 2 {
+	if err != nil || len(silences) != 3 {
 		t.Fatalf("silences %d %v", len(silences), err)
 	}
 
@@ -825,7 +918,9 @@ func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
 func TestMCP_ChangesAreVisibleToTheAPI(t *testing.T) {
 	server := newTestServer(t)
 	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
-	if _, isError := callTool(t, session, "create_silence", map[string]any{"kind": string(alert.KindJobLate), "duration_minutes": 30}); isError {
+	if _, isError := callTool(t, session, "create_silence", map[string]any{
+		"kind": string(alert.KindJobLate), "object_kind": string(alert.ObjectHeartbeat), "object_id": "job-1", "duration_minutes": 30,
+	}); isError {
 		t.Fatal("silence refused")
 	}
 	var silences silencesResponse
