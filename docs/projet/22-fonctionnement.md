@@ -290,6 +290,20 @@ tâche. La source notée est l'adresse résolue par `trusted_proxies` ; un
 relais par l'agent, s'il vient un jour, y écrira `agent:<machine>` sans
 changer le schéma.
 
+Le jeton vient de l'URL, donc d'un anonyme : il est borné avant de coûter la
+moindre mémoire. Au-delà de 256 octets (un vrai jeton en fait 29, la marge
+laisse passer les jetons hérités en clair, dont le format n'a jamais été
+garanti), le ping répond `404 unknown token` sans seau ni lecture de la
+base, après avoir compté sur la source : un flot de faux jetons géants
+s'arrête à la limite par adresse. Le seau par jeton est indexé par
+l'empreinte du jeton, de taille fixe : ce qu'une requête fait retenir ne
+dépend plus de sa taille. Le serveur HTTP borne aussi les en-têtes à 64 Kio
+(`MaxHeaderBytes`, 1 Mio par défaut dans Go) : les plus gros en-têtes
+légitimes, `Authorization`, `X-Forwarded-For` et la preuve signée de
+l'agent, tiennent en quelques centaines d'octets ; l'interface ne pose aucun
+cookie, et ceux qu'un mandataire d'authentification pose sur le domaine
+parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
+
 ## Comment une machine est mesurée
 
 1. L'agent lit `/proc/stat`, `/proc/meminfo`, `/proc/loadavg`, `/proc/net/dev`
@@ -1549,11 +1563,23 @@ jamais devant une panne.
 | `GET /statut` | La page | 10 par seconde, rafale 20, par adresse résolue |
 | `GET /statut/api/status` | L'instantané public, en faits | la même |
 | `GET /statut/api/i18n` | Les seules clés `status.*` du catalogue, dans la langue de la page | la même |
-| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 256 visiteurs en direct au plus, comptés à part |
+| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 4 flux à la fois au plus par source ; 256 visiteurs en direct au plus, comptés à part |
 
 Au-delà : `429` avec `Retry-After`. Les seaux sont balayés au passage,
 comme ceux de `/ping`, et l'adresse est celle que `trusted_proxies`
-résout : un en-tête forgé n'ouvre pas un seau neuf.
+résout : un en-tête forgé n'ouvre pas un seau neuf. Une adresse IPv6 compte
+pour son **/64** (voir plus bas, « Limiteurs par adresse »).
+
+Le débit d'ouverture ne borne pas ce qu'une source garde : sans plafond de
+flux simultanés, une adresse qui en ouvre un par seconde prendrait les 256
+places en quatre minutes, et tous les autres visiteurs recevraient `503`.
+Le plafond par source se vérifie **avant** de toucher au pool global (refus :
+`429` avec `Retry-After`, un `WARN` au journal, aucune place prise). Un flux
+public a aussi une durée de vie de 10 minutes : il se termine proprement et
+`EventSource` se reconnecte seul au bout de cinq secondes, ce qui recycle les
+places que personne ne lit. Si le direct est refusé ou coupé, la page se
+relit seule toutes les minutes (`/statut/api/status`) et retente le direct
+toutes les cinq ; elle ne reste plus figée sur un état périmé.
 
 L'administration vit dans la coquille, sous l'entrée « Page de statut », à
 l'adresse `/page-statut` : composants, incidents, réglages. Le compteur
@@ -1841,6 +1867,41 @@ forme d'un HMAC à clé tirée au démarrage, comparé en temps constant et lié
 caducs, même depuis la commande de secours. Les échecs sont limités par
 adresse (celle que `trusted_proxies` résout) : rafale de 10, puis un essai
 toutes les 6 s, `429` au-delà ; des identifiants retenus ne comptent pas.
+
+La file de la vérification lente est bornée : une tentative admise par le
+limiteur attend la place unique (un canal d'une place, pas un mutex) derrière
+**neuf** autres au plus, soit la rafale entière qu'une adresse a le droit de
+présenter : les onglets de l'opérateur qui reviennent ensemble après un
+redémarrage attendent le premier, puis passent par la mémoire. Au-delà, refus
+immédiat, `429` avec `Retry-After` (comme le limiteur) et un `WARN`
+« interface authentication queue full » : sans cette borne, quelques adresses
+admises faisaient grossir la file plus vite que bcrypt ne la vide, et la
+vérification de l'opérateur (après un redémarrage ou un changement de mot de
+passe) attendait derrière sans fin. L'attente suit la requête : un client
+parti rend sa place sans coûter de bcrypt, et sa réponse (`503`) n'est pas
+notée comme un échec. Des identifiants retenus ne font jamais la queue.
+
+La contrepartie : pendant une attaque qui garde la file pleine (il faut pour
+cela plus d'essais admis que bcrypt n'en traite, soit plusieurs adresses ou
+/64 distincts), l'opérateur dont les identifiants ne sont pas encore retenus
+reçoit lui aussi `429` et réessaie après `Retry-After` ; admis, il passe en
+dix bcrypt au plus. Avant, il entrait toujours dans la file, mais derrière
+toutes les tentatives admises, et elle grossissait tant que l'attaque durait.
+Une place réservée à l'identifiant connu a été
+écartée : la différence entre `429` et `401` dirait à un anonyme si
+l'identifiant essayé est le bon, et il s'en servirait pour occuper la place.
+
+### Limiteurs par adresse
+
+Tous les limiteurs que l'anonyme atteint (pings, enrôlement et défis des
+agents, page de statut et son direct, `/mcp` et le point de jeton OAuth,
+échecs d'authentification de l'interface) comptent par **clé de source** :
+l'adresse en IPv4 (une IPv4 mappée en IPv6 aussi), le **/64** en IPv6. Un
+abonné IPv6 reçoit au moins un /64 et choisit à l'intérieur autant d'adresses
+qu'il veut : une clé par adresse complète lui donnerait autant de seaux
+pleins. Seule la clé de limitation est agrégée (`ratelimit.SourceKey`) ;
+l'adresse notée dans les pings et le journal reste complète. Un réseau
+domestique ou un site derrière un même /64 partage donc un seul budget.
 
 L'API : `GET /api/auth` (mode, identifiant — en `forward`, l'identité de
 la requête —, en-tête en `forward`, `forward_insecure` quand le mode

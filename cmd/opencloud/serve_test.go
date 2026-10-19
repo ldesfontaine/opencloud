@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -50,5 +51,40 @@ func TestNewHTTPServer_OpenStream_ShutsDownQuickly(t *testing.T) {
 	<-streamEnded
 	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		t.Fatalf("serve: %v", err)
+	}
+}
+
+// Les en-têtes sont bornés : un anonyme ne pose plus une URL d'un mégaoctet
+// sur /ping, mais un en-tête de taille ordinaire passe.
+func TestNewHTTPServer_OversizedHeaders_AreRefused(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	httpServer := newHTTPServer(listener.Addr().String(), reached)
+	go func() { _ = httpServer.Serve(listener) }()
+	defer httpServer.Close()
+
+	get := func(headerBytes int) int {
+		request, err := http.NewRequest(http.MethodGet, "http://"+listener.Addr().String()+"/ping/hb_x", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("X-Padding", strings.Repeat("a", headerBytes))
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		return response.StatusCode
+	}
+	if got := get(8 << 10); got != http.StatusNoContent {
+		t.Fatalf("8 KiB of headers: status %d", got)
+	}
+	if got := get(100 << 10); got != http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("100 KiB of headers: status %d, want 431", got)
 	}
 }

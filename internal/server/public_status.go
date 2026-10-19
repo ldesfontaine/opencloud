@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -33,6 +34,14 @@ const (
 	statusSweepIdle   = 10 * time.Minute
 	// Les visiteurs en direct, à part des onglets de l'administration.
 	maxPublicSubscribers = 256
+	// Ce qu'une même source (une IPv4, un /64 en IPv6) en tient à la fois :
+	// quelques onglets et un cadre, pas le pool. Sans ce plafond, une adresse
+	// qui ouvre un flux par seconde le vide en quatre minutes.
+	maxPublicStreamsPerSource = 4
+	// Un flux public se termine de lui-même : le navigateur se reconnecte
+	// seul au bout de cinq secondes, et la place retourne au pool au lieu de
+	// rester à une connexion que personne ne lit.
+	maxPublicStreamLifetime = 10 * time.Minute
 )
 
 // isPublicStatusPage dit si le chemin est la page HTML publique, la seule
@@ -67,12 +76,12 @@ func (l *statusLimits) setClock(now func() time.Time) {
 
 func (l *statusLimits) allowRead(source string) bool {
 	l.sweepIfDue()
-	return l.bySource.Allow(source)
+	return l.bySource.Allow(ratelimit.SourceKey(source))
 }
 
 func (l *statusLimits) allowStream(source string) bool {
 	l.sweepIfDue()
-	return l.byStream.Allow(source)
+	return l.byStream.Allow(ratelimit.SourceKey(source))
 }
 
 func (l *statusLimits) sweepIfDue() {
@@ -269,16 +278,29 @@ func hasStatusPrefix(key string) bool {
 }
 
 // GET /statut/api/events : le direct public, sur son propre bus, qui ne
-// porte que « status ». Plafonné à part des onglets de l'administration.
+// porte que « status ». Plafonné à part des onglets de l'administration, par
+// source d'abord : la part d'une source se vérifie avant de toucher au pool
+// global, pour qu'un refus ne coûte une place à personne.
 func (s *Server) publicEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.statusLimits.allowStream(s.clientAddress(r)) {
+	address := s.clientAddress(r)
+	if !s.statusLimits.allowStream(address) {
 		s.writeTooMany(w)
 		return
 	}
+	source := ratelimit.SourceKey(address)
+	if !s.publicStreamsBySource.take(source) {
+		s.logger.Warn("public status streams limit reached for this source", "source", address)
+		s.writeTooMany(w)
+		return
+	}
+	defer s.publicStreamsBySource.release(source)
 	if !s.publicTabs.take() {
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return
 	}
 	defer s.publicTabs.release()
-	s.streamTopics(w, r, s.publicLive)
+	// Fin propre à l'échéance : la réponse se termine, EventSource se reconnecte.
+	ctx, cancel := context.WithTimeout(r.Context(), s.publicStreamLifetime)
+	defer cancel()
+	s.streamTopics(w, r.WithContext(ctx), s.publicLive)
 }

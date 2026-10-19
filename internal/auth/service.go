@@ -5,9 +5,11 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -18,7 +20,18 @@ import (
 const (
 	DefaultHashCost = 12
 	rememberKeyLen  = 32
+	// Les vérifications qui attendent derrière celle qui tourne. La file tient
+	// la rafale entière qu'une adresse a le droit de présenter (dix essais,
+	// voir authAttemptBurst dans internal/server) : les onglets de l'opérateur
+	// qui reviennent ensemble après un redémarrage attendent le premier, puis
+	// passent par la mémoire, au lieu d'être refusés. Au-delà, refus immédiat :
+	// l'attente d'un opérateur admis reste bornée à dix bcrypt.
+	maxQueuedVerifications = 9
 )
+
+// ErrVerificationQueueFull : trop de vérifications attendent déjà. L'appelant
+// répond 429 sans rien comparer ; ce n'est pas un mauvais mot de passe.
+var ErrVerificationQueueFull = errors.New("auth: verification queue full")
 
 // Ce que le service attend du store.
 type Store interface {
@@ -49,7 +62,11 @@ type Service struct {
 	// Une vérification lente à la fois : les requêtes parallèles d'un
 	// navigateur qui vient de saisir ses identifiants attendent la
 	// première, puis passent par la mémoire. Borne aussi le processeur.
-	verifying sync.Mutex
+	// Un canal d'une place plutôt qu'un mutex, pour qu'une attente puisse
+	// être abandonnée avec la requête qui la porte.
+	verifying chan struct{}
+	// Le nombre d'attentes en cours, pour refuser au-delà de la borne.
+	queued atomic.Int32
 }
 
 func New(store Store, logger *slog.Logger) (*Service, error) {
@@ -57,7 +74,10 @@ func New(store Store, logger *slog.Logger) (*Service, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("generate remember key: %w", err)
 	}
-	return &Service{store: store, logger: logger, now: time.Now, hashCost: DefaultHashCost, rememberKey: key}, nil
+	return &Service{
+		store: store, logger: logger, now: time.Now, hashCost: DefaultHashCost,
+		rememberKey: key, verifying: make(chan struct{}, 1),
+	}, nil
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -181,24 +201,67 @@ func (s *Service) Remembered(state State, username, password string) bool {
 // Verify compare au prix de bcrypt, et retient les identifiants justes.
 // L'identifiant est comparé en temps constant, le mot de passe par bcrypt
 // même quand l'identifiant est faux : la durée ne dit pas lequel l'est.
-func (s *Service) Verify(state State, username, password string) bool {
+//
+// L'erreur dit qu'on n'a rien comparé : la file est pleine
+// (ErrVerificationQueueFull), ou la requête a pris fin pendant l'attente.
+// Un bcrypt déjà commencé ne s'interrompt pas, mais aucun ne commence pour
+// une requête abandonnée.
+func (s *Service) Verify(ctx context.Context, state State, username, password string) (bool, error) {
 	if state.Mode != ModeBasic || state.PasswordHash == "" {
-		return false
+		return false, nil
 	}
-	s.verifying.Lock()
-	defer s.verifying.Unlock()
+	// Des identifiants déjà vérifiés ne font jamais la queue.
 	if s.Remembered(state, username, password) {
-		return true
+		return true, nil
+	}
+	if err := s.acquireVerification(ctx); err != nil {
+		return false, err
+	}
+	defer func() { <-s.verifying }()
+	// La vérification qu'on vient d'attendre a pu retenir ces identifiants.
+	if s.Remembered(state, username, password) {
+		return true, nil
 	}
 	usernameMatches := hmac.Equal(s.digestOf(username, ""), s.digestOf(state.Username, ""))
 	passwordMatches := bcrypt.CompareHashAndPassword([]byte(state.PasswordHash), []byte(password)) == nil
 	if !usernameMatches || !passwordMatches {
-		return false
+		return false, nil
 	}
 	s.mu.Lock()
 	s.last = remembered{passwordHash: state.PasswordHash, digest: s.digestOf(username, password)}
 	s.mu.Unlock()
-	return true
+	return true, nil
+}
+
+// acquireVerification prend la place de la vérification lente. Si elle est
+// prise, on entre dans la file, bornée : au-delà, refus immédiat.
+func (s *Service) acquireVerification(ctx context.Context) error {
+	select {
+	case s.verifying <- struct{}{}:
+		return s.stopIfCanceled(ctx)
+	default:
+	}
+	if s.queued.Add(1) > maxQueuedVerifications {
+		s.queued.Add(-1)
+		return ErrVerificationQueueFull
+	}
+	defer s.queued.Add(-1)
+	select {
+	case s.verifying <- struct{}{}:
+		return s.stopIfCanceled(ctx)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stopIfCanceled rend la place si la requête a pris fin au moment où elle
+// l'obtenait : select choisit au hasard quand les deux sont prêts.
+func (s *Service) stopIfCanceled(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		<-s.verifying
+		return err
+	}
+	return nil
 }
 
 func (s *Service) hashPassword(password string) (string, error) {
