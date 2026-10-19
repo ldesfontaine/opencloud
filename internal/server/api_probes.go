@@ -200,8 +200,8 @@ func (s *Server) onlineMachines(ctx context.Context) (map[string]bool, error) {
 		return nil, err
 	}
 	online := make(map[string]bool, len(machines))
-	for _, status := range machines {
-		online[status.ID] = status.Online
+	for _, machineStatus := range machines {
+		online[machineStatus.ID] = machineStatus.Online
 	}
 	return online, nil
 }
@@ -294,19 +294,12 @@ func (s *Server) probeResponseOf(ctx context.Context, found probe.Probe) (probeR
 		return probeResponse{}, err
 	}
 	response := probeResponse{
-		Probe:   probeToJSON(found, online[found.MachineID]),
-		Uptime:  make([]uptimeJSON, 0, len(uptimes)),
-		Days:    make([]dayJSON, 0, len(days)),
-		Results: make([]resultJSON, 0, len(results)),
-	}
-	for _, uptime := range uptimes {
-		response.Uptime = append(response.Uptime, uptimeJSON{Window: uptime.Window, Total: uptime.Total, Success: uptime.Success})
-	}
-	for _, day := range days {
-		response.Days = append(response.Days, dayToJSON(day))
-	}
-	for _, result := range results {
-		response.Results = append(response.Results, resultToJSON(result))
+		Probe: probeToJSON(found, online[found.MachineID]),
+		Uptime: convertAll(uptimes, func(uptime probe.Uptime) uptimeJSON {
+			return uptimeJSON{Window: uptime.Window, Total: uptime.Total, Success: uptime.Success}
+		}),
+		Days:    convertAll(days, dayToJSON),
+		Results: convertAll(results, resultToJSON),
 	}
 	return response, nil
 }

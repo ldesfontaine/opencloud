@@ -394,7 +394,7 @@ func TestHeartbeat_LateThenFailedThenRecovered(t *testing.T) {
 	ctx := context.Background()
 	heartbeats := heartbeat.New(f.db, discardLogger())
 	heartbeats.SetClock(func() time.Time { return f.clock })
-	heartbeats.SetListener(f.Engine)
+	heartbeats.SetAlerter(f.Engine)
 	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +436,7 @@ func TestHeartbeat_StartThenSuccess_ResolvesLateAndFailed(t *testing.T) {
 	ctx := context.Background()
 	heartbeats := heartbeat.New(f.db, discardLogger())
 	heartbeats.SetClock(func() time.Time { return f.clock })
-	heartbeats.SetListener(f.Engine)
+	heartbeats.SetAlerter(f.Engine)
 	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -479,7 +479,7 @@ func TestHeartbeat_NeverPinged_OpensTheLateAlertWithItsAge(t *testing.T) {
 	ctx := context.Background()
 	heartbeats := heartbeat.New(f.db, discardLogger())
 	heartbeats.SetClock(func() time.Time { return f.clock })
-	heartbeats.SetListener(f.Engine)
+	heartbeats.SetAlerter(f.Engine)
 	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
 	if err != nil {
 		t.Fatal(err)
@@ -506,7 +506,7 @@ func TestHeartbeat_EditedWhileLate_TheOpenAlertFollowsItsNameAndMachine(t *testi
 	f.enrollRemote(t)
 	heartbeats := heartbeat.New(f.db, discardLogger())
 	heartbeats.SetClock(func() time.Time { return f.clock })
-	heartbeats.SetListener(f.Engine)
+	heartbeats.SetAlerter(f.Engine)
 	job, err := heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Minute})
 	if err != nil {
 		t.Fatal(err)

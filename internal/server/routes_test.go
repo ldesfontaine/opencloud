@@ -74,7 +74,7 @@ func newTestServer(t *testing.T) *testServer {
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
-	machines.SetListener(bus)
+	machines.SetWatcher(bus)
 	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{
 		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
 	})
@@ -133,7 +133,7 @@ func newTestServer(t *testing.T) *testServer {
 	notifier.SetClock(func() time.Time { return testNow })
 	alerts.SetSender(notifier)
 	machines.SetAlerter(alerts)
-	heartbeats.SetListener(alerts)
+	heartbeats.SetAlerter(alerts)
 	resources.SetAlerter(alerts)
 	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)

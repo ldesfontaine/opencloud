@@ -271,11 +271,10 @@ func (s *Server) listMachinesTool(ctx context.Context, _ *gomcp.CallToolRequest,
 	if err != nil {
 		return s.toolInternal("list_machines", err)
 	}
-	response := machinesToolResponse{Machines: make([]machineJSON, 0, len(statuses))}
-	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
-	}
-	return toolJSON(response)
+	machines := convertAll(statuses, func(machineStatus machine.Status) machineJSON {
+		return s.machineJSONOf(machineStatus, withLifecycle)
+	})
+	return toolJSON(machinesToolResponse{Machines: machines})
 }
 
 func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, input machineInput) (*gomcp.CallToolResult, any, error) {
@@ -438,10 +437,7 @@ func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequ
 		}
 		return s.toolInternal("get_container_logs", err)
 	}
-	response := logsResponse{Lines: make([]logLineJSON, 0, len(lines))}
-	for _, line := range lines {
-		response.Lines = append(response.Lines, logLineToJSON(line))
-	}
+	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
 	return toolJSON(response)
 }
 
@@ -451,10 +447,7 @@ func (s *Server) listJobsTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		return s.toolInternal("list_jobs", err)
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := jobsToolResponse{Jobs: []jobJSON{}, Total: len(heartbeats), Offset: offset, Limit: limit}
-	for _, found := range sliceOf(heartbeats, limit, offset) {
-		response.Jobs = append(response.Jobs, jobToJSON(found))
-	}
+	response := jobsToolResponse{Jobs: convertAll(sliceOf(heartbeats, limit, offset), jobToJSON), Total: len(heartbeats), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -474,13 +467,7 @@ func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input
 	if err != nil {
 		return s.toolInternal("get_job", err)
 	}
-	response := jobToolResponse{Job: jobToJSON(found), Runs: make([]runJSON, 0, len(runs)), Pings: make([]pingJSON, 0, len(pings))}
-	for _, run := range runs {
-		response.Runs = append(response.Runs, runToJSON(run))
-	}
-	for _, ping := range pings {
-		response.Pings = append(response.Pings, pingToJSON(ping))
-	}
+	response := jobToolResponse{Job: jobToJSON(found), Runs: convertAll(runs, runToJSON), Pings: convertAll(pings, pingToJSON)}
 	return toolJSON(response)
 }
 
@@ -576,10 +563,7 @@ func (s *Server) listIncidentsTool(ctx context.Context, _ *gomcp.CallToolRequest
 		}
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := incidentsToolResponse{Incidents: []incidentJSON{}, Total: len(kept), Offset: offset, Limit: limit}
-	for _, incident := range sliceOf(kept, limit, offset) {
-		response.Incidents = append(response.Incidents, incidentToJSON(incident))
-	}
+	response := incidentsToolResponse{Incidents: convertAll(sliceOf(kept, limit, offset), incidentToJSON), Total: len(kept), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -596,10 +580,7 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("list_alerts", err)
 	}
-	response := alertsResponse{Alerts: make([]alertJSON, 0, len(alerts)), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
-	for _, found := range alerts {
-		response.Alerts = append(response.Alerts, alertToJSON(found))
-	}
+	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
 	return toolJSON(response)
 }
 

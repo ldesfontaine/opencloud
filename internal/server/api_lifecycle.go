@@ -53,10 +53,10 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 	converted := lifecycleJSON{
 		Status: string(verdict.Status), Product: verdict.Product, ProductURL: verdict.ProductURL,
 		Cycle: verdict.Cycle, EOLFrom: verdict.EOLFrom, Latest: verdict.Latest,
-		Newer: make([]newerCycleJSON, 0, len(verdict.Newer)), FetchedAt: timeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
-	}
-	for _, newer := range verdict.Newer {
-		converted.Newer = append(converted.Newer, newerCycleJSON{Cycle: newer.Cycle, Latest: newer.Latest, EOLFrom: newer.EOLFrom})
+		Newer: convertAll(verdict.Newer, func(newer lifecycle.Newer) newerCycleJSON {
+			return newerCycleJSON{Cycle: newer.Cycle, Latest: newer.Latest, EOLFrom: newer.EOLFrom}
+		}),
+		FetchedAt: timeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
 	}
 	return &converted
 }

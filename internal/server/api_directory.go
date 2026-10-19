@@ -125,14 +125,8 @@ type projectRequest struct {
 }
 
 func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
-	provides := make([]string, 0, len(found.Provides))
-	for _, capability := range found.Provides {
-		provides = append(provides, string(capability))
-	}
-	units := make([]unitJSON, 0, len(found.Units))
-	for _, unit := range found.Units {
-		units = append(units, unitToJSON(unit))
-	}
+	provides := convertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
+	units := convertAll(found.Units, unitToJSON)
 	return declaredServiceJSON{
 		ID:             found.ID,
 		MachineID:      found.MachineID,
@@ -147,7 +141,7 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 		NeedsReview:    found.NeedsReview,
 		Provides:       provides,
 		Units:          units,
-		ProjectIDs:     nonNil(found.ProjectIDs),
+		ProjectIDs:     orEmpty(found.ProjectIDs),
 		CreatedAt:      found.CreatedAt.UTC(),
 		UpdatedAt:      found.UpdatedAt.UTC(),
 	}
@@ -163,7 +157,7 @@ func unitToJSON(unit directory.Unit) unitJSON {
 		Digest:        unit.Digest,
 		ContainerName: unit.ContainerName,
 		SystemdUnit:   unit.SystemdUnit,
-		Ports:         nonNil(unit.Ports),
+		Ports:         orEmpty(unit.Ports),
 		UpdatePolicy:  string(unit.UpdatePolicy),
 	}
 }
@@ -173,11 +167,9 @@ func linksToJSON(links directory.Links) linksJSON {
 }
 
 func linkedObjectsToJSON(objects []directory.LinkedObject) []linkedObjectJSON {
-	converted := make([]linkedObjectJSON, 0, len(objects))
-	for _, object := range objects {
-		converted = append(converted, linkedObjectJSON{ID: object.ID, Name: object.Name})
-	}
-	return converted
+	return convertAll(objects, func(object directory.LinkedObject) linkedObjectJSON {
+		return linkedObjectJSON{ID: object.ID, Name: object.Name}
+	})
 }
 
 func projectToJSON(found directory.Project) projectJSON {
@@ -185,26 +177,14 @@ func projectToJSON(found directory.Project) projectJSON {
 		ID:         found.ID,
 		Name:       found.Name,
 		Title:      found.Title,
-		ServiceIDs: nonNil(found.ServiceIDs),
+		ServiceIDs: orEmpty(found.ServiceIDs),
 		CreatedAt:  found.CreatedAt.UTC(),
 		UpdatedAt:  found.UpdatedAt.UTC(),
 	}
 }
 
-// nonNil garde une liste vide en [] : le front ne distingue pas null d'une
-// liste.
-func nonNil(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return values
-}
-
 func declaredServiceDefinition(request declaredServiceRequest) directory.ServiceDefinition {
-	provides := make([]directory.Capability, 0, len(request.Provides))
-	for _, capability := range request.Provides {
-		provides = append(provides, directory.Capability(capability))
-	}
+	provides := convertAll(request.Provides, func(capability string) directory.Capability { return directory.Capability(capability) })
 	units := make([]directory.UnitDefinition, 0, len(request.Units))
 	for _, unit := range request.Units {
 		units = append(units, directory.UnitDefinition{
@@ -240,10 +220,7 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := declaredServicesResponse{Services: make([]declaredServiceJSON, 0, len(found))}
-	for _, service := range found {
-		response.Services = append(response.Services, declaredServiceToJSON(service))
-	}
+	response := declaredServicesResponse{Services: convertAll(found, declaredServiceToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -428,10 +405,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := projectsResponse{Projects: make([]projectJSON, 0, len(found))}
-	for _, project := range found {
-		response.Projects = append(response.Projects, projectToJSON(project))
-	}
+	response := projectsResponse{Projects: convertAll(found, projectToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

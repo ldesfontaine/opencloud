@@ -132,10 +132,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := jobsResponse{Jobs: make([]jobJSON, 0, len(heartbeats))}
-	for _, found := range heartbeats {
-		response.Jobs = append(response.Jobs, jobToJSON(found))
-	}
+	response := jobsResponse{Jobs: convertAll(heartbeats, jobToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -265,14 +262,8 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		PingURL:  pingURL,
 		URLLocal: isLocal,
 		Snippets: snippets(pingURL),
-		Runs:     make([]runJSON, 0, len(runs)),
-		Pings:    make([]pingJSON, 0, len(pings)),
-	}
-	for _, run := range runs {
-		response.Runs = append(response.Runs, runToJSON(run))
-	}
-	for _, ping := range pings {
-		response.Pings = append(response.Pings, pingToJSON(ping))
+		Runs:     convertAll(runs, runToJSON),
+		Pings:    convertAll(pings, pingToJSON),
 	}
 	s.writeAPI(w, http.StatusOK, response)
 }

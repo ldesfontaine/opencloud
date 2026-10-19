@@ -118,7 +118,7 @@ func runServe(args []string) error {
 	// Le bus du direct : machine et heartbeat y publient, les onglets y lisent.
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
-	machines.SetListener(bus)
+	machines.SetWatcher(bus)
 	info := hostinfo.Collect()
 	machines.SetLocalFingerprint(info.HostFingerprint)
 	if err := machines.EnsureLocal(ctx, machine.LocalInfo{
@@ -188,7 +188,7 @@ func runServe(args []string) error {
 	notifier.SetMail(mailRelayOf(db), mail.NewSender(alert.MailTimeout))
 	alerts.SetSender(notifier)
 	machines.SetAlerter(alerts)
-	heartbeats.SetListener(alerts)
+	heartbeats.SetAlerter(alerts)
 	resources.SetAlerter(alerts)
 	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)

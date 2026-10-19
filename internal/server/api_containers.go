@@ -291,10 +291,7 @@ func (s *Server) getContainerLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeLogsError(w, r, err)
 		return
 	}
-	response := logsResponse{Lines: make([]logLineJSON, 0, len(lines))}
-	for _, line := range lines {
-		response.Lines = append(response.Lines, logLineToJSON(line))
-	}
+	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -434,8 +431,8 @@ func (s *Server) machineNames(ctx context.Context) (map[string]string, error) {
 		return nil, err
 	}
 	names := make(map[string]string, len(statuses))
-	for _, status := range statuses {
-		names[status.ID] = status.Name
+	for _, machineStatus := range statuses {
+		names[machineStatus.ID] = machineStatus.Name
 	}
 	return names, nil
 }
@@ -496,14 +493,6 @@ func imageCheckToJSON(item container.Container, checks map[string]update.Check) 
 		converted.Command = update.Command(item, check)
 	}
 	return converted
-}
-
-// Une liste nulle s'écrit [] : le front n'a pas à distinguer null de vide.
-func orEmpty[T any](list []T) []T {
-	if list == nil {
-		return []T{}
-	}
-	return list
 }
 
 func engineToJSON(engine container.Engine) engineJSON {

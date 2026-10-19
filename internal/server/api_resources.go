@@ -56,10 +56,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := resourcesResponse{Machines: make([]currentJSON, 0, len(currents))}
-	for _, current := range currents {
-		response.Machines = append(response.Machines, currentToJSON(current))
-	}
+	response := resourcesResponse{Machines: convertAll(currents, currentToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

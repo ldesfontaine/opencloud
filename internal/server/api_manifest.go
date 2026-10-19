@@ -205,11 +205,8 @@ func (s *Server) planToJSON(ctx context.Context, plan manifest.Plan) (planJSON, 
 			Create: created, Update: updated, Delete: deleted, Unchanged: plan.Unchanged, Unmanaged: len(plan.Unmanaged),
 		},
 		Changes:   changesToJSON(plan.Changes),
-		Unmanaged: make([]refJSON, 0, len(plan.Unmanaged)),
+		Unmanaged: convertAll(plan.Unmanaged, func(ref manifest.Ref) refJSON { return refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name} }),
 		Problems:  make([]problemJSON, 0, len(plan.Problems)),
-	}
-	for _, ref := range plan.Unmanaged {
-		response.Unmanaged = append(response.Unmanaged, refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name})
 	}
 	for _, problem := range plan.Problems {
 		response.Problems = append(response.Problems, problemJSON{
@@ -226,10 +223,7 @@ func applyToJSON(found manifest.Apply, withChanges bool) applyJSON {
 		State:   string(found.State),
 		Summary: applySummaryJSON{Create: found.Created, Update: found.Updated, Delete: found.Deleted, Unchanged: found.Unchanged},
 		Done:    found.Done, Error: found.Error, ErrorObject: found.ErrorObject,
-	}
-	if !found.FinishedAt.IsZero() {
-		finished := found.FinishedAt.UTC()
-		response.FinishedAt = &finished
+		FinishedAt: timeOrNil(found.FinishedAt),
 	}
 	if withChanges {
 		response.Changes = changesToJSON(found.Changes)
@@ -368,10 +362,7 @@ func (s *Server) listApplies(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := appliesResponse{Applies: make([]applyJSON, 0, len(found))}
-	for _, item := range found {
-		response.Applies = append(response.Applies, applyToJSON(item, false))
-	}
+	response := appliesResponse{Applies: convertAll(found, func(item manifest.Apply) applyJSON { return applyToJSON(item, false) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

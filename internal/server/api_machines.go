@@ -56,29 +56,29 @@ type tokenResponse struct {
 	URLLocal  bool      `json:"url_local"`
 }
 
-func machineToJSON(status machine.Status) machineJSON {
+func machineToJSON(machineStatus machine.Status) machineJSON {
 	return machineJSON{
-		ID:           status.ID,
-		Name:         status.Name,
-		Kind:         string(status.Kind),
-		Hostname:     status.Hostname,
-		Address:      status.Address,
-		OS:           status.OS,
-		Arch:         status.Arch,
-		AgentVersion: status.AgentVersion,
-		Local:        status.IsLocal(),
-		Online:       status.Online,
-		EnrolledAt:   status.EnrolledAt.UTC(),
-		LastSeenAt:   timeOrNil(status.LastSeenAt),
+		ID:           machineStatus.ID,
+		Name:         machineStatus.Name,
+		Kind:         string(machineStatus.Kind),
+		Hostname:     machineStatus.Hostname,
+		Address:      machineStatus.Address,
+		OS:           machineStatus.OS,
+		Arch:         machineStatus.Arch,
+		AgentVersion: machineStatus.AgentVersion,
+		Local:        machineStatus.IsLocal(),
+		Online:       machineStatus.Online,
+		EnrolledAt:   machineStatus.EnrolledAt.UTC(),
+		LastSeenAt:   timeOrNil(machineStatus.LastSeenAt),
 	}
 }
 
 // machineJSONOf ajoute aux faits de la machine le support de son système,
 // quand la fin de support est activée.
-func (s *Server) machineJSONOf(status machine.Status, withLifecycle bool) machineJSON {
-	converted := machineToJSON(status)
+func (s *Server) machineJSONOf(machineStatus machine.Status, withLifecycle bool) machineJSON {
+	converted := machineToJSON(machineStatus)
 	if withLifecycle {
-		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(status.OS))
+		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
 	return converted
 }
@@ -110,11 +110,8 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := machinesResponse{
-		Machines: make([]machineJSON, 0, len(statuses)),
+		Machines: convertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
 		Pending:  make([]pendingTokenJSON, 0, len(pending)),
-	}
-	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -129,7 +126,7 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
-	status, err := s.machines.Get(r.Context(), r.PathValue("id"))
+	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
 	if errors.Is(err, machine.ErrNotFound) {
 		s.apiNotFound(w)
 		return
@@ -143,7 +140,7 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(status, withLifecycle))
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.

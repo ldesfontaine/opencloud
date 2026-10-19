@@ -137,9 +137,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 	if err != nil {
 		return mcpResponse{}, err
 	}
-	for _, token := range tokens {
-		response.Tokens = append(response.Tokens, mcpTokenToJSON(token))
-	}
+	response.Tokens = convertAll(tokens, mcpTokenToJSON)
 	sessions, err := s.mcp.Sessions(r.Context())
 	if err != nil {
 		return mcpResponse{}, err

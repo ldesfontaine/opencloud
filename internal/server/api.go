@@ -106,3 +106,21 @@ func isJSON(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
 	return strings.TrimSpace(mediaType) == "application/json"
 }
+
+// Une liste nulle s'écrit [] : le front n'a pas à distinguer null de vide.
+func orEmpty[T any](list []T) []T {
+	if list == nil {
+		return []T{}
+	}
+	return list
+}
+
+// convertAll convertit chaque élément ; le résultat n'est jamais nul, il
+// s'écrit [] quand il n'y a rien.
+func convertAll[T, J any](items []T, convert func(T) J) []J {
+	converted := make([]J, 0, len(items))
+	for _, item := range items {
+		converted = append(converted, convert(item))
+	}
+	return converted
+}

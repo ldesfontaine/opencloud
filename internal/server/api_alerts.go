@@ -190,10 +190,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := alertsResponse{Alerts: make([]alertJSON, 0, len(alerts)), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
-	for _, found := range alerts {
-		response.Alerts = append(response.Alerts, alertToJSON(found))
-	}
+	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -288,10 +285,7 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := channelsResponse{Channels: make([]channelJSON, 0, len(channels))}
-	for _, channel := range channels {
-		response.Channels = append(response.Channels, channelToJSON(channel))
-	}
+	response := channelsResponse{Channels: convertAll(channels, channelToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -392,10 +386,7 @@ func (s *Server) listSilences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	response := silencesResponse{Silences: make([]silenceJSON, 0, len(silences))}
-	for _, silence := range silences {
-		response.Silences = append(response.Silences, silenceToJSON(silence, now))
-	}
+	response := silencesResponse{Silences: convertAll(silences, func(silence alert.Silence) silenceJSON { return silenceToJSON(silence, now) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

@@ -124,10 +124,9 @@ func componentToJSON(component status.Component) componentJSON {
 }
 
 func incidentToJSON(incident status.Incident) incidentJSON {
-	components := make([]componentRefJSON, 0, len(incident.Components))
-	for _, component := range incident.Components {
-		components = append(components, componentRefJSON{ID: component.ID, Name: component.Name})
-	}
+	components := convertAll(incident.Components, func(component status.ComponentRef) componentRefJSON {
+		return componentRefJSON{ID: component.ID, Name: component.Name}
+	})
 	return incidentJSON{
 		ID: incident.ID, Title: incident.Title, Impact: string(incident.Impact), Status: string(incident.Status),
 		StartsAt: timeOrNil(incident.StartsAt), EndsAt: timeOrNil(incident.EndsAt),
@@ -235,10 +234,7 @@ func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 		s.apiInternalError(w, r, err)
 		return
 	}
-	response := incidentsResponse{Incidents: make([]incidentJSON, 0, len(incidents))}
-	for _, incident := range incidents {
-		response.Incidents = append(response.Incidents, incidentToJSON(incident))
-	}
+	response := incidentsResponse{Incidents: convertAll(incidents, incidentToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

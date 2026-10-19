@@ -59,9 +59,9 @@ func closeOpenRun(before Heartbeat, now time.Time, outcome Outcome) *Run {
 	return &Run{HeartbeatID: before.ID, CompletedAt: now, Outcome: outcome}
 }
 
-// Listener reçoit ce qui mérite une alerte : le moteur des alertes s'y
+// Alerter reçoit ce qui mérite une alerte : le moteur des alertes s'y
 // branche ; nil est toléré.
-type Listener interface {
+type Alerter interface {
 	Late(ctx context.Context, heartbeat Heartbeat)
 	// Recovered : une fin réussie, après un retard, un échec ou un start.
 	// Elle peut donc arriver sans rien à lever.
@@ -73,17 +73,17 @@ type Listener interface {
 }
 
 // Watcher reçoit chaque changement d'un moniteur, quel qu'il soit : le
-// direct s'y branche. Listener ne reçoit que ce qui mérite une alerte.
+// direct s'y branche. Alerter ne reçoit que ce qui mérite une alerte.
 // nil est toléré.
 type Watcher interface {
 	HeartbeatChanged(heartbeatID string)
 }
 
 type Service struct {
-	store    Store
-	listener Listener
-	watcher  Watcher
-	logger   *slog.Logger
+	store   Store
+	alerter Alerter
+	watcher Watcher
+	logger  *slog.Logger
 	// now est remplaçable dans les tests : les échéances se comparent à lui.
 	now func() time.Time
 }
@@ -96,8 +96,8 @@ func (s *Service) SetClock(now func() time.Time) {
 	s.now = now
 }
 
-func (s *Service) SetListener(listener Listener) {
-	s.listener = listener
+func (s *Service) SetAlerter(alerter Alerter) {
+	s.alerter = alerter
 }
 
 func (s *Service) SetWatcher(watcher Watcher) {
@@ -224,16 +224,16 @@ func restoredStatus(heartbeat Heartbeat) Status {
 // notifyAfterEdit tient les alertes au courant : une tâche encore en retard
 // ou en échec voit son alerte renommée, une tâche sortie du retard la lève.
 func (s *Service) notifyAfterEdit(ctx context.Context, before, after Heartbeat) {
-	if s.listener == nil {
+	if s.alerter == nil {
 		return
 	}
 	switch {
 	case after.Status == StatusLate:
-		s.listener.Late(ctx, after)
+		s.alerter.Late(ctx, after)
 	case after.Status == StatusFailed && after.LastExitCode != nil:
-		s.listener.Failed(ctx, after, *after.LastExitCode)
+		s.alerter.Failed(ctx, after, *after.LastExitCode)
 	case before.Status == StatusLate:
-		s.listener.Recovered(ctx, after)
+		s.alerter.Recovered(ctx, after)
 	}
 }
 
@@ -280,8 +280,8 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat deleted", "heartbeat_id", id)
-	if s.listener != nil {
-		s.listener.Removed(ctx, id)
+	if s.alerter != nil {
+		s.alerter.Removed(ctx, id)
 	}
 	s.changed(id)
 	return nil
@@ -304,8 +304,8 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat paused", "heartbeat_id", id)
-	if s.listener != nil {
-		s.listener.Paused(ctx, paused)
+	if s.alerter != nil {
+		s.alerter.Paused(ctx, paused)
 	}
 	s.changed(id)
 	return nil
@@ -444,15 +444,15 @@ func (s *Service) finishTransition(before Heartbeat, ping Ping, now time.Time) T
 }
 
 func (s *Service) notifyAfterPing(ctx context.Context, before, after Heartbeat, ping Ping) {
-	if s.listener == nil {
+	if s.alerter == nil {
 		return
 	}
 	if after.Status == StatusFailed {
-		s.listener.Failed(ctx, after, *ping.ExitCode)
+		s.alerter.Failed(ctx, after, *ping.ExitCode)
 		return
 	}
 	if after.Status == StatusOnTime && mayHaveNeededAttention(before.Status) {
-		s.listener.Recovered(ctx, after)
+		s.alerter.Recovered(ctx, after)
 	}
 }
 
@@ -501,8 +501,8 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 		return err
 	}
 	s.logger.Warn("heartbeat late", "heartbeat_id", before.ID, "name", before.Name, "previous_status", string(before.Status))
-	if s.listener != nil {
-		s.listener.Late(ctx, after)
+	if s.alerter != nil {
+		s.alerter.Late(ctx, after)
 	}
 	s.changed(after.ID)
 	return nil

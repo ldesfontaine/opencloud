@@ -101,10 +101,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if language == "" {
 		language = lang.Default
 	}
-	languages := make([]string, 0, len(lang.Codes()))
-	for _, code := range lang.Codes() {
-		languages = append(languages, string(code))
-	}
+	languages := convertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
 		Language:     string(language),
@@ -204,10 +201,8 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 }
 
 func certificatesToJSON(counted probe.Certificates) certificateCounts {
-	response := certificateCounts{Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired}
-	if !counted.Soonest.IsZero() {
-		soonest := counted.Soonest.UTC()
-		response.SoonestExpiresAt = &soonest
+	return certificateCounts{
+		Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired,
+		SoonestExpiresAt: timeOrNil(counted.Soonest),
 	}
-	return response
 }
