@@ -87,6 +87,8 @@ type daemon struct {
 	stats atomic.Int64
 	// events tient le flux ouvert après les fixtures quand hold est vrai.
 	hold bool
+	// onEvents remplace le flux enregistré quand un test veut le sien.
+	onEvents func(w http.ResponseWriter, r *http.Request)
 }
 
 func newDaemon(t *testing.T, hold bool) *daemon {
@@ -127,6 +129,10 @@ func newDaemon(t *testing.T, hold bool) *daemon {
 		}
 	})
 	d.mux.HandleFunc("GET /v1.41/events", func(w http.ResponseWriter, r *http.Request) {
+		if d.onEvents != nil {
+			d.onEvents(w, r)
+			return
+		}
 		_, _ = w.Write(fixture(t, "events.ndjson"))
 		_, _ = w.Write(fixture(t, "events_network.ndjson"))
 		if d.hold {
@@ -243,6 +249,9 @@ func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 			}
 		}
 	}
+	// Run tourne encore : since se lit sous le verrou.
+	watcher.mu.Lock()
+	defer watcher.mu.Unlock()
 	if watcher.since == "" {
 		t.Fatal("since should follow the last event")
 	}

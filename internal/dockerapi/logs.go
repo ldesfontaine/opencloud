@@ -49,6 +49,9 @@ type LogReader struct {
 	stream  string
 	// Un en-tête lu d'avance, quand le flux change au milieu d'une ligne.
 	next *frameHeader
+	// Ce qui reste à lire du cadre en cours : un cadre se lit par morceaux,
+	// sa taille est celle que dit son en-tête, jusqu'à 4 Gio.
+	frameLeft int
 }
 
 type frameHeader struct {
@@ -81,13 +84,40 @@ func (r *LogReader) Next() (Line, error) {
 		}
 	}
 	if r.tty {
-		raw, err := r.reader.ReadBytes('\n')
-		if len(raw) == 0 && err != nil {
-			return Line{}, err
-		}
-		return parseLine(raw, r.stream), nil
+		return r.nextTTY()
 	}
 	return r.nextFramed()
+}
+
+// nextTTY lit une ligne du flux brut sans jamais en garder plus de
+// maxLogLine octets : un conteneur dont la sortie n'a pas de saut de ligne
+// donnerait sinon une ligne qui grossit avec elle, dans la mémoire de
+// l'agent (root) ou du serveur. La ligne trop longue est coupée, le reste
+// fait la ligne suivante, comme dans un journal multiplexé.
+func (r *LogReader) nextTTY() (Line, error) {
+	var raw []byte
+	for len(raw) < maxLogLine {
+		if _, err := r.reader.Peek(1); err != nil {
+			if len(raw) == 0 {
+				return Line{}, err
+			}
+			break
+		}
+		// Ce qui est déjà lu, sans plus : Peek de Buffered octets ne lit pas.
+		available, _ := r.reader.Peek(r.reader.Buffered())
+		if room := maxLogLine - len(raw); len(available) > room {
+			available = available[:room]
+		}
+		if end := bytes.IndexByte(available, '\n'); end >= 0 {
+			available = available[:end+1]
+			raw = append(raw, available...)
+			_, _ = r.reader.Discard(len(available))
+			break
+		}
+		raw = append(raw, available...)
+		_, _ = r.reader.Discard(len(available))
+	}
+	return parseLine(raw, r.stream), nil
 }
 
 // decide regarde le premier cadre : un type 1 ou 2 suivi de trois zéros ne
@@ -103,8 +133,10 @@ func (r *LogReader) decide() error {
 	return nil
 }
 
-// nextFramed rend une ligne complète de pending, sinon lit un cadre de
-// plus ; un changement de flux ou la fin du journal clôt la ligne en cours.
+// nextFramed rend une ligne complète de pending, sinon lit la suite du
+// cadre, ou le suivant ; un changement de flux ou la fin du journal clôt la
+// ligne en cours. Un cadre plus grand que maxLogLine ne passe jamais en
+// mémoire d'un bloc : sa taille vient du démon, sans autre borne.
 func (r *LogReader) nextFramed() (Line, error) {
 	for {
 		if index := bytes.IndexByte(r.pending, '\n'); index >= 0 || len(r.pending) >= maxLogLine {
@@ -115,20 +147,25 @@ func (r *LogReader) nextFramed() (Line, error) {
 			r.pending = append([]byte(nil), r.pending[index+1:]...)
 			return line, nil
 		}
-		header, err := r.readHeader()
-		if err != nil {
+		if r.frameLeft == 0 {
+			header, err := r.readHeader()
+			if err != nil {
+				return r.flush(err)
+			}
+			if header.stream != r.stream && len(r.pending) > 0 {
+				r.next = &header
+				return r.flush(nil)
+			}
+			r.stream = header.stream
+			r.frameLeft = header.size
+		}
+		// pending reste sous maxLogLine : on ne lit que ce qui y tient.
+		part := make([]byte, min(r.frameLeft, maxLogLine-len(r.pending)))
+		if _, err := io.ReadFull(r.reader, part); err != nil {
 			return r.flush(err)
 		}
-		if header.stream != r.stream && len(r.pending) > 0 {
-			r.next = &header
-			return r.flush(nil)
-		}
-		r.stream = header.stream
-		frame := make([]byte, header.size)
-		if _, err := io.ReadFull(r.reader, frame); err != nil {
-			return r.flush(err)
-		}
-		r.pending = append(r.pending, frame...)
+		r.frameLeft -= len(part)
+		r.pending = append(r.pending, part...)
 	}
 }
 

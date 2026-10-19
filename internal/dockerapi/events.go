@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -12,8 +13,13 @@ import (
 )
 
 // Une ligne d'événement tient bien en dessous : les attributs sont les
-// labels du conteneur.
+// labels du conteneur, ceux de l'image compris, et son auteur les écrit.
 const maxEventLine = 256 << 10
+
+// ErrEventLineTooLong dit qu'une ligne du flux dépassait maxEventLine et a
+// été jetée : le flux, lui, continue. Elle n'est pas fatale, sans quoi la
+// reconnexion rejouerait la même ligne en tête du flux, à l'infini.
+var ErrEventLineTooLong = errors.New("docker event line too long, skipped")
 
 // Event est un événement de conteneur ou de réseau tel que le démon le
 // pousse. Sur un réseau, l'acteur est le réseau et l'attribut « container »
@@ -70,8 +76,11 @@ func (e Event) IsStopSignal() bool {
 // EventStream est le flux ouvert ; Next bloque jusqu'au prochain événement
 // ou à la fin du flux, Close raccroche.
 type EventStream struct {
-	body    io.ReadCloser
-	scanner *bufio.Scanner
+	body   io.ReadCloser
+	reader *bufio.Reader
+	// line est la ligne en cours, réutilisée d'un appel à l'autre ; elle ne
+	// dépasse jamais maxEventLine.
+	line []byte
 }
 
 // Events ouvre le flux des événements de conteneurs et de réseaux ; since,
@@ -86,14 +95,18 @@ func (c *Client) Events(ctx context.Context, since string) (*EventStream, error)
 	if err != nil {
 		return nil, err
 	}
-	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 0, 64<<10), maxEventLine)
-	return &EventStream{body: response.Body, scanner: scanner}, nil
+	return &EventStream{body: response.Body, reader: bufio.NewReaderSize(response.Body, 64<<10)}, nil
 }
 
+// Next rend l'événement suivant ; io.EOF à la fin du flux.
+// ErrEventLineTooLong dit qu'une ligne a été sautée : l'appelant le note et
+// rappelle Next, le flux n'est pas perdu.
 func (s *EventStream) Next() (Event, error) {
-	for s.scanner.Scan() {
-		line := s.scanner.Bytes()
+	for {
+		line, err := s.readLine()
+		if err != nil {
+			return Event{}, err
+		}
 		if len(line) == 0 {
 			continue
 		}
@@ -103,10 +116,44 @@ func (s *EventStream) Next() (Event, error) {
 		}
 		return event, nil
 	}
-	if err := s.scanner.Err(); err != nil {
-		return Event{}, err
+}
+
+// readLine lit jusqu'au saut de ligne sans jamais garder plus de
+// maxEventLine octets : au-delà, la fin de la ligne est lue et jetée, puis
+// ErrEventLineTooLong est rendue. Un bufio.Scanner s'arrêterait net, et le
+// démon rejouerait la ligne fautive à chaque reconnexion.
+func (s *EventStream) readLine() ([]byte, error) {
+	s.line = s.line[:0]
+	tooLong := false
+	for {
+		chunk, err := s.reader.ReadSlice('\n')
+		if err == nil {
+			chunk = chunk[:len(chunk)-1]
+		}
+		if !tooLong {
+			if len(s.line)+len(chunk) > maxEventLine {
+				tooLong = true
+				s.line = s.line[:0]
+			} else {
+				s.line = append(s.line, chunk...)
+			}
+		}
+		switch {
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case err == nil:
+			if tooLong {
+				return nil, ErrEventLineTooLong
+			}
+			return s.line, nil
+		case tooLong:
+			// La fin du flux, ou son erreur, se redira à l'appel suivant.
+			return nil, ErrEventLineTooLong
+		case errors.Is(err, io.EOF) && len(s.line) > 0:
+			return s.line, nil
+		}
+		return nil, err
 	}
-	return Event{}, io.EOF
 }
 
 func (s *EventStream) Close() error {

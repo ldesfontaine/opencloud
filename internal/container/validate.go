@@ -111,6 +111,11 @@ func checkContainer(container Observed, now time.Time) error {
 	if !isContainerID(container.ContainerID) || container.Name == "" || len(container.Name) > MaxNameLength {
 		return invalid("identifiant, nom ou longueur du nom")
 	}
+	// Le nom entre dans les messages d'alerte : un saut de ligne y ferait une
+	// ligne de plus, signée openCloud. Docker n'en laisse passer aucun.
+	if hasControlOrBadUTF8(container.Name) {
+		return invalid("caractère de contrôle ou UTF-8 invalide dans le nom")
+	}
 	if len(container.Group) > MaxNameLength || len(container.Image) > MaxImageLength || len(container.ImageID) > MaxImageLength {
 		return invalid("longueur d'un champ de groupe ou d'image")
 	}

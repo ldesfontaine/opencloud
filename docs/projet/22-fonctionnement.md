@@ -321,7 +321,9 @@ parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
    périphérique monté plusieurs fois, `/` et `/home` sur un btrfs par
    exemple, fait un seul volume, nommé par son point de montage le plus
    court. Un volume qui ne se mesure pas est laissé de côté, jamais montré à
-   zéro. `disk_used` et `disk_total` font la somme des volumes.
+   zéro ; un volume dont le point de montage ou le périphérique porte un
+   caractère de contrôle (`\012`, un saut de ligne) aussi, le serveur
+   refuserait sinon toute la lecture. `disk_used` et `disk_total` font la somme des volumes.
 3. Les lectures attendent dans un tampon en mémoire d'une heure au plus. Le
    signal de toutes les 30 s les emporte dans son corps, par lots de 120 ; un
    rattrapage après une coupure enchaîne les signaux jusqu'à vider le tampon
@@ -335,7 +337,9 @@ parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
 5. openCloud refuse en bloc un lot dont une lecture est hors de mesure
    (pourcentage hors de 0 à 100, nombre négatif, date à plus de cinq minutes
    dans le futur ou plus vieille que le brut gardé, volume sans point de
-   montage absolu ou compté deux fois, plus de 32 volumes) ; le signal de
+   montage absolu ou compté deux fois, point de montage ou périphérique qui
+   porte un caractère de contrôle ou de l'UTF-8 invalide, plus de 32
+   volumes) ; le signal de
    vie compte quand même. Une lecture déjà en base, rejouée, est ignorée,
    ses volumes avec. Chaque section du signal (lectures, services, sondes,
    images) s'écrit seule : une section refusée n'emporte pas les autres.
@@ -417,12 +421,29 @@ la table ; ils partiront avec la revue des alertes).
    Chaque événement repart avec le conteneur réinspecté. Sur un `die` à
    code hors 0, 137 ou 143, tué faute de mémoire ou tué, l'agent capture les 50
    dernières lignes du journal. Une coupure du flux repart de l'horodatage
-   du dernier événement reçu.
+   du dernier événement reçu ; un événement sans horodatage ne déplace
+   jamais ce point de reprise, et une fin de flux ne le remet jamais à zéro
+   (le démon rejouerait alors tout son tampon). Une ligne d'événement de
+   plus de 256 Kio (les labels d'une image, que son auteur écrit) est
+   **sautée**, jamais fatale : une ligne `WARN` sans son contenu, et le flux
+   continue ; le démon la rejouerait sinon en tête de chaque reconnexion. Côté
+   serveur, un événement plus vieux que l'état que la réinspection a lu
+   (le conteneur a démarré depuis) est de l'histoire : il ne remet pas la
+   fiche dans l'état qu'elle a quitté et sa transition est marquée
+   rejouée. Cela vaut pour un événement déjà marqué rejoué par l'agent, ou
+   de plus de six minutes (l'écart d'horloge toléré d'un agent, cinq
+   minutes, plus une) ; un `die` tout frais qu'une relance a devancé
+   garde son état, pour que la boucle de plantages d'un conteneur
+   `restart: always` reste visible.
 4. Toutes les 30 s, l'agent mesure chaque conteneur qui tourne en un appel
    (`stats?one-shot`) : le processeur est un delta entre deux mesures, en
    pourcentage d'un cœur (200 % = deux cœurs), la mémoire est l'usage moins
    le cache de fichiers, comme `docker stats`. Un compteur qui recule
-   (conteneur relancé) vaut une première mesure : rien ce tour.
+   (conteneur relancé) vaut une première mesure : rien ce tour. La mesure a
+   sa propre cadence, tant que le démon répond : un flux d'événements qui
+   retombe sans cesse ne la prive pas. L'inventaire, lui, reste dans la
+   boucle des événements, pour qu'un instantané plus vieux qu'un événement
+   ne passe pas après lui.
 5. Tout attend dans un tampon en mémoire et part dans le corps du signal,
    section `services` à côté des lectures (clé figée : les agents installés
    l'envoient sous ce nom). Après une reconnexion, ce qui
@@ -434,7 +455,9 @@ la table ; ils partiront avec la revue des alertes).
    raison) ; le signal de vie compte quand même, et les autres sections du
    signal s'écrivent (« Comment une machine est mesurée », point 5). Un
    élément seul hors de mesure (un id qui n'est pas un id Docker, un état
-   inconnu, une date dans le futur, un port hors bornes, un rattachement
+   inconnu, une date dans le futur, un port hors bornes, un nom de
+   conteneur qui porte un caractère de contrôle (un saut de ligne) ou de
+   l'UTF-8 invalide, un rattachement
    réseau sans id : Docker n'en donne pas encore à un conteneur tout juste
    créé) est écarté, avec une ligne de journal qui le nomme et dit
    pourquoi ; le reste du rapport passe. Un conteneur écarté d'un
@@ -480,7 +503,12 @@ la table ; ils partiront avec la revue des alertes).
    identifiant de requête et pousse `logs` sur le flux de l'agent ; l'agent
    ouvre le journal (100 lignes par défaut, 500 au plus) et livre des lots
    toutes les secondes ou toutes les 64 lignes par `POST /agent/logs/{id}`,
-   que le serveur relaie au navigateur en SSE. Un lot n'est accepté que
+   que le serveur relaie au navigateur en SSE. Une ligne de plus de 64 Kio
+   est coupée, pas refusée, pour un conteneur sans TTY comme pour un
+   conteneur TTY : le flux brut d'un TTY, comme un cadre multiplexé dont
+   l'en-tête annonce une taille, est lu par morceaux, sans jamais garder
+   plus que la borne, et le reste fait la ligne suivante. Un lot n'est
+   accepté que
    de la machine à qui la requête a été poussée, et ne compte pas comme
    signe de vie : seul le signal publie `machines`. L'onglet fermé, le
    serveur pousse `logs_stop`. Quatre suivis par machine ; seize lectures
@@ -1829,9 +1857,9 @@ couleur sur les mêmes chiffres que l'alerte.
 | --- | --- | --- |
 | `json` | `{event, sent_at, language, title, text{fact, cause, action}, alert{…, url}}` | Un récepteur à soi, Gotify par un relais, n'importe quoi qui lit du JSON |
 | `text` | Trois lignes : titre, cause, geste ; le lien dans l'en-tête `Click` | ntfy, et tout ce qui affiche un texte |
-| `discord` | Un embed : titre (cliquable), description, couleur de la gravité | Discord |
-| `slack` | `text` et un attachement coloré, `title_link` vers la fiche | Slack, Mattermost, Rocket.Chat |
-| `email` | Un e-mail `multipart/alternative` : texte brut (titre, cause, geste, lien) et HTML sans style ni image, UTF-8 en quoted-printable | Toute boîte e-mail, par le relais de l'opérateur |
+| `discord` | Un embed : titre (cliquable), description, couleur de la gravité. Le texte que choisit l'agent (nom de conteneur ou de machine, point de montage, cible) est mis sur une ligne, et chaque caractère de Markdown, de lien ou de mention (barre oblique inverse, étoile, tiret bas, tilde, accent grave, barre verticale, chevrons, dièse, crochets, parenthèses, arobase) reçoit une barre oblique inverse : le seul lien actif est celui d'openCloud | Discord |
+| `slack` | `text` et un attachement coloré, `title_link` vers la fiche. Le même texte, sur une ligne, encode `&`, `<` et `>` en `&amp;`, `&lt;` et `&gt;`, la règle de Slack : plus de mention `!channel` ni de lien à chevrons. Mattermost lisant le même message en Markdown, la barre oblique inverse et les crochets sont échappés aussi | Slack, Mattermost, Rocket.Chat |
+| `email` | Un e-mail `multipart/alternative` : texte brut (titre, cause, geste, lien) et HTML sans style ni image, UTF-8 en quoted-printable ; le HTML est échappé | Toute boîte e-mail, par le relais de l'opérateur |
 | `matrix` | Un `m.room.message` : `msgtype: m.text`, `body` en texte brut (titre, cause, geste, lien), `format: org.matrix.custom.html` et `formatted_body` (titre en gras, lien « Ouvrir dans openCloud ») | Un salon Matrix, Element ou tout client, par un bot |
 
 La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,

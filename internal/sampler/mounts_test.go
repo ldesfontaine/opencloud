@@ -59,6 +59,18 @@ func TestReadMounts_SnapsContainersAndNetwork_AreLeftOut(t *testing.T) {
 	assertMounts(t, "mounts_containers.txt", "/", "/mnt/disque externe")
 }
 
+// Un point de montage écrit avec un saut de ligne (`\012`) est laissé de
+// côté : le serveur refuserait toute la lecture de la machine pour lui.
+func TestParseMount_AControlCharacterLeavesTheVolumeOut(t *testing.T) {
+	entry, ok := parseMount(`/dev/sdb1 /media/usb\012[Ouvrir](https://dummy.invalid) vfat rw 0 0`)
+	if !ok || entry.mountPoint != "/media/usb\n[Ouvrir](https://dummy.invalid)" {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if isDiskMount(entry) {
+		t.Fatal("a mount point with a newline should be left out")
+	}
+}
+
 func TestReadMounts_MissingFile_IsAnError(t *testing.T) {
 	if _, err := readMounts(filepath.Join(t.TempDir(), "mounts")); err == nil {
 		t.Fatal("accepted")
