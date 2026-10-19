@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import type { Probe, ProbeDay } from "../api/types";
-import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeRequestOf, uptimeOfDays, uptimePercent } from "./probes";
+import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeNeedsAttention, probeRequestOf, uptimeOfDays, uptimePercent } from "./probes";
 
 function day(date: string, total: number, success: number, degraded = 0): ProbeDay {
   return { day: date, total, success, degraded, duration_ms: 12 };
 }
+
+describe("probeNeedsAttention", () => {
+  it("ne compte que la sonde hors ligne", () => {
+    expect(probeNeedsAttention({ status: "down" })).toBe(true);
+    expect(probeNeedsAttention({ status: "degraded" })).toBe(false);
+    expect(probeNeedsAttention({ status: "paused" })).toBe(false);
+  });
+});
 
 describe("uptimePercent", () => {
   it("rend rien plutôt qu'un zéro quand aucun essai n'est tombé", () => {
@@ -20,6 +28,15 @@ describe("uptimePercent", () => {
 describe("uptimeOfDays", () => {
   it("additionne les jours, parce que l'agrégat garde des comptes", () => {
     expect(uptimeOfDays([day("2026-09-17", 100, 100), day("2026-09-18", 100, 90)])).toEqual({ total: 200, success: 190 });
+  });
+
+  it("compte aussi les jours d'un composant de la page de statut, et rien sans jour", () => {
+    const days = [
+      { day: "2026-09-19", total: 10, success: 10, degraded: 0 },
+      { day: "2026-09-20", total: 10, success: 7, degraded: 1 },
+    ];
+    expect(uptimeOfDays(days)).toEqual({ total: 20, success: 17 });
+    expect(uptimeOfDays([])).toEqual({ total: 0, success: 0 });
   });
 });
 

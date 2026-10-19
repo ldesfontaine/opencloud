@@ -1,9 +1,30 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
-// Les sujets du direct, tels que le serveur les nomme.
-export type Topic = "machines" | "jobs" | "resources" | "containers" | "probes" | "status" | "alerts" | "directory";
+// Les sujets du direct, tels que le serveur les nomme. Ajouter un sujet,
+// c'est ajouter son nom ici, puis sa ligne dans initialVersions (le
+// compilateur la réclame) : l'écoute du direct suit seule.
+// Le type Topic se lit dans la liste.
+export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory"] as const;
 
-type Versions = Record<Topic, number>;
+export type Topic = (typeof topics)[number];
+
+export type Versions = Record<Topic, number>;
+
+// Un littéral typé : un sujet ajouté à topics et oublié ici ne compile pas.
+export function initialVersions(): Versions {
+  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0 };
+}
+
+// Le compteur du sujet demandé avance d'un cran, ou tous sans argument.
+export function bumpVersions(versions: Versions, topic?: Topic): Versions {
+  const next = { ...versions };
+  for (const candidate of topics) {
+    if (topic === undefined || topic === candidate) {
+      next[candidate] = versions[candidate] + 1;
+    }
+  }
+  return next;
+}
 
 interface Refresh {
   // Relit un sujet, ou tout sans argument.
@@ -55,25 +76,17 @@ export function topicsOf(path: string): Topic[] {
   if (path.startsWith("/api/jobs")) {
     return ["jobs"];
   }
-  return ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
+  // Un chemin inconnu relit tout, sauf les mesures.
+  return topics.filter((topic) => topic !== "resources");
 }
 
 // Un seul signal pour relire : après une action de l'opérateur, ou à
 // l'arrivée d'un sujet du direct. Chaque sujet a son compteur, pour que la
 // page des tâches ne relise pas quand une machine signale.
 export function RefreshProvider({ children }: { children: ReactNode }) {
-  const [versions, setVersions] = useState<Versions>({ machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0 });
+  const [versions, setVersions] = useState<Versions>(initialVersions());
   const refresh = useCallback((topic?: Topic) => {
-    setVersions((current) => ({
-      machines: topic === undefined || topic === "machines" ? current.machines + 1 : current.machines,
-      jobs: topic === undefined || topic === "jobs" ? current.jobs + 1 : current.jobs,
-      resources: topic === undefined || topic === "resources" ? current.resources + 1 : current.resources,
-      containers: topic === undefined || topic === "containers" ? current.containers + 1 : current.containers,
-      probes: topic === undefined || topic === "probes" ? current.probes + 1 : current.probes,
-      status: topic === undefined || topic === "status" ? current.status + 1 : current.status,
-      alerts: topic === undefined || topic === "alerts" ? current.alerts + 1 : current.alerts,
-      directory: topic === undefined || topic === "directory" ? current.directory + 1 : current.directory,
-    }));
+    setVersions((current) => bumpVersions(current, topic));
   }, []);
   const value = useMemo<Refresh>(
     () => ({

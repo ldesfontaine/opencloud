@@ -12,7 +12,7 @@ import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyProbeForm, probeFormOf, probeRequestOf, type ProbeFormValues } from "../lib/probes";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { isPublicIP } from "../lib/containers";
 import { NotFound } from "./NotFound";
 

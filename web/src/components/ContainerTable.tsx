@@ -1,9 +1,8 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
 import type { Container } from "../api/types";
 import { useI18n } from "../i18n/context";
-import { formatPorts, matchesFilter, type Filter } from "../lib/containers";
+import { formatPublishedPorts, type Filter } from "../lib/containers";
 import { formatBytes, formatDecimal } from "../lib/units";
 import { updateAvailable, updateLabel } from "../lib/updates";
 import { Pill, ContainerPill } from "./Pill";
@@ -27,10 +26,6 @@ export function ContainerFilter({ value, onChange }: { value: Filter; onChange: 
   );
 }
 
-export function useContainerFilter(): [Filter, (filter: Filter) => void] {
-  return useState<Filter>("all");
-}
-
 // Le tableau de la direction artistique : icône, nom et groupe, image en
 // mono avec la pastille de mise à jour quand le registre en publie une,
 // pastille d'état, domaine (les ports publiés en attendant les domaines),
@@ -52,7 +47,7 @@ export function ContainerTable({ containers, withMachine }: { containers: Contai
       </thead>
       <tbody>
         {containers.map((container) => {
-          const ports = formatPorts(container.ports);
+          const ports = formatPublishedPorts(container.ports);
           return (
             <tr key={container.id}>
               <td>
@@ -92,8 +87,4 @@ export function ContainerTable({ containers, withMachine }: { containers: Contai
       </tbody>
     </Table>
   );
-}
-
-export function filterContainers(containers: Container[], filter: Filter): Container[] {
-  return containers.filter((container) => matchesFilter(container, filter));
 }

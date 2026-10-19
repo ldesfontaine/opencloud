@@ -4,7 +4,7 @@ import { BrowserRouter } from "react-router";
 
 import { App } from "./App";
 import { I18nProvider } from "./i18n/context";
-import { RefreshProvider } from "./lib/refresh";
+import { RefreshProvider } from "./api/refresh";
 import "./styles/base.scss";
 
 const root = document.getElementById("root");

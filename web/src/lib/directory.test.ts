@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { DeclaredService, ProposalResponse } from "../api/types";
+import type { DeclaredService, Project, ProposalResponse } from "../api/types";
 import { ApiError } from "../api/client";
-import { emptyServiceForm, formatPorts, hasLinks, linksOfRefusal, parsePorts, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import { emptyServiceForm, formatUnitPorts, hasLinks, linksOfRefusal, parsePorts, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -35,7 +35,31 @@ describe("parsePorts", () => {
   });
 
   it("se relit tel qu'il s'est écrit", () => {
-    expect(parsePorts(formatPorts(["8080:80", "53/udp"]))).toEqual(["8080:80", "53/udp"]);
+    expect(parsePorts(formatUnitPorts(["8080:80", "53/udp"]))).toEqual(["8080:80", "53/udp"]);
+  });
+});
+
+describe("formatUnitPorts", () => {
+  it("écrit les ports d'une unité sur une ligne, séparés par des virgules", () => {
+    expect(formatUnitPorts(["80", "8080:80", "53/udp"])).toBe("80, 8080:80, 53/udp");
+    expect(formatUnitPorts([])).toBe("");
+  });
+});
+
+describe("projectNames", () => {
+  it("donne le nom de chaque projet par son identifiant", () => {
+    const projects = [
+      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], created_at: "", updated_at: "" },
+      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], created_at: "", updated_at: "" },
+    ] satisfies Project[];
+    const names = projectNames(projects);
+    expect(names.get("prj_1")).toBe("cloud");
+    expect(names.get("prj_2")).toBe("mail");
+    expect(names.get("prj_3")).toBeUndefined();
+  });
+
+  it("ne rend rien sans projet", () => {
+    expect(projectNames([]).size).toBe(0);
   });
 });
 

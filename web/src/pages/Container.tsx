@@ -8,7 +8,6 @@ import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components
 import { DirectoryCard } from "../components/DirectoryCard";
 import { Failure } from "../components/Failure";
 import { LogViewer } from "../components/LogViewer";
-import { modeText } from "../components/NetworkInspector";
 import { PageHead } from "../components/PageHead";
 import { Dot, ContainerPill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
@@ -18,6 +17,7 @@ import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, transitionTitle } from "../lib/containers";
+import { modeText } from "../lib/network";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatDecimal } from "../lib/units";
 

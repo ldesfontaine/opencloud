@@ -1,5 +1,5 @@
 import { ApiError } from "../api/client";
-import type { Capability, DeclaredService, Nature, Origin, ProposalResponse, ServiceLinks, ServiceUnit, UpdatePolicy } from "../api/types";
+import type { Capability, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceUnit, UpdatePolicy } from "../api/types";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -69,7 +69,7 @@ export function unitFormOf(unit: ServiceUnit): UnitFormValues {
     digest: unit.digest,
     containerName: unit.container_name,
     systemdUnit: unit.systemd_unit,
-    ports: formatPorts(unit.ports),
+    ports: formatUnitPorts(unit.ports),
     updatePolicy: unit.update_policy,
   };
 }
@@ -112,7 +112,7 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
       digest: unit.digest,
       containerName: unit.container_name,
       systemdUnit: unit.systemd_unit,
-      ports: formatPorts(unit.ports),
+      ports: formatUnitPorts(unit.ports),
       // Une unité ajoutée par la proposition n'en porte pas : elle se suit.
       updatePolicy: unit.update_policy ?? "watch",
     })),
@@ -124,8 +124,14 @@ export function parsePorts(text: string): string[] {
   return text.split(/[\s,]+/).filter((port) => port !== "");
 }
 
-export function formatPorts(ports: readonly string[]): string {
+export function formatUnitPorts(ports: readonly string[]): string {
   return ports.join(", ");
+}
+
+// Un nom de projet par identifiant, pour dire à quels projets appartient
+// chaque service sans relire la liste ligne par ligne.
+export function projectNames(projects: Project[]): Map<string, string> {
+  return new Map(projects.map((project) => [project.id, project.name]));
 }
 
 // Le corps de la création comme de l'édition : le serveur remplace la

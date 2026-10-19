@@ -14,7 +14,7 @@ import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
-import { impactTones, incidentTones, incidentsSubtitle, isOpen, stateTones } from "../lib/status";
+import { impactTones, incidentTones, incidentsSubtitle, isOpen, statusStateTones } from "../lib/status";
 import { ago } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
@@ -28,7 +28,7 @@ const tabs = [
 // La pastille d'un état de la page de statut ; vide : rien à dire.
 export function StatePill({ state }: { state: StatusState }) {
   const t = useT();
-  return <Pill tone={stateTones[state]}>{state === "" ? "—" : t(`status.state_${state}`)}</Pill>;
+  return <Pill tone={statusStateTones[state]}>{state === "" ? "—" : t(`status.state_${state}`)}</Pill>;
 }
 
 // L'administration de la page de statut : ses composants, ses incidents,

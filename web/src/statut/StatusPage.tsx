@@ -4,9 +4,9 @@ import type { PublicComponent, PublicIncident, PublicStatus, StatusDay } from ".
 import { Mark } from "../components/Icon";
 import { useNow } from "../hooks/useNow";
 import { format } from "../i18n/format";
-import { dayKeys, dayTone } from "../lib/probes";
+import { dayKeys, dayTone, uptimeOfDays } from "../lib/probes";
 import { followPublicLive } from "../lib/publicLive";
-import { formatPercent, incidentTones, isMaintenance, stateTones, uptimeOf } from "../lib/status";
+import { formatPercent, incidentTones, isMaintenance, statusStateTones } from "../lib/status";
 
 type Catalog = Record<string, string>;
 type Translate = (key: string, ...args: (string | number)[]) => string;
@@ -105,7 +105,7 @@ function StatusView({ data, t }: { data: PublicStatus; t: Translate }) {
       <div className="status-head">
         <h1>{data.title !== "" ? data.title : t("status.default_title")}</h1>
       </div>
-      <div className={`status-banner banner-${stateTones[data.global]}`}>
+      <div className={`status-banner banner-${statusStateTones[data.global]}`}>
         <span className="banner-dot" />
         <div>
           <div className="banner-big">{t(`status.global_${global}`)}</div>
@@ -151,12 +151,12 @@ function StatusView({ data, t }: { data: PublicStatus; t: Translate }) {
 // Un composant : son nom, sa pastille, et sa barre des 90 derniers jours
 // quand une sonde le mesure.
 function ComponentRow({ component, language, t, now }: { component: PublicComponent; language: string; t: Translate; now: number }) {
-  const uptime = uptimeOf(component.days);
+  const uptime = uptimeOfDays(component.days);
   const percent = formatPercent(uptime.total, uptime.success, language);
   return (
     <div className="status-row">
       <span className="status-name">{component.name}</span>
-      <span className={`pill pill-${stateTones[component.state]}`}>{t(`status.state_${component.state}`)}</span>
+      <span className={`pill pill-${statusStateTones[component.state]}`}>{t(`status.state_${component.state}`)}</span>
       {component.days.length > 0 && (
         <>
           <UptimeBar days={component.days} t={t} now={now} />
@@ -209,7 +209,7 @@ function IncidentBlock({ incident, language, t }: { incident: PublicIncident; la
         <p className="status-window mono">{t("status.window", formatInstant(incident.starts_at, language), formatInstant(incident.ends_at, language))}</p>
       )}
       <p className="status-affects">
-        {t("status.impact")} <span className={`impact-${stateTones[incident.impact]}`}>{t(`status.state_${incident.impact}`)}</span>
+        {t("status.impact")} <span className={`impact-${statusStateTones[incident.impact]}`}>{t(`status.state_${incident.impact}`)}</span>
         {" · "}
         {t("status.affects")} <b>{incident.components.join(", ")}</b>
       </p>

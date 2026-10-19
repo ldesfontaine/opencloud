@@ -2,11 +2,11 @@ import type { ReactNode } from "react";
 
 import type { JobStatus, ProbeStatus } from "../api/types";
 import { useT } from "../i18n/context";
-import { probeTones } from "../lib/probes";
 import { containerPill, type PillFacts } from "../lib/containers";
+import { jobTones } from "../lib/jobs";
+import { probeTones } from "../lib/probes";
+import type { Tone } from "../lib/tone";
 import "./Pill.scss";
-
-export type Tone = "ok" | "warn" | "danger" | "neutral" | "accent";
 
 // Un état se lit par une pastille : fond lavis, texte, point. Jamais par du
 // texte coloré seul.
@@ -22,16 +22,6 @@ export function StatePill({ online }: { online: boolean }) {
   const t = useT();
   return <Pill tone={online ? "ok" : "danger"}>{t(online ? "state.online" : "state.offline")}</Pill>;
 }
-
-// Pastille par état de tâche : le vocabulaire de la direction artistique.
-export const jobTones: Record<JobStatus, Tone> = {
-  new: "neutral",
-  on_time: "ok",
-  started: "accent",
-  late: "danger",
-  failed: "danger",
-  paused: "neutral",
-};
 
 export function JobPill({ status }: { status: JobStatus }) {
   const t = useT();

@@ -1,7 +1,8 @@
 import type { ManifestChange } from "../api/types";
 import { useI18n } from "../i18n/context";
 import { carriesText, changeLabel, fieldText } from "../lib/manifest";
-import { Pill, type Tone } from "./Pill";
+import type { Tone } from "../lib/tone";
+import { Pill } from "./Pill";
 import { List } from "./Table";
 import "./PlanView.scss";
 

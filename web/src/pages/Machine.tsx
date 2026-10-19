@@ -12,7 +12,7 @@ import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
 import { ResourceHistory, ResourceStats } from "../components/Resources";
-import { ContainerFilter, ContainerTable, filterContainers, useContainerFilter } from "../components/ContainerTable";
+import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { SupportBlock } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
@@ -20,8 +20,8 @@ import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
-import { useRefresh } from "../lib/refresh";
-import { engineNote } from "../lib/containers";
+import { useRefresh } from "../api/refresh";
+import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { seenAgo } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -123,7 +123,7 @@ function MachineProbes({ machineID }: { machineID: string }) {
 function MachineContainers({ machineID }: { machineID: string }) {
   const t = useT();
   const containers = useResource<ContainersResponse>(`/api/machines/${machineID}/containers`);
-  const [filter, setFilter] = useContainerFilter();
+  const [filter, setFilter] = useState<Filter>("all");
   const all = containers.data?.containers ?? [];
   const shown = filterContainers(all, filter);
   const note = containers.data && all.length === 0 ? engineNote(t, containers.data.engines[0]) : null;

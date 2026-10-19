@@ -1,5 +1,5 @@
 import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, DiskThresholds, Silence } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
 import { formatDuration, since } from "./time";
@@ -102,7 +102,7 @@ export function stateOf(alert: Pick<Alert, "status" | "acknowledged_at">): Alert
   return alert.acknowledged_at !== null ? "acknowledged" : "open";
 }
 
-export const stateTones: Record<AlertState, Tone> = {
+export const alertStateTones: Record<AlertState, Tone> = {
   open: "danger",
   acknowledged: "accent",
   resolved: "ok",

@@ -1,5 +1,7 @@
 import type { Certificate, CertificateThresholds } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Translate } from "../i18n/context";
+import { formatDuration } from "./time";
+import type { Tone } from "./tone";
 
 // L'état d'un certificat, dérivé ici comme les pastilles de conteneur : le
 // serveur rend des faits, le navigateur en fait un mot et une couleur.
@@ -79,4 +81,20 @@ export function soonest(certificates: (Certificate | null)[]): Certificate | nul
     }
   }
   return closest;
+}
+
+// La note d'une ligne : ce qu'on ne peut pas prouver d'abord, l'âge du
+// certificat sinon. openCloud observe, il ne renouvelle pas : il ne dit
+// donc rien d'un renouvellement.
+export function certificateNote(t: Translate, certificate: Certificate, reading: CertificateReading, now: number): string {
+  if (reading.revoked) {
+    return t("cert.note_revoked");
+  }
+  if (!certificate.chain_valid) {
+    return t("cert.note_untrusted");
+  }
+  if (!certificate.hostname_match) {
+    return t("cert.note_wrong_name");
+  }
+  return t("cert.note_issued", formatDuration(t, now - Date.parse(certificate.not_before)));
 }

@@ -1,5 +1,5 @@
 import type { Probe, ProbeDay, ProbeKind, ProbeStatus } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { SegmentTone, Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
 // Les pastilles de la direction artistique. Dégradé est une attention, pas
@@ -14,7 +14,7 @@ export const probeTones: Record<ProbeStatus, Tone> = {
 
 export const attentionProbeStatuses: ReadonlySet<ProbeStatus> = new Set<ProbeStatus>(["down"]);
 
-export function needsAttention(probe: Pick<Probe, "status">): boolean {
+export function probeNeedsAttention(probe: Pick<Probe, "status">): boolean {
   return attentionProbeStatuses.has(probe.status);
 }
 
@@ -29,7 +29,7 @@ export function uptimePercent(total: number, success: number): number | null {
 
 // La disponibilité d'une suite de jours : les comptes s'additionnent, c'est
 // pour cela que l'agrégat en garde plutôt qu'un pourcentage.
-export function uptimeOfDays(days: ProbeDay[]): { total: number; success: number } {
+export function uptimeOfDays(days: Pick<ProbeDay, "total" | "success">[]): { total: number; success: number } {
   let total = 0;
   let success = 0;
   for (const day of days) {
@@ -49,8 +49,6 @@ export function dayKeys(span: number, now: number): string[] {
   }
   return keys;
 }
-
-export type SegmentTone = "ok" | "warn" | "danger" | "none";
 
 // Le ton d'un jour : un échec l'emporte, puis un essai dégradé, sinon
 // tout va bien ; sans essai, rien à dire.

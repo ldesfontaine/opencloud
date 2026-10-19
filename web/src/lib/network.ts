@@ -1,4 +1,5 @@
 import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Probe, Container } from "../api/types";
+import type { Translate } from "../i18n/context";
 import { matchesFilter, type Filter } from "./containers";
 
 // Le placement du graphe de la planche « Machine · Réseau » : le serveur a
@@ -381,4 +382,38 @@ function placeMachine(machine: NetworkResponse, left: number, top: number, frame
 // n'est surveillé par aucune.
 export function probesOf(probes: readonly Probe[], container: Pick<Container, "declared_service_id">): Probe[] {
   return container.declared_service_id === "" ? [] : probes.filter((probe) => probe.service_id === container.declared_service_id);
+}
+
+// Autant de ports que la place permet, puis « +n » pour le reste ;
+// prefixLength est la longueur du libellé traduit qui précède les ports.
+export function fitPorts(ports: number[], limit: number, prefixLength: number): string {
+  for (let count = ports.length; count > 0; count--) {
+    const shown = ports.slice(0, count).map((port) => `:${port}`);
+    if (count < ports.length) {
+      shown.push(`+${ports.length - count}`);
+    }
+    const text = shown.join(" · ");
+    if (text.length + prefixLength <= limit || count === 1) {
+      return text;
+    }
+  }
+  return "";
+}
+
+// Le mode réseau tel qu'on le lit : host et none se traduisent, le reste
+// est le nom d'un réseau ou d'un conteneur.
+export function modeText(t: Translate, container: Pick<Container, "network_mode">): string {
+  switch (container.network_mode) {
+    case "host":
+      return t("network.mode_host");
+    case "none":
+      return t("network.mode_none");
+    case "":
+      return "–";
+    default:
+      if (container.network_mode.startsWith("container:")) {
+        return t("network.mode_container", container.network_mode.slice("container:".length, "container:".length + 12));
+      }
+      return container.network_mode;
+  }
 }

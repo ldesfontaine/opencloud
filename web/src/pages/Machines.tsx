@@ -12,8 +12,8 @@ import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
-import { machinesSubtitle } from "../lib/subtitles";
+import { useRefresh } from "../api/refresh";
+import { machinesSubtitle } from "../lib/machines";
 import { formatRemaining, seenAgo } from "../lib/time";
 
 export function Machines() {

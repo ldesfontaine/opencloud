@@ -6,7 +6,7 @@ import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { needsAttention, probesSubtitle } from "../lib/probes";
+import { probeNeedsAttention, probesSubtitle } from "../lib/probes";
 
 // La page Domaines : ce qu'openCloud vérifie depuis l'extérieur. Une ligne
 // par sonde, son état, sa barre de disponibilité et son dernier essai.
@@ -14,7 +14,7 @@ export function Probes() {
   const t = useT();
   const probes = useResource<ProbesResponse>("/api/probes");
   const list = probes.data?.probes ?? [];
-  const attention = list.filter(needsAttention).length;
+  const attention = list.filter(probeNeedsAttention).length;
   return (
     <>
       <PageHead

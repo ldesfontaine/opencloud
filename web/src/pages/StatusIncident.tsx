@@ -12,7 +12,7 @@ import { Pill } from "../components/Pill";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { fromLocalInput, impactTones, incidentTones, statusesFor, toLocalInput } from "../lib/status";
 import { ago, formatClock } from "../lib/time";
 import { NotFound } from "./NotFound";

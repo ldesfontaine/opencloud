@@ -5,7 +5,7 @@ import { api, ApiError, errorKey, segment } from "../api/client";
 import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
-import { NaturePill, projectNames } from "../components/DeclaredServiceTable";
+import { NaturePill } from "../components/DeclaredServiceTable";
 import { Failure } from "../components/Failure";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
@@ -13,9 +13,9 @@ import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { formatPorts, hasLinks, linksOfRefusal, unitKeyOf } from "../lib/directory";
+import { formatUnitPorts, hasLinks, linksOfRefusal, projectNames, unitKeyOf } from "../lib/directory";
 import { gapsPath } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { formatClock } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -145,7 +145,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
                   <td className="mono wide-only">{unit.image !== "" ? unit.image : "—"}</td>
                   <td className="mono">{unit.version !== "" ? unit.version : "—"}</td>
                   {service.origin !== "compose" && <td className="mono wide-only">{unitKeyOf(unit, service.origin)}</td>}
-                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatPorts(unit.ports) : "—"}</td>
+                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : "—"}</td>
                   <td>{unit.kind === "container" ? t(`update.policy_${unit.update_policy}`) : <span className="muted">—</span>}</td>
                   <td>{unitGap(gap, unit.id)}</td>
                 </tr>

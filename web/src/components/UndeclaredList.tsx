@@ -5,7 +5,7 @@ import { api, errorKey } from "../api/client";
 import type { DeclaredService, UndeclaredGroup } from "../api/types";
 import { useT } from "../i18n/context";
 import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreBody, orphanKey, proposedExportPath, shownUndeclared, unignorePath } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { Button } from "./Button";
 import { Card, CardHeader, Empty, Note } from "./Card";
 import { Pill } from "./Pill";

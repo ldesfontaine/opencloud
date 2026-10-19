@@ -12,7 +12,7 @@ import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { channelTestResult } from "../lib/alerts";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
 

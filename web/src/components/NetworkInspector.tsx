@@ -2,9 +2,9 @@ import { Link } from "react-router";
 
 import type { NetworkResponse, Probe, Container } from "../api/types";
 import { useNow } from "../hooks/useNow";
-import { useCertificateThresholds, useT, type Translate } from "../i18n/context";
+import { useCertificateThresholds, useT } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";
-import { internetID, peersOf, probesOf, publicPorts } from "../lib/network";
+import { internetID, modeText, peersOf, probesOf, publicPorts } from "../lib/network";
 import { findingText, formatBindings, needsCaution, containerIcon } from "../lib/containers";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
@@ -212,22 +212,4 @@ function ContainerInspector({
       </div>
     </Card>
   );
-}
-
-// Le mode réseau tel qu'on le lit : host et none se traduisent, le reste
-// est le nom d'un réseau ou d'un conteneur.
-export function modeText(t: Translate, container: Pick<Container, "network_mode">): string {
-  switch (container.network_mode) {
-    case "host":
-      return t("network.mode_host");
-    case "none":
-      return t("network.mode_none");
-    case "":
-      return "–";
-    default:
-      if (container.network_mode.startsWith("container:")) {
-        return t("network.mode_container", container.network_mode.slice("container:".length, "container:".length + 12));
-      }
-      return container.network_mode;
-  }
 }

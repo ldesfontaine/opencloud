@@ -9,15 +9,15 @@ import { CopyButton, TokenBox } from "../components/Copy";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, JobPill, jobTones } from "../components/Pill";
+import { Dot, JobPill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, jobFact, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
-import { useRefresh } from "../lib/refresh";
+import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
+import { useRefresh } from "../api/refresh";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 import { NotFound } from "./NotFound";
 

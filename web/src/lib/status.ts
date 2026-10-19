@@ -1,10 +1,10 @@
-import type { Impact, IncidentStatus, PublicIncident, StatusDay, StatusState } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Impact, IncidentStatus, PublicIncident, StatusState } from "../api/types";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
 // Les pastilles de la page de statut, dérivées des mots du serveur :
 // opérationnel, dégradé, panne, maintenance. Vide : rien à dire.
-export const stateTones: Record<StatusState, Tone> = {
+export const statusStateTones: Record<StatusState, Tone> = {
   operational: "ok",
   degraded: "warn",
   down: "danger",
@@ -44,17 +44,6 @@ export function isMaintenance(incident: Pick<PublicIncident, "impact">): boolean
 
 export function isOpen(incident: Pick<PublicIncident, "status">): boolean {
   return incident.status !== "resolved";
-}
-
-// La disponibilité sur les jours d'un composant : les comptes s'additionnent.
-export function uptimeOf(days: StatusDay[]): { total: number; success: number } {
-  let total = 0;
-  let success = 0;
-  for (const day of days) {
-    total += day.total;
-    success += day.success;
-  }
-  return { total, success };
 }
 
 // Un pourcentage pour un visiteur : deux décimales, la virgule en français,

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { StateTone } from "../lib/tone";
 import { Icon, type IconName } from "./Icon";
 import "./Card.scss";
 
@@ -67,7 +68,7 @@ export function Stat({
 
 // Jauge : le remplissage est un attribut SVG, pas un style en ligne, pour
 // rester dans la CSP.
-export function Meter({ percent, tone }: { percent: number; tone?: "ok" | "warn" | "danger" | undefined }) {
+export function Meter({ percent, tone }: { percent: number; tone?: StateTone | undefined }) {
   return (
     <svg className={tone ? `meter meter-${tone}` : "meter"} width="100%" height="6" aria-hidden="true">
       <rect className="meter-track" width="100%" height="6" rx="3" />
@@ -101,6 +102,6 @@ export function Empty({
   );
 }
 
-export function Note({ tone, children }: { tone: "ok" | "warn" | "danger"; children: ReactNode }) {
+export function Note({ tone, children }: { tone: StateTone; children: ReactNode }) {
   return <div className={`note note-${tone}`}>{children}</div>;
 }

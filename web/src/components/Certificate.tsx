@@ -2,9 +2,8 @@ import { Link } from "react-router";
 
 import type { Certificate, Probe } from "../api/types";
 import { useNow } from "../hooks/useNow";
-import { useCertificateThresholds, useT, type Translate } from "../i18n/context";
-import { read, type CertificateReading } from "../lib/certificates";
-import { formatDuration } from "../lib/time";
+import { useCertificateThresholds, useT } from "../i18n/context";
+import { certificateNote, read, type CertificateReading } from "../lib/certificates";
 import { Card, CardBody, CardHeader, Empty } from "./Card";
 import { Pill } from "./Pill";
 import "./Certificate.scss";
@@ -36,22 +35,6 @@ export function TrustPill({ reading }: { reading: CertificateReading }) {
     return <Pill tone="warn">{t("cert.trust_unverified")}</Pill>;
   }
   return null;
-}
-
-// La note d'une ligne : ce qu'on ne peut pas prouver d'abord, l'âge du
-// certificat sinon. openCloud observe, il ne renouvelle pas : il ne dit
-// donc rien d'un renouvellement.
-export function certificateNote(t: Translate, certificate: Certificate, reading: CertificateReading, now: number): string {
-  if (reading.revoked) {
-    return t("cert.note_revoked");
-  }
-  if (!certificate.chain_valid) {
-    return t("cert.note_untrusted");
-  }
-  if (!certificate.hostname_match) {
-    return t("cert.note_wrong_name");
-  }
-  return t("cert.note_issued", formatDuration(t, now - Date.parse(certificate.not_before)));
 }
 
 // Le bloc « Domaines et certificats » d'une machine : un domaine par

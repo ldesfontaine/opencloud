@@ -8,7 +8,7 @@ import { Card } from "../components/Card";
 import { Field, Input } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 
 // L'opérateur nomme la machine ; le jeton naît et s'affiche une seule fois,
 // sur la page suivante, avec la commande à coller.

@@ -8,8 +8,8 @@ import containersGolden from "../../../internal/server/testdata/containers.golde
 import sessionGolden from "../../../internal/server/testdata/session.golden.json";
 import { read, soonest } from "./certificates";
 import { attentionStatuses } from "./jobs";
-import { needsAttention as probeNeedsAttention } from "./probes";
-import { needsAttention as containerNeedsAttention } from "./containers";
+import { probeNeedsAttention } from "./probes";
+import { containerNeedsAttention } from "./containers";
 import { updateAvailable } from "./updates";
 
 // Les compteurs de la barre latérale et de la vue d'ensemble viennent du

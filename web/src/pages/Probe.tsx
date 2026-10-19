@@ -16,7 +16,7 @@ import { useResource } from "../hooks/useResource";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 import { NotFound } from "./NotFound";

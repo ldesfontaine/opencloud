@@ -10,7 +10,7 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { fromLocalInput, statusesFor } from "../lib/status";
 import "./StatusAdmin.scss";
 

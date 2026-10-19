@@ -13,7 +13,7 @@ import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { daysUntil } from "../lib/certificates";
-import { machinesSubtitle } from "../lib/subtitles";
+import { machinesSubtitle } from "../lib/machines";
 import { seenAgo } from "../lib/time";
 import { AlertRow } from "./Alerts";
 import "./Overview.scss";

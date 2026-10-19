@@ -12,7 +12,7 @@ import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyJobForm, jobFormOf, jobRequestOf, type JobFormValues } from "../lib/jobs";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier une tâche : l'opérateur la nomme et dit tous les combien

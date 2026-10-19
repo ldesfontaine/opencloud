@@ -13,8 +13,8 @@ import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
 import { acknowledgedMessage, coverage, groupByMachine, groupCountLabel, keepSelectable, selectableIDs, selectedLabel, toggleAll } from "../lib/alertSelection";
-import { alertsSubtitle, channelTestResult, describeAlert, objectPath, severityTones, silenceTargets, stateOf, stateTones } from "../lib/alerts";
-import { useRefresh } from "../lib/refresh";
+import { alertsSubtitle, alertStateTones, channelTestResult, describeAlert, objectPath, severityTones, silenceTargets, stateOf } from "../lib/alerts";
+import { useRefresh } from "../api/refresh";
 import { ago, formatClock } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./Alerts.scss";
@@ -270,7 +270,7 @@ export function AlertRow({
               {t("alert.silenced")}
             </Pill>
           )}
-          <Pill tone={stateTones[state]}>{t(`alert.status_${state}`)}</Pill>
+          <Pill tone={alertStateTones[state]}>{t(`alert.status_${state}`)}</Pill>
           <span className="secondary nowrap">{when(t, alert, now)}</span>
         </span>
         {error !== null && <Pill tone="danger">{t(error)}</Pill>}

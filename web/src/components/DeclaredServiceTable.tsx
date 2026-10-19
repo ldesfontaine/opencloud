@@ -2,16 +2,11 @@ import { Link } from "react-router";
 
 import type { DeclaredService, ServiceGap, Project } from "../api/types";
 import { useT } from "../i18n/context";
+import { projectNames } from "../lib/directory";
 import { GapPill } from "./GapPill";
 import { Pill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
-
-// Un nom de projet par identifiant, pour dire à quels projets appartient
-// chaque service sans relire la liste ligne par ligne.
-export function projectNames(projects: Project[]): Map<string, string> {
-  return new Map(projects.map((project) => [project.id, project.name]));
-}
 
 // La nature en pastille : un outil d'infrastructure se distingue d'une
 // application au premier coup d'œil.

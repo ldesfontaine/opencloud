@@ -5,12 +5,11 @@ import type { OverviewNetworkResponse } from "../api/types";
 import { useSize } from "../hooks/useSize";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { compactHeight, compactWidth, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
+import { compactHeight, compactWidth, fitPorts, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
 import { nodeTone, containerIcon } from "../lib/containers";
 import { Card, Empty } from "./Card";
 import { Failure } from "./Failure";
 import { iconPaths } from "./Icon";
-import { fitPorts } from "./NetworkGraph";
 import "./NetworkGraph.scss";
 import "./NetworkOverview.scss";
 

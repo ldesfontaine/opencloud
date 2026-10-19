@@ -11,7 +11,7 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT, type Translate } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier un projet : un nom et un titre. L'appartenance des

@@ -12,7 +12,7 @@ import { Pill } from "../components/Pill";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
 import { StatePill } from "./StatusAdmin";
 import "./StatusAdmin.scss";

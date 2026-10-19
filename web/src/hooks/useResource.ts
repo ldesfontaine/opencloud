@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "../api/client";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 
 export interface Resource<T> {
   data: T | null;
   error: ApiError | null;
-  loading: boolean;
   reload: () => void;
 }
 
 interface State<T> {
   data: T | null;
   error: ApiError | null;
-  loading: boolean;
 }
 
 // Le chemin d'une ressource : tel quel, ou construit à la lecture quand il
@@ -40,25 +38,24 @@ export function useResource<T>(source: ResourcePath): Resource<T> {
   const { path, failure } = resolvePath(source);
   const version = useRefresh().versionFor(path ?? "");
   const [tick, setTick] = useState(0);
-  const [state, setState] = useState<State<T>>({ data: null, error: null, loading: path !== null });
+  const [state, setState] = useState<State<T>>({ data: null, error: null });
 
   useEffect(() => {
     if (path === null) {
       return;
     }
     let cancelled = false;
-    setState((current) => ({ ...current, loading: true }));
     api
       .get<T>(path)
       .then((data) => {
         if (!cancelled) {
-          setState({ data, error: null, loading: false });
+          setState({ data, error: null });
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           const failed = error instanceof ApiError ? error : new ApiError(0, "internal");
-          setState((current) => ({ data: current.data, error: failed, loading: false }));
+          setState((current) => ({ data: current.data, error: failed }));
         }
       });
     return () => {
@@ -68,7 +65,7 @@ export function useResource<T>(source: ResourcePath): Resource<T> {
 
   const reload = useCallback(() => setTick((current) => current + 1), []);
   if (failure !== null) {
-    return { data: null, error: failure, loading: false, reload };
+    return { data: null, error: failure, reload };
   }
   return { ...state, reload };
 }

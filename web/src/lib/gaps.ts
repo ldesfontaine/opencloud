@@ -1,5 +1,5 @@
 import type { ContainerDirectory, GapsResponse, GapState, LabelProblem, ServiceGap, UndeclaredGroup } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
 // La teinte de l'écart : conforme se tait, un conteneur qui diverge ou qui

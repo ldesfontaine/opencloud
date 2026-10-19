@@ -7,11 +7,11 @@ import { Failure } from "../components/Failure";
 import { Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { ProjectsTab } from "../components/ProjectsTab";
-import { ContainerFilter, ContainerTable, filterContainers, useContainerFilter } from "../components/ContainerTable";
+import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { ServicesTabs } from "../components/ServicesTabs";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { engineNote, needsAttention, servicesSubtitle } from "../lib/containers";
+import { containerNeedsAttention, engineNote, filterContainers, servicesSubtitle, type Filter } from "../lib/containers";
 
 // La page Services, sous trois onglets : l'annuaire que l'opérateur déclare
 // (par défaut : c'est lui qui porte les liens), les conteneurs que Docker
@@ -33,9 +33,9 @@ function ContainersTab() {
   const containers = useResource<ContainersResponse>("/api/containers");
   const machines = useResource<MachinesResponse>("/api/machines");
   const [machineID, setMachineID] = useState("");
-  const [filter, setFilter] = useContainerFilter();
+  const [filter, setFilter] = useState<Filter>("all");
   const all = containers.data?.containers ?? [];
-  const attention = all.filter(needsAttention).length;
+  const attention = all.filter(containerNeedsAttention).length;
   const byMachine = machineID === "" ? all : all.filter((container) => container.machine_id === machineID);
   const shown = filterContainers(byMachine, filter);
   const engine = containers.data?.engines.find((candidate) => candidate.machine_id === machineID);

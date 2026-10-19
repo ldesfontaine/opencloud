@@ -7,7 +7,7 @@ import type { ContainerDirectory, Container, UpdatePolicy } from "../api/types";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { ago } from "../lib/time";
 import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
 import { Button } from "./Button";

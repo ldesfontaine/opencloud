@@ -5,7 +5,7 @@ import { api, errorKey } from "../api/client";
 import type { ContainerDirectory, Container } from "../api/types";
 import { useT } from "../i18n/context";
 import { adoptPath, isOrphan, orphanText } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Note } from "./Card";
 import { Pill } from "./Pill";

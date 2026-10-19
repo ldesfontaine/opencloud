@@ -25,7 +25,7 @@ import {
   type ServiceFormValues,
   type UnitFormValues,
 } from "../lib/directory";
-import { useRefresh } from "../lib/refresh";
+import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
 import "./DeclaredServiceForm.scss";

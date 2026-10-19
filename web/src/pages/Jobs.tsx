@@ -10,8 +10,7 @@ import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { attentionStatuses, lastResult } from "../lib/jobs";
-import { jobsSubtitle } from "../lib/subtitles";
+import { attentionStatuses, jobsSubtitle, lastResult } from "../lib/jobs";
 import { formatDuration, lastPing } from "../lib/time";
 
 export function Jobs() {

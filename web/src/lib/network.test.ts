@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 
 import type { NetworkResponse, Probe, Container } from "../api/types";
-import { compactHeight, compactWidth, fitView, internetID, layoutNetwork, layoutOverview, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
+import type { Translate } from "../i18n/context";
+import { compactHeight, compactWidth, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
@@ -189,4 +190,35 @@ test("probesOf rend les sondes du service déclaré, et rien pour un conteneur n
   expect(probesOf(probes, { declared_service_id: "svc_1" }).map((probe) => probe.id)).toEqual(["p1"]);
   // Une sonde sans conteneur ne se rattache pas à un conteneur sans service déclaré.
   expect(probesOf(probes, { declared_service_id: "" })).toEqual([]);
+});
+
+test("fitPorts écrit tous les ports quand la place suffit", () => {
+  expect(fitPorts([80, 443], 40, 10)).toBe(":80 · :443");
+  expect(fitPorts([], 40, 10)).toBe("");
+});
+
+test("fitPorts garde autant de ports que la place permet, puis compte le reste", () => {
+  // Avec 5 signes de libellé : les trois ports font 18 signes, deux ports
+  // et « +1 » en font 15, un port et « +2 » en font 8.
+  expect(fitPorts([80, 443, 8080], 23, 5)).toBe(":80 · :443 · :8080");
+  expect(fitPorts([80, 443, 8080], 22, 5)).toBe(":80 · :443 · +1");
+  expect(fitPorts([80, 443, 8080], 20, 5)).toBe(":80 · :443 · +1");
+  expect(fitPorts([80, 443, 8080], 19, 5)).toBe(":80 · +2");
+});
+
+test("fitPorts garde au moins un port, même quand la place manque", () => {
+  expect(fitPorts([80, 443, 8080], 1, 10)).toBe(":80 · +2");
+});
+
+const modeTranslate: Translate = (key, ...args) => [key, ...args].join(":");
+
+test("modeText traduit host et none, et dit un tiret quand le mode est vide", () => {
+  expect(modeText(modeTranslate, { network_mode: "host" })).toBe("network.mode_host");
+  expect(modeText(modeTranslate, { network_mode: "none" })).toBe("network.mode_none");
+  expect(modeText(modeTranslate, { network_mode: "" })).toBe("–");
+});
+
+test("modeText rend le nom d'un réseau tel quel et raccourcit l'identifiant d'un conteneur partagé", () => {
+  expect(modeText(modeTranslate, { network_mode: "ocfix_back" })).toBe("ocfix_back");
+  expect(modeText(modeTranslate, { network_mode: "container:0123456789abcdef0123" })).toBe("network.mode_container:0123456789ab");
 });

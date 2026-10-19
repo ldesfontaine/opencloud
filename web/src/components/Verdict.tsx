@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { Tone } from "./Pill";
+import type { Tone } from "../lib/tone";
 import "./Verdict.scss";
 
 // Le verdict d'une page : la pastille d'état, le fait en une phrase, ce

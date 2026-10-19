@@ -1,19 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { formatPercent, fromLocalInput, incidentsSubtitle, statusesFor, toLocalInput, uptimeOf } from "./status";
+import { formatPercent, fromLocalInput, incidentsSubtitle, statusesFor, toLocalInput } from "./status";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
-
-describe("uptimeOf", () => {
-  it("additionne les jours d'un composant", () => {
-    const days = [
-      { day: "2026-09-19", total: 10, success: 10, degraded: 0 },
-      { day: "2026-09-20", total: 10, success: 7, degraded: 1 },
-    ];
-    expect(uptimeOf(days)).toEqual({ total: 20, success: 17 });
-    expect(uptimeOf([])).toEqual({ total: 0, success: 0 });
-  });
-});
 
 describe("formatPercent", () => {
   it("rend rien sans essai, jamais un zéro", () => {
