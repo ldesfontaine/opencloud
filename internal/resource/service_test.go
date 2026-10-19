@@ -168,15 +168,17 @@ func TestRecord_RefusesWhatAnAgentCannotHaveMeasured(t *testing.T) {
 		tooManyDisks[i] = sampler.Disk{MountPoint: "/" + strconv.Itoa(i), Total: 1}
 	}
 	cases := map[string]sampler.Reading{
-		"cpu over 100":         {SampledAt: testNow, CPUPercent: 101},
-		"negative":             {SampledAt: testNow, MemUsed: -1},
-		"far future":           {SampledAt: testNow.Add(time.Hour)},
-		"older than raw":       {SampledAt: testNow.Add(-resource.RawRetention - time.Hour)},
-		"no date":              {},
-		"relative mount point": {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "data", Total: 1}}},
-		"negative volume":      {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Used: -1, Total: 1}}},
-		"same volume twice":    {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Total: 1}, {MountPoint: "/", Total: 2}}},
-		"too many volumes":     {SampledAt: testNow, Disks: tooManyDisks},
+		"cpu over 100":           {SampledAt: testNow, CPUPercent: 101},
+		"negative":               {SampledAt: testNow, MemUsed: -1},
+		"far future":             {SampledAt: testNow.Add(time.Hour)},
+		"older than raw":         {SampledAt: testNow.Add(-resource.RawRetention - time.Hour)},
+		"no date":                {},
+		"relative mount point":   {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "data", Total: 1}}},
+		"negative volume":        {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Used: -1, Total: 1}}},
+		"newline in mount point": {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/data\n[Ouvrir](https://dummy.invalid)", Total: 1}}},
+		"bad utf-8 in device":    {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Device: "/dev/\xff", Total: 1}}},
+		"same volume twice":      {SampledAt: testNow, Disks: []sampler.Disk{{MountPoint: "/", Total: 1}, {MountPoint: "/", Total: 2}}},
+		"too many volumes":       {SampledAt: testNow, Disks: tooManyDisks},
 	}
 	for name, bad := range cases {
 		if err := b.service.Record(ctx, machine.LocalID, []sampler.Reading{reading(testNow, 1), bad}); !errors.Is(err, resource.ErrReadingInvalid) {

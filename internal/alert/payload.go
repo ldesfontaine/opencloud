@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
@@ -53,7 +54,7 @@ func AlertsLink(publicURL string) string {
 // machines concernées, et rendu à la gravité la plus haute des alertes
 // retenues.
 func RenderSummary(catalog lang.Catalog, format Format, held Held, now time.Time, link string) (Body, error) {
-	text := Text{Fact: catalog.Format("alert.summary_fact", held.Count), Cause: summaryCause(catalog, held)}
+	text := Text{Fact: catalog.Format("alert.summary_fact", held.Count), Cause: summaryCause(catalog, held, escaperOf(format))}
 	title := catalog.Get("alert.notify_summary") + " · " + text.Fact
 	openLabel := catalog.Get("alert.open_in_opencloud")
 	alert := Alert{Severity: held.Severity}
@@ -78,17 +79,26 @@ func RenderSummary(catalog lang.Catalog, format Format, held Held, now time.Time
 
 // summaryCause dit pourquoi le résumé existe, puis ce qui compte à qui le
 // lit : si le danger est dedans, et quelles machines.
-func summaryCause(catalog lang.Catalog, held Held) string {
+func summaryCause(catalog lang.Catalog, held Held, escape func(string) string) string {
+	if escape == nil {
+		escape = func(text string) string { return text }
+	}
 	sentences := []string{catalog.Get("alert.summary_cause")}
 	if held.Severity == SeverityDanger {
 		sentences = append(sentences, catalog.Get("alert.summary_danger"))
 	}
 	if len(held.Machines) > 0 {
-		names := strings.Join(held.Machines, ", ")
+		// Les noms de machines viennent de l'opérateur, mais le résumé part
+		// dans le même balisage que les alertes : même échappement.
+		names := make([]string, 0, len(held.Machines))
+		for _, machine := range held.Machines {
+			names = append(names, escape(machine))
+		}
+		joined := strings.Join(names, ", ")
 		if held.Others > 0 {
-			sentences = append(sentences, catalog.Format("alert.summary_machines_more", names, held.Others))
+			sentences = append(sentences, catalog.Format("alert.summary_machines_more", joined, held.Others))
 		} else {
-			sentences = append(sentences, catalog.Format("alert.summary_machines", names))
+			sentences = append(sentences, catalog.Format("alert.summary_machines", joined))
 		}
 	}
 	return strings.Join(sentences, " ")
@@ -98,7 +108,7 @@ func summaryCause(catalog lang.Catalog, held Held) string {
 // l'événement : « Alerte », « Alerte aggravée », « Résolu », « Test ».
 // Le lien, quand il y en a un, mène à la fiche de l'alerte.
 func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now time.Time, link string) (Body, error) {
-	text := Describe(catalog, alert, now)
+	text := describe(catalog, alert, now, escaperOf(format))
 	if event == EventTest {
 		text = Text{Fact: catalog.Get("alert.test_fact"), Cause: catalog.Get("alert.test_cause"), Action: ""}
 	}
@@ -236,8 +246,62 @@ func color(alert Alert, event Event) (int, string) {
 	return 0xd78d0c, "#d78d0c"
 }
 
+// escaperOf dit comment un format protège le texte que choisit un agent
+// (noms, points de montage). Discord lit du Markdown, Slack des chevrons ;
+// le mail et Matrix échappent déjà le HTML à l'écriture, le texte brut et le
+// JSON ne sont lus par aucun balisage.
+func escaperOf(format Format) func(string) string {
+	switch format {
+	case FormatDiscord:
+		return escapeDiscord
+	case FormatSlack:
+		return escapeSlack
+	}
+	return nil
+}
+
+// flatten remplace tout saut de ligne ou caractère de contrôle par une
+// espace : un nom ne doit pas faire une ligne de plus dans le message.
+func flatten(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, text)
+}
+
+// markdownSpecials est ce que Discord lit comme du Markdown, comme un lien
+// (« <https://…> ») ou comme une mention (« <@…> », « @everyone ») : chacun
+// reçoit une barre oblique inverse.
+const markdownSpecials = "\\*_~`|<>#[]()@"
+
+// escapeDiscord rend un texte inerte dans une description d'embed : ni lien
+// masqué, ni mise en forme, ni mention, sur une seule ligne.
+func escapeDiscord(text string) string {
+	var out strings.Builder
+	for _, r := range flatten(text) {
+		if strings.ContainsRune(markdownSpecials, r) {
+			out.WriteByte('\\')
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+// escapeSlack encode ce que Slack lit comme un lien, une mention ou une
+// entité : « <https://…|texte> », « <!channel> ». Mattermost lit le même
+// message en Markdown : la barre oblique inverse et les crochets, qui font
+// ses liens masqués, sont protégés aussi.
+func escapeSlack(text string) string {
+	return slackEscaper.Replace(flatten(text))
+}
+
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\\", "\\\\", "[", "\\[", "]", "\\]")
+
 // Discord rend le titre cliquable par url, et le lien Markdown en fin de
-// description pour qui ne pense pas à cliquer le titre.
+// description pour qui ne pense pas à cliquer le titre. Le texte arrive déjà
+// protégé par escapeDiscord : le seul lien actif est celui d'openCloud.
 func discordPayload(title string, text Text, alert Alert, event Event, now time.Time, link, openLabel string) map[string]any {
 	decimal, _ := color(alert, event)
 	description := text.Cause
@@ -255,6 +319,7 @@ func discordPayload(title string, text Text, alert Alert, event Event, now time.
 }
 
 // Slack et Mattermost lisent tous deux title et title_link d'un attachement.
+// Le texte arrive déjà protégé par escapeSlack.
 func slackPayload(title string, text Text, alert Alert, event Event, link, openLabel string) map[string]any {
 	_, hex := color(alert, event)
 	body := text.Cause

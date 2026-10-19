@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode"
 )
 
 // Disk est un volume réel de la machine : un système de fichiers de
@@ -103,6 +104,12 @@ func unescapeMount(field string) string {
 
 func isDiskMount(entry mount) bool {
 	if !diskFilesystems[entry.fstype] || strings.HasPrefix(entry.device, loopDevicePrefix) {
+		return false
+	}
+	// `\012` se lit comme un saut de ligne : le serveur refuse en bloc une
+	// lecture qui en porte un. Le volume est laissé de côté, pas toute la
+	// mesure de la machine.
+	if strings.ContainsFunc(entry.mountPoint, unicode.IsControl) || strings.ContainsFunc(entry.device, unicode.IsControl) {
 		return false
 	}
 	for _, prefix := range hiddenMountPrefixes {

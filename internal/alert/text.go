@@ -18,12 +18,27 @@ type Text struct {
 // Describe rend les trois lignes d'une alerte. Un nom de machine absent,
 // machine retirée ou tâche sans machine, se dit par un tiret.
 func Describe(catalog lang.Catalog, alert Alert, now time.Time) Text {
+	return describe(catalog, alert, now, nil)
+}
+
+// describe fait de même en passant par escape chaque morceau qui ne vient pas
+// du catalogue : nom d'objet, de machine, cible, point de montage. Un agent
+// choisit les noms qu'il rapporte, et un canal Discord ou Slack lirait son
+// texte comme du balisage, à côté du lien qu'openCloud ajoute lui-même.
+// escape nil laisse le texte tel quel.
+func describe(catalog lang.Catalog, alert Alert, now time.Time, escape func(string) string) Text {
+	if escape == nil {
+		escape = func(text string) string { return text }
+	}
 	machine := alert.MachineName
 	if machine == "" {
 		machine = catalog.Get("alert.no_machine")
 	}
-	object := alert.Object.Name
+	machine = escape(machine)
+	object := escape(alert.Object.Name)
 	details := alert.Details
+	details.Target = escape(details.Target)
+	details.MountPoint = escape(details.MountPoint)
 	// Arrêté ou relancé, un service qui plante en boucle se dit pareil.
 	if alert.IsLoop() {
 		return Text{

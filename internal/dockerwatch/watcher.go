@@ -95,6 +95,14 @@ func New(client *dockerapi.Client, sink Sink, opts Options) *Watcher {
 // d'événements et mesures tant que le démon répond ; coupé, tout reprend
 // à la sonde.
 func (w *Watcher) Run(ctx context.Context) {
+	// Les mesures ne dépendent pas de la vie du flux d'événements : un flux
+	// qui retombe aussitôt rouvert (une ligne que le démon rejoue, par
+	// exemple) ne doit pas les priver de leur cadence. Run attend leur fin :
+	// la machine openCloud ferme sa base après Run, une mesure ne doit pas
+	// y écrire encore.
+	var sampling sync.WaitGroup
+	sampling.Go(func() { w.sampleStats(ctx) })
+	defer sampling.Wait()
 	for ctx.Err() == nil {
 		engine, err := w.client.Ping(ctx)
 		if err != nil {
@@ -113,6 +121,33 @@ func (w *Watcher) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// sampleStats mesure les conteneurs à chaque cadence tant que le démon
+// répond, que le flux d'événements tienne ou non. Les mesures ne touchent
+// pas aux fiches : les livrer en parallèle d'un événement n'en change pas
+// l'ordre. L'inventaire, lui, reste dans follow, qui le sérialise avec les
+// événements : un instantané plus vieux qu'un événement ne doit pas passer
+// après lui.
+func (w *Watcher) sampleStats(ctx context.Context) {
+	samples := time.NewTicker(w.opts.SampleInterval)
+	defer samples.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-samples.C:
+			if w.engineIsUp() {
+				w.deliverStats(ctx)
+			}
+		}
+	}
+}
+
+func (w *Watcher) engineIsUp() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.engine != nil && w.engine.Present
 }
 
 func engineReport(engine dockerapi.Engine, err error) container.EngineReport {
@@ -238,6 +273,11 @@ func (w *Watcher) follow(ctx context.Context) error {
 		defer close(events)
 		for {
 			event, err := stream.Next()
+			if errors.Is(err, dockerapi.ErrEventLineTooLong) {
+				// Sans le contenu : ce sont des labels, que l'auteur d'une image écrit.
+				w.logger.Warn("docker event skipped", "reason", "line too long")
+				continue
+			}
 			if err != nil {
 				failed <- err
 				return
@@ -250,8 +290,6 @@ func (w *Watcher) follow(ctx context.Context) error {
 		}
 	}()
 
-	samples := time.NewTicker(w.opts.SampleInterval)
-	defer samples.Stop()
 	inventories := time.NewTicker(w.opts.InventoryInterval)
 	defer inventories.Stop()
 	for {
@@ -259,18 +297,41 @@ func (w *Watcher) follow(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case err := <-failed:
-			if errors.Is(err, io.EOF) {
-				return errors.New("event stream closed")
+			return streamError(err)
+		case event, open := <-events:
+			if !open {
+				// Le lecteur dépose son erreur dans failed avant de fermer
+				// events, mais si la boucle était occupée les deux cas sont
+				// prêts et Go choisit au hasard : lire ici un événement vide
+				// ramènerait since à « 0 », et le démon rejouerait tout son
+				// tampon à la reconnexion.
+				return streamEnd(ctx, failed)
 			}
-			return err
-		case event := <-events:
 			w.handleEvent(ctx, event)
-		case <-samples.C:
-			w.deliverStats(ctx)
 		case <-inventories.C:
 			w.deliverInventory(ctx)
 		}
 	}
+}
+
+// streamEnd rend l'erreur qui a fermé le flux, ou nil si c'est le contexte.
+func streamEnd(ctx context.Context, failed <-chan error) error {
+	select {
+	case err := <-failed:
+		return streamError(err)
+	default:
+	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	return errors.New("event stream closed")
+}
+
+func streamError(err error) error {
+	if errors.Is(err, io.EOF) {
+		return errors.New("event stream closed")
+	}
+	return err
 }
 
 // handleEvent traduit une action Docker en événement de conteneur, avec le
@@ -278,9 +339,13 @@ func (w *Watcher) follow(ctx context.Context) error {
 // santé ni le nom ni les réseaux sont ignorées, le prochain inventaire
 // couvre le reste. Un réseau créé ou détruit fait relire la liste.
 func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
-	w.mu.Lock()
-	w.since = raw.Since()
-	w.mu.Unlock()
+	// Un événement sans horodatage ne dit pas d'où reprendre : « 0 » ferait
+	// rejouer au démon tout son tampon.
+	if raw.TimeNano > 0 || raw.Time > 0 {
+		w.mu.Lock()
+		w.since = raw.Since()
+		w.mu.Unlock()
+	}
 	if raw.Type == "network" && (raw.Action == "create" || raw.Action == "destroy") {
 		w.deliverNetworks(ctx)
 		return

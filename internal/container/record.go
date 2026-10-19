@@ -424,6 +424,13 @@ func (p *planner) applyEvent(event Event) {
 	if event.Container != nil {
 		next = p.fromContainer(*event.Container, previous, existed)
 	}
+	// Un événement plus vieux que l'état que la réinspection a lu est de
+	// l'histoire : il ne remet pas la fiche dans un état que le conteneur a
+	// quitté, et il ne compte pas comme un redémarrage de plus.
+	if event.Container != nil && event.State != "" && isSuperseded(event, next, p.now) {
+		transition.Replayed = true
+		event.State, event.ExitCode, event.Killed = "", nil, false
+	}
 	if event.State != "" {
 		next.State = event.State
 	}
@@ -444,6 +451,29 @@ func (p *planner) applyEvent(event Event) {
 	next.ArchivedAt = time.Time{}
 	next.LastSeenAt = p.now
 	p.record(next, previous, existed, transition)
+}
+
+// staleEventAge est l'âge à partir duquel un événement qui précède l'état
+// réinspecté est tenu pour rejoué. Un « die » tout frais précède lui aussi le
+// « start » d'un conteneur que sa politique de redémarrage a déjà relancé :
+// l'écarter ferait perdre les plantages en boucle. L'âge se lit sur
+// l'horloge du serveur, l'instant sur celle de l'agent : un agent en retard
+// de l'écart toléré, plus un signal (30 s), doit encore paraître frais.
+const staleEventAge = maxFutureSkew + time.Minute
+
+// isSuperseded dit si l'événement est plus ancien que le dernier changement
+// d'état (démarrage ou arrêt) que la réinspection a lu, et assez vieux ou
+// déjà marqué rejoué pour que ce soit un rejeu, non un événement frais
+// devancé par une relance.
+func isSuperseded(event Event, inspected Container, now time.Time) bool {
+	changedAt := inspected.StartedAt
+	if inspected.FinishedAt.After(changedAt) {
+		changedAt = inspected.FinishedAt
+	}
+	if changedAt.IsZero() || !event.At.Before(changedAt) {
+		return false
+	}
+	return event.Replayed || now.Sub(event.At) > staleEventAge
 }
 
 func (p *planner) applyStat(stat Stat) {
