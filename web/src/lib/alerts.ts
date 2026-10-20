@@ -1,4 +1,4 @@
-import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, Silence } from "../api/alerts";
+import type { Alert, AlertKind, AlertObject, AlertObjectKind, AlertSeverity, ChannelTest, Delivery, Silence, SilenceRequest } from "../api/alerts";
 import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
@@ -184,3 +184,46 @@ export const silenceDurations: readonly { key: string; minutes: number }[] = [
   { key: "24h", minutes: 24 * 60 },
   { key: "7d", minutes: 7 * 24 * 60 },
 ];
+
+// Le genre d'objet qu'un silence vise ; vide : aucun objet.
+export type SilenceObjectKind = AlertObjectKind | "";
+
+// Le formulaire d'un silence, tel que l'opérateur le règle. La page le
+// pré-remplit depuis l'adresse (type, objet) quand elle vient d'une alerte.
+export interface SilenceFormValues {
+  kind: AlertKind | "";
+  objectKind: SilenceObjectKind;
+  objectID: string;
+  objectName: string;
+  minutes: number;
+  reason: string;
+}
+
+const defaultSilenceMinutes = 60;
+
+export const emptySilenceForm: SilenceFormValues = {
+  kind: "",
+  objectKind: "",
+  objectID: "",
+  objectName: "",
+  minutes: defaultSilenceMinutes,
+  reason: "",
+};
+
+// Un genre sans objet choisi ne vise rien : le serveur ne reçoit pas un genre
+// orphelin.
+export function silenceRequestOf(values: SilenceFormValues): SilenceRequest {
+  return {
+    kind: values.kind,
+    object_kind: values.objectID !== "" ? values.objectKind : "",
+    object_id: values.objectID,
+    object_name: values.objectName,
+    reason: values.reason,
+    duration_minutes: values.minutes,
+  };
+}
+
+// Un silence vise quelque chose : un type d'alerte, un objet, ou les deux.
+export function hasSilenceTarget(values: Pick<SilenceFormValues, "kind" | "objectID">): boolean {
+  return values.kind !== "" || values.objectID !== "";
+}

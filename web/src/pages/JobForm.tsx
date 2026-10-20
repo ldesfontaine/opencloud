@@ -55,7 +55,7 @@ export function JobForm() {
             submitLabel={isEditing ? t("job.save") : t("job.create")}
             submitIcon={isEditing ? "check" : "plus"}
             busy={action.busy}
-            isFilled={form.isFilled}
+            canSubmit={form.isFilled}
             cancelLabel={t("job.cancel")}
             cancelTo={isEditing ? `/taches/${id}` : "/taches"}
           />

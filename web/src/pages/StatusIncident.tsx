@@ -1,20 +1,30 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { errorKey } from "../api/client";
-import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, type Incident, type IncidentStatus } from "../api/status";
+import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, type Incident } from "../api/status";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
-import { Field, Input, Select } from "../components/Field";
+import { Checkbox, Checks, EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../api/refresh";
-import { fromLocalInput, impactTones, incidentTones, statusesFor, toLocalInput } from "../lib/status";
+import {
+  impactTones,
+  incidentEditFormOf,
+  incidentEditRequestOf,
+  incidentTones,
+  incidentUpdateFormOf,
+  incidentUpdateRequestOf,
+  saysNothing,
+  toggleComponent,
+  updateStatusesFor,
+} from "../lib/status";
 import { ago, formatClock } from "../lib/time";
 import "./StatusAdmin.scss";
 
@@ -31,7 +41,6 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const t = useT();
   const now = useNow();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
   const [editing, setEditing] = useState(false);
   const resolved = incident.status === "resolved";
 
@@ -99,7 +108,6 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
           done={() => {
             setEditing(false);
             reload();
-            refresh("status");
           }}
           cancel={() => setEditing(false)}
         />
@@ -125,15 +133,7 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
             )}
           </CardBody>
         </Card>
-        {!resolved && (
-          <UpdateForm
-            incident={incident}
-            done={() => {
-              reload();
-              refresh("status");
-            }}
-          />
-        )}
+        {!resolved && <UpdateForm incident={incident} reload={reload} />}
       </div>
     </>
   );
@@ -141,54 +141,45 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
 
 // Une entrée de plus au fil : le statut qu'elle donne, un message ;
 // « résolu » clôt l'incident.
-function UpdateForm({ incident, done }: { incident: Incident; done: () => void }) {
+function UpdateForm({ incident, reload }: { incident: Incident; reload: () => void }) {
   const t = useT();
-  const choices: IncidentStatus[] = statusesFor(incident.impact).filter((candidate) => candidate !== "scheduled");
-  const [status, setStatus] = useState<IncidentStatus>(choices.includes(incident.status) ? incident.status : choices[0]!);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Une entrée sans message qui ne change pas le statut ne dit rien au
-  // public : le serveur la refuse, le bouton ne la propose pas.
-  const saysNothing = message.trim() === "" && status === incident.status;
+  const form = useForm(incidentUpdateFormOf(incident));
+  const { values, change } = form;
+  const action = useAction();
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    addIncidentUpdate(incident.id, { status, message })
-      .then(() => {
-        setMessage("");
-        setError(null);
-        done();
-      })
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+  const save = () => {
+    const body = incidentUpdateRequestOf(values);
+    action.run(() => addIncidentUpdate(incident.id, body), {
+      topic: "status",
+      onDone: () => {
+        change("message", "");
+        reload();
+      },
+    });
   };
 
   return (
-    <Card>
-      <CardHeader title={t("incident.update_title")} aside={t("incident.update_text")} />
-      <form className="card-b" onSubmit={submit}>
-        <Field label={t("incident.status_label")} htmlFor="update-status">
-          <Select id="update-status" value={status} onChange={(event) => setStatus(event.target.value as IncidentStatus)}>
-            {choices.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {t(`incident.status_${candidate}`)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={t("incident.message_label")} htmlFor="update-message" help={t("incident.update_help")}>
-          <textarea id="update-message" className="input textarea" value={message} onChange={(event) => setMessage(event.target.value)} maxLength={2000} rows={3} />
-        </Field>
-        <Failure error={error} />
-        <div className="cluster">
-          <Button type="submit" variant="primary" icon="check" disabled={busy || saysNothing}>
-            {status === "resolved" ? t("incident.resolve") : t("incident.update_button")}
-          </Button>
-        </div>
-      </form>
-    </Card>
+    <FormCard
+      onSubmit={save}
+      error={action.error}
+      header={<CardHeader title={t("incident.update_title")} aside={t("incident.update_text")} />}
+      width="fill"
+      actions={
+        <FormActions
+          submitLabel={values.status === "resolved" ? t("incident.resolve") : t("incident.update_button")}
+          submitIcon="check"
+          busy={action.busy}
+          canSubmit={!saysNothing(values, incident)}
+        />
+      }
+    >
+      <Field label={t("incident.status_label")} htmlFor="update-status">
+        <EnumSelect id="update-status" value={values.status} values={updateStatusesFor(incident.impact)} labelKey="incident.status_" onChange={(status) => change("status", status)} />
+      </Field>
+      <Field label={t("incident.message_label")} htmlFor="update-message" help={t("incident.update_help")}>
+        <Textarea id="update-message" value={values.message} onChange={(event) => change("message", event.target.value)} maxLength={2000} rows={3} />
+      </Field>
+    </FormCard>
   );
 }
 
@@ -196,69 +187,57 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
 function EditForm({ incident, done, cancel }: { incident: Incident; done: () => void; cancel: () => void }) {
   const t = useT();
   const components = useStatusComponents();
-  const [title, setTitle] = useState(incident.title);
-  const [selected, setSelected] = useState(incident.components.map((component) => component.id));
-  const [startsAt, setStartsAt] = useState(toLocalInput(incident.starts_at));
-  const [endsAt, setEndsAt] = useState(toLocalInput(incident.ends_at));
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const form = useForm(incidentEditFormOf(incident));
+  const { values, change } = form;
+  const action = useAction();
   const maintenance = incident.impact === "maintenance";
 
-  const toggle = (id: string) => {
-    setSelected((current) => (current.includes(id) ? current.filter((candidate) => candidate !== id) : [...current, id]));
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    editIncident(incident.id, {
-      title,
-      component_ids: selected,
-      starts_at: maintenance ? fromLocalInput(startsAt) : null,
-      ends_at: maintenance ? fromLocalInput(endsAt) : null,
-    })
-      .then(done)
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+  const save = () => {
+    const body = incidentEditRequestOf(values, incident.impact);
+    action.run(() => editIncident(incident.id, body), { topic: "status", onDone: done });
   };
 
   return (
-    <Card className="form-card">
-      <CardHeader title={t("incident.edit_title")} />
-      <form className="card-b" onSubmit={submit}>
-        <Field label={t("incident.title_label")} htmlFor="edit-title">
-          <Input id="edit-title" type="text" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} required />
-        </Field>
-        {maintenance && (
-          <div className="grid-2">
-            <Field label={t("incident.starts_label")} htmlFor="edit-starts">
-              <Input id="edit-starts" mono type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} required />
-            </Field>
-            <Field label={t("incident.ends_label")} htmlFor="edit-ends">
-              <Input id="edit-ends" mono type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} required />
-            </Field>
-          </div>
-        )}
-        <Field label={t("incident.components_label")} help={t("incident.components_help")}>
-          <div className="checks">
-            {(components.data?.components ?? []).map((component) => (
-              <label key={component.id}>
-                <input type="checkbox" checked={selected.includes(component.id)} onChange={() => toggle(component.id)} />
-                {component.name}
-              </label>
-            ))}
-          </div>
-        </Field>
-        <Failure error={error} />
-        <div className="cluster">
-          <Button type="submit" variant="primary" icon="check" disabled={busy || selected.length === 0}>
-            {t("incident.save")}
-          </Button>
-          <Button variant="ghost" onClick={cancel}>
-            {t("incident.cancel")}
-          </Button>
+    <FormCard
+      onSubmit={save}
+      error={action.error}
+      header={<CardHeader title={t("incident.edit_title")} />}
+      actions={
+        <FormActions
+          submitLabel={t("incident.save")}
+          submitIcon="check"
+          busy={action.busy}
+          canSubmit={values.componentIDs.length > 0}
+          cancelLabel={t("incident.cancel")}
+          onCancel={cancel}
+        />
+      }
+    >
+      <Field label={t("incident.title_label")} htmlFor="edit-title">
+        <Input id="edit-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={120} required />
+      </Field>
+      {maintenance && (
+        <div className="grid-2">
+          <Field label={t("incident.starts_label")} htmlFor="edit-starts">
+            <Input id="edit-starts" mono type="datetime-local" value={values.startsAt} onChange={(event) => change("startsAt", event.target.value)} required />
+          </Field>
+          <Field label={t("incident.ends_label")} htmlFor="edit-ends">
+            <Input id="edit-ends" mono type="datetime-local" value={values.endsAt} onChange={(event) => change("endsAt", event.target.value)} required />
+          </Field>
         </div>
-      </form>
-    </Card>
+      )}
+      <Field label={t("incident.components_label")} help={t("incident.components_help")}>
+        <Checks>
+          {(components.data?.components ?? []).map((component) => (
+            <Checkbox
+              key={component.id}
+              label={component.name}
+              checked={values.componentIDs.includes(component.id)}
+              onChange={() => change("componentIDs", toggleComponent(values.componentIDs, component.id))}
+            />
+          ))}
+        </Checks>
+      </Field>
+    </FormCard>
   );
 }

@@ -65,7 +65,7 @@ export function ProjectForm() {
             submitLabel={isEditing ? t("project.save") : t("project.create")}
             submitIcon={isEditing ? "check" : "plus"}
             busy={action.busy}
-            isFilled={form.isFilled}
+            canSubmit={form.isFilled}
             cancelLabel={t("project.cancel")}
             cancelTo="/services/projets"
             deleteLabel={t("project.delete")}

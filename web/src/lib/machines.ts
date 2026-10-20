@@ -10,3 +10,11 @@ export function machinesSubtitle(t: Translate, total: number, online: number): s
   }
   return t("machines.subtitle", total, online);
 }
+
+// Le formulaire d'une machine neuve : l'opérateur la nomme, le serveur
+// répond par un jeton. Le corps de la requête est ce nom, tel quel.
+export interface MachineFormValues {
+  name: string;
+}
+
+export const emptyMachineForm: MachineFormValues = { name: "" };

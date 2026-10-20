@@ -1,9 +1,9 @@
 import { Link, useParams } from "react-router";
 
-import { useAlert, useChannels } from "../api/alerts";
+import { useAlert, useChannels, type AlertResponse, type Channel } from "../api/alerts";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
-import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { List } from "../components/Table";
@@ -12,30 +12,24 @@ import { useDiskThresholds, useT } from "../i18n/context";
 import { deliveryReason, deliveryTones, describeAlert } from "../lib/alerts";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./Alerts";
-import { NotFound } from "./NotFound";
 import "./Alerts.scss";
 
 // La fiche d'une alerte : ses trois lignes, ses dates, et ce qui en est
 // parti vers chaque canal.
 export function AlertPage() {
   const { id = "" } = useParams();
+  const detail = useAlert(id);
+  const channels = useChannels();
+  return <Loaded resource={detail}>{(data) => <AlertView detail={data} channels={channels.data?.channels ?? []} />}</Loaded>;
+}
+
+function AlertView({ detail, channels }: { detail: AlertResponse; channels: Channel[] }) {
   const t = useT();
   const now = useNow();
   const disks = useDiskThresholds();
-  const detail = useAlert(id);
-  const channels = useChannels();
-  if (detail.error?.status === 404) {
-    return <NotFound />;
-  }
-  if (detail.error) {
-    return <Failure error={detail.error} />;
-  }
-  if (!detail.data) {
-    return null;
-  }
-  const alert = detail.data.alert;
+  const alert = detail.alert;
   const text = describeAlert(t, alert, now, disks);
-  const channelName = (channelID: number) => channels.data?.channels.find((channel) => channel.id === channelID)?.name ?? `#${channelID}`;
+  const channelName = (channelID: number) => channels.find((channel) => channel.id === channelID)?.name ?? `#${channelID}`;
   return (
     <>
       <PageHead title={text.fact} subtitle={text.cause} />
@@ -57,11 +51,11 @@ export function AlertPage() {
         </Card>
         <Card>
           <CardHeader title={t("alert.deliveries")} />
-          {detail.data.deliveries.length === 0 ? (
+          {detail.deliveries.length === 0 ? (
             <Empty text={t("alert.no_delivery")} action={<Button small icon="plus" to="/alertes/canaux/nouveau">{t("channel.add")}</Button>} />
           ) : (
             <List>
-              {detail.data.deliveries.map((delivery) => (
+              {detail.deliveries.map((delivery) => (
                 <div className="row" key={delivery.id}>
                   <span className="txt">
                     <b>

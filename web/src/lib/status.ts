@@ -1,4 +1,4 @@
-import type { Impact, IncidentStatus, PublicIncident, StatusState } from "../api/status";
+import type { Impact, Incident, IncidentEditRequest, IncidentRequest, IncidentStatus, IncidentUpdateRequest, PublicIncident, StatusState } from "../api/status";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
@@ -85,4 +85,108 @@ export function fromLocalInput(value: string): string | null {
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+// Ouvrir un incident ou planifier une maintenance : un seul formulaire, dont
+// la nature décide de l'impact, du statut et de la fenêtre qui comptent.
+export type IncidentKind = "incident" | "maintenance";
+
+export const incidentKinds: readonly IncidentKind[] = ["incident", "maintenance"];
+
+// Ce qu'un incident neuf peut valoir : une maintenance, elle, n'a qu'un impact.
+export const incidentImpacts: readonly Impact[] = ["degraded", "down"];
+
+// Un incident s'ouvre sans être déjà résolu.
+export const openingStatuses: readonly IncidentStatus[] = incidentStatuses.filter((status) => status !== "resolved");
+
+export interface IncidentFormValues {
+  kind: IncidentKind;
+  title: string;
+  impact: Impact;
+  status: IncidentStatus;
+  message: string;
+  componentIDs: string[];
+  startsAt: string;
+  endsAt: string;
+}
+
+// Une fonction, pas une constante : la liste ne se partage pas entre deux
+// formulaires.
+export function emptyIncidentForm(): IncidentFormValues {
+  return { kind: "incident", title: "", impact: "down", status: "investigating", message: "", componentIDs: [], startsAt: "", endsAt: "" };
+}
+
+// Une maintenance ignore l'impact et le statut tapés : elle est planifiée,
+// et sa fenêtre est celle du formulaire.
+export function incidentRequestOf(values: IncidentFormValues): IncidentRequest {
+  const isScheduled = values.kind === "maintenance";
+  return {
+    title: values.title,
+    impact: isScheduled ? "maintenance" : values.impact,
+    status: isScheduled ? "scheduled" : values.status,
+    message: values.message,
+    component_ids: values.componentIDs,
+    starts_at: isScheduled ? fromLocalInput(values.startsAt) : null,
+    ends_at: isScheduled ? fromLocalInput(values.endsAt) : null,
+  };
+}
+
+// Cocher ou décocher un composant, sans toucher à la liste reçue.
+export function toggleComponent(selected: string[], id: string): string[] {
+  return selected.includes(id) ? selected.filter((candidate) => candidate !== id) : [...selected, id];
+}
+
+// Une entrée du fil ne « planifie » rien : « scheduled » n'est pas proposé.
+export function updateStatusesFor(impact: Impact): IncidentStatus[] {
+  return statusesFor(impact).filter((status) => status !== "scheduled");
+}
+
+export interface IncidentUpdateFormValues {
+  status: IncidentStatus;
+  message: string;
+}
+
+// Le formulaire part du statut courant, ou du premier proposé quand le
+// courant n'en fait pas partie.
+export function incidentUpdateFormOf(incident: Pick<Incident, "impact" | "status">): IncidentUpdateFormValues {
+  const choices = updateStatusesFor(incident.impact);
+  const status = choices.includes(incident.status) ? incident.status : (choices[0] ?? incident.status);
+  return { status, message: "" };
+}
+
+export function incidentUpdateRequestOf(values: IncidentUpdateFormValues): IncidentUpdateRequest {
+  return { status: values.status, message: values.message };
+}
+
+// Une entrée sans message qui ne change pas le statut ne dit rien au public :
+// le serveur la refuse, le bouton ne la propose pas.
+export function saysNothing(values: IncidentUpdateFormValues, incident: Pick<Incident, "status">): boolean {
+  return values.message.trim() === "" && values.status === incident.status;
+}
+
+export interface IncidentEditFormValues {
+  title: string;
+  componentIDs: string[];
+  startsAt: string;
+  endsAt: string;
+}
+
+export function incidentEditFormOf(incident: Incident): IncidentEditFormValues {
+  return {
+    title: incident.title,
+    componentIDs: incident.components.map((component) => component.id),
+    startsAt: toLocalInput(incident.starts_at),
+    endsAt: toLocalInput(incident.ends_at),
+  };
+}
+
+// La fenêtre n'appartient qu'à une maintenance : un incident garde des dates nulles.
+export function incidentEditRequestOf(values: IncidentEditFormValues, impact: Impact): IncidentEditRequest {
+  const isScheduled = impact === "maintenance";
+  return {
+    title: values.title,
+    component_ids: values.componentIDs,
+    starts_at: isScheduled ? fromLocalInput(values.startsAt) : null,
+    ends_at: isScheduled ? fromLocalInput(values.endsAt) : null,
+  };
 }
