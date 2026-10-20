@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Une machine telle que le front la lit : des faits et des instants, pas
@@ -69,7 +70,7 @@ func machineToJSON(machineStatus machine.Status) machineJSON {
 		Local:        machineStatus.IsLocal(),
 		Online:       machineStatus.Online,
 		EnrolledAt:   machineStatus.EnrolledAt.UTC(),
-		LastSeenAt:   timeOrNil(machineStatus.LastSeenAt),
+		LastSeenAt:   httpx.TimeOrNil(machineStatus.LastSeenAt),
 	}
 }
 
@@ -81,16 +82,6 @@ func (s *Server) machineJSONOf(machineStatus machine.Status, withLifecycle bool)
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
 	return converted
-}
-
-// Un instant zéro devient null : le front n'a pas à connaître l'an 1. Tout
-// part en UTC : l'API ne dépend pas du fuseau de la machine openCloud.
-func timeOrNil(at time.Time) *time.Time {
-	if at.IsZero() {
-		return nil
-	}
-	utc := at.UTC()
-	return &utc
 }
 
 func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +98,7 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := machinesResponse{
-		Machines: convertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
+		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
 		Pending:  make([]pendingTokenJSON, 0, len(pending)),
 	}
 	for _, token := range pending {

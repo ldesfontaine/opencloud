@@ -17,8 +17,10 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -43,17 +45,12 @@ type bench struct {
 
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	db, _ := servertest.OpenDB(t)
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	clock := func() time.Time { return testNow }
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(clock)
-	err := machines.EnsureLocal(context.Background(), machine.LocalInfo{
-		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
 	resources := resource.New(db, logger)
 	resources.SetClock(clock)
 	containers := container.New(db, logger)
@@ -76,7 +73,7 @@ func (b *bench) mount() {
 		Containers:    b.containers,
 		Probes:        b.probes,
 		Updates:       b.updates,
-		ClientAddress: servertest.PeerAddress,
+		ClientAddress: httpx.PeerHost,
 		Clock:         func() time.Time { return testNow },
 	})
 	mux := http.NewServeMux()
@@ -88,7 +85,7 @@ func (b *bench) mount() {
 
 func (b *bench) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
-	return servertest.Enroll(t, b.machines, name, id)
+	return storetest.EnrollMachineWithKey(t, b.machines, id, name)
 }
 
 func (b *bench) requestChallenge(t *testing.T, machineID, source string) string {

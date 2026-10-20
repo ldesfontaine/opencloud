@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -131,20 +132,20 @@ func componentToJSON(component status.Component) componentJSON {
 }
 
 func updatesToJSON(updates []status.Update) []updateJSON {
-	return convertAll(updates, func(update status.Update) updateJSON {
+	return httpx.ConvertAll(updates, func(update status.Update) updateJSON {
 		return updateJSON{Status: string(update.Status), Message: update.Message, CreatedAt: update.CreatedAt.UTC()}
 	})
 }
 
 func incidentToJSON(incident status.Incident) incidentJSON {
-	components := convertAll(incident.Components, func(component status.ComponentRef) componentRefJSON {
+	components := httpx.ConvertAll(incident.Components, func(component status.ComponentRef) componentRefJSON {
 		return componentRefJSON{ID: component.ID, Name: component.Name}
 	})
 	return incidentJSON{
 		ID: incident.ID, Title: incident.Title, Impact: string(incident.Impact), Status: string(incident.Status),
-		StartsAt: timeOrNil(incident.StartsAt), EndsAt: timeOrNil(incident.EndsAt),
+		StartsAt: httpx.TimeOrNil(incident.StartsAt), EndsAt: httpx.TimeOrNil(incident.EndsAt),
 		Components: components, Updates: updatesToJSON(incident.Updates),
-		CreatedAt: incident.CreatedAt.UTC(), UpdatedAt: incident.UpdatedAt.UTC(), ResolvedAt: timeOrNil(incident.ResolvedAt),
+		CreatedAt: incident.CreatedAt.UTC(), UpdatedAt: incident.UpdatedAt.UTC(), ResolvedAt: httpx.TimeOrNil(incident.ResolvedAt),
 	}
 }
 
@@ -226,7 +227,7 @@ func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := incidentsResponse{Incidents: convertAll(incidents, incidentToJSON)}
+	response := incidentsResponse{Incidents: httpx.ConvertAll(incidents, incidentToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

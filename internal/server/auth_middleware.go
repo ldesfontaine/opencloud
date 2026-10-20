@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // L'accès de l'opérateur à l'interface. En mode basic, HTTP Basic garde
@@ -283,7 +284,7 @@ func (s *Server) checkBasic(w http.ResponseWriter, r *http.Request, state auth.S
 	source := s.clientAddress(r)
 	if !s.authLimits.allowAttempt(source) {
 		s.logger.Warn("interface authentication rate limited", "source", source)
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return false
 	}
 	verified, err := s.auth.Verify(r.Context(), state, username, password)
@@ -292,7 +293,7 @@ func (s *Server) checkBasic(w http.ResponseWriter, r *http.Request, state auth.S
 		// Même réponse que le limiteur : l'attente de bcrypt est bornée, et
 		// l'opérateur qui retombe là réessaie après Retry-After.
 		s.logger.Warn("interface authentication queue full", "source", source)
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return false
 	case err != nil:
 		// La requête a pris fin pendant l'attente (client parti, arrêt) :
@@ -339,14 +340,14 @@ func identityFrom(ctx context.Context) string {
 // Il répond lui-même 401 quand il refuse.
 func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth.State) (string, bool) {
 	if !s.trustsPeer(r) {
-		s.logger.Warn("interface authentication refused: peer is not a trusted proxy", "peer", peerHost(r), "path", r.URL.Path)
+		s.logger.Warn("interface authentication refused: peer is not a trusted proxy", "peer", httpx.PeerHost(r), "path", r.URL.Path)
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}
 	if !s.hasProxySecret(r) {
 		// La valeur reçue ne se journalise pas : un secret presque juste
 		// resterait lisible dans le journal.
-		s.logger.Warn("interface authentication refused: proxy secret missing or wrong, the request did not go through the proxy", "header", brand.ProxySecretHeader, "peer", peerHost(r), "path", r.URL.Path)
+		s.logger.Warn("interface authentication refused: proxy secret missing or wrong, the request did not go through the proxy", "header", brand.ProxySecretHeader, "peer", httpx.PeerHost(r), "path", r.URL.Path)
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}

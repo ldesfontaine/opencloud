@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ldesfontaine/opencloud/internal/refusal"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Ce que le navigateur peut envoyer d'un coup : un formulaire, jamais plus.
@@ -20,12 +21,11 @@ type apiError struct {
 }
 
 const (
-	retryAfterSeconds = "2"
-	codeNotFound      = "not_found"
-	codeBadJSON       = "bad_json"
-	codeInternal      = "internal"
-	codeOrigin        = "bad_origin"
-	codeHost          = "bad_host"
+	codeNotFound = "not_found"
+	codeBadJSON  = "bad_json"
+	codeInternal = "internal"
+	codeOrigin   = "bad_origin"
+	codeHost     = "bad_host"
 )
 
 func (s *Server) readAPI(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -44,10 +44,7 @@ func readBounded(w http.ResponseWriter, r *http.Request, into any, limit int64) 
 }
 
 func (s *Server) writeAPI(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
+	if err := httpx.WriteJSONNoStore(w, status, payload); err != nil {
 		s.logger.Warn("write json", "error", err)
 	}
 }
@@ -70,15 +67,6 @@ func (s *Server) apiRefuse(w http.ResponseWriter, status int, key string) {
 // apiNotFound sert aussi le 404 d'un composant : errors.Is(err, ErrNotFound).
 func (s *Server) apiNotFound(w http.ResponseWriter) {
 	s.writeAPIError(w, http.StatusNotFound, codeNotFound)
-}
-
-// writeTooMany répond 429 à un refus de débit ou de file : un mot, jamais
-// une clé de catalogue. L'attente est la même que pour l'agent, les pings et
-// la page publique.
-func (s *Server) writeTooMany(w http.ResponseWriter) {
-	w.Header().Set("Retry-After", retryAfterSeconds)
-	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "too many requests", http.StatusTooManyRequests)
 }
 
 // failed répond à l'erreur d'un composant et dit si la réponse est partie :
@@ -144,14 +132,4 @@ func orEmpty[T any](list []T) []T {
 		return []T{}
 	}
 	return list
-}
-
-// convertAll convertit chaque élément ; le résultat n'est jamais nul, il
-// s'écrit [] quand il n'y a rien.
-func convertAll[T, J any](items []T, convert func(T) J) []J {
-	converted := make([]J, 0, len(items))
-	for _, item := range items {
-		converted = append(converted, convert(item))
-	}
-	return converted
 }

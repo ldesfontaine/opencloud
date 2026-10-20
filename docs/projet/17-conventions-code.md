@@ -17,6 +17,7 @@ internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux,
 internal/server/ping/        # les routes /ping/… d'un cron
 internal/server/public/      # la page de statut publique sous /statut : page, instantané, chaînes, direct
 internal/server/sse/         # la boucle des flux text/event-stream, partagée par l'administration et la page publique
+internal/server/httpx/       # les gestes de réponse que la racine et ses sous-paquets partagent : JSON, événement SSE, 429, adresse du pair
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
 migrations/                  # SQL numéroté, embarqué
@@ -35,7 +36,9 @@ d'abord. `internal/server` se découpe par consommateur : l'agent
 format de réponse et ses limiteurs ; la racine garde le montage des routes, la
 chaîne de middlewares, les en-têtes (la politique de cadre de `/statut` se
 décide par le chemin) et l'adresse du client, qu'elle leur passe en fonction.
-Un sous-paquet n'importe jamais `server`.
+Un sous-paquet n'importe jamais `server` ; ce qu'il partage avec la racine
+(écrire du JSON ou un événement SSE, répondre 429, lire l'adresse du pair)
+vit dans `server/httpx`, une seule fois.
 
 **Un package naît avec sa fonctionnalité.** Pas de package vide qui promet.
 Pas de package `util`. Un package = un concept.
@@ -160,6 +163,7 @@ binaire par plateforme.
 | Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche | Une règle métier |
 | HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
+| HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
 | Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
 | Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
@@ -172,7 +176,8 @@ Qui peut importer qui :
 | --- | --- | --- |
 | `cmd/opencloud` | tout | — |
 | `server` | ses sous-paquets, les composants, les outils, `web` | `store` |
-| `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
+| `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire`, `server/httpx` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
+| `server/httpx` | la bibliothèque standard | `server`, un autre sous-paquet, un composant, `store` |
 | Un composant | d'autres composants (types et gestes), les outils | `server`, `store`, `cmd` |
 | `store` | les composants, pour leurs types ; `seal` ; `migrations` | `server` |
 | `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
@@ -258,7 +263,7 @@ nouveau suit le même ordre, de haut en bas du fichier :
 | Un `Publish(topic)` générique à la place des `XChanged` | Perd le contrôle du compilateur sur qui publie quoi |
 
 Un générique se justifie quand la même forme revient souvent et que seul le
-type change : `convertAll`, `orEmpty`, `collect`, `sliceOf`, `guarded`.
+type change : `httpx.ConvertAll`, `orEmpty`, `collect`, `sliceOf`, `guarded`.
 Petit, nommé, à cette échelle.
 
 ## Les erreurs
@@ -349,9 +354,9 @@ pings (`/ping/`) ne changent pas.
 - **Une lecture, une forme** pour l'API et MCP : les assembleurs vivent dans
   `server` et servent les deux (`probeListOf`, `containerListOf`,
   `probeResponseOf`, `containerResponseOf`, `gapsResponseOf`,
-  `alertResponseOf`). Une liste se convertit par `convertAll(alerts,
+  `alertResponseOf`). Une liste se convertit par `httpx.ConvertAll(alerts,
   alertToJSON)`, jamais `null` ; `orEmpty` pour une liste déjà faite,
-  `timeOrNil` pour un instant zéro.
+  `httpx.TimeOrNil` pour un instant zéro.
 - Une route par lecture, une route par action : `GET /api/jobs/{id}`,
   `POST /api/jobs/{id}/actions/pause`, `DELETE /api/jobs/{id}`. Les chemins
   de l'API sont en anglais, comme le code ; les adresses des écrans restent en
@@ -426,9 +431,10 @@ scripts relus.
   changement casse un test — c'est voulu.
 - **La vraie base** : un composant et ses consommateurs se testent sur une
   SQLite temporaire, ouverte par `storetest.Open(t)`
-  (`internal/store/storetest`, avec `EnrollMachine` et
-  `EnsureLocalMachine`) ; `server` et ses sous-paquets partagent
-  `servertest` (`OpenDB`, `Enroll`, `OpenStream`, l'horloge figée `Now`).
+  (`internal/store/storetest`, avec `EnrollMachine`,
+  `EnrollMachineWithKey` quand le test signe comme l'agent, et
+  `EnsureLocalMachine`) ; `server` et ses sous-paquets y ajoutent
+  `servertest` (`RequestChallenge`, `OpenStream`, l'horloge figée `Now`).
   Un faux seulement pour ce qui est lent ou externe : Docker, un registre,
   un relais SMTP (`mail/smtptest`), un tiers sur Internet.
 - **Les gardes de règle** lisent le source : `TestNameOnlyInBrand`, et le

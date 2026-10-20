@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Ce que le front lit au démarrage : la version, la langue réglée et les
@@ -100,7 +101,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	languages := convertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
+	languages := httpx.ConvertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
 		Language:     string(language),
@@ -202,6 +203,6 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 func certificatesToJSON(counted probe.Certificates) certificateCounts {
 	return certificateCounts{
 		Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired,
-		SoonestExpiresAt: timeOrNil(counted.Soonest),
+		SoonestExpiresAt: httpx.TimeOrNil(counted.Soonest),
 	}
 }

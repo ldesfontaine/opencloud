@@ -1,10 +1,10 @@
 package public
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -77,11 +77,11 @@ func snapshotToJSON(snapshot status.Snapshot) publicStatusJSON {
 		GeneratedAt:  snapshot.GeneratedAt.UTC(),
 		Global:       string(snapshot.Global),
 		Components:   make([]publicComponentJSON, 0, len(snapshot.Components)),
-		Open:         convertAll(snapshot.Open, publicIncidentToJSON),
-		History:      convertAll(snapshot.History, publicIncidentToJSON),
+		Open:         httpx.ConvertAll(snapshot.Open, publicIncidentToJSON),
+		History:      httpx.ConvertAll(snapshot.History, publicIncidentToJSON),
 	}
 	for _, component := range snapshot.Components {
-		days := convertAll(component.Days, func(day status.Day) statusDayJSON {
+		days := httpx.ConvertAll(component.Days, func(day status.Day) statusDayJSON {
 			return statusDayJSON{Day: day.Day.UTC().Format(time.DateOnly), Total: day.Total, Success: day.Success, Degraded: day.Degraded}
 		})
 		response.Components = append(response.Components, publicComponentJSON{ID: component.ID, Name: component.Name, State: string(component.State), Days: days})
@@ -95,46 +95,25 @@ func publicIncidentToJSON(incident status.Incident) publicIncidentJSON {
 		Title:      incident.Title,
 		Impact:     string(incident.Impact),
 		Status:     string(incident.Status),
-		StartsAt:   timeOrNil(incident.StartsAt),
-		EndsAt:     timeOrNil(incident.EndsAt),
-		Components: convertAll(incident.Components, func(component status.ComponentRef) string { return component.Name }),
+		StartsAt:   httpx.TimeOrNil(incident.StartsAt),
+		EndsAt:     httpx.TimeOrNil(incident.EndsAt),
+		Components: httpx.ConvertAll(incident.Components, func(component status.ComponentRef) string { return component.Name }),
 		Updates:    updatesToJSON(incident.Updates),
 		CreatedAt:  incident.CreatedAt.UTC(),
 		UpdatedAt:  incident.UpdatedAt.UTC(),
-		ResolvedAt: timeOrNil(incident.ResolvedAt),
+		ResolvedAt: httpx.TimeOrNil(incident.ResolvedAt),
 	}
 }
 
 func updatesToJSON(updates []status.Update) []updateJSON {
-	return convertAll(updates, func(update status.Update) updateJSON {
+	return httpx.ConvertAll(updates, func(update status.Update) updateJSON {
 		return updateJSON{Status: string(update.Status), Message: update.Message, CreatedAt: update.CreatedAt.UTC()}
 	})
 }
 
 // Le visiteur ne lit que des réponses réussies en JSON, sans mise en cache.
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
+	if err := httpx.WriteJSONNoStore(w, status, payload); err != nil {
 		h.logger.Warn("write json", "error", err)
 	}
-}
-
-// Une liste vide s'écrit [], jamais null ; le résultat n'est jamais nul.
-func convertAll[T, J any](items []T, convert func(T) J) []J {
-	converted := make([]J, 0, len(items))
-	for _, item := range items {
-		converted = append(converted, convert(item))
-	}
-	return converted
-}
-
-// Une date absente s'écrit null, une date présente en UTC.
-func timeOrNil(at time.Time) *time.Time {
-	if at.IsZero() {
-		return nil
-	}
-	utc := at.UTC()
-	return &utc
 }

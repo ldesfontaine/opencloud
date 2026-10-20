@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 type authResponse struct {
@@ -58,11 +59,11 @@ func authToJSON(state auth.State, identity string) authResponse {
 	switch state.Mode {
 	case auth.ModeBasic:
 		response.Username = state.Username
-		response.EnabledAt = timeOrNil(state.EnabledAt)
+		response.EnabledAt = httpx.TimeOrNil(state.EnabledAt)
 	case auth.ModeForward:
 		response.Username = identity
 		response.Header = state.Header
-		response.EnabledAt = timeOrNil(state.EnabledAt)
+		response.EnabledAt = httpx.TimeOrNil(state.EnabledAt)
 	}
 	return response
 }

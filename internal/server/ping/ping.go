@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Les bornes du débit sur /ping : par IP source résolue, pour freiner
@@ -23,9 +24,6 @@ const (
 	pingPerTokenBurst  = 30
 	pingSweepEvery     = 5 * time.Minute
 	pingSweepIdle      = 10 * time.Minute
-	// L'attente dite à un refus de débit ; même valeur que celle de l'agent
-	// et de la page publique.
-	retryAfterSeconds = "2"
 	// Un vrai jeton fait 29 octets ; la marge laisse passer les jetons hérités
 	// en clair, dont le format n'a jamais été garanti. Au-delà, le jeton ne
 	// peut pas exister : il est refusé sans rien retenir.
@@ -117,7 +115,7 @@ func (h *Handler) receivePing(w http.ResponseWriter, r *http.Request, ping heart
 	ping.Source = h.clientAddress(r)
 	ping.Method = r.Method
 	if !h.limits.allow(ping.Source, token) {
-		w.Header().Set("Retry-After", retryAfterSeconds)
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writePing(w, http.StatusTooManyRequests, "too many pings")
 		return
 	}

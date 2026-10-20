@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Le banc des pings : le vrai composant heartbeat sur une vraie base SQLite
@@ -26,12 +28,12 @@ type bench struct {
 
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	db, _ := servertest.OpenDB(t)
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	clock := servertest.Now
 	heartbeats := heartbeat.New(db, logger)
 	heartbeats.SetClock(clock)
-	handler := New(Options{Logger: logger, Heartbeats: heartbeats, ClientAddress: servertest.PeerAddress, Clock: clock})
+	handler := New(Options{Logger: logger, Heartbeats: heartbeats, ClientAddress: httpx.PeerHost, Clock: clock})
 	mux := http.NewServeMux()
 	handler.Routes(func(method, pattern string, route http.HandlerFunc) {
 		mux.HandleFunc(method+" "+pattern, route)

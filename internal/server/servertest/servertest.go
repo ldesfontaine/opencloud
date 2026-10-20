@@ -1,6 +1,6 @@
 // Package servertest rassemble ce que les tests de server et de ses
-// sous-paquets partagent : la base temporaire, l'horloge figée, une machine
-// enrôlée et le flux de son agent.
+// sous-paquets partagent : l'horloge figée, le défi et le flux d'un agent.
+// La base temporaire et l'enrôlement viennent de storetest.
 package servertest
 
 import (
@@ -8,13 +8,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,8 +19,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/seal"
-	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
 // Now est l'horloge figée des tests : « vu il y a » se calcule depuis elle.
@@ -34,58 +29,6 @@ func Now() time.Time {
 // RemoteID est l'identifiant de la machine distante des tests, fixe pour des
 // rendus figés.
 const RemoteID = "11111111-2222-4333-8444-555555555555"
-
-// OpenDB ouvre une vraie base SQLite dans un dossier temporaire, avec son
-// trousseau ; elle est fermée à la fin du test. Le dossier est rendu pour
-// les composants qui y écrivent aussi.
-func OpenDB(t *testing.T) (*store.DB, *os.Root) {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { _ = db.Close() })
-	return db, root
-}
-
-// PeerAddress est l'adresse du pair, sans mandataire : ce que les bancs des
-// sous-paquets donnent pour ClientAddress. La règle des mandataires de
-// confiance vit à la racine et s'y teste.
-func PeerAddress(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-// Enroll enrôle une machine distante avec un identifiant fixe, comme l'agent
-// le ferait, et rend sa clé privée.
-func Enroll(t *testing.T, machines *machine.Service, name, id string) (machine.Machine, ed25519.PrivateKey) {
-	t.Helper()
-	cleartext, _, err := machines.CreateToken(context.Background(), name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enrolled, err := machines.Enroll(context.Background(), machine.Enrollment{
-		MachineID: id, PublicKey: public, Token: cleartext,
-		Hostname: name, Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return enrolled, private
-}
 
 // RequestChallenge demande un défi comme n'importe quel appelant de
 // /agent/challenge et rend son contenu en base64 ; source vide, l'adresse

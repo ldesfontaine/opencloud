@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // La page de statut est servie par le même binaire sur le même port, sans
@@ -20,9 +21,6 @@ const (
 	statusStreamBurst = 5
 	statusSweepEvery  = 5 * time.Minute
 	statusSweepIdle   = 10 * time.Minute
-	// L'attente dite à un refus de débit, la même que pour l'agent et les
-	// pings.
-	retryAfterSeconds = "2"
 	// Les visiteurs en direct, à part des onglets de l'administration.
 	maxPublicSubscribers = 256
 	// Ce qu'une même source (une IPv4, un /64 en IPv6) en tient à la fois :
@@ -87,15 +85,9 @@ func (l *statusLimits) sweepIfDue() {
 func (h *Handler) limitRead(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !h.limits.allowRead(h.clientAddress(r)) {
-			writeTooMany(w)
+			httpx.WriteTooMany(w)
 			return
 		}
 		next(w, r)
 	}
-}
-
-func writeTooMany(w http.ResponseWriter) {
-	w.Header().Set("Retry-After", retryAfterSeconds)
-	w.Header().Set("Cache-Control", "no-store")
-	http.Error(w, "too many requests", http.StatusTooManyRequests)
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Le réglage de l'accès d'un agent IA, sous Paramètres : activer, le
@@ -131,19 +132,19 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 	}
 	response.SecretMasked = client.SecretPrefix + "…"
 	response.RedirectURIs = client.RedirectURIs
-	response.EnabledAt = timeOrNil(client.CreatedAt)
+	response.EnabledAt = httpx.TimeOrNil(client.CreatedAt)
 	tokens, err := s.mcp.APITokens(r.Context())
 	if err != nil {
 		return mcpResponse{}, err
 	}
-	response.Tokens = convertAll(tokens, mcpTokenToJSON)
+	response.Tokens = httpx.ConvertAll(tokens, mcpTokenToJSON)
 	sessions, err := s.mcp.Sessions(r.Context())
 	if err != nil {
 		return mcpResponse{}, err
 	}
 	for _, session := range sessions {
 		response.Sessions = append(response.Sessions, mcpSessionJSON{
-			ID: session.FamilyID, StartedAt: session.StartedAt.UTC(), LastUsedAt: timeOrNil(session.LastUsedAt), ExpiresAt: session.ExpiresAt.UTC(),
+			ID: session.FamilyID, StartedAt: session.StartedAt.UTC(), LastUsedAt: httpx.TimeOrNil(session.LastUsedAt), ExpiresAt: session.ExpiresAt.UTC(),
 		})
 	}
 	return response, nil
@@ -152,7 +153,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 func mcpTokenToJSON(token mcp.Token) mcpTokenJSON {
 	return mcpTokenJSON{
 		ID: token.ID, Name: token.Name, Masked: token.Masked(), Scope: string(token.Scope),
-		CreatedAt: token.CreatedAt.UTC(), ExpiresAt: timeOrNil(token.ExpiresAt), LastUsedAt: timeOrNil(token.LastUsedAt),
+		CreatedAt: token.CreatedAt.UTC(), ExpiresAt: httpx.TimeOrNil(token.ExpiresAt), LastUsedAt: httpx.TimeOrNil(token.LastUsedAt),
 	}
 }
 

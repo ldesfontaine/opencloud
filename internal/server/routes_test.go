@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -58,18 +59,13 @@ type testServer struct {
 // SQLite temporaire, avec la machine openCloud déjà en place.
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
-	db, root := servertest.OpenDB(t)
+	root, db := storetest.OpenWithStateDir(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
 	machines.SetWatcher(bus)
-	err := machines.EnsureLocal(context.Background(), machine.LocalInfo{
-		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
 	heartbeats := heartbeat.New(db, logger)
 	heartbeats.SetClock(func() time.Time { return testNow })
 	heartbeats.SetWatcher(bus)
@@ -175,7 +171,7 @@ func newTestServer(t *testing.T) *testServer {
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
 func (ts *testServer) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
-	return servertest.Enroll(t, ts.machines, name, id)
+	return storetest.EnrollMachineWithKey(t, ts.machines, id, name)
 }
 
 // L'identifiant de la machine distante des tests, fixe pour des rendus figés.

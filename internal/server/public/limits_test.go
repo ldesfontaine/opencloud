@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Les routes publiques comptent par adresse résolue : la rafale passe, le
@@ -20,7 +22,7 @@ func TestStatusPublic_ReadsAreRateLimitedBySource(t *testing.T) {
 	request.RemoteAddr = "203.0.113.9:4000"
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") != retryAfterSeconds || recorder.Header().Get("Cache-Control") != "no-store" {
+	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") != httpx.RetryAfterSeconds || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("beyond the burst: %d, Retry-After %q, Cache-Control %q", recorder.Code, recorder.Header().Get("Retry-After"), recorder.Header().Get("Cache-Control"))
 	}
 	if got := server.getFrom("203.0.113.10:4000", "/statut"); got != http.StatusOK {

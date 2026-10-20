@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // resolvePublicURL donne l'adresse que les machines doivent appeler : la
@@ -38,7 +40,7 @@ func (s *Server) resolvePublicURL(r *http.Request) (string, bool) {
 // qui n'est pas l'un d'eux est le client ; ce qui est à sa gauche, le
 // client l'a écrit lui-même.
 func (s *Server) clientAddress(r *http.Request) string {
-	peer := peerHost(r)
+	peer := httpx.PeerHost(r)
 	if !s.trustsPeer(r) {
 		return peer
 	}
@@ -65,7 +67,7 @@ func (s *Server) clientAddress(r *http.Request) string {
 
 // Un en-tête X-Forwarded-* n'est cru que d'un mandataire déclaré.
 func (s *Server) trustsPeer(r *http.Request) bool {
-	peer, err := netip.ParseAddr(peerHost(r))
+	peer, err := netip.ParseAddr(httpx.PeerHost(r))
 	if err != nil {
 		return false
 	}
@@ -99,14 +101,6 @@ func TrustsLoopback(prefixes []netip.Prefix) bool {
 		}
 	}
 	return false
-}
-
-func peerHost(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 func hostOf(rawURL string) string {

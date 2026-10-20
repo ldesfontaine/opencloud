@@ -17,9 +17,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = servertest.Now()
@@ -42,7 +44,7 @@ type bench struct {
 
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	db, _ := servertest.OpenDB(t)
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	clock := func() time.Time { return testNow }
 	machines := machine.New(db, machine.NewSessions(), logger)
@@ -67,7 +69,7 @@ func newBench(t *testing.T) *bench {
 		Catalogs:      catalogs,
 		Live:          bus,
 		Page:          func() ([]byte, error) { return []byte(testPage), nil },
-		ClientAddress: servertest.PeerAddress,
+		ClientAddress: httpx.PeerHost,
 		Clock:         clock,
 	})
 	b.mount(b.handler)
@@ -108,7 +110,7 @@ func (b *bench) getFrom(peer, path string) int {
 func (b *bench) seed(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	servertest.Enroll(t, b.machines, "vps-paris-1", servertest.RemoteID)
+	storetest.EnrollMachine(t, b.machines, servertest.RemoteID, "vps-paris-1")
 	job, err := b.heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde nextcloud", MachineID: servertest.RemoteID, Interval: 24 * time.Hour, Grace: time.Hour})
 	if err != nil {
 		t.Fatal(err)

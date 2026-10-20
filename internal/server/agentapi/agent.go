@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -30,9 +31,6 @@ const (
 	// Un lot de journal : 64 lignes de 64 Kio au plus, en pratique bien
 	// moins ; la chaîne de middlewares plafonne déjà à 1 Mio.
 	maxLogsBody = 1 << 20
-	// L'attente dite à un refus de débit ; même valeur que celle des pings
-	// et de la page publique.
-	retryAfterSeconds = "2"
 )
 
 type agentError struct {
@@ -43,7 +41,7 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 	// Le même seau que le défi : un enrôlement légitime est rare, un flot
 	// d'enrôlements coûte une transaction chacun.
 	if !h.challengeLimits.allow(h.clientAddress(r)) {
-		w.Header().Set("Retry-After", retryAfterSeconds)
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
@@ -97,7 +95,7 @@ func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err e
 
 func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 	if !h.challengeLimits.allow(h.clientAddress(r)) {
-		w.Header().Set("Retry-After", retryAfterSeconds)
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
@@ -155,7 +153,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if err := writeEvent(w, "session", session.Token); err != nil {
+	if err := httpx.WriteEvent(w, "session", session.Token); err != nil {
 		return
 	}
 	ticker := time.NewTicker(streamPingInterval)
@@ -165,10 +163,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-session.Done():
-			_ = writeEvent(w, "closed", "session_closed")
+			_ = httpx.WriteEvent(w, "closed", "session_closed")
 			return
 		case <-ticker.C:
-			if err := writeEvent(w, "ping", ""); err != nil {
+			if err := httpx.WriteEvent(w, "ping", ""); err != nil {
 				return
 			}
 		case command := <-session.Commands():
@@ -186,7 +184,7 @@ func writeCommand(w http.ResponseWriter, command machine.Command) error {
 	if err != nil {
 		return err
 	}
-	return writeEvent(w, command.Name, string(payload))
+	return httpx.WriteEvent(w, command.Name, string(payload))
 }
 
 func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
@@ -227,7 +225,7 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.signalLimits.allow(sessionMachine) {
-		w.Header().Set("Retry-After", retryAfterSeconds)
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
@@ -363,15 +361,6 @@ func proofFromHeaders(r *http.Request) (machine.Proof, error) {
 	}, nil
 }
 
-// Un événement SSE, poussé tout de suite : le flux ne bufferise pas. Le
-// contenu est un jeton ou un mot du serveur, jamais une entrée de l'agent.
-func writeEvent(w http.ResponseWriter, name, data string) error {
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data); err != nil { // #nosec G705 -- text/event-stream, données du serveur.
-		return err
-	}
-	return http.NewResponseController(w).Flush()
-}
-
 func (h *Handler) readJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 	body := http.MaxBytesReader(w, r.Body, maxAgentBody)
 	if err := json.NewDecoder(body).Decode(into); err != nil {
@@ -382,9 +371,7 @@ func (h *Handler) readJSON(w http.ResponseWriter, r *http.Request, into any) boo
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
+	if err := httpx.WriteJSON(w, status, payload); err != nil {
 		h.logger.Warn("write json", "error", err)
 	}
 }

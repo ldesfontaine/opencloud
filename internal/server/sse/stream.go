@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/live"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 const (
@@ -38,7 +39,7 @@ func stream(w http.ResponseWriter, r *http.Request, subscription *live.Subscript
 	if r.Header.Get("Last-Event-ID") != "" {
 		first = "reconnected"
 	}
-	if err := writeEvent(w, &sequence, first); err != nil {
+	if err := writeNumbered(w, &sequence, first); err != nil {
 		return
 	}
 
@@ -61,7 +62,7 @@ func stream(w http.ResponseWriter, r *http.Request, subscription *live.Subscript
 				return
 			}
 			for _, topic := range batch {
-				if err := writeEvent(w, &sequence, string(topic)); err != nil {
+				if err := writeNumbered(w, &sequence, string(topic)); err != nil {
 					return
 				}
 			}
@@ -90,18 +91,20 @@ func readTopics(ctx context.Context, subscription *live.Subscription) <-chan []l
 	return topics
 }
 
-// Le premier événement porte retry : le navigateur attend cinq secondes
-// avant de revenir, plutôt que ses trois par défaut.
-func writeEvent(w http.ResponseWriter, sequence *int, name string) error {
+// writeNumbered pose l'identifiant de l'événement, puis le laisse à
+// httpx.WriteEvent, qui le termine et le pousse. Le premier porte retry : le
+// navigateur attend cinq secondes avant de revenir, plutôt que ses trois par
+// défaut.
+func writeNumbered(w http.ResponseWriter, sequence *int, name string) error {
 	*sequence++
 	prefix := ""
 	if *sequence == 1 {
 		prefix = "retry: " + retry + "\n"
 	}
-	if _, err := fmt.Fprintf(w, "%sid: %d\nevent: %s\ndata: \n\n", prefix, *sequence, name); err != nil { // #nosec G705 -- text/event-stream, noms du serveur, jamais une entrée.
+	if _, err := fmt.Fprintf(w, "%sid: %d\n", prefix, *sequence); err != nil { // #nosec G705 -- text/event-stream, nombre du serveur.
 		return err
 	}
-	return http.NewResponseController(w).Flush()
+	return httpx.WriteEvent(w, name, "")
 }
 
 // WriteComment écrit un commentaire SSE, que le navigateur ignore.
