@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, Pill, StatePill } from "../components/Pill";
+import { Dot, Pill, OnlinePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
@@ -65,7 +65,7 @@ export function Machines() {
                     <td className="wide-only">{machine.os}</td>
                     <td className="num wide-only">{machine.agent_version}</td>
                     <td>
-                      <StatePill online={machine.online} />
+                      <OnlinePill online={machine.online} />
                     </td>
                     <td className="secondary nowrap">{seenAgo(t, machine.last_seen_at, now)}</td>
                     <td className="td-end wide-only">

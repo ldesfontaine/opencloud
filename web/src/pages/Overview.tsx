@@ -10,14 +10,14 @@ import { List } from "../components/Table";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { Pill, StatePill } from "../components/Pill";
+import { Pill, OnlinePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { daysUntil } from "../lib/certificates";
 import { machinesSubtitle } from "../lib/machines";
 import { seenAgo } from "../lib/time";
-import { AlertRow } from "./Alerts";
+import { AlertRow } from "./alerts/AlertRow";
 import "./Overview.scss";
 
 const alertsShown = 3;
@@ -178,7 +178,7 @@ export function Overview() {
                       <span className="card-t">{machine.name}</span>
                       <span className="mono muted">{machine.address !== "" ? machine.address : machine.os}</span>
                     </span>
-                    <StatePill online={machine.online} />
+                    <OnlinePill online={machine.online} />
                   </div>
                   <div className="card-b">
                     <MachineMeters current={currentOf(machine.id)} />

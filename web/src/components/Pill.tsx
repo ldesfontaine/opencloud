@@ -19,7 +19,7 @@ export function Dot({ tone }: { tone: Tone }) {
   return <span className={`dot ${tone}`} />;
 }
 
-export function StatePill({ online }: { online: boolean }) {
+export function OnlinePill({ online }: { online: boolean }) {
   const t = useT();
   return <Pill tone={online ? "ok" : "danger"}>{t(online ? "state.online" : "state.offline")}</Pill>;
 }

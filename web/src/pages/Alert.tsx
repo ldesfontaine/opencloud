@@ -11,8 +11,7 @@ import { useNow } from "../hooks/useNow";
 import { useDiskThresholds, useT } from "../i18n/context";
 import { deliveryReason, deliveryTones, describeAlert } from "../lib/alerts";
 import { formatClock } from "../lib/time";
-import { AlertRow } from "./Alerts";
-import "./Alerts.scss";
+import { AlertRow } from "./alerts/AlertRow";
 
 // La fiche d'une alerte : ses trois lignes, ses dates, et ce qui en est
 // parti vers chaque canal.
@@ -45,7 +44,7 @@ function AlertView({ detail, channels }: { detail: AlertResponse; channels: Chan
             <KeyValue label={t("alert.status_open")} value={formatClock(alert.opened_at)} mono />
             {alert.acknowledged_at !== null && <KeyValue label={t("alert.status_acknowledged")} value={formatClock(alert.acknowledged_at)} mono />}
             {alert.resolved_at !== null && <KeyValue label={t("alert.status_resolved")} value={formatClock(alert.resolved_at)} mono />}
-            <KeyValue label={t("alert.severity_attention") + " / " + t("alert.severity_danger")} value={t(`alert.severity_${alert.severity}`)} />
+            <KeyValue label={t("alert.severity_label")} value={t(`alert.severity_${alert.severity}`)} />
             {alert.silenced && <span className="secondary">{t("alert.silenced_help")}</span>}
           </CardBody>
         </Card>

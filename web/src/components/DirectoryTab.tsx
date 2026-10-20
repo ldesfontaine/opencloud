@@ -7,7 +7,7 @@ import { useT } from "../i18n/context";
 import { directorySubtitle } from "../lib/directory";
 import { gapsByService } from "../lib/gaps";
 import { Button } from "./Button";
-import { Card, Empty } from "./Card";
+import { Card, Empty, EmptyCard } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
 import { Failure } from "./Failure";
 import { Select } from "./Field";
@@ -56,9 +56,7 @@ export function DirectoryTab() {
       <ServicesTabs />
       {services.error && <Failure error={services.error} />}
       {services.data && all.length === 0 && (
-        <Card>
-          <Empty icon="box" title={t("directory.empty_title")} text={t("directory.empty_text")} />
-        </Card>
+        <EmptyCard icon="box" title={t("directory.empty_title")} text={t("directory.empty_text")} />
       )}
       {services.data && all.length > 0 && (
         <Card className="scroll-x">

@@ -44,3 +44,16 @@ export function passwordFormError(password: string, confirmation: string, minLen
   }
   return null;
 }
+
+// Le formulaire d'activation ou de changement : un identifiant (à
+// l'activation seulement), le mot de passe, sa confirmation.
+export interface CredentialsFormValues {
+  username: string;
+  password: string;
+  confirmation: string;
+}
+
+export const emptyCredentialsForm: CredentialsFormValues = { username: "", password: "", confirmation: "" };
+
+// L'en-tête que pose Authelia, proposé tel quel en mode mandataire.
+export const defaultForwardHeader = "Remote-User";

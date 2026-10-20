@@ -10,6 +10,10 @@ export interface RunOptions<Result> {
   topic?: Topic | "all";
   // Après la relecture : naviguer, montrer « Enregistré », garder la réponse.
   onDone?: (result: Result) => void;
+  // Après l'écriture, qu'elle ait réussi ou non, et après onDone : relire ce
+  // qu'un refus a pu laisser changé (une alerte déjà résolue, un acquittement
+  // à moitié passé), ou ce que le serveur a gardé malgré l'erreur.
+  onSettled?: () => void;
 }
 
 export interface Action {
@@ -38,20 +42,18 @@ export function useAction(): Action {
     running.current = true;
     setError(null);
     setBusy(true);
-    let result: Result;
+    let outcome: Outcome<Result> = { done: false };
     try {
-      result = await perform();
+      outcome = { done: true, result: await perform() };
     } catch (failure) {
       setError(failureOf(failure));
-      return;
     } finally {
       running.current = false;
       setBusy(false);
     }
     // Hors du try : une relecture ou une navigation qui échoue n'est pas
     // une écriture refusée.
-    refreshAfter(refresh, options.topic);
-    options.onDone?.(result);
+    finishAction(refresh, options, outcome);
   };
 
   return {
@@ -59,6 +61,19 @@ export function useAction(): Action {
     busy,
     error,
   };
+}
+
+// Ce que l'écriture a rendu : sa réponse, ou rien si elle a été refusée.
+export type Outcome<Result> = { done: true; result: Result } | { done: false };
+
+// Ce qui suit l'écriture, dans l'ordre : la relecture du sujet et onDone
+// seulement si elle a réussi, onSettled dans tous les cas.
+export function finishAction<Result>(refresh: (topic?: Topic) => void, options: RunOptions<Result>, outcome: Outcome<Result>): void {
+  if (outcome.done) {
+    refreshAfter(refresh, options.topic);
+    options.onDone?.(outcome.result);
+  }
+  options.onSettled?.();
 }
 
 export function refreshAfter(refresh: (topic?: Topic) => void, topic: Topic | "all" | undefined): void {

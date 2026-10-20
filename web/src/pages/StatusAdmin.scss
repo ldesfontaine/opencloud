@@ -1,14 +1,5 @@
-// L'administration de la page de statut : une pile dans une cellule, les
-// objets d'un composant, le fil d'un incident.
-.cell-stack {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
-
-  &.end {
-    align-items: flex-end;
-  }
-}
+// L'administration de la page de statut : les objets d'un composant, le
+// fil d'un incident.
 
 // La liste des objets rattachés d'un composant : une ligne par objet, la
 // pastille de ce qu'il apporte, le bouton pour le retirer.

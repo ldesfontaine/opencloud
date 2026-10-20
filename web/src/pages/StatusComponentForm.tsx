@@ -17,7 +17,7 @@ import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
 import { componentFormOf, componentRequestOf, emptyComponentForm, memberKinds, type MemberChoice } from "../lib/status";
-import { StatePill } from "./StatusAdmin";
+import { StatusPagePill } from "./status/StatusPagePill";
 import "./StatusAdmin.scss";
 
 interface Candidate {
@@ -186,5 +186,5 @@ function MemberPill({ member }: { member: StatusMember }) {
   if (!member.counts) {
     return <Pill tone="neutral">{t("component.counts_no")}</Pill>;
   }
-  return <StatePill state={member.state} />;
+  return <StatusPagePill state={member.state} />;
 }

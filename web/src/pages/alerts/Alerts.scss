@@ -103,23 +103,6 @@
   border-bottom: 1px solid var(--line);
 }
 
-// La carte de la vue d'ensemble : trois lignes au plus, le reste par le lien.
-.overview-alerts .row {
-  padding: 10px 20px;
-}
-
-.channel-test {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-
-  // La colonne se réduit au plus étroit : l'erreur y reste sur une ligne.
-  .note {
-    white-space: nowrap;
-  }
-}
-
 .channel-url {
   max-width: 320px;
   overflow: hidden;

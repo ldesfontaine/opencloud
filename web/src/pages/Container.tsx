@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from "react-router";
 
 import { useContainer, type ContainerResponse, type Transition } from "../api/containers";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
 import { Loaded } from "../components/Loaded";
 import { LogViewer } from "../components/LogViewer";
@@ -37,9 +37,12 @@ function ContainerNotFound() {
   return (
     <>
       <PageHead title={t("container.not_found_title")} subtitle={t("container.not_found_text")} />
-      <Card>
-        <Empty icon="search" title={t("container.not_found_title")} text={t("container.not_found_text")} action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>} />
-      </Card>
+      <EmptyCard
+        icon="search"
+        title={t("container.not_found_title")}
+        text={t("container.not_found_text")}
+        action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>}
+      />
     </>
   );
 }

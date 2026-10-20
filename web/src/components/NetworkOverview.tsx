@@ -6,7 +6,7 @@ import { useSize } from "../hooks/useSize";
 import { useT } from "../i18n/context";
 import { compactHeight, compactWidth, fitPorts, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
 import { nodeTone, containerIcon } from "../lib/containers";
-import { Card, Empty } from "./Card";
+import { EmptyCard } from "./Card";
 import { Failure } from "./Failure";
 import { iconPaths } from "./Icon";
 import "./NetworkGraph.scss";
@@ -30,11 +30,7 @@ export function NetworkOverview() {
     return <Failure error={network.error} />;
   }
   if (response && response.machines.every((machine) => machine.containers.length === 0)) {
-    return (
-      <Card>
-        <Empty icon="network" text={t("network.overview_empty")} />
-      </Card>
-    );
+    return <EmptyCard icon="network" text={t("network.overview_empty")} />;
   }
   const ports = publicPorts(response?.machines.flatMap((machine) => machine.edges) ?? []);
   const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");

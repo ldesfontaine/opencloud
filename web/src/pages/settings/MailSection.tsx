@@ -1,17 +1,17 @@
 import { useState } from "react";
 
-import type { ChannelTest } from "../api/alerts";
-import { saveMailSettings, testMailSettings, type MailSettings } from "../api/settings";
-import { Button } from "../components/Button";
-import { CardHeader, Note } from "../components/Card";
-import { Checkbox, Checks, EnumSelect, Field, Input } from "../components/Field";
-import { FormActions, FormCard } from "../components/FormCard";
-import { Pill } from "../components/Pill";
-import { useAction } from "../hooks/useAction";
-import { useForm } from "../hooks/useForm";
-import { useT } from "../i18n/context";
-import { channelTestResult } from "../lib/alerts";
-import { mailFormOf, mailModeChange, mailRequestOf, mailTLSModes } from "../lib/mail";
+import type { ChannelTest } from "../../api/alerts";
+import { saveMailSettings, testMailSettings, type MailSettings } from "../../api/settings";
+import { Button } from "../../components/Button";
+import { CardHeader, Note } from "../../components/Card";
+import { Checkbox, Checks, EnumSelect, Field, Input } from "../../components/Field";
+import { FormActions, FormCard } from "../../components/FormCard";
+import { Pill } from "../../components/Pill";
+import { useAction } from "../../hooks/useAction";
+import { useForm } from "../../hooks/useForm";
+import { useT } from "../../i18n/context";
+import { channelTestResult } from "../../lib/alerts";
+import { mailFormOf, mailModeChange, mailRequestOf, mailTLSModes } from "../../lib/mail";
 
 // Le relais SMTP du canal e-mail. Le mot de passe ne revient jamais du
 // serveur, comme le secret d'un canal ; l'essai part vers une adresse

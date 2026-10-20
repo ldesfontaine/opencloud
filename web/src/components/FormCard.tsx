@@ -6,10 +6,38 @@ import { Card } from "./Card";
 import { Failure } from "./Failure";
 import type { IconName } from "./Icon";
 
-// Le squelette d'un formulaire : les champs, l'erreur de l'écriture sous
-// eux, puis les boutons. La page n'écrit que ce qui lui est propre.
+// Le corps d'un formulaire : les champs, l'erreur de l'écriture sous eux,
+// puis les boutons. Seul, il sert un formulaire qui partage sa carte avec
+// d'autres (l'accès à l'interface, les jetons) ; FormCard lui donne la
+// sienne.
+export function FormBody({
+  onSubmit,
+  error,
+  actions,
+  children,
+}: {
+  onSubmit: () => void;
+  error: ApiError | string | null;
+  actions: ReactNode;
+  children: ReactNode;
+}) {
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    onSubmit();
+  };
+  return (
+    <form className="card-b" onSubmit={submit}>
+      {children}
+      <Failure error={error} />
+      {actions}
+    </form>
+  );
+}
+
+// Un formulaire dans sa carte : FormBody sous un titre éventuel.
 // header : un titre de carte au-dessus du formulaire ; width : s'arrêter à
-// 560 px ou remplir la cellule d'une grille.
+// 560 px ou remplir la cellule d'une grille. La page n'écrit que ce qui lui
+// est propre.
 export function FormCard({
   onSubmit,
   error,
@@ -25,18 +53,12 @@ export function FormCard({
   width?: "form" | "fill";
   children: ReactNode;
 }) {
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onSubmit();
-  };
   return (
     <Card className={width === "form" ? "form-card" : ""}>
       {header}
-      <form className="card-b" onSubmit={submit}>
+      <FormBody onSubmit={onSubmit} error={error} actions={actions}>
         {children}
-        <Failure error={error} />
-        {actions}
-      </form>
+      </FormBody>
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import type { MCPScope, MCPState } from "../api/mcp";
+import type { MCPScope, MCPState, MCPTokenRequest } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -48,4 +48,20 @@ export function lifetimeLabel(t: Translate, days: number): string {
 // L'échéance d'un jeton dans la liste : sa date, ou « jamais ».
 export function expiryLabel(t: Translate, expiresAt: string | null, formatDate: (iso: string) => string): string {
   return expiresAt === null ? t("mcp.expires_never") : formatDate(expiresAt);
+}
+
+// Le formulaire d'un jeton d'API : son nom, sa portée, son échéance en jours.
+export interface TokenFormValues {
+  name: string;
+  scope: MCPScope;
+  days: number;
+}
+
+// La portée part en lecture seule, l'échéance à celle que le serveur propose.
+export function emptyTokenForm(defaultDays: number): TokenFormValues {
+  return { name: "", scope: "read", days: defaultDays };
+}
+
+export function tokenRequestOf(values: TokenFormValues): MCPTokenRequest {
+  return { name: values.name, scope: values.scope, expires_in_days: values.days };
 }
