@@ -92,6 +92,10 @@ func (w *Watcher) Run(ctx context.Context) {
 	for ctx.Err() == nil {
 		engine, err := w.client.Ping(ctx)
 		if err != nil {
+			// Une annulation n'est pas « Docker ne répond pas » : on part sans rien dire.
+			if ctx.Err() != nil {
+				return
+			}
 			w.reportEngine(engineReport(engine, err))
 			if !sleep(ctx, w.opts.ProbeInterval) {
 				return
