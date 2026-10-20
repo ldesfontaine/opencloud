@@ -29,7 +29,7 @@ les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 | Dit si la version d'un service, ou le système d'une machine, est encore maintenu, et jusqu'à quand, d'après endoflife.date | Ne cherche pas de failles (CVE). Appelle endoflife.date une à deux fois par jour ; se coupe sous Paramètres |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
 | Publie une page de statut sous `/statut` | Pas de comptes multiples ni de second facteur en propre : derrière un mandataire (Authelia), le mode `forward` les délègue à votre SSO |
-| Sert MCP : 16 outils de lecture, 9 écritures que l'interface a déjà | Aucune action sur une machine par MCP, aucun secret rendu |
+| Sert MCP : 18 outils de lecture | Aucune écriture ni action sur une machine par MCP pendant la refonte, aucun secret rendu |
 
 openCloud **observe, il n'agit jamais sur une machine**. L'interface existe
 en français et en anglais (sélecteur FR/EN en bas de la barre latérale).

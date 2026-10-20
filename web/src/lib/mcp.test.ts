@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { claudeCodeCommand, emptyTokenForm, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectFormOf, redirectLines, redirectRequestOf, tokenRequestOf } from "./mcp";
+import { claudeCodeCommand, emptyTokenForm, expiryLabel, lifetimeLabel, lifetimesOf, redirectFormOf, redirectLines, redirectRequestOf, tokenRequestOf } from "./mcp";
 
 const french: Record<string, string> = {
   "time.hours": "%d h",
@@ -48,20 +48,16 @@ test("expiryLabel dit la date, ou jamais pour un jeton sans échéance", () => {
   expect(expiryLabel(t, "2026-12-22T10:00:00Z", (iso) => `le ${iso}`)).toBe("le 2026-12-22T10:00:00Z");
 });
 
-test("la lecture seule est la première portée, celle par défaut", () => {
-  expect(mcpScopes).toEqual(["read", "write"]);
-});
-
 test("redirectFormOf montre une adresse par ligne, redirectRequestOf renvoie la liste nettoyée", () => {
   const form = redirectFormOf({ redirect_uris: ["https://a.exemple.fr/cb", "http://localhost:3000/cb"] });
   expect(form.uris).toBe("https://a.exemple.fr/cb\nhttp://localhost:3000/cb");
   expect(redirectRequestOf({ uris: `${form.uris}\n\n  https://b.exemple.fr/cb  ` })).toEqual(["https://a.exemple.fr/cb", "http://localhost:3000/cb", "https://b.exemple.fr/cb"]);
 });
 
-test("un nouveau jeton part en lecture seule, à l'échéance proposée", () => {
-  expect(emptyTokenForm(90)).toEqual({ name: "", scope: "read", days: 90 });
+test("un nouveau jeton part à l'échéance proposée", () => {
+  expect(emptyTokenForm(90)).toEqual({ name: "", days: 90 });
 });
 
 test("tokenRequestOf nomme l'échéance comme l'API", () => {
-  expect(tokenRequestOf({ name: "ci", scope: "write", days: 0 })).toEqual({ name: "ci", scope: "write", expires_in_days: 0 });
+  expect(tokenRequestOf({ name: "ci", days: 0 })).toEqual({ name: "ci", expires_in_days: 0 });
 });
