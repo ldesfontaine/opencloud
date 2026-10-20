@@ -104,7 +104,7 @@ func (db *DB) SetApplyProgress(ctx context.Context, id string, done int) error {
 	if err != nil {
 		return fmt.Errorf("set apply progress: %w", err)
 	}
-	return applyNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, manifest.ErrApplyNotFound)
 }
 
 // FinishApply ferme la ligne : l'état final, la date, le compte et l'arrêt.
@@ -115,18 +115,7 @@ func (db *DB) FinishApply(ctx context.Context, id string, end manifest.ApplyEnd)
 	if err != nil {
 		return fmt.Errorf("finish apply: %w", err)
 	}
-	return applyNotFoundIfNoRow(result)
-}
-
-func applyNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return manifest.ErrApplyNotFound
-	}
-	return nil
+	return notFoundIfNoRow(result, manifest.ErrApplyNotFound)
 }
 
 const applyColumns = `id, at, finished_at, actor_kind, actor_name, file_hash, file_name, prune, plan_hash, state,
@@ -138,16 +127,8 @@ func (db *DB) ListApplies(ctx context.Context, limit int) ([]manifest.Apply, err
 	if err != nil {
 		return nil, fmt.Errorf("list applies: %w", err)
 	}
-	defer rows.Close()
-	applies := []manifest.Apply{}
-	for rows.Next() {
-		apply, err := scanApply(rows)
-		if err != nil {
-			return nil, err
-		}
-		applies = append(applies, apply)
-	}
-	return applies, rows.Err()
+	// scanApply accepte des colonnes en plus, que la liste n'a pas.
+	return collect(rows, func(row scanner) (manifest.Apply, error) { return scanApply(row) })
 }
 
 // GetApply rend un passage avec son plan.

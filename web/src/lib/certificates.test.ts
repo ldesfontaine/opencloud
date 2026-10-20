@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { Certificate, CertificateThresholds } from "../api/types";
-import { daysUntil, read, soonest } from "./certificates";
+import type { Certificate } from "../api/probes";
+import type { CertificateThresholds } from "../api/session";
+import type { Translate } from "../i18n/context";
+import { certificateNote, daysUntil, read, soonest } from "./certificates";
 
 const now = Date.parse("2026-09-20T12:00:00Z");
 const thresholds: CertificateThresholds = { warning: 30, danger: 7 };
@@ -108,5 +110,29 @@ describe("read, sur un certificat expiré", () => {
 
   it("garde le nom qui ne correspond pas, lui, même passée l'échéance", () => {
     expect(read(certificate(inDays(-3), { chain_valid: false, hostname_match: false }), thresholds, now).untrusted).toBe(true);
+  });
+});
+
+describe("certificateNote", () => {
+  const t: Translate = (key, ...args) => [key, ...args].join(":");
+
+  it("dit l'âge du certificat quand tout se vérifie", () => {
+    const valid = certificate(inDays(84));
+    expect(certificateNote(t, valid, read(valid, thresholds, now), now)).toBe("cert.note_issued:time.days:90");
+  });
+
+  it("dit d'abord la révocation, avant toute autre raison", () => {
+    const revoked = certificate(inDays(84), { ocsp: "revoked", chain_valid: false, hostname_match: false });
+    expect(certificateNote(t, revoked, read(revoked, thresholds, now), now)).toBe("cert.note_revoked");
+  });
+
+  it("dit la chaîne non vérifiable avant le mauvais nom", () => {
+    const untrusted = certificate(inDays(84), { chain_valid: false, hostname_match: false });
+    expect(certificateNote(t, untrusted, read(untrusted, thresholds, now), now)).toBe("cert.note_untrusted");
+  });
+
+  it("dit le mauvais nom quand la chaîne est bonne", () => {
+    const wrongName = certificate(inDays(84), { hostname_match: false });
+    expect(certificateNote(t, wrongName, read(wrongName, thresholds, now), now)).toBe("cert.note_wrong_name");
   });
 });

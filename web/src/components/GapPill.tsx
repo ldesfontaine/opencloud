@@ -1,4 +1,4 @@
-import type { GapState } from "../api/types";
+import type { GapState } from "../api/directory";
 import { useT } from "../i18n/context";
 import { gapTone } from "../lib/gaps";
 import { Pill } from "./Pill";

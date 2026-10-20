@@ -347,7 +347,7 @@ func TestAPI_SetLanguage_SavesAndRefusesUnknown(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPut, "/api/session/language", languageRequest{Language: "en"}); got.Code != http.StatusNoContent {
 		t.Fatalf("status %d: %s", got.Code, got.Body.String())
 	}
-	saved, err := server.settings.LoadSettings(context.Background())
+	saved, err := server.db.LoadSettings(context.Background())
 	if err != nil || saved.Language != "en" {
 		t.Fatalf("saved %+v %v", saved, err)
 	}
@@ -390,7 +390,7 @@ func TestAPI_Writes_RequireTheSameOrigin(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("cross-site read: %d", recorder.Code)
 	}
-	if saved, _ := server.settings.LoadSettings(context.Background()); saved.Language == "en" {
+	if saved, _ := server.db.LoadSettings(context.Background()); saved.Language == "en" {
 		t.Fatal("a refused write must not be applied")
 	}
 }

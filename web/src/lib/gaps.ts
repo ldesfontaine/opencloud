@@ -1,5 +1,5 @@
-import type { ContainerDirectory, GapsResponse, GapState, LabelProblem, ServiceGap, UndeclaredGroup } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { ContainerDirectory, GapsResponse, GapState, IgnoreKey, LabelProblem, ServiceGap, UndeclaredGroup } from "../api/directory";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
 // La teinte de l'écart : conforme se tait, un conteneur qui diverge ou qui
@@ -16,20 +16,6 @@ export function gapTone(state: GapState): Tone {
     case "unobserved":
       return "neutral";
   }
-}
-
-// Le filtre passe dans le chemin : changer de machine ou de projet relit
-// l'écart, que le serveur calcule pour ce filtre.
-export function gapsPath(machineID: string, projectID: string): string {
-  const query = new URLSearchParams();
-  if (machineID !== "") {
-    query.set("machine", machineID);
-  }
-  if (projectID !== "") {
-    query.set("project", projectID);
-  }
-  const text = query.toString();
-  return text === "" ? "/api/directory/gaps" : `/api/directory/gaps?${text}`;
 }
 
 // L'écart de chaque service déclaré, par identifiant, pour le tableau.
@@ -69,10 +55,6 @@ export function adoptionTarget(group: UndeclaredGroup): string {
   return group.containers.find((container) => container.label_service === "" && container.label_unit === "")?.id ?? "";
 }
 
-// Le fichier de l'annuaire avec, en plus, ce que les conteneurs non déclarés
-// laissent deviner.
-export const proposedExportPath = "/api/manifest/export?propose=1";
-
 // Il y a de quoi proposer dès qu'un groupe que l'opérateur n'ignore pas est
 // adoptable : c'est la règle de l'export du serveur.
 export function hasProposals(groups: readonly UndeclaredGroup[]): boolean {
@@ -104,12 +86,7 @@ export function isOrphan(directory: Pick<ContainerDirectory, "label_problem"> | 
   return directory !== null && directory.label_problem !== "";
 }
 
-// La requête d'ignorance : la clé d'observation, pas un id Docker.
-export function ignoreBody(group: UndeclaredGroup) {
+// La clé d'observation d'un groupe, ce qu'on ignore ou cesse d'ignorer.
+export function ignoreKeyOf(group: UndeclaredGroup): IgnoreKey {
   return { machine_id: group.machine_id, kind: group.key_kind, value: group.key_value };
-}
-
-export function unignorePath(group: UndeclaredGroup): string {
-  const query = new URLSearchParams({ machine: group.machine_id, kind: group.key_kind, value: group.key_value });
-  return `/api/directory/ignored?${query.toString()}`;
 }

@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/ldesfontaine/opencloud/internal/mcp"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Le serveur OAuth 2.1 que les clients MCP attendent : les métadonnées de
@@ -46,7 +47,7 @@ type grantResponse struct {
 
 func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimits.allow(s.clientAddress(r)) {
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return
 	}
 	if !s.mcpEnabled(w, r) {
@@ -66,7 +67,7 @@ func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimits.allow(s.clientAddress(r)) {
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return
 	}
 	if !s.mcpEnabled(w, r) {
@@ -85,7 +86,7 @@ func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 // pour dire une erreur ; refusé, la réponse est un 400 sans redirect.
 func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimits.allow(s.clientAddress(r)) {
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return
 	}
 	if !s.mcpEnabled(w, r) {
@@ -156,7 +157,7 @@ func (s *Server) redirectWith(w http.ResponseWriter, r *http.Request, redirectUR
 // l'en-tête Basic, les deux façons que les clients pratiquent.
 func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimits.allowToken(s.clientAddress(r)) {
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return
 	}
 	if !s.mcpEnabled(w, r) {

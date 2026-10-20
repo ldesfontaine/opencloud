@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"log/slog"
 	"os"
 	"strings"
@@ -24,15 +23,16 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/seal"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 // L'horloge figée des tests : « vu il y a » se calcule depuis elle.
-var testNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+var testNow = servertest.Now()
 
 type testServer struct {
 	*Server
@@ -59,28 +59,13 @@ type testServer struct {
 // SQLite temporaire, avec la machine openCloud déjà en place.
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
+	root, db := storetest.OpenWithStateDir(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
 	machines.SetWatcher(bus)
-	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{
-		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
 	heartbeats := heartbeat.New(db, logger)
 	heartbeats.SetClock(func() time.Time { return testNow })
 	heartbeats.SetWatcher(bus)
@@ -108,16 +93,17 @@ func newTestServer(t *testing.T) *testServer {
 	// test démarre avec le réglage coupé, et les tests qui le regardent
 	// l'activent. Qu'il soit activé sur une installation neuve se vérifie
 	// dans le paquet store.
-	if _, err := db.UpdateSettings(context.Background(), func(current *settings.Settings) { current.LifecycleDisabled = true }); err != nil {
+	preferences := settings.New(db, logger)
+	if _, err := preferences.SetLifecycleEnabled(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	support := newSupportSource()
-	lifecycles := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(root), support, lifecycleSetting(db), logger)
+	lifecycles := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(root), support, preferences.CurrentLifecycleEnabled, logger)
 	lifecycles.SetClock(func() time.Time { return testNow })
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
 	publicBus := live.New()
-	statusPage := status.New(db, machines, db, logger)
+	statusPage := status.New(db, machines, preferences, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
@@ -149,7 +135,7 @@ func newTestServer(t *testing.T) *testServer {
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
-		Settings:   db,
+		Settings:   preferences,
 		Machines:   machines,
 		Heartbeats: heartbeats,
 		Resources:  resources,
@@ -185,26 +171,11 @@ func newTestServer(t *testing.T) *testServer {
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
 func (ts *testServer) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
-	cleartext, _, err := ts.machines.CreateToken(context.Background(), name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enrolled, err := ts.machines.Enroll(context.Background(), machine.Enrollment{
-		MachineID: id, PublicKey: public, Token: cleartext,
-		Hostname: name, Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return enrolled, private
+	return storetest.EnrollMachineWithKey(t, ts.machines, id, name)
 }
 
 // L'identifiant de la machine distante des tests, fixe pour des rendus figés.
-const remoteID = "11111111-2222-4333-8444-555555555555"
+const remoteID = servertest.RemoteID
 
 // L'arbre des routes est figé dans testdata/routes.txt : le modifier est
 // une décision, pas un effet de bord.

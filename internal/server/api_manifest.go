@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 const manifestFileName = brand.ID + ".yaml"
@@ -203,7 +204,7 @@ func (s *Server) planToJSON(ctx context.Context, plan manifest.Plan) (planJSON, 
 			Create: created, Update: updated, Delete: deleted, Unchanged: plan.Unchanged, Unmanaged: len(plan.Unmanaged),
 		},
 		Changes:   changesToJSON(plan.Changes),
-		Unmanaged: convertAll(plan.Unmanaged, func(ref manifest.Ref) refJSON { return refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name} }),
+		Unmanaged: httpx.ConvertAll(plan.Unmanaged, func(ref manifest.Ref) refJSON { return refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name} }),
 		Problems:  make([]problemJSON, 0, len(plan.Problems)),
 	}
 	for _, problem := range plan.Problems {
@@ -221,7 +222,7 @@ func applyToJSON(found manifest.Apply, withChanges bool) applyJSON {
 		State:   string(found.State),
 		Summary: applySummaryJSON{Create: found.Created, Update: found.Updated, Delete: found.Deleted, Unchanged: found.Unchanged},
 		Done:    found.Done, Error: found.Error, ErrorObject: found.ErrorObject,
-		FinishedAt: timeOrNil(found.FinishedAt),
+		FinishedAt: httpx.TimeOrNil(found.FinishedAt),
 	}
 	if withChanges {
 		response.Changes = changesToJSON(found.Changes)
@@ -356,7 +357,7 @@ func (s *Server) listApplies(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := appliesResponse{Applies: convertAll(found, func(item manifest.Apply) applyJSON { return applyToJSON(item, false) })}
+	response := appliesResponse{Applies: httpx.ConvertAll(found, func(item manifest.Apply) applyJSON { return applyToJSON(item, false) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

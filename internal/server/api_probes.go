@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 const (
@@ -145,7 +146,7 @@ func probeToJSON(found probe.Probe, online bool) probeJSON {
 		ExpectedBody:       found.ExpectedBody,
 		FollowRedirects:    found.FollowRedirects,
 		TLS:                found.TLS,
-		LastCheckedAt:      timeOrNil(found.LastCheckedAt),
+		LastCheckedAt:      httpx.TimeOrNil(found.LastCheckedAt),
 		LastDurationMs:     found.LastDurationMs,
 		LastCode:           found.LastCode,
 		LastReason:         string(found.LastReason),
@@ -291,11 +292,11 @@ func (s *Server) probeResponseOf(ctx context.Context, found probe.Probe) (probeR
 	}
 	response := probeResponse{
 		Probe: probeToJSON(found, online[found.MachineID]),
-		Uptime: convertAll(uptimes, func(uptime probe.Uptime) uptimeJSON {
+		Uptime: httpx.ConvertAll(uptimes, func(uptime probe.Uptime) uptimeJSON {
 			return uptimeJSON{Window: uptime.Window, Total: uptime.Total, Success: uptime.Success}
 		}),
-		Days:    convertAll(days, dayToJSON),
-		Results: convertAll(results, resultToJSON),
+		Days:    httpx.ConvertAll(days, dayToJSON),
+		Results: httpx.ConvertAll(results, resultToJSON),
 	}
 	return response, nil
 }

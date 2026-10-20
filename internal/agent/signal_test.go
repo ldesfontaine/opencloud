@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -21,7 +21,7 @@ import (
 func answeringServer(t *testing.T, status int, body string) *Client {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(machine.HeaderSignalSections) == "" {
+		if r.Header.Get(agentwire.HeaderSignalSections) == "" {
 			t.Error("l'agent doit annoncer qu'il lit un refus par section")
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -49,10 +49,10 @@ func filledPending() *pending {
 // leftover dit quelles sections sont restées dans le tampon.
 func leftover(left *pending) map[string]bool {
 	return map[string]bool{
-		machine.SectionReadings: len(left.readings.take(10)) > 0,
-		machine.SectionServices: left.reports.take() != nil,
-		machine.SectionProbes:   left.results.take() != nil,
-		machine.SectionImages:   left.images.take() != nil,
+		agentwire.SectionReadings: len(left.readings.take(10)) > 0,
+		agentwire.SectionServices: left.reports.take() != nil,
+		agentwire.SectionProbes:   left.results.take() != nil,
+		agentwire.SectionImages:   left.images.take() != nil,
 	}
 }
 
@@ -75,7 +75,7 @@ func TestSignal_OlderServerRefusesASection_OnlyWhatFollowsIsReplayed(t *testing.
 	if err := signal(context.Background(), client, "session", left, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{machine.SectionReadings: false, machine.SectionServices: false, machine.SectionProbes: true, machine.SectionImages: true}
+	want := map[string]bool{agentwire.SectionReadings: false, agentwire.SectionServices: false, agentwire.SectionProbes: true, agentwire.SectionImages: true}
 	if got := leftover(left); !maps.Equal(got, want) {
 		t.Fatalf("tampon = %v, attendu %v", got, want)
 	}

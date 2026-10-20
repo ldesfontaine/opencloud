@@ -8,9 +8,8 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
-	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // L'ancien fichier, tel qu'une installation d'avant la base l'a écrit.
@@ -29,22 +28,6 @@ mail_from = "oc@example.org"
 lifecycle_disabled = true
 `
 
-func openStateDir(t *testing.T) (*os.Root, *store.DB) {
-	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
-	return root, db
-}
-
 func assertNoLegacyFile(t *testing.T, root *os.Root) {
 	t.Helper()
 	if _, err := root.Stat("settings.toml"); !errors.Is(err, fs.ErrNotExist) {
@@ -53,7 +36,7 @@ func assertNoLegacyFile(t *testing.T, root *os.Root) {
 }
 
 func TestImportLegacyFile_MovesEveryKeyIntoTheDatabase_ThenRemovesTheFile(t *testing.T) {
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	if err := root.WriteFile("settings.toml", []byte(legacyFile), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +62,7 @@ func TestImportLegacyFile_MovesEveryKeyIntoTheDatabase_ThenRemovesTheFile(t *tes
 }
 
 func TestImportLegacyFile_NoFile_ChangesNothing(t *testing.T) {
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	outcome, err := settings.ImportLegacyFile(context.Background(), root, db)
 	if err != nil || outcome != settings.NoLegacyFile {
 		t.Fatalf("outcome %v, %v", outcome, err)
@@ -93,7 +76,7 @@ func TestImportLegacyFile_NoFile_ChangesNothing(t *testing.T) {
 // Un démarrage interrompu entre la reprise et l'effacement : au suivant, la
 // base l'emporte et le fichier part, sans écraser ce qui a été réglé depuis.
 func TestImportLegacyFile_DatabaseAlreadySet_Wins(t *testing.T) {
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	ctx := context.Background()
 	if _, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.Language = lang.French }); err != nil {
 		t.Fatal(err)
@@ -118,7 +101,7 @@ func TestImportLegacyFile_DatabaseAlreadySet_Wins(t *testing.T) {
 // Un fichier illisible arrête la reprise et reste en place : l'opérateur le
 // corrige, rien n'est perdu.
 func TestImportLegacyFile_BadFile_IsAnError_AndStays(t *testing.T) {
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	if err := root.WriteFile("settings.toml", []byte("language = \n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +120,7 @@ func TestImportLegacyFile_BadFile_IsAnError_AndStays(t *testing.T) {
 // Le temporaire d'une écriture interrompue de l'ancien code porte aussi le
 // mot de passe du relais : il part avec le fichier.
 func TestImportLegacyFile_RemovesALeftoverTempFile(t *testing.T) {
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	for _, name := range []string{"settings.toml", "settings.toml.tmp"} {
 		if err := root.WriteFile(name, []byte(legacyFile), 0o600); err != nil {
 			t.Fatal(err)
@@ -158,7 +141,7 @@ func TestImportLegacyFile_FileThatCannotBeRemoved_KeepsTheImport(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignore les droits du dossier")
 	}
-	root, db := openStateDir(t)
+	root, db := storetest.OpenWithStateDir(t)
 	if err := root.WriteFile("settings.toml", []byte(legacyFile), 0o600); err != nil {
 		t.Fatal(err)
 	}

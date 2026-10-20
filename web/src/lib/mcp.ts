@@ -1,4 +1,4 @@
-import type { MCPScope } from "../api/types";
+import type { MCPScope, MCPState, MCPTokenRequest } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -9,6 +9,20 @@ export function redirectLines(text: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
+}
+
+// Les adresses de retour telles que la zone de texte les montre : une par
+// ligne. Le serveur reçoit la liste nettoyée (redirectLines).
+export interface RedirectFormValues {
+  uris: string;
+}
+
+export function redirectFormOf(state: Pick<MCPState, "redirect_uris">): RedirectFormValues {
+  return { uris: state.redirect_uris.join("\n") };
+}
+
+export function redirectRequestOf(values: RedirectFormValues): string[] {
+  return redirectLines(values.uris);
 }
 
 // « Un accès vaut 1 h, renouvelé jusqu'à 30 j » : les durées viennent du
@@ -34,4 +48,20 @@ export function lifetimeLabel(t: Translate, days: number): string {
 // L'échéance d'un jeton dans la liste : sa date, ou « jamais ».
 export function expiryLabel(t: Translate, expiresAt: string | null, formatDate: (iso: string) => string): string {
   return expiresAt === null ? t("mcp.expires_never") : formatDate(expiresAt);
+}
+
+// Le formulaire d'un jeton d'API : son nom, sa portée, son échéance en jours.
+export interface TokenFormValues {
+  name: string;
+  scope: MCPScope;
+  days: number;
+}
+
+// La portée part en lecture seule, l'échéance à celle que le serveur propose.
+export function emptyTokenForm(defaultDays: number): TokenFormValues {
+  return { name: "", scope: "read", days: defaultDays };
+}
+
+export function tokenRequestOf(values: TokenFormValues): MCPTokenRequest {
+  return { name: values.name, scope: values.scope, expires_in_days: values.days };
 }

@@ -1,5 +1,4 @@
-import { ApiError } from "../api/client";
-import type { Capability, DeclaredService, Nature, Origin, ProposalResponse, ServiceLinks, ServiceUnit, UpdatePolicy } from "../api/types";
+import type { Capability, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -69,7 +68,7 @@ export function unitFormOf(unit: ServiceUnit): UnitFormValues {
     digest: unit.digest,
     containerName: unit.container_name,
     systemdUnit: unit.systemd_unit,
-    ports: formatPorts(unit.ports),
+    ports: formatUnitPorts(unit.ports),
     updatePolicy: unit.update_policy,
   };
 }
@@ -112,7 +111,7 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
       digest: unit.digest,
       containerName: unit.container_name,
       systemdUnit: unit.systemd_unit,
-      ports: formatPorts(unit.ports),
+      ports: formatUnitPorts(unit.ports),
       // Une unité ajoutée par la proposition n'en porte pas : elle se suit.
       updatePolicy: unit.update_policy ?? "watch",
     })),
@@ -120,19 +119,67 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
   };
 }
 
+// Les valeurs dont part le formulaire d'un service, ou null tant qu'il faut
+// attendre. En édition : le service tel qu'il est gardé, ou la proposition
+// d'adoption quand elle le vise (elle y ajoute les unités qui manquent), une
+// fois la proposition arrivée ou refusée. En création : la proposition, si
+// elle déclare un service neuf ; une proposition qui vise un service déjà
+// déclaré redirige vers son édition, la page s'en charge.
+export function serviceFormStart(
+  editedID: string | undefined,
+  service: DeclaredService | null,
+  proposal: ProposalResponse | null,
+  awaitingProposal: boolean,
+): ServiceFormValues | null {
+  if (editedID !== undefined) {
+    if (service === null || awaitingProposal) {
+      return null;
+    }
+    // Une proposition pour un autre service n'est pas la nôtre : le service
+    // tel qu'il est gardé fait foi.
+    if (proposal !== null && proposal.service_id === editedID) {
+      return serviceFormOfDefinition(proposal.definition);
+    }
+    return serviceFormOf(service);
+  }
+  if (proposal === null || proposal.service_id !== "") {
+    return null;
+  }
+  return serviceFormOfDefinition(proposal.definition);
+}
+
 export function parsePorts(text: string): string[] {
   return text.split(/[\s,]+/).filter((port) => port !== "");
 }
 
-export function formatPorts(ports: readonly string[]): string {
+export function formatUnitPorts(ports: readonly string[]): string {
   return ports.join(", ");
+}
+
+// Le formulaire d'un projet est aussi le corps de sa création comme de son
+// édition : un nom et un titre, rien de ce que le serveur tient seul.
+export interface ProjectFormValues {
+  name: string;
+  title: string;
+}
+
+export const emptyProjectForm: ProjectFormValues = { name: "", title: "" };
+
+export function projectFormOf(project: Project): ProjectFormValues {
+  return { name: project.name, title: project.title };
+}
+
+// Un nom de projet par identifiant, pour dire à quels projets appartient
+// chaque service sans relire la liste ligne par ligne.
+export function projectNames(projects: Project[]): Map<string, string> {
+  return new Map(projects.map((project) => [project.id, project.name]));
 }
 
 // Le corps de la création comme de l'édition : le serveur remplace la
 // définition entière et refuse ce qui n'a pas d'objet pour l'origine. Le
 // formulaire garde ce que l'opérateur a tapé en changeant d'origine ; la
 // requête, elle, ne porte que ce qui compte.
-export function serviceRequestOf(values: ServiceFormValues) {
+export function serviceRequestOf(values: ServiceFormValues): ServiceRequest {
   const isCompose = values.origin === "compose";
   const isContainer = values.origin === "container";
   const isBinary = values.origin === "binary";
@@ -188,15 +235,6 @@ export function projectsSubtitle(t: Translate, count: number): string {
     return t("project.subtitle_none");
   }
   return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
-}
-
-// Ce que le serveur dit lier un service qu'on voulait supprimer : la liste
-// vient du corps du refus 409, pas d'une clé du catalogue.
-export function linksOfRefusal(error: unknown): ServiceLinks | null {
-  if (!(error instanceof ApiError) || error.status !== 409 || typeof error.payload !== "object" || error.payload === null || !("links" in error.payload)) {
-    return null;
-  }
-  return error.payload.links as ServiceLinks;
 }
 
 export function hasLinks(links: ServiceLinks): boolean {

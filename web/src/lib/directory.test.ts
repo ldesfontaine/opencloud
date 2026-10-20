@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import type { DeclaredService, ProposalResponse } from "../api/types";
-import { ApiError } from "../api/client";
-import { emptyServiceForm, formatPorts, hasLinks, linksOfRefusal, parsePorts, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
+import {
+  emptyServiceForm,
+  formatUnitPorts,
+  hasLinks,
+  parsePorts,
+  projectFormOf,
+  projectNames,
+  serviceFormOf,
+  serviceFormOfDefinition,
+  serviceFormStart,
+  serviceRequestOf,
+  toggled,
+  unitKeyOf,
+} from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -35,7 +47,38 @@ describe("parsePorts", () => {
   });
 
   it("se relit tel qu'il s'est écrit", () => {
-    expect(parsePorts(formatPorts(["8080:80", "53/udp"]))).toEqual(["8080:80", "53/udp"]);
+    expect(parsePorts(formatUnitPorts(["8080:80", "53/udp"]))).toEqual(["8080:80", "53/udp"]);
+  });
+});
+
+describe("formatUnitPorts", () => {
+  it("écrit les ports d'une unité sur une ligne, séparés par des virgules", () => {
+    expect(formatUnitPorts(["80", "8080:80", "53/udp"])).toBe("80, 8080:80, 53/udp");
+    expect(formatUnitPorts([])).toBe("");
+  });
+});
+
+describe("projectNames", () => {
+  it("donne le nom de chaque projet par son identifiant", () => {
+    const projects = [
+      { id: "prj_1", name: "cloud", title: "Cloud", service_ids: [], created_at: "", updated_at: "" },
+      { id: "prj_2", name: "mail", title: "Courrier", service_ids: [], created_at: "", updated_at: "" },
+    ] satisfies Project[];
+    const names = projectNames(projects);
+    expect(names.get("prj_1")).toBe("cloud");
+    expect(names.get("prj_2")).toBe("mail");
+    expect(names.get("prj_3")).toBeUndefined();
+  });
+
+  it("ne rend rien sans projet", () => {
+    expect(projectNames([]).size).toBe(0);
+  });
+});
+
+describe("projectFormOf", () => {
+  it("ne garde que le nom et le titre : le reste, le serveur le tient", () => {
+    const project = { id: "prj_1", name: "cloud", title: "Cloud", service_ids: ["svc_1"], created_at: "2026-10-18T09:00:00Z", updated_at: "2026-10-18T09:00:00Z" } satisfies Project;
+    expect(projectFormOf(project)).toEqual({ name: "cloud", title: "Cloud" });
   });
 });
 
@@ -151,6 +194,48 @@ describe("serviceFormOfDefinition", () => {
   });
 });
 
+describe("serviceFormStart", () => {
+  // Ce que le serveur propose pour un conteneur : un service neuf (sans
+  // identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
+  function proposal(serviceID: string): ProposalResponse {
+    return {
+      service_id: serviceID,
+      definition: {
+        machine_id: "m2",
+        name: "nextcloud",
+        title: "",
+        nature: "application",
+        origin: "compose",
+        compose_project: "nextcloud",
+        public_url: "",
+        provides: [],
+        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] }],
+        project_ids: [],
+      },
+    };
+  }
+
+  it("attend le service à modifier, et la proposition tant qu'elle n'est ni arrivée ni refusée", () => {
+    expect(serviceFormStart("svc_1", null, null, false)).toBeNull();
+    expect(serviceFormStart("svc_1", nextcloud(), null, true)).toBeNull();
+  });
+
+  it("part du service gardé sans proposition, ou quand elle en vise un autre", () => {
+    expect(serviceFormStart("svc_1", nextcloud(), null, false)?.machineID).toBe("m1");
+    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_9"), false)?.machineID).toBe("m1");
+  });
+
+  it("part de la proposition quand elle vise le service modifié", () => {
+    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_1"), false)?.units.map((unit) => unit.name)).toEqual(["redis"]);
+  });
+
+  it("en création, part d'une proposition de service neuf, jamais de celle qui redirige", () => {
+    expect(serviceFormStart(undefined, null, null, true)).toBeNull();
+    expect(serviceFormStart(undefined, null, proposal("svc_1"), false)).toBeNull();
+    expect(serviceFormStart(undefined, null, proposal(""), false)?.machineID).toBe("m2");
+  });
+});
+
 describe("la politique de mise à jour d'une unité", () => {
   it("fait l'aller-retour entre le serveur et le formulaire", () => {
     const form = serviceFormOf(nextcloud());
@@ -166,21 +251,9 @@ describe("la politique de mise à jour d'une unité", () => {
   });
 });
 
-describe("linksOfRefusal", () => {
-  const links = { probes: [{ id: "p1", name: "site" }], components: [] };
-
-  it("lit la liste du corps d'un 409", () => {
-    expect(linksOfRefusal(new ApiError(409, "directory.service_linked", { error: "directory.service_linked", links }))).toEqual(links);
-  });
-
-  it("ne dit rien d'un autre refus ni d'une autre erreur", () => {
-    expect(linksOfRefusal(new ApiError(422, "directory.name_invalid", { error: "directory.name_invalid" }))).toBeNull();
-    expect(linksOfRefusal(new ApiError(409, "directory.name_taken", { error: "directory.name_taken" }))).toBeNull();
-    expect(linksOfRefusal(new Error("x"))).toBeNull();
-  });
-
+describe("hasLinks", () => {
   it("dit si quelque chose lie le service", () => {
-    expect(hasLinks(links)).toBe(true);
+    expect(hasLinks({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
     expect(hasLinks({ probes: [], components: [] })).toBe(false);
   });
 });

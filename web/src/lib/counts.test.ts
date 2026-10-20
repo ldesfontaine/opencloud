@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 
-import type { Counts, JobsResponse, ProbesResponse, ContainersResponse, Session } from "../api/types";
+import type { ContainersResponse } from "../api/containers";
+import type { Counts } from "../api/counts";
+import type { JobsResponse } from "../api/jobs";
+import type { ProbesResponse } from "../api/probes";
+import type { Session } from "../api/session";
 import countsGolden from "../../../internal/server/testdata/counts.golden.json";
 import jobsGolden from "../../../internal/server/testdata/jobs.golden.json";
 import probesGolden from "../../../internal/server/testdata/probes.golden.json";
@@ -8,8 +12,8 @@ import containersGolden from "../../../internal/server/testdata/containers.golde
 import sessionGolden from "../../../internal/server/testdata/session.golden.json";
 import { read, soonest } from "./certificates";
 import { attentionStatuses } from "./jobs";
-import { needsAttention as probeNeedsAttention } from "./probes";
-import { needsAttention as containerNeedsAttention } from "./containers";
+import { probeNeedsAttention } from "./probes";
+import { containerNeedsAttention } from "./containers";
 import { updateAvailable } from "./updates";
 
 // Les compteurs de la barre latérale et de la vue d'ensemble viennent du

@@ -34,24 +34,23 @@ func (db *DB) LoadSettings(ctx context.Context) (settings.Settings, error) {
 // transaction : deux écrivains, même de deux processus, ne s'effacent pas
 // leurs clés. change ne touche que les siennes. Renvoie les réglages écrits.
 func (db *DB) UpdateSettings(ctx context.Context, change func(*settings.Settings)) (settings.Settings, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
+	var written settings.Settings
+	err := db.inTx(ctx, "settings update", func(tx *sql.Tx) error {
+		current, err := db.scanSettings(tx.QueryRowContext(ctx, settingsSelect))
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("load settings: %w", err)
+		}
+		change(&current)
+		if err := db.saveSettings(ctx, tx, current, time.Now()); err != nil {
+			return err
+		}
+		written = current
+		return nil
+	})
 	if err != nil {
-		return settings.Settings{}, fmt.Errorf("begin settings update: %w", err)
-	}
-	defer tx.Rollback()
-
-	current, err := db.scanSettings(tx.QueryRowContext(ctx, settingsSelect))
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return settings.Settings{}, fmt.Errorf("load settings: %w", err)
-	}
-	change(&current)
-	if err := db.saveSettings(ctx, tx, current, time.Now()); err != nil {
 		return settings.Settings{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return settings.Settings{}, fmt.Errorf("commit settings update: %w", err)
-	}
-	return current, nil
+	return written, nil
 }
 
 // ImportSettings écrit des réglages repris d'ailleurs, seulement si la base

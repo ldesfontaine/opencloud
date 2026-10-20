@@ -1,31 +1,16 @@
 import { useState } from "react";
 
-import type { Current, Disk, HistoryResponse, Reading, WindowName } from "../api/types";
+import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useI18n } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
-import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, percentOf, rateQuantity } from "../lib/units";
+import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, meterTone, percentOf, rateQuantity } from "../lib/units";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Meter, Stat } from "./Card";
 import { Chart, type ChartSeries } from "./Chart";
 import { Dot } from "./Pill";
 import "./Resources.scss";
-
-// Une jauge passe en attention à 85 %, en danger à 95 % : le seuil de la
-// planche « Machine ». Le disque prend les seuils réglés de son alerte.
-const defaultThresholds = { attention: 85, danger: 95 };
-
-export function meterTone(percent: number, thresholds = defaultThresholds): "ok" | "warn" | "danger" | undefined {
-  if (percent >= thresholds.danger) {
-    return "danger";
-  }
-  if (percent >= thresholds.attention) {
-    return "warn";
-  }
-  return undefined;
-}
 
 // Les quatre chiffres clés d'une machine : processeur, mémoire, disque,
 // réseau. Sans mesure fraîche, un tiret et la raison, jamais un zéro.
@@ -158,7 +143,7 @@ const windows: WindowName[] = ["1h", "24h", "7d", "30d", "90d"];
 export function ResourceHistory({ machineID }: { machineID: string }) {
   const { t, language } = useI18n();
   const [timeWindow, setTimeWindow] = useState<WindowName>("1h");
-  const history = useResource<HistoryResponse>(`/api/machines/${machineID}/resources/history?window=${timeWindow}`);
+  const history = useResourceHistory(machineID, timeWindow);
   const now = useNow(10_000);
   const data = history.data;
   const spanMs = (data?.span_seconds ?? 3600) * 1000;

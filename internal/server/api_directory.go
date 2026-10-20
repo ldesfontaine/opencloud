@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Un service déclaré tel que le front le lit : des faits, les listes
@@ -125,8 +126,8 @@ type projectRequest struct {
 }
 
 func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
-	provides := convertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
-	units := convertAll(found.Units, unitToJSON)
+	provides := httpx.ConvertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
+	units := httpx.ConvertAll(found.Units, unitToJSON)
 	return declaredServiceJSON{
 		ID:             found.ID,
 		MachineID:      found.MachineID,
@@ -167,7 +168,7 @@ func linksToJSON(links directory.Links) linksJSON {
 }
 
 func linkedObjectsToJSON(objects []directory.LinkedObject) []linkedObjectJSON {
-	return convertAll(objects, func(object directory.LinkedObject) linkedObjectJSON {
+	return httpx.ConvertAll(objects, func(object directory.LinkedObject) linkedObjectJSON {
 		return linkedObjectJSON{ID: object.ID, Name: object.Name}
 	})
 }
@@ -184,7 +185,7 @@ func projectToJSON(found directory.Project) projectJSON {
 }
 
 func declaredServiceDefinition(request declaredServiceRequest) directory.ServiceDefinition {
-	provides := convertAll(request.Provides, func(capability string) directory.Capability { return directory.Capability(capability) })
+	provides := httpx.ConvertAll(request.Provides, func(capability string) directory.Capability { return directory.Capability(capability) })
 	units := make([]directory.UnitDefinition, 0, len(request.Units))
 	for _, unit := range request.Units {
 		units = append(units, directory.UnitDefinition{
@@ -219,7 +220,7 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := declaredServicesResponse{Services: convertAll(found, declaredServiceToJSON)}
+	response := declaredServicesResponse{Services: httpx.ConvertAll(found, declaredServiceToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -309,7 +310,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := projectsResponse{Projects: convertAll(found, projectToJSON)}
+	response := projectsResponse{Projects: httpx.ConvertAll(found, projectToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

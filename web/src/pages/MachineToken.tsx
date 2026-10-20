@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 
-import type { TokenResponse } from "../api/types";
+import type { TokenResponse } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card, CardBody, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";

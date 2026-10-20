@@ -114,6 +114,8 @@ func runServe(args []string) error {
 	if err := importLegacySettings(ctx, stateDir, db, logger); err != nil {
 		return err
 	}
+	// Les réglages de l'opérateur : relus dans la base à chaque usage.
+	preferences := settings.New(db, logger)
 
 	// Le bus du direct : machine et heartbeat y publient, les onglets y lisent.
 	bus := live.New()
@@ -168,7 +170,7 @@ func runServe(args []string) error {
 	// La page de statut publique : elle écoute le bus interne pour relire,
 	// et publie sur les deux bus quand quelque chose de visible change.
 	publicBus := live.New()
-	statusPage := status.New(db, machines, db, logger)
+	statusPage := status.New(db, machines, preferences, logger)
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
 	statusPage.SetFeed(bus)
@@ -182,10 +184,10 @@ func runServe(args []string) error {
 	alerts := alert.New(db, logger)
 	alerts.SetWatcher(bus)
 	alerts.SetMaintenance(statusPage)
-	alerts.SetDiskThresholds(diskThresholdsOf(db, logger))
-	notifier := alert.NewNotifier(db, catalogs, languageOf(db), logger)
+	alerts.SetDiskThresholds(preferences.CurrentDiskThresholds)
+	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
 	notifier.SetPublicURL(cfg.PublicURL)
-	notifier.SetMail(mailRelayOf(db), mail.NewSender(alert.MailTimeout))
+	notifier.SetMail(preferences.CurrentMailRelay, mail.NewSender(alert.MailTimeout))
 	alerts.SetSender(notifier)
 	machines.SetAlerter(alerts)
 	heartbeats.SetAlerter(alerts)
@@ -205,7 +207,7 @@ func runServe(args []string) error {
 	// Paramètres. Cette machine lit endoflife.date une fois par jour, deux
 	// au plus, pour les produits des images présentes et les systèmes des
 	// machines.
-	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
+	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), preferences.CurrentLifecycleEnabled, logger)
 	support.SetWatcher(bus)
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
@@ -260,7 +262,7 @@ func runServe(args []string) error {
 	server, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
-		Settings:       db,
+		Settings:       preferences,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,
@@ -322,67 +324,6 @@ func importLegacySettings(ctx context.Context, stateDir *os.Root, db *store.DB, 
 		logger.Warn("legacy settings file removed without applying it, the database already had settings", "file", "settings.toml")
 	}
 	return nil
-}
-
-// Ce que les relectures attendent de la base : les réglages courants. Les
-// relectures ci-dessous servent des composants qui demandent une simple
-// fonction ; elles ne suivent pas l'arrêt du processus, pour qu'une alerte
-// partie pendant l'arrêt garde sa langue et son relais.
-type settingsReader interface {
-	LoadSettings(ctx context.Context) (settings.Settings, error)
-}
-
-// languageOf relit la langue de l'interface au moment d'envoyer : le
-// canal reçoit ce que l'opérateur lit.
-func languageOf(preferences settingsReader) func() lang.Code {
-	return func() lang.Code {
-		current, err := preferences.LoadSettings(context.Background())
-		if err != nil || current.Language == "" {
-			return lang.Default
-		}
-		return current.Language
-	}
-}
-
-// mailRelayOf relit le relais au moment d'envoyer : un réglage changé
-// sous Paramètres vaut dès l'alerte suivante. Une lecture en échec laisse
-// le relais vide, et l'envoi le dit par son motif.
-func mailRelayOf(preferences settingsReader) func() mail.Relay {
-	return func() mail.Relay {
-		current, err := preferences.LoadSettings(context.Background())
-		if err != nil {
-			return mail.Relay{}
-		}
-		return current.MailRelay()
-	}
-}
-
-// diskThresholdsOf relit les réglages à chaque appel : un seuil changé
-// sous Paramètres vaut à la lecture suivante. Une lecture en échec garde
-// l'alerte en marche, aux seuils par défaut.
-func diskThresholdsOf(preferences settingsReader, logger *slog.Logger) func() alert.DiskThresholds {
-	return func() alert.DiskThresholds {
-		current, err := preferences.LoadSettings(context.Background())
-		if err != nil {
-			logger.Warn("read disk thresholds", "error", err)
-			return alert.DefaultDiskThresholds()
-		}
-		return alert.DiskThresholdsOr(current.DiskAttentionPercent, current.DiskDangerPercent)
-	}
-}
-
-// lifecycleEnabledOf relit les réglages à chaque appel : la fin de support
-// coupée ou rallumée sous Paramètres vaut aussitôt. Une lecture en échec la
-// laisse coupée : on ne sait pas si l'opérateur l'a coupée.
-func lifecycleEnabledOf(preferences settingsReader, logger *slog.Logger) func() bool {
-	return func() bool {
-		current, err := preferences.LoadSettings(context.Background())
-		if err != nil {
-			logger.Warn("read lifecycle setting", "error", err)
-			return false
-		}
-		return current.LifecycleEnabled()
-	}
 }
 
 // warnIfOpen dit au journal que l'interface n'est pas protégée, plus fort

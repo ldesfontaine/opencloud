@@ -1,4 +1,4 @@
-import type { Lifecycle } from "../api/types";
+import type { Lifecycle } from "../api/lifecycle";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { lifecycleText, lifecycleTones, newerLine, type Subject } from "../lib/lifecycle";

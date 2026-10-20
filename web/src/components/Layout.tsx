@@ -1,9 +1,9 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 
-import type { AuthState, Counts } from "../api/types";
+import { useAuth, type AuthState } from "../api/auth";
+import { useCounts, type Counts } from "../api/counts";
 import { useLive } from "../hooks/useLive";
-import { useResource } from "../hooks/useResource";
 import { useTheme } from "../hooks/useTheme";
 import { useI18n, useT } from "../i18n/context";
 import { accessLabel, isInterfaceOpen } from "../lib/auth";
@@ -15,7 +15,7 @@ import "./Layout.scss";
 // bannière le rappelle tant que l'interface est ouverte.
 export function Layout() {
   useLive();
-  const access = useResource<AuthState>("/api/auth").data;
+  const access = useAuth().data;
   const drawer = useDrawer();
   return (
     <div className={drawer.open ? "app drawer-open" : "app"}>
@@ -162,7 +162,7 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
   const { t, language, languages, setLanguage } = useI18n();
   const theme = useTheme();
   const label = accessLabel(access);
-  const counts = useResource<Counts>("/api/counts").data;
+  const counts = useCounts().data;
   return (
     <aside className="side" id="side" inert={inert}>
       <Brand />

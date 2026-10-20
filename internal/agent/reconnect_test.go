@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/lang"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // fakeServer joue le serveur openCloud du point de vue de l'agent : défi,
@@ -34,7 +34,7 @@ func (f *fakeServer) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /agent/challenge", func(w http.ResponseWriter, r *http.Request) {
 		nonce := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
-		_ = json.NewEncoder(w).Encode(machine.ChallengeResponse{Nonce: nonce})
+		_ = json.NewEncoder(w).Encode(agentwire.ChallengeResponse{Nonce: nonce})
 	})
 	mux.HandleFunc("GET /agent/stream", f.stream)
 	mux.HandleFunc("POST /agent/signal", f.signal)

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -136,7 +137,7 @@ func TestAgentSignal_RecordsImageChecks(t *testing.T) {
 		Image: "nginx:1.27", CheckedAt: testNow.Add(-time.Minute), Outcome: update.OutcomeOK,
 		LocalDigest: "sha256:" + strings.Repeat("1", 64), RemoteDigest: "sha256:" + strings.Repeat("1", 64), NewerTag: "1.29",
 	}}}
-	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Images: &report}); got.Code != http.StatusNoContent {
+	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Images: &report}); got.Code != http.StatusNoContent {
 		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
 	checks, err := server.updates.Checks(context.Background(), remoteID)
@@ -149,7 +150,7 @@ func TestAgentSignal_RecordsImageChecks(t *testing.T) {
 		}
 	}
 	bad := update.Report{Results: []update.Result{{Image: "nginx:1.27", CheckedAt: testNow, Outcome: "maybe"}}}
-	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Images: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_images") {
+	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Images: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_images") {
 		t.Fatalf("bad report: %d %s", got.Code, got.Body.String())
 	}
 }

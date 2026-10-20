@@ -1,3 +1,6 @@
+// Ce que l'API rend, tel quel : des faits, des instants ISO en UTC, des
+// durées en secondes ou en millisecondes. Le formatage vit dans le front.
+
 // Le seul endroit qui parle à l'API : JSON, même origine, une erreur
 // typée qui porte le code du serveur. Ce code est une clé du catalogue
 // quand l'opérateur doit le lire.
@@ -73,6 +76,12 @@ export const api = {
   put: <T>(path: string, body?: unknown) => call<T>("PUT", path, body),
   delete: <T>(path: string) => call<T>("DELETE", path),
 };
+
+// Ce qui n'est pas un refus du serveur (réseau coupé, levée imprévue) se
+// dit comme une erreur interne.
+export function failureOf(error: unknown): ApiError {
+  return error instanceof ApiError ? error : new ApiError(0, "internal");
+}
 
 // La clé à afficher pour une erreur : celle du serveur si c'est un refus,
 // sinon le message générique.

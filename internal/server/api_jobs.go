@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 const (
@@ -85,9 +86,9 @@ func jobToJSON(found heartbeat.Heartbeat) jobJSON {
 		Status:          string(found.Status),
 		IntervalSeconds: int(found.Interval.Seconds()),
 		GraceSeconds:    int(found.Grace.Seconds()),
-		LastPingAt:      timeOrNil(found.LastPingAt),
-		NextDeadlineAt:  timeOrNil(found.NextDeadlineAt),
-		RunStartedAt:    timeOrNil(found.RunStartedAt),
+		LastPingAt:      httpx.TimeOrNil(found.LastPingAt),
+		NextDeadlineAt:  httpx.TimeOrNil(found.NextDeadlineAt),
+		RunStartedAt:    httpx.TimeOrNil(found.RunStartedAt),
 		LastExitCode:    found.LastExitCode,
 		LastDurationMs:  durationMs(found.LastDuration),
 		CreatedAt:       found.CreatedAt.UTC(),
@@ -105,8 +106,8 @@ func durationMs(d *time.Duration) *int64 {
 func runToJSON(run heartbeat.Run) runJSON {
 	return runJSON{
 		ID:          run.ID,
-		StartedAt:   timeOrNil(run.StartedAt),
-		CompletedAt: timeOrNil(run.CompletedAt),
+		StartedAt:   httpx.TimeOrNil(run.StartedAt),
+		CompletedAt: httpx.TimeOrNil(run.CompletedAt),
 		DurationMs:  durationMs(run.Duration),
 		ExitCode:    run.ExitCode,
 		Outcome:     string(run.Outcome),
@@ -130,7 +131,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := jobsResponse{Jobs: convertAll(heartbeats, jobToJSON)}
+	response := jobsResponse{Jobs: httpx.ConvertAll(heartbeats, jobToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -193,8 +194,8 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		PingURL:  pingURL,
 		URLLocal: isLocal,
 		Snippets: snippets(pingURL),
-		Runs:     convertAll(runs, runToJSON),
-		Pings:    convertAll(pings, pingToJSON),
+		Runs:     httpx.ConvertAll(runs, runToJSON),
+		Pings:    httpx.ConvertAll(pings, pingToJSON),
 	}
 	s.writeAPI(w, http.StatusOK, response)
 }

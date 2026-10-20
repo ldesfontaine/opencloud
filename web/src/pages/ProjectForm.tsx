@@ -1,17 +1,15 @@
-import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { DeclaredServicesResponse, Project } from "../api/types";
-import { Button } from "../components/Button";
+import { deleteProject, saveProject, useProject, useProjectServices, type Project } from "../api/directory";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useT, type Translate } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { emptyProjectForm, projectFormOf } from "../lib/directory";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier un projet : un nom et un titre. L'appartenance des
@@ -22,55 +20,33 @@ export function ProjectForm() {
   const isEditing = id !== undefined;
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const existing = useResource<Project>(isEditing ? () => `/api/directory/projects/${segment(id)}` : null);
-  const members = useResource<DeclaredServicesResponse>(isEditing ? () => `/api/directory/services?project=${segment(id)}` : null);
-  const [name, setName] = useState("");
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Le projet se lit une fois : une relecture ne doit pas écraser ce que
-  // l'opérateur est en train de taper.
-  const [filled, setFilled] = useState(false);
-
-  useEffect(() => {
-    if (filled || existing.data === null) {
-      return;
-    }
-    setFilled(true);
-    setName(existing.data.name);
-    setTitle(existing.data.title);
-  }, [existing.data, filled]);
+  const existing = useProject(id ?? null);
+  const members = useProjectServices(id ?? null);
+  const form = useForm(emptyProjectForm, isEditing ? { source: existing.data, fill: projectFormOf } : null);
+  const { values, change } = form;
+  const action = useAction();
 
   if (isEditing && existing.error?.status === 404) {
     return <NotFound />;
   }
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    const body = { name, title };
-    const request = isEditing ? api.put<Project>(`/api/directory/projects/${segment(id)}`, body) : api.post<Project>("/api/directory/projects", body);
-    request
-      .then(() => {
-        refresh("directory");
-        void navigate("/services/projets");
-      })
-      .catch((failed: unknown) => setError(errorKey(failed)))
-      .finally(() => setBusy(false));
+  const save = () => {
+    action.run(() => saveProject(id, values), {
+      topic: "directory",
+      onDone: () => void navigate("/services/projets"),
+    });
   };
 
   const remove = () => {
-    if (!isEditing || !existing.data || !window.confirm(deleteConfirm(t, existing.data))) {
+    const project = existing.data;
+    if (!isEditing || project === null) {
       return;
     }
-    api
-      .delete(`/api/directory/projects/${segment(id)}`)
-      .then(() => {
-        refresh("directory");
-        void navigate("/services/projets");
-      })
-      .catch((failed: unknown) => setError(errorKey(failed)));
+    action.run(() => deleteProject(id), {
+      confirm: deleteConfirm(t, project),
+      topic: "directory",
+      onDone: () => void navigate("/services/projets"),
+    });
   };
 
   const projectServices = members.data?.services ?? [];
@@ -81,41 +57,40 @@ export function ProjectForm() {
         subtitle={isEditing ? t("project.edit_subtitle") : t("project.new_subtitle")}
       />
       {existing.error && <Failure error={existing.error} />}
-      <Card className="form-card">
-        <form className="card-b" onSubmit={submit}>
-          <Field label={t("project.name_label")} htmlFor="project-name" help={t("project.name_help")}>
-            <Input
-              id="project-name"
-              mono
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t("project.name_placeholder")}
-              maxLength={63}
-              autoComplete="off"
-              autoFocus
-              required
-            />
-          </Field>
-          <Field label={t("project.title_label")} htmlFor="project-title" help={t("project.title_help")}>
-            <Input id="project-title" type="text" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} autoComplete="off" />
-          </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
-          <div className="cluster">
-            <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || (isEditing && !filled)}>
-              {isEditing ? t("project.save") : t("project.create")}
-            </Button>
-            <Button variant="ghost" to="/services/projets">
-              {t("project.cancel")}
-            </Button>
-            {isEditing && (
-              <Button variant="danger" icon="x" onClick={remove} disabled={busy}>
-                {t("project.delete")}
-              </Button>
-            )}
-          </div>
-        </form>
-      </Card>
+      <FormCard
+        onSubmit={save}
+        error={action.error}
+        actions={
+          <FormActions
+            submitLabel={isEditing ? t("project.save") : t("project.create")}
+            submitIcon={isEditing ? "check" : "plus"}
+            busy={action.busy}
+            canSubmit={form.isFilled}
+            cancelLabel={t("project.cancel")}
+            cancelTo="/services/projets"
+            deleteLabel={t("project.delete")}
+            onDelete={isEditing ? remove : undefined}
+          />
+        }
+      >
+        <Field label={t("project.name_label")} htmlFor="project-name" help={t("project.name_help")}>
+          <Input
+            id="project-name"
+            mono
+            type="text"
+            value={values.name}
+            onChange={(event) => change("name", event.target.value)}
+            placeholder={t("project.name_placeholder")}
+            maxLength={63}
+            autoComplete="off"
+            autoFocus
+            required
+          />
+        </Field>
+        <Field label={t("project.title_label")} htmlFor="project-title" help={t("project.title_help")}>
+          <Input id="project-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={80} autoComplete="off" />
+        </Field>
+      </FormCard>
       {isEditing && (
         <Card>
           <CardHeader title={t("project.services_title")} aside={t("project.services_text")} />

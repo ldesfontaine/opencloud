@@ -1,10 +1,11 @@
-import type { Run, RunOutcome } from "../api/types";
+import type { Run, RunOutcome } from "../api/jobs";
 import { useT } from "../i18n/context";
 import { formatClock } from "../lib/time";
+import type { SegmentTone } from "../lib/tone";
 import "./UptimeBar.scss";
 import "./RunStrip.scss";
 
-const stripTones: Record<RunOutcome, "ok" | "warn" | "danger" | "none"> = {
+const stripTones: Record<RunOutcome, SegmentTone> = {
   in_progress: "none",
   success: "ok",
   failure: "danger",

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ldesfontaine/opencloud/internal/refusal"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Ce que le navigateur peut envoyer d'un coup : un formulaire, jamais plus.
@@ -43,10 +44,7 @@ func readBounded(w http.ResponseWriter, r *http.Request, into any, limit int64) 
 }
 
 func (s *Server) writeAPI(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
+	if err := httpx.WriteJSONNoStore(w, status, payload); err != nil {
 		s.logger.Warn("write json", "error", err)
 	}
 }
@@ -134,14 +132,4 @@ func orEmpty[T any](list []T) []T {
 		return []T{}
 	}
 	return list
-}
-
-// convertAll convertit chaque élément ; le résultat n'est jamais nul, il
-// s'écrit [] quand il n'y a rien.
-func convertAll[T, J any](items []T, convert func(T) J) []J {
-	converted := make([]J, 0, len(items))
-	for _, item := range items {
-		converted = append(converted, convert(item))
-	}
-	return converted
 }

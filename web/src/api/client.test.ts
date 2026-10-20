@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { api, ApiError, segment } from "./client";
+import { api, ApiError, errorKey, failureOf, segment } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -86,4 +86,15 @@ test("un identifiant forgé ne sort jamais de sa collection", () => {
   const reached = (path: string) => new URL(path, "http://openCloud.test").pathname;
   expect(reached(`/api/alerts/channels/${decoded}`)).toBe("/api/status/components/x");
   expect(() => `/api/alerts/channels/${segment(decoded)}`).toThrow(ApiError);
+});
+
+test("un refus du serveur garde son code et son corps", () => {
+  const refusal = new ApiError(409, "directory.service_linked", { links: { probes: [], components: [] } });
+  expect(failureOf(refusal)).toBe(refusal);
+  expect(errorKey(failureOf(refusal))).toBe("directory.service_linked");
+});
+
+test("ce qui n'est pas un refus du serveur se dit comme une erreur interne", () => {
+  expect(errorKey(failureOf(new TypeError("Failed to fetch")))).toBe("error.internal");
+  expect(failureOf("x").status).toBe(0);
 });

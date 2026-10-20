@@ -1,65 +1,60 @@
-import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { TokenResponse } from "../api/types";
-import { Button } from "../components/Button";
-import { Card } from "../components/Card";
+import { createMachineToken } from "../api/machines";
 import { Field, Input } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
+import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
+import { emptyMachineForm } from "../lib/machines";
 
 // L'opérateur nomme la machine ; le jeton naît et s'affiche une seule fois,
 // sur la page suivante, avec la commande à coller.
 export function MachineNew() {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const form = useForm(emptyMachineForm);
+  const { values, change } = form;
+  const action = useAction();
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    api
-      .post<TokenResponse>("/api/machines/tokens", { name })
-      .then((token) => {
-        refresh();
-        void navigate("/machines/jeton", { state: token });
-      })
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+  const save = () => {
+    action.run(() => createMachineToken(values.name), {
+      topic: "all",
+      onDone: (token) => void navigate("/machines/jeton", { state: token }),
+    });
   };
 
   return (
     <>
       <PageHead title={t("machine.new_title")} subtitle={t("machine.new_subtitle")} />
-      <Card className="form-card">
-        <form className="card-b" onSubmit={submit}>
-          <Field label={t("machine.name_label")} htmlFor="machine-name" help={t("machine.name_help")} {...(error ? { error: t(error) } : {})}>
-            <Input
-              id="machine-name"
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t("machine.name_placeholder")}
-              autoComplete="off"
-              autoFocus
-              required
-            />
-          </Field>
-          <div className="cluster">
-            <Button type="submit" variant="primary" icon="plus" disabled={busy}>
-              {t("machine.create_token")}
-            </Button>
-            <Button variant="ghost" to="/machines">
-              {t("machine.cancel")}
-            </Button>
-          </div>
-        </form>
-      </Card>
+      <FormCard
+        onSubmit={save}
+        error={action.error}
+        actions={
+          <FormActions
+            submitLabel={t("machine.create_token")}
+            submitIcon="plus"
+            busy={action.busy}
+            canSubmit={form.isFilled}
+            cancelLabel={t("machine.cancel")}
+            cancelTo="/machines"
+          />
+        }
+      >
+        <Field label={t("machine.name_label")} htmlFor="machine-name" help={t("machine.name_help")}>
+          <Input
+            id="machine-name"
+            type="text"
+            value={values.name}
+            onChange={(event) => change("name", event.target.value)}
+            placeholder={t("machine.name_placeholder")}
+            autoComplete="off"
+            autoFocus
+            required
+          />
+        </Field>
+      </FormCard>
     </>
   );
 }

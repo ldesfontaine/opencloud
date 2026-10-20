@@ -1,5 +1,5 @@
-import type { Engine, Finding, Port, Container, ContainerState, Transition } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Engine, Finding, Port, Container, ContainerState, Transition } from "../api/containers";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
 // Les pastilles de la direction artistique, dérivées des faits : l'état
@@ -54,7 +54,7 @@ export function containerPill(container: PillFacts): ContainerPillInfo {
   }
 }
 
-export function needsAttention(container: PillFacts): boolean {
+export function containerNeedsAttention(container: PillFacts): boolean {
   const key = containerPill(container).key;
   return key === "failing" || key === "out_of_memory" || key === "killed" || key === "restarting";
 }
@@ -71,8 +71,12 @@ export function matchesFilter(container: Pick<Container, "state">, filter: Filte
   return activeStates.has(container.state) === (filter === "active");
 }
 
+export function filterContainers(containers: Container[], filter: Filter): Container[] {
+  return containers.filter((container) => matchesFilter(container, filter));
+}
+
 // Les ports publiés comme la planche les écrit : « :80 · :443 ».
-export function formatPorts(ports: Port[]): string {
+export function formatPublishedPorts(ports: Port[]): string {
   const seen = new Set<number>();
   const parts: string[] = [];
   for (const port of ports) {

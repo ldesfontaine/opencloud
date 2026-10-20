@@ -20,6 +20,9 @@ const (
 	// qu'un 404 dans les journaux. Le type dit SVG, et c'est lui qui compte.
 	legacyFavicon = "favicon.ico"
 	brandFavicon  = "favicon.svg"
+	// La page de statut compilée par Vite, à côté d'index.html, sans une
+	// ligne de l'administration ; le paquet public la sert.
+	statusIndexFile = "statut.html"
 )
 
 // serveApp sert un fichier de dist s'il existe, sinon index.html : le
@@ -72,6 +75,16 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 // livraison. Échappé, parce qu'il tombe dans une balise et un attribut.
 func expandProductName(page []byte) []byte {
 	return bytes.ReplaceAll(page, []byte("{{product}}"), []byte(html.EscapeString(brand.ProductName)))
+}
+
+// readStatusPage rend la page de statut du front compilé, nom du produit
+// posé : le paquet public la sert sans connaître le front.
+func (s *Server) readStatusPage() ([]byte, error) {
+	page, err := fs.ReadFile(s.app, statusIndexFile)
+	if err != nil {
+		return nil, err
+	}
+	return expandProductName(page), nil
 }
 
 func (s *Server) isAppFile(name string) bool {

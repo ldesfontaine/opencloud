@@ -1,4 +1,5 @@
 import type { Translate } from "../i18n/context";
+import type { StateTone } from "./tone";
 
 // Les octets se lisent en puissances de 1024, comme df et htop : un disque
 // de 80 Go affiché ici est celui que la machine annonce.
@@ -66,4 +67,18 @@ export function percentOf(part: number, total: number): number {
 
 export function formatDecimal(locale: string, value: number, digits = 1): string {
   return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+}
+
+// Une jauge passe en attention à 85 %, en danger à 95 % : le seuil de la
+// planche « Machine ». Le disque prend les seuils réglés de son alerte.
+const defaultThresholds = { attention: 85, danger: 95 };
+
+export function meterTone(percent: number, thresholds = defaultThresholds): StateTone | undefined {
+  if (percent >= thresholds.danger) {
+    return "danger";
+  }
+  if (percent >= thresholds.attention) {
+    return "warn";
+  }
+  return undefined;
 }

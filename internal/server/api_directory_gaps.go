@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Ce que l'écart dit d'un service déclaré : un état par service, par unité
@@ -152,8 +153,8 @@ func (s *Server) gapsResponseOf(ctx context.Context, report directory.GapReport)
 		return gapsResponse{}, err
 	}
 	return gapsResponse{
-		Services:   convertAll(report.Services, serviceGapToJSON),
-		Undeclared: convertAll(report.Undeclared, func(group directory.Undeclared) undeclaredJSON { return undeclaredToJSON(group, names) }),
+		Services:   httpx.ConvertAll(report.Services, serviceGapToJSON),
+		Undeclared: httpx.ConvertAll(report.Undeclared, func(group directory.Undeclared) undeclaredJSON { return undeclaredToJSON(group, names) }),
 	}, nil
 }
 
@@ -190,7 +191,7 @@ func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
 // declaredServiceRequestOf est l'inverse de declaredServiceDefinition : la
 // définition que le serveur propose, sous la forme que le formulaire envoie.
 func declaredServiceRequestOf(definition directory.ServiceDefinition) declaredServiceRequest {
-	provides := convertAll(definition.Provides, func(capability directory.Capability) string { return string(capability) })
+	provides := httpx.ConvertAll(definition.Provides, func(capability directory.Capability) string { return string(capability) })
 	units := make([]unitRequest, 0, len(definition.Units))
 	for _, unit := range definition.Units {
 		units = append(units, unitRequest{

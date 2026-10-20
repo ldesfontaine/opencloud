@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { Apply } from "../api/types";
+import type { Apply } from "../api/manifest";
 import type { Translate } from "../i18n/context";
 import { actorText, carriesText, countedText, formatCount, changeLabel, failedObjectText, fieldText, shortHash, stateTone, summaryText, totalChanges, writtenText } from "./manifest";
 

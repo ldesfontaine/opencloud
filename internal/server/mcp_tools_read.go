@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -271,7 +272,7 @@ func (s *Server) listMachinesTool(ctx context.Context, _ *gomcp.CallToolRequest,
 	if err != nil {
 		return s.toolInternal("list_machines", err)
 	}
-	machines := convertAll(statuses, func(machineStatus machine.Status) machineJSON {
+	machines := httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON {
 		return s.machineJSONOf(machineStatus, withLifecycle)
 	})
 	return toolJSON(machinesToolResponse{Machines: machines})
@@ -401,7 +402,7 @@ func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequ
 		}
 		return s.toolInternal("get_container_logs", err)
 	}
-	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
+	response := logsResponse{Lines: httpx.ConvertAll(lines, logLineToJSON)}
 	return toolJSON(response)
 }
 
@@ -411,7 +412,7 @@ func (s *Server) listJobsTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		return s.toolInternal("list_jobs", err)
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := jobsToolResponse{Jobs: convertAll(sliceOf(heartbeats, limit, offset), jobToJSON), Total: len(heartbeats), Offset: offset, Limit: limit}
+	response := jobsToolResponse{Jobs: httpx.ConvertAll(sliceOf(heartbeats, limit, offset), jobToJSON), Total: len(heartbeats), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -428,7 +429,7 @@ func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input
 	if err != nil {
 		return s.toolInternal("get_job", err)
 	}
-	response := jobToolResponse{Job: jobToJSON(found), Runs: convertAll(runs, runToJSON), Pings: convertAll(pings, pingToJSON)}
+	response := jobToolResponse{Job: jobToJSON(found), Runs: httpx.ConvertAll(runs, runToJSON), Pings: httpx.ConvertAll(pings, pingToJSON)}
 	return toolJSON(response)
 }
 
@@ -514,7 +515,7 @@ func (s *Server) listIncidentsTool(ctx context.Context, _ *gomcp.CallToolRequest
 		}
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := incidentsToolResponse{Incidents: convertAll(sliceOf(kept, limit, offset), incidentToJSON), Total: len(kept), Offset: offset, Limit: limit}
+	response := incidentsToolResponse{Incidents: httpx.ConvertAll(sliceOf(kept, limit, offset), incidentToJSON), Total: len(kept), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -531,7 +532,7 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("list_alerts", err)
 	}
-	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
+	response := alertsResponse{Alerts: httpx.ConvertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
 	return toolJSON(response)
 }
 

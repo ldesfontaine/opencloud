@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
-import type { Disk } from "../api/types";
-import { diskSettingsError, fullestFirst } from "./disks";
+import type { Disk } from "../api/resources";
+import { diskFormOf, diskRequestOf, diskSettingsError, fullestFirst } from "./disks";
 
 const gib = 1024 ** 3;
 const root: Disk = { mount_point: "/", device: "/dev/vda1", used: 41 * gib, total: 80 * gib };
@@ -36,4 +36,15 @@ test("diskSettingsError refuse un seuil hors bornes, inversé, égal ou non enti
   ]) {
     expect(diskSettingsError(thresholds, bounds)).toBe("settings.disk_invalid");
   }
+});
+
+test("diskFormOf montre les seuils en texte, diskRequestOf les rend en nombres", () => {
+  const values = diskFormOf({ attention: 85, danger: 95 });
+  expect(values).toEqual({ attention: "85", danger: "95" });
+  expect(diskRequestOf(values)).toEqual({ attention: 85, danger: 95 });
+});
+
+test("diskRequestOf rend un nombre invalide que diskSettingsError refuse", () => {
+  const thresholds = diskRequestOf({ attention: "85,5", danger: "" });
+  expect(diskSettingsError(thresholds, bounds)).toBe("settings.disk_invalid");
 });

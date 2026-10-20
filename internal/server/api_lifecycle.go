@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
-	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // La source de la fin de support, telle que Paramètres la nomme.
@@ -53,10 +53,10 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 	converted := lifecycleJSON{
 		Status: string(verdict.Status), Product: verdict.Product, ProductURL: verdict.ProductURL,
 		Cycle: verdict.Cycle, EOLFrom: verdict.EOLFrom, Latest: verdict.Latest,
-		Newer: convertAll(verdict.Newer, func(newer lifecycle.Newer) newerCycleJSON {
+		Newer: httpx.ConvertAll(verdict.Newer, func(newer lifecycle.Newer) newerCycleJSON {
 			return newerCycleJSON{Cycle: newer.Cycle, Latest: newer.Latest, EOLFrom: newer.EOLFrom}
 		}),
-		FetchedAt: timeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
+		FetchedAt: httpx.TimeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
 	}
 	return &converted
 }
@@ -64,11 +64,7 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 // lifecycleEnabled relit le réglage dans la base : un autre processus a pu
 // le changer.
 func (s *Server) lifecycleEnabled(ctx context.Context) (bool, error) {
-	current, err := s.settings.LoadSettings(ctx)
-	if err != nil {
-		return false, err
-	}
-	return current.LifecycleEnabled(), nil
+	return s.settings.LifecycleEnabled(ctx)
 }
 
 // lifecycleOf rend le support de l'image d'un service, ou nil quand le
@@ -85,8 +81,8 @@ func (s *Server) lifecycleSettings(enabled bool) lifecycleSettingsJSON {
 	state := s.lifecycle.State()
 	return lifecycleSettingsJSON{
 		Enabled: enabled, Source: lifecycleSourceName,
-		FetchedAt: timeOrNil(state.FetchedAt), Products: state.Products,
-		IsFailing: state.IsFailing, LastAttemptAt: timeOrNil(state.LastAttemptAt),
+		FetchedAt: httpx.TimeOrNil(state.FetchedAt), Products: state.Products,
+		IsFailing: state.IsFailing, LastAttemptAt: httpx.TimeOrNil(state.LastAttemptAt),
 	}
 }
 
@@ -103,27 +99,14 @@ func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	wasEnabled, err := s.lifecycleEnabled(r.Context())
-	if s.failed(w, r, err, nil) {
-		return
-	}
-	err = s.saveLifecycleEnabled(r.Context(), request.Enabled)
+	isTurnedOn, err := s.settings.SetLifecycleEnabled(r.Context(), request.Enabled)
 	if s.failed(w, r, err, nil) {
 		return
 	}
 	// Vient d'être rallumé : une lecture part tout de suite, sans attendre
 	// la cadence. Le redemander ne presse pas la source.
-	if request.Enabled && !wasEnabled {
+	if isTurnedOn {
 		s.lifecycle.Kick()
 	}
 	s.writeAPI(w, http.StatusOK, s.lifecycleSettings(request.Enabled))
-}
-
-// saveLifecycleEnabled ne touche que sa clé : UpdateSettings préserve le
-// reste de la ligne.
-func (s *Server) saveLifecycleEnabled(ctx context.Context, enabled bool) error {
-	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
-		current.LifecycleDisabled = !enabled
-	})
-	return err
 }

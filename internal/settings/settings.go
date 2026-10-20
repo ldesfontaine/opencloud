@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 )
@@ -33,6 +34,21 @@ type Settings struct {
 	// la machine openCloud lit endoflife.date une fois par jour, deux au
 	// plus. Le réglage dit « coupée » pour que son absence vaille « activée ».
 	LifecycleDisabled bool `toml:"lifecycle_disabled,omitempty"`
+}
+
+// InterfaceLanguage rend la langue de l'interface : celle du réglage, sinon
+// la langue par défaut.
+func (s Settings) InterfaceLanguage() lang.Code {
+	if s.Language == "" {
+		return lang.Default
+	}
+	return s.Language
+}
+
+// DiskThresholds rend les seuils en vigueur : ceux du réglage, sinon ceux
+// du produit.
+func (s Settings) DiskThresholds() alert.DiskThresholds {
+	return alert.DiskThresholdsOr(s.DiskAttentionPercent, s.DiskDangerPercent)
 }
 
 // LifecycleEnabled : la fin de support tourne, sauf si l'opérateur l'a

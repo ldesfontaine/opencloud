@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { AuthState } from "../api/types";
+import type { AuthState } from "../api/auth";
 import { accessLabel, isForwardInsecure, isInterfaceOpen, passwordFormError } from "./auth";
 
 const open: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12 };

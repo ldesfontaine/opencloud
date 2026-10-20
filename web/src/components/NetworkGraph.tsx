@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
-import type { Container } from "../api/types";
+import type { Container } from "../api/containers";
 import { useT } from "../i18n/context";
-import { fitView, internetID, nodeHeight, nodeWidth, zoomView, type Layout, type PlacedEdge, type PlacedNode, type View } from "../lib/network";
+import { fitPorts, fitView, internetID, nodeHeight, nodeWidth, zoomView, type Layout, type PlacedEdge, type PlacedNode, type View } from "../lib/network";
 import { nodeSubtitle, nodeTone, containerIcon } from "../lib/containers";
 import { useSize } from "../hooks/useSize";
 import { Button } from "./Button";
@@ -206,22 +206,6 @@ function InternetNode({ node, ports, selected, onSelect }: NodeProps<MouseEvent 
       tone={null}
     />
   );
-}
-
-// Autant de ports que la place permet, puis « +n » pour le reste ;
-// prefixLength est la longueur du libellé traduit qui précède les ports.
-export function fitPorts(ports: number[], limit: number, prefixLength: number): string {
-  for (let count = ports.length; count > 0; count--) {
-    const shown = ports.slice(0, count).map((port) => `:${port}`);
-    if (count < ports.length) {
-      shown.push(`+${ports.length - count}`);
-    }
-    const text = shown.join(" · ");
-    if (text.length + prefixLength <= limit || count === 1) {
-      return text;
-    }
-  }
-  return "";
 }
 
 function ContainerNode({ node, selected, onSelect }: NodeProps<MouseEvent | KeyboardEvent>) {

@@ -1,7 +1,7 @@
-import type { Job, Run, RunOutcome } from "../api/types";
+import type { Job, JobRequest, JobStatus, Run, RunOutcome } from "../api/jobs";
 import type { Translate } from "../i18n/context";
-import type { Tone } from "../components/Pill";
 import { ago, formatDuration, formatWhen, since } from "./time";
+import type { Tone } from "./tone";
 
 // Le dernier résultat connu : code de sortie et durée, quand la tâche les
 // a donnés.
@@ -22,6 +22,16 @@ export function lastResult(t: Translate, job: Job): { text: string; tone: "ok" |
   }
   return { text: parts.join(" · "), tone };
 }
+
+// Pastille par état de tâche : le vocabulaire de la direction artistique.
+export const jobTones: Record<JobStatus, Tone> = {
+  new: "neutral",
+  on_time: "ok",
+  started: "accent",
+  late: "danger",
+  failed: "danger",
+  paused: "neutral",
+};
 
 export const runTones: Record<RunOutcome, Tone> = {
   in_progress: "accent",
@@ -163,11 +173,26 @@ export function jobFormOf(job: Job): JobFormValues {
   };
 }
 
-export function jobRequestOf(values: JobFormValues) {
+export function jobRequestOf(values: JobFormValues): JobRequest {
   return {
     name: values.name,
     machine_id: values.machineID,
     interval_minutes: Number(values.interval),
     grace_minutes: Number(values.grace),
   };
+}
+
+// Le sous-titre de la page des tâches : rien, ou le compte et ce qui
+// demande attention.
+export function jobsSubtitle(t: Translate, total: number, attention: number): string {
+  if (total === 0) {
+    return t("jobs.subtitle_none");
+  }
+  if (total === 1) {
+    return t(attention === 0 ? "jobs.subtitle_one" : "jobs.subtitle_one_attention");
+  }
+  if (attention === 0) {
+    return t("jobs.subtitle_ok", total);
+  }
+  return t("jobs.subtitle_attention", total, attention);
 }

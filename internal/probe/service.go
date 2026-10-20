@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 const (
@@ -56,7 +58,7 @@ type Store interface {
 
 // Commander pousse une commande à l'agent d'une machine par son flux ; il
 // refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
-// son jeu en revenant. Une file pleine rend ErrCommandBusy : le jeu est
+// son jeu en revenant. Une file pleine rend machine.ErrBusy : le jeu est
 // renvoyé au cycle suivant.
 type Commander interface {
 	Command(machineID, name string, payload any) error
@@ -449,7 +451,7 @@ func (s *Service) Assign(ctx context.Context, machineID string) {
 		return
 	}
 	err = commander.Command(machineID, CommandProbes, assignment)
-	if errors.Is(err, ErrCommandBusy) {
+	if errors.Is(err, machine.ErrBusy) {
 		s.logger.Warn("assign probes later, command queue full", "machine_id", machineID, "probes", len(tasks))
 		s.setUnsent(machineID, true)
 		return

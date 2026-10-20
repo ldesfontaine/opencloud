@@ -6,6 +6,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // La topologie d'une machine telle que le front la dessine : les conteneurs
@@ -91,7 +92,7 @@ func (s *Server) networkOf(ctx context.Context, machineStatus machine.Status) (n
 	}
 	response := networkResponse{
 		MachineID: machineStatus.ID, MachineName: machineStatus.Name, Online: machineStatus.Online,
-		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: convertAll(topology.Edges, edgeToJSON),
+		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: httpx.ConvertAll(topology.Edges, edgeToJSON),
 	}
 	for _, item := range topology.Containers {
 		response.Containers = append(response.Containers, containerToJSON(item, machineStatus.Name, currents[item.ID], checks))

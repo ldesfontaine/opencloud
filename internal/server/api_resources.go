@@ -7,6 +7,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 const (
@@ -55,7 +56,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := resourcesResponse{Machines: convertAll(currents, currentToJSON)}
+	response := resourcesResponse{Machines: httpx.ConvertAll(currents, currentToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

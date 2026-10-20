@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { bytesIn, formatBytes, formatRate, percentOf } from "./units";
+import { bytesIn, formatBytes, formatRate, meterTone, percentOf } from "./units";
 
 const french: Record<string, string> = {
   "unit.b": "o",
@@ -36,4 +36,20 @@ test("percentOf arrondit et ne divise jamais par zéro", () => {
   expect(percentOf(41, 80)).toBe(51);
   expect(percentOf(3, 0)).toBe(0);
   expect(percentOf(90, 80)).toBe(100);
+});
+
+test("meterTone laisse la jauge neutre sous 85 %, passe en attention à 85 % et en danger à 95 %", () => {
+  expect(meterTone(0)).toBeUndefined();
+  expect(meterTone(84)).toBeUndefined();
+  expect(meterTone(85)).toBe("warn");
+  expect(meterTone(94)).toBe("warn");
+  expect(meterTone(95)).toBe("danger");
+  expect(meterTone(100)).toBe("danger");
+});
+
+test("meterTone suit les seuils réglés quand on les donne", () => {
+  const thresholds = { attention: 70, danger: 80 };
+  expect(meterTone(69, thresholds)).toBeUndefined();
+  expect(meterTone(70, thresholds)).toBe("warn");
+  expect(meterTone(80, thresholds)).toBe("danger");
 });
