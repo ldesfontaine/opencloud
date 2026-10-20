@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { bumpVersions, initialVersions, topics, topicsOf } from "./refresh";
+import { countsPath } from "./counts";
+import { bumpVersions, initialVersions, topics, topicsOf, versionOf } from "./refresh";
 
 describe("topicsOf", () => {
   it("sends the declared directory to its own topic, though its path says services", () => {
@@ -34,8 +35,21 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/machines/m1/containers")).toEqual(["containers"]);
   });
 
-  it("refreshes every topic for an unknown path", () => {
-    expect(topicsOf("/api/unknown")).toContain("directory");
+  it("gives no topic to an unknown path, nor to the operator's access", () => {
+    expect(topicsOf("/api/unknown")).toEqual([]);
+    expect(topicsOf("/api/auth")).toEqual([]);
+    expect(topicsOf("/api/mcp")).toEqual([]);
+    expect(topicsOf("/api/settings/disk")).toEqual([]);
+  });
+
+  it("rereads the end-of-support card on the containers topic, where its reading publishes", () => {
+    expect(topicsOf("/api/settings/lifecycle")).toEqual(["containers"]);
+  });
+
+  it("rereads the counts on every counted topic, never on the measurements", () => {
+    expect(topicsOf(countsPath)).toContain("machines");
+    expect(topicsOf(countsPath)).toContain("status");
+    expect(topicsOf(countsPath)).not.toContain("resources");
   });
 });
 
@@ -44,8 +58,21 @@ describe("topics", () => {
     expect(new Set(topics).size).toBe(topics.length);
   });
 
-  it("relit tout sauf les mesures pour un chemin inconnu", () => {
-    expect(topicsOf("/api/unknown")).toEqual(["machines", "jobs", "containers", "probes", "status", "alerts", "directory"]);
+});
+
+describe("versionOf", () => {
+  // La barre latérale et la vue d'ensemble : les compteurs bougent avec une
+  // machine, pas avec un lot de mesures.
+  it("moves the counts on machines, not on resources", () => {
+    const start = versionOf(initialVersions(), 0, countsPath);
+    expect(versionOf(bumpVersions(initialVersions(), "resources"), 0, countsPath)).toBe(start);
+    expect(versionOf(bumpVersions(initialVersions(), "machines"), 0, countsPath)).not.toBe(start);
+  });
+
+  it("moves a path without topic only when everything is reread", () => {
+    const touched = bumpVersions(bumpVersions(initialVersions(), "machines"), "resources");
+    expect(versionOf(touched, 0, "/api/auth")).toBe(0);
+    expect(versionOf(bumpVersions(initialVersions()), 1, "/api/auth")).toBe(1);
   });
 });
 

@@ -26,6 +26,11 @@ export function bumpVersions(versions: Versions, topic?: Topic): Versions {
   return next;
 }
 
+// Les sujets qui changent un compteur de /api/counts : tous sauf les
+// mesures. L'annuaire en est : la politique d'une unité change le compte
+// des mises à jour ; le statut aussi : les incidents ouverts.
+export const countedTopics: readonly Topic[] = ["machines", "jobs", "containers", "probes", "status", "alerts", "directory"];
+
 interface Refresh {
   // Relit un sujet, ou tout sans argument.
   refresh: (topic?: Topic) => void;
@@ -36,8 +41,18 @@ interface Refresh {
 const RefreshContext = createContext<Refresh>({ refresh: () => {}, versionFor: () => 0 });
 
 // Le chemin d'une ressource dit son sujet ; les compteurs relèvent de
-// tout ce qui se compte.
-export function topicsOf(path: string): Topic[] {
+// tout ce qui se compte. Un chemin sans sujet ne se relit jamais par le
+// direct : seulement à la demande de la page, ou quand tout se relit
+// (reconnexion, action qui touche tout).
+export function topicsOf(path: string): readonly Topic[] {
+  if (path.startsWith("/api/counts")) {
+    return countedTopics;
+  }
+  // La fin de support publie sur le sujet des conteneurs : sa carte, sous
+  // Paramètres, dit ce que la dernière lecture a donné.
+  if (path.startsWith("/api/settings/lifecycle")) {
+    return ["containers"];
+  }
   // L'écart croise l'annuaire et les conteneurs : il se relit quand l'un ou
   // l'autre change. La proposition d'adoption, elle, ne suit que l'annuaire :
   // elle se lit pour remplir un formulaire, et un rapport de l'agent ne doit
@@ -76,8 +91,14 @@ export function topicsOf(path: string): Topic[] {
   if (path.startsWith("/api/jobs")) {
     return ["jobs"];
   }
-  // Un chemin inconnu relit tout, sauf les mesures.
-  return topics.filter((topic) => topic !== "resources");
+  // Un chemin inconnu (l'accès, les réglages, le MCP) n'a pas de sujet.
+  return [];
+}
+
+// La version d'un chemin : la somme de ses sujets, plus les relectures de
+// tout. Elle change quand la ressource doit être relue.
+export function versionOf(versions: Versions, everything: number, path: string): number {
+  return topicsOf(path).reduce((sum, topic) => sum + versions[topic], everything);
 }
 
 // Un seul signal pour relire : après une action de l'opérateur, ou à
@@ -85,15 +106,20 @@ export function topicsOf(path: string): Topic[] {
 // page des tâches ne relise pas quand une machine signale.
 export function RefreshProvider({ children }: { children: ReactNode }) {
   const [versions, setVersions] = useState<Versions>(initialVersions());
+  // Les relectures de tout : elles touchent aussi les chemins sans sujet.
+  const [everything, setEverything] = useState(0);
   const refresh = useCallback((topic?: Topic) => {
     setVersions((current) => bumpVersions(current, topic));
+    if (topic === undefined) {
+      setEverything((current) => current + 1);
+    }
   }, []);
   const value = useMemo<Refresh>(
     () => ({
       refresh,
-      versionFor: (path) => topicsOf(path).reduce((sum, topic) => sum + versions[topic], 0),
+      versionFor: (path) => versionOf(versions, everything, path),
     }),
-    [versions, refresh],
+    [versions, everything, refresh],
   );
   return <RefreshContext.Provider value={value}>{children}</RefreshContext.Provider>;
 }
