@@ -1,5 +1,6 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
+import { useT } from "../i18n/context";
 import { Icon, type IconName } from "./Icon";
 import "./Field.scss";
 
@@ -48,5 +49,57 @@ export function Select({ icon, children, ...rest }: SelectHTMLAttributes<HTMLSel
         <Icon name="chevron-down" />
       </span>
     </span>
+  );
+}
+
+// Un choix dans une liste fermée : chaque option se traduit par la clé
+// labelKey + valeur (channel.format_ + slack), et la valeur choisie se
+// retrouve dans values plutôt que d'être forcée au type.
+export function EnumSelect<Value extends string>({
+  value,
+  values,
+  labelKey,
+  onChange,
+  ...rest
+}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "value" | "onChange" | "children"> & {
+  value: Value;
+  values: readonly Value[];
+  labelKey: string;
+  onChange: (value: Value) => void;
+  icon?: IconName;
+}) {
+  const t = useT();
+  const choose = (chosen: string) => {
+    const known = values.find((candidate) => candidate === chosen);
+    if (known !== undefined) {
+      onChange(known);
+    }
+  };
+  return (
+    <Select value={value} onChange={(event) => choose(event.target.value)} {...rest}>
+      {values.map((candidate) => (
+        <option key={candidate} value={candidate}>
+          {t(`${labelKey}${candidate}`)}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+export function Textarea({ mono = false, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { mono?: boolean }) {
+  return <textarea className={mono ? "input textarea mono" : "input textarea"} {...rest} />;
+}
+
+// Des cases à cocher côte à côte, chacune avec son libellé.
+export function Checks({ children }: { children: ReactNode }) {
+  return <div className="checks">{children}</div>;
+}
+
+export function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
   );
 }

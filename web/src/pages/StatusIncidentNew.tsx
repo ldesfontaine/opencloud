@@ -12,7 +12,6 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
 import { fromLocalInput, statusesFor } from "../lib/status";
-import "./StatusAdmin.scss";
 
 type Kind = "incident" | "maintenance";
 

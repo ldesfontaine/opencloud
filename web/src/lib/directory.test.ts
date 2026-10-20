@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DeclaredService, Project, ProposalResponse } from "../api/types";
 import { ApiError } from "../api/client";
-import { emptyServiceForm, formatUnitPorts, hasLinks, linksOfRefusal, parsePorts, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import { emptyServiceForm, formatUnitPorts, hasLinks, linksOfRefusal, parsePorts, projectFormOf, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -60,6 +60,13 @@ describe("projectNames", () => {
 
   it("ne rend rien sans projet", () => {
     expect(projectNames([]).size).toBe(0);
+  });
+});
+
+describe("projectFormOf", () => {
+  it("ne garde que le nom et le titre : le reste, le serveur le tient", () => {
+    const project = { id: "prj_1", name: "cloud", title: "Cloud", service_ids: ["svc_1"], created_at: "2026-10-18T09:00:00Z", updated_at: "2026-10-18T09:00:00Z" } satisfies Project;
+    expect(projectFormOf(project)).toEqual({ name: "cloud", title: "Cloud" });
   });
 });
 

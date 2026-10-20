@@ -1,13 +1,5 @@
-// L'administration de la page de statut : ce que les autres écrans n'ont
-// pas encore, une zone de texte et une pile dans une cellule.
-.textarea {
-  height: auto;
-  padding: 8px 12px;
-  resize: vertical;
-  line-height: 1.45;
-  font-family: inherit;
-}
-
+// L'administration de la page de statut : une pile dans une cellule, les
+// objets d'un composant, le fil d'un incident.
 .cell-stack {
   display: inline-flex;
   flex-direction: column;
@@ -50,30 +42,6 @@
   grid-template-columns: auto 1fr auto;
   gap: 8px;
   align-items: center;
-}
-
-// Les composants touchés par un incident, à cocher.
-.checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-
-  label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 30px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: var(--surface);
-    cursor: pointer;
-    font-weight: 500;
-  }
-
-  input {
-    accent-color: var(--accent);
-  }
 }
 
 // Le fil d'un incident, du plus récent au plus ancien.

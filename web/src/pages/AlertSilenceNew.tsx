@@ -14,7 +14,6 @@ import { useT } from "../i18n/context";
 import { silenceDurations } from "../lib/alerts";
 import { nameWithMachine } from "../lib/objects";
 import { useRefresh } from "../api/refresh";
-import "./StatusAdmin.scss";
 
 type PickKind = AlertObjectKind | "";
 

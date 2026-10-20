@@ -26,7 +26,6 @@ import {
 } from "../lib/directory";
 import { useRefresh } from "../api/refresh";
 import { NotFound } from "./NotFound";
-import "./StatusAdmin.scss";
 import "./DeclaredServiceForm.scss";
 
 // Déclarer ou modifier un service : l'opérateur dit sur quelle machine il
