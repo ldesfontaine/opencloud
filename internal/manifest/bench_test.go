@@ -2,8 +2,6 @@ package manifest_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"flag"
 	"log/slog"
 	"os"
@@ -18,8 +16,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -52,38 +50,12 @@ type bench struct {
 
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	ctx := context.Background()
-	db, err := store.Open(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
-	if err := machines.EnsureLocal(ctx, machine.LocalInfo{Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1"}); err != nil {
-		t.Fatal(err)
-	}
-	cleartext, _, err := machines.CreateToken(ctx, "app-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := machines.Enroll(ctx, machine.Enrollment{
-		MachineID: remoteID, PublicKey: public, Token: cleartext,
-		Hostname: "app-1", Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
+	storetest.EnrollMachine(t, machines, remoteID, "app-1")
 	declared := directory.New(db, logger)
 	containers := container.New(db, logger)
 	containers.SetClock(func() time.Time { return testNow })

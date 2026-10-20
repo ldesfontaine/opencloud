@@ -2,8 +2,6 @@ package probe_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"os"
@@ -16,8 +14,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
@@ -67,24 +65,9 @@ func newBench(t *testing.T) *bench {
 
 func newBenchLogging(t *testing.T, logger *slog.Logger) *bench {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	machines := machine.New(db, machine.NewSessions(), logger)
-	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{
-		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
 	fixture := &bench{db: db, now: testNow, runner: &recordingRunner{}}
 	fixture.service = probe.New(db, logger)
 	fixture.service.SetClock(func() time.Time { return fixture.now })
@@ -159,24 +142,9 @@ const remoteMachineID = "11111111-2222-4333-8444-555555555555"
 // service déclaré sur une autre machine que la sienne.
 func (b *bench) enrollRemote(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	machines := machine.New(b.db, machine.NewSessions(), logger)
-	token, _, err := machines.CreateToken(ctx, "vps")
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = machines.Enroll(ctx, machine.Enrollment{
-		MachineID: remoteMachineID, PublicKey: public, Token: token,
-		Hostname: "vps", Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnrollMachine(t, machines, remoteMachineID, "vps")
 }
 
 // addService écrit un service déclaré sur la machine donnée.
