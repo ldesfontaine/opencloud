@@ -4,8 +4,9 @@ import { api } from "./client";
 import type { DiskThresholds } from "./session";
 
 // Les réglages de Paramètres : seuils du disque, relais e-mail, fin de
-// support. Chemins hors de toute ressource : topicsOf les relit sur tous les
-// sujets sauf les mesures.
+// support. Seule la fin de support a un sujet, « containers » (topicsOf) ;
+// les autres ne se relisent qu'après leur enregistrement ou quand tout se
+// relit.
 
 // Les seuils d'alerte du disque ; le retour suit l'attention, et les bornes
 // disent la règle au formulaire.

@@ -46,12 +46,15 @@ func (db *DB) DeleteToken(ctx context.Context, id string) error {
 	return notFoundIfNoRow(result, machine.ErrTokenNotFound)
 }
 
-// PurgeExpiredTokens efface les jetons périmés jamais consommés.
-func (db *DB) PurgeExpiredTokens(ctx context.Context, before time.Time) error {
-	_, err := db.sql.ExecContext(ctx,
-		`DELETE FROM enrollment_tokens WHERE consumed_at IS NULL AND expires_at <= ?`, before.Unix())
+// PurgeTokens efface les jetons périmés jamais consommés, et les consommés
+// avant consumedBefore : passé ce délai, l'historique ne sert plus.
+func (db *DB) PurgeTokens(ctx context.Context, now, consumedBefore time.Time) error {
+	_, err := db.sql.ExecContext(ctx, `
+		DELETE FROM enrollment_tokens
+		WHERE (consumed_at IS NULL AND expires_at <= ?) OR consumed_at < ?`,
+		now.Unix(), consumedBefore.Unix())
 	if err != nil {
-		return fmt.Errorf("purge expired tokens: %w", err)
+		return fmt.Errorf("purge tokens: %w", err)
 	}
 	return nil
 }

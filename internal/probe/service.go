@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -150,7 +151,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	if err := s.checkServiceExists(ctx, definition); err != nil {
 		return Probe{}, err
 	}
-	id, err := NewID()
+	id, err := ident.New()
 	if err != nil {
 		return Probe{}, fmt.Errorf("generate id: %w", err)
 	}

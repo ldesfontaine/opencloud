@@ -1,12 +1,11 @@
 package directory
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -84,7 +83,6 @@ const (
 	MaxImageLength     = 512
 	MaxUnits           = 32
 	MaxPorts           = 64
-	idBytes            = 8
 )
 
 var (
@@ -123,12 +121,14 @@ var (
 	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
 	ErrContainerNotFound = errors.New("container not found, or already gone")
-	ErrContainerDeclared = errors.New("container already belongs to a declared service")
+	ErrContainerDeclared = refusal.Conflict("directory.container_declared", "container already belongs to a declared service")
 	// Le conteneur porte un label qui ne vise aucune unité de sa machine :
 	// l'adopter créerait une unité que ce label empêcherait de rattacher.
-	ErrContainerLabelled = errors.New("container carries a label that targets no unit of its machine")
-	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
-	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
+	// Un état que l'opérateur corrige par le label, d'où un conflit.
+	ErrContainerLabelled = refusal.Conflict("directory.container_labelled", "container carries a label that targets no unit of its machine")
+	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y
+	// ajoute. Un état du service, pas une faute de saisie.
+	ErrUnitsFull = refusal.Conflict("directory.units_full", "declared service already holds the maximum number of units")
 
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
@@ -268,11 +268,11 @@ func (e *LinkedError) Unwrap() error {
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis
 // 16 hexadécimaux. Jamais un identifiant Docker.
 func NewID(prefix string) (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
+	id, err := ident.New()
+	if err != nil {
 		return "", err
 	}
-	return prefix + hex.EncodeToString(raw), nil
+	return prefix + id, nil
 }
 
 // unitKindOf : un binaire sous systemd est une unité binaire, tout le reste

@@ -40,8 +40,8 @@ func TestStatusPublic_LimitersShareOneBucketPerIPv6SixtyFour(t *testing.T) {
 		burst int
 		allow func(string) bool
 	}{
-		{"public read", statusPerSourceBurst, server.handler.limits.allowRead},
-		{"public stream opening", statusStreamBurst, server.handler.limits.allowStream},
+		{"public read", statusPerSourceBurst, server.handler.readLimit.Allow},
+		{"public stream opening", statusStreamBurst, server.handler.streamLimit.Allow},
 	}
 	for _, c := range cases {
 		for i := range c.burst {
@@ -59,13 +59,13 @@ func TestStatusPublic_LimitersShareOneBucketPerIPv6SixtyFour(t *testing.T) {
 func TestStatusPublic_BucketRefillsWithTheClock(t *testing.T) {
 	server := newBench(t)
 	for range statusPerSourceBurst {
-		server.handler.limits.allowRead("198.51.100.1")
+		server.handler.readLimit.Allow("198.51.100.1")
 	}
-	if server.handler.limits.allowRead("198.51.100.1") {
+	if server.handler.readLimit.Allow("198.51.100.1") {
 		t.Fatal("the bucket is empty")
 	}
-	server.handler.limits.setClock(func() time.Time { return testNow.Add(time.Minute) })
-	if !server.handler.limits.allowRead("198.51.100.1") {
+	server.handler.readLimit.SetClock(func() time.Time { return testNow.Add(time.Minute) })
+	if !server.handler.readLimit.Allow("198.51.100.1") {
 		t.Fatal("a minute later the bucket must have refilled")
 	}
 }

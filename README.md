@@ -88,7 +88,7 @@ openCloud affiche une commande à coller sur la machine, en root :
 printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
 
-Le jeton sert une fois et expire en 24 h. N'enrôlez pas d'agent sur la
+Le jeton sert une fois et expire en 1 h. N'enrôlez pas d'agent sur la
 machine openCloud : elle est déjà supervisée, un agent dessus doublerait ses
 services et ses alertes. Pour essayer, prenez une autre machine ou une VM ;
 l'agent exige HTTPS vers openCloud, sauf `-allow-plain` sur un réseau déjà

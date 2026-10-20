@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
-	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -68,8 +66,7 @@ const (
 	mcpPerSourceBurst = 20
 	mcpTokenRate      = 1
 	mcpTokenBurst     = 10
-	mcpSweepEvery     = 5 * time.Minute
-	mcpSweepIdle      = 10 * time.Minute
+	mcpIdle           = 10 * time.Minute
 )
 
 const mcpInstructions = brand.ProductName + " is a self-hosted dashboard that watches machines, their Docker containers, " +
@@ -94,53 +91,6 @@ const mcpReadOnlyInstructions = " This server is read-only for now: it offers no
 const mcpStdioInstructions = " This session runs over stdio. Online means a signal from the " +
 	"agent within the last 2 minutes, and get_container_logs answers {\"error\":\"container.logs_unavailable_locally\"}: " +
 	"use the HTTP transport for container logs."
-
-type mcpLimits struct {
-	bySource *ratelimit.Limiter
-	byToken  *ratelimit.Limiter
-	now      func() time.Time
-
-	mu        sync.Mutex
-	lastSweep time.Time
-}
-
-func newMCPLimits() *mcpLimits {
-	return &mcpLimits{
-		bySource: ratelimit.New(mcpPerSourceRate, mcpPerSourceBurst),
-		byToken:  ratelimit.New(mcpTokenRate, mcpTokenBurst),
-		now:      time.Now,
-	}
-}
-
-func (l *mcpLimits) setClock(now func() time.Time) {
-	l.now = now
-	l.bySource.SetClock(now)
-	l.byToken.SetClock(now)
-}
-
-func (l *mcpLimits) allow(source string) bool {
-	l.sweepIfDue()
-	return l.bySource.Allow(ratelimit.SourceKey(source))
-}
-
-func (l *mcpLimits) allowToken(source string) bool {
-	l.sweepIfDue()
-	return l.byToken.Allow(ratelimit.SourceKey(source))
-}
-
-func (l *mcpLimits) sweepIfDue() {
-	now := l.now()
-	l.mu.Lock()
-	due := now.Sub(l.lastSweep) >= mcpSweepEvery
-	if due {
-		l.lastSweep = now
-	}
-	l.mu.Unlock()
-	if due {
-		l.bySource.Sweep(mcpSweepIdle)
-		l.byToken.Sweep(mcpSweepIdle)
-	}
-}
 
 // newMCPServer enregistre les outils. En lecture seule, les écritures ne
 // sont pas enregistrées du tout : le client ne les voit pas, et un appel
@@ -175,7 +125,7 @@ func (s *Server) newMCPHandler() http.Handler {
 // Bearer du SDK, qui répond 401 avec l'adresse des métadonnées pour que le
 // client découvre OAuth.
 func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpLimits.allow(s.clientAddress(r)) {
+	if !s.mcpLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
 		return
 	}
@@ -273,8 +223,7 @@ func (s *Server) toolInternal(tool string, err error) (*gomcp.CallToolResult, an
 
 // toolFailed est le pendant MCP de failed : not_found sur notFound (nil quand
 // l'outil n'a pas de 404), la clé d'un refus, sinon « internal ». Le booléen
-// dit si le résultat est prêt à rendre. Les exceptions de clé (l'API rend
-// directory.unit_not_found là où l'outil rend not_found) restent à la main.
+// dit si le résultat est prêt à rendre.
 func (s *Server) toolFailed(tool string, err, notFound error) (*gomcp.CallToolResult, bool) {
 	if err == nil {
 		return nil, false

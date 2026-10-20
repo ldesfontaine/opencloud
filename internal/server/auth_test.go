@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
 const (
@@ -119,6 +120,7 @@ func checkOpenRoutes(t *testing.T, open map[string]bool) {
 }
 
 func TestAuthBasic_RightCredentialsPassAndWrongPasswordIs401(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.enableBasic(t)
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusOK {
@@ -137,6 +139,7 @@ func TestAuthBasic_RightCredentialsPassAndWrongPasswordIs401(t *testing.T) {
 }
 
 func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.enableBasic(t)
 	if got := callAs(server.Server, http.MethodGet, "/statut", "", ""); got.Code != http.StatusOK {
@@ -154,6 +157,7 @@ func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 // de l'interface : ils restent lisibles sans identifiants, la page de
 // l'interface elle-même non.
 func TestAuthBasic_StatusPageAssetsStayPublic(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.enableBasic(t)
 	assets, err := fs.Glob(server.app, "assets/*")
@@ -508,6 +512,7 @@ func TestAuthForward_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T
 // Seul un mandataire déclaré qui porte l'identité passe : ni le mandataire
 // sans identité, ni un conteneur voisin qui écrit l'en-tête lui-même.
 func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.enableForward(t)
 	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusOK {

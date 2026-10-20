@@ -10,8 +10,8 @@ import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { machinesSubtitle } from "../lib/machines";
-import { formatRemaining, seenAgo } from "../lib/time";
+import { machineSeen, machinesSubtitle } from "../lib/machines";
+import { formatRemaining } from "../lib/time";
 
 export function Machines() {
   const t = useT();
@@ -67,7 +67,7 @@ export function Machines() {
                     <td>
                       <OnlinePill online={machine.online} />
                     </td>
-                    <td className="secondary nowrap">{seenAgo(t, machine.last_seen_at, now)}</td>
+                    <td className="secondary nowrap">{machineSeen(t, machine, now)}</td>
                     <td className="td-end wide-only">
                       <Button variant="ghost" small to={`/machines/${machine.id}`}>
                         {t("machines.open")}

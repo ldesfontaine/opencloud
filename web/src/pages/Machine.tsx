@@ -23,7 +23,7 @@ import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
-import { seenAgo } from "../lib/time";
+import { machineSeen } from "../lib/machines";
 import { NotFound } from "./NotFound";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
@@ -75,7 +75,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               <KeyValue label={t("machine.field_address")} value={current.address} mono />
               <KeyValue label={t("machine.field_os")} value={current.os} />
               <KeyValue label={t("machine.field_agent")} value={current.agent_version} mono />
-              <KeyValue label={t("machine.field_seen")} value={seenAgo(t, current.last_seen_at, now)} />
+              <KeyValue label={t("machine.field_seen")} value={machineSeen(t, current, now)} />
               {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
             </CardBody>
           </Card>

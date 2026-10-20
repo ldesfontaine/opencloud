@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
@@ -231,10 +230,5 @@ func (s *Server) pauseJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resumeJob(w http.ResponseWriter, r *http.Request) {
-	err := s.heartbeats.Resume(r.Context(), r.PathValue("id"))
-	if errors.Is(err, heartbeat.ErrNotPaused) {
-		s.apiRefuse(w, http.StatusConflict, "job.not_paused")
-		return
-	}
-	s.finishAPIAction(w, r, err, heartbeat.ErrNotFound)
+	s.finishAPIAction(w, r, s.heartbeats.Resume(r.Context(), r.PathValue("id")), heartbeat.ErrNotFound)
 }

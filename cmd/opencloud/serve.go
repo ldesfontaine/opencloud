@@ -107,8 +107,9 @@ func runServe(args []string) error {
 	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
 		return err
 	}
-	if err := db.PurgeExpiredTokens(ctx, time.Now()); err != nil {
-		logger.Warn("purge expired tokens", "error", err)
+	now := time.Now()
+	if err := db.PurgeTokens(ctx, now, now.Add(-machine.ConsumedTokenRetention)); err != nil {
+		logger.Warn("purge enrollment tokens", "error", err)
 	}
 	// Les réglages de l'opérateur : relus dans la base à chaque usage.
 	preferences := settings.New(db, logger)

@@ -39,6 +39,9 @@ type Store interface {
 	InsertSilence(ctx context.Context, silence Silence) (int64, error)
 	ListSilences(ctx context.Context) ([]Silence, error)
 	DeleteSilence(ctx context.Context, id int64) error
+	// DeleteObjectSilences efface les silences qui visent l'objet ; rend combien.
+	DeleteObjectSilences(ctx context.Context, object Object) (int, error)
+	PurgeSilences(ctx context.Context, endedBefore time.Time) error
 
 	// InsertDelivery réserve la livraison ; ErrDeliveryExists quand la
 	// même est déjà réservée.
@@ -276,6 +279,22 @@ func (e *Engine) Gone(ctx context.Context, object Object) {
 	e.resolveOrphans(ctx)
 }
 
+// removed : l'objet est retiré de la base. Ce qui était ouvert sur lui se
+// résout, et ses silences partent avec lui : sans clé étrangère, ils
+// viseraient un objet disparu. Une pause ou un archivage passe par Gone
+// seul et garde les silences.
+func (e *Engine) removed(ctx context.Context, object Object) {
+	e.Gone(ctx, object)
+	deleted, err := e.store.DeleteObjectSilences(ctx, object)
+	if err != nil {
+		e.fail(ctx, "delete object silences", err)
+		return
+	}
+	if deleted > 0 {
+		e.changed()
+	}
+}
+
 func (e *Engine) resolveOrphans(ctx context.Context) {
 	orphans, err := e.store.ListOrphanAlerts(ctx)
 	if err != nil {
@@ -354,8 +373,14 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.forgetIdleShares(now)
 }
 
+// Purge efface les alertes résolues et les silences finis au-delà de leur
+// rétention.
 func (e *Engine) Purge(ctx context.Context) error {
-	return e.store.PurgeAlerts(ctx, e.now().Add(-ResolvedRetention))
+	now := e.now()
+	if err := e.store.PurgeAlerts(ctx, now.Add(-ResolvedRetention)); err != nil {
+		return err
+	}
+	return e.store.PurgeSilences(ctx, now.Add(-SilenceRetention))
 }
 
 // Watch est la boucle de fond : le rattrapage des livraisons au départ, le

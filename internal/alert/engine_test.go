@@ -254,6 +254,51 @@ func TestPurge_ForgetsOldResolvedAlertsOnly(t *testing.T) {
 	}
 }
 
+// Une sonde retirée emporte ses silences ; une sonde mise en pause garde
+// les siens, elle peut revenir.
+func TestProbeRemoved_TakesItsSilencesAndAPauseKeepsThem(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	removed := alert.Object{Kind: alert.ObjectProbe, ID: "aaaaaaaaaaaaaaaa", Name: "site"}
+	paused := alert.Object{Kind: alert.ObjectProbe, ID: "bbbbbbbbbbbbbbbb", Name: "api"}
+	for _, object := range []alert.Object{removed, paused} {
+		if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Object: object, Duration: time.Hour}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.ProbeRemoved(ctx, removed.ID)
+	f.ProbeChanged(ctx, probe.Probe{ID: paused.ID, Name: paused.Name, Status: probe.StatusPaused})
+	silences, err := f.Silences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(silences) != 1 || silences[0].Object.ID != paused.ID {
+		t.Fatalf("silences %+v", silences)
+	}
+}
+
+func TestPurge_ForgetsLongEndedSilencesOnly(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindDiskFull, Duration: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(alert.SilenceRetention + 2*time.Hour)
+	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindProbeDown, Duration: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Purge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	silences, err := f.Silences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(silences) != 1 || silences[0].Kind != alert.KindProbeDown {
+		t.Fatalf("silences %+v", silences)
+	}
+}
+
 func TestChannel_SecretStaysAndCanBeCleared(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()

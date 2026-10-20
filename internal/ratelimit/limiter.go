@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+// sweepEvery : le balayage des seaux oubliés se fait au passage d'une
+// requête, au plus une fois par période, sans goroutine.
+const sweepEvery = 5 * time.Minute
+
 // Un seau par clé : il se remplit au rythme donné jusqu'à sa contenance, et
 // chaque requête en retire une unité.
 type bucket struct {
@@ -12,31 +16,40 @@ type bucket struct {
 	lastSeen time.Time
 }
 
+// Limiter compte par clé brute : une machine, l'empreinte d'un jeton. Pour
+// une adresse cliente, c'est BySource.
 type Limiter struct {
 	// Unités rendues par seconde, et contenance du seau.
 	rate  float64
 	burst int
-	now   func() time.Time
+	// Un seau silencieux depuis idle est oublié : plein, il n'a rien à
+	// mémoriser. idle doit dépasser le temps de remplir le seau.
+	idle time.Duration
+	now  func() time.Time
 
-	mu      sync.Mutex
-	buckets map[string]*bucket
+	mu        sync.Mutex
+	buckets   map[string]*bucket
+	lastSweep time.Time
 }
 
 // New borne à `rate` requêtes par seconde en régime continu, avec une
-// rafale de `burst` requêtes d'un coup.
-func New(rate float64, burst int) *Limiter {
-	return &Limiter{rate: rate, burst: burst, now: time.Now, buckets: make(map[string]*bucket)}
+// rafale de `burst` requêtes d'un coup ; un seau sans requête depuis `idle`
+// est oublié.
+func New(rate float64, burst int, idle time.Duration) *Limiter {
+	return &Limiter{rate: rate, burst: burst, idle: idle, now: time.Now, buckets: make(map[string]*bucket)}
 }
 
 func (l *Limiter) SetClock(now func() time.Time) {
 	l.now = now
 }
 
-// Allow dit si la requête de cette clé passe, et la compte si oui.
+// Allow dit si la requête de cette clé passe, et la compte si oui. Les
+// seaux oubliés sont balayés au passage.
 func (l *Limiter) Allow(key string) bool {
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.sweepIfDue(now)
 	current, ok := l.buckets[key]
 	if !ok {
 		current = &bucket{tokens: float64(l.burst), lastSeen: now}
@@ -51,12 +64,13 @@ func (l *Limiter) Allow(key string) bool {
 	return true
 }
 
-// Sweep oublie les clés silencieuses depuis plus longtemps que `idle` : un
-// seau plein n'a rien à mémoriser.
-func (l *Limiter) Sweep(idle time.Duration) {
-	cutoff := l.now().Add(-idle)
-	l.mu.Lock()
-	defer l.mu.Unlock()
+// sweepIfDue se tient sous le verrou de Allow.
+func (l *Limiter) sweepIfDue(now time.Time) {
+	if now.Sub(l.lastSweep) < sweepEvery {
+		return
+	}
+	l.lastSweep = now
+	cutoff := now.Add(-l.idle)
 	for key, current := range l.buckets {
 		if current.lastSeen.Before(cutoff) {
 			delete(l.buckets, key)
@@ -69,4 +83,24 @@ func (l *Limiter) Size() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.buckets)
+}
+
+// BySource compte par adresse cliente, normalisée par sourceKey : l'appelant
+// passe l'adresse telle qu'il la lit, il ne peut pas oublier le /64.
+type BySource struct {
+	limiter *Limiter
+}
+
+// NewBySource : les mêmes bornes que New, par source.
+func NewBySource(rate float64, burst int, idle time.Duration) *BySource {
+	return &BySource{limiter: New(rate, burst, idle)}
+}
+
+func (b *BySource) SetClock(now func() time.Time) {
+	b.limiter.SetClock(now)
+}
+
+// Allow dit si la requête de cette adresse passe, et la compte si oui.
+func (b *BySource) Allow(address string) bool {
+	return b.limiter.Allow(sourceKey(address))
 }

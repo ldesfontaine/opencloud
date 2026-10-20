@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
 // AuthorizeRequest est ce qu'un client apporte à /oauth/authorize.
@@ -96,7 +98,7 @@ func (s *Service) Exchange(ctx context.Context, request ExchangeRequest) (Grant,
 	if request.Verifier == "" || !verifierMatches(request.Verifier, code.Challenge) {
 		return Grant{}, ErrVerifierInvalid
 	}
-	familyID, err := newFamilyID()
+	familyID, err := ident.New()
 	if err != nil {
 		return Grant{}, fmt.Errorf("generate family id: %w", err)
 	}

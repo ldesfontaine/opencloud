@@ -10,8 +10,10 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,11 +21,35 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/web"
 )
 
 // Now est l'horloge figée des tests : « vu il y a » se calcule depuis elle.
 func Now() time.Time {
 	return time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+}
+
+// RequireFront saute le test quand le front n'est pas construit : les pages
+// que le serveur livre viennent de web/dist, que `make front` remplit. En CI
+// (variable CI posée), l'absence est un échec : un saut y masquerait un
+// Makefile qui ne construit plus le front.
+func RequireFront(t testing.TB) {
+	t.Helper()
+	dist, err := web.Dist()
+	if err == nil {
+		for _, page := range []string{"index.html", "statut.html"} {
+			if _, err = fs.Stat(dist, page); err != nil {
+				break
+			}
+		}
+	}
+	if err == nil {
+		return
+	}
+	if os.Getenv("CI") != "" {
+		t.Fatalf("front non construit (%v) : la CI doit lancer make front avant les tests", err)
+	}
+	t.Skip("front non construit : make front")
 }
 
 // RemoteID est l'identifiant de la machine distante des tests, fixe pour des

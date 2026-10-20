@@ -40,7 +40,7 @@ type agentError struct {
 func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 	// Le même seau que le défi : un enrôlement légitime est rare, un flot
 	// d'enrôlements coûte une transaction chacun.
-	if !h.challengeLimits.allow(h.clientAddress(r)) {
+	if !h.challengeLimit.Allow(h.clientAddress(r)) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
@@ -94,7 +94,7 @@ func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err e
 }
 
 func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
-	if !h.challengeLimits.allow(h.clientAddress(r)) {
+	if !h.challengeLimit.Allow(h.clientAddress(r)) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
@@ -224,7 +224,7 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusUnauthorized, "no_session")
 		return
 	}
-	if !h.signalLimits.allow(sessionMachine) {
+	if !h.signalLimit.Allow(sessionMachine) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return

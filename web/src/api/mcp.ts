@@ -2,8 +2,8 @@ import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 
 // L'accès d'un agent IA par MCP : client OAuth, jetons d'API, sessions.
-// Chemin hors de toute ressource : topicsOf le relit sur tous les sujets
-// sauf les mesures.
+// Chemin sans sujet du direct : relu à la demande de la page, ou quand tout
+// se relit.
 
 // Un secret ou un jeton n'y figure que masqué ; le clair ne sort qu'à sa
 // création.

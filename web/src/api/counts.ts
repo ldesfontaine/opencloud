@@ -2,8 +2,8 @@ import { useResource, type Resource } from "../hooks/useResource";
 import type { AlertCounts } from "./alerts";
 
 // Les compteurs de la barre latérale et de la vue d'ensemble, calculés par
-// le serveur. Chemin hors de toute ressource : topicsOf le relit sur tous
-// les sujets sauf les mesures.
+// le serveur. Relus sur chaque sujet qui change un compteur
+// (countedTopics), jamais sur les mesures.
 
 // Les certificats vus par les sondes actives. expiring et expired sont
 // disjoints ; soonest_expires_at est la plus proche échéance à venir, nulle
@@ -28,6 +28,8 @@ export interface Counts {
   alerts: AlertCounts;
 }
 
+export const countsPath = "/api/counts";
+
 export function useCounts(): Resource<Counts> {
-  return useResource<Counts>("/api/counts");
+  return useResource<Counts>(countsPath);
 }

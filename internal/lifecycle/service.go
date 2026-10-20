@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/registry"
+	"github.com/ldesfontaine/opencloud/internal/wait"
 )
 
 const (
@@ -275,8 +276,8 @@ func (s *Service) fetch(ctx context.Context, now time.Time) (Snapshot, []string,
 	failed := 0
 	for index, name := range wanted {
 		if index > 0 {
-			if err := sleep(ctx, s.pause); err != nil {
-				return Snapshot{}, nil, err
+			if !wait.For(ctx, s.pause) {
+				return Snapshot{}, nil, ctx.Err()
 			}
 		}
 		product, err := s.source.Product(ctx, name)
@@ -332,20 +333,6 @@ func productsOf(images, systems []string, repositories map[string]string) []stri
 		names = names[:maxProducts]
 	}
 	return names
-}
-
-func sleep(ctx context.Context, pause time.Duration) error {
-	if pause <= 0 {
-		return ctx.Err()
-	}
-	timer := time.NewTimer(pause)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 // Of rend le support d'une image d'après la dernière lecture gardée, sans

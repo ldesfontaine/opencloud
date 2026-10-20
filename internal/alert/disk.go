@@ -1,6 +1,6 @@
 package alert
 
-import "errors"
+import "github.com/ldesfontaine/opencloud/internal/refusal"
 
 const (
 	// Les bornes d'un seuil réglé : sous 50 %, un volume ordinaire alerte
@@ -12,7 +12,8 @@ const (
 	DiskRecoveryGap = 5
 )
 
-var ErrDiskThresholdsInvalid = errors.New("alert: disk thresholds invalid")
+// La clé est celle du réglage, que l'opérateur corrige dans les paramètres.
+var ErrDiskThresholdsInvalid = refusal.Invalid("settings.disk_invalid", "alert: disk thresholds invalid")
 
 // DiskThresholds : un volume alerte à Attention, s'aggrave à Danger, et ne
 // se résout que sous Recovery.
