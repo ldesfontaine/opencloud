@@ -1,8 +1,9 @@
 package manifest
 
 import (
-	"errors"
 	"sort"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Les clés du catalogue des refus de lecture. Le front et la commande les
@@ -66,14 +67,13 @@ func ApplyKeys() []string {
 	return []string{KeyPlanChanged, KeyBusy, KeyNotApplicable, KeyNothingToApply, KeyInterrupted, KeyTimeout, KeyApplyFailed, KeyRequestInvalid}
 }
 
-// KeyExportTooLarge est la clé du catalogue que le serveur rend quand
-// l'annuaire ne tient pas dans MaxFileBytes. Ce n'est pas un refus de lecture :
-// elle n'est pas dans ProblemKeys.
+// KeyExportTooLarge répète la clé de ErrExportTooLarge, pour qui la cite. Ce
+// n'est pas un refus de lecture : elle n'est pas dans ProblemKeys.
 const KeyExportTooLarge = "manifest.export_too_large"
 
 // ErrExportTooLarge : écrire ce fichier, c'est en produire un que la lecture
 // refuserait. Mieux vaut le dire à l'export qu'au retour.
-var ErrExportTooLarge = errors.New("the directory is too large for a manifest file")
+var ErrExportTooLarge = refusal.Invalid("manifest.export_too_large", "the directory is too large for a manifest file")
 
 // Problem est un refus du fichier, à sa ligne : de lecture, ou du plan. Value
 // est ce que le message cite (la clé fautive, la durée mal écrite), Path

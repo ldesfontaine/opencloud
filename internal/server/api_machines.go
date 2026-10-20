@@ -132,10 +132,6 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cleartext, token, err := s.machines.CreateToken(r.Context(), request.Name)
-	if errors.Is(err, machine.ErrNameInvalid) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "machine.name_invalid")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -186,10 +182,6 @@ func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
 	err := s.machines.Remove(r.Context(), r.PathValue("id"))
 	if errors.Is(err, machine.ErrLocalMachine) {
 		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-		return
-	}
-	if errors.Is(err, machine.ErrHasDeclaredServices) {
-		s.apiRefuse(w, http.StatusConflict, "machine.has_declared_services")
 		return
 	}
 	s.finishAPIAction(w, r, err, machine.ErrNotFound)

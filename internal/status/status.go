@@ -282,7 +282,7 @@ var (
 	ErrComponentInvalid    = refusal.Invalid("incident.component_invalid", "status: component invalid")
 	ErrWindowInvalid       = refusal.Invalid("incident.window_invalid", "status: window invalid")
 	ErrTooMany             = refusal.Invalid("component.too_many", "status: too many")
-	ErrResolved            = errors.New("status: incident resolved")
+	ErrResolved            = refusal.Conflict("incident.already_resolved", "status: incident resolved")
 	ErrUpdateEmpty         = refusal.Invalid("incident.update_empty", "status: update says nothing")
 )
 

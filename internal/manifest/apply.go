@@ -24,16 +24,19 @@ const (
 	journalTimeout = 10 * time.Second
 )
 
+// Les clés répètent celles du journal (KeyPlanChanged…) : le test des
+// catalogues ne lit qu'un littéral, et TestRefusals_CarryTheirKeyConstant
+// veille à ce qu'elles restent égales.
 var (
 	// ErrPlanChanged : l'annuaire a changé depuis le plan que l'opérateur a
 	// confirmé. L'application n'écrit rien ; elle rend le plan d'aujourd'hui.
-	ErrPlanChanged = errors.New("the directory changed since the plan was confirmed")
+	ErrPlanChanged = refusal.Conflict("manifest.plan_changed", "the directory changed since the plan was confirmed")
 	// ErrNotApplicable : le plan a des refus, rien ne s'écrit.
-	ErrNotApplicable = errors.New("the plan has refusals")
+	ErrNotApplicable = refusal.Invalid("manifest.not_applicable", "the plan has refusals")
 	// ErrBusy : un autre apply est en cours.
-	ErrBusy = errors.New("another apply is running")
+	ErrBusy = refusal.Conflict("manifest.busy", "another apply is running")
 	// ErrNothingToApply : le fichier est conforme, il n'y a rien à écrire.
-	ErrNothingToApply = errors.New("nothing to apply")
+	ErrNothingToApply = refusal.Invalid("manifest.nothing_to_apply", "nothing to apply")
 	// errObjectMoved : un objet a changé entre le plan rejoué et son
 	// écriture (un geste de l'interface, pendant l'application). L'écriture
 	// s'arrête plutôt que d'écraser ce que l'opérateur vient de faire.

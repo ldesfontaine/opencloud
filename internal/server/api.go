@@ -59,7 +59,10 @@ func (s *Server) apiInternalError(w http.ResponseWriter, r *http.Request, err er
 	s.writeAPIError(w, http.StatusInternalServerError, codeInternal)
 }
 
-// Un refus : la clé du catalogue que le front affichera dans sa langue.
+// apiRefuse répond un refus que le serveur décide lui-même (un paramètre de
+// requête, un en-tête, une limite du serveur), ou celui d'un composant dont
+// le statut n'est ni 422 ni 409 (404 à clé propre, 403, 503). Une règle
+// métier refuse par refusal.*, et la réponse passe par failed.
 func (s *Server) apiRefuse(w http.ResponseWriter, status int, key string) {
 	s.writeAPIError(w, status, key)
 }
@@ -81,15 +84,20 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, err, notFound er
 		return true
 	}
 	if key, ok := refusal.KeyOf(err); ok {
-		status := http.StatusUnprocessableEntity
-		if refusal.IsConflict(err) {
-			status = http.StatusConflict
-		}
-		s.apiRefuse(w, status, key)
+		s.writeAPIError(w, refusalStatus(err), key)
 		return true
 	}
 	s.apiInternalError(w, r, err)
 	return true
+}
+
+// refusalStatus rend le statut HTTP d'un refus : 409 s'il vient de l'état
+// présent, 422 sinon.
+func refusalStatus(err error) int {
+	if refusal.IsConflict(err) {
+		return http.StatusConflict
+	}
+	return http.StatusUnprocessableEntity
 }
 
 // finishAPIAction répond à une action sans contenu : 204, ou l'échec.

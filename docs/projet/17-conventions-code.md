@@ -274,10 +274,15 @@ Petit, nommé, à cette échelle.
 - **Un refus n'est pas une erreur** : la demande est impossible en l'état,
   l'opérateur lit sa clé en français. Une erreur, c'est ce qu'on n'avait pas
   prévu : le journal la garde, l'opérateur lit `internal`.
-- Le refus d'un domaine déclare sa clé avec l'erreur : `refusal.Invalid` ou
-  `refusal.Conflict` (`internal/refusal`). Le serveur la rend par `s.failed`,
-  MCP par `s.toolFailed` ; statuts et exceptions : `22-fonctionnement.md`,
-  « Les refus ».
+- **Toute règle métier refuse par `refusal.*`** : le domaine déclare sa clé
+  avec l'erreur, `refusal.Invalid` ou `refusal.Conflict`
+  (`internal/refusal`). Elle se traduit une seule fois : le serveur par
+  `s.failed`, MCP par `s.toolFailed`, le fichier de l'annuaire par
+  `refusal.KeyOf`. Jamais d'`errors.Is` qui choisit une clé dans un handler.
+- `s.apiRefuse` n'est que pour ce que le handler juge lui-même : un
+  paramètre de requête, un en-tête, une limite du serveur. Les quelques refus
+  de domaine dont le statut n'est ni 422 ni 409 (404 à clé propre, 403, 503)
+  sont listés dans `22-fonctionnement.md`, « Les refus ».
 
 ## La configuration
 

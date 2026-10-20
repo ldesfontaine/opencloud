@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
@@ -265,10 +264,6 @@ func (s *Server) addIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.status.AddUpdate(r.Context(), r.PathValue("id"), status.IncidentStatus(request.Status), request.Message)
-	if errors.Is(err, status.ErrResolved) {
-		s.apiRefuse(w, http.StatusConflict, "incident.already_resolved")
-		return
-	}
 	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}

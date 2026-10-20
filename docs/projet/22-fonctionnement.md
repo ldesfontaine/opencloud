@@ -2373,21 +2373,28 @@ journal, `errors.Is` reconnaît la sentinelle comme avant.
 
 | Qui | Ce qu'il en fait |
 | --- | --- |
-| Le domaine (`directory`, `probe`, `heartbeat`, `status`, `alert`, `mail`, `auth`, `settings`) | Déclare `refusal.Invalid` (la demande est fausse) ou `refusal.Conflict` (l'état présent s'y oppose) |
+| Le domaine (`directory`, `probe`, `heartbeat`, `status`, `alert`, `mail`, `auth`, `settings`, `machine`, `mcp`, `manifest`) | Déclare `refusal.Invalid` (la demande est fausse) ou `refusal.Conflict` (l'état présent s'y oppose) |
 | L'API (`server`) | `s.failed(w, r, err, notFound)` : `404 not_found` si l'erreur est la sentinelle `notFound` du composant (`probe.ErrNotFound`…, `nil` quand la route n'a pas de 404), la clé en 422 pour `Invalid`, en 409 pour `Conflict`, sinon `500 internal` et l'erreur au journal |
 | MCP | `s.toolFailed(tool, err, notFound)` : `not_found`, la même clé sans statut, ou `internal` |
 | Le fichier de l'annuaire (`manifest`) | La même clé dans le plan et le journal, lue par `refusal.KeyOf` ; il ne dépend pas du serveur |
 
-Restent écrits à la main, dans le handler, les refus dont la réponse n'est
-pas « 422 ou 409 avec la clé » : les 404 avec clé (`directory.unit_not_found`,
-`directory.container_not_found`, `directory.ignore_not_found`), les 503, 429,
-504 et 502 des journaux, `403 machine.local_kept`, la suppression refusée avec
-sa liste (`409 directory.service_linked` et `links`), et MCP qui rend
-`not_found` là où l'API rend `directory.unit_not_found`. Les refus que le
-handler traduisait déjà un par un (`probe.not_paused`,
-`alert.already_resolved`, `mcp.*`, `manifest.*`…) le restent. Un test relève
-chaque `refusal.Invalid` et `refusal.Conflict` du code et exige leur clé,
-littérale et unique, dans chaque catalogue.
+Aucun handler ne choisit la clé d'un refus de domaine par `errors.Is`. Deux
+cas gardent `s.apiRefuse` :
+
+| Cas | Refus |
+| --- | --- |
+| Le handler juge lui-même (paramètre, en-tête, limite du serveur) | `manifest.request_invalid` (corps illisible, `limit` du journal), `auth.mode_invalid`, `auth.forward_secret_required`, `auth.forward_header_missing`, `auth.state_changed` (le middleware), `service.logs_busy` (les places de suivi), `400 error.unknown_language`, `settings.mail_to_invalid` (l'adresse d'essai) |
+| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 update.machine_offline`, `403 machine.local_kept` |
+
+Les refus d'application du fichier (`manifest.plan_changed`,
+`manifest.not_applicable`) gardent leur réponse : la clé et le statut viennent
+du refus, le handler y joint le plan d'aujourd'hui. La suppression refusée
+avec sa liste (`409 directory.service_linked` et `links`) aussi. MCP rend
+`not_found` là où l'API rend `directory.unit_not_found` : la sentinelle passe
+en `notFound` à `toolFailed`. Le ping d'une tâche répond du texte court à un
+cron, sans catalogue : `heartbeat.ErrExitCodeInvalid` reste une erreur nue.
+Un test relève chaque `refusal.Invalid` et `refusal.Conflict` du code et
+exige leur clé, littérale et unique, dans chaque catalogue.
 
 ## Le nom du produit
 

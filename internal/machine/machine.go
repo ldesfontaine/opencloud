@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // La machine openCloud elle-même : gérée comme les autres, jamais retirée,
@@ -77,7 +78,7 @@ type Enrollment struct {
 var (
 	ErrNotFound      = errors.New("machine not found")
 	ErrLocalMachine  = errors.New("the local machine cannot be removed or re-enrolled by token")
-	ErrNameInvalid   = errors.New("machine name must be a lowercase label: letters, digits, dashes")
+	ErrNameInvalid   = refusal.Invalid("machine.name_invalid", "machine name must be a lowercase label: letters, digits, dashes")
 	ErrNameTaken     = errors.New("machine name already used")
 	ErrTokenNotFound = errors.New("enrollment token not found")
 	ErrTokenConsumed = errors.New("enrollment token already consumed")
@@ -94,7 +95,7 @@ var (
 
 // Une machine qui porte des services déclarés ne se retire pas : ils
 // seraient orphelins, et leur suppression revient à l'opérateur.
-var ErrHasDeclaredServices = errors.New("the machine carries declared services")
+var ErrHasDeclaredServices = refusal.Conflict("machine.has_declared_services", "the machine carries declared services")
 
 // Un nom de machine se lit comme une étiquette DNS : il servira dans des
 // noms d'hôte (whoami.vps-paris-1…).
