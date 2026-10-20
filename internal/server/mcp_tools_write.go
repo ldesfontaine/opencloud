@@ -26,60 +26,60 @@ const mcpOnRequestOnly = "Call it only when the operator explicitly asks for thi
 // Les neuf écritures : ce que l'interface fait déjà, et qui ne touche
 // jamais une machine. Chacune rend l'objet tel que l'API le relit, et
 // refuse avec la même clé que l'API.
-func (s *Server) registerWriteTools(server *gomcp.Server, readOnly bool) {
+func (s *Server) registerWriteTools(server *gomcp.Server) {
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "acknowledge_alert",
 		Description: "Acknowledge an open alert: it stays open but leaves the unacknowledged counter, so the on-call no longer sees it as new. Fails with alert.already_resolved on a resolved alert; acknowledging twice is harmless.",
 		Annotations: destructiveWriteHints(true),
-	}, guarded(readOnly, s.acknowledgeAlertTool))
+	}, guarded(s.acknowledgeAlertTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "pause_probe",
 		Description: "Pause a probe: its machine stops checking the target, its alerts close and its status becomes paused. Pausing twice is harmless.",
 		Annotations: destructiveWriteHints(true),
-	}, guarded(readOnly, s.pauseProbeTool))
+	}, guarded(s.pauseProbeTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "resume_probe",
 		Description: "Resume a paused probe: it restarts as new and is checked right away. Fails with probe.not_paused when it is not paused.",
 		Annotations: writeHints(true),
-	}, guarded(readOnly, s.resumeProbeTool))
+	}, guarded(s.resumeProbeTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "pause_job",
 		Description: "Pause a job: no more deadline, so it can no longer be late; an open run is closed as timed out. Pings are still recorded but change nothing until the job is resumed. Pausing twice is harmless.",
 		Annotations: destructiveWriteHints(true),
-	}, guarded(readOnly, s.pauseJobTool))
+	}, guarded(s.pauseJobTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "resume_job",
 		Description: "Resume a paused job: a full interval starts now. Fails with job.not_paused when it is not paused.",
 		Annotations: writeHints(true),
-	}, guarded(readOnly, s.resumeJobTool))
+	}, guarded(s.resumeJobTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "open_incident",
 		Description: "Open an incident on the PUBLIC status page: visitors read the title and message immediately. impact is degraded, down or maintenance; status is investigating, identified or monitoring for an outage, scheduled or in_progress for a maintenance, which also needs starts_at and ends_at (RFC 3339). At least one component_id from get_status_page. " + mcpOnRequestOnly,
 		Annotations: destructiveWriteHints(false),
-	}, guarded(readOnly, s.openIncidentTool))
+	}, guarded(s.openIncidentTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "add_incident_update",
 		Description: "Post an update to the PUBLIC thread of an open incident and move it to that status; status=resolved closes it. Fails with incident.already_resolved on a resolved incident. " + mcpOnRequestOnly,
 		Annotations: destructiveWriteHints(false),
-	}, guarded(readOnly, s.addIncidentUpdateTool))
+	}, guarded(s.addIncidentUpdateTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "create_silence",
 		Description: "Silence alerts for a while: an object (object_kind and object_id), or a kind of alert (from list_alerts) on an object; never everything. A kind without an object is refused here with mcp.silence_object_required: the operator does that in the web interface. Silenced alerts still open and show, they are not delivered to channels. " + mcpOnRequestOnly,
 		Annotations: destructiveWriteHints(false),
-	}, guarded(readOnly, s.createSilenceTool))
+	}, guarded(s.createSilenceTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "set_update_policy",
 		Description: "Set what the operator wants about the image updates of a directory unit: watch follows updates, hold checks but never shows them, ignore never queries the registry. Every container attached to the unit follows it, recreated ones included. Never pulls or restarts anything.",
 		Annotations: writeHints(true),
-	}, guarded(readOnly, s.setUpdatePolicyTool))
+	}, guarded(s.setUpdatePolicyTool))
 }
 
-// guarded ferme une écriture, avec la clé que le modèle lit, quand la
-// session est en lecture seule (stdio) ou que le jeton présenté pour cette
-// requête n'a pas la portée write ; sinon elle passe telle quelle.
-func guarded[In any](readOnly bool, handler func(context.Context, In) (*gomcp.CallToolResult, any, error)) gomcp.ToolHandlerFor[In, any] {
+// guarded ferme une écriture, avec la clé que le modèle lit, quand le jeton
+// présenté pour cette requête n'a pas la portée write ; sinon elle passe
+// telle quelle.
+func guarded[In any](handler func(context.Context, In) (*gomcp.CallToolResult, any, error)) gomcp.ToolHandlerFor[In, any] {
 	return func(ctx context.Context, request *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
-		if readOnly || !mayWrite(ctx, request) {
+		if !mayWrite(ctx, request) {
 			return toolRefuse(codeReadOnly)
 		}
 		return handler(ctx, input)

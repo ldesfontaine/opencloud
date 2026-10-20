@@ -115,8 +115,8 @@ func diff(want, got []string) string {
 }
 
 // La carte MCP de Paramètres ne promet pas « jamais un secret » : les
-// journaux de conteneur sont bruts, et un incident ouvert est public.
-func TestLoad_MCPCardAdmitsRawLogsAndPublicIncidents(t *testing.T) {
+// journaux de conteneur sont bruts.
+func TestLoad_MCPCardAdmitsRawLogs(t *testing.T) {
 	catalogs, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -130,9 +130,6 @@ func TestLoad_MCPCardAdmitsRawLogsAndPublicIncidents(t *testing.T) {
 		}
 		if intro := catalog.Get("mcp.intro"); !strings.Contains(strings.ToLower(intro), map[Code]string{"fr": "journaux", "en": "logs"}[code]) {
 			t.Errorf("%s mcp.intro does not mention container logs: %s", code, intro)
-		}
-		if tools := catalog.Get("mcp.tools"); !strings.Contains(tools, "public") && !strings.Contains(tools, "publique") {
-			t.Errorf("%s mcp.tools does not say that incidents are public: %s", code, tools)
 		}
 	}
 }

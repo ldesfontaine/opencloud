@@ -44,6 +44,14 @@ Le changement de version est une décision de Lucas.
 front. Le front se compile avant les tests Go, qui l'embarquent. Les
 actions GitHub sont épinglées par SHA de commit.
 
+`.github/dependabot.yml` propose chaque semaine, vers `dev`, une pull
+request par écosystème (Go, npm, actions ; il met à jour le SHA et le
+commentaire de version ensemble). `make front-check` lance d'abord
+`npm audit --omit=dev --audit-level=high` : une dépendance de production
+du front avec une faille haute ou critique arrête la CI (il faut le réseau).
+Dans `go.mod`, `go 1.26` dit ce qu'il faut pour lire le module ; la ligne
+`toolchain go1.26.9` fixe le correctif que la CI et les builds utilisent.
+
 `.github/workflows/release.yml` publie les binaires Linux amd64 et arm64
 (`make release`) dans la release `v0.0.1`, après les tests. **Lancement à
 la main seulement** ; chaque lancement remplace la release précédente.

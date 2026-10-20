@@ -22,11 +22,12 @@ export interface MCPState {
   limits: { tokens: number; redirect_uris: number };
   // Les échéances offertes à un jeton d'API, en jours ; 0 pour sans échéance.
   lifetimes: { access_seconds: number; refresh_seconds: number; api_token_days: number[]; api_token_default_days: number };
-  tools: { reads: number; writes: number };
+  tools: { reads: number };
   enabled_at: string | null;
 }
 
-// read : les lectures seules ; write : les lectures et les écritures.
+// La portée reste dans la base et dans l'API, inerte : le MCP HTTP est en
+// lecture seule, quelle qu'elle soit. L'interface ne la montre plus.
 export type MCPScope = "read" | "write";
 
 export interface MCPToken {
@@ -59,7 +60,6 @@ export interface MCPTokenResponse {
 // 0 jour : un jeton sans échéance.
 export interface MCPTokenRequest {
   name: string;
-  scope: MCPScope;
   expires_in_days: number;
 }
 
