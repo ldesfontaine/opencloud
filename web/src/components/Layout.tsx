@@ -135,6 +135,8 @@ function Brand() {
 
 interface NavEntry {
   key: string;
+  // La clé du libellé en entier : le test des clés la voit dans les deux sens.
+  label: string;
   href: string;
   icon: IconName;
   // Où mène l'entrée quand son compteur demande attention : les conteneurs du
@@ -145,16 +147,16 @@ interface NavEntry {
 // Seul ce qui est livré a son entrée : les Sauvegardes reviendront avec
 // leur fonctionnalité.
 const viewEntries: NavEntry[] = [
-  { key: "overview", href: "/", icon: "grid" },
-  { key: "machines", href: "/machines", icon: "server" },
-  { key: "services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
-  { key: "domains", href: "/domaines", icon: "globe" },
-  { key: "jobs", href: "/taches", icon: "clock" },
-  { key: "statuspage", href: "/page-statut", icon: "eye" },
-  { key: "alerts", href: "/alertes", icon: "bell" },
+  { key: "overview", label: "nav.overview", href: "/", icon: "grid" },
+  { key: "machines", label: "nav.machines", href: "/machines", icon: "server" },
+  { key: "services", label: "nav.services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
+  { key: "domains", label: "nav.domains", href: "/domaines", icon: "globe" },
+  { key: "jobs", label: "nav.jobs", href: "/taches", icon: "clock" },
+  { key: "statuspage", label: "nav.statuspage", href: "/page-statut", icon: "eye" },
+  { key: "alerts", label: "nav.alerts", href: "/alertes", icon: "bell" },
 ];
 
-const settingsEntries: NavEntry[] = [{ key: "settings", href: "/parametres", icon: "settings" }];
+const settingsEntries: NavEntry[] = [{ key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" }];
 
 // Barre latérale : marque, sections Vue et Administration avec leurs compteurs en
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.
@@ -262,7 +264,7 @@ function NavItem({ entry, counter }: { entry: NavEntry; counter: Counter | null 
   return (
     <NavLink className={({ isActive }) => (isActive ? "nav-item active" : "nav-item")} to={href} end={entry.href === "/"}>
       <Icon name={entry.icon} />
-      <span>{t(`nav.${entry.key}`)}</span>
+      <span>{t(entry.label)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}
     </NavLink>
   );

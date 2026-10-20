@@ -42,7 +42,7 @@ export interface LifecycleSettings {
 }
 
 // Le corps ne porte que les deux seuils, tels que la session les rend.
-export type DiskRequest = DiskThresholds;
+type DiskRequest = DiskThresholds;
 
 // Le mot de passe vide garde l'ancien ; clear_password l'efface.
 export interface MailRequest {

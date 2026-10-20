@@ -406,7 +406,11 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
   gardent les noms de la direction artistique (`card`, `pill`, `btn`).
 - **Aucune chaîne visible en dur** : tout passe par `t("clé")` et les
   catalogues TOML servis par `/api/i18n/{code}` ; un test Go vérifie que
-  chaque clé demandée existe dans les deux langues.
+  chaque clé demandée existe dans les deux langues. **Et aucune clé sans
+  lecteur** : le test inverse (`TestCatalog_EveryKeyHasAReader`) refuse une
+  clé que ni le front, ni un composant, ni une commande ne nomme en entier,
+  par une valeur d'une liste fermée ou par un préfixe composé
+  (`` `job.snippet_${key}` ``). Une clé morte se retire des deux catalogues.
   Les chaînes sont des formats Go (`%s`, `%d`), lus par le serveur et par le
   front : un pourcentage s'écrit `%%`, un test refuse un `%` seul.
 - Une page lit ses données par les hooks de `api/<ressource>.ts`
@@ -414,6 +418,16 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
   signal de `useRefresh()`) et écrit par ses fonctions `async`
   (`saveProbe`, `deleteProbe`…). Aucun chemin `/api/` hors de `api/`, sauf
   le flux du direct dans `useLive`.
+- **Un seul contrat d'API** : les types de `api/<ressource>.ts` décrivent ce
+  que le serveur rend, et `api/contract.test.ts` relit les goldens Go
+  (`internal/server/testdata`) pour comparer leurs clés à chaque type, tsc
+  vérifiant que la description a exactement les clés du type. Un champ
+  renommé en Go casse le test du front ; un golden nouveau y prend son type,
+  ou la raison pour laquelle le front ne le lit pas. Un type exporté est
+  importé ailleurs ; une brique de son seul fichier ne s'exporte pas.
+- Une page qui ne sert qu'au développement (`/systeme-visuel`) passe par
+  `import.meta.env.DEV` et un import dynamique : elle n'entre pas dans le
+  bundle de production.
 - Pas de bibliothèque d'état ni de requêtes tant que `fetch` et quelques hooks
   suffisent. Toute dépendance nouvelle se décide en revue.
 - `tsc --noEmit` et `vitest` en local et en CI (`make front-check`) ; la
@@ -435,7 +449,8 @@ scripts relus.
   machine tient le style, l'humain garde l'attention pour le sens.
 - **Fixtures figées** : l'arbre des
   routes, les réponses JSON de l'API (`internal/server/testdata/*.golden.json`,
-  `go test ./internal/server -update` pour les réécrire après vérification). Tout
+  `go test ./internal/server -update` pour les réécrire après vérification),
+  relues aussi par le front (`web/src/api/contract.test.ts`). Tout
   changement casse un test — c'est voulu.
 - **La vraie base** : un composant et ses consommateurs se testent sur une
   SQLite temporaire, ouverte par `storetest.Open(t)`

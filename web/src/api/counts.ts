@@ -8,7 +8,7 @@ import type { AlertCounts } from "./alerts";
 // Les certificats vus par les sondes actives. expiring et expired sont
 // disjoints ; soonest_expires_at est la plus proche échéance à venir, nulle
 // quand il n'y en a aucune.
-export interface CertificateCounts {
+interface CertificateCounts {
   total: number;
   expiring: number;
   expired: number;
