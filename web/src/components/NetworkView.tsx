@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 
-import type { NetworkResponse, ProbesResponse } from "../api/types";
-import { useResource } from "../hooks/useResource";
+import { useMachineNetwork } from "../api/network";
+import { useMachineProbes } from "../api/probes";
 import { useT } from "../i18n/context";
 import { layoutNetwork, publicPorts } from "../lib/network";
-import { engineNote } from "../lib/containers";
+import { engineNote, type Filter } from "../lib/containers";
 import { Card, CardBody, Empty, Note } from "./Card";
 import { Failure } from "./Failure";
 import { NetworkGraph } from "./NetworkGraph";
 import { NetworkInspector } from "./NetworkInspector";
-import { ContainerFilter, useContainerFilter } from "./ContainerTable";
+import { ContainerFilter } from "./ContainerTable";
 import "./NetworkView.scss";
 
 // L'onglet Réseau d'une machine : le filtre de l'onglet Services, le
@@ -17,11 +17,11 @@ import "./NetworkView.scss";
 // conteneurs ; la sélection tient par identifiant, elle survit à la relecture.
 export function NetworkView({ machineID }: { machineID: string }) {
   const t = useT();
-  const network = useResource<NetworkResponse>(`/api/machines/${machineID}/network`);
+  const network = useMachineNetwork(machineID);
   // Les sondes de cette machine servent la ligne « Certificat » de
   // l'inspecteur : le graphe dit les liens, la sonde dit ce qu'elle a vu.
-  const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
-  const [filter, setFilter] = useContainerFilter();
+  const probes = useMachineProbes(machineID);
+  const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<string | null>(null);
   const response = network.data;
   const layout = useMemo(() => (response ? layoutNetwork(response, filter) : null), [response, filter]);

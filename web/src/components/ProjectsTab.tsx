@@ -1,11 +1,10 @@
 import { Link } from "react-router";
 
-import type { ProjectsResponse } from "../api/types";
-import { useResource } from "../hooks/useResource";
+import { useProjects } from "../api/directory";
 import { useT } from "../i18n/context";
 import { projectsSubtitle } from "../lib/directory";
 import { Button } from "./Button";
-import { Card, Empty } from "./Card";
+import { Card, EmptyCard } from "./Card";
 import { Failure } from "./Failure";
 import { PageHead } from "./PageHead";
 import { ServicesTabs } from "./ServicesTabs";
@@ -16,7 +15,7 @@ import "./ServiceTable.scss";
 // services déclarés.
 export function ProjectsTab() {
   const t = useT();
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
+  const projects = useProjects();
   const all = projects.data?.projects ?? [];
   return (
     <>
@@ -32,9 +31,7 @@ export function ProjectsTab() {
       <ServicesTabs />
       {projects.error && <Failure error={projects.error} />}
       {projects.data && all.length === 0 && (
-        <Card>
-          <Empty icon="archive" title={t("project.empty_title")} text={t("project.empty_text")} />
-        </Card>
+        <EmptyCard icon="archive" title={t("project.empty_title")} text={t("project.empty_text")} />
       )}
       {projects.data && all.length > 0 && (
         <Card className="scroll-x">

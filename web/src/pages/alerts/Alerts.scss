@@ -27,6 +27,13 @@
     gap: 6px;
     margin-left: auto;
     white-space: nowrap;
+
+    // L'erreur d'acquittement passe à la ligne : sur téléphone, elle
+    // déborderait l'écran.
+    .note {
+      white-space: normal;
+      max-width: 360px;
+    }
   }
 
   .actions {
@@ -94,18 +101,6 @@
 
 .alert-group:not(:last-child) .list {
   border-bottom: 1px solid var(--line);
-}
-
-// La carte de la vue d'ensemble : trois lignes au plus, le reste par le lien.
-.overview-alerts .row {
-  padding: 10px 20px;
-}
-
-.channel-test {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .channel-url {

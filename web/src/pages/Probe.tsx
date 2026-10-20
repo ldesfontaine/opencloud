@@ -1,25 +1,22 @@
-import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, segment } from "../api/client";
-import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
+import { deleteProbe, pauseProbe, resumeProbe, useProbe, type Probe, type ProbeResponse, type ProbeResult } from "../api/probes";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
 import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Dot, ProbePill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { UptimeBar } from "../components/UptimeBar";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
-import { useRefresh } from "../lib/refresh";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
-import { NotFound } from "./NotFound";
 
 // Les jours montrés sur la fiche : autant que l'agrégat en garde de lisible.
 const detailSpan = 90;
@@ -32,14 +29,8 @@ function checksLabel(t: Translate, total: number): string {
 // jour par jour et ses derniers essais.
 export function ProbePage() {
   const { id = "" } = useParams();
-  const response = useResource<ProbeResponse>(() => `/api/probes/${segment(id)}`);
-  if (response.error instanceof ApiError && response.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!response.data) {
-    return response.error ? <Failure error={response.error} /> : null;
-  }
-  return <ProbeView response={response.data} reload={response.reload} />;
+  const response = useProbe(id);
+  return <Loaded resource={response}>{(data) => <ProbeView response={data} reload={response.reload} />}</Loaded>;
 }
 
 function ProbeView({ response, reload }: { response: ProbeResponse; reload: () => void }) {
@@ -235,43 +226,34 @@ function ResultRow({ result }: { result: ProbeResult }) {
 function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
 
-  const act = (action: "pause" | "resume") => {
-    api
-      .post(`/api/probes/${probe.id}/actions/${action}`)
-      .then(() => {
-        reload();
-        refresh();
-      })
-      .catch(setError);
+  const pause = () => {
+    action.run(() => pauseProbe(probe.id), { topic: "all", onDone: reload });
+  };
+  const resume = () => {
+    action.run(() => resumeProbe(probe.id), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    if (!window.confirm(t("probe.delete_confirm", probe.name))) {
-      return;
-    }
-    api
-      .delete(`/api/probes/${probe.id}`)
-      .then(() => {
-        refresh();
-        void navigate("/domaines");
-      })
-      .catch(setError);
+    action.run(() => deleteProbe(probe.id), {
+      confirm: t("probe.delete_confirm", probe.name),
+      topic: "all",
+      onDone: () => void navigate("/domaines"),
+    });
   };
 
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Button icon="settings" to={`/domaines/${probe.id}/modifier`}>
         {t("probe.edit")}
       </Button>
       {probe.status === "paused" ? (
-        <Button icon="refresh" onClick={() => act("resume")}>
+        <Button icon="refresh" onClick={resume}>
           {t("probe.resume")}
         </Button>
       ) : (
-        <Button icon="pause" onClick={() => act("pause")}>
+        <Button icon="pause" onClick={pause}>
           {t("probe.pause")}
         </Button>
       )}

@@ -142,3 +142,28 @@
     white-space: nowrap;
   }
 }
+
+// Une pile dans une cellule : un nom et ce qui le précise dessous.
+.cell-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+
+  &.end {
+    align-items: flex-end;
+  }
+}
+
+// Une cellule d'actions : un retour (erreur, résultat d'essai) et le bouton
+// côte à côte. La colonne se réduit au plus étroit : l'erreur y reste sur
+// une ligne.
+.cell-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+
+  .note {
+    white-space: nowrap;
+  }
+}

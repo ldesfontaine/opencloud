@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { ImageCheck } from "../api/types";
+import type { ImageCheck } from "../api/containers";
 import type { Translate } from "../i18n/context";
 import { checkText, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel } from "./updates";
 

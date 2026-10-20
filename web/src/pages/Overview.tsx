@@ -1,21 +1,23 @@
 import { Link } from "react-router";
 
-import type { AlertsResponse, Counts, MachinesResponse, ResourcesResponse } from "../api/types";
+import { useAlerts } from "../api/alerts";
+import { useCounts, type Counts } from "../api/counts";
+import { useMachines } from "../api/machines";
+import { useCurrentResources } from "../api/resources";
 import { Button } from "../components/Button";
-import { Card, Empty, Stat } from "../components/Card";
+import { Card, EmptyCard, Stat } from "../components/Card";
 import { List } from "../components/Table";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { Pill, StatePill } from "../components/Pill";
+import { Pill, OnlinePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { daysUntil } from "../lib/certificates";
-import { machinesSubtitle } from "../lib/subtitles";
+import { machinesSubtitle } from "../lib/machines";
 import { seenAgo } from "../lib/time";
-import { AlertRow } from "./Alerts";
+import { AlertRow } from "./alerts/AlertRow";
 import "./Overview.scss";
 
 const alertsShown = 3;
@@ -24,7 +26,7 @@ const alertsShown = 3;
 // premières avec leur fait et leur cause, le reste par le lien.
 function AlertsCard() {
   const t = useT();
-  const alerts = useResource<AlertsResponse>("/api/alerts");
+  const alerts = useAlerts();
   if (!alerts.data) {
     return null;
   }
@@ -95,9 +97,9 @@ function DomainsFoot({ counts }: { counts: Counts }) {
 export function Overview() {
   const t = useT();
   const now = useNow();
-  const machines = useResource<MachinesResponse>("/api/machines");
-  const counts = useResource<Counts>("/api/counts");
-  const resources = useResource<ResourcesResponse>("/api/resources");
+  const machines = useMachines();
+  const counts = useCounts();
+  const resources = useCurrentResources();
   const list = machines.data?.machines ?? [];
   const online = list.filter((machine) => machine.online).length;
   const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
@@ -114,9 +116,7 @@ export function Overview() {
       />
       {machines.error && <Failure error={machines.error} />}
       {machines.data && list.length === 0 && (
-        <Card>
-          <Empty icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
-        </Card>
+        <EmptyCard icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
       )}
       {machines.data && list.length > 0 && (
         <>
@@ -178,7 +178,7 @@ export function Overview() {
                       <span className="card-t">{machine.name}</span>
                       <span className="mono muted">{machine.address !== "" ? machine.address : machine.os}</span>
                     </span>
-                    <StatePill online={machine.online} />
+                    <OnlinePill online={machine.online} />
                   </div>
                   <div className="card-b">
                     <MachineMeters current={currentOf(machine.id)} />

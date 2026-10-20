@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { DeclaredService, UndeclaredGroup } from "../api/types";
+import { ignoreObservation, unignoreObservation, type DeclaredService, type UndeclaredGroup } from "../api/directory";
+import { proposedExportPath } from "../api/manifest";
+import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreBody, orphanKey, proposedExportPath, shownUndeclared, unignorePath } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreKeyOf, orphanKey, shownUndeclared } from "../lib/gaps";
 import { Button } from "./Button";
-import { Card, CardHeader, Empty, Note } from "./Card";
+import { Card, CardHeader, Empty } from "./Card";
+import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 import { Subject, Table } from "./Table";
 import "./ServiceTable.scss";
@@ -21,16 +22,17 @@ import "./ServiceTable.scss";
 // d'un coup, à relire avant de l'appliquer.
 export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]; declared: DeclaredService[] }) {
   const t = useT();
-  const { refresh } = useRefresh();
   const [showIgnored, setShowIgnored] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const shown = shownUndeclared(groups, showIgnored);
   const hidden = ignoredCount(groups);
   const names = new Map(declared.map((service) => [service.id, service.name]));
 
-  const send = (request: Promise<unknown>) => {
-    setError(null);
-    request.then(() => refresh("directory")).catch((failed: unknown) => setError(errorKey(failed)));
+  const action = useAction();
+  const ignore = (group: UndeclaredGroup) => {
+    action.run(() => ignoreObservation(ignoreKeyOf(group)), { topic: "directory" });
+  };
+  const stopIgnoring = (group: UndeclaredGroup) => {
+    action.run(() => unignoreObservation(ignoreKeyOf(group)), { topic: "directory" });
   };
   const toggle =
     hidden === 0 ? undefined : (
@@ -54,7 +56,7 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
           </span>
         }
       />
-      {error !== null && <Note tone="danger">{t(error)}</Note>}
+      <Failure error={action.error} />
       {shown.length === 0 ? (
         <Empty text={t("gap.undeclared_empty")} action={toggle} />
       ) : (
@@ -100,7 +102,7 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
                   <td className="td-end">
                     <span className="cluster">
                       {group.ignored ? (
-                        <Button small variant="ghost" onClick={() => send(api.delete(unignorePath(group)))}>
+                        <Button small variant="ghost" onClick={() => stopIgnoring(group)}>
                           {t("gap.unignore")}
                         </Button>
                       ) : (
@@ -110,7 +112,7 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
                               {group.service_id === "" ? t("gap.adopt") : t("gap.adopt_into", names.get(group.service_id) ?? group.key_value)}
                             </Button>
                           )}
-                          <Button small variant="ghost" onClick={() => send(api.post("/api/directory/ignored", ignoreBody(group)))}>
+                          <Button small variant="ghost" onClick={() => ignore(group)}>
                             {t("gap.ignore")}
                           </Button>
                         </>

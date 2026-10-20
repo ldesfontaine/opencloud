@@ -404,8 +404,11 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
   chaque clé demandée existe dans les deux langues.
   Les chaînes sont des formats Go (`%s`, `%d`), lus par le serveur et par le
   front : un pourcentage s'écrit `%%`, un test refuse un `%` seul.
-- Une page lit ses données par `useResource("/api/…")` et relit sur le signal
-  de `useRefresh()` : c'est là que le direct se branchera.
+- Une page lit ses données par les hooks de `api/<ressource>.ts`
+  (`useProbes()`, `useProbe(id)`, bâtis sur `useResource`, relus sur le
+  signal de `useRefresh()`) et écrit par ses fonctions `async`
+  (`saveProbe`, `deleteProbe`…). Aucun chemin `/api/` hors de `api/`, sauf
+  le flux du direct dans `useLive`.
 - Pas de bibliothèque d'état ni de requêtes tant que `fetch` et quelques hooks
   suffisent. Toute dépendance nouvelle se décide en revue.
 - `tsc --noEmit` et `vitest` en local et en CI (`make front-check`) ; la

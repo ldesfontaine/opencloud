@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { useRefresh } from "../lib/refresh";
+import { topics, useRefresh } from "../api/refresh";
 
 // Le direct : une seule connexion par onglet, ouverte par la coquille. Le
 // serveur n'envoie que le nom de ce qui a changé ; on relit. L'EventSource
@@ -10,24 +10,10 @@ export function useLive(): void {
   const { refresh } = useRefresh();
   useEffect(() => {
     const source = new EventSource("/api/events");
-    const onMachines = () => refresh("machines");
-    const onJobs = () => refresh("jobs");
-    const onResources = () => refresh("resources");
-    const onContainers = () => refresh("containers");
-    const onProbes = () => refresh("probes");
-    const onStatus = () => refresh("status");
-    const onAlerts = () => refresh("alerts");
-    const onDirectory = () => refresh("directory");
-    const onReconnected = () => refresh();
-    source.addEventListener("machines", onMachines);
-    source.addEventListener("jobs", onJobs);
-    source.addEventListener("resources", onResources);
-    source.addEventListener("containers", onContainers);
-    source.addEventListener("probes", onProbes);
-    source.addEventListener("status", onStatus);
-    source.addEventListener("alerts", onAlerts);
-    source.addEventListener("directory", onDirectory);
-    source.addEventListener("reconnected", onReconnected);
+    for (const topic of topics) {
+      source.addEventListener(topic, () => refresh(topic));
+    }
+    source.addEventListener("reconnected", () => refresh());
     return () => source.close();
   }, [refresh]);
 }

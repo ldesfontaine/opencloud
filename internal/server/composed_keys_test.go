@@ -87,6 +87,8 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "mcp.scope_", values: names(mcp.Scopes())},
 		// La pastille de la carte « Accès à l'interface », par mode.
 		{prefix: "auth.state_", values: names(auth.Modes())},
+		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
+		{prefix: "auth.mode_", values: without(names(auth.Modes()), string(auth.ModeNone))},
 		{prefix: "directory.nature_", values: names(directory.Natures())},
 		{prefix: "directory.origin_", values: names(directory.Origins())},
 		{prefix: "directory.provides_", values: names(directory.Capabilities())},

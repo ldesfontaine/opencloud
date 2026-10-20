@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 
+import type { Container } from "../api/containers";
 import type { Translate } from "../i18n/context";
-import { findingText, formatBinding, formatBindings, formatPorts, imageBase, matchesFilter, needsAttention, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle } from "./containers";
+import { containerNeedsAttention, filterContainers, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle } from "./containers";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -24,13 +25,13 @@ test("containerPill dérive la pastille des faits", () => {
   expect(containerPill({ state: "created", exit_code: 0, health: "" }).key).toBe("created");
 });
 
-test("needsAttention suit la règle du serveur", () => {
-  expect(needsAttention({ state: "exited", exit_code: 1, health: "" })).toBe(true);
-  expect(needsAttention({ state: "exited", exit_code: 137, health: "" })).toBe(false);
-  expect(needsAttention({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toBe(true);
-  expect(needsAttention({ state: "exited", exit_code: 137, health: "", killed: true })).toBe(true);
-  expect(needsAttention({ state: "running", exit_code: 0, health: "unhealthy" })).toBe(true);
-  expect(needsAttention({ state: "restarting", exit_code: 0, health: "" })).toBe(true);
+test("containerNeedsAttention suit la règle du serveur", () => {
+  expect(containerNeedsAttention({ state: "exited", exit_code: 1, health: "" })).toBe(true);
+  expect(containerNeedsAttention({ state: "exited", exit_code: 137, health: "" })).toBe(false);
+  expect(containerNeedsAttention({ state: "exited", exit_code: 137, health: "", oom_killed: true })).toBe(true);
+  expect(containerNeedsAttention({ state: "exited", exit_code: 137, health: "", killed: true })).toBe(true);
+  expect(containerNeedsAttention({ state: "running", exit_code: 0, health: "unhealthy" })).toBe(true);
+  expect(containerNeedsAttention({ state: "restarting", exit_code: 0, health: "" })).toBe(true);
 });
 
 test("matchesFilter sépare actifs et arrêtés", () => {
@@ -41,10 +42,22 @@ test("matchesFilter sépare actifs et arrêtés", () => {
   expect(matchesFilter({ state: "exited" }, "all")).toBe(true);
 });
 
-test("formatPorts écrit les ports publiés comme la planche", () => {
-  expect(formatPorts([])).toBe("");
+test("filterContainers garde tout, les actifs ou les arrêtés selon le filtre, sans toucher à la liste reçue", () => {
+  const running = { id: "a", state: "running" } as Container;
+  const restarting = { id: "b", state: "restarting" } as Container;
+  const exited = { id: "c", state: "exited" } as Container;
+  const containers = [running, restarting, exited];
+  expect(filterContainers(containers, "all")).toEqual([running, restarting, exited]);
+  expect(filterContainers(containers, "active")).toEqual([running, restarting]);
+  expect(filterContainers(containers, "stopped")).toEqual([exited]);
+  expect(filterContainers([], "active")).toEqual([]);
+  expect(containers).toHaveLength(3);
+});
+
+test("formatPublishedPorts écrit les ports publiés comme la planche", () => {
+  expect(formatPublishedPorts([])).toBe("");
   expect(
-    formatPorts([
+    formatPublishedPorts([
       { ip: "0.0.0.0", host_port: 80, container_port: 80, protocol: "tcp" },
       { ip: "::", host_port: 80, container_port: 80, protocol: "tcp" },
       { ip: "0.0.0.0", host_port: 443, container_port: 443, protocol: "tcp" },

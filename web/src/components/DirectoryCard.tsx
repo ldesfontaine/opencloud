@@ -1,13 +1,13 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { ContainerDirectory, Container } from "../api/types";
+import type { Container } from "../api/containers";
+import { ignoreObservation, unignoreObservation, type ContainerDirectory, type IgnoreKey } from "../api/directory";
+import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { adoptPath, isOrphan, orphanText } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
 import { Button } from "./Button";
-import { Card, CardBody, CardHeader, Note } from "./Card";
+import { Card, CardBody, CardHeader } from "./Card";
+import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 
 // Ce que l'annuaire sait de ce conteneur : l'unité déclarée à laquelle il se
@@ -18,8 +18,7 @@ import { Pill } from "./Pill";
 // retirer, ne passe pas par l'adoption.
 export function DirectoryCard({ container, directory }: { container: Container; directory: ContainerDirectory | null }) {
   const t = useT();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<string | null>(null);
+  const action = useAction();
   if (directory === null) {
     return null;
   }
@@ -27,18 +26,19 @@ export function DirectoryCard({ container, directory }: { container: Container; 
   if (!directory.declared && isArchived) {
     return null;
   }
-  const send = (request: Promise<unknown>) => {
-    setError(null);
-    request.then(() => refresh("directory")).catch((failed: unknown) => setError(errorKey(failed)));
-  };
   const orphan = isOrphan(directory);
-  const key = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
-  const unignore = new URLSearchParams({ machine: key.machine_id, kind: key.kind, value: key.value });
+  const key: IgnoreKey = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
+  const ignore = () => {
+    action.run(() => ignoreObservation(key), { topic: "directory" });
+  };
+  const stopIgnoring = () => {
+    action.run(() => unignoreObservation(key), { topic: "directory" });
+  };
   return (
     <Card>
       <CardHeader title={t("gap.card_title")} />
       <CardBody gap={10}>
-        {error !== null && <Note tone="danger">{t(error)}</Note>}
+        <Failure error={action.error} />
         {directory.declared ? (
           <>
             <span className="cluster">
@@ -77,7 +77,7 @@ export function DirectoryCard({ container, directory }: { container: Container; 
             )}
             <span className="cluster">
               {directory.ignored ? (
-                <Button small variant="ghost" onClick={() => send(api.delete(`/api/directory/ignored?${unignore.toString()}`))}>
+                <Button small variant="ghost" onClick={stopIgnoring}>
                   {t("gap.unignore")}
                 </Button>
               ) : (
@@ -87,7 +87,7 @@ export function DirectoryCard({ container, directory }: { container: Container; 
                       {t("gap.adopt")}
                     </Button>
                   )}
-                  <Button small variant="ghost" onClick={() => send(api.post("/api/directory/ignored", key))}>
+                  <Button small variant="ghost" onClick={ignore}>
                     {t("gap.ignore")}
                   </Button>
                 </>

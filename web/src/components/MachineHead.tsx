@@ -1,12 +1,13 @@
-import { NavLink, useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 
-import type { Machine } from "../api/types";
+import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
 import { machineTabs } from "../lib/machineTabs";
 import { seenAgo } from "../lib/time";
 import { Select } from "./Field";
-import { StatePill } from "./Pill";
+import { OnlinePill } from "./Pill";
+import { TabNav } from "./TabNav";
 import "./MachineHead.scss";
 
 // En-tête de machine : sélecteur, pastille d'état, métadonnées séparées par
@@ -29,7 +30,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
         ))}
       </Select>
       <span className="machine-state">
-        <StatePill online={current.online} />
+        <OnlinePill online={current.online} />
         <span className="meta">
           {current.address !== "" && (
             <>
@@ -51,19 +52,6 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
 }
 
 export function Tabs({ machineID }: { machineID: string }) {
-  const t = useT();
-  return (
-    <nav className="tabs">
-      {machineTabs.map((tab) => (
-        <NavLink
-          key={tab.slug}
-          className={({ isActive }) => (isActive ? "tab active" : "tab")}
-          to={tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`}
-          end
-        >
-          {t(tab.key)}
-        </NavLink>
-      ))}
-    </nav>
-  );
+  const tabs = machineTabs.map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
+  return <TabNav tabs={tabs} />;
 }

@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { Probe, ProbeDay } from "../api/types";
+import type { Probe, ProbeDay } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { uptimeOfDays, uptimePercent } from "../lib/probes";

@@ -1,15 +1,16 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse, UpdatePolicy } from "../api/types";
+import { saveDeclaredService, useDeclaredService, useProjects, useProposal, type Origin } from "../api/directory";
+import { useMachines } from "../api/machines";
 import { Button } from "../components/Button";
-import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { Field, Input, Select } from "../components/Field";
+import { Checkbox, Checks, EnumSelect, Field, Input } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
+import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
-import { Pill } from "../components/Pill";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useT, type Translate } from "../i18n/context";
 import {
   capabilities,
@@ -17,17 +18,14 @@ import {
   emptyUnitForm,
   natures,
   origins,
-  serviceFormOf,
-  serviceFormOfDefinition,
+  serviceFormStart,
   serviceRequestOf,
   toggled,
   updatePolicies,
   type ServiceFormValues,
   type UnitFormValues,
 } from "../lib/directory";
-import { useRefresh } from "../lib/refresh";
 import { NotFound } from "./NotFound";
-import "./StatusAdmin.scss";
 import "./DeclaredServiceForm.scss";
 
 // Déclarer ou modifier un service : l'opérateur dit sur quelle machine il
@@ -47,50 +45,27 @@ export function DeclaredServiceForm() {
   const container = useSearchParams()[0].get("container") ?? "";
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const machines = useResource<MachinesResponse>("/api/machines");
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
-  const existing = useResource<DeclaredService>(isEditing ? () => `/api/directory/services/${segment(id)}` : null);
-  const proposal = useResource<ProposalResponse>(container === "" ? null : `/api/directory/proposal?container=${encodeURIComponent(container)}`);
-
-  const [values, setValues] = useState<ServiceFormValues>(emptyServiceForm);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Le service se lit une fois : une relecture (le signal de rafraîchissement
-  // passe) ne doit pas écraser ce que l'opérateur est en train de taper.
-  const [filled, setFilled] = useState(false);
+  const machines = useMachines();
+  const projects = useProjects();
+  const existing = useDeclaredService(id ?? null);
+  const proposal = useProposal(container === "" ? null : container);
 
   // Tant que la proposition n'est ni arrivée ni refusée, on ne remplit pas :
-  // le formulaire ne partirait pas du bon côté.
+  // le formulaire ne partirait pas du bon côté. start ne change qu'avec ce
+  // qu'il lit : l'effet de remplissage ne se relance pas à chaque rendu.
   const awaitingProposal = container !== "" && proposal.data === null && proposal.error === null;
-  useEffect(() => {
-    if (filled) {
-      return;
-    }
-    if (isEditing) {
-      if (existing.data === null || awaitingProposal) {
-        return;
-      }
-      // Une proposition pour un autre service n'est pas la nôtre : le service
-      // tel qu'il est gardé fait foi.
-      const proposed = proposal.data !== null && proposal.data.service_id === id ? proposal.data.definition : null;
-      setFilled(true);
-      setValues(proposed !== null ? serviceFormOfDefinition(proposed) : serviceFormOf(existing.data));
-      return;
-    }
-    // Une proposition qui vise un service déjà déclaré redirige, plus bas.
-    if (proposal.data === null || proposal.data.service_id !== "") {
-      return;
-    }
-    setFilled(true);
-    setValues(serviceFormOfDefinition(proposal.data.definition));
-  }, [existing.data, proposal.data, awaitingProposal, filled, isEditing, id]);
+  const empty = useMemo(emptyServiceForm, []);
+  const start = useMemo(() => serviceFormStart(id, existing.data, proposal.data, awaitingProposal), [id, existing.data, proposal.data, awaitingProposal]);
+  // start est déjà une valeur de formulaire (serviceFormStart), ou null pour attendre.
+  const form = useForm(empty, isEditing || container !== "" ? { source: start, fill: (values: ServiceFormValues) => values } : null);
+  const { values, change } = form;
+  const action = useAction();
 
   // À défaut de choix, la machine openCloud : c'est celle qu'on a sous la main.
   const local = machines.data?.machines.find((machine) => machine.local);
   useEffect(() => {
     if (!isEditing && values.machineID === "" && local !== undefined) {
-      setValues((current) => ({ ...current, machineID: local.id }));
+      change("machineID", local.id);
     }
   }, [isEditing, local, values.machineID]);
 
@@ -102,35 +77,23 @@ export function DeclaredServiceForm() {
   if (!isEditing && proposal.data !== null && proposal.data.service_id !== "") {
     return <Navigate replace to={`/services/annuaire/${proposal.data.service_id}/modifier?container=${encodeURIComponent(container)}`} />;
   }
-  const waiting = !filled && (isEditing || awaitingProposal);
+  const waiting = !form.isFilled && (isEditing || awaitingProposal);
   const adopting = container !== "" && proposal.error === null;
 
-  const change = <Key extends keyof ServiceFormValues>(key: Key, value: ServiceFormValues[Key]) => {
-    setValues((current) => ({ ...current, [key]: value }));
-  };
   const changeUnit = <Key extends keyof UnitFormValues>(index: number, key: Key, value: UnitFormValues[Key]) => {
-    setValues((current) => ({
-      ...current,
-      units: current.units.map((unit, position) => (position === index ? { ...unit, [key]: value } : unit)),
-    }));
+    change("units", values.units.map((unit, position) => (position === index ? { ...unit, [key]: value } : unit)));
   };
-  const addUnit = () => setValues((current) => ({ ...current, units: [...current.units, emptyUnitForm()] }));
+  const addUnit = () => change("units", [...values.units, emptyUnitForm()]);
   const removeUnit = (index: number) => {
-    setValues((current) => ({ ...current, units: current.units.filter((_, position) => position !== index) }));
+    change("units", values.units.filter((_, position) => position !== index));
   };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
+  const save = () => {
     const body = serviceRequestOf(values);
-    const request = isEditing ? api.put<DeclaredService>(`/api/directory/services/${segment(id)}`, body) : api.post<DeclaredService>("/api/directory/services", body);
-    request
-      .then((saved) => {
-        refresh("directory");
-        void navigate(`/services/annuaire/${saved.id}`);
-      })
-      .catch((failed: unknown) => setError(errorKey(failed)))
-      .finally(() => setBusy(false));
+    action.run(() => saveDeclaredService(id, body), {
+      topic: "directory",
+      onDone: (saved) => void navigate(`/services/annuaire/${saved.id}`),
+    });
   };
 
   const allProjects = projects.data?.projects ?? [];
@@ -142,140 +105,134 @@ export function DeclaredServiceForm() {
       />
       {existing.error && <Failure error={existing.error} />}
       {proposal.error && <Failure error={proposal.error} />}
-      <Card className="form-card">
-        <form className="card-b" onSubmit={submit}>
-          <div className="grid-2">
-            <Field label={t("directory.name_label")} htmlFor="service-name" help={t("directory.name_help")}>
-              <Input
-                id="service-name"
-                mono
-                type="text"
-                value={values.name}
-                onChange={(event) => change("name", event.target.value)}
-                placeholder={t("directory.name_placeholder")}
-                maxLength={63}
-                autoComplete="off"
-                autoFocus
-                required
-              />
-            </Field>
-            <Field label={t("directory.title_label")} htmlFor="service-title" help={t("directory.title_help")}>
-              <Input id="service-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={80} autoComplete="off" />
-            </Field>
-          </div>
-          <Field label={t("directory.machine_label")} htmlFor="service-machine" help={t("directory.machine_help")}>
-            <Select id="service-machine" icon="server" value={values.machineID} onChange={(event) => change("machineID", event.target.value)}>
-              {(machines.data?.machines ?? []).map((machine) => (
-                <option key={machine.id} value={machine.id}>
-                  {machine.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <div className="grid-2">
-            <Field label={t("directory.nature_label")} htmlFor="service-nature" help={t("directory.nature_help")}>
-              <Select id="service-nature" value={values.nature} onChange={(event) => change("nature", event.target.value as Nature)}>
-                {natures.map((nature) => (
-                  <option key={nature} value={nature}>
-                    {t(`directory.nature_${nature}`)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={t("directory.origin_label")} htmlFor="service-origin" help={t("directory.origin_help")}>
-              <Select id="service-origin" value={values.origin} onChange={(event) => change("origin", event.target.value as Origin)}>
-                {origins.map((origin) => (
-                  <option key={origin} value={origin}>
-                    {t(`directory.origin_${origin}`)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          {values.origin === "compose" && (
-            <Field label={t("directory.compose_project_label")} htmlFor="service-compose" help={t("directory.compose_project_help")}>
-              <Input
-                id="service-compose"
-                mono
-                type="text"
-                value={values.composeProject}
-                onChange={(event) => change("composeProject", event.target.value)}
-                placeholder={t("directory.compose_project_placeholder")}
-                maxLength={63}
-                autoComplete="off"
-                required
-              />
-            </Field>
-          )}
-          <Field label={t("directory.public_url_label")} htmlFor="service-url" help={t("directory.public_url_help")}>
+      <FormCard
+        onSubmit={save}
+        error={action.error}
+        actions={
+          <FormActions
+            submitLabel={isEditing ? t("directory.save") : t("directory.create")}
+            submitIcon={isEditing ? "check" : "plus"}
+            busy={action.busy}
+            canSubmit={!waiting}
+            cancelLabel={t("directory.cancel")}
+            cancelTo={isEditing ? `/services/annuaire/${id}` : "/services"}
+          />
+        }
+      >
+        <div className="grid-2">
+          <Field label={t("directory.name_label")} htmlFor="service-name" help={t("directory.name_help")}>
             <Input
-              id="service-url"
+              id="service-name"
               mono
-              type="url"
-              value={values.publicURL}
-              onChange={(event) => change("publicURL", event.target.value)}
-              placeholder={t("directory.public_url_placeholder")}
-              maxLength={2048}
+              type="text"
+              value={values.name}
+              onChange={(event) => change("name", event.target.value)}
+              placeholder={t("directory.name_placeholder")}
+              maxLength={63}
               autoComplete="off"
+              autoFocus
+              required
             />
           </Field>
-          {values.nature === "infra" && (
-            <Field label={t("directory.provides_label")} help={t("directory.provides_help")}>
-              <div className="checks">
-                {capabilities.map((capability: Capability) => (
-                  <label key={capability}>
-                    <input type="checkbox" checked={values.provides.includes(capability)} onChange={() => change("provides", toggled(values.provides, capability))} />
-                    {t(`directory.provides_${capability}`)}
-                  </label>
-                ))}
-              </div>
-            </Field>
-          )}
-          <Field label={t("directory.units_label")} help={t(values.origin === "compose" ? "directory.units_help_compose" : "directory.units_help")}>
-            <div className="units">
-              {values.units.map((unit, index) => (
-                <UnitEditor
-                  key={index}
-                  index={index}
-                  unit={unit}
-                  origin={values.origin}
-                  canRemove={values.units.length > 1}
-                  change={(key, value) => changeUnit(index, key, value)}
-                  remove={() => removeUnit(index)}
+          <Field label={t("directory.title_label")} htmlFor="service-title" help={t("directory.title_help")}>
+            <Input id="service-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={80} autoComplete="off" />
+          </Field>
+        </div>
+        <Field label={t("directory.machine_label")} htmlFor="service-machine" help={t("directory.machine_help")}>
+          <MachineSelect
+            id="service-machine"
+            icon="server"
+            machines={machines.data?.machines ?? []}
+            value={values.machineID}
+            onChange={(machineID) => change("machineID", machineID)}
+          />
+        </Field>
+        <div className="grid-2">
+          <Field label={t("directory.nature_label")} htmlFor="service-nature" help={t("directory.nature_help")}>
+            <EnumSelect id="service-nature" value={values.nature} values={natures} labelKey="directory.nature_" onChange={(nature) => change("nature", nature)} />
+          </Field>
+          <Field label={t("directory.origin_label")} htmlFor="service-origin" help={t("directory.origin_help")}>
+            <EnumSelect id="service-origin" value={values.origin} values={origins} labelKey="directory.origin_" onChange={(origin) => change("origin", origin)} />
+          </Field>
+        </div>
+        {values.origin === "compose" && (
+          <Field label={t("directory.compose_project_label")} htmlFor="service-compose" help={t("directory.compose_project_help")}>
+            <Input
+              id="service-compose"
+              mono
+              type="text"
+              value={values.composeProject}
+              onChange={(event) => change("composeProject", event.target.value)}
+              placeholder={t("directory.compose_project_placeholder")}
+              maxLength={63}
+              autoComplete="off"
+              required
+            />
+          </Field>
+        )}
+        <Field label={t("directory.public_url_label")} htmlFor="service-url" help={t("directory.public_url_help")}>
+          <Input
+            id="service-url"
+            mono
+            type="url"
+            value={values.publicURL}
+            onChange={(event) => change("publicURL", event.target.value)}
+            placeholder={t("directory.public_url_placeholder")}
+            maxLength={2048}
+            autoComplete="off"
+          />
+        </Field>
+        {values.nature === "infra" && (
+          <Field label={t("directory.provides_label")} help={t("directory.provides_help")}>
+            <Checks>
+              {capabilities.map((capability) => (
+                <Checkbox
+                  key={capability}
+                  label={t(`directory.provides_${capability}`)}
+                  checked={values.provides.includes(capability)}
+                  onChange={() => change("provides", toggled(values.provides, capability))}
                 />
               ))}
-              <div className="cluster">
-                <Button icon="plus" onClick={addUnit}>
-                  {t("directory.unit_add")}
-                </Button>
-              </div>
+            </Checks>
+          </Field>
+        )}
+        <Field label={t("directory.units_label")} help={t(values.origin === "compose" ? "directory.units_help_compose" : "directory.units_help")}>
+          <div className="units">
+            {values.units.map((unit, index) => (
+              <UnitEditor
+                key={index}
+                index={index}
+                unit={unit}
+                origin={values.origin}
+                canRemove={values.units.length > 1}
+                change={(key, value) => changeUnit(index, key, value)}
+                remove={() => removeUnit(index)}
+              />
+            ))}
+            <div className="cluster">
+              <Button icon="plus" onClick={addUnit}>
+                {t("directory.unit_add")}
+              </Button>
             </div>
-          </Field>
-          <Field label={t("directory.projects_label")} help={t("directory.projects_help")}>
-            {allProjects.length === 0 ? (
-              <span className="secondary">{t("directory.projects_none")}</span>
-            ) : (
-              <div className="checks">
-                {allProjects.map((project) => (
-                  <label key={project.id}>
-                    <input type="checkbox" checked={values.projectIDs.includes(project.id)} onChange={() => change("projectIDs", toggled(values.projectIDs, project.id))} />
-                    {project.name}
-                  </label>
-                ))}
-              </div>
-            )}
-          </Field>
-          {error !== null && <Pill tone="danger">{t(error)}</Pill>}
-          <div className="cluster">
-            <Button type="submit" variant="primary" icon={isEditing ? "check" : "plus"} disabled={busy || waiting}>
-              {isEditing ? t("directory.save") : t("directory.create")}
-            </Button>
-            <Button variant="ghost" to={isEditing ? `/services/annuaire/${id}` : "/services"}>
-              {t("directory.cancel")}
-            </Button>
           </div>
-        </form>
-      </Card>
+        </Field>
+        <Field label={t("directory.projects_label")} help={t("directory.projects_help")}>
+          {allProjects.length === 0 ? (
+            <span className="secondary">{t("directory.projects_none")}</span>
+          ) : (
+            <Checks>
+              {allProjects.map((project) => (
+                <Checkbox
+                  key={project.id}
+                  label={project.name}
+                  checked={values.projectIDs.includes(project.id)}
+                  onChange={() => change("projectIDs", toggled(values.projectIDs, project.id))}
+                />
+              ))}
+            </Checks>
+          )}
+        </Field>
+      </FormCard>
     </>
   );
 }
@@ -386,13 +343,7 @@ function UnitEditor({
           </Field>
           {/* La politique ne vaut que pour un conteneur : un binaire se suit. */}
           <Field label={t("directory.update_policy_label")} htmlFor={`${prefix}-policy`}>
-            <Select id={`${prefix}-policy`} value={unit.updatePolicy} onChange={(event) => change("updatePolicy", event.target.value as UpdatePolicy)}>
-              {updatePolicies.map((policy) => (
-                <option key={policy} value={policy}>
-                  {t(`update.policy_${policy}`)}
-                </option>
-              ))}
-            </Select>
+            <EnumSelect id={`${prefix}-policy`} value={unit.updatePolicy} values={updatePolicies} labelKey="update.policy_" onChange={(policy) => change("updatePolicy", policy)} />
           </Field>
         </div>
       )}
