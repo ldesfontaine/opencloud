@@ -70,12 +70,20 @@ func EnsureLocalMachine(t testing.TB, machines *machine.Service) {
 // l'horloge du test, l'id est fixe pour que les rendus restent figés.
 func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) machine.Machine {
 	t.Helper()
+	enrolled, _ := EnrollMachineWithKey(t, machines, id, name)
+	return enrolled
+}
+
+// EnrollMachineWithKey fait comme EnrollMachine et rend aussi la clé
+// privée, pour les tests qui signent comme l'agent.
+func EnrollMachineWithKey(t testing.TB, machines *machine.Service, id, name string) (machine.Machine, ed25519.PrivateKey) {
+	t.Helper()
 	ctx := context.Background()
 	cleartext, _, err := machines.CreateToken(ctx, name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
+	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,5 +94,5 @@ func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) mac
 	if err != nil {
 		t.Fatal(err)
 	}
-	return enrolled
+	return enrolled, private
 }

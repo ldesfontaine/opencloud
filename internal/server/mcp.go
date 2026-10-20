@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Ce que le serveur attend du composant mcp : l'activation et les jetons
@@ -164,7 +165,7 @@ func (s *Server) newMCPHandler() http.Handler {
 // client découvre OAuth.
 func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimits.allow(s.clientAddress(r)) {
-		s.writeTooMany(w)
+		httpx.WriteTooMany(w)
 		return
 	}
 	if !s.mcpEnabled(w, r) {

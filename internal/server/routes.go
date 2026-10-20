@@ -17,15 +17,16 @@ type route struct {
 // L'arbre des routes, figé par routes_test.go : tout ajout casse le test,
 // c'est voulu. Sous /api, ce que le front appelle, en JSON : une route par
 // lecture, une route par action. Sous /agent, ce que l'agent d'une machine
-// appelle ; sous /ping, ce qu'un cron appelle, sans authentification : le
-// jeton est le secret. Sous /statut, la page publique et ses trois routes,
-// sans authentification et limitées en débit. Sous /oauth et /mcp, et les
-// deux métadonnées well-known, ce qu'un agent IA appelle, par Bearer,
-// fermé tant que MCP n'est pas activé. Tout le reste est le front, servi
-// par spa.go. Ce qui revient à l'opérateur passe par son authentification
-// quand elle est activée : voir auth.go.
+// appelle (paquet agentapi) ; sous /ping, ce qu'un cron appelle, sans
+// authentification : le jeton est le secret (paquet ping). Sous /statut, la
+// page publique et ses routes, sans authentification et limitées en débit
+// (paquet public). Ces trois paquets déclarent leurs routes, montées ici à
+// leur place. Sous /oauth et /mcp, et les deux métadonnées well-known, ce qu'un
+// agent IA appelle, par Bearer, fermé tant que MCP n'est pas activé. Tout
+// le reste est le front, servi par spa.go. Ce qui revient à l'opérateur
+// passe par son authentification quand elle est activée : voir auth.go.
 func (s *Server) routes() []route {
-	return []route{
+	routes := []route{
 		{"GET", "/api/session", s.session},
 		{"PUT", "/api/session/language", s.setLanguage},
 		{"GET", "/api/i18n/{code}", s.catalogAPI},
@@ -132,23 +133,14 @@ func (s *Server) routes() []route {
 		{"POST", "/api/auth/actions/disable", s.disableAuth},
 		{"PUT", "/api/auth/password", s.changeAuthPassword},
 		{anyMethod, "/api/", s.apiUnknown},
-		{"POST", "/agent/enroll", s.agentEnroll},
-		{"POST", "/agent/challenge", s.agentChallenge},
-		{"GET", "/agent/stream", s.agentStream},
-		{"POST", "/agent/signal", s.agentSignal},
-		{"POST", "/agent/logs/{request}", s.agentLogs},
-		{"GET", "/ping/{token}", s.pingFinish},
-		{"POST", "/ping/{token}", s.pingFinish},
-		{"GET", "/ping/{token}/start", s.pingStart},
-		{"POST", "/ping/{token}/start", s.pingStart},
-		{"GET", "/ping/{token}/{code}", s.pingExitCode},
-		{"POST", "/ping/{token}/{code}", s.pingExitCode},
-		{"GET", "/statut", s.limitPublic(s.statusPage)},
-		{"GET", "/statut/{$}", s.limitPublic(s.statusPage)},
-		{"GET", "/statut/api/status", s.limitPublic(s.publicStatus)},
-		{"GET", "/statut/api/i18n", s.limitPublic(s.publicCatalog)},
-		{"GET", "/statut/api/events", s.publicEvents},
-		{anyMethod, "/statut/", s.statusUnknown},
+	}
+	add := func(method, pattern string, handler http.HandlerFunc) {
+		routes = append(routes, route{method, pattern, handler})
+	}
+	s.agent.Routes(add)
+	s.pings.Routes(add)
+	s.public.Routes(add)
+	return append(routes, []route{
 		{"GET", "/.well-known/oauth-authorization-server", s.oauthServerMetadata},
 		{"GET", "/.well-known/oauth-protected-resource", s.oauthResourceMetadata},
 		{"GET", "/.well-known/oauth-protected-resource/mcp", s.oauthResourceMetadata},
@@ -156,12 +148,12 @@ func (s *Server) routes() []route {
 		{"POST", "/oauth/token", s.oauthToken},
 		{anyMethod, "/mcp", s.serveMCP},
 		{anyMethod, "/", s.serveApp},
-	}
+	}...)
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
-// et les routes de l'agent et des pings n'en ont pas besoin. L'accès de
-// l'opérateur enveloppe le tout, avant la garde. Ce qu'un navigateur appelle
+// et les routes de l'agent, des pings et de la page publique n'en ont pas
+// besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un navigateur appelle
 // avec l'état d'openCloud, /api et l'autorisation OAuth, exige en plus un
 // Host reconnu, jugé avant tout le reste, authentification comprise.
 func (s *Server) mux() *http.ServeMux {

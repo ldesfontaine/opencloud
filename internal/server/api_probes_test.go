@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -220,7 +221,7 @@ func TestAgentSignal_CarriesProbeResultsAndRefusesBadOnes(t *testing.T) {
 
 	signal := func(report probe.Report) *httptest.ResponseRecorder {
 		var body bytes.Buffer
-		_ = json.NewEncoder(&body).Encode(machine.SignalRequest{Probes: &report})
+		_ = json.NewEncoder(&body).Encode(agentwire.SignalRequest{Probes: &report})
 		request := httptest.NewRequest(http.MethodPost, "/agent/signal", &body)
 		request.Header.Set("Authorization", "Bearer "+session)
 		request.Header.Set("Content-Type", "application/json")

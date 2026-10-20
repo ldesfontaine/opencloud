@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -84,7 +85,7 @@ func TestAgentSignal_CarriesContainersAndRefusesBadReports(t *testing.T) {
 	report := container.Report{Complete: true, Inventory: []container.Observed{{
 		ContainerID: strings.Repeat("c", 64), Name: "web", Image: "nginx:1.27", State: container.StateRunning, CreatedAt: testNow,
 	}}}
-	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Services: &report}); got.Code != http.StatusNoContent {
+	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Services: &report}); got.Code != http.StatusNoContent {
 		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
 	containers, err := server.containers.List(context.Background(), remoteID)
@@ -92,7 +93,7 @@ func TestAgentSignal_CarriesContainersAndRefusesBadReports(t *testing.T) {
 		t.Fatalf("containers = %+v %v", containers, err)
 	}
 	bad := container.Report{Engine: &container.EngineReport{Present: false}}
-	if got := server.agentPost(session, "/agent/signal", machine.SignalRequest{Services: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_services") {
+	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Services: &bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_services") {
 		t.Fatalf("bad report: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -399,12 +400,12 @@ func TestAgentSignal_RefusedSection_KeepsTheOthers(t *testing.T) {
 			ContainerID: strings.Repeat("c", 64), Name: name, Image: "nginx:1.27", State: container.StateRunning, CreatedAt: testNow,
 		}}}
 		var body bytes.Buffer
-		_ = json.NewEncoder(&body).Encode(machine.SignalRequest{Readings: []sampler.Reading{testReading(testNow, 250)}, Services: &report})
+		_ = json.NewEncoder(&body).Encode(agentwire.SignalRequest{Readings: []sampler.Reading{testReading(testNow, 250)}, Services: &report})
 		request := httptest.NewRequest(http.MethodPost, "/agent/signal", &body)
 		request.Header.Set("Authorization", "Bearer "+session)
 		request.Header.Set("Content-Type", "application/json")
 		if sections {
-			request.Header.Set(machine.HeaderSignalSections, "1")
+			request.Header.Set(agentwire.HeaderSignalSections, "1")
 		}
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)

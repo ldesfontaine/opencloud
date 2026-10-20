@@ -12,12 +12,12 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -316,10 +316,10 @@ type signalBatch struct {
 // Une clé inconnue ne dit pas où le serveur s'est arrêté : rien ne revient.
 func (b signalBatch) restoreAfter(pending *pending, refused string) {
 	isUnwritten := refused == ""
-	if !isUnwritten && !slices.Contains(machine.SignalSections(), refused) {
+	if !isUnwritten && !slices.Contains(agentwire.SignalSections(), refused) {
 		return
 	}
-	for _, section := range machine.SignalSections() {
+	for _, section := range agentwire.SignalSections() {
 		if isUnwritten {
 			b.restore(pending, section)
 		}
@@ -331,21 +331,21 @@ func (b signalBatch) restoreAfter(pending *pending, refused string) {
 
 func (b signalBatch) restore(pending *pending, section string) {
 	switch section {
-	case machine.SectionReadings:
+	case agentwire.SectionReadings:
 		pending.readings.restore(b.readings)
-	case machine.SectionServices:
+	case agentwire.SectionServices:
 		pending.reports.restore(b.containers)
-	case machine.SectionProbes:
+	case agentwire.SectionProbes:
 		pending.results.restore(b.probes)
-	case machine.SectionImages:
+	case agentwire.SectionImages:
 		pending.images.restore(b.images)
 	}
 }
 
 // refusedSection retrouve la section d'une clé de refus de l'ancien serveur.
 func refusedSection(code string) string {
-	for _, section := range machine.SignalSections() {
-		if machine.SectionRefusal(section) == code {
+	for _, section := range agentwire.SignalSections() {
+		if agentwire.SectionRefusal(section) == code {
 			return section
 		}
 	}

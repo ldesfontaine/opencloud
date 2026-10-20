@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,10 +20,6 @@ func (ts *testServer) createJob(t *testing.T, name string) heartbeat.Heartbeat {
 	return created
 }
 
-func forwarded(i int) string {
-	return "203.0.113." + strconv.Itoa(i+1)
-}
-
 func ping(server *Server, method, path, body string, forwardedFor string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	if forwardedFor != "" {
@@ -35,64 +30,8 @@ func ping(server *Server, method, path, body string, forwardedFor string) *httpt
 	return recorder
 }
 
-func TestPing_ThreeFormsInGetAndPost_MoveTheJob(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	cases := []struct {
-		method, path string
-		status       heartbeat.Status
-	}{
-		{http.MethodGet, "/ping/" + job.Token + "/start", heartbeat.StatusStarted},
-		{http.MethodPost, "/ping/" + job.Token, heartbeat.StatusOnTime},
-		{http.MethodPost, "/ping/" + job.Token + "/start", heartbeat.StatusStarted},
-		{http.MethodGet, "/ping/" + job.Token + "/3", heartbeat.StatusFailed},
-		{http.MethodGet, "/ping/" + job.Token + "/0", heartbeat.StatusOnTime},
-	}
-	for _, tc := range cases {
-		recorder := ping(server.Server, tc.method, tc.path, "", "")
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
-			t.Fatalf("%s %s: %d %q", tc.method, tc.path, recorder.Code, recorder.Body.String())
-		}
-		if len(recorder.Result().Cookies()) != 0 {
-			t.Fatalf("%s: a ping must not set a cookie", tc.path)
-		}
-		got, _ := server.heartbeats.Get(context.Background(), job.ID)
-		if got.Status != tc.status {
-			t.Fatalf("%s %s: status %s, want %s", tc.method, tc.path, got.Status, tc.status)
-		}
-	}
-	pings, _ := server.heartbeats.Pings(context.Background(), job.ID, 10)
-	if len(pings) != 5 || pings[0].Method != "GET" || pings[0].Source != "192.0.2.1" {
-		t.Fatalf("pings %+v", pings)
-	}
-}
-
-func TestPing_RefusesUnknownTokenAndBadExitCode(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	if got := ping(server.Server, http.MethodGet, "/ping/hb_nope", "", ""); got.Code != http.StatusNotFound {
-		t.Errorf("unknown token: %d", got.Code)
-	}
-	for _, code := range []string{"256", "-1", "abc"} {
-		if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token+"/"+code, "", ""); got.Code != http.StatusBadRequest {
-			t.Errorf("code %s: %d", code, got.Code)
-		}
-	}
-}
-
-func TestPing_PostBody_IsKeptAndTruncated(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	body := strings.Repeat("x", heartbeat.MaxPayloadBytes+500)
-	if got := ping(server.Server, http.MethodPost, "/ping/"+job.Token+"/0", body, ""); got.Code != http.StatusOK {
-		t.Fatalf("status %d", got.Code)
-	}
-	runs, _ := server.heartbeats.Runs(context.Background(), job.ID, 1)
-	if len(runs[0].Payload) != heartbeat.MaxPayloadBytes {
-		t.Fatalf("payload kept %d bytes", len(runs[0].Payload))
-	}
-}
-
+// Les routes des pings se testent dans le paquet ping ; ici, de bout en
+// bout, que la source notée est l'adresse que la racine résout.
 func TestPing_SourceIsTheForwardedAddressOnlyFromATrustedProxy(t *testing.T) {
 	server := newTestServer(t)
 	job := server.createJob(t, "job")
@@ -137,83 +76,5 @@ func TestClientAddress_ReadsXForwardedForFromTheRight(t *testing.T) {
 	untrusted.Header.Set("X-Forwarded-For", "203.0.113.9")
 	if got := server.clientAddress(untrusted); got != "198.51.100.4" {
 		t.Errorf("untrusted peer: got %q", got)
-	}
-}
-
-func TestPing_IsRateLimitedPerSourceAndPerToken(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	other := server.createJob(t, "other")
-	// La rafale par IP s'épuise d'abord, sur des jetons inconnus : les 404
-	// comptent.
-	for i := range pingPerSourceBurst {
-		if got := ping(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
-			t.Fatalf("request %d: %d", i+1, got.Code)
-		}
-	}
-	got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", "")
-	if got.Code != http.StatusTooManyRequests || got.Header().Get("Retry-After") == "" {
-		t.Fatalf("over the source burst: %d %v", got.Code, got.Header())
-	}
-	// Des IP toutes différentes, via un mandataire de confiance, épuisent
-	// la rafale d'un seul jeton ; l'autre jeton passe encore.
-	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
-	for i := range pingPerTokenBurst {
-		if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", forwarded(i)); got.Code != http.StatusOK {
-			t.Fatalf("token request %d: %d", i+1, got.Code)
-		}
-	}
-	if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", forwarded(99)); got.Code != http.StatusTooManyRequests {
-		t.Fatalf("over the token burst: %d", got.Code)
-	}
-	if got := ping(server.Server, http.MethodGet, "/ping/"+other.Token, "", forwarded(99)); got.Code != http.StatusOK {
-		t.Fatalf("other token: %d", got.Code)
-	}
-}
-
-// L'URL de ping qu'une page réaffiche vient de la base, où le jeton est
-// chiffré : elle doit ouvrir le même moniteur que celle donnée à la création.
-func TestPing_ByTheTokenTheDatabaseGivesBack(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	stored, err := server.heartbeats.Get(context.Background(), job.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Token != job.Token {
-		t.Fatalf("the stored token %q is not the one given at creation %q", stored.Token, job.Token)
-	}
-	recorder := ping(server.Server, http.MethodGet, "/ping/"+stored.Token, "", "")
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("ping by the re-displayed token: %d", recorder.Code)
-	}
-}
-
-// Un cron oublié continue d'appeler l'URL d'une tâche en pause : la réponse
-// reste « ok », le ping est noté, et rien d'autre ne bouge.
-func TestPing_WhilePaused_Answers200AndChangesNothing(t *testing.T) {
-	server := newTestServer(t)
-	ctx := context.Background()
-	job := server.createJob(t, "job")
-	if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {
-		t.Fatalf("ping: %d", got.Code)
-	}
-	if err := server.heartbeats.Pause(ctx, job.ID); err != nil {
-		t.Fatal(err)
-	}
-	paused, _ := server.heartbeats.Get(ctx, job.ID)
-
-	for _, path := range []string{"/ping/" + job.Token, "/ping/" + job.Token + "/start", "/ping/" + job.Token + "/3"} {
-		recorder := ping(server.Server, http.MethodGet, path, "", "")
-		if recorder.Code != http.StatusOK || recorder.Body.String() != "ok\n" {
-			t.Fatalf("%s: %d %q", path, recorder.Code, recorder.Body.String())
-		}
-	}
-	after, _ := server.heartbeats.Get(ctx, job.ID)
-	if after.Status != heartbeat.StatusPaused || !after.LastPingAt.Equal(paused.LastPingAt) || !after.NextDeadlineAt.IsZero() || !after.RunStartedAt.IsZero() {
-		t.Fatalf("a paused job moved: %+v", after)
-	}
-	if pings, _ := server.heartbeats.Pings(ctx, job.ID, 10); len(pings) != 4 {
-		t.Fatalf("the pings must be kept: %d", len(pings))
 	}
 }

@@ -1,4 +1,4 @@
-package machine
+package agentwire
 
 import (
 	"github.com/ldesfontaine/opencloud/internal/brand"

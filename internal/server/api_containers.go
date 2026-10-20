@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
+	"github.com/ldesfontaine/opencloud/internal/server/sse"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -295,7 +296,7 @@ func (s *Server) getContainerLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeLogsError(w, r, err)
 		return
 	}
-	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
+	response := logsResponse{Lines: httpx.ConvertAll(lines, logLineToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -320,10 +321,10 @@ func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if err := writeComment(w, "open"); err != nil {
+	if err := sse.WriteComment(w, "open"); err != nil {
 		return
 	}
-	ticker := time.NewTicker(eventsPingInterval)
+	ticker := time.NewTicker(sse.PingInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -333,7 +334,7 @@ func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
 			if s.authorizationLapsed(r) {
 				return
 			}
-			if err := writeComment(w, "ping"); err != nil {
+			if err := sse.WriteComment(w, "ping"); err != nil {
 				return
 			}
 		case batch, open := <-batches:
@@ -380,10 +381,7 @@ func writeJSONEvent(w http.ResponseWriter, name string, payload any) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data); err != nil { // #nosec G705 -- text/event-stream, JSON encodé.
-		return err
-	}
-	return http.NewResponseController(w).Flush()
+	return httpx.WriteEvent(w, name, string(data))
 }
 
 func (s *Server) writeLogsError(w http.ResponseWriter, r *http.Request, err error) {
@@ -462,8 +460,8 @@ func containerToJSON(item container.Container, machineName string, current conta
 		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: container.Exposure(item),
-		CreatedAt: item.CreatedAt.UTC(), StartedAt: timeOrNil(item.StartedAt), FinishedAt: timeOrNil(item.FinishedAt),
-		FirstSeenAt: item.FirstSeenAt.UTC(), LastSeenAt: item.LastSeenAt.UTC(), ArchivedAt: timeOrNil(item.ArchivedAt),
+		CreatedAt: item.CreatedAt.UTC(), StartedAt: httpx.TimeOrNil(item.StartedAt), FinishedAt: httpx.TimeOrNil(item.FinishedAt),
+		FirstSeenAt: item.FirstSeenAt.UTC(), LastSeenAt: item.LastSeenAt.UTC(), ArchivedAt: httpx.TimeOrNil(item.ArchivedAt),
 	}
 	for i := range converted.Networks {
 		converted.Networks[i].Aliases = orEmpty(converted.Networks[i].Aliases)
@@ -513,5 +511,5 @@ func transitionsToJSON(transitions []container.Transition) []transitionJSON {
 }
 
 func logLineToJSON(line container.LogLine) logLineJSON {
-	return logLineJSON{At: timeOrNil(line.At), Stream: line.Stream, Text: line.Text}
+	return logLineJSON{At: httpx.TimeOrNil(line.At), Stream: line.Stream, Text: line.Text}
 }

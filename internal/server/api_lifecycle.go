@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // La source de la fin de support, telle que Paramètres la nomme.
@@ -52,10 +53,10 @@ func lifecycleToJSON(verdict lifecycle.Verdict) *lifecycleJSON {
 	converted := lifecycleJSON{
 		Status: string(verdict.Status), Product: verdict.Product, ProductURL: verdict.ProductURL,
 		Cycle: verdict.Cycle, EOLFrom: verdict.EOLFrom, Latest: verdict.Latest,
-		Newer: convertAll(verdict.Newer, func(newer lifecycle.Newer) newerCycleJSON {
+		Newer: httpx.ConvertAll(verdict.Newer, func(newer lifecycle.Newer) newerCycleJSON {
 			return newerCycleJSON{Cycle: newer.Cycle, Latest: newer.Latest, EOLFrom: newer.EOLFrom}
 		}),
-		FetchedAt: timeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
+		FetchedAt: httpx.TimeOrNil(verdict.FetchedAt), IsStale: verdict.IsStale,
 	}
 	return &converted
 }
@@ -80,8 +81,8 @@ func (s *Server) lifecycleSettings(enabled bool) lifecycleSettingsJSON {
 	state := s.lifecycle.State()
 	return lifecycleSettingsJSON{
 		Enabled: enabled, Source: lifecycleSourceName,
-		FetchedAt: timeOrNil(state.FetchedAt), Products: state.Products,
-		IsFailing: state.IsFailing, LastAttemptAt: timeOrNil(state.LastAttemptAt),
+		FetchedAt: httpx.TimeOrNil(state.FetchedAt), Products: state.Products,
+		IsFailing: state.IsFailing, LastAttemptAt: httpx.TimeOrNil(state.LastAttemptAt),
 	}
 }
 

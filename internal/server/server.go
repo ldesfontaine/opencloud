@@ -26,8 +26,12 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/server/agentapi"
+	pingapi "github.com/ldesfontaine/opencloud/internal/server/ping" // ping : l'aide des tests du même nom
+	"github.com/ldesfontaine/opencloud/internal/server/public"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -247,50 +251,47 @@ type Notifier interface {
 	TestMail(ctx context.Context, recipient string) (alert.Outcome, error)
 }
 
-// Ce que le serveur attend du bus du direct : un abonnement par onglet. Le
-// bus public, qui ne porte que « status », est du même type.
+// Ce que le serveur attend du bus du direct : un abonnement par onglet.
 type Live interface {
 	Subscribe() *live.Subscription
 }
 
 type Server struct {
-	logger       *slog.Logger
-	version      string
-	catalogs     lang.Catalogs
-	settings     SettingsService
-	machines     MachineService
-	heartbeats   HeartbeatService
-	resources    ResourceService
-	containers   ContainerTracker
-	probes       ProbeService
-	directory    DirectoryService
-	manifest     ManifestService
-	updates      UpdateService
-	lifecycle    LifecycleService
-	status       StatusService
-	alerts       AlertService
-	notifier     Notifier
-	mcp          MCPService
-	auth         AuthService
-	live         Live
-	publicLive   Live
-	logStreams   atomic.Int32
-	pingLimits   *pingLimits
-	statusLimits *statusLimits
-	mcpLimits    *mcpLimits
-	agentLimits  *challengeLimits
-	signalLimits *signalLimits
-	authLimits   *authLimits
+	logger     *slog.Logger
+	version    string
+	catalogs   lang.Catalogs
+	settings   SettingsService
+	machines   MachineService
+	heartbeats HeartbeatService
+	resources  ResourceService
+	containers ContainerTracker
+	probes     ProbeService
+	directory  DirectoryService
+	manifest   ManifestService
+	updates    UpdateService
+	lifecycle  LifecycleService
+	status     StatusService
+	alerts     AlertService
+	notifier   Notifier
+	mcp        MCPService
+	auth       AuthService
+	live       Live
+	logStreams atomic.Int32
+	mcpLimits  *mcpLimits
+	authLimits *authLimits
+	// Les routes de l'agent, des pings et de la page publique, chacune dans
+	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
+	// routes.go.
+	agent  *agentapi.Handler
+	pings  *pingapi.Handler
+	public *public.Handler
 	// authTransition sépare l'activation de l'authentification (changement
 	// d'état puis révocation) des écritures qui accordent une autorité :
 	// voir grantsAuthority.
 	authTransition sync.RWMutex
-	// Les onglets en direct, administration et page publique.
-	eventTabs  *slots
-	publicTabs *slots
-	// La part de chaque source dans publicTabs, et la durée d'un flux public.
-	publicStreamsBySource *sourceSlots
-	publicStreamLifetime  time.Duration
+	// Les onglets en direct de l'administration ; ceux de la page publique
+	// sont comptés dans son paquet.
+	eventTabs *ratelimit.Slots
 	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
 	mcpServer  *gomcp.Server
 	mcpHandler http.Handler
@@ -382,15 +383,9 @@ func New(opts Options) (*Server, error) {
 		mcp:            opts.MCP,
 		auth:           opts.Auth,
 		live:           opts.Live,
-		publicLive:     opts.PublicLive,
-		pingLimits:     newPingLimits(),
-		statusLimits:   newStatusLimits(),
 		mcpLimits:      newMCPLimits(),
-		agentLimits:    newChallengeLimits(),
-		signalLimits:   newSignalLimits(),
 		authLimits:     newAuthLimits(),
-		eventTabs:      newSlots(maxEventSubscribers),
-		publicTabs:     newSlots(maxPublicSubscribers),
+		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
@@ -399,16 +394,35 @@ func New(opts Options) (*Server, error) {
 		app:            app,
 		clock:          opts.Clock,
 	}
-	server.publicStreamsBySource = newSourceSlots(maxPublicStreamsPerSource)
-	server.publicStreamLifetime = maxPublicStreamLifetime
 	if opts.Clock != nil {
-		server.pingLimits.setClock(opts.Clock)
-		server.statusLimits.setClock(opts.Clock)
 		server.mcpLimits.setClock(opts.Clock)
-		server.agentLimits.setClock(opts.Clock)
-		server.signalLimits.setClock(opts.Clock)
 		server.authLimits.setClock(opts.Clock)
 	}
+	server.agent = agentapi.New(agentapi.Options{
+		Logger:        opts.Logger,
+		Machines:      opts.Machines,
+		Resources:     opts.Resources,
+		Containers:    opts.Containers,
+		Probes:        opts.Probes,
+		Updates:       opts.Updates,
+		ClientAddress: server.clientAddress,
+		Clock:         opts.Clock,
+	})
+	server.pings = pingapi.New(pingapi.Options{
+		Logger:        opts.Logger,
+		Heartbeats:    opts.Heartbeats,
+		ClientAddress: server.clientAddress,
+		Clock:         opts.Clock,
+	})
+	server.public = public.New(public.Options{
+		Logger:        opts.Logger,
+		Status:        opts.Status,
+		Catalogs:      catalogs,
+		Live:          opts.PublicLive,
+		Page:          server.readStatusPage,
+		ClientAddress: server.clientAddress,
+		Clock:         opts.Clock,
+	})
 	server.mcpServer = server.newMCPServer(false)
 	server.mcpHandler = server.newMCPHandler()
 	server.handler = server.chain(securityHeaders(server.mux()))
@@ -443,9 +457,7 @@ func (s *Server) Command(machineID, name string, payload any) error {
 		return container.ErrMachineOffline
 	}
 	if errors.Is(err, machine.ErrBusy) {
-		// Les sondes lisent leur propre sentinelle : elles n'importent pas
-		// machine, qui les importe.
-		return fmt.Errorf("command %s: %w: %w", name, machine.ErrBusy, probe.ErrCommandBusy)
+		return fmt.Errorf("command %s: %w", name, err)
 	}
 	return err
 }

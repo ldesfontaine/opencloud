@@ -8,6 +8,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Les alertes telles que le front les lit : des faits, jamais une phrase ;
@@ -144,10 +145,10 @@ func alertToJSON(found alert.Alert) alertJSON {
 		Details: detailsJSON{
 			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
 			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: probe.RedactTarget(found.Details.Target),
-			NotAfter: timeOrNil(found.Details.NotAfter), Since: timeOrNil(found.Details.Since),
+			NotAfter: httpx.TimeOrNil(found.Details.NotAfter), Since: httpx.TimeOrNil(found.Details.Since),
 		},
 		OpenedAt: found.OpenedAt.UTC(), UpdatedAt: found.UpdatedAt.UTC(),
-		ResolvedAt: timeOrNil(found.ResolvedAt), AcknowledgedAt: timeOrNil(found.AcknowledgedAt),
+		ResolvedAt: httpx.TimeOrNil(found.ResolvedAt), AcknowledgedAt: httpx.TimeOrNil(found.AcknowledgedAt),
 	}
 }
 
@@ -188,7 +189,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
+	response := alertsResponse{Alerts: httpx.ConvertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -276,7 +277,7 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := channelsResponse{Channels: convertAll(channels, channelToJSON)}
+	response := channelsResponse{Channels: httpx.ConvertAll(channels, channelToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -365,7 +366,7 @@ func (s *Server) listSilences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.now()
-	response := silencesResponse{Silences: convertAll(silences, func(silence alert.Silence) silenceJSON { return silenceToJSON(silence, now) })}
+	response := silencesResponse{Silences: httpx.ConvertAll(silences, func(silence alert.Silence) silenceJSON { return silenceToJSON(silence, now) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

@@ -55,6 +55,11 @@ L'essentiel :
 - **Identifiants en anglais, commentaires en français**, courts. Le pourquoi,
   jamais le quoi. Pas de commentaire par méthode par principe.
 - Bibliothèque standard d'abord ; pas de réflexion, pas de cadre opaque.
+- **Les couches tiennent** : le SQL dans `internal/store`, les règles dans
+  le composant, le handler lit, appelle, répond. Lire un autre domaine par la
+  base pour dériver ; écrire toujours par son composant. Un refus déclare sa
+  clé avec l'erreur (`internal/refusal`). Le patron d'un composant est
+  `probe.Service`.
 - `gofmt`, `goimports`, `staticcheck` : la machine tient le style, l'humain
   garde l'attention pour le sens.
 - Le front (`web/`, React + TypeScript + SCSS) suit les mêmes règles ;
