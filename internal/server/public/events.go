@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/server/sse"
 )
 
 // GET /statut/api/events : le direct public, sur son propre bus, qui ne
@@ -32,5 +33,5 @@ func (h *Handler) serveEvents(w http.ResponseWriter, r *http.Request) {
 	// Fin propre à l'échéance : la réponse se termine, EventSource se reconnecte.
 	ctx, cancel := context.WithTimeout(r.Context(), h.streamLifetime)
 	defer cancel()
-	h.streamTopics(w, r.WithContext(ctx))
+	sse.Stream(w, r.WithContext(ctx), h.live.Subscribe(), nil)
 }

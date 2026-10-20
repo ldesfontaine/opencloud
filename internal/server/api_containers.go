@@ -11,6 +11,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server/sse"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -320,10 +321,10 @@ func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	if err := writeComment(w, "open"); err != nil {
+	if err := sse.WriteComment(w, "open"); err != nil {
 		return
 	}
-	ticker := time.NewTicker(eventsPingInterval)
+	ticker := time.NewTicker(sse.PingInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -333,7 +334,7 @@ func (s *Server) streamContainerLogs(w http.ResponseWriter, r *http.Request) {
 			if s.authorizationLapsed(r) {
 				return
 			}
-			if err := writeComment(w, "ping"); err != nil {
+			if err := sse.WriteComment(w, "ping"); err != nil {
 				return
 			}
 		case batch, open := <-batches:

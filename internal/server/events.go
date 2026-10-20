@@ -1,20 +1,14 @@
 package server
 
 import (
-	"context"
-	"fmt"
 	"net/http"
-	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/live"
+	"github.com/ldesfontaine/opencloud/internal/server/sse"
 )
 
 const (
-	eventsPingInterval  = 15 * time.Second
 	maxEventSubscribers = 64
-	// Ce que le navigateur attend avant de revenir, en millisecondes.
-	eventsRetry = "5000"
-	codeBusy    = "busy"
+	codeBusy            = "busy"
 )
 
 // Le direct du navigateur : une connexion par onglet, qui reçoit le nom de
@@ -32,96 +26,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.eventTabs.Release()
-	s.streamTopics(w, r)
-}
-
-// streamTopics tient une connexion SSE sur un bus jusqu'à ce que l'onglet
-// parte. Le direct public (paquet public) a son bus et sa copie de cette
-// boucle, sans le jugement d'authentification.
-func (s *Server) streamTopics(w http.ResponseWriter, r *http.Request) {
-	subscription := s.live.Subscribe()
-	defer subscription.Close()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	sequence := 0
-	first := "connected"
-	if r.Header.Get("Last-Event-ID") != "" {
-		first = "reconnected"
-	}
-	if err := writeLiveEvent(w, &sequence, first); err != nil {
-		return
-	}
-
-	topics := readTopics(r.Context(), subscription)
-	ticker := time.NewTicker(eventsPingInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-ticker.C:
-			// Le flux n'est jugé qu'à l'ouverture : si l'authentification a
-			// changé depuis, il se ferme ici et le navigateur revient se
-			// faire juger.
-			if s.authorizationLapsed(r) {
-				return
-			}
-			if err := writeComment(w, "ping"); err != nil {
-				return
-			}
-		case batch, open := <-topics:
-			if !open {
-				return
-			}
-			for _, topic := range batch {
-				if err := writeLiveEvent(w, &sequence, string(topic)); err != nil {
-					return
-				}
-			}
-		}
-	}
-}
-
-// readTopics lit l'abonnement dans sa propre goroutine et s'arrête avec le
-// contexte de la requête, en fermant le canal.
-func readTopics(ctx context.Context, subscription *live.Subscription) <-chan []live.Topic {
-	topics := make(chan []live.Topic)
-	go func() {
-		defer close(topics)
-		for {
-			batch, err := subscription.Next(ctx)
-			if err != nil {
-				return
-			}
-			select {
-			case topics <- batch:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return topics
-}
-
-// Le premier événement porte retry : le navigateur attend cinq secondes
-// avant de revenir, plutôt que ses trois par défaut.
-func writeLiveEvent(w http.ResponseWriter, sequence *int, name string) error {
-	*sequence++
-	retry := ""
-	if *sequence == 1 {
-		retry = "retry: " + eventsRetry + "\n"
-	}
-	if _, err := fmt.Fprintf(w, "%sid: %d\nevent: %s\ndata: \n\n", retry, *sequence, name); err != nil { // #nosec G705 -- text/event-stream, noms du serveur, jamais une entrée.
-		return err
-	}
-	return http.NewResponseController(w).Flush()
-}
-
-func writeComment(w http.ResponseWriter, text string) error {
-	if _, err := fmt.Fprintf(w, ": %s\n\n", text); err != nil { // #nosec G705 -- text/event-stream, constante.
-		return err
-	}
-	return http.NewResponseController(w).Flush()
+	// Le flux n'est jugé qu'à l'ouverture : si l'authentification a changé
+	// depuis, il se ferme au ping suivant et le navigateur revient se faire
+	// juger.
+	sse.Stream(w, r, s.live.Subscribe(), func() bool { return s.authorizationLapsed(r) })
 }

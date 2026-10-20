@@ -475,8 +475,8 @@ func TestAuthTransition_RegeneratingTheSecretCutsThePendingCodes(t *testing.T) {
 
 // Un flux de l'opérateur se ferme dès que l'état d'authentification n'est
 // plus celui qui l'a autorisé ; ceux qui n'en ont pas (la page de statut) ne
-// sont jamais concernés. La boucle des flux de l'administration appelle ce
-// jugement à chaque ping ; celle de la page publique n'en a pas.
+// sont jamais concernés. La boucle des flux (paquet sse) appelle ce jugement
+// à chaque ping ; la page publique ne lui en donne pas.
 func TestAuthTransition_AStreamLapsesWhenTheAuthenticationChanges(t *testing.T) {
 	server := newTestServer(t)
 	opened := func() *http.Request {

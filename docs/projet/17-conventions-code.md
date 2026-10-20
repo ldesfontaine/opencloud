@@ -16,6 +16,7 @@ internal/server/             # la couche HTTP : montage, middlewares, API JSON, 
 internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron
 internal/server/public/      # la page de statut publique sous /statut : page, instantané, chaînes, direct
+internal/server/sse/         # la boucle des flux text/event-stream, partagée par l'administration et la page publique
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
 migrations/                  # SQL numéroté, embarqué

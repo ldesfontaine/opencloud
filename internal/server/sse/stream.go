@@ -1,4 +1,4 @@
-package public
+package sse
 
 import (
 	"context"
@@ -10,17 +10,24 @@ import (
 )
 
 const (
-	eventsPingInterval = 15 * time.Second
+	// Un commentaire toutes les 15 s tient la connexion ouverte derrière un
+	// mandataire.
+	PingInterval = 15 * time.Second
 	// Ce que le navigateur attend avant de revenir, en millisecondes.
-	eventsRetry = "5000"
+	retry = "5000"
 )
 
-// streamTopics tient une connexion SSE sur le bus public jusqu'à ce que le
-// visiteur parte. Même mécanique que le direct de l'administration
-// (server/events.go), sans le jugement d'authentification : un flux public
-// n'a pas d'autorisation à perdre.
-func (h *Handler) streamTopics(w http.ResponseWriter, r *http.Request) {
-	subscription := h.live.Subscribe()
+// Stream tient une connexion SSE sur un abonnement jusqu'à ce que le client
+// parte, et le ferme à la fin. Un identifiant sur chaque événement fait que le
+// navigateur revient avec Last-Event-ID : on lui dit alors « reconnected » et
+// il relit tout, car rien n'est rejoué. lapsed, s'il est donné, est jugé à
+// chaque ping : vrai, le flux se ferme et le navigateur revient se faire
+// juger (un flux n'est jugé qu'à l'ouverture, sinon).
+func Stream(w http.ResponseWriter, r *http.Request, subscription *live.Subscription, lapsed func() bool) {
+	stream(w, r, subscription, lapsed, PingInterval)
+}
+
+func stream(w http.ResponseWriter, r *http.Request, subscription *live.Subscription, lapsed func() bool, pingEvery time.Duration) {
 	defer subscription.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -31,19 +38,22 @@ func (h *Handler) streamTopics(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Last-Event-ID") != "" {
 		first = "reconnected"
 	}
-	if err := writeLiveEvent(w, &sequence, first); err != nil {
+	if err := writeEvent(w, &sequence, first); err != nil {
 		return
 	}
 
 	topics := readTopics(r.Context(), subscription)
-	ticker := time.NewTicker(eventsPingInterval)
+	ticker := time.NewTicker(pingEvery)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			if err := writeComment(w, "ping"); err != nil {
+			if lapsed != nil && lapsed() {
+				return
+			}
+			if err := WriteComment(w, "ping"); err != nil {
 				return
 			}
 		case batch, open := <-topics:
@@ -51,7 +61,7 @@ func (h *Handler) streamTopics(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			for _, topic := range batch {
-				if err := writeLiveEvent(w, &sequence, string(topic)); err != nil {
+				if err := writeEvent(w, &sequence, string(topic)); err != nil {
 					return
 				}
 			}
@@ -82,19 +92,20 @@ func readTopics(ctx context.Context, subscription *live.Subscription) <-chan []l
 
 // Le premier événement porte retry : le navigateur attend cinq secondes
 // avant de revenir, plutôt que ses trois par défaut.
-func writeLiveEvent(w http.ResponseWriter, sequence *int, name string) error {
+func writeEvent(w http.ResponseWriter, sequence *int, name string) error {
 	*sequence++
-	retry := ""
+	prefix := ""
 	if *sequence == 1 {
-		retry = "retry: " + eventsRetry + "\n"
+		prefix = "retry: " + retry + "\n"
 	}
-	if _, err := fmt.Fprintf(w, "%sid: %d\nevent: %s\ndata: \n\n", retry, *sequence, name); err != nil { // #nosec G705 -- text/event-stream, noms du serveur, jamais une entrée.
+	if _, err := fmt.Fprintf(w, "%sid: %d\nevent: %s\ndata: \n\n", prefix, *sequence, name); err != nil { // #nosec G705 -- text/event-stream, noms du serveur, jamais une entrée.
 		return err
 	}
 	return http.NewResponseController(w).Flush()
 }
 
-func writeComment(w http.ResponseWriter, text string) error {
+// WriteComment écrit un commentaire SSE, que le navigateur ignore.
+func WriteComment(w http.ResponseWriter, text string) error {
 	if _, err := fmt.Fprintf(w, ": %s\n\n", text); err != nil { // #nosec G705 -- text/event-stream, constante.
 		return err
 	}
