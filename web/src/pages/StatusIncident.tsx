@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey, segment } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { Incident, IncidentStatus, StatusComponentsResponse } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
@@ -16,7 +17,6 @@ import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
 import { fromLocalInput, impactTones, incidentTones, statusesFor, toLocalInput } from "../lib/status";
 import { ago, formatClock } from "../lib/time";
-import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
 
 // La page d'un incident : ses faits, son fil, le formulaire pour y
@@ -25,13 +25,7 @@ import "./StatusAdmin.scss";
 export function StatusIncidentPage() {
   const { id = "" } = useParams();
   const incident = useResource<Incident>(() => `/api/status/incidents/${segment(id)}`);
-  if (incident.error instanceof ApiError && incident.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!incident.data) {
-    return incident.error ? <Failure error={incident.error} /> : null;
-  }
-  return <IncidentView incident={incident.data} reload={incident.reload} />;
+  return <Loaded resource={incident}>{(data) => <IncidentView incident={data} reload={incident.reload} />}</Loaded>;
 }
 
 function IncidentView({ incident, reload }: { incident: Incident; reload: () => void }) {

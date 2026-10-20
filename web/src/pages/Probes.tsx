@@ -1,6 +1,6 @@
 import type { ProbesResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, Empty } from "../components/Card";
+import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
@@ -28,9 +28,7 @@ export function Probes() {
       />
       {probes.error && <Failure error={probes.error} />}
       {probes.data && list.length === 0 && (
-        <Card>
-          <Empty icon="globe" title={t("probes.empty_title")} text={t("probes.empty_text")} />
-        </Card>
+        <EmptyCard icon="globe" title={t("probes.empty_title")} text={t("probes.empty_text")} />
       )}
       {probes.data && list.length > 0 && (
         <Card className="scroll-x">

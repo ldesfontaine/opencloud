@@ -83,8 +83,8 @@ export function Empty({
   text,
   action,
 }: {
-  icon?: IconName;
-  title?: string;
+  icon?: IconName | undefined;
+  title?: string | undefined;
   text: string;
   action?: ReactNode;
 }) {
@@ -99,6 +99,29 @@ export function Empty({
       <p>{text}</p>
       {action}
     </div>
+  );
+}
+
+// Une liste vide : une carte qui ne porte que son message. Ce qui le
+// complète (une commande à copier) va en enfant, sous lui.
+export function EmptyCard({
+  icon,
+  title,
+  text,
+  action,
+  children,
+}: {
+  icon?: IconName | undefined;
+  title?: string | undefined;
+  text: string;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <Card>
+      <Empty icon={icon} title={title} text={text} action={action} />
+      {children}
+    </Card>
   );
 }
 

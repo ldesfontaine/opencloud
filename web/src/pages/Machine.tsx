@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router";
 import { api } from "../api/client";
 import type { Current, Machine, MachinesResponse, ProbesResponse, ContainersResponse, TokenResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
@@ -102,9 +102,7 @@ function MachineProbes({ machineID }: { machineID: string }) {
     <>
       {probes.error && <Failure error={probes.error} />}
       {probes.data && list.length === 0 && (
-        <Card>
-          <Empty icon="globe" text={t("probes.machine_empty")} />
-        </Card>
+        <EmptyCard icon="globe" text={t("probes.machine_empty")} />
       )}
       {probes.data && list.length > 0 && (
         <>

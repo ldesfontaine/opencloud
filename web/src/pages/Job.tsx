@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, segment } from "../api/client";
+import { api, segment } from "../api/client";
 import type { Job, JobResponse, Ping, Run } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Dot, JobPill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
@@ -19,7 +20,6 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
-import { NotFound } from "./NotFound";
 
 // La page d'une tâche : le verdict, les dernières exécutions, puis les
 // pings bruts et l'installation, repliés. Tant qu'aucun ping n'est arrivé,
@@ -27,13 +27,7 @@ import { NotFound } from "./NotFound";
 export function JobPage() {
   const { id = "" } = useParams();
   const job = useResource<JobResponse>(() => `/api/jobs/${segment(id)}`);
-  if (job.error instanceof ApiError && job.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!job.data) {
-    return job.error ? <Failure error={job.error} /> : null;
-  }
-  return <JobView key={job.data.job.id} response={job.data} reload={job.reload} />;
+  return <Loaded resource={job}>{(data) => <JobView key={data.job.id} response={data} reload={job.reload} />}</Loaded>;
 }
 
 function JobView({ response, reload }: { response: JobResponse; reload: () => void }) {

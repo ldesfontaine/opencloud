@@ -1,10 +1,10 @@
 import { useParams } from "react-router";
 
-import { ApiError, segment } from "../api/client";
+import { segment } from "../api/client";
 import type { Apply } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
-import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { PlanView } from "../components/PlanView";
@@ -12,20 +12,13 @@ import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { actorText, failedObjectText, stateTone, summaryText, totalChanges, writtenText } from "../lib/manifest";
 import { formatClock } from "../lib/time";
-import { NotFound } from "./NotFound";
 
 // Un passage du journal : ses faits, pourquoi il s'est arrêté s'il l'a été, et
 // le plan que l'opérateur avait confirmé, dans l'ordre d'écriture.
 export function ApplyDetail() {
   const { id = "" } = useParams();
   const apply = useResource<Apply>(() => `/api/manifest/applies/${segment(id)}`);
-  if (apply.error instanceof ApiError && apply.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!apply.data) {
-    return apply.error ? <Failure error={apply.error} /> : null;
-  }
-  return <ApplyView apply={apply.data} />;
+  return <Loaded resource={apply}>{(data) => <ApplyView apply={data} />}</Loaded>;
 }
 
 function ApplyView({ apply }: { apply: Apply }) {

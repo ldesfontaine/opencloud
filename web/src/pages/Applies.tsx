@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import type { AppliesResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, Empty } from "../components/Card";
+import { Card, EmptyCard } from "../components/Card";
 import { TokenBox } from "../components/Copy";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
@@ -32,12 +32,11 @@ export function Applies() {
       />
       {applies.error && <Failure error={applies.error} />}
       {applies.data && list.length === 0 && (
-        <Card>
-          <Empty icon="file" title={t("manifest.journal_empty")} text={t("manifest.journal_empty_text")} />
+        <EmptyCard icon="file" title={t("manifest.journal_empty")} text={t("manifest.journal_empty_text")}>
           <div className="card-b">
             <TokenBox value={t("manifest.journal_command")} />
           </div>
-        </Card>
+        </EmptyCard>
       )}
       {applies.data && list.length > 0 && (
         <Card className="scroll-x">

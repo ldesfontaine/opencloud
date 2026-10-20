@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { MachinesResponse, ContainersResponse } from "../api/types";
-import { Card, CardBody, Empty, Note } from "../components/Card";
+import { Card, CardBody, Empty, EmptyCard, Note } from "../components/Card";
 import { DirectoryTab } from "../components/DirectoryTab";
 import { Failure } from "../components/Failure";
 import { Select } from "../components/Field";
@@ -59,9 +59,7 @@ function ContainersTab() {
       <ServicesTabs />
       {containers.error && <Failure error={containers.error} />}
       {containers.data && all.length === 0 && (
-        <Card>
-          <Empty icon="box" title={t("services.empty_title")} text={t("services.empty_text")} />
-        </Card>
+        <EmptyCard icon="box" title={t("services.empty_title")} text={t("services.empty_text")} />
       )}
       {containers.data && all.length > 0 && (
         <Card className="scroll-x">

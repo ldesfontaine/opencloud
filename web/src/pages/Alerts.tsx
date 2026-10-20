@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, NavLink, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { api, errorKey } from "../api/client";
 import type { Alert, AlertsResponse, Channel, ChannelsResponse, ChannelTest, Silence, SilencesResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, CardHeader, Empty } from "../components/Card";
+import { Card, CardHeader, Empty, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
+import { TabNav } from "../components/TabNav";
 import { Dot, Pill } from "../components/Pill";
 import { List, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
@@ -59,13 +60,7 @@ export function Alerts() {
           </>
         }
       />
-      <nav className="tabs">
-        {tabs.map((entry) => (
-          <NavLink key={entry.slug} className={({ isActive }) => (isActive ? "tab active" : "tab")} to={entry.slug === "" ? "/alertes" : `/alertes/${entry.slug}`} end>
-            {t(entry.key)}
-          </NavLink>
-        ))}
-      </nav>
+      <TabNav tabs={tabs.map((entry) => ({ to: entry.slug === "" ? "/alertes" : `/alertes/${entry.slug}`, key: entry.key }))} />
       {tab === "" && <AlertsTab status="open" acknowledged={false} />}
       {tab === "acquittees" && <AlertsTab status="open" acknowledged={true} />}
       {tab === "resolues" && <AlertsTab status="resolved" acknowledged={null} />}
@@ -313,9 +308,7 @@ function ChannelsTab() {
   }
   if (channels.data.channels.length === 0) {
     return (
-      <Card>
-        <Empty icon="bell" title={t("channel.empty_title")} text={t("channel.empty_text")} />
-      </Card>
+      <EmptyCard icon="bell" title={t("channel.empty_title")} text={t("channel.empty_text")} />
     );
   }
   return (
@@ -390,9 +383,7 @@ function SilencesTab() {
   }
   if (silences.data.silences.length === 0) {
     return (
-      <Card>
-        <Empty icon="pause" title={t("silence.empty_title")} text={t("silence.empty_text")} />
-      </Card>
+      <EmptyCard icon="pause" title={t("silence.empty_title")} text={t("silence.empty_text")} />
     );
   }
   return (

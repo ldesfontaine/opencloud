@@ -1,11 +1,12 @@
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, segment } from "../api/client";
+import { api, segment } from "../api/client";
 import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { NaturePill } from "../components/DeclaredServiceTable";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
@@ -16,7 +17,6 @@ import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, linksOfRefusal, projectNames, unitKeyOf } from "../lib/directory";
 import { gapsPath } from "../lib/gaps";
 import { formatClock } from "../lib/time";
-import { NotFound } from "./NotFound";
 
 // La fiche d'un service déclaré : ses faits, ses unités, ce qu'il fournit,
 // ses projets, ce qui le lie (sondes et composants de statut), et l'écart
@@ -28,14 +28,13 @@ export function DeclaredServicePage() {
   const projects = useResource<ProjectsResponse>("/api/directory/projects");
   // L'écart se lit pour la machine du service ; le service s'y retrouve par son id.
   const gaps = useResource<GapsResponse>(service.data ? gapsPath(service.data.machine_id, "") : null);
-  if (service.error instanceof ApiError && service.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!service.data) {
-    return service.error ? <Failure error={service.error} /> : null;
-  }
-  const gap = gaps.data?.services.find((candidate) => candidate.service_id === service.data?.id);
-  return <DeclaredServiceView service={service.data} projects={projects.data?.projects ?? []} gap={gap} />;
+  return (
+    <Loaded resource={service}>
+      {(data) => (
+        <DeclaredServiceView service={data} projects={projects.data?.projects ?? []} gap={gaps.data?.services.find((candidate) => candidate.service_id === data.id)} />
+      )}
+    </Loaded>
+  );
 }
 
 function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServiceDetail; projects: Project[]; gap: ServiceGap | undefined }) {

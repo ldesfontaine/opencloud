@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import type { AlertsResponse, Counts, MachinesResponse, ResourcesResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, Empty, Stat } from "../components/Card";
+import { Card, EmptyCard, Stat } from "../components/Card";
 import { List } from "../components/Table";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
@@ -114,9 +114,7 @@ export function Overview() {
       />
       {machines.error && <Failure error={machines.error} />}
       {machines.data && list.length === 0 && (
-        <Card>
-          <Empty icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
-        </Card>
+        <EmptyCard icon="server" title={t("overview.empty_title")} text={t("overview.empty_text")} />
       )}
       {machines.data && list.length > 0 && (
         <>

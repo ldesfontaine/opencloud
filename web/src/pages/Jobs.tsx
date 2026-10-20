@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import type { JobsResponse } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, Empty } from "../components/Card";
+import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { JobPill } from "../components/Pill";
@@ -32,9 +32,7 @@ export function Jobs() {
       />
       {jobs.error && <Failure error={jobs.error} />}
       {jobs.data && list.length === 0 && (
-        <Card>
-          <Empty icon="clock" title={t("jobs.empty_title")} text={t("jobs.empty_text")} />
-        </Card>
+        <EmptyCard icon="clock" title={t("jobs.empty_title")} text={t("jobs.empty_text")} />
       )}
       {jobs.data && list.length > 0 && (
         <Card className="scroll-x">

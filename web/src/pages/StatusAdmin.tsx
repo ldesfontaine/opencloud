@@ -1,14 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, NavLink, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 import { api, errorKey, type ApiError } from "../api/client";
 import type { Incident, IncidentsResponse, StatusComponent, StatusComponentsResponse, StatusPageSettings, StatusState } from "../api/types";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty } from "../components/Card";
+import { Card, CardBody, CardHeader, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { Icon } from "../components/Icon";
 import { PageHead } from "../components/PageHead";
+import { TabNav } from "../components/TabNav";
 import { Pill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
@@ -68,13 +69,7 @@ export function StatusAdmin() {
           </>
         }
       />
-      <nav className="tabs">
-        {tabs.map((entry) => (
-          <NavLink key={entry.slug} className={({ isActive }) => (isActive ? "tab active" : "tab")} to={entry.slug === "" ? "/page-statut" : `/page-statut/${entry.slug}`} end>
-            {t(entry.key)}
-          </NavLink>
-        ))}
-      </nav>
+      <TabNav tabs={tabs.map((entry) => ({ to: entry.slug === "" ? "/page-statut" : `/page-statut/${entry.slug}`, key: entry.key }))} />
       {tab === "" && <ComponentsTab response={components.data} error={components.error} />}
       {tab === "incidents" && <IncidentsTab />}
       {tab === "reglages" && <SettingsTab />}
@@ -101,9 +96,7 @@ function ComponentsTab({ response, error }: { response: StatusComponentsResponse
         </CardBody>
       </Card>
       {response.components.length === 0 ? (
-        <Card>
-          <Empty icon="eye" title={t("statuspage.components_empty_title")} text={t("statuspage.components_empty_text")} />
-        </Card>
+        <EmptyCard icon="eye" title={t("statuspage.components_empty_title")} text={t("statuspage.components_empty_text")} />
       ) : (
         <Card className="scroll-x">
           <Table>
@@ -172,9 +165,7 @@ function IncidentsTab() {
   }
   if (list.length === 0) {
     return (
-      <Card>
-        <Empty icon="bell" title={t("incident.empty_title")} text={t("incident.empty_text")} />
-      </Card>
+      <EmptyCard icon="bell" title={t("incident.empty_title")} text={t("incident.empty_text")} />
     );
   }
   return (

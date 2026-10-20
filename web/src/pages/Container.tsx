@@ -1,12 +1,12 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { ApiError, segment } from "../api/client";
+import { segment } from "../api/client";
 import type { ContainerResponse, Transition } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
-import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { LogViewer } from "../components/LogViewer";
 import { PageHead } from "../components/PageHead";
 import { Dot, ContainerPill } from "../components/Pill";
@@ -26,13 +26,11 @@ import { formatBytes, formatDecimal } from "../lib/units";
 export function ContainerPage() {
   const { id = "" } = useParams();
   const response = useResource<ContainerResponse>(() => `/api/containers/${segment(id)}`);
-  if (response.error instanceof ApiError && response.error.status === 404) {
-    return <ContainerNotFound />;
-  }
-  if (!response.data) {
-    return response.error ? <Failure error={response.error} /> : null;
-  }
-  return <ContainerView response={response.data} reload={response.reload} />;
+  return (
+    <Loaded resource={response} notFound={<ContainerNotFound />}>
+      {(data) => <ContainerView response={data} reload={response.reload} />}
+    </Loaded>
+  );
 }
 
 // Une fiche absente : jamais vue, ou détruite depuis plus de trente jours.

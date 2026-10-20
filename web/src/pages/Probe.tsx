@@ -1,11 +1,12 @@
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, segment } from "../api/client";
+import { api, segment } from "../api/client";
 import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
 import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Dot, ProbePill } from "../components/Pill";
 import { Table } from "../components/Table";
@@ -18,7 +19,6 @@ import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
-import { NotFound } from "./NotFound";
 
 // Les jours montrés sur la fiche : autant que l'agrégat en garde de lisible.
 const detailSpan = 90;
@@ -32,13 +32,7 @@ function checksLabel(t: Translate, total: number): string {
 export function ProbePage() {
   const { id = "" } = useParams();
   const response = useResource<ProbeResponse>(() => `/api/probes/${segment(id)}`);
-  if (response.error instanceof ApiError && response.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!response.data) {
-    return response.error ? <Failure error={response.error} /> : null;
-  }
-  return <ProbeView response={response.data} reload={response.reload} />;
+  return <Loaded resource={response}>{(data) => <ProbeView response={data} reload={response.reload} />}</Loaded>;
 }
 
 function ProbeView({ response, reload }: { response: ProbeResponse; reload: () => void }) {

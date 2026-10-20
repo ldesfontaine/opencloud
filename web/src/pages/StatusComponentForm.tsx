@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey, segment } from "../api/client";
+import { api, errorKey, segment } from "../api/client";
 import type { DeclaredServicesResponse, JobsResponse, MachinesResponse, MemberKind, ProbesResponse, StatusComponent, StatusMember } from "../api/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
@@ -13,7 +14,6 @@ import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
 import { useRefresh } from "../api/refresh";
-import { NotFound } from "./NotFound";
 import { StatePill } from "./StatusAdmin";
 import "./StatusAdmin.scss";
 
@@ -34,13 +34,10 @@ interface Draft {
 export function StatusComponentForm() {
   const { id } = useParams();
   const component = useResource<StatusComponent>(id !== undefined ? () => `/api/status/components/${segment(id)}` : null);
-  if (component.error instanceof ApiError && component.error.status === 404) {
-    return <NotFound />;
+  if (id === undefined) {
+    return <ComponentForm existing={null} />;
   }
-  if (id !== undefined && !component.data) {
-    return component.error ? <Failure error={component.error} /> : null;
-  }
-  return <ComponentForm existing={component.data} />;
+  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} />}</Loaded>;
 }
 
 function ComponentForm({ existing }: { existing: StatusComponent | null }) {
