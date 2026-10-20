@@ -103,9 +103,13 @@ func (p *postedLogs) count(requestID string) int {
 	return len(p.batches[requestID])
 }
 
+// Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
+// cassé ; un runner chargé la consomme à peine.
+const waitLimit = 30 * time.Second
+
 func (p *postedLogs) waitFor(t *testing.T, requestID string, count int) {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(waitLimit)
 	for p.count(requestID) < count {
 		select {
 		case <-p.wake:
@@ -136,36 +140,40 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 		t.Fatalf("one = %+v %+v", logs.requests, posted.batches["one"])
 	}
 
+	// Le 404 passe avant l'arrêt de « two » : annuler un envoi encore en vol
+	// ferme sa connexion, et un autre suivi qui la reprend au même instant
+	// échoue lui aussi (« context canceled »).
+	runner.handle(container.CommandLogs, `{"id":"gone","container_id":"c3","follow":true}`)
+	posted.waitFor(t, "gone", 1)
+	waitUntilClosed(t, runner, "gone", "a 404 stops the follow")
+
 	runner.handle(container.CommandLogs, `{"id":"two","container_id":"c2","follow":true}`)
 	posted.waitFor(t, "two", 1)
 	runner.handle(container.CommandLogsStop, `{"id":"two"}`)
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		runner.mu.Lock()
-		_, open := runner.open["two"]
-		runner.mu.Unlock()
-		if !open {
-			break
+	waitUntilClosed(t, runner, "two", "two should be stopped")
+
+	runner.handle("unknown", `{"id":"x"}`)
+	runner.handle(container.CommandLogs, `not json`)
+}
+
+// waitUntilClosed attend que le suivi ait quitté le registre : c'est la
+// goroutine du suivi qui l'en retire après le 404, à son heure.
+func waitUntilClosed(t *testing.T, runner *commandRunner, requestID, failure string) {
+	t.Helper()
+	deadline := time.Now().Add(waitLimit)
+	for isOpen(runner, requestID) {
+		if time.Now().After(deadline) {
+			t.Fatal(failure)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	runner.mu.Lock()
-	if _, open := runner.open["two"]; open {
-		t.Fatal("two should be stopped")
-	}
-	runner.mu.Unlock()
+}
 
-	runner.handle(container.CommandLogs, `{"id":"gone","container_id":"c3","follow":true}`)
-	posted.waitFor(t, "gone", 1)
-	time.Sleep(20 * time.Millisecond)
+func isOpen(runner *commandRunner, requestID string) bool {
 	runner.mu.Lock()
-	_, open := runner.open["gone"]
-	runner.mu.Unlock()
-	if open {
-		t.Fatal("a 404 stops the follow")
-	}
-	runner.handle("unknown", `{"id":"x"}`)
-	runner.handle(container.CommandLogs, `not json`)
+	defer runner.mu.Unlock()
+	_, open := runner.open[requestID]
+	return open
 }
 
 // La commande « probes » remplace le jeu de l'agent ; un contenu illisible
