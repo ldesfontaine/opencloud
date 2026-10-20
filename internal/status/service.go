@@ -59,6 +59,9 @@ type Store interface {
 	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 	ListProbes(ctx context.Context, machineID string) ([]probe.Probe, error)
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]probe.Day, error)
+	// LoadSettings : le titre, l'annonce et la langue de la page vivent dans
+	// les réglages, à côté de la langue de l'interface.
+	LoadSettings(ctx context.Context) (settings.Settings, error)
 }
 
 // Ce que le service attend du composant machine : qui est en ligne.
@@ -66,11 +69,10 @@ type Machines interface {
 	List(ctx context.Context) ([]machine.Status, error)
 }
 
-// Ce que le service attend des réglages : le titre, l'annonce et la langue
-// de la page y vivent, à côté de la langue de l'interface.
+// Ce que le service attend du composant des réglages : écrire les clés de
+// la page, et rendre les réglages écrits.
 type Settings interface {
-	LoadSettings(ctx context.Context) (settings.Settings, error)
-	UpdateSettings(ctx context.Context, change func(*settings.Settings)) (settings.Settings, error)
+	SetStatusPage(ctx context.Context, title, announcement string, language lang.Code) (settings.Settings, error)
 }
 
 // Watcher reçoit « la page a changé » : le bus interne pour l'administration,
@@ -522,7 +524,7 @@ func (s *Service) checkComponents(ctx context.Context, ids []string) error {
 // Page rend les réglages de la page, la langue résolue : celle du réglage,
 // sinon celle de l'interface.
 func (s *Service) Page(ctx context.Context) (Page, error) {
-	current, err := s.settings.LoadSettings(ctx)
+	current, err := s.store.LoadSettings(ctx)
 	if err != nil {
 		return Page{}, err
 	}
@@ -532,25 +534,18 @@ func (s *Service) Page(ctx context.Context) (Page, error) {
 func pageOf(current settings.Settings) Page {
 	language := current.StatusLanguage
 	if language == "" {
-		language = current.Language
-	}
-	if language == "" {
-		language = lang.Default
+		language = current.InterfaceLanguage()
 	}
 	return Page{Title: current.StatusTitle, Announcement: current.StatusAnnouncement, Language: language}
 }
 
-// SetPage ne touche que les clés de la page : la langue de l'interface, que
-// le serveur tient sur la même ligne, est préservée par UpdateSettings.
+// SetPage ne touche que les clés de la page : la langue de l'interface, sur
+// la même ligne, est préservée par le composant des réglages.
 func (s *Service) SetPage(ctx context.Context, page Page) (Page, error) {
 	if err := page.Validate(); err != nil {
 		return Page{}, err
 	}
-	current, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
-		current.StatusTitle = strings.TrimSpace(page.Title)
-		current.StatusAnnouncement = strings.TrimSpace(page.Announcement)
-		current.StatusLanguage = page.Language
-	})
+	current, err := s.settings.SetStatusPage(ctx, strings.TrimSpace(page.Title), strings.TrimSpace(page.Announcement), page.Language)
 	if err != nil {
 		return Page{}, err
 	}

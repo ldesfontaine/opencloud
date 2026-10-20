@@ -27,7 +27,7 @@ func TestAPI_DiskSettings_SaveKeepTheLanguageAndReachTheSession(t *testing.T) {
 	if after.Attention != 70 || after.Danger != 90 || after.Recovery != 65 {
 		t.Fatalf("saved %+v", after)
 	}
-	saved, err := server.settings.LoadSettings(context.Background())
+	saved, err := server.db.LoadSettings(context.Background())
 	if err != nil || saved.Language != "en" || saved.DiskAttentionPercent != 70 || saved.DiskDangerPercent != 90 {
 		t.Fatalf("file %+v %v", saved, err)
 	}
@@ -46,7 +46,7 @@ func TestAPI_DiskSettings_RefuseWhatMakesNoSense_AndKeepThePrevious(t *testing.T
 			t.Fatalf("%+v: %d %s", request, got.Code, got.Body.String())
 		}
 	}
-	if saved, _ := server.settings.LoadSettings(context.Background()); saved.DiskAttentionPercent != 0 {
+	if saved, _ := server.db.LoadSettings(context.Background()); saved.DiskAttentionPercent != 0 {
 		t.Fatalf("a refused write must not be applied: %+v", saved)
 	}
 }

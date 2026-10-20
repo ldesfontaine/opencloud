@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -31,23 +33,23 @@ func TestAPI_MailSettings_SaveNeverReturnThePasswordAndKeepIt(t *testing.T) {
 	}
 	// Un mot de passe laissé vide garde celui de la base, pas une copie : un
 	// autre écrivain l'a changé entre-temps, c'est le sien qui reste.
-	if _, err := server.settings.UpdateSettings(context.Background(), func(current *settings.Settings) { current.MailPassword = "rotated-elsewhere" }); err != nil {
+	if _, err := server.db.UpdateSettings(context.Background(), func(current *settings.Settings) { current.MailPassword = "rotated-elsewhere" }); err != nil {
 		t.Fatal(err)
 	}
 	request.Password = ""
 	request.Port = 2525
 	callAPI(server.Server, http.MethodPut, "/api/settings/mail", request)
-	file, err := server.settings.LoadSettings(context.Background())
+	file, err := server.db.LoadSettings(context.Background())
 	if err != nil || file.Language != "en" || file.MailPassword != "rotated-elsewhere" || file.MailPort != 2525 {
 		t.Fatalf("file %+v %v", file, err)
 	}
 	request.ClearPassword = true
 	callAPI(server.Server, http.MethodPut, "/api/settings/mail", request)
-	if file, _ := server.settings.LoadSettings(context.Background()); file.MailPassword != "" {
+	if file, _ := server.db.LoadSettings(context.Background()); file.MailPassword != "" {
 		t.Fatalf("password must be cleared: %+v", file)
 	}
 	callAPI(server.Server, http.MethodPut, "/api/settings/mail", mailSettingsRequest{})
-	if file, _ := server.settings.LoadSettings(context.Background()); file.MailHost != "" || file.MailFrom != "" {
+	if file, _ := server.db.LoadSettings(context.Background()); file.MailHost != "" || file.MailFrom != "" {
 		t.Fatalf("an empty host removes the relay: %+v", file)
 	}
 }
@@ -68,7 +70,7 @@ func TestAPI_MailSettings_RefuseWhatMakesNoSense(t *testing.T) {
 			t.Errorf("%s: %d %s", want, got.Code, got.Body.String())
 		}
 	}
-	if file, _ := server.settings.LoadSettings(context.Background()); file.MailHost != "" {
+	if file, _ := server.db.LoadSettings(context.Background()); file.MailHost != "" {
 		t.Fatalf("a refused write must not be applied: %+v", file)
 	}
 }
@@ -79,13 +81,8 @@ func TestAPI_MailSettings_TestSendsThroughTheSavedRelay(t *testing.T) {
 	relay := smtptest.Start(t, smtptest.Options{})
 	sender := mail.NewSender(5 * time.Second)
 	// Comme serve : le relais se relit dans la base au moment d'envoyer.
-	server.notifier.SetMail(func() mail.Relay {
-		current, err := server.settings.LoadSettings(context.Background())
-		if err != nil {
-			return mail.Relay{}
-		}
-		return current.MailRelay()
-	}, sender)
+	preferences := settings.New(server.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server.notifier.SetMail(preferences.CurrentMailRelay, sender)
 	got := callAPI(server.Server, http.MethodPost, "/api/settings/mail/actions/test", mailTestRequest{To: "lucas@exemple.fr"})
 	var outcome channelTestResponse
 	decodeAPI(t, got, &outcome)

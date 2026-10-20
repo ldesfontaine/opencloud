@@ -92,13 +92,13 @@ type containerCounts struct {
 }
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
-	current, err := s.settings.LoadSettings(r.Context())
+	language, err := s.language(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	language := current.Language
-	if language == "" {
-		language = lang.Default
+	disks, err := s.settings.DiskThresholds(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
 	}
 	languages := convertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
@@ -106,7 +106,7 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
-		Disks:        diskThresholdsToJSON(diskThresholdsOf(current)),
+		Disks:        diskThresholdsToJSON(disks),
 	})
 }
 
@@ -117,12 +117,13 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
+	// Le 400 reste ici ; le refus du composant n'est qu'un filet.
 	code, ok := lang.Parse(request.Language)
 	if !ok {
 		s.apiRefuse(w, http.StatusBadRequest, "error.unknown_language")
 		return
 	}
-	err := s.saveLanguage(r.Context(), code)
+	err := s.settings.SetLanguage(r.Context(), code)
 	if s.failed(w, r, err, nil) {
 		return
 	}

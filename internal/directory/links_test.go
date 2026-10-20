@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -48,7 +49,7 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 	if err != nil {
 		t.Fatalf("créer la sonde: %v", err)
 	}
-	statuses := status.New(b.db, b.machines, b.db, logger)
+	statuses := status.New(b.db, b.machines, settings.New(b.db, logger), logger)
 	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}},
 	})
@@ -93,7 +94,7 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if err := probe.New(b.db, logger).Delete(ctx, watched.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := status.New(b.db, b.machines, b.db, logger).DeleteComponent(ctx, component.ID); err != nil {
+	if err := status.New(b.db, b.machines, settings.New(b.db, logger), logger).DeleteComponent(ctx, component.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
