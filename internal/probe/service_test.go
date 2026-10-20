@@ -191,6 +191,38 @@ func TestCreate_UnknownDeclaredServiceRefused(t *testing.T) {
 	}
 }
 
+// Le contrôle vit dans le composant : le fichier et les outils MCP qui
+// créent une sonde sans passer par l'API sont tenus de même.
+func TestCreate_UnknownMachineRefused(t *testing.T) {
+	fixture := newBench(t)
+
+	_, err := fixture.createWithService("inconnue", "")
+	if !errors.Is(err, probe.ErrMachineInvalid) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrMachineInvalid, err)
+	}
+	if probes, _ := fixture.service.List(context.Background(), ""); len(probes) != 0 {
+		t.Fatalf("une sonde refusée a été écrite: %+v", probes)
+	}
+}
+
+// La sonde inconnue d'abord : introuvable, quoi que dise la définition.
+func TestUpdate_UnknownMachineRefused(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	definition := definitionOf(created)
+	definition.MachineID = "inconnue"
+
+	if _, err := fixture.service.Update(context.Background(), created.ID, definition); !errors.Is(err, probe.ErrMachineInvalid) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrMachineInvalid, err)
+	}
+	if got := fixture.get(t, created.ID); got.MachineID != machine.LocalID {
+		t.Fatalf("une édition refusée a été écrite: %+v", got)
+	}
+	if _, err := fixture.service.Update(context.Background(), "absente", definition); !errors.Is(err, probe.ErrNotFound) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrNotFound, err)
+	}
+}
+
 // La sonde qui regarde de l'extérieur surveille un service qui tourne
 // ailleurs : l'ancienne règle « la machine de la sonde porte le service »
 // n'a plus lieu d'être.

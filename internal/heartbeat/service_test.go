@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -64,6 +65,16 @@ func newFixture(t *testing.T) *fixture {
 	f.SetClock(func() time.Time { return f.clock })
 	f.SetAlerter(f.alerter)
 	return f
+}
+
+func (f *fixture) addLocalMachine(t *testing.T) {
+	t.Helper()
+	err := f.db.SaveLocalMachine(context.Background(), machine.Machine{
+		ID: machine.LocalID, Name: "hote", Kind: machine.KindLocal, EnrolledAt: testNow, CreatedAt: testNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *fixture) advance(d time.Duration) {
@@ -160,6 +171,43 @@ func TestCreate_RejectsBadDefinitions(t *testing.T) {
 		if _, err := f.Create(context.Background(), tc.definition); !errors.Is(err, tc.want) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// Le contrôle vit dans le composant : le fichier et les outils MCP qui
+// créent une tâche sans passer par l'API sont tenus de même.
+func TestCreate_UnknownMachineRefused(t *testing.T) {
+	f := newFixture(t)
+	definition := heartbeat.Definition{Name: "job", MachineID: "inconnue", Interval: time.Hour}
+	if _, err := f.Create(context.Background(), definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
+		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
+	}
+	if listed, _ := f.List(context.Background()); len(listed) != 0 {
+		t.Fatalf("a refused job was written: %+v", listed)
+	}
+}
+
+func TestCreate_WithoutMachineAccepted(t *testing.T) {
+	f := newFixture(t)
+	created, err := f.Create(context.Background(), heartbeat.Definition{Name: "job", Interval: time.Hour})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.MachineID != "" {
+		t.Fatalf("machine invented: %+v", created)
+	}
+}
+
+func TestCreate_KnownMachineAccepted(t *testing.T) {
+	f := newFixture(t)
+	f.addLocalMachine(t)
+	definition := heartbeat.Definition{Name: "job", MachineID: machine.LocalID, Interval: time.Hour}
+	created, err := f.Create(context.Background(), definition)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.MachineID != machine.LocalID {
+		t.Fatalf("machine lost: %+v", created)
 	}
 }
 
@@ -758,6 +806,22 @@ func TestUpdate_RejectsBadDefinitions(t *testing.T) {
 		t.Fatalf("a refused edit was written: %+v", got)
 	}
 	if _, err := f.Update(context.Background(), "inconnu", heartbeat.Definition{Name: "job", Interval: time.Hour}); !errors.Is(err, heartbeat.ErrNotFound) {
+		t.Fatalf("unknown id: %v", err)
+	}
+}
+
+// La tâche inconnue d'abord : introuvable, quoi que dise la définition.
+func TestUpdate_UnknownMachineRefused(t *testing.T) {
+	f := newFixture(t)
+	h := f.create(t, "job")
+	definition := heartbeat.Definition{Name: "job", MachineID: "inconnue", Interval: time.Hour}
+	if _, err := f.Update(context.Background(), h.ID, definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
+		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
+	}
+	if got, _ := f.Get(context.Background(), h.ID); got.MachineID != "" || got.Interval != 5*time.Minute {
+		t.Fatalf("a refused edit was written: %+v", got)
+	}
+	if _, err := f.Update(context.Background(), "inconnu", definition); !errors.Is(err, heartbeat.ErrNotFound) {
 		t.Fatalf("unknown id: %v", err)
 	}
 }

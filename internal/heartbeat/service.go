@@ -20,6 +20,7 @@ type Store interface {
 	ListHeartbeats(ctx context.Context) ([]Heartbeat, error)
 	GetHeartbeat(ctx context.Context, id string) (Heartbeat, error)
 	GetHeartbeatByToken(ctx context.Context, token string) (Heartbeat, error)
+	MachineExists(ctx context.Context, id string) (bool, error)
 	CountHeartbeats(ctx context.Context) (total, attention int, err error)
 	// SetHeartbeatToken remplace le jeton et son empreinte d'un coup.
 	SetHeartbeatToken(ctx context.Context, id, token string) error
@@ -114,6 +115,9 @@ func (s *Service) changed(heartbeatID string) {
 // « Nouveau » avec une première échéance : une tâche jamais branchée doit
 // finir en retard, pas rester nouvelle pour toujours.
 func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat, error) {
+	if err := s.checkMachineExists(ctx, definition.MachineID); err != nil {
+		return Heartbeat{}, err
+	}
 	if err := definition.Validate(); err != nil {
 		return Heartbeat{}, err
 	}
@@ -150,6 +154,14 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 // marge qui change décale l'échéance en cours d'autant, sans la réinitialiser
 // à partir de maintenant : la tâche n'a pas pingé de plus ou de moins.
 func (s *Service) Update(ctx context.Context, id string, definition Definition) (Heartbeat, error) {
+	// La tâche d'abord : inconnue, elle est introuvable quoi que dise la
+	// définition.
+	if _, err := s.store.GetHeartbeat(ctx, id); err != nil {
+		return Heartbeat{}, err
+	}
+	if err := s.checkMachineExists(ctx, definition.MachineID); err != nil {
+		return Heartbeat{}, err
+	}
 	if err := definition.Validate(); err != nil {
 		return Heartbeat{}, err
 	}
@@ -167,6 +179,23 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 	s.notifyAfterEdit(ctx, before, after)
 	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
+}
+
+// La machine est facultative ; donnée, elle doit exister, sinon la clé
+// étrangère la refuserait en erreur brute. Elle passe avant le reste de la
+// définition : c'est l'ordre que l'API a toujours rendu.
+func (s *Service) checkMachineExists(ctx context.Context, machineID string) error {
+	if machineID == "" {
+		return nil
+	}
+	exists, err := s.store.MachineExists(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrMachineInvalid
+	}
+	return nil
 }
 
 // revise porte la définition sur le moniteur et recalcule l'échéance si le
