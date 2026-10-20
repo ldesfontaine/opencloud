@@ -180,6 +180,45 @@ func TestRun_WithoutDocker_ReportsTheAbsenceOnce(t *testing.T) {
 	}
 }
 
+// Le démon ne répond pas à la sonde ; on annule pendant qu'elle attend. Run
+// part sans rien livrer : l'annulation est la nôtre, pas celle du démon.
+func TestRun_CancelledDuringPing_DeliversNoReport(t *testing.T) {
+	// Borne large : elle ne sert qu'à ne pas bloquer la CI si le code est cassé.
+	const patience = 30 * time.Second
+	pinging := make(chan struct{})
+	var announce sync.Once
+	client := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		announce.Do(func() { close(pinging) })
+		<-r.Context().Done()
+	}))
+	sink := newSink()
+	watcher := newWatcher(client, sink)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() {
+		watcher.Run(ctx)
+		close(stopped)
+	}()
+
+	select {
+	case <-pinging:
+	case <-time.After(patience):
+		t.Fatal("the ping never reached the daemon")
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(patience):
+		t.Fatal("Run did not stop after the cancellation")
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.reports) != 0 {
+		t.Fatalf("reports = %+v", sink.reports)
+	}
+}
+
 func TestRun_InventoriesThenTranslatesEvents(t *testing.T) {
 	sink := newSink()
 	watcher := newWatcher(serve(t, newDaemon(t, false).mux), sink)
