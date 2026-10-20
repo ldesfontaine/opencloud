@@ -136,6 +136,63 @@ func TestCreate_RefusesMoreProbesThanAMachineCarries(t *testing.T) {
 	}
 }
 
+// Des identifiants dans la cible finiraient en clair en base et dans le
+// fichier de l'annuaire : la création les refuse, rien n'est écrit.
+func TestCreate_RefusesATargetWithCredentials(t *testing.T) {
+	fixture := newBench(t)
+	_, err := fixture.service.Create(context.Background(), probe.Definition{
+		Name: "api", Kind: probe.KindHTTP, Target: "https://svc:secret@api.exemple.fr/health", MachineID: machine.LocalID,
+	})
+	if !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	if probes, err := fixture.service.List(context.Background(), ""); err != nil || len(probes) != 0 {
+		t.Fatalf("rien ne devait être écrit: %+v %v", probes, err)
+	}
+}
+
+// Une sonde d'avant le refus, qui porte des identifiants, passe en pause au
+// démarrage et n'en sort qu'avec une cible changée ; les autres ne bougent pas.
+func TestPauseTargetsWithCredentials_HoldsOldProbesUntilTheTargetChanges(t *testing.T) {
+	fixture := newBench(t)
+	ctx := context.Background()
+	clean := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	legacy := storetest.InsertProbe(t, fixture.db, "00000000000000a1", probe.Definition{
+		Name: "api", Kind: probe.KindHTTP, Target: "https://svc:secret@api.exemple.fr/health", MachineID: machine.LocalID,
+	}, testNow)
+	if err := fixture.service.PauseTargetsWithCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.get(t, legacy.ID); !got.IsPaused() {
+		t.Fatalf("la sonde à identifiants devait être en pause: %q", got.Status)
+	}
+	if got := fixture.get(t, clean.ID); got.IsPaused() {
+		t.Fatal("la sonde sans identifiants ne devait pas bouger")
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 1 || assignment.Probes[0].ID != clean.ID {
+		t.Fatalf("le jeu ne devait plus porter que la sonde propre: %+v", assignment)
+	}
+	if err := fixture.service.Resume(ctx, legacy.ID); !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("reprendre: attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	definition := definitionOf(legacy)
+	definition.Name = "api renommée"
+	if _, err := fixture.service.Update(ctx, legacy.ID, definition); !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("modifier sans changer la cible: attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	definition.Target = "https://api.exemple.fr/health"
+	fixture.update(t, legacy.ID, definition)
+	if err := fixture.service.Resume(ctx, legacy.ID); err != nil {
+		t.Fatalf("la cible changée, la sonde reprend: %v", err)
+	}
+	if err := fixture.service.PauseTargetsWithCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.get(t, legacy.ID); got.IsPaused() {
+		t.Fatal("une cible changée ne se remet pas en pause au démarrage suivant")
+	}
+}
+
 const remoteMachineID = "11111111-2222-4333-8444-555555555555"
 
 // enrollRemote ajoute une seconde machine : une sonde peut surveiller un

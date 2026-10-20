@@ -247,13 +247,6 @@ func TestApply_NewHeartbeatGetsAGeneratedTokenAndNoSecretReachesThePlanOrTheJour
     grace: 1h
 ignored:
 `)
-	// Une cible avec un mot de passe : le plan la montre masquée.
-	data = replaceOnce(t, data, "heartbeats:\n", `  - name: private-feed
-    runner: opencloud
-    kind: http
-    target: https://reader:p4ssw0rd-secret@feed.example.org/status
-heartbeats:
-`)
 	plan := b.plan(t, data, false)
 	if len(plan.Problems) > 0 {
 		t.Fatalf("problems: %+v", plan.Problems)
@@ -293,13 +286,10 @@ heartbeats:
 		t.Fatal(err)
 	}
 	everything := string(encoded)
-	for _, secret := range []string{token, pingSecret, "hb_", "p4ssw0rd-secret", heartbeat.HashToken(token)} {
+	for _, secret := range []string{token, pingSecret, "hb_", heartbeat.HashToken(token)} {
 		if strings.Contains(everything, secret) {
 			t.Errorf("a secret reached the plan or the journal: %q", secret)
 		}
-	}
-	if !strings.Contains(everything, "reader:") {
-		t.Errorf("the user name stays so that the target is recognised: %s", everything)
 	}
 }
 
