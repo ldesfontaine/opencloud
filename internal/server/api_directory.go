@@ -125,14 +125,8 @@ type projectRequest struct {
 }
 
 func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
-	provides := make([]string, 0, len(found.Provides))
-	for _, capability := range found.Provides {
-		provides = append(provides, string(capability))
-	}
-	units := make([]unitJSON, 0, len(found.Units))
-	for _, unit := range found.Units {
-		units = append(units, unitToJSON(unit))
-	}
+	provides := convertAll(found.Provides, func(capability directory.Capability) string { return string(capability) })
+	units := convertAll(found.Units, unitToJSON)
 	return declaredServiceJSON{
 		ID:             found.ID,
 		MachineID:      found.MachineID,
@@ -147,7 +141,7 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 		NeedsReview:    found.NeedsReview,
 		Provides:       provides,
 		Units:          units,
-		ProjectIDs:     nonNil(found.ProjectIDs),
+		ProjectIDs:     orEmpty(found.ProjectIDs),
 		CreatedAt:      found.CreatedAt.UTC(),
 		UpdatedAt:      found.UpdatedAt.UTC(),
 	}
@@ -163,7 +157,7 @@ func unitToJSON(unit directory.Unit) unitJSON {
 		Digest:        unit.Digest,
 		ContainerName: unit.ContainerName,
 		SystemdUnit:   unit.SystemdUnit,
-		Ports:         nonNil(unit.Ports),
+		Ports:         orEmpty(unit.Ports),
 		UpdatePolicy:  string(unit.UpdatePolicy),
 	}
 }
@@ -173,11 +167,9 @@ func linksToJSON(links directory.Links) linksJSON {
 }
 
 func linkedObjectsToJSON(objects []directory.LinkedObject) []linkedObjectJSON {
-	converted := make([]linkedObjectJSON, 0, len(objects))
-	for _, object := range objects {
-		converted = append(converted, linkedObjectJSON{ID: object.ID, Name: object.Name})
-	}
-	return converted
+	return convertAll(objects, func(object directory.LinkedObject) linkedObjectJSON {
+		return linkedObjectJSON{ID: object.ID, Name: object.Name}
+	})
 }
 
 func projectToJSON(found directory.Project) projectJSON {
@@ -185,26 +177,14 @@ func projectToJSON(found directory.Project) projectJSON {
 		ID:         found.ID,
 		Name:       found.Name,
 		Title:      found.Title,
-		ServiceIDs: nonNil(found.ServiceIDs),
+		ServiceIDs: orEmpty(found.ServiceIDs),
 		CreatedAt:  found.CreatedAt.UTC(),
 		UpdatedAt:  found.UpdatedAt.UTC(),
 	}
 }
 
-// nonNil garde une liste vide en [] : le front ne distingue pas null d'une
-// liste.
-func nonNil(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return values
-}
-
 func declaredServiceDefinition(request declaredServiceRequest) directory.ServiceDefinition {
-	provides := make([]directory.Capability, 0, len(request.Provides))
-	for _, capability := range request.Provides {
-		provides = append(provides, directory.Capability(capability))
-	}
+	provides := convertAll(request.Provides, func(capability string) directory.Capability { return directory.Capability(capability) })
 	units := make([]directory.UnitDefinition, 0, len(request.Units))
 	for _, unit := range request.Units {
 		units = append(units, directory.UnitDefinition{
@@ -236,30 +216,20 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
 	found, err := s.directory.ListServices(r.Context(), filter)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := declaredServicesResponse{Services: make([]declaredServiceJSON, 0, len(found))}
-	for _, service := range found {
-		response.Services = append(response.Services, declaredServiceToJSON(service))
-	}
+	response := declaredServicesResponse{Services: convertAll(found, declaredServiceToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
 func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.GetService(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	links, err := s.directory.ServiceLinks(r.Context(), found.ID)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: declaredServiceToJSON(found), Links: linksToJSON(links)})
@@ -273,12 +243,7 @@ func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateService(r.Context(), declaredServiceDefinition(request))
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, declaredServiceToJSON(created))
@@ -292,16 +257,7 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.directory.UpdateService(r.Context(), r.PathValue("id"), declaredServiceDefinition(request))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
@@ -324,16 +280,7 @@ func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
 // celui de la première règle violée.
 func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
 	reviewed, err := s.directory.Review(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(reviewed))
@@ -347,102 +294,28 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), container.UpdatePolicy(request.Policy))
-	if key, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
 	if errors.Is(err, directory.ErrUnitNotFound) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.unit_not_found")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func directoryRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, directory.ErrMachineInvalid):
-		return "directory.machine_invalid", true
-	case errors.Is(err, directory.ErrNameInvalid):
-		return "directory.name_invalid", true
-	case errors.Is(err, directory.ErrTitleInvalid):
-		return "directory.title_invalid", true
-	case errors.Is(err, directory.ErrNatureInvalid):
-		return "directory.nature_invalid", true
-	case errors.Is(err, directory.ErrOriginInvalid):
-		return "directory.origin_invalid", true
-	case errors.Is(err, directory.ErrComposeProjectInvalid):
-		return "directory.compose_project_invalid", true
-	case errors.Is(err, directory.ErrPublicURLInvalid):
-		return "directory.public_url_invalid", true
-	case errors.Is(err, directory.ErrProvidesInvalid):
-		return "directory.provides_invalid", true
-	case errors.Is(err, directory.ErrProvidesNeedInfra):
-		return "directory.provides_need_infra", true
-	case errors.Is(err, directory.ErrUnitsInvalid):
-		return "directory.units_invalid", true
-	case errors.Is(err, directory.ErrUnitNameInvalid):
-		return "directory.unit_name_invalid", true
-	case errors.Is(err, directory.ErrUnitNameTaken):
-		return "directory.unit_name_taken", true
-	case errors.Is(err, directory.ErrImageInvalid):
-		return "directory.image_invalid", true
-	case errors.Is(err, directory.ErrVersionInvalid):
-		return "directory.version_invalid", true
-	case errors.Is(err, directory.ErrVersionLatest):
-		return "directory.version_latest", true
-	case errors.Is(err, directory.ErrDigestInvalid):
-		return "directory.digest_invalid", true
-	case errors.Is(err, directory.ErrContainerNameInvalid):
-		return "directory.container_name_invalid", true
-	case errors.Is(err, directory.ErrSystemdUnitInvalid):
-		return "directory.systemd_unit_invalid", true
-	case errors.Is(err, directory.ErrPortsInvalid):
-		return "directory.ports_invalid", true
-	case errors.Is(err, directory.ErrNameTaken):
-		return "directory.name_taken", true
-	case errors.Is(err, directory.ErrComposeProjectTaken):
-		return "directory.compose_project_taken", true
-	case errors.Is(err, directory.ErrUnitKeyDuplicate):
-		return "directory.unit_key_duplicate", true
-	case errors.Is(err, directory.ErrMatchKeyTaken):
-		return "directory.match_key_taken", true
-	case errors.Is(err, directory.ErrUnitInvalid):
-		return "directory.unit_invalid", true
-	case errors.Is(err, directory.ErrProjectInvalid):
-		return "directory.project_invalid", true
-	case errors.Is(err, directory.ErrUpdatePolicyInvalid):
-		return "directory.update_policy_invalid", true
-	case errors.Is(err, directory.ErrIgnoreInvalid):
-		return "directory.ignore_invalid", true
-	}
-	return "", false
-}
-
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.ListProjects(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := projectsResponse{Projects: make([]projectJSON, 0, len(found))}
-	for _, project := range found {
-		response.Projects = append(response.Projects, projectToJSON(project))
-	}
+	response := projectsResponse{Projects: convertAll(found, projectToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.GetProject(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrProjectNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, projectToJSON(found))
@@ -454,12 +327,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateProject(r.Context(), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
-	if key, refused := projectRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, projectToJSON(created))
@@ -471,16 +339,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.directory.UpdateProject(r.Context(), r.PathValue("id"), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
-	if errors.Is(err, directory.ErrProjectNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if key, refused := projectRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, projectToJSON(updated))
@@ -489,16 +348,4 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 // Supprimer un projet défait le groupe : ses services restent déclarés.
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.directory.DeleteProject(r.Context(), r.PathValue("id")), directory.ErrProjectNotFound)
-}
-
-func projectRefusalKey(err error) (string, bool) {
-	switch {
-	case errors.Is(err, directory.ErrProjectNameInvalid):
-		return "project.name_invalid", true
-	case errors.Is(err, directory.ErrProjectTitleInvalid):
-		return "project.title_invalid", true
-	case errors.Is(err, directory.ErrProjectNameTaken):
-		return "project.name_taken", true
-	}
-	return "", false
 }

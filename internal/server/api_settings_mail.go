@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -47,8 +46,7 @@ func mailSettingsToJSON(relay mail.Relay) mailSettingsJSON {
 
 func (s *Server) getMailSettings(w http.ResponseWriter, r *http.Request) {
 	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(current.MailRelay()))
@@ -60,12 +58,7 @@ func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	relay, err := s.saveMailRelay(r.Context(), request)
-	if key, refused := mailRefusal(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.logger.Info("mail relay changed", "configured", relay.Configured(), "host", relay.Host, "tls", string(relay.TLS))
@@ -115,29 +108,8 @@ func (s *Server) testMailSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outcome, err := s.notifier.TestMail(r.Context(), recipient)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, channelTestResponse{OK: outcome.OK(), Reason: string(outcome.Reason), Code: outcome.Code})
-}
-
-func mailRefusal(err error) (string, bool) {
-	switch {
-	case errors.Is(err, mail.ErrHostInvalid):
-		return "settings.mail_host_invalid", true
-	case errors.Is(err, mail.ErrPortInvalid):
-		return "settings.mail_port_invalid", true
-	case errors.Is(err, mail.ErrTLSModeInvalid):
-		return "settings.mail_tls_invalid", true
-	case errors.Is(err, mail.ErrPlainNotPrivate):
-		return "settings.mail_plain_public", true
-	case errors.Is(err, mail.ErrUsernameInvalid):
-		return "settings.mail_username_invalid", true
-	case errors.Is(err, mail.ErrPasswordInvalid):
-		return "settings.mail_password_invalid", true
-	case errors.Is(err, mail.ErrFromInvalid):
-		return "settings.mail_from_invalid", true
-	}
-	return "", false
 }

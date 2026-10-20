@@ -536,7 +536,7 @@ func (s *Server) enableMode(w http.ResponseWriter, r *http.Request, request auth
 	case "", auth.ModeBasic:
 		authorizing, _ := authorizingStateFrom(r.Context())
 		state, err := s.auth.EnableBasic(r.Context(), authorizing, request.Username, request.Password)
-		return state, "", !s.refuseAuth(w, r, err)
+		return state, "", !s.failed(w, r, err, nil)
 	case auth.ModeForward:
 		return s.enableForward(w, r, request.Header)
 	default:
@@ -552,8 +552,8 @@ func (s *Server) enableForward(w http.ResponseWriter, r *http.Request, header st
 	if header == "" {
 		header = auth.DefaultForwardHeader
 	}
-	if err := auth.ValidateHeader(header); err != nil {
-		s.refuseAuth(w, r, err)
+	err := auth.ValidateHeader(header)
+	if s.failed(w, r, err, nil) {
 		return auth.State{}, "", false
 	}
 	// Avant l'identité : sans secret, aucun en-tête reçu de la boucle locale
@@ -570,7 +570,7 @@ func (s *Server) enableForward(w http.ResponseWriter, r *http.Request, header st
 	}
 	authorizing, _ := authorizingStateFrom(r.Context())
 	state, err := s.auth.EnableForward(r.Context(), authorizing, header)
-	if s.refuseAuth(w, r, err) {
+	if s.failed(w, r, err, nil) {
 		return auth.State{}, "", false
 	}
 	return state, identity, true
@@ -583,7 +583,7 @@ func (s *Server) changeAuthPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	authorizing, _ := authorizingStateFrom(r.Context())
 	state, err := s.auth.ChangePassword(r.Context(), authorizing, request.Password)
-	if s.refuseAuth(w, r, err) {
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, authToJSON(state, ""))
@@ -597,36 +597,8 @@ func (s *Server) disableAuth(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	authorizing, _ := authorizingStateFrom(r.Context())
-	if s.refuseAuth(w, r, s.auth.Disable(r.Context(), authorizing)) {
+	if s.failed(w, r, s.auth.Disable(r.Context(), authorizing), nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, authToJSON(auth.State{Mode: auth.ModeNone}, ""))
-}
-
-// refuseAuth traduit une erreur du composant en refus du catalogue, et
-// dit si la réponse est partie.
-func (s *Server) refuseAuth(w http.ResponseWriter, r *http.Request, err error) bool {
-	switch {
-	case err == nil:
-		return false
-	case errors.Is(err, auth.ErrUsernameInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.username_invalid")
-	case errors.Is(err, auth.ErrPasswordTooShort):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.password_too_short")
-	case errors.Is(err, auth.ErrPasswordTooLong):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.password_too_long")
-	case errors.Is(err, auth.ErrHeaderInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "auth.header_invalid")
-	case errors.Is(err, auth.ErrNoPassword):
-		s.apiRefuse(w, http.StatusConflict, "auth.no_password")
-	case errors.Is(err, auth.ErrAlreadyEnabled):
-		s.apiRefuse(w, http.StatusConflict, "auth.already_enabled")
-	case errors.Is(err, auth.ErrDisabled):
-		s.apiRefuse(w, http.StatusConflict, "auth.disabled")
-	case errors.Is(err, auth.ErrStateChanged):
-		s.apiRefuse(w, http.StatusConflict, codeAuthStateChanged)
-	default:
-		s.apiInternalError(w, r, err)
-	}
-	return true
 }

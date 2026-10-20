@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
@@ -408,26 +406,12 @@ func TestManifestAPI_BusyAnswers409(t *testing.T) {
 	}
 }
 
-// Chaque clé que le journal ou une réponse peut porter a son texte, et chaque
-// refus d'un domaine que le fichier écrit se traduit en une clé qui existe.
-func TestManifest_RefusalKeysExistInEveryCatalog(t *testing.T) {
+// Chaque clé que le journal ou une réponse peut porter a son texte. Les
+// refus des domaines que le fichier écrit sont vérifiés avec les autres
+// (TestRefusals_KeysExistInEveryCatalog).
+func TestManifest_ApplyKeysExistInEveryCatalog(t *testing.T) {
 	server := newTestServer(t)
-	keys := manifest.ApplyKeys()
-	for _, err := range []error{directory.ErrServiceLinked, directory.ErrNameTaken, directory.ErrProjectNameTaken} {
-		key := RefusalKey(err)
-		if key == "" {
-			t.Fatalf("%v has no key", err)
-		}
-		keys = append(keys, key)
-	}
-	if RefusalKey(errors.New("boom")) != "" {
-		t.Fatal("an unknown error must have no key: its text may carry the file")
-	}
-	for _, key := range keys {
-		for _, code := range lang.Codes() {
-			if strings.HasPrefix(server.catalogs.For(code).Get(key), "[") {
-				t.Errorf("la clé %q manque dans %s", key, code)
-			}
-		}
+	for _, key := range manifest.ApplyKeys() {
+		requireKeyInEveryCatalog(t, server, key)
 	}
 }

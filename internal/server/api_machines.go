@@ -56,29 +56,29 @@ type tokenResponse struct {
 	URLLocal  bool      `json:"url_local"`
 }
 
-func machineToJSON(status machine.Status) machineJSON {
+func machineToJSON(machineStatus machine.Status) machineJSON {
 	return machineJSON{
-		ID:           status.ID,
-		Name:         status.Name,
-		Kind:         string(status.Kind),
-		Hostname:     status.Hostname,
-		Address:      status.Address,
-		OS:           status.OS,
-		Arch:         status.Arch,
-		AgentVersion: status.AgentVersion,
-		Local:        status.IsLocal(),
-		Online:       status.Online,
-		EnrolledAt:   status.EnrolledAt.UTC(),
-		LastSeenAt:   timeOrNil(status.LastSeenAt),
+		ID:           machineStatus.ID,
+		Name:         machineStatus.Name,
+		Kind:         string(machineStatus.Kind),
+		Hostname:     machineStatus.Hostname,
+		Address:      machineStatus.Address,
+		OS:           machineStatus.OS,
+		Arch:         machineStatus.Arch,
+		AgentVersion: machineStatus.AgentVersion,
+		Local:        machineStatus.IsLocal(),
+		Online:       machineStatus.Online,
+		EnrolledAt:   machineStatus.EnrolledAt.UTC(),
+		LastSeenAt:   timeOrNil(machineStatus.LastSeenAt),
 	}
 }
 
 // machineJSONOf ajoute aux faits de la machine le support de son système,
 // quand la fin de support est activée.
-func (s *Server) machineJSONOf(status machine.Status, withLifecycle bool) machineJSON {
-	converted := machineToJSON(status)
+func (s *Server) machineJSONOf(machineStatus machine.Status, withLifecycle bool) machineJSON {
+	converted := machineToJSON(machineStatus)
 	if withLifecycle {
-		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(status.OS))
+		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
 	return converted
 }
@@ -95,26 +95,20 @@ func timeOrNil(at time.Time) *time.Time {
 
 func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	statuses, err := s.machines.List(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	pending, err := s.machines.PendingTokens(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	withLifecycle, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := machinesResponse{
-		Machines: make([]machineJSON, 0, len(statuses)),
+		Machines: convertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
 		Pending:  make([]pendingTokenJSON, 0, len(pending)),
-	}
-	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -129,21 +123,15 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
-	status, err := s.machines.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
 	withLifecycle, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(status, withLifecycle))
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.
@@ -157,8 +145,7 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "machine.name_invalid")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeToken(w, r, token, cleartext)
@@ -167,8 +154,7 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string) {
 	url, isLocal := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
@@ -221,14 +207,12 @@ func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
 // Ré-enrôler : un nouveau jeton pour la même machine, qui garde son id.
 func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"))
-	switch {
-	case errors.Is(err, machine.ErrLocalMachine):
+	if errors.Is(err, machine.ErrLocalMachine) {
 		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-	case errors.Is(err, machine.ErrNotFound):
-		s.apiNotFound(w)
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeToken(w, r, token, cleartext)
+		return
 	}
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	s.writeToken(w, r, token, cleartext)
 }

@@ -73,7 +73,6 @@ func newBench(t *testing.T) *bench {
 		History:    db,
 		Journal:    db,
 	}, logger)
-	component.SetErrorKeys(testErrorKey)
 	return &bench{db: db, manifest: component, localID: machine.LocalID, directory: declared, probes: probes, heartbeats: heartbeats, machines: machines, containers: containers, writes: writes}
 }
 

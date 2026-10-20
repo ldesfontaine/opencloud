@@ -2,50 +2,18 @@ package manifest_test
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-var errInjected = errors.New("injected failure")
-
-// testErrorKey est le chaînage minimal du serveur pour les tests : assez pour
-// que les refus aient une clé.
-func testErrorKey(err error) string {
-	switch {
-	case errors.Is(err, errInjected):
-		return "test.injected"
-	case errors.Is(err, directory.ErrServiceLinked):
-		return "directory.service_linked"
-	case errors.Is(err, directory.ErrNameInvalid):
-		return "directory.name_invalid"
-	case errors.Is(err, directory.ErrProvidesNeedInfra):
-		return "directory.provides_need_infra"
-	case errors.Is(err, directory.ErrNameTaken):
-		return "directory.name_taken"
-	case errors.Is(err, directory.ErrComposeProjectTaken):
-		return "directory.compose_project_taken"
-	case errors.Is(err, directory.ErrMatchKeyTaken):
-		return "directory.match_key_taken"
-	case errors.Is(err, directory.ErrProjectNameTaken):
-		return "project.name_taken"
-	case errors.Is(err, probe.ErrThresholdInvalid):
-		return "probe.threshold_invalid"
-	case errors.Is(err, probe.ErrIntervalInvalid):
-		return "probe.interval_invalid"
-	case errors.Is(err, probe.ErrTooMany):
-		return "probe.too_many"
-	case errors.Is(err, heartbeat.ErrIntervalInvalid):
-		return "job.interval_invalid"
-	case errors.Is(err, heartbeat.ErrGraceInvalid):
-		return "job.grace_invalid"
-	}
-	return ""
-}
+// errInjected est un refus : l'échec au milieu se journalise sous sa clé,
+// comme celui d'un vrai composant.
+var errInjected = refusal.Invalid("test.injected", "injected failure")
 
 // spy compte les gestes d'écriture du fichier, et en fait échouer un au rang
 // demandé (failAt, à partir de 1) : le faux composant du test d'échec au

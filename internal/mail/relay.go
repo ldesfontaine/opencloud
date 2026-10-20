@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // TLSMode dit comment la connexion au relais est chiffrée : STARTTLS sur
@@ -46,13 +48,13 @@ type Relay struct {
 }
 
 var (
-	ErrHostInvalid     = errors.New("mail: relay host invalid")
-	ErrPortInvalid     = errors.New("mail: relay port invalid")
-	ErrTLSModeInvalid  = errors.New("mail: tls mode invalid")
-	ErrPlainNotPrivate = errors.New("mail: plain relay outside loopback or private network")
-	ErrUsernameInvalid = errors.New("mail: username invalid")
-	ErrPasswordInvalid = errors.New("mail: password invalid")
-	ErrFromInvalid     = errors.New("mail: sender address invalid")
+	ErrHostInvalid     = refusal.Invalid("settings.mail_host_invalid", "mail: relay host invalid")
+	ErrPortInvalid     = refusal.Invalid("settings.mail_port_invalid", "mail: relay port invalid")
+	ErrTLSModeInvalid  = refusal.Invalid("settings.mail_tls_invalid", "mail: tls mode invalid")
+	ErrPlainNotPrivate = refusal.Invalid("settings.mail_plain_public", "mail: plain relay outside loopback or private network")
+	ErrUsernameInvalid = refusal.Invalid("settings.mail_username_invalid", "mail: username invalid")
+	ErrPasswordInvalid = refusal.Invalid("settings.mail_password_invalid", "mail: password invalid")
+	ErrFromInvalid     = refusal.Invalid("settings.mail_from_invalid", "mail: sender address invalid")
 	ErrAddressInvalid  = errors.New("mail: recipient address invalid")
 	ErrNoRecipient     = errors.New("mail: no recipient")
 	ErrTooManyAddress  = errors.New("mail: too many recipients")

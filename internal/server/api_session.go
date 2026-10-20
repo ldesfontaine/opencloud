@@ -93,18 +93,14 @@ type containerCounts struct {
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	language := current.Language
 	if language == "" {
 		language = lang.Default
 	}
-	languages := make([]string, 0, len(lang.Codes()))
-	for _, code := range lang.Codes() {
-		languages = append(languages, string(code))
-	}
+	languages := convertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
 		Language:     string(language),
@@ -126,8 +122,8 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusBadRequest, "error.unknown_language")
 		return
 	}
-	if err := s.saveLanguage(r.Context(), code); err != nil {
-		s.apiInternalError(w, r, err)
+	err := s.saveLanguage(r.Context(), code)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -151,8 +147,7 @@ func (s *Server) catalogAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	response, err := s.countsOf(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -204,10 +199,8 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 }
 
 func certificatesToJSON(counted probe.Certificates) certificateCounts {
-	response := certificateCounts{Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired}
-	if !counted.Soonest.IsZero() {
-		soonest := counted.Soonest.UTC()
-		response.SoonestExpiresAt = &soonest
+	return certificateCounts{
+		Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired,
+		SoonestExpiresAt: timeOrNil(counted.Soonest),
 	}
-	return response
 }

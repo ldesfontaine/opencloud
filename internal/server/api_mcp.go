@@ -96,8 +96,7 @@ type mcpRedirectURIsRequest struct {
 
 func (s *Server) getMCP(w http.ResponseWriter, r *http.Request) {
 	response, err := s.mcpState(r)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -137,9 +136,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 	if err != nil {
 		return mcpResponse{}, err
 	}
-	for _, token := range tokens {
-		response.Tokens = append(response.Tokens, mcpTokenToJSON(token))
-	}
+	response.Tokens = convertAll(tokens, mcpTokenToJSON)
 	sessions, err := s.mcp.Sessions(r.Context())
 	if err != nil {
 		return mcpResponse{}, err
@@ -166,8 +163,7 @@ func (s *Server) enableMCP(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusConflict, "mcp.already_enabled")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, mcpSecretResponse{Secret: secret})
@@ -183,8 +179,7 @@ func (s *Server) regenerateMCPSecret(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusConflict, "mcp.disabled")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, mcpSecretResponse{Secret: secret})
