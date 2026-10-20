@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
@@ -308,9 +307,6 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	if s.refuseUnknownProbeMachine(w, r, request.MachineID) {
-		return
-	}
 	created, err := s.probes.Create(r.Context(), probeDefinition(request))
 	if s.failed(w, r, err, nil) {
 		return
@@ -330,14 +326,6 @@ func (s *Server) updateProbe(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	// L'objet d'abord : une sonde inconnue est un 404, quoi que dise le corps.
-	_, err := s.probes.Get(r.Context(), r.PathValue("id"))
-	if s.failed(w, r, err, probe.ErrNotFound) {
-		return
-	}
-	if s.refuseUnknownProbeMachine(w, r, request.MachineID) {
-		return
-	}
 	updated, err := s.probes.Update(r.Context(), r.PathValue("id"), probeDefinition(request))
 	if s.failed(w, r, err, probe.ErrNotFound) {
 		return
@@ -347,17 +335,6 @@ func (s *Server) updateProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, probeToJSON(updated, online[updated.MachineID]))
-}
-
-// refuseUnknownProbeMachine répond 422 et rend true quand la machine n'existe
-// pas : la clé étrangère la refuserait en erreur brute.
-func (s *Server) refuseUnknownProbeMachine(w http.ResponseWriter, r *http.Request, machineID string) bool {
-	_, err := s.machines.Get(r.Context(), machineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "probe.machine_invalid")
-		return true
-	}
-	return s.failed(w, r, err, nil)
 }
 
 func probeDefinition(request probeRequest) probe.Definition {

@@ -60,6 +60,18 @@ func (db *DB) GetMachine(ctx context.Context, id string) (machine.Machine, error
 	return m, err
 }
 
+// MachineExists dit si la machine est connue : une sonde ou une tâche qui
+// la vise doit le savoir avant que la clé étrangère ne la refuse en erreur
+// brute.
+func (db *DB) MachineExists(ctx context.Context, id string) (bool, error) {
+	var exists bool
+	err := db.sql.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM machines WHERE id = ?)`, id).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check machine: %w", err)
+	}
+	return exists, nil
+}
+
 // DeleteMachine refuse une machine qui porte des services déclarés. Le
 // compte et la suppression sont dans la même transaction : sinon un service
 // déclaré entre les deux ferait échouer la suppression sur la clé étrangère,

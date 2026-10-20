@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 const (
@@ -142,9 +141,6 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	if s.refuseUnknownJobMachine(w, r, request.MachineID) {
-		return
-	}
 	created, err := s.heartbeats.Create(r.Context(), jobDefinition(request))
 	if s.failed(w, r, err, nil) {
 		return
@@ -159,33 +155,11 @@ func (s *Server) updateJob(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	// L'objet d'abord : une tâche inconnue est un 404, quoi que dise le corps.
-	_, err := s.heartbeats.Get(r.Context(), r.PathValue("id"))
-	if s.failed(w, r, err, heartbeat.ErrNotFound) {
-		return
-	}
-	if s.refuseUnknownJobMachine(w, r, request.MachineID) {
-		return
-	}
 	updated, err := s.heartbeats.Update(r.Context(), r.PathValue("id"), jobDefinition(request))
 	if s.failed(w, r, err, heartbeat.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, jobToJSON(updated))
-}
-
-// La machine est facultative ; donnée, elle doit exister. Répond 422 et rend
-// true quand elle est refusée.
-func (s *Server) refuseUnknownJobMachine(w http.ResponseWriter, r *http.Request, machineID string) bool {
-	if machineID == "" {
-		return false
-	}
-	_, err := s.machines.Get(r.Context(), machineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "job.machine_invalid")
-		return true
-	}
-	return s.failed(w, r, err, nil)
 }
 
 func jobDefinition(request jobRequest) heartbeat.Definition {

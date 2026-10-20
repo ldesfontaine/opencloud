@@ -146,6 +146,7 @@ var (
 	ErrNameInvalid     = refusal.Invalid("job.name_invalid", "heartbeat name must be 1 to 80 characters")
 	ErrIntervalInvalid = refusal.Invalid("job.interval_invalid", "heartbeat interval must be between 1 minute and 7 days")
 	ErrGraceInvalid    = refusal.Invalid("job.grace_invalid", "heartbeat grace must be between 0 and the interval")
+	ErrMachineInvalid  = refusal.Invalid("job.machine_invalid", "heartbeat machine must exist when given")
 	ErrExitCodeInvalid = errors.New("exit code must be between 0 and 255")
 	ErrNotPaused       = errors.New("heartbeat is not paused")
 )

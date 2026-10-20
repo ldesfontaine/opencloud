@@ -31,6 +31,7 @@ type Store interface {
 	// l'échéance tombe avant l'instant donné.
 	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
 	CountProbesOnMachine(ctx context.Context, machineID string) (int, error)
+	MachineExists(ctx context.Context, id string) (bool, error)
 	// DeclaredServiceExists dit si le service de l'annuaire existe.
 	DeclaredServiceExists(ctx context.Context, id string) (bool, error)
 	DeleteProbe(ctx context.Context, id string) error
@@ -137,6 +138,9 @@ func (s *Service) changed(machineID string) {
 // Create écrit la sonde, puis pousse à sa machine son jeu à jour. Elle
 // naît « Nouvelle » : rien n'est su tant qu'aucun essai n'est revenu.
 func (s *Service) Create(ctx context.Context, definition Definition) (Probe, error) {
+	if err := s.checkMachineExists(ctx, definition.MachineID); err != nil {
+		return Probe{}, err
+	}
 	definition = definition.Complete()
 	if err := definition.Validate(); err != nil {
 		return Probe{}, err
@@ -179,6 +183,20 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	return s.store.GetProbe(ctx, id)
 }
 
+// La machine passe avant le reste de la définition : c'est l'ordre que
+// l'API a toujours rendu. Inconnue, la clé étrangère la refuserait en erreur
+// brute ; vide, elle n'existe pas non plus.
+func (s *Service) checkMachineExists(ctx context.Context, machineID string) error {
+	exists, err := s.store.MachineExists(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrMachineInvalid
+	}
+	return nil
+}
+
 // Le rattachement est facultatif, mais s'il est donné il doit être vrai :
 // la clé étrangère le refuserait en erreur brute. Le service peut tourner sur
 // une autre machine que celle qui sonde.
@@ -219,6 +237,9 @@ func (s *Service) writeUnderCeiling(ctx context.Context, machineID string, write
 func (s *Service) Update(ctx context.Context, id string, definition Definition) (Probe, error) {
 	before, err := s.store.GetProbe(ctx, id)
 	if err != nil {
+		return Probe{}, err
+	}
+	if err := s.checkMachineExists(ctx, definition.MachineID); err != nil {
 		return Probe{}, err
 	}
 	definition = definition.Complete()

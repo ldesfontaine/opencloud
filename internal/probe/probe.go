@@ -361,7 +361,7 @@ var (
 	ErrKindInvalid      = refusal.Invalid("probe.kind_invalid", "probe kind must be http or tcp")
 	ErrTargetInvalid    = refusal.Invalid("probe.target_invalid", "probe target is not a valid url or host:port")
 	ErrTargetForbidden  = refusal.Invalid("probe.target_forbidden", "probe target is a link-local address")
-	ErrMachineInvalid   = refusal.Invalid("probe.machine_invalid", "probe machine is required")
+	ErrMachineInvalid   = refusal.Invalid("probe.machine_invalid", "probe machine must exist")
 	ErrServiceInvalid   = refusal.Invalid("probe.service_invalid", "probe service must exist in the directory")
 	ErrIntervalInvalid  = refusal.Invalid("probe.interval_invalid", "probe interval must be between 30 seconds and 24 hours")
 	ErrTimeoutInvalid   = refusal.Invalid("probe.timeout_invalid", "probe timeout must be between 1 second and the interval")
