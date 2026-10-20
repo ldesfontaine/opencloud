@@ -1,7 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, segment } from "../api/client";
-import type { DeclaredServicesResponse, Project } from "../api/types";
+import { deleteProject, saveProject, useProject, useProjectServices, type Project } from "../api/directory";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
@@ -9,7 +8,6 @@ import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
-import { useResource } from "../hooks/useResource";
 import { useT, type Translate } from "../i18n/context";
 import { emptyProjectForm, projectFormOf } from "../lib/directory";
 import { NotFound } from "./NotFound";
@@ -22,8 +20,8 @@ export function ProjectForm() {
   const isEditing = id !== undefined;
   const t = useT();
   const navigate = useNavigate();
-  const existing = useResource<Project>(isEditing ? () => `/api/directory/projects/${segment(id)}` : null);
-  const members = useResource<DeclaredServicesResponse>(isEditing ? () => `/api/directory/services?project=${segment(id)}` : null);
+  const existing = useProject(id ?? null);
+  const members = useProjectServices(id ?? null);
   const form = useForm(emptyProjectForm, isEditing ? { source: existing.data, fill: projectFormOf } : null);
   const { values, change } = form;
   const action = useAction();
@@ -33,7 +31,7 @@ export function ProjectForm() {
   }
 
   const save = () => {
-    action.run(() => (isEditing ? api.put<Project>(`/api/directory/projects/${segment(id)}`, values) : api.post<Project>("/api/directory/projects", values)), {
+    action.run(() => saveProject(id, values), {
       topic: "directory",
       onDone: () => void navigate("/services/projets"),
     });
@@ -44,7 +42,7 @@ export function ProjectForm() {
     if (!isEditing || project === null) {
       return;
     }
-    action.run(() => api.delete(`/api/directory/projects/${segment(id)}`), {
+    action.run(() => deleteProject(id), {
       confirm: deleteConfirm(t, project),
       topic: "directory",
       onDone: () => void navigate("/services/projets"),

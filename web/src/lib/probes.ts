@@ -1,4 +1,4 @@
-import type { Probe, ProbeDay, ProbeKind, ProbeStatus } from "../api/types";
+import type { Probe, ProbeDay, ProbeKind, ProbeRequest, ProbeStatus } from "../api/probes";
 import type { SegmentTone, Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
@@ -139,7 +139,7 @@ export function probeFormOf(probe: Probe): ProbeFormValues {
 // Le corps de la création comme de l'édition : le serveur remplace la
 // définition entière. Une sonde TCP envoie les champs HTTP vides, que le
 // serveur ne retient pas.
-export function probeRequestOf(values: ProbeFormValues, serviceID: string) {
+export function probeRequestOf(values: ProbeFormValues, serviceID: string): ProbeRequest {
   const isHTTP = values.kind === "http";
   return {
     name: values.name,

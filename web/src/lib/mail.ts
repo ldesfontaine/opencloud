@@ -1,4 +1,4 @@
-import type { MailTLSMode } from "../api/types";
+import type { MailTLSMode } from "../api/settings";
 
 // Le port qui va avec le mode, comme le serveur : 465 pour TLS dès la
 // connexion, 587 sinon.

@@ -2,8 +2,9 @@ import { useState } from "react";
 
 import { Link } from "react-router";
 
-import { api } from "../api/client";
-import type { ContainerDirectory, Container, UpdatePolicy } from "../api/types";
+import type { Container } from "../api/containers";
+import { saveUpdatePolicy, type ContainerDirectory, type UpdatePolicy } from "../api/directory";
+import { checkMachineUpdates } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
@@ -44,13 +45,13 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
 
   const unitID = directory !== null && directory.declared ? directory.unit_id : "";
   const setPolicy = (policy: UpdatePolicy) => {
-    action.run(() => api.put(`/api/directory/units/${unitID}/update-policy`, { policy }), { topic: "all", onDone: reload });
+    action.run(() => saveUpdatePolicy(unitID, policy), { topic: "all", onDone: reload });
   };
   // La machine vérifie à son rythme : la carte dit que la demande est
   // partie, le constat se relit seul quand l'agent a répondu.
   const checkNow = () => {
     setAsked(false);
-    action.run(() => api.post(`/api/machines/${container.machine_id}/actions/check-updates`), { onDone: () => setAsked(true) });
+    action.run(() => checkMachineUpdates(container.machine_id), { onDone: () => setAsked(true) });
   };
 
   return (

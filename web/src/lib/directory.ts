@@ -1,5 +1,4 @@
-import { ApiError } from "../api/client";
-import type { Capability, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceUnit, UpdatePolicy } from "../api/types";
+import type { Capability, DeclaredService, Nature, Origin, Project, ProposalResponse, ServiceLinks, ServiceRequest, ServiceUnit, UpdatePolicy } from "../api/directory";
 import type { Translate } from "../i18n/context";
 
 // Les listes fermées du serveur, dans l'ordre des formulaires. Un test Go
@@ -151,7 +150,7 @@ export function projectNames(projects: Project[]): Map<string, string> {
 // définition entière et refuse ce qui n'a pas d'objet pour l'origine. Le
 // formulaire garde ce que l'opérateur a tapé en changeant d'origine ; la
 // requête, elle, ne porte que ce qui compte.
-export function serviceRequestOf(values: ServiceFormValues) {
+export function serviceRequestOf(values: ServiceFormValues): ServiceRequest {
   const isCompose = values.origin === "compose";
   const isContainer = values.origin === "container";
   const isBinary = values.origin === "binary";
@@ -207,15 +206,6 @@ export function projectsSubtitle(t: Translate, count: number): string {
     return t("project.subtitle_none");
   }
   return count === 1 ? t("project.subtitle_one") : t("project.subtitle", count);
-}
-
-// Ce que le serveur dit lier un service qu'on voulait supprimer : la liste
-// vient du corps du refus 409, pas d'une clé du catalogue.
-export function linksOfRefusal(error: unknown): ServiceLinks | null {
-  if (!(error instanceof ApiError) || error.status !== 409 || typeof error.payload !== "object" || error.payload === null || !("links" in error.payload)) {
-    return null;
-  }
-  return error.payload.links as ServiceLinks;
 }
 
 export function hasLinks(links: ServiceLinks): boolean {

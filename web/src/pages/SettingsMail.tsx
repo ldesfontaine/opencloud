@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { api, errorKey } from "../api/client";
-import type { ChannelTest, MailSettings, MailTLSMode } from "../api/types";
+import { errorKey } from "../api/client";
+import type { ChannelTest } from "../api/alerts";
+import { saveMailSettings, testMailSettings, type MailSettings, type MailTLSMode } from "../api/settings";
 import { Button } from "../components/Button";
 import { Card, CardHeader, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -52,8 +53,7 @@ export function MailSection({ settings, reload }: { settings: MailSettings; relo
     setError(null);
     setBusy(true);
     const body = { host, port: Number(port), tls: mode, username, password, clear_password: clearPassword, from };
-    api
-      .put<MailSettings>("/api/settings/mail", body)
+    saveMailSettings(body)
       .then(() => {
         setSaved(true);
         setPassword("");
@@ -68,8 +68,7 @@ export function MailSection({ settings, reload }: { settings: MailSettings; relo
     setBusy(true);
     setTest(null);
     setError(null);
-    api
-      .post<ChannelTest>("/api/settings/mail/actions/test", { to: testTo })
+    testMailSettings(testTo)
       .then(setTest)
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));

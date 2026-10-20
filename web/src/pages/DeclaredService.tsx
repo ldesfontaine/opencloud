@@ -1,7 +1,18 @@
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, segment } from "../api/client";
-import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
+import {
+  deleteDeclaredService,
+  linksOfRefusal,
+  reviewDeclaredService,
+  useDeclaredService,
+  useGaps,
+  useProjects,
+  type DeclaredServiceDetail,
+  type LinkedObject,
+  type Project,
+  type ServiceGap,
+  type ServiceLinks,
+} from "../api/directory";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { NaturePill } from "../components/DeclaredServiceTable";
@@ -12,10 +23,8 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { formatUnitPorts, hasLinks, linksOfRefusal, projectNames, unitKeyOf } from "../lib/directory";
-import { gapsPath } from "../lib/gaps";
+import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
 import { formatClock } from "../lib/time";
 
 // La fiche d'un service déclaré : ses faits, ses unités, ce qu'il fournit,
@@ -24,10 +33,10 @@ import { formatClock } from "../lib/time";
 // rattachés. Un service repris de l'existant se valide ici.
 export function DeclaredServicePage() {
   const { id = "" } = useParams();
-  const service = useResource<DeclaredServiceDetail>(() => `/api/directory/services/${segment(id)}`);
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
+  const service = useDeclaredService(id);
+  const projects = useProjects();
   // L'écart se lit pour la machine du service ; le service s'y retrouve par son id.
-  const gaps = useResource<GapsResponse>(service.data ? gapsPath(service.data.machine_id, "") : null);
+  const gaps = useGaps(service.data ? { machineID: service.data.machine_id, projectID: "" } : null);
   return (
     <Loaded resource={service}>
       {(data) => (
@@ -222,7 +231,7 @@ function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const action = useAction();
   const review = () => {
-    action.run(() => api.post(`/api/directory/services/${service.id}/actions/review`), { topic: "directory" });
+    action.run(() => reviewDeclaredService(service.id), { topic: "directory" });
   };
   return (
     <Card>
@@ -297,7 +306,7 @@ function Actions({ service }: { service: DeclaredServiceDetail }) {
   const linked = hasLinks(service.links);
   const action = useAction();
   const remove = () => {
-    action.run(() => api.delete(`/api/directory/services/${service.id}`), {
+    action.run(() => deleteDeclaredService(service.id), {
       confirm: t("directory.delete_confirm", service.name),
       topic: "directory",
       onDone: () => void navigate("/services"),

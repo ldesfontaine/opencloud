@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { TokenResponse } from "../api/types";
+import { errorKey } from "../api/client";
+import { createMachineToken } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Field, Input } from "../components/Field";
@@ -23,8 +23,7 @@ export function MachineNew() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .post<TokenResponse>("/api/machines/tokens", { name })
+    createMachineToken(name)
       .then((token) => {
         refresh();
         void navigate("/machines/jeton", { state: token });

@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 
-import { api } from "../api/client";
-import type { MachinesResponse, PendingToken } from "../api/types";
+import { deleteMachineToken, useMachines, type PendingToken } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -10,7 +9,6 @@ import { Dot, Pill, StatePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { machinesSubtitle } from "../lib/machines";
 import { formatRemaining, seenAgo } from "../lib/time";
@@ -18,7 +16,7 @@ import { formatRemaining, seenAgo } from "../lib/time";
 export function Machines() {
   const t = useT();
   const now = useNow();
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const machines = useMachines();
   const list = machines.data?.machines ?? [];
   const online = list.filter((machine) => machine.online).length;
   return (
@@ -92,7 +90,7 @@ function Pending({ tokens, now, onChange }: { tokens: PendingToken[]; now: numbe
   const t = useT();
   const action = useAction();
   const cancel = (id: string) => {
-    action.run(() => api.delete(`/api/machines/tokens/${id}`), { topic: "all", onDone: onChange });
+    action.run(() => deleteMachineToken(id), { topic: "all", onDone: onChange });
   };
   return (
     <Card>

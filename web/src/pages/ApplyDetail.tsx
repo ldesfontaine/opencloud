@@ -1,14 +1,12 @@
 import { useParams } from "react-router";
 
-import { segment } from "../api/client";
-import type { Apply } from "../api/types";
+import { useApply, type Apply } from "../api/manifest";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { PlanView } from "../components/PlanView";
-import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { actorText, failedObjectText, stateTone, summaryText, totalChanges, writtenText } from "../lib/manifest";
 import { formatClock } from "../lib/time";
@@ -17,7 +15,7 @@ import { formatClock } from "../lib/time";
 // le plan que l'opérateur avait confirmé, dans l'ordre d'écriture.
 export function ApplyDetail() {
   const { id = "" } = useParams();
-  const apply = useResource<Apply>(() => `/api/manifest/applies/${segment(id)}`);
+  const apply = useApply(id);
   return <Loaded resource={apply}>{(data) => <ApplyView apply={data} />}</Loaded>;
 }
 

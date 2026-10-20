@@ -1,8 +1,7 @@
 import { useState } from "react";
 
-import type { Current, Disk, HistoryResponse, Reading, WindowName } from "../api/types";
+import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useI18n } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
@@ -144,7 +143,7 @@ const windows: WindowName[] = ["1h", "24h", "7d", "30d", "90d"];
 export function ResourceHistory({ machineID }: { machineID: string }) {
   const { t, language } = useI18n();
   const [timeWindow, setTimeWindow] = useState<WindowName>("1h");
-  const history = useResource<HistoryResponse>(`/api/machines/${machineID}/resources/history?window=${timeWindow}`);
+  const history = useResourceHistory(machineID, timeWindow);
   const now = useNow(10_000);
   const data = history.data;
   const spanMs = (data?.span_seconds ?? 3600) * 1000;

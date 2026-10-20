@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from "react-router";
 
-import { api, segment } from "../api/client";
-import type { Job, JobResponse, MachinesResponse } from "../api/types";
+import { saveJob, useJob, type JobResponse } from "../api/jobs";
+import { useMachines } from "../api/machines";
 import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
@@ -9,7 +9,6 @@ import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyJobForm, jobFormOf, jobRequestOf } from "../lib/jobs";
 import { NotFound } from "./NotFound";
@@ -23,8 +22,8 @@ export function JobForm() {
   const isEditing = id !== undefined;
   const t = useT();
   const navigate = useNavigate();
-  const machines = useResource<MachinesResponse>("/api/machines");
-  const existing = useResource<JobResponse>(isEditing ? () => `/api/jobs/${segment(id)}` : null);
+  const machines = useMachines();
+  const existing = useJob(id ?? null);
   const form = useForm(emptyJobForm, isEditing ? { source: existing.data, fill: (response: JobResponse) => jobFormOf(response.job) } : null);
   const { values, change } = form;
   const action = useAction();
@@ -35,7 +34,7 @@ export function JobForm() {
 
   const save = () => {
     const body = jobRequestOf(values);
-    action.run(() => (isEditing ? api.put<Job>(`/api/jobs/${segment(id)}`, body) : api.post<Job>("/api/jobs", body)), {
+    action.run(() => saveJob(id, body), {
       topic: "all",
       onDone: (saved) => void navigate(`/taches/${saved.id}`),
     });

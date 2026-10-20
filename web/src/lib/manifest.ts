@@ -1,4 +1,4 @@
-import type { Apply, ApplyState, ManifestCarry, ManifestChange, ManifestFieldChange } from "../api/types";
+import type { Apply, ApplyState, ManifestCarry, ManifestChange, ManifestFieldChange } from "../api/manifest";
 import type { Translate } from "../i18n/context";
 import type { Tone } from "./tone";
 

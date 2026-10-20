@@ -1,13 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { api } from "../api/client";
-import type { CertificateThresholds, DiskThresholds, Session } from "../api/types";
+import { fetchCatalog, fetchSession, saveLanguage, type Catalog, type CertificateThresholds, type DiskThresholds, type Session } from "../api/session";
 import { productName } from "../lib/product";
 import { format } from "./format";
 
 export type Translate = (key: string, ...args: (string | number)[]) => string;
-
-type Catalog = Record<string, string>;
 
 interface I18n {
   version: string;
@@ -36,8 +33,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [unreachable, setUnreachable] = useState(false);
 
   const load = useCallback(async () => {
-    const loaded = await api.get<Session>("/api/session");
-    const strings = await api.get<Catalog>(`/api/i18n/${loaded.language}`);
+    const loaded = await fetchSession();
+    const strings = await fetchCatalog(loaded.language);
     document.documentElement.lang = loaded.language;
     setSession(loaded);
     setCatalog(strings);
@@ -49,7 +46,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLanguage = useCallback(
     async (code: string) => {
-      await api.put("/api/session/language", { language: code });
+      await saveLanguage(code);
       await load();
     },
     [load],

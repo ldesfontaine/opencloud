@@ -1,3 +1,6 @@
+// Ce que l'API rend, tel quel : des faits, des instants ISO en UTC, des
+// durées en secondes ou en millisecondes. Le formatage vit dans le front.
+
 // Le seul endroit qui parle à l'API : JSON, même origine, une erreur
 // typée qui porte le code du serveur. Ce code est une clé du catalogue
 // quand l'opérateur doit le lire.

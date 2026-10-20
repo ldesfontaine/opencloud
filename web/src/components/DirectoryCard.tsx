@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 
-import { api } from "../api/client";
-import type { ContainerDirectory, Container } from "../api/types";
+import type { Container } from "../api/containers";
+import { ignoreObservation, unignoreObservation, type ContainerDirectory, type IgnoreKey } from "../api/directory";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { adoptPath, isOrphan, orphanText } from "../lib/gaps";
@@ -27,13 +27,12 @@ export function DirectoryCard({ container, directory }: { container: Container; 
     return null;
   }
   const orphan = isOrphan(directory);
-  const key = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
-  const unignore = new URLSearchParams({ machine: key.machine_id, kind: key.kind, value: key.value });
+  const key: IgnoreKey = { machine_id: container.machine_id, kind: directory.key_kind, value: directory.key_value };
   const ignore = () => {
-    action.run(() => api.post("/api/directory/ignored", key), { topic: "directory" });
+    action.run(() => ignoreObservation(key), { topic: "directory" });
   };
   const stopIgnoring = () => {
-    action.run(() => api.delete(`/api/directory/ignored?${unignore.toString()}`), { topic: "directory" });
+    action.run(() => unignoreObservation(key), { topic: "directory" });
   };
   return (
     <Card>

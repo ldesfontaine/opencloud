@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-import type { MachinesResponse, ContainersResponse } from "../api/types";
+import { useContainers } from "../api/containers";
+import { useMachines } from "../api/machines";
 import { Card, CardBody, Empty, EmptyCard, Note } from "../components/Card";
 import { DirectoryTab } from "../components/DirectoryTab";
 import { Failure } from "../components/Failure";
@@ -9,7 +10,6 @@ import { PageHead } from "../components/PageHead";
 import { ProjectsTab } from "../components/ProjectsTab";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { ServicesTabs } from "../components/ServicesTabs";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { containerNeedsAttention, engineNote, filterContainers, servicesSubtitle, type Filter } from "../lib/containers";
 
@@ -30,8 +30,8 @@ export function Services({ tab }: { tab: "annuaire" | "conteneurs" | "projets" }
 // le filtre Tous / Actifs / Arrêtés de la planche.
 function ContainersTab() {
   const t = useT();
-  const containers = useResource<ContainersResponse>("/api/containers");
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const containers = useContainers();
+  const machines = useMachines();
   const [machineID, setMachineID] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const all = containers.data?.containers ?? [];

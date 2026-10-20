@@ -1,4 +1,4 @@
-import type { Impact, IncidentStatus, PublicIncident, StatusState } from "../api/types";
+import type { Impact, IncidentStatus, PublicIncident, StatusState } from "../api/status";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 
-import type { Container } from "../api/types";
+import type { Container } from "../api/containers";
 import { useT } from "../i18n/context";
 import { fitPorts, fitView, internetID, nodeHeight, nodeWidth, zoomView, type Layout, type PlacedEdge, type PlacedNode, type View } from "../lib/network";
 import { nodeSubtitle, nodeTone, containerIcon } from "../lib/containers";

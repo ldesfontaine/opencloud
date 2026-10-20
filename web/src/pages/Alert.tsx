@@ -1,7 +1,6 @@
 import { Link, useParams } from "react-router";
 
-import { segment } from "../api/client";
-import type { AlertResponse, ChannelsResponse } from "../api/types";
+import { useAlert, useChannels } from "../api/alerts";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -9,7 +8,6 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { List } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
 import { deliveryReason, deliveryTones, describeAlert } from "../lib/alerts";
 import { formatClock } from "../lib/time";
@@ -24,8 +22,8 @@ export function AlertPage() {
   const t = useT();
   const now = useNow();
   const disks = useDiskThresholds();
-  const detail = useResource<AlertResponse>(() => `/api/alerts/${segment(id)}`);
-  const channels = useResource<ChannelsResponse>("/api/alerts/channels");
+  const detail = useAlert(id);
+  const channels = useChannels();
   if (detail.error?.status === 404) {
     return <NotFound />;
   }

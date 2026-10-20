@@ -1,8 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
 
-import { api, errorKey, type ApiError } from "../api/client";
-import type { Incident, IncidentsResponse, StatusComponent, StatusComponentsResponse, StatusPageSettings, StatusState } from "../api/types";
+import { errorKey, type ApiError } from "../api/client";
+import {
+  saveStatusPageSettings,
+  useIncidents,
+  useStatusComponents,
+  useStatusPageSettings,
+  type Incident,
+  type StatusComponent,
+  type StatusComponentsResponse,
+  type StatusState,
+} from "../api/status";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -13,7 +22,6 @@ import { TabNav } from "../components/TabNav";
 import { Pill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { impactTones, incidentTones, incidentsSubtitle, isOpen, statusStateTones } from "../lib/status";
 import { ago } from "../lib/time";
@@ -38,7 +46,7 @@ export function StatePill({ state }: { state: StatusState }) {
 export function StatusAdmin() {
   const { tab = "" } = useParams();
   const t = useT();
-  const components = useResource<StatusComponentsResponse>("/api/status/components");
+  const components = useStatusComponents();
   if (!tabs.some((candidate) => candidate.slug === tab)) {
     return <NotFound />;
   }
@@ -154,7 +162,7 @@ function ComponentRow({ component }: { component: StatusComponent }) {
 function IncidentsTab() {
   const t = useT();
   const now = useNow();
-  const incidents = useResource<IncidentsResponse>("/api/status/incidents");
+  const incidents = useIncidents();
   const list = incidents.data?.incidents ?? [];
   const open = list.filter(isOpen).length;
   if (incidents.error) {
@@ -216,7 +224,7 @@ function IncidentRow({ incident, now }: { incident: Incident; now: number }) {
 function SettingsTab() {
   const t = useT();
   const { languages } = useI18n();
-  const settings = useResource<StatusPageSettings>("/api/status/page");
+  const settings = useStatusPageSettings();
   const [title, setTitle] = useState("");
   const [announcement, setAnnouncement] = useState("");
   const [language, setLanguage] = useState("");
@@ -236,8 +244,7 @@ function SettingsTab() {
     event.preventDefault();
     setBusy(true);
     setSaved(false);
-    api
-      .put<StatusPageSettings>("/api/status/page", { title, announcement, language })
+    saveStatusPageSettings({ title, announcement, language })
       .then(() => {
         setError(null);
         setSaved(true);

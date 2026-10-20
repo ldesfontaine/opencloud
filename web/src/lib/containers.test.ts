@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { Container } from "../api/types";
+import type { Container } from "../api/containers";
 import type { Translate } from "../i18n/context";
 import { containerNeedsAttention, filterContainers, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle } from "./containers";
 

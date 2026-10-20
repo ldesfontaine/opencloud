@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
-import type { ContainerDirectory, GapsResponse, UndeclaredContainer, UndeclaredGroup } from "../api/types";
-import { adoptIntoPath, adoptPath, adoptionTarget, containerCount, gapsByService, gapsPath, gapTone, hasProposals, isOrphan, ignoreBody, ignoredCount, orphanKey, orphanText, proposedExportPath, shownUndeclared, unignorePath } from "./gaps";
+import type { ContainerDirectory, GapsResponse, UndeclaredContainer, UndeclaredGroup } from "../api/directory";
+import { adoptIntoPath, adoptPath, adoptionTarget, containerCount, gapsByService, gapTone, hasProposals, isOrphan, ignoreKeyOf, ignoredCount, orphanKey, orphanText, shownUndeclared } from "./gaps";
 
 const undeclaredContainer = (overrides: Partial<UndeclaredContainer>): UndeclaredContainer => ({
   id: "c1",
@@ -79,15 +79,8 @@ test("adopter passe l'identifiant du conteneur, encodé", () => {
   expect(adoptionTarget(group({ containers: [] }))).toBe("");
 });
 
-test("ignorer envoie la clé d'observation, et ne plus ignorer la met en requête", () => {
-  expect(ignoreBody(group({}))).toEqual({ machine_id: "m1", kind: "compose_project", value: "blog" });
-  expect(unignorePath(group({ key_kind: "container_name", key_value: "a b" }))).toBe("/api/directory/ignored?machine=m1&kind=container_name&value=a+b");
-});
-
-test("gapsPath ne porte que les filtres choisis", () => {
-  expect(gapsPath("", "")).toBe("/api/directory/gaps");
-  expect(gapsPath("m1", "")).toBe("/api/directory/gaps?machine=m1");
-  expect(gapsPath("m1", "prj_1")).toBe("/api/directory/gaps?machine=m1&project=prj_1");
+test("ignorer envoie la clé d'observation du groupe", () => {
+  expect(ignoreKeyOf(group({}))).toEqual({ machine_id: "m1", kind: "compose_project", value: "blog" });
 });
 
 test("un conteneur étiqueté ne s'adopte pas : le groupe passe par un voisin sans label", () => {
@@ -98,7 +91,6 @@ test("un conteneur étiqueté ne s'adopte pas : le groupe passe par un voisin sa
 });
 
 test("l'export avec propositions n'est offert que s'il y a un groupe adoptable non ignoré", () => {
-  expect(proposedExportPath).toBe("/api/manifest/export?propose=1");
   expect(hasProposals([group({})])).toBe(true);
   expect(hasProposals([group({ adoptable: false }), group({ ignored: true })])).toBe(false);
   expect(hasProposals([])).toBe(false);

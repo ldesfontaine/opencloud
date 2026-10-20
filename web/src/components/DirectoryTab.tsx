@@ -1,10 +1,11 @@
 import { useState } from "react";
 
-import type { DeclaredServicesResponse, GapsResponse, MachinesResponse, ProjectsResponse } from "../api/types";
-import { useResource } from "../hooks/useResource";
+import { useDeclaredServices, useGaps, useProjects } from "../api/directory";
+import { useMachines } from "../api/machines";
+import { manifestExportPath } from "../api/manifest";
 import { useT } from "../i18n/context";
 import { directorySubtitle } from "../lib/directory";
-import { gapsByService, gapsPath } from "../lib/gaps";
+import { gapsByService } from "../lib/gaps";
 import { Button } from "./Button";
 import { Card, Empty } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
@@ -22,12 +23,12 @@ import { ServicesTabs } from "./ServicesTabs";
 // exclut.
 export function DirectoryTab() {
   const t = useT();
-  const services = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const services = useDeclaredServices();
+  const projects = useProjects();
+  const machines = useMachines();
   const [machineID, setMachineID] = useState("");
   const [projectID, setProjectID] = useState("");
-  const gaps = useResource<GapsResponse>(gapsPath(machineID, projectID));
+  const gaps = useGaps({ machineID, projectID });
   const all = services.data?.services ?? [];
   const shown = all.filter(
     (service) => (machineID === "" || service.machine_id === machineID) && (projectID === "" || service.project_ids.includes(projectID)),
@@ -42,7 +43,7 @@ export function DirectoryTab() {
             <Button icon="clock" to="/services/annuaire/journal">
               {t("manifest.journal")}
             </Button>
-            <Button icon="file" href="/api/manifest/export" download="">
+            <Button icon="file" href={manifestExportPath} download="">
               {t("manifest.export")}
             </Button>
             <Button variant="primary" icon="plus" to="/services/annuaire/nouveau">

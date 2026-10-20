@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
-import type { Lifecycle, LifecycleSettings } from "../api/types";
+import type { Lifecycle } from "../api/lifecycle";
+import type { LifecycleSettings } from "../api/settings";
 import type { Translate } from "../i18n/context";
 import { formatDay, lifecycleText, lifecycleTones, newerLine, readingText } from "./lifecycle";
 

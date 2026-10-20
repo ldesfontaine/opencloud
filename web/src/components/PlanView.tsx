@@ -1,4 +1,4 @@
-import type { ManifestChange } from "../api/types";
+import type { ManifestChange } from "../api/manifest";
 import { useI18n } from "../i18n/context";
 import { carriesText, changeLabel, fieldText } from "../lib/manifest";
 import type { Tone } from "../lib/tone";

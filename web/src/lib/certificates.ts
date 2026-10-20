@@ -1,4 +1,5 @@
-import type { Certificate, CertificateThresholds } from "../api/types";
+import type { Certificate } from "../api/probes";
+import type { CertificateThresholds } from "../api/session";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 import type { Tone } from "./tone";

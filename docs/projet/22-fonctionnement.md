@@ -2225,7 +2225,7 @@ troisième flux, `/api/containers/{id}/logs/stream`, un par fiche ouverte.
 Tous traversent la même chaîne de middlewares (panique, identifiant de
 requête, journal, limite de corps à 1 Mio), qui relaie `Flush`.
 
-### Les identifiants de route entrent encodés dans l'API
+### Les identifiants entrent encodés dans l'API
 
 Une page qui lit son identifiant dans l'adresse (`/alertes/canaux/:id`,
 `/taches/:id/modifier`…) le met dans un chemin `/api/…`. React Router rend
@@ -2235,8 +2235,9 @@ chargement, l'enregistrement ou la suppression de la page vers une autre
 ressource, avec la garde même-origine satisfaite. Le serveur ne peut pas le
 voir : il ne reçoit que le chemin déjà normalisé.
 
-`segment()` (`web/src/api/client.ts`) passe donc chaque paramètre de route, ou
-de requête (`?project=`, `?container=`), avant qu'il n'entre dans un chemin :
+`segment()` (`web/src/api/client.ts`) passe donc chaque identifiant, qu'il
+vienne d'une route ou d'une réponse du serveur, avant qu'il n'entre dans un
+chemin ou une requête (`?project=`, `?container=`) :
 
 - il refuse tout ce qui n'a pas la forme d'un identifiant du serveur
   (lettres, chiffres, `_`, `-`, `:`, 128 signes au plus : hexadécimaux, UUID,
@@ -2244,11 +2245,14 @@ de requête (`?project=`, `?container=`), avant qu'il n'entre dans un chemin :
   pour un conteneur) en levant l'erreur d'un `404` ;
 - puis il l'encode (`encodeURIComponent`).
 
-`useResource` accepte un chemin construit à la lecture, `() => …segment(id)…` :
-l'erreur levée devient l'erreur de la ressource, la page montre « introuvable »
-sans qu'aucune requête ne parte, et le rendu ne tombe pas. Les identifiants qui
-viennent des réponses du serveur (une fiche déjà lue) n'ont pas ce risque et
-ne passent pas par là.
+Les chemins ne se construisent que dans les modules `web/src/api/<ressource>.ts`
+(`probes`, `jobs`, `machines`, `directory`…), toujours avec `segment()` : une
+page n'écrit jamais d'URL `/api/…`. Une lecture passe à `useResource` un chemin
+construit à la lecture, `() => …segment(id)…` : l'erreur levée devient
+l'erreur de la ressource, la page montre « introuvable » sans qu'aucune requête
+ne parte, et le rendu ne tombe pas. Une écriture est une fonction `async` qui
+construit son chemin dedans : l'erreur devient une promesse rejetée, affichée,
+jamais un bouton bloqué.
 
 ### Ce qui n'est pas encore livré ne s'affiche pas
 

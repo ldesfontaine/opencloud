@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { Certificate, Probe } from "../api/types";
+import type { Certificate, Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { certificateNote, read, type CertificateReading } from "../lib/certificates";

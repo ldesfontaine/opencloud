@@ -1,4 +1,4 @@
-import type { MCPScope } from "../api/types";
+import type { MCPScope } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 

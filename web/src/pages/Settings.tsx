@@ -1,19 +1,31 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { api, errorKey } from "../api/client";
-import type {
-  AuthEnableResponse,
-  AuthState,
-  DiskSettings,
-  LifecycleSettings,
-  MailSettings,
-  MCPScope,
-  MCPSecretResponse,
-  MCPSession,
-  MCPState,
-  MCPToken,
-  MCPTokenResponse,
-} from "../api/types";
+import { errorKey } from "../api/client";
+import { changePassword, disableAuth, enableAuth, useAuth, type AuthEnableResponse, type AuthState } from "../api/auth";
+import {
+  createMCPToken,
+  deleteMCPSession,
+  deleteMCPToken,
+  disableMCP,
+  enableMCP,
+  regenerateMCPSecret,
+  saveRedirectURIs,
+  useMCP,
+  type MCPScope,
+  type MCPSession,
+  type MCPState,
+  type MCPToken,
+  type MCPTokenResponse,
+} from "../api/mcp";
+import {
+  saveDiskSettings,
+  saveLifecycleSettings,
+  useDiskSettings,
+  useLifecycleSettings,
+  useMailSettings,
+  type DiskSettings,
+  type LifecycleSettings,
+} from "../api/settings";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
@@ -24,7 +36,6 @@ import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useI18n, useT } from "../i18n/context";
 import { diskSettingsError } from "../lib/disks";
 import { readingText } from "../lib/lifecycle";
@@ -40,11 +51,11 @@ import "./StatusAdmin.scss";
 // rechargée, elle ne le montre plus.
 export function Settings() {
   const t = useT();
-  const state = useResource<MCPState>("/api/mcp");
-  const access = useResource<AuthState>("/api/auth");
-  const disks = useResource<DiskSettings>("/api/settings/disk");
-  const mail = useResource<MailSettings>("/api/settings/mail");
-  const support = useResource<LifecycleSettings>("/api/settings/lifecycle");
+  const state = useMCP();
+  const access = useAuth();
+  const disks = useDiskSettings();
+  const mail = useMailSettings();
+  const support = useLifecycleSettings();
   if (state.error) {
     return (
       <>
@@ -99,7 +110,7 @@ function AccessSection({ state }: { state: AuthState }) {
   };
   const disable = () => {
     if (window.confirm(t("auth.disable_confirm"))) {
-      run(api.post("/api/auth/actions/disable", {}));
+      run(disableAuth());
     }
   };
   const enable = (request: EnableRequest) => {
@@ -108,8 +119,7 @@ function AccessSection({ state }: { state: AuthState }) {
     }
     setBusy(true);
     setError(null);
-    api
-      .post<AuthEnableResponse>("/api/auth/actions/enable", request)
+    enableAuth(request)
       .then(setEnabledWith)
       .catch((failure: unknown) => {
         setError(errorKey(failure));
@@ -171,7 +181,7 @@ function AccessSection({ state }: { state: AuthState }) {
           withUsername={false}
           minLength={state.password_min_length}
           busy={busy}
-          onSubmit={(_username, password) => run(api.put("/api/auth/password", { password }))}
+          onSubmit={(_username, password) => run(changePassword(password))}
         />
       )}
       {!enabled && mode === "basic" && (
@@ -288,8 +298,7 @@ function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () 
       return;
     }
     setBusy(true);
-    api
-      .put<DiskSettings>("/api/settings/disk", thresholds)
+    saveDiskSettings(thresholds)
       .then(() => {
         setSaved(true);
         reload();
@@ -335,8 +344,7 @@ function LifecycleSection({ settings, reload }: { settings: LifecycleSettings; r
   const setEnabled = (enabled: boolean) => {
     setBusy(true);
     setError(null);
-    api
-      .put<LifecycleSettings>("/api/settings/lifecycle", { enabled })
+    saveLifecycleSettings(enabled)
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => {
         setBusy(false);
@@ -387,16 +395,16 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
       reload();
     });
   };
-  const enable = () => run(api.post<MCPSecretResponse>("/api/mcp/actions/enable", {}).then((response) => setSecret(response.secret)));
+  const enable = () => run(enableMCP().then((response) => setSecret(response.secret)));
   const regenerate = () => {
     if (window.confirm(t("mcp.regenerate_confirm"))) {
-      run(api.post<MCPSecretResponse>("/api/mcp/actions/regenerate-secret", {}).then((response) => setSecret(response.secret)));
+      run(regenerateMCPSecret().then((response) => setSecret(response.secret)));
     }
   };
   const disable = () => {
     if (window.confirm(t("mcp.disable_confirm"))) {
       setSecret(null);
-      run(api.post("/api/mcp/actions/disable", {}));
+      run(disableMCP());
     }
   };
 
@@ -507,8 +515,7 @@ function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }
     event.preventDefault();
     setBusy(true);
     setSaved(false);
-    api
-      .put<MCPState>("/api/mcp/redirect-uris", { redirect_uris: redirectLines(text) })
+    saveRedirectURIs(redirectLines(text))
       .then(() => {
         setError(null);
         setSaved(true);
@@ -562,8 +569,7 @@ function Tokens({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .post<MCPTokenResponse>("/api/mcp/tokens", { name, scope, expires_in_days: days })
+    createMCPToken({ name, scope, expires_in_days: days })
       .then((response) => {
         setError(null);
         setCreated(response);
@@ -582,7 +588,7 @@ function Tokens({
       if (created?.item.id === token.id) {
         setCreated(null);
       }
-      return api.delete(`/api/mcp/tokens/${token.id}`);
+      return deleteMCPToken(token.id);
     };
     revoking.run(perform, { confirm: t("mcp.revoke_confirm", token.name), onDone: reload });
   };
@@ -679,7 +685,7 @@ function Sessions({ sessions, reload, now }: { sessions: MCPSession[]; reload: (
   const t = useT();
   const action = useAction();
   const revoke = (session: MCPSession) => {
-    action.run(() => api.delete(`/api/mcp/sessions/${session.id}`), { confirm: t("mcp.session_revoke_confirm"), onDone: reload });
+    action.run(() => deleteMCPSession(session.id), { confirm: t("mcp.session_revoke_confirm"), onDone: reload });
   };
   return (
     <Card className="form-card">

@@ -1,4 +1,6 @@
-import type { Edge, Group, NetworkResponse, OverviewNetworkResponse, Probe, Container } from "../api/types";
+import type { Container } from "../api/containers";
+import type { Edge, Group, NetworkResponse, OverviewNetworkResponse } from "../api/network";
+import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
 import { matchesFilter, type Filter } from "./containers";
 

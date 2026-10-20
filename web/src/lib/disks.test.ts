@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { Disk } from "../api/types";
+import type { Disk } from "../api/resources";
 import { diskSettingsError, fullestFirst } from "./disks";
 
 const gib = 1024 ** 3;

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-import type { JobStatus, ProbeStatus } from "../api/types";
+import type { JobStatus } from "../api/jobs";
+import type { ProbeStatus } from "../api/probes";
 import { useT } from "../i18n/context";
 import { containerPill, type PillFacts } from "../lib/containers";
 import { jobTones } from "../lib/jobs";

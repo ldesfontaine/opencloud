@@ -1,15 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { AlertKind, AlertObjectKind, JobsResponse, MachinesResponse, ProbesResponse, ContainersResponse, Silence } from "../api/types";
-import { alertKinds } from "../api/types";
+import { errorKey } from "../api/client";
+import { alertKinds, createSilence, type AlertKind, type AlertObjectKind } from "../api/alerts";
+import { useContainers } from "../api/containers";
+import { useJobs } from "../api/jobs";
+import { useMachines } from "../api/machines";
+import { useProbes } from "../api/probes";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { silenceDurations } from "../lib/alerts";
 import { nameWithMachine } from "../lib/objects";
@@ -53,15 +55,14 @@ export function AlertSilenceNew() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .post<Silence>("/api/alerts/silences", {
-        kind,
-        object_kind: objectID !== "" ? objectKind : "",
-        object_id: objectID,
-        object_name: objectName,
-        reason,
-        duration_minutes: minutes,
-      })
+    createSilence({
+      kind,
+      object_kind: objectID !== "" ? objectKind : "",
+      object_id: objectID,
+      object_name: objectName,
+      reason,
+      duration_minutes: minutes,
+    })
       .then(() => {
         refresh("alerts");
         void navigate("/alertes/silences");
@@ -161,10 +162,10 @@ interface Option {
 // Les objets d'un genre, à choisir par leur nom et leur machine ; une liste par genre,
 // lue seulement quand le genre est choisi.
 function useObjects(kind: PickKind): Option[] {
-  const machines = useResource<MachinesResponse>(kind === "machine" ? "/api/machines" : null);
-  const containers = useResource<ContainersResponse>(kind === "service" ? "/api/containers" : null);
-  const jobs = useResource<JobsResponse>(kind === "heartbeat" ? "/api/jobs" : null);
-  const probes = useResource<ProbesResponse>(kind === "probe" ? "/api/probes" : null);
+  const machines = useMachines(kind === "machine");
+  const containers = useContainers(kind === "service");
+  const jobs = useJobs(kind === "heartbeat");
+  const probes = useProbes(kind === "probe");
   switch (kind) {
     case "machine":
       return (machines.data?.machines ?? []).map((machine) => ({ id: machine.id, name: machine.name }));

@@ -1,6 +1,8 @@
 import { Link } from "react-router";
 
-import type { NetworkResponse, Probe, Container } from "../api/types";
+import type { Container } from "../api/containers";
+import type { NetworkResponse } from "../api/network";
+import type { Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { read, soonest } from "../lib/certificates";

@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 
-import type { ProjectsResponse } from "../api/types";
-import { useResource } from "../hooks/useResource";
+import { useProjects } from "../api/directory";
 import { useT } from "../i18n/context";
 import { projectsSubtitle } from "../lib/directory";
 import { Button } from "./Button";
@@ -16,7 +15,7 @@ import "./ServiceTable.scss";
 // services déclarés.
 export function ProjectsTab() {
   const t = useT();
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
+  const projects = useProjects();
   const all = projects.data?.projects ?? [];
   return (
     <>

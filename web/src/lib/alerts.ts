@@ -1,4 +1,5 @@
-import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, DiskThresholds, Silence } from "../api/types";
+import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, Silence } from "../api/alerts";
+import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";

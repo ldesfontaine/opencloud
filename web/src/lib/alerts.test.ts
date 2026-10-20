@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Alert } from "../api/types";
+import type { Alert } from "../api/alerts";
 import { alertsSubtitle, deliveryReason, describeAlert, objectPath, silenceTargets, stateOf } from "./alerts";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");

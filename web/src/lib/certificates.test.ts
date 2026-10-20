@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Certificate, CertificateThresholds } from "../api/types";
+import type { Certificate } from "../api/probes";
+import type { CertificateThresholds } from "../api/session";
 import type { Translate } from "../i18n/context";
 import { certificateNote, daysUntil, read, soonest } from "./certificates";
 

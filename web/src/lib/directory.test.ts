@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { DeclaredService, Project, ProposalResponse } from "../api/types";
-import { ApiError } from "../api/client";
-import { emptyServiceForm, formatUnitPorts, hasLinks, linksOfRefusal, parsePorts, projectFormOf, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
+import { emptyServiceForm, formatUnitPorts, hasLinks, parsePorts, projectFormOf, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -197,21 +196,9 @@ describe("la politique de mise à jour d'une unité", () => {
   });
 });
 
-describe("linksOfRefusal", () => {
-  const links = { probes: [{ id: "p1", name: "site" }], components: [] };
-
-  it("lit la liste du corps d'un 409", () => {
-    expect(linksOfRefusal(new ApiError(409, "directory.service_linked", { error: "directory.service_linked", links }))).toEqual(links);
-  });
-
-  it("ne dit rien d'un autre refus ni d'une autre erreur", () => {
-    expect(linksOfRefusal(new ApiError(422, "directory.name_invalid", { error: "directory.name_invalid" }))).toBeNull();
-    expect(linksOfRefusal(new ApiError(409, "directory.name_taken", { error: "directory.name_taken" }))).toBeNull();
-    expect(linksOfRefusal(new Error("x"))).toBeNull();
-  });
-
+describe("hasLinks", () => {
   it("dit si quelque chose lie le service", () => {
-    expect(hasLinks(links)).toBe(true);
+    expect(hasLinks({ probes: [{ id: "p1", name: "site" }], components: [] })).toBe(true);
     expect(hasLinks({ probes: [], components: [] })).toBe(false);
   });
 });

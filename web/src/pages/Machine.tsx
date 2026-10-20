@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 
-import { api } from "../api/client";
-import type { Current, Machine, MachinesResponse, ProbesResponse, ContainersResponse, TokenResponse } from "../api/types";
+import { useMachineContainers } from "../api/containers";
+import { deleteMachine, reenrollMachine, useMachines, type Machine } from "../api/machines";
+import { useMachineProbes } from "../api/probes";
+import { useMachineResources } from "../api/resources";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
@@ -18,7 +20,6 @@ import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
@@ -39,7 +40,7 @@ export function MachinePage() {
 }
 
 function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: boolean }) {
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const machines = useMachines();
   const current = machines.data?.machines.find((machine) => machine.id === id);
   if (!known || (machines.data && !current)) {
     return <NotFound />;
@@ -53,7 +54,7 @@ function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: 
 function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; tab: string }) {
   const t = useT();
   const now = useNow();
-  const resources = useResource<Current>(tab === "" ? `/api/machines/${current.id}/resources` : null);
+  const resources = useMachineResources(tab === "" ? current.id : null);
   return (
     <>
       <PageHead title={current.name} actions={!current.local && <Actions machine={current} />} />
@@ -96,7 +97,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 // puis les certificats qu'elles ont vus, avec ce qu'il leur reste.
 function MachineProbes({ machineID }: { machineID: string }) {
   const t = useT();
-  const probes = useResource<ProbesResponse>(`/api/machines/${machineID}/probes`);
+  const probes = useMachineProbes(machineID);
   const list = probes.data?.probes ?? [];
   return (
     <>
@@ -120,7 +121,7 @@ function MachineProbes({ machineID }: { machineID: string }) {
 // conteneur, ce que la machine a dit de son Docker.
 function MachineContainers({ machineID }: { machineID: string }) {
   const t = useT();
-  const containers = useResource<ContainersResponse>(`/api/machines/${machineID}/containers`);
+  const containers = useMachineContainers(machineID);
   const [filter, setFilter] = useState<Filter>("all");
   const all = containers.data?.containers ?? [];
   const shown = filterContainers(all, filter);
@@ -150,7 +151,7 @@ function MachineContainers({ machineID }: { machineID: string }) {
 // du conteneur ; chaque ligne y mène, à l'ancre des journaux.
 function MachineLogs({ machineID }: { machineID: string }) {
   const t = useT();
-  const containers = useResource<ContainersResponse>(`/api/machines/${machineID}/containers`);
+  const containers = useMachineContainers(machineID);
   const all = containers.data?.containers ?? [];
   const note = containers.data && all.length === 0 ? engineNote(t, containers.data.engines[0]) : null;
   return (
@@ -210,13 +211,13 @@ function Actions({ machine }: { machine: Machine }) {
   const action = useAction();
 
   const reenroll = () => {
-    action.run(() => api.post<TokenResponse>(`/api/machines/${machine.id}/actions/reenroll`), {
+    action.run(() => reenrollMachine(machine.id), {
       topic: "all",
       onDone: (token) => void navigate("/machines/jeton", { state: token }),
     });
   };
   const remove = () => {
-    action.run(() => api.delete(`/api/machines/${machine.id}`), {
+    action.run(() => deleteMachine(machine.id), {
       confirm: t("machine.remove_confirm", machine.name),
       topic: "all",
       onDone: () => void navigate("/machines"),

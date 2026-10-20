@@ -1,6 +1,6 @@
 import { NavLink, useNavigate, useParams } from "react-router";
 
-import type { Machine } from "../api/types";
+import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
 import { machineTabs } from "../lib/machineTabs";

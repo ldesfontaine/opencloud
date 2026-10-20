@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { Alert, AlertsResponse, Channel, ChannelsResponse, ChannelTest, Silence, SilencesResponse } from "../api/types";
+import { errorKey } from "../api/client";
+import { acknowledgeAlert, acknowledgeAlerts, deleteSilence, testChannel, useAlerts, useChannels, useSilences, type Alert, type Channel, type ChannelTest, type Silence } from "../api/alerts";
 import { Button } from "../components/Button";
 import { Card, CardHeader, Empty, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -12,7 +12,6 @@ import { Dot, Pill } from "../components/Pill";
 import { List, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useDiskThresholds, useT } from "../i18n/context";
 import { acknowledgedMessage, coverage, groupByMachine, groupCountLabel, keepSelectable, selectableIDs, selectedLabel, toggleAll } from "../lib/alertSelection";
 import { alertsSubtitle, alertStateTones, channelTestResult, describeAlert, objectPath, severityTones, silenceTargets, stateOf } from "../lib/alerts";
@@ -34,7 +33,7 @@ const tabs = [
 export function Alerts() {
   const { tab = "" } = useParams();
   const t = useT();
-  const counts = useResource<AlertsResponse>("/api/alerts");
+  const counts = useAlerts();
   if (!tabs.some((candidate) => candidate.slug === tab)) {
     return <NotFound />;
   }
@@ -74,7 +73,7 @@ export function Alerts() {
 // les résolues.
 function AlertsTab({ status, acknowledged }: { status: "open" | "resolved"; acknowledged: boolean | null }) {
   const t = useT();
-  const alerts = useResource<AlertsResponse>(status === "resolved" ? "/api/alerts?status=resolved" : "/api/alerts");
+  const alerts = useAlerts(status);
   // Le retour d'un acquittement groupé vit ici : il reste lisible même
   // quand la liste s'est vidée.
   const [notice, setNotice] = useState<string | null>(null);
@@ -131,8 +130,7 @@ function SelectableAlerts({ alerts, notice: message, setNotice: setMessage }: { 
     setBusy(true);
     setMessage(null);
     setError(null);
-    api
-      .post<{ acknowledged: number }>("/api/alerts/actions/acknowledge", { ids })
+    acknowledgeAlerts(ids)
       .then((response) => {
         setMessage(acknowledgedMessage(t, response.acknowledged));
         setSelected(new Set());
@@ -228,8 +226,7 @@ export function AlertRow({
   const [error, setError] = useState<string | null>(null);
   const acknowledge = () => {
     setError(null);
-    api
-      .post(`/api/alerts/${alert.id}/actions/acknowledge`)
+    acknowledgeAlert(alert.id)
       .then(() => refresh("alerts"))
       .catch((failure: unknown) => {
         setError(errorKey(failure));
@@ -299,7 +296,7 @@ function when(t: ReturnType<typeof useT>, alert: Alert, now: number): string {
 
 function ChannelsTab() {
   const t = useT();
-  const channels = useResource<ChannelsResponse>("/api/alerts/channels");
+  const channels = useChannels();
   if (channels.error) {
     return <Failure error={channels.error} />;
   }
@@ -341,7 +338,7 @@ function ChannelRow({ channel }: { channel: Channel }) {
   const action = useAction();
   const startTest = () => {
     setTest(null);
-    action.run(() => api.post<ChannelTest>(`/api/alerts/channels/${channel.id}/actions/test`), { onDone: setTest });
+    action.run(() => testChannel(channel.id), { onDone: setTest });
   };
   return (
     <tr>
@@ -374,7 +371,7 @@ function ChannelRow({ channel }: { channel: Channel }) {
 
 function SilencesTab() {
   const t = useT();
-  const silences = useResource<SilencesResponse>("/api/alerts/silences");
+  const silences = useSilences();
   if (silences.error) {
     return <Failure error={silences.error} />;
   }
@@ -415,8 +412,7 @@ function SilenceRow({ silence }: { silence: Silence }) {
     if (!window.confirm(t("silence.delete_confirm"))) {
       return;
     }
-    api
-      .delete(`/api/alerts/silences/${silence.id}`)
+    deleteSilence(silence.id)
       .then(() => refresh("alerts"))
       .catch(() => refresh("alerts"));
   };

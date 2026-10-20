@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { Job, JobStatus, Run, RunOutcome } from "../api/types";
+import type { Job, JobStatus, Run, RunOutcome } from "../api/jobs";
 import type { Translate } from "../i18n/context";
 import { awaitsFirstPing, currentStreak, jobFact, jobFormOf, jobRequestOf, jobsSubtitle, jobTones, lastSuccessText, runHistoryLimit } from "./jobs";
 

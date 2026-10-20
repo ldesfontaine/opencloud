@@ -1,14 +1,16 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { DeclaredServicesResponse, MachinesResponse, Probe, ProbeKind, ProbeResponse, ContainerResponse } from "../api/types";
+import { errorKey } from "../api/client";
+import { useContainer } from "../api/containers";
+import { useDeclaredServices } from "../api/directory";
+import { useMachines } from "../api/machines";
+import { saveProbe, useProbe, type ProbeKind } from "../api/probes";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { emptyProbeForm, probeFormOf, probeRequestOf, type ProbeFormValues } from "../lib/probes";
 import { useRefresh } from "../api/refresh";
@@ -31,10 +33,10 @@ export function ProbeForm() {
   const [params] = useSearchParams();
   const fromService = params.get("service") ?? "";
   const fromContainer = params.get("container") ?? "";
-  const machines = useResource<MachinesResponse>("/api/machines");
-  const declared = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const container = useResource<ContainerResponse>(fromContainer === "" ? null : () => `/api/containers/${segment(fromContainer)}`);
-  const existing = useResource<ProbeResponse>(isEditing ? () => `/api/probes/${segment(id)}` : null);
+  const machines = useMachines();
+  const declared = useDeclaredServices();
+  const container = useContainer(fromContainer === "" ? null : fromContainer);
+  const existing = useProbe(id ?? null);
 
   const [values, setValues] = useState<ProbeFormValues>(emptyProbeForm);
   const [serviceID, setServiceID] = useState(fromService);
@@ -104,8 +106,7 @@ export function ProbeForm() {
     event.preventDefault();
     setBusy(true);
     const body = probeRequestOf(values, serviceID);
-    const request = isEditing ? api.put<Probe>(`/api/probes/${segment(id)}`, body) : api.post<Probe>("/api/probes", body);
-    request
+    saveProbe(id, body)
       .then((saved) => {
         refresh();
         void navigate(`/domaines/${saved.id}`);

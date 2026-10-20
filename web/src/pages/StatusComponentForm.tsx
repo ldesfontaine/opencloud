@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { DeclaredServicesResponse, JobsResponse, MachinesResponse, MemberKind, ProbesResponse, StatusComponent, StatusMember } from "../api/types";
+import { errorKey } from "../api/client";
+import { useDeclaredServices } from "../api/directory";
+import { useJobs } from "../api/jobs";
+import { useMachines } from "../api/machines";
+import { useProbes } from "../api/probes";
+import { deleteStatusComponent, saveStatusComponent, useStatusComponent, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -10,7 +14,6 @@ import { Loaded } from "../components/Loaded";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
 import { useRefresh } from "../api/refresh";
@@ -33,7 +36,7 @@ interface Draft {
 // rattachés, choisis parmi ce qu'openCloud surveille déjà.
 export function StatusComponentForm() {
   const { id } = useParams();
-  const component = useResource<StatusComponent>(id !== undefined ? () => `/api/status/components/${segment(id)}` : null);
+  const component = useStatusComponent(id ?? null);
   if (id === undefined) {
     return <ComponentForm existing={null} />;
   }
@@ -44,11 +47,11 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
   const t = useT();
   const navigate = useNavigate();
   const { refresh } = useRefresh();
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const machines = useMachines();
   // Un membre « service » est un service déclaré : il survit à la recréation de ses conteneurs.
-  const services = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const jobs = useResource<JobsResponse>("/api/jobs");
-  const probes = useResource<ProbesResponse>("/api/probes");
+  const services = useDeclaredServices();
+  const jobs = useJobs();
+  const probes = useProbes();
   const [name, setName] = useState(existing?.name ?? "");
   const [position, setPosition] = useState(String(existing?.position ?? 0));
   const [members, setMembers] = useState<Draft[]>(existing?.members.map((member) => ({ kind: member.kind, id: member.id })) ?? []);
@@ -83,8 +86,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
     event.preventDefault();
     setBusy(true);
     const body = { name, position: Number(position), members };
-    const request = existing ? api.put<StatusComponent>(`/api/status/components/${existing.id}`, body) : api.post<StatusComponent>("/api/status/components", body);
-    request
+    saveStatusComponent(existing?.id, body)
       .then(() => {
         refresh("status");
         void navigate("/page-statut");
@@ -97,8 +99,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
     if (!existing || !window.confirm(t("component.delete_confirm", existing.name))) {
       return;
     }
-    api
-      .delete(`/api/status/components/${existing.id}`)
+    deleteStatusComponent(existing.id)
       .then(() => {
         refresh("status");
         void navigate("/page-statut");

@@ -1,7 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, segment } from "../api/client";
-import type { Probe, ProbeResponse, ProbeResult } from "../api/types";
+import { deleteProbe, pauseProbe, resumeProbe, useProbe, type Probe, type ProbeResponse, type ProbeResult } from "../api/probes";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
 import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
@@ -13,7 +12,6 @@ import { Table } from "../components/Table";
 import { UptimeBar } from "../components/UptimeBar";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
 import { probeTones, uptimePercent } from "../lib/probes";
@@ -31,7 +29,7 @@ function checksLabel(t: Translate, total: number): string {
 // jour par jour et ses derniers essais.
 export function ProbePage() {
   const { id = "" } = useParams();
-  const response = useResource<ProbeResponse>(() => `/api/probes/${segment(id)}`);
+  const response = useProbe(id);
   return <Loaded resource={response}>{(data) => <ProbeView response={data} reload={response.reload} />}</Loaded>;
 }
 
@@ -230,11 +228,14 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const navigate = useNavigate();
   const action = useAction();
 
-  const act = (name: "pause" | "resume") => {
-    action.run(() => api.post(`/api/probes/${probe.id}/actions/${name}`), { topic: "all", onDone: reload });
+  const pause = () => {
+    action.run(() => pauseProbe(probe.id), { topic: "all", onDone: reload });
+  };
+  const resume = () => {
+    action.run(() => resumeProbe(probe.id), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    action.run(() => api.delete(`/api/probes/${probe.id}`), {
+    action.run(() => deleteProbe(probe.id), {
       confirm: t("probe.delete_confirm", probe.name),
       topic: "all",
       onDone: () => void navigate("/domaines"),
@@ -248,11 +249,11 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
         {t("probe.edit")}
       </Button>
       {probe.status === "paused" ? (
-        <Button icon="refresh" onClick={() => act("resume")}>
+        <Button icon="refresh" onClick={resume}>
           {t("probe.resume")}
         </Button>
       ) : (
-        <Button icon="pause" onClick={() => act("pause")}>
+        <Button icon="pause" onClick={pause}>
           {t("probe.pause")}
         </Button>
       )}

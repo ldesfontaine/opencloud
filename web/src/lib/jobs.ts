@@ -1,4 +1,4 @@
-import type { Job, JobStatus, Run, RunOutcome } from "../api/types";
+import type { Job, JobRequest, JobStatus, Run, RunOutcome } from "../api/jobs";
 import type { Translate } from "../i18n/context";
 import { ago, formatDuration, formatWhen, since } from "./time";
 import type { Tone } from "./tone";
@@ -173,7 +173,7 @@ export function jobFormOf(job: Job): JobFormValues {
   };
 }
 
-export function jobRequestOf(values: JobFormValues) {
+export function jobRequestOf(values: JobFormValues): JobRequest {
   return {
     name: values.name,
     machine_id: values.machineID,

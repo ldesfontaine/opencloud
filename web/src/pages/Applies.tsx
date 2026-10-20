@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { AppliesResponse } from "../api/types";
+import { useApplies } from "../api/manifest";
 import { Button } from "../components/Button";
 import { Card, EmptyCard } from "../components/Card";
 import { TokenBox } from "../components/Copy";
@@ -8,7 +8,6 @@ import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { actorText, shortHash, stateTone, summaryText } from "../lib/manifest";
 import { formatClock } from "../lib/time";
@@ -17,7 +16,7 @@ import { formatClock } from "../lib/time";
 // ça s'est fini. Le détail d'un passage montre son plan.
 export function Applies() {
   const t = useT();
-  const applies = useResource<AppliesResponse>("/api/manifest/applies");
+  const applies = useApplies();
   const list = applies.data?.applies ?? [];
   return (
     <>

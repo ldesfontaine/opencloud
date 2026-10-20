@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Probe, ProbeDay } from "../api/types";
+import type { Probe, ProbeDay } from "../api/probes";
 import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeNeedsAttention, probeRequestOf, uptimeOfDays, uptimePercent } from "./probes";
 
 function day(date: string, total: number, success: number, degraded = 0): ProbeDay {

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, segment } from "../api/client";
-import type { Job, JobResponse, Ping, Run } from "../api/types";
+import { deleteJob, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
@@ -16,7 +15,6 @@ import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
@@ -26,7 +24,7 @@ import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } fro
 // l'installation passe devant, ouverte : c'est ce qu'il reste à faire.
 export function JobPage() {
   const { id = "" } = useParams();
-  const job = useResource<JobResponse>(() => `/api/jobs/${segment(id)}`);
+  const job = useJob(id);
   return <Loaded resource={job}>{(data) => <JobView key={data.job.id} response={data} reload={job.reload} />}</Loaded>;
 }
 
@@ -162,7 +160,7 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
   const t = useT();
   const action = useAction();
   const regenerate = () => {
-    action.run(() => api.post(`/api/jobs/${response.job.id}/actions/regenerate-token`), {
+    action.run(() => regenerateJobToken(response.job.id), {
       confirm: t("job.regenerate_confirm", response.job.name),
       onDone: reload,
     });
@@ -243,11 +241,14 @@ function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const navigate = useNavigate();
   const action = useAction();
 
-  const act = (name: "pause" | "resume") => {
-    action.run(() => api.post(`/api/jobs/${job.id}/actions/${name}`), { topic: "all", onDone: reload });
+  const pause = () => {
+    action.run(() => pauseJob(job.id), { topic: "all", onDone: reload });
+  };
+  const resume = () => {
+    action.run(() => resumeJob(job.id), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    action.run(() => api.delete(`/api/jobs/${job.id}`), {
+    action.run(() => deleteJob(job.id), {
       confirm: t("job.delete_confirm", job.name),
       topic: "all",
       onDone: () => void navigate("/taches"),
@@ -261,11 +262,11 @@ function Actions({ job, reload }: { job: Job; reload: () => void }) {
         {t("job.edit")}
       </Button>
       {job.status === "paused" ? (
-        <Button icon="refresh" onClick={() => act("resume")}>
+        <Button icon="refresh" onClick={resume}>
           {t("job.resume")}
         </Button>
       ) : (
-        <Button icon="pause" onClick={() => act("pause")}>
+        <Button icon="pause" onClick={pause}>
           {t("job.pause")}
         </Button>
       )}

@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { Incident, IncidentStatus, StatusComponentsResponse } from "../api/types";
+import { errorKey } from "../api/client";
+import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, type Incident, type IncidentStatus } from "../api/status";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -12,7 +12,6 @@ import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
 import { fromLocalInput, impactTones, incidentTones, statusesFor, toLocalInput } from "../lib/status";
@@ -24,7 +23,7 @@ import "./StatusAdmin.scss";
 // la fenêtre.
 export function StatusIncidentPage() {
   const { id = "" } = useParams();
-  const incident = useResource<Incident>(() => `/api/status/incidents/${segment(id)}`);
+  const incident = useIncident(id);
   return <Loaded resource={incident}>{(data) => <IncidentView incident={data} reload={incident.reload} />}</Loaded>;
 }
 
@@ -39,7 +38,7 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const action = useAction();
 
   const remove = () => {
-    action.run(() => api.delete(`/api/status/incidents/${incident.id}`), {
+    action.run(() => deleteIncident(incident.id), {
       confirm: t("incident.delete_confirm", incident.title),
       topic: "status",
       onDone: () => void navigate("/page-statut/incidents"),
@@ -156,8 +155,7 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .post<Incident>(`/api/status/incidents/${incident.id}/updates`, { status, message })
+    addIncidentUpdate(incident.id, { status, message })
       .then(() => {
         setMessage("");
         setError(null);
@@ -197,7 +195,7 @@ function UpdateForm({ incident, done }: { incident: Incident; done: () => void }
 // Corriger ce qui se corrige : le titre, les composants, la fenêtre.
 function EditForm({ incident, done, cancel }: { incident: Incident; done: () => void; cancel: () => void }) {
   const t = useT();
-  const components = useResource<StatusComponentsResponse>("/api/status/components");
+  const components = useStatusComponents();
   const [title, setTitle] = useState(incident.title);
   const [selected, setSelected] = useState(incident.components.map((component) => component.id));
   const [startsAt, setStartsAt] = useState(toLocalInput(incident.starts_at));
@@ -213,13 +211,12 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .put<Incident>(`/api/status/incidents/${incident.id}`, {
-        title,
-        component_ids: selected,
-        starts_at: maintenance ? fromLocalInput(startsAt) : null,
-        ends_at: maintenance ? fromLocalInput(endsAt) : null,
-      })
+    editIncident(incident.id, {
+      title,
+      component_ids: selected,
+      starts_at: maintenance ? fromLocalInput(startsAt) : null,
+      ends_at: maintenance ? fromLocalInput(endsAt) : null,
+    })
       .then(done)
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));

@@ -1,4 +1,4 @@
-import type { Run, RunOutcome } from "../api/types";
+import type { Run, RunOutcome } from "../api/jobs";
 import { useT } from "../i18n/context";
 import { formatClock } from "../lib/time";
 import type { SegmentTone } from "../lib/tone";

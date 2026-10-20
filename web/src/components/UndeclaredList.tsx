@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { api } from "../api/client";
-import type { DeclaredService, UndeclaredGroup } from "../api/types";
+import { ignoreObservation, unignoreObservation, type DeclaredService, type UndeclaredGroup } from "../api/directory";
+import { proposedExportPath } from "../api/manifest";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreBody, orphanKey, proposedExportPath, shownUndeclared, unignorePath } from "../lib/gaps";
+import { adoptIntoPath, adoptionTarget, adoptPath, containerCount, hasProposals, ignoredCount, ignoreKeyOf, orphanKey, shownUndeclared } from "../lib/gaps";
 import { Button } from "./Button";
 import { Card, CardHeader, Empty } from "./Card";
 import { Failure } from "./Failure";
@@ -29,10 +29,10 @@ export function UndeclaredList({ groups, declared }: { groups: UndeclaredGroup[]
 
   const action = useAction();
   const ignore = (group: UndeclaredGroup) => {
-    action.run(() => api.post("/api/directory/ignored", ignoreBody(group)), { topic: "directory" });
+    action.run(() => ignoreObservation(ignoreKeyOf(group)), { topic: "directory" });
   };
   const stopIgnoring = (group: UndeclaredGroup) => {
-    action.run(() => api.delete(unignorePath(group)), { topic: "directory" });
+    action.run(() => unignoreObservation(ignoreKeyOf(group)), { topic: "directory" });
   };
   const toggle =
     hidden === 0 ? undefined : (

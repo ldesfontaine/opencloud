@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 
-import type { NetworkResponse, Probe, Container } from "../api/types";
+import type { Container } from "../api/containers";
+import type { NetworkResponse } from "../api/network";
+import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
 import { compactHeight, compactWidth, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
 

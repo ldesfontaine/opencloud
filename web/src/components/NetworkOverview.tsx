@@ -1,9 +1,8 @@
 import { useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
 
-import type { OverviewNetworkResponse } from "../api/types";
+import { useNetworkOverview } from "../api/network";
 import { useSize } from "../hooks/useSize";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { compactHeight, compactWidth, fitPorts, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
 import { nodeTone, containerIcon } from "../lib/containers";
@@ -24,7 +23,7 @@ export function NetworkOverview() {
   const navigate = useNavigate();
   const holder = useRef<HTMLDivElement>(null);
   const width = useSize(holder).width;
-  const network = useResource<OverviewNetworkResponse>("/api/network");
+  const network = useNetworkOverview();
   const response = network.data;
   const layout = useMemo(() => (response ? layoutOverview(response) : null), [response]);
   if (network.error && !response) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { PublicComponent, PublicIncident, PublicStatus, StatusDay } from "../api/types";
+import type { PublicComponent, PublicIncident, PublicStatus, StatusDay } from "../api/status";
 import { Mark } from "../components/Icon";
 import { useNow } from "../hooks/useNow";
 import { format } from "../i18n/format";

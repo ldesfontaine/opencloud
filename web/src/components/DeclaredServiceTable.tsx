@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { DeclaredService, ServiceGap, Project } from "../api/types";
+import type { DeclaredService, ServiceGap, Project } from "../api/directory";
 import { useT } from "../i18n/context";
 import { projectNames } from "../lib/directory";
 import { GapPill } from "./GapPill";

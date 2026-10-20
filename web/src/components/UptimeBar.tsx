@@ -1,4 +1,4 @@
-import type { ProbeDay } from "../api/types";
+import type { ProbeDay } from "../api/probes";
 import { useT } from "../i18n/context";
 import { dayKeys, dayTone } from "../lib/probes";
 import "./UptimeBar.scss";

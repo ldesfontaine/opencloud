@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { Capability, DeclaredService, MachinesResponse, Nature, Origin, ProjectsResponse, ProposalResponse, UpdatePolicy } from "../api/types";
+import { errorKey } from "../api/client";
+import { saveDeclaredService, useDeclaredService, useProjects, useProposal, type Capability, type Nature, type Origin, type UpdatePolicy } from "../api/directory";
+import { useMachines } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { useResource } from "../hooks/useResource";
 import { useT, type Translate } from "../i18n/context";
 import {
   capabilities,
@@ -46,10 +46,10 @@ export function DeclaredServiceForm() {
   const t = useT();
   const navigate = useNavigate();
   const { refresh } = useRefresh();
-  const machines = useResource<MachinesResponse>("/api/machines");
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
-  const existing = useResource<DeclaredService>(isEditing ? () => `/api/directory/services/${segment(id)}` : null);
-  const proposal = useResource<ProposalResponse>(container === "" ? null : `/api/directory/proposal?container=${encodeURIComponent(container)}`);
+  const machines = useMachines();
+  const projects = useProjects();
+  const existing = useDeclaredService(id ?? null);
+  const proposal = useProposal(container === "" ? null : container);
 
   const [values, setValues] = useState<ServiceFormValues>(emptyServiceForm);
   const [error, setError] = useState<string | null>(null);
@@ -121,8 +121,7 @@ export function DeclaredServiceForm() {
     event.preventDefault();
     setBusy(true);
     const body = serviceRequestOf(values);
-    const request = isEditing ? api.put<DeclaredService>(`/api/directory/services/${segment(id)}`, body) : api.post<DeclaredService>("/api/directory/services", body);
-    request
+    saveDeclaredService(id, body)
       .then((saved) => {
         refresh("directory");
         void navigate(`/services/annuaire/${saved.id}`);

@@ -1,4 +1,4 @@
-import type { AuthState } from "../api/types";
+import type { AuthState } from "../api/auth";
 
 // Ce que la barre latérale dit de l'accès : protégé par tel identifiant,
 // par le mandataire pour telle identité, ou ouvert à qui atteint le port.

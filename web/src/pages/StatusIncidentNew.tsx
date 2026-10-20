@@ -1,14 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
-import { api, errorKey } from "../api/client";
-import type { Impact, Incident, IncidentStatus, StatusComponentsResponse } from "../api/types";
+import { errorKey } from "../api/client";
+import { createIncident, useStatusComponents, type Impact, type IncidentStatus } from "../api/status";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { useRefresh } from "../api/refresh";
 import { fromLocalInput, statusesFor } from "../lib/status";
@@ -22,7 +21,7 @@ export function StatusIncidentNew() {
   const t = useT();
   const navigate = useNavigate();
   const { refresh } = useRefresh();
-  const components = useResource<StatusComponentsResponse>("/api/status/components");
+  const components = useStatusComponents();
   const [kind, setKind] = useState<Kind>("incident");
   const [title, setTitle] = useState("");
   const [impact, setImpact] = useState<Impact>("down");
@@ -45,16 +44,15 @@ export function StatusIncidentNew() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    api
-      .post<Incident>("/api/status/incidents", {
-        title,
-        impact: effectiveImpact,
-        status: effectiveStatus,
-        message,
-        component_ids: selected,
-        starts_at: kind === "maintenance" ? fromLocalInput(startsAt) : null,
-        ends_at: kind === "maintenance" ? fromLocalInput(endsAt) : null,
-      })
+    createIncident({
+      title,
+      impact: effectiveImpact,
+      status: effectiveStatus,
+      message,
+      component_ids: selected,
+      starts_at: kind === "maintenance" ? fromLocalInput(startsAt) : null,
+      ends_at: kind === "maintenance" ? fromLocalInput(endsAt) : null,
+    })
       .then((created) => {
         refresh("status");
         void navigate(`/page-statut/incidents/${created.id}`);

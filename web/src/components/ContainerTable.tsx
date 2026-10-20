@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { Container } from "../api/types";
+import type { Container } from "../api/containers";
 import { useI18n } from "../i18n/context";
 import { formatPublishedPorts, type Filter } from "../lib/containers";
 import { formatBytes, formatDecimal } from "../lib/units";

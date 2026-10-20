@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 
-import type { JobsResponse } from "../api/types";
+import { useJobs } from "../api/jobs";
 import { Button } from "../components/Button";
 import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -8,7 +8,6 @@ import { PageHead } from "../components/PageHead";
 import { JobPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { attentionStatuses, jobsSubtitle, lastResult } from "../lib/jobs";
 import { formatDuration, lastPing } from "../lib/time";
@@ -16,7 +15,7 @@ import { formatDuration, lastPing } from "../lib/time";
 export function Jobs() {
   const t = useT();
   const now = useNow();
-  const jobs = useResource<JobsResponse>("/api/jobs");
+  const jobs = useJobs();
   const list = jobs.data?.jobs ?? [];
   const attention = list.filter((job) => attentionStatuses.has(job.status)).length;
   return (

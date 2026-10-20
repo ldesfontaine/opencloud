@@ -1,4 +1,4 @@
-import type { Alert } from "../api/types";
+import type { Alert } from "../api/alerts";
 import type { Translate } from "../i18n/context";
 
 // Un groupe de la liste des alertes : une machine, ou rien pour ce qui

@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { segment } from "../api/client";
-import type { ContainerResponse, Transition } from "../api/types";
+import { useContainer, type ContainerResponse, type Transition } from "../api/containers";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
@@ -13,7 +12,6 @@ import { Dot, ContainerPill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
 import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, transitionTitle } from "../lib/containers";
@@ -25,7 +23,7 @@ import { formatBytes, formatDecimal } from "../lib/units";
 // journaux en direct, et de quoi le mettre sous sonde.
 export function ContainerPage() {
   const { id = "" } = useParams();
-  const response = useResource<ContainerResponse>(() => `/api/containers/${segment(id)}`);
+  const response = useContainer(id);
   return (
     <Loaded resource={response} notFound={<ContainerNotFound />}>
       {(data) => <ContainerView response={data} reload={response.reload} />}

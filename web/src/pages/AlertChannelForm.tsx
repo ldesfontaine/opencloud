@@ -1,15 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, errorKey, segment } from "../api/client";
-import type { AlertSeverity, Channel, ChannelFormat, ChannelTest, MailSettings } from "../api/types";
+import { errorKey } from "../api/client";
+import { deleteChannel, saveChannel, testChannel, useChannel, type AlertSeverity, type ChannelFormat, type ChannelTest } from "../api/alerts";
+import { useMailSettings } from "../api/settings";
 import { Button } from "../components/Button";
 import { Card, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Field, Input, Select } from "../components/Field";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
 import { channelTestResult } from "../lib/alerts";
 import { useRefresh } from "../api/refresh";
@@ -36,8 +36,8 @@ export function AlertChannelForm() {
   const [params] = useSearchParams();
   const justCreated = id !== undefined && params.get("cree") === "1";
   const { refresh } = useRefresh();
-  const existing = useResource<Channel>(id !== undefined ? () => `/api/alerts/channels/${segment(id)}` : null);
-  const mail = useResource<MailSettings>("/api/settings/mail");
+  const existing = useChannel(id ?? null);
+  const mail = useMailSettings();
   const [name, setName] = useState("");
   const [url, setURL] = useState("");
   const [destination, setDestination] = useState("");
@@ -75,8 +75,7 @@ export function AlertChannelForm() {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    const request = id === undefined ? api.post<Channel>("/api/alerts/channels", body) : api.put<Channel>(`/api/alerts/channels/${segment(id)}`, body);
-    request
+    saveChannel(id, body)
       .then((saved) => {
         setError(null);
         refresh("alerts");
@@ -93,8 +92,7 @@ export function AlertChannelForm() {
     }
     setBusy(true);
     setTest(null);
-    api
-      .post<ChannelTest>(`/api/alerts/channels/${segment(id)}/actions/test`)
+    testChannel(id)
       .then(setTest)
       .catch((failure: unknown) => setError(errorKey(failure)))
       .finally(() => setBusy(false));
@@ -104,8 +102,7 @@ export function AlertChannelForm() {
     if (id === undefined || !existing.data || !window.confirm(t("channel.delete_confirm", existing.data.name))) {
       return;
     }
-    api
-      .delete(`/api/alerts/channels/${segment(id)}`)
+    deleteChannel(id)
       .then(() => {
         refresh("alerts");
         void navigate("/alertes/canaux");
