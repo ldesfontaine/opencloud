@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 
@@ -138,9 +137,6 @@ type updatePolicyInput struct {
 
 func (s *Server) acknowledgeAlertTool(ctx context.Context, input alertInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.alerts.Acknowledge(ctx, input.AlertID)
-	if errors.Is(err, alert.ErrAlreadyClosed) {
-		return toolRefuse("alert.already_resolved")
-	}
 	if result, done := s.toolFailed("acknowledge_alert", err, alert.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -157,9 +153,6 @@ func (s *Server) pauseProbeTool(ctx context.Context, input probeInput) (*gomcp.C
 
 func (s *Server) resumeProbeTool(ctx context.Context, input probeInput) (*gomcp.CallToolResult, any, error) {
 	err := s.probes.Resume(ctx, input.ProbeID)
-	if errors.Is(err, probe.ErrNotPaused) {
-		return toolRefuse("probe.not_paused")
-	}
 	if result, done := s.toolFailed("resume_probe", err, probe.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -188,9 +181,6 @@ func (s *Server) pauseJobTool(ctx context.Context, input jobInput) (*gomcp.CallT
 
 func (s *Server) resumeJobTool(ctx context.Context, input jobInput) (*gomcp.CallToolResult, any, error) {
 	err := s.heartbeats.Resume(ctx, input.JobID)
-	if errors.Is(err, heartbeat.ErrNotPaused) {
-		return toolRefuse("job.not_paused")
-	}
 	if result, done := s.toolFailed("resume_job", err, heartbeat.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -226,9 +216,6 @@ func (s *Server) openIncidentTool(ctx context.Context, input openIncidentInput) 
 
 func (s *Server) addIncidentUpdateTool(ctx context.Context, input incidentUpdateInput) (*gomcp.CallToolResult, any, error) {
 	updated, err := s.status.AddUpdate(ctx, input.IncidentID, status.IncidentStatus(input.Status), input.Message)
-	if errors.Is(err, status.ErrResolved) {
-		return toolRefuse("incident.already_resolved")
-	}
 	if result, done := s.toolFailed("add_incident_update", err, status.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -256,10 +243,7 @@ func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*go
 
 func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInput) (*gomcp.CallToolResult, any, error) {
 	owner, err := s.directory.SetUnitUpdatePolicy(ctx, input.UnitID, container.UpdatePolicy(input.Policy))
-	if errors.Is(err, directory.ErrUnitNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if result, done := s.toolFailed("set_update_policy", err, nil); done {
+	if result, done := s.toolFailed("set_update_policy", err, directory.ErrUnitNotFound); done {
 		return result, nil, nil
 	}
 	return toolJSON(declaredServiceToJSON(owner))

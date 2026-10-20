@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"time"
 
@@ -366,10 +365,5 @@ func (s *Server) pauseProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resumeProbe(w http.ResponseWriter, r *http.Request) {
-	err := s.probes.Resume(r.Context(), r.PathValue("id"))
-	if errors.Is(err, probe.ErrNotPaused) {
-		s.apiRefuse(w, http.StatusConflict, "probe.not_paused")
-		return
-	}
-	s.finishAPIAction(w, r, err, probe.ErrNotFound)
+	s.finishAPIAction(w, r, s.probes.Resume(r.Context(), r.PathValue("id")), probe.ErrNotFound)
 }

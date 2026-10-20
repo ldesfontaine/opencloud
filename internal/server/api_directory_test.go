@@ -251,3 +251,61 @@ func requireKeyInEveryCatalog(t *testing.T, server *testServer, key string) {
 		}
 	}
 }
+
+func TestAPI_UpdateProject_RenamesKeepsServicesAndRefuses(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	var project, other projectJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/projects", projectRequest{Name: "client-a", Title: "Client A"}), &project)
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/projects", projectRequest{Name: "client-b"}), &other)
+	request := nextcloudRequest(remoteID)
+	request.ProjectIDs = []string{project.ID}
+	var service declaredServiceJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/services", request), &service)
+
+	path := "/api/directory/projects/" + project.ID
+	got := callAPI(server.Server, http.MethodPut, path, projectRequest{Name: "client-renomme", Title: "Client renommé"})
+	if got.Code != http.StatusOK {
+		t.Fatalf("modification: %d %s", got.Code, got.Body.String())
+	}
+	var renamed projectJSON
+	decodeAPI(t, got, &renamed)
+	if renamed.ID != project.ID || renamed.Name != "client-renomme" || renamed.Title != "Client renommé" {
+		t.Fatalf("projet %+v", renamed)
+	}
+	if len(renamed.ServiceIDs) != 1 || renamed.ServiceIDs[0] != service.ID {
+		t.Fatalf("le service a quitté son projet : %+v", renamed.ServiceIDs)
+	}
+	var reread projectJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, path, nil), &reread)
+	if reread.Name != "client-renomme" {
+		t.Fatalf("relecture : %+v", reread)
+	}
+	// Garder son propre nom n'est pas le prendre à un autre.
+	if got := callAPI(server.Server, http.MethodPut, path, projectRequest{Name: "client-renomme"}); got.Code != http.StatusOK {
+		t.Fatalf("même nom : %d %s", got.Code, got.Body.String())
+	}
+
+	refusals := []struct {
+		name string
+		path string
+		body projectRequest
+		code int
+		key  string
+	}{
+		{"inconnu", "/api/directory/projects/prj_inconnu", projectRequest{Name: "x"}, http.StatusNotFound, "not_found"},
+		{"nom pris", path, projectRequest{Name: other.Name}, http.StatusUnprocessableEntity, "project.name_taken"},
+		{"nom illisible", path, projectRequest{Name: "Client A"}, http.StatusUnprocessableEntity, "project.name_invalid"},
+		{"titre trop long", path, projectRequest{Name: "client-renomme", Title: strings.Repeat("a", 81)}, http.StatusUnprocessableEntity, "project.title_invalid"},
+	}
+	for _, refusal := range refusals {
+		got := callAPI(server.Server, http.MethodPut, refusal.path, refusal.body)
+		if got.Code != refusal.code || errorCode(t, got) != refusal.key {
+			t.Errorf("%s : %d %s, attendu %d %s", refusal.name, got.Code, got.Body.String(), refusal.code, refusal.key)
+		}
+	}
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, path, nil), &reread)
+	if reread.Name != "client-renomme" || reread.Title != "" {
+		t.Fatalf("un refus a touché la base : %+v", reread)
+	}
+}

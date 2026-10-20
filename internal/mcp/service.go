@@ -103,14 +103,14 @@ func (s *Service) Disable(ctx context.Context) error {
 // indépendants, restent.
 func (s *Service) RegenerateSecret(ctx context.Context) (string, error) {
 	if _, err := s.store.GetMCPClient(ctx); err != nil {
-		return "", err
+		return "", disabledIfMissing(err)
 	}
 	secret, err := newSecret(secretScheme)
 	if err != nil {
 		return "", fmt.Errorf("generate client secret: %w", err)
 	}
 	if err := s.store.UpdateMCPClientSecret(ctx, secret.hash, secret.prefix); err != nil {
-		return "", err
+		return "", disabledIfMissing(err)
 	}
 	if err := s.store.RevokeMCPOAuthTokens(ctx, s.now()); err != nil {
 		return "", err
@@ -126,9 +126,22 @@ func (s *Service) SetRedirectURIs(ctx context.Context, uris []string) (Client, e
 		return Client{}, err
 	}
 	if err := s.store.UpdateMCPClientRedirectURIs(ctx, cleaned); err != nil {
-		return Client{}, err
+		return Client{}, disabledIfMissing(err)
 	}
-	return s.store.GetMCPClient(ctx)
+	client, err := s.store.GetMCPClient(ctx)
+	if err != nil {
+		return Client{}, disabledIfMissing(err)
+	}
+	return client, nil
+}
+
+// disabledIfMissing lit l'absence du client comme MCP désactivé : régler le
+// client n'a de sens que s'il existe.
+func disabledIfMissing(err error) error {
+	if errors.Is(err, ErrNotFound) {
+		return ErrDisabled
+	}
+	return err
 }
 
 // CreateAPIToken tire un jeton d'API de la portée et de la durée

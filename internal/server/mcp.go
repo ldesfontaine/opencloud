@@ -223,8 +223,7 @@ func (s *Server) toolInternal(tool string, err error) (*gomcp.CallToolResult, an
 
 // toolFailed est le pendant MCP de failed : not_found sur notFound (nil quand
 // l'outil n'a pas de 404), la clé d'un refus, sinon « internal ». Le booléen
-// dit si le résultat est prêt à rendre. Les exceptions de clé (l'API rend
-// directory.unit_not_found là où l'outil rend not_found) restent à la main.
+// dit si le résultat est prêt à rendre.
 func (s *Server) toolFailed(tool string, err, notFound error) (*gomcp.CallToolResult, bool) {
 	if err == nil {
 		return nil, false

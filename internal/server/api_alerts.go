@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -230,10 +229,6 @@ func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found, err := s.alerts.Acknowledge(r.Context(), id)
-	if errors.Is(err, alert.ErrAlreadyClosed) {
-		s.apiRefuse(w, http.StatusConflict, "alert.already_resolved")
-		return
-	}
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
@@ -256,14 +251,6 @@ func (s *Server) acknowledgeAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acknowledged, err := s.alerts.AcknowledgeMany(r.Context(), request.IDs)
-	if errors.Is(err, alert.ErrSelectionEmpty) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_empty")
-		return
-	}
-	if errors.Is(err, alert.ErrSelectionTooLarge) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_too_large")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}

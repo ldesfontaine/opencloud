@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/url"
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -365,11 +364,8 @@ type exportDirectoryInput struct {
 
 func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolRequest, input exportDirectoryInput) (*gomcp.CallToolResult, any, error) {
 	data, err := s.exportedDirectory(ctx, manifest.ExportOptions{Propose: input.Propose, RedactSecrets: true})
-	if errors.Is(err, manifest.ErrExportTooLarge) {
-		return toolRefuse(manifest.KeyExportTooLarge)
-	}
-	if err != nil {
-		return s.toolInternal("export_directory", err)
+	if result, done := s.toolFailed("export_directory", err, nil); done {
+		return result, nil, nil
 	}
 	return toolJSON(exportDirectoryResponse{YAML: string(data)})
 }
