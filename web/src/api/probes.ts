@@ -7,7 +7,7 @@ import { api, segment } from "./client";
 // topicsOf devine du chemin.
 
 export type ProbeStatus = "new" | "up" | "degraded" | "down" | "paused";
-export type ProbeOutcome = "up" | "degraded" | "down";
+type ProbeOutcome = "up" | "degraded" | "down";
 export type ProbeKind = "http" | "tcp";
 
 // La chaîne présentée au dernier essai HTTPS, en faits. L'échéance et la
@@ -80,7 +80,7 @@ export interface ProbeResult {
 
 // Une fenêtre de disponibilité : des essais et des succès ; le pourcentage
 // se calcule dans le front, et une fenêtre sans essai n'en a pas.
-export interface ProbeUptime {
+interface ProbeUptime {
   window: string;
   total: number;
   success: number;

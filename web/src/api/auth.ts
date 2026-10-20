@@ -5,7 +5,7 @@ import { api } from "./client";
 // topicsOf le relit sur tous les sujets sauf les mesures.
 
 // « forward » est le mode derrière un mandataire (Authelia).
-export type AuthMode = "none" | "basic" | "forward";
+type AuthMode = "none" | "basic" | "forward";
 
 // En forward, username est l'identité que le mandataire a transmise avec
 // la requête, et header le nom de l'en-tête qui la porte.

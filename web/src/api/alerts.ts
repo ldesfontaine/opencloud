@@ -33,7 +33,7 @@ export const alertKinds: readonly AlertKind[] = [
 ];
 
 export type AlertSeverity = "attention" | "danger";
-export type AlertStatus = "open" | "resolved";
+type AlertStatus = "open" | "resolved";
 export type AlertObjectKind = "machine" | "service" | "heartbeat" | "probe" | "volume";
 
 export interface AlertObject {
@@ -50,7 +50,7 @@ export interface AlertCounts {
 
 // Les chiffres du fait ; la phrase se fait dans lib/alerts avec les mêmes
 // clés que le canal.
-export interface AlertDetails {
+interface AlertDetails {
   count?: number;
   percent?: number;
   mount_point?: string;
@@ -85,8 +85,8 @@ export interface AlertsResponse {
   counts: AlertCounts;
 }
 
-export type DeliveryEvent = "opened" | "aggravated" | "resolved";
-export type DeliveryStatus = "pending" | "delivered" | "failed" | "held";
+type DeliveryEvent = "opened" | "aggravated" | "resolved";
+type DeliveryStatus = "pending" | "delivered" | "failed" | "held";
 
 export interface Delivery {
   id: number;

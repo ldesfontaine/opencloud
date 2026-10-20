@@ -16,7 +16,7 @@ export interface Port {
 
 // La présence d'un conteneur sur un réseau de sa machine ; l'adresse est
 // vide quand le conteneur est arrêté.
-export interface Attachment {
+interface Attachment {
   network_id: string;
   name: string;
   ip: string;
@@ -24,12 +24,12 @@ export interface Attachment {
 }
 
 // Une dépendance déclarée : par le label Compose ou par un lien hérité.
-export interface Dependency {
+interface Dependency {
   name: string;
   source: "compose" | "link";
 }
 
-export type FindingKind = "host_network" | "privileged" | "database_port_public" | "port_public";
+type FindingKind = "host_network" | "privileged" | "database_port_public" | "port_public";
 
 // Un constat d'exposition, calculé par le serveur à la lecture : « warn »
 // fait un point orange sur le nœud, « info » une ligne dans l'inspecteur.
@@ -41,10 +41,10 @@ export interface Finding {
 }
 
 export type ContainerState = "created" | "running" | "paused" | "restarting" | "removing" | "exited" | "dead";
-export type ContainerHealth = "" | "starting" | "healthy" | "unhealthy";
+type ContainerHealth = "" | "starting" | "healthy" | "unhealthy";
 
 // La mesure courante d'un conteneur, absente si elle n'est pas fraîche.
-export interface ContainerSample {
+interface ContainerSample {
   sampled_at: string;
   cpu_percent: number;
   mem_used: number;
@@ -101,9 +101,9 @@ export interface Container {
   current: ContainerSample | null;
 }
 
-export type UpdateKind = "" | "major" | "minor" | "patch" | "digest";
+type UpdateKind = "" | "major" | "minor" | "patch" | "digest";
 
-export type CheckOutcome = "ok" | "local" | "unreachable" | "unauthorized" | "not_found" | "unsupported";
+type CheckOutcome = "ok" | "local" | "unreachable" | "unauthorized" | "not_found" | "unsupported";
 
 // Le constat de l'agent sur une image, et ce que le serveur en déduit :
 // le type, l'image à tirer, la commande à copier, jamais exécutée.
@@ -163,7 +163,7 @@ export interface LogLine {
   text: string;
 }
 
-export interface LogsResponse {
+interface LogsResponse {
   lines: LogLine[];
 }
 

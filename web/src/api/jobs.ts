@@ -43,7 +43,7 @@ export interface Ping {
   received_at: string;
 }
 
-export interface Snippet {
+interface Snippet {
   key: string;
   code: string;
 }

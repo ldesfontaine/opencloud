@@ -28,7 +28,7 @@ export interface MCPState {
 
 // La portée reste dans la base et dans l'API, inerte : le MCP HTTP est en
 // lecture seule, quelle qu'elle soit. L'interface ne la montre plus.
-export type MCPScope = "read" | "write";
+type MCPScope = "read" | "write";
 
 export interface MCPToken {
   id: string;
@@ -48,7 +48,7 @@ export interface MCPSession {
   expires_at: string;
 }
 
-export interface MCPSecretResponse {
+interface MCPSecretResponse {
   secret: string;
 }
 
