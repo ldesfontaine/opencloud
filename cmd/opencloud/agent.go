@@ -39,7 +39,9 @@ func (r *refusal) Error() string {
 func runAgent(args []string) error {
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
 	server := flags.String("server", "", "adresse d'"+brand.ProductName+", premier lancement seulement")
-	token := flags.String("token", "", "déprécié, premier lancement seulement : visible de tous les comptes de la machine via ps ; envoyez le jeton sur l'entrée standard")
+	// -token n'existe que pour être refusé avec une phrase claire, plutôt que
+	// l'erreur générique d'un drapeau inconnu.
+	flags.String("token", "", "refusé : le jeton se lit sur l'entrée standard")
 	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'"+brand.ProductName+", s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
@@ -63,6 +65,11 @@ func runAgent(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Dans la ligne de commande, le jeton serait lisible de tous les comptes
+	// de la machine par /proc : le premier qui le copie prend l'identité.
+	if flagIsSet(flags, "token") {
+		return &refusal{message: catalogs.For(code).Get("agent.token_flag_refused")}
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
 	if err != nil {
@@ -70,7 +77,7 @@ func runAgent(args []string) error {
 	}
 	defer root.Close()
 
-	enrollmentToken, err := enrollmentTokenFor(root, *server, *token, os.Stdin, os.Stderr, stdinIsTerminal(), catalogs.For(code), logger)
+	enrollmentToken, err := enrollmentTokenFor(root, *server, os.Stdin, os.Stderr, stdinIsTerminal(), catalogs.For(code))
 	if err != nil {
 		return explainAgentError(err, root, code, catalogs)
 	}
@@ -96,19 +103,23 @@ func runAgent(args []string) error {
 	return explainAgentError(err, root, code, catalogs)
 }
 
-// enrollmentTokenFor rend le jeton à présenter, ou "" quand l'agent n'a pas à
-// s'enrôler. Il se lit sur l'entrée standard : dans la ligne de commande, il
-// serait lisible de tous les comptes de la machine par /proc, et le premier
-// qui le copie prend l'identité de la machine. L'entrée n'est lue que pour un
-// agent sans identité et avec -server : un agent déjà enrôlé, lancé par
-// systemd (entrée sur /dev/null), ne doit jamais s'y bloquer.
-func enrollmentTokenFor(stateDir *os.Root, server, flagToken string, in io.Reader, prompt io.Writer, interactive bool, text lang.Catalog, logger *slog.Logger) (string, error) {
+func flagIsSet(flags *flag.FlagSet, name string) bool {
+	set := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
+// enrollmentTokenFor rend le jeton à présenter, lu sur l'entrée standard, ou
+// "" quand l'agent n'a pas à s'enrôler. L'entrée n'est lue que pour un agent
+// sans identité et avec -server : un agent déjà enrôlé, lancé par systemd
+// (entrée sur /dev/null), ne doit jamais s'y bloquer.
+func enrollmentTokenFor(stateDir *os.Root, server string, in io.Reader, prompt io.Writer, interactive bool, text lang.Catalog) (string, error) {
 	if _, err := agent.LoadIdentity(stateDir); !errors.Is(err, agent.ErrNotEnrolled) || server == "" {
-		return flagToken, nil
-	}
-	if flagToken != "" {
-		logger.Warn("enrollment token on the command line", "message", text.Get("agent.token_flag_deprecated"))
-		return flagToken, nil
+		return "", nil
 	}
 	if interactive {
 		fmt.Fprint(prompt, text.Get("agent.token_prompt"))

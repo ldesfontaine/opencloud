@@ -53,32 +53,6 @@ func (db *DB) UpdateSettings(ctx context.Context, change func(*settings.Settings
 	return written, nil
 }
 
-// ImportSettings écrit des réglages repris d'ailleurs, seulement si la base
-// n'en a pas encore : ce qui y est déjà a été réglé depuis. Dit s'il a écrit.
-func (db *DB) ImportSettings(ctx context.Context, imported settings.Settings) (bool, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return false, fmt.Errorf("begin settings import: %w", err)
-	}
-	defer tx.Rollback()
-
-	var present int
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings`).Scan(&present)
-	if err != nil {
-		return false, fmt.Errorf("count settings: %w", err)
-	}
-	if present > 0 {
-		return false, nil
-	}
-	if err := db.saveSettings(ctx, tx, imported, time.Now()); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit settings import: %w", err)
-	}
-	return true, nil
-}
-
 func (db *DB) scanSettings(row scanner) (settings.Settings, error) {
 	var current settings.Settings
 	var language, statusLanguage string

@@ -325,12 +325,6 @@ func (s *Service) Count(ctx context.Context) (total, attention int, err error) {
 	return s.store.CountProbes(ctx)
 }
 
-// NeedsAttention dit si l'état compte parmi ce que l'opérateur doit voir.
-// Dégradé n'en est pas : la cible répond, c'est sa chaîne qui déplaît.
-func NeedsAttention(status Status) bool {
-	return status == StatusDown
-}
-
 // Certificates compte ce que la vue d'ensemble montre. Le seuil est celui
 // du produit, publié au navigateur par la session : un seul chiffre, une
 // seule source, et la même bascule à l'écran qu'au compteur.

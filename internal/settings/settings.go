@@ -7,33 +7,32 @@ import (
 )
 
 // Settings sont les réglages que l'opérateur change dans l'interface ; ils
-// vivent en base (internal/store). Les étiquettes toml ne servent qu'à
-// reprendre l'ancien settings.toml : voir ImportLegacyFile.
+// vivent en base (internal/store).
 type Settings struct {
 	// Langue de l'interface ; vide tant que l'opérateur n'a rien choisi.
-	Language lang.Code `toml:"language"`
+	Language lang.Code
 	// La page de statut publique : son titre, son annonce en texte brut,
 	// sa langue. Vides : pas de titre, pas d'annonce, la langue de
 	// l'interface.
-	StatusTitle        string    `toml:"status_title"`
-	StatusAnnouncement string    `toml:"status_announcement"`
-	StatusLanguage     lang.Code `toml:"status_language"`
+	StatusTitle        string
+	StatusAnnouncement string
+	StatusLanguage     lang.Code
 	// Les seuils d'alerte du disque, en pourcentage ; zéro tant que
 	// l'opérateur n'a rien réglé, et le moteur prend alors les siens.
-	DiskAttentionPercent int `toml:"disk_attention_percent"`
-	DiskDangerPercent    int `toml:"disk_danger_percent"`
+	DiskAttentionPercent int
+	DiskDangerPercent    int
 	// Le relais SMTP du canal e-mail. L'API ne renvoie jamais le mot de
 	// passe.
-	MailHost     string `toml:"mail_host,omitempty"`
-	MailPort     int    `toml:"mail_port,omitempty"`
-	MailTLS      string `toml:"mail_tls,omitempty"`
-	MailUsername string `toml:"mail_username,omitempty"`
-	MailPassword string `toml:"mail_password,omitempty"`
-	MailFrom     string `toml:"mail_from,omitempty"`
+	MailHost     string
+	MailPort     int
+	MailTLS      string
+	MailUsername string
+	MailPassword string
+	MailFrom     string
 	// La fin de support est activée tant que l'opérateur ne l'a pas coupée :
 	// la machine openCloud lit endoflife.date une fois par jour, deux au
 	// plus. Le réglage dit « coupée » pour que son absence vaille « activée ».
-	LifecycleDisabled bool `toml:"lifecycle_disabled,omitempty"`
+	LifecycleDisabled bool
 }
 
 // InterfaceLanguage rend la langue de l'interface : celle du réglage, sinon

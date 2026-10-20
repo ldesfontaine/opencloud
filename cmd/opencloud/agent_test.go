@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -42,37 +41,35 @@ func emptyStateDir(t *testing.T) *os.Root {
 }
 
 func TestEnrollmentTokenFor_ReadsTheTokenOnStandardInput(t *testing.T) {
-	var logs, prompt bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	var prompt bytes.Buffer
 	text := testCatalog(t)
 
-	token, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", "", strings.NewReader("  oc_abc234 \r\nautre ligne\n"), &prompt, false, text, logger)
+	token, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("  oc_abc234 \r\nautre ligne\n"), &prompt, false, text)
 	if err != nil || token != "oc_abc234" {
 		t.Fatalf("token %q, err %v", token, err)
 	}
-	if prompt.Len() != 0 || logs.Len() != 0 {
-		t.Fatalf("a pipe gets neither prompt nor warning: %q %q", prompt.String(), logs.String())
+	if prompt.Len() != 0 {
+		t.Fatalf("a pipe gets no prompt: %q", prompt.String())
 	}
 
 	// Sans retour à la ligne final, la ligne vaut quand même.
-	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", "", strings.NewReader("oc_abc234"), &prompt, false, text, logger)
+	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("oc_abc234"), &prompt, false, text)
 	if err != nil || token != "oc_abc234" {
 		t.Fatalf("token %q, err %v", token, err)
 	}
 
 	// Sur un terminal, l'invite dit quoi saisir.
-	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", "", strings.NewReader("oc_abc234\n"), &prompt, true, text, logger)
+	token, err = enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader("oc_abc234\n"), &prompt, true, text)
 	if err != nil || token != "oc_abc234" || prompt.String() != text.Get("agent.token_prompt") {
 		t.Fatalf("token %q, err %v, prompt %q", token, err, prompt.String())
 	}
 }
 
 func TestEnrollmentTokenFor_RefusesAnEmptyOrClosedInput(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	text := testCatalog(t)
 	for name, input := range map[string]string{"fermée": "", "ligne vide": "\n", "espaces": "   \t \n"} {
 		t.Run(name, func(t *testing.T) {
-			_, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", "", strings.NewReader(input), io.Discard, false, text, logger)
+			_, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", strings.NewReader(input), io.Discard, false, text)
 			if !errors.Is(err, agent.ErrTokenMissing) {
 				t.Fatalf("got %v", err)
 			}
@@ -84,7 +81,6 @@ func TestEnrollmentTokenFor_RefusesAnEmptyOrClosedInput(t *testing.T) {
 }
 
 func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	root := emptyStateDir(t)
 	identity, err := agent.NewIdentity("https://opencloud.example.org", "", lang.French)
 	if err != nil {
@@ -95,7 +91,7 @@ func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
 	}
 	// Relance sous systemd : identité présente, avec ou sans -server.
 	for _, server := range []string{"", "https://opencloud.example.org"} {
-		token, err := enrollmentTokenFor(root, server, "", failingReader{t}, io.Discard, true, testCatalog(t), logger)
+		token, err := enrollmentTokenFor(root, server, failingReader{t}, io.Discard, true, testCatalog(t))
 		if err != nil || token != "" {
 			t.Fatalf("server %q: token %q, err %v", server, token, err)
 		}
@@ -103,26 +99,29 @@ func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
 }
 
 func TestEnrollmentTokenFor_WithoutServerLeavesTheRefusalToTheAgent(t *testing.T) {
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	token, err := enrollmentTokenFor(emptyStateDir(t), "", "", failingReader{t}, io.Discard, true, testCatalog(t), logger)
+	token, err := enrollmentTokenFor(emptyStateDir(t), "", failingReader{t}, io.Discard, true, testCatalog(t))
 	if err != nil || token != "" {
 		t.Fatalf("token %q, err %v", token, err)
 	}
 }
 
-func TestEnrollmentTokenFor_KeepsTheDeprecatedFlagAndWarns(t *testing.T) {
-	var logs bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	text := testCatalog(t)
-	token, err := enrollmentTokenFor(emptyStateDir(t), "https://opencloud.example.org", "oc_fromflag", failingReader{t}, io.Discard, true, text, logger)
-	if err != nil || token != "oc_fromflag" {
-		t.Fatalf("token %q, err %v", token, err)
+func TestRunAgent_RefusesTheTokenFlag(t *testing.T) {
+	stateDir := t.TempDir()
+	for _, args := range [][]string{
+		{"-server", "https://opencloud.example.org", "-token", "oc_fromflag"},
+		{"-token=", "-server", "https://opencloud.example.org"},
+	} {
+		err := runAgent(append(args, "-state", stateDir))
+		var refused *refusal
+		if !errors.As(err, &refused) || refused.message != testCatalog(t).Get("agent.token_flag_refused") {
+			t.Fatalf("%v: got %v, want the -token refusal", args, err)
+		}
+		if strings.Contains(refused.message, "oc_fromflag") {
+			t.Fatal("the refusal must not repeat the token")
+		}
 	}
-	if !strings.Contains(logs.String(), `"level":"WARN"`) || !strings.Contains(logs.String(), "ps") {
-		t.Fatalf("the flag must be warned about: %q", logs.String())
-	}
-	if strings.Contains(logs.String(), "oc_fromflag") {
-		t.Fatal("the warning must not repeat the token")
+	if entries, err := os.ReadDir(stateDir); err != nil || len(entries) != 0 {
+		t.Fatalf("a refused start must write nothing: %v, %v", entries, err)
 	}
 }
 

@@ -111,13 +111,6 @@ func (c *challenges) markUsed(challenge []byte, now time.Time) bool {
 	return true
 }
 
-// size sert aux tests.
-func (c *challenges) size() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.used)
-}
-
 // sweep oublie les défis utilisés qui ont expiré : valid les refuse de toute
 // façon, il n'y a plus de rejeu à empêcher.
 func (c *challenges) sweep(now time.Time) {
