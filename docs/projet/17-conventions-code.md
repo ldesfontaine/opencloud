@@ -11,6 +11,7 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 ```
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
+internal/agentwire/          # le protocole agent ↔ serveur : en-têtes, corps JSON, sections du signal (types seulement)
 internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
 internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron

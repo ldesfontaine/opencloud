@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
@@ -90,7 +90,7 @@ func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 // bornes elles-mêmes se testent dans agentapi.
 func TestAgentChallenge_IsLimitedOnTheResolvedAddress(t *testing.T) {
 	server := newTestServer(t)
-	unknown := machine.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
+	unknown := agentwire.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
 	refused := false
 	for range 100 {
 		got := postJSON(server.Server, "/agent/challenge", unknown)

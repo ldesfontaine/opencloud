@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -165,8 +166,8 @@ func verifyPin(certificate *x509.Certificate, expected []byte) error {
 	return nil
 }
 
-func (c *Client) Enroll(ctx context.Context, identity Identity, token string, info hostinfo.Info) (machine.EnrollResponse, error) {
-	request := machine.EnrollRequest{
+func (c *Client) Enroll(ctx context.Context, identity Identity, token string, info hostinfo.Info) (agentwire.EnrollResponse, error) {
+	request := agentwire.EnrollRequest{
 		MachineID:    identity.MachineID,
 		PublicKey:    base64.StdEncoding.EncodeToString(identity.PublicKey),
 		Token:        token,
@@ -177,16 +178,16 @@ func (c *Client) Enroll(ctx context.Context, identity Identity, token string, in
 
 		HostFingerprint: info.HostFingerprint,
 	}
-	var response machine.EnrollResponse
+	var response agentwire.EnrollResponse
 	if err := c.postJSON(ctx, "/agent/enroll", request, &response); err != nil {
-		return machine.EnrollResponse{}, fmt.Errorf("enroll: %w", err)
+		return agentwire.EnrollResponse{}, fmt.Errorf("enroll: %w", err)
 	}
 	return response, nil
 }
 
 func (c *Client) challenge(ctx context.Context, machineID string) ([]byte, error) {
-	var response machine.ChallengeResponse
-	if err := c.postJSON(ctx, "/agent/challenge", machine.ChallengeRequest{MachineID: machineID}, &response); err != nil {
+	var response agentwire.ChallengeResponse
+	if err := c.postJSON(ctx, "/agent/challenge", agentwire.ChallengeRequest{MachineID: machineID}, &response); err != nil {
 		return nil, fmt.Errorf("challenge: %w", err)
 	}
 	nonce, err := base64.StdEncoding.DecodeString(response.Nonce)
@@ -222,18 +223,18 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set(machine.HeaderMachine, identity.MachineID)
-	request.Header.Set(machine.HeaderNonce, base64.StdEncoding.EncodeToString(nonce))
-	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
-	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
-	request.Header.Set(machine.HeaderAgentVersion, c.version)
+	request.Header.Set(agentwire.HeaderMachine, identity.MachineID)
+	request.Header.Set(agentwire.HeaderNonce, base64.StdEncoding.EncodeToString(nonce))
+	request.Header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(timestamp, 10))
+	request.Header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(identity.sign(payload)))
+	request.Header.Set(agentwire.HeaderAgentVersion, c.version)
 	// Un système au nom hors ASCII ne passe pas dans un en-tête : il reste
 	// celui de l'enrôlement.
 	if machine.IsSystemName(c.system) {
-		request.Header.Set(machine.HeaderAgentOS, c.system)
+		request.Header.Set(agentwire.HeaderAgentOS, c.system)
 	}
 	if c.hostFingerprint != "" {
-		request.Header.Set(machine.HeaderHostFingerprint, c.hostFingerprint)
+		request.Header.Set(agentwire.HeaderHostFingerprint, c.hostFingerprint)
 	}
 	request.Header.Set("Accept", "text/event-stream")
 
@@ -281,7 +282,7 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 	defer cancel()
 	var body io.Reader
 	if len(readings) > 0 || report != nil || checked != nil || images != nil {
-		content, err := json.Marshal(machine.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
+		content, err := json.Marshal(agentwire.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +293,7 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+session)
-	request.Header.Set(machine.HeaderSignalSections, "1")
+	request.Header.Set(agentwire.HeaderSignalSections, "1")
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
@@ -305,7 +306,7 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 	case http.StatusNoContent:
 		return nil, nil
 	case http.StatusOK:
-		var answer machine.SignalResponse
+		var answer agentwire.SignalResponse
 		if err := json.NewDecoder(io.LimitReader(response.Body, maxErrorBody)).Decode(&answer); err != nil {
 			return nil, fmt.Errorf("decode signal answer: %w", err)
 		}

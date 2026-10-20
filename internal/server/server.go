@@ -457,9 +457,7 @@ func (s *Server) Command(machineID, name string, payload any) error {
 		return container.ErrMachineOffline
 	}
 	if errors.Is(err, machine.ErrBusy) {
-		// Les sondes lisent leur propre sentinelle : elles n'importent pas
-		// machine, qui les importe.
-		return fmt.Errorf("command %s: %w: %w", name, machine.ErrBusy, probe.ErrCommandBusy)
+		return fmt.Errorf("command %s: %w", name, err)
 	}
 	return err
 }

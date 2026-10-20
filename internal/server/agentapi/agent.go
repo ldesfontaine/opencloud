@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -46,7 +47,7 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
-	var request machine.EnrollRequest
+	var request agentwire.EnrollRequest
 	if !h.readJSON(w, r, &request) {
 		return
 	}
@@ -71,7 +72,7 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		h.writeEnrollError(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusCreated, machine.EnrollResponse{MachineID: enrolled.ID, Name: enrolled.Name})
+	h.writeJSON(w, http.StatusCreated, agentwire.EnrollResponse{MachineID: enrolled.ID, Name: enrolled.Name})
 }
 
 func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err error) {
@@ -100,7 +101,7 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
-	var request machine.ChallengeRequest
+	var request agentwire.ChallengeRequest
 	if !h.readJSON(w, r, &request) {
 		return
 	}
@@ -114,7 +115,7 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, machine.ChallengeResponse{Nonce: base64.StdEncoding.EncodeToString(nonce)})
+	h.writeJSON(w, http.StatusOK, agentwire.ChallengeResponse{Nonce: base64.StdEncoding.EncodeToString(nonce)})
 }
 
 // Le flux d'une machine : la preuve est vérifiée, la session ouverte, puis
@@ -134,17 +135,17 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	// Le système que l'agent redit : s'il ne s'écrit pas, le flux s'ouvre
 	// quand même, sur celui de l'enrôlement.
-	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(machine.HeaderAgentOS)); err != nil {
+	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(agentwire.HeaderAgentOS)); err != nil {
 		h.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
 	}
-	session, err := h.machines.Connect(r.Context(), authenticated.ID, h.clientAddress(r), r.Header.Get(machine.HeaderAgentVersion))
+	session, err := h.machines.Connect(r.Context(), authenticated.ID, h.clientAddress(r), r.Header.Get(agentwire.HeaderAgentVersion))
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	defer h.machines.Disconnect(session)
-	h.machines.WarnIfOpenCloudHost(authenticated, r.Header.Get(machine.HeaderHostFingerprint))
+	h.machines.WarnIfOpenCloudHost(authenticated, r.Header.Get(agentwire.HeaderHostFingerprint))
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine et
 	// les images à ne pas interroger : les commandes attendent dans la
 	// file que la boucle ci-dessous va lire.
@@ -230,7 +231,7 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
 	}
-	var request machine.SignalRequest
+	var request agentwire.SignalRequest
 	if r.ContentLength != 0 {
 		body := http.MaxBytesReader(w, r.Body, maxSignalBody)
 		if err := json.NewDecoder(body).Decode(&request); err != nil {
@@ -256,19 +257,19 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, "internal")
 	case len(rejected) == 0:
 		w.WriteHeader(http.StatusNoContent)
-	case r.Header.Get(machine.HeaderSignalSections) == "":
+	case r.Header.Get(agentwire.HeaderSignalSections) == "":
 		// Un agent plus vieux ne connaît que le refus global : il jette son
 		// lot, ce qui a été accepté est déjà écrit.
 		h.writeError(w, http.StatusBadRequest, firstRejected(rejected))
 	default:
-		h.writeJSON(w, http.StatusOK, machine.SignalResponse{Rejected: rejected})
+		h.writeJSON(w, http.StatusOK, agentwire.SignalResponse{Rejected: rejected})
 	}
 }
 
 // recordSignal écrit chaque section indépendamment. Il rend les sections
 // refusées avec leur clé, et dit si une écriture a échoué pour une raison
 // qui n'est pas un refus.
-func (h *Handler) recordSignal(r *http.Request, machineID string, request machine.SignalRequest) (map[string]string, bool) {
+func (h *Handler) recordSignal(r *http.Request, machineID string, request agentwire.SignalRequest) (map[string]string, bool) {
 	ctx := r.Context()
 	rejected := map[string]string{}
 	failed := false
@@ -279,23 +280,23 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request machin
 		for _, refusal := range refusals {
 			if errors.Is(err, refusal) {
 				h.logger.Warn("signal section refused", "machine_id", machineID, "section", section, "error", err)
-				rejected[section] = machine.SectionRefusal(section)
+				rejected[section] = agentwire.SectionRefusal(section)
 				return
 			}
 		}
 		h.logger.Error("record "+section, "machine_id", machineID, "error", err)
 		failed = true
 	}
-	keep(machine.SectionReadings, h.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
+	keep(agentwire.SectionReadings, h.resources.Record(ctx, machineID, request.Readings), resource.ErrReadingInvalid, resource.ErrTooManyReadings)
 	// Un agent plus vieux n'envoie pas toutes les sections : rien à écrire.
 	if request.Services != nil {
-		keep(machine.SectionServices, h.containers.Record(ctx, machineID, *request.Services), container.ErrReportInvalid)
+		keep(agentwire.SectionServices, h.containers.Record(ctx, machineID, *request.Services), container.ErrReportInvalid)
 	}
 	if request.Probes != nil {
-		keep(machine.SectionProbes, h.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
+		keep(agentwire.SectionProbes, h.probes.Record(ctx, machineID, *request.Probes), probe.ErrReportInvalid)
 	}
 	if request.Images != nil {
-		keep(machine.SectionImages, h.updates.Record(ctx, machineID, *request.Images), update.ErrReportInvalid)
+		keep(agentwire.SectionImages, h.updates.Record(ctx, machineID, *request.Images), update.ErrReportInvalid)
 	}
 	return rejected, failed
 }
@@ -303,7 +304,7 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request machin
 // firstRejected rend la clé de la première section refusée, dans l'ordre
 // où l'ancien serveur les lisait.
 func firstRejected(rejected map[string]string) string {
-	for _, section := range machine.SignalSections() {
+	for _, section := range agentwire.SignalSections() {
 		if code, ok := rejected[section]; ok {
 			return code
 		}
@@ -342,20 +343,20 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 }
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {
-	nonce, err := base64.StdEncoding.DecodeString(r.Header.Get(machine.HeaderNonce))
+	nonce, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderNonce))
 	if err != nil {
 		return machine.Proof{}, fmt.Errorf("decode nonce: %w", err)
 	}
-	signature, err := base64.StdEncoding.DecodeString(r.Header.Get(machine.HeaderSignature))
+	signature, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderSignature))
 	if err != nil {
 		return machine.Proof{}, fmt.Errorf("decode signature: %w", err)
 	}
-	timestamp, err := strconv.ParseInt(r.Header.Get(machine.HeaderTimestamp), 10, 64)
+	timestamp, err := strconv.ParseInt(r.Header.Get(agentwire.HeaderTimestamp), 10, 64)
 	if err != nil {
 		return machine.Proof{}, fmt.Errorf("parse timestamp: %w", err)
 	}
 	return machine.Proof{
-		MachineID: r.Header.Get(machine.HeaderMachine),
+		MachineID: r.Header.Get(agentwire.HeaderMachine),
 		Nonce:     nonce,
 		Timestamp: timestamp,
 		Signature: signature,

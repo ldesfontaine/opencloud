@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -91,7 +92,7 @@ func Enroll(t *testing.T, machines *machine.Service, name, id string) (machine.M
 // par défaut des requêtes de test.
 func RequestChallenge(t *testing.T, handler http.Handler, machineID, source string) string {
 	t.Helper()
-	body, _ := json.Marshal(machine.ChallengeRequest{MachineID: machineID})
+	body, _ := json.Marshal(agentwire.ChallengeRequest{MachineID: machineID})
 	request := httptest.NewRequest(http.MethodPost, "/agent/challenge", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	if source != "" {
@@ -102,7 +103,7 @@ func RequestChallenge(t *testing.T, handler http.Handler, machineID, source stri
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("challenge: %d %s", recorder.Code, recorder.Body.String())
 	}
-	var response machine.ChallengeResponse
+	var response agentwire.ChallengeResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
@@ -122,11 +123,11 @@ func SignedStreamRequest(t *testing.T, url, machineID string, private ed25519.Pr
 		t.Fatal(err)
 	}
 	request, _ := http.NewRequest(http.MethodGet, url+"/agent/stream", nil)
-	request.Header.Set(machine.HeaderMachine, machineID)
-	request.Header.Set(machine.HeaderNonce, challenge)
-	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(Now().Unix(), 10))
-	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(machine.Sign(private, payload)))
-	request.Header.Set(machine.HeaderAgentVersion, "v0.0.2")
+	request.Header.Set(agentwire.HeaderMachine, machineID)
+	request.Header.Set(agentwire.HeaderNonce, challenge)
+	request.Header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(Now().Unix(), 10))
+	request.Header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(machine.Sign(private, payload)))
+	request.Header.Set(agentwire.HeaderAgentVersion, "v0.0.2")
 	return request
 }
 

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
@@ -42,7 +43,7 @@ func TestAgentEnroll_OnTheOpenCloudMachine_IsRefusedAndKeepsTheToken(t *testing.
 		t.Fatal(err)
 	}
 	public, _, _ := ed25519.GenerateKey(nil)
-	request := machine.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "opencloud", HostFingerprint: "f00d"}
+	request := agentwire.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "opencloud", HostFingerprint: "f00d"}
 
 	refused := server.postJSON("/agent/enroll", request)
 	if refused.Code != http.StatusConflict || !strings.Contains(refused.Body.String(), "machine_is_opencloud") {
@@ -61,13 +62,13 @@ func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	public, _, _ := ed25519.GenerateKey(nil)
-	request := machine.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "vps", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1"}
+	request := agentwire.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "vps", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1"}
 
 	recorder := server.postJSON("/agent/enroll", request)
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
 	}
-	var response machine.EnrollResponse
+	var response agentwire.EnrollResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.MachineID != remoteID || response.Name != "vps-paris-1" {
 		t.Fatalf("response %s", recorder.Body.String())
 	}
@@ -77,14 +78,14 @@ func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		mutate func(*machine.EnrollRequest)
+		mutate func(*agentwire.EnrollRequest)
 		status int
 		code   string
 	}{
-		"consumed": {func(*machine.EnrollRequest) {}, http.StatusConflict, "token_consumed"},
-		"unknown":  {func(r *machine.EnrollRequest) { r.Token = "oc_nope" }, http.StatusNotFound, "token_not_found"},
-		"bad key":  {func(r *machine.EnrollRequest) { r.PublicKey = "AAAA" }, http.StatusBadRequest, "bad_request"},
-		"bad id":   {func(r *machine.EnrollRequest) { r.MachineID = "local" }, http.StatusBadRequest, "bad_request"},
+		"consumed": {func(*agentwire.EnrollRequest) {}, http.StatusConflict, "token_consumed"},
+		"unknown":  {func(r *agentwire.EnrollRequest) { r.Token = "oc_nope" }, http.StatusNotFound, "token_not_found"},
+		"bad key":  {func(r *agentwire.EnrollRequest) { r.PublicKey = "AAAA" }, http.StatusBadRequest, "bad_request"},
+		"bad id":   {func(r *agentwire.EnrollRequest) { r.MachineID = "local" }, http.StatusBadRequest, "bad_request"},
 	}
 	for name, tc := range cases {
 		again := request
@@ -100,16 +101,16 @@ func TestAgentStream_RefusesABadProof(t *testing.T) {
 	server := newBench(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	request := httptest.NewRequest(http.MethodGet, "/agent/stream", nil)
-	request.Header.Set(machine.HeaderMachine, remoteID)
-	request.Header.Set(machine.HeaderNonce, base64.StdEncoding.EncodeToString(make([]byte, machine.NonceSize)))
-	request.Header.Set(machine.HeaderTimestamp, strconv.FormatInt(testNow.Unix(), 10))
-	request.Header.Set(machine.HeaderSignature, base64.StdEncoding.EncodeToString(make([]byte, 64)))
+	request.Header.Set(agentwire.HeaderMachine, remoteID)
+	request.Header.Set(agentwire.HeaderNonce, base64.StdEncoding.EncodeToString(make([]byte, machine.NonceSize)))
+	request.Header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(testNow.Unix(), 10))
+	request.Header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(make([]byte, 64)))
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d %s", recorder.Code, recorder.Body.String())
 	}
-	if got := server.postJSON("/agent/challenge", machine.ChallengeRequest{MachineID: "local"}); got.Code != http.StatusNotFound {
+	if got := server.postJSON("/agent/challenge", agentwire.ChallengeRequest{MachineID: "local"}); got.Code != http.StatusNotFound {
 		t.Fatalf("challenge for the local machine: %d", got.Code)
 	}
 }
@@ -168,7 +169,7 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 		return recorder
 	}
 	readings := []sampler.Reading{reading(testNow.Add(-10*time.Second), 42)}
-	if got := signal(machine.SignalRequest{Readings: readings}); got.Code != http.StatusNoContent {
+	if got := signal(agentwire.SignalRequest{Readings: readings}); got.Code != http.StatusNoContent {
 		t.Fatalf("signal with readings: %d %s", got.Code, got.Body.String())
 	}
 	current, err := server.resources.Current(context.Background(), remoteID)
@@ -176,7 +177,7 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 		t.Fatalf("recorded %+v %v", current, err)
 	}
 	bad := []sampler.Reading{reading(testNow, 250)}
-	if got := signal(machine.SignalRequest{Readings: bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
+	if got := signal(agentwire.SignalRequest{Readings: bad}); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "bad_readings") {
 		t.Fatalf("bad readings: %d %s", got.Code, got.Body.String())
 	}
 	if got := signal(nil); got.Code != http.StatusNoContent {
@@ -192,7 +193,7 @@ func TestAgentSignal_CarriesReadingsAndRefusesBadOnes(t *testing.T) {
 // remplisse la table des défis. Une autre adresse passe encore.
 func TestAgentChallenge_IsRateLimitedBySource(t *testing.T) {
 	server := newBench(t)
-	unknown := machine.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
+	unknown := agentwire.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
 	for i := range challengePerSourceBurst {
 		if got := server.postJSON("/agent/challenge", unknown); got.Code != http.StatusNotFound {
 			t.Fatalf("request %d: %d", i+1, got.Code)
