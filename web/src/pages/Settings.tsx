@@ -510,13 +510,16 @@ function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => setText(state.redirect_uris.join("\n")), [state.redirect_uris]);
+  // Les adresses se lisent une fois, à l'ouverture : une relecture ne doit
+  // pas écraser ce que l'opérateur est en train de taper.
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setSaved(false);
     saveRedirectURIs(redirectLines(text))
-      .then(() => {
+      .then((kept) => {
+        // La zone reprend les adresses gardées (lignes vides et espaces retirés).
+        setText(kept.redirect_uris.join("\n"));
         setError(null);
         setSaved(true);
         reload();
