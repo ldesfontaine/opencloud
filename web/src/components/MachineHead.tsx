@@ -4,7 +4,7 @@ import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
 import { machineTabs } from "../lib/machineTabs";
-import { seenAgo } from "../lib/time";
+import { machineSeen } from "../lib/machines";
 import { Select } from "./Field";
 import { OnlinePill } from "./Pill";
 import { TabNav } from "./TabNav";
@@ -44,7 +44,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
             {t("machine.agent")} <span className="mono">{current.agent_version}</span>
           </span>
           <span className="sep" />
-          <span>{seenAgo(t, current.last_seen_at, now)}</span>
+          <span>{machineSeen(t, current, now)}</span>
         </span>
       </span>
     </div>
