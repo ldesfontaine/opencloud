@@ -514,7 +514,7 @@ la table ; ils partiront avec la revue des alertes).
    plus que la borne, et le reste fait la ligne suivante. Un lot n'est
    accepté que
    de la machine à qui la requête a été poussée, et ne compte pas comme
-   signe de vie : seul le signal publie `machines`. L'onglet fermé, le
+   signe de vie : seul le signal en est un. L'onglet fermé, le
    serveur pousse `logs_stop`. Quatre suivis par machine ; seize lectures
    en tout, suivis, tirages uniques et `get_container_logs` confondus ;
    au-delà, refusé avec la clé du catalogue. Une file de commandes pleine
@@ -1622,7 +1622,9 @@ choisit pas —, en clair ou en sombre selon son système.
    de conteneur, d'image ou de sonde, une cible, une adresse, un port.
 7. **Le direct public** est un second bus, à part des onglets de
    l'administration, qui ne porte que « status ». Le composant statut
-   écoute le bus interne : à chaque sujet, il relit son instantané public
+   écoute le bus interne : à chaque sujet qui touche un membre d'un
+   composant (`machines`, `directory`, `containers`, `jobs`, `probes` ;
+   jamais `resources`, `alerts` ni le sien), et toutes les 30 s, il relit son instantané public
    et ne publie **que si quelque chose de visible a changé** — vingt sondes
    à la minute ne font pas relire vingt fois chaque visiteur. Le même
    sujet part sur le bus interne pour l'administration. Relecture à la
@@ -2226,24 +2228,41 @@ faits identiques à l'API par construction.
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource`, `container`, `update`,
-   `lifecycle`, `probe`, `status`, `alert`, `directory` et `manifest`
-   publient sur le bus interne (`internal/live`), par leur `Watcher`, à chaque
-   changement visible : jeton, enrôlement, connexion, signal, déconnexion,
-   retrait ; création, ping, échéance dépassée, pause, reprise,
-   suppression ; lot de mesures écrit ; rapport de conteneurs ou de réseaux
-   écrit ; constat d'image écrit, politique changée ou lecture de la fin de
-   support, sur le sujet des conteneurs ; essais de sondes écrits ;
-   instantané public changé ; alerte ouverte, aggravée, acquittée, résolue,
-   canal ou silence changé ; service ou projet déclaré créé, modifié ou
-   supprimé, fichier de l'annuaire appliqué. Le bus ne porte que huit
-   sujets, `machines`, `jobs`, `resources`, `containers`, `probes`, `status`,
-   `alerts` et `directory`.
-3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
-   avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
-   voyage dans le flux.
-4. Un onglet lent voit ses sujets fusionnés : cent signaux non lus font un
-   seul `machines`. Rien ne se perd, rien ne s'accumule.
+2. Les composants publient sur le bus interne (`internal/live`), par leur
+   `Watcher`, **seulement ce que l'écran montre** ; huit sujets, rien
+   d'autre :
+
+   | Sujet | Publié par | Quand |
+   | --- | --- | --- |
+   | `machines` | `machine` | jeton émis ou annulé, enrôlement, connexion (passage en ligne ; système et version d'agent sont notés à ce moment), déconnexion (hors ligne), retrait. **Pas le signal des 30 s** : il ne bouge que le dernier signal |
+   | `jobs` | `heartbeat` | création, ping, échéance dépassée, pause, reprise, suppression |
+   | `resources` | `resource` | lot de mesures écrit (toutes les 30 s par agent, toutes les 10 s pour la machine openCloud), **au plus une fois par 30 s pour tout le bus** (`live.ResourcesEvery`) : le lot suivant attend la fin de la fenêtre, il n'est jamais perdu |
+   | `containers` | `container`, `update`, `lifecycle` | rapport de conteneurs ou de réseaux écrit ; constat d'image, politique changée ; lecture de la fin de support |
+   | `probes` | `probe` | essais écrits ; sonde créée, modifiée, mise en pause ou reprise, supprimée |
+   | `status` | `status` | instantané public changé (empreinte de ce que le visiteur voit) |
+   | `alerts` | `alert` | alerte ouverte, aggravée, acquittée, résolue ; canal ou silence changé |
+   | `directory` | `directory`, `manifest` | service ou projet déclaré créé, modifié, supprimé ; fichier de l'annuaire appliqué |
+
+3. Chaque onglet reçoit le sujet, et le front relit les ressources dont le
+   chemin porte ce sujet (`topicsOf`, `web/src/api/refresh.tsx`). Rien
+   d'autre ne voyage dans le flux : ni identifiant, ni version.
+
+   | Ce que l'onglet lit | Relu sur |
+   | --- | --- |
+   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités) ; **jamais** `resources` |
+   | `/api/resources`, `…/resources…` | `resources` |
+   | `/api/machines…` | `machines` |
+   | une liste ou une fiche d'un autre domaine | son sujet (l'écart et la fiche d'un conteneur suivent aussi `directory`) |
+   | `/api/settings/lifecycle` | `containers`, où la lecture de la fin de support publie |
+   | `/api/auth`, les autres réglages, `/api/mcp`, tout chemin inconnu | **aucun sujet** : relus à la demande de la page, ou quand tout se relit (reconnexion, action qui touche tout) |
+
+   Une machine en ligne se lit « vue à l'instant » : son flux est ouvert, et
+   la liste n'est plus republiée à chaque signal. Dix machines au repos
+   (aucun essai de sonde, aucun conteneur qui change) ne publient que
+   `resources`, deux fois par minute ; un onglet sur la vue d'ensemble relit
+   alors `/api/resources` deux fois par minute, rien d'autre.
+4. Un onglet lent voit ses sujets fusionnés : cent lots non lus font un
+   seul sujet. Rien ne se perd, rien ne s'accumule.
 5. Connexion coupée : le navigateur revient seul après 5 s avec
    `Last-Event-ID` ; le serveur répond `reconnected` et le front relit tout.
    **Rien n'est rejoué** : ce qui s'est passé pendant la coupure se voit au

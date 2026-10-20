@@ -54,7 +54,8 @@ type Presence interface {
 }
 
 // Watcher reçoit chaque changement qui se voit dans l'interface : une
-// machine qui entre, se connecte, signale, part ; un jeton émis ou annulé.
+// machine qui entre, se connecte, part ; un jeton émis ou annulé. Le
+// signal des 30 s n'en est pas un.
 // Le direct s'y branche ; nil est toléré.
 type Watcher interface {
 	MachineChanged(machineID string)
@@ -477,7 +478,10 @@ func (s *Service) Disconnect(session *Session) {
 
 // Signal note qu'une machine dont le flux est ouvert vient de donner signe
 // de vie, et rend son identifiant : ce que le signal porte avec lui, les
-// échantillons de ressources, s'écrit à ce nom.
+// échantillons de ressources, s'écrit à ce nom. Il ne publie rien : un
+// signal n'arrive que sur un flux ouvert, la machine est déjà en ligne et
+// Connect l'a dit, avec son système et sa version ; seul le dernier signal
+// bouge, et l'écran n'en a pas besoin en direct.
 func (s *Service) Signal(ctx context.Context, sessionToken string) (string, error) {
 	session, ok := s.sessions.Lookup(sessionToken)
 	if !ok {
@@ -486,7 +490,6 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) (string, erro
 	if err := s.store.TouchMachine(ctx, session.MachineID, s.now()); err != nil {
 		return "", err
 	}
-	s.changed(session.MachineID)
 	return session.MachineID, nil
 }
 

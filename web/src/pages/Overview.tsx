@@ -15,8 +15,7 @@ import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { daysUntil } from "../lib/certificates";
-import { machinesSubtitle } from "../lib/machines";
-import { seenAgo } from "../lib/time";
+import { machineSeen, machinesSubtitle } from "../lib/machines";
 import { AlertRow } from "./alerts/AlertRow";
 import "./Overview.scss";
 
@@ -184,7 +183,7 @@ export function Overview() {
                     <MachineMeters current={currentOf(machine.id)} />
                     <div className="kv">
                       <span className="k">{machine.os}</span>
-                      <span className="secondary">{seenAgo(t, machine.last_seen_at, now)}</span>
+                      <span className="secondary">{machineSeen(t, machine, now)}</span>
                     </div>
                   </div>
                 </Link>
