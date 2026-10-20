@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	TokenLifetime    = 24 * time.Hour
+	TokenLifetime    = time.Hour
 	maxClockSkew     = 5 * time.Minute
 	localMachineName = brand.LocalMachineName
 	// Une machine sans flux est perdue passé ce délai depuis son dernier

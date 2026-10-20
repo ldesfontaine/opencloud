@@ -22,7 +22,7 @@ func (b *bench) bareSignal(session string) *httptest.ResponseRecorder {
 func TestAgentSignal_IsRateLimitedPerMachine(t *testing.T) {
 	server := newBench(t)
 	clock := testNow
-	server.handler.signalLimits.setClock(func() time.Time { return clock })
+	server.handler.signalLimit.SetClock(func() time.Time { return clock })
 	first, firstKey := server.enroll(t, "vps-paris-1", remoteID)
 	resp, session, _, cancel := server.openStream(t, first.ID, firstKey)
 	defer resp.Body.Close()
@@ -62,7 +62,7 @@ func TestAgentSignal_UnknownSession_IsNeverThrottledNorCounted(t *testing.T) {
 			t.Fatalf("unknown session: %d", got.Code)
 		}
 	}
-	if size := server.handler.signalLimits.byMachine.Size(); size != 0 {
+	if size := server.handler.signalLimit.Size(); size != 0 {
 		t.Fatalf("buckets = %d", size)
 	}
 }

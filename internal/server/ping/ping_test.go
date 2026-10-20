@@ -155,7 +155,7 @@ func TestPing_OversizedToken_IsRefusedWithoutPerTokenState(t *testing.T) {
 			t.Fatalf("ping %d: status %d, want 404", i+1, got.Code)
 		}
 	}
-	if size := server.handler.limits.byToken.Size(); size != 0 {
+	if size := server.handler.tokenLimit.Size(); size != 0 {
 		t.Fatalf("byToken holds %d buckets after oversized tokens", size)
 	}
 	// Le refus coûte quand même un jeton de la source : le flot s'arrête.
@@ -170,7 +170,7 @@ func TestPing_TokenAtTheLimit_IsLookedUpLikeAnyOther(t *testing.T) {
 	if got := server.send(http.MethodGet, path, "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("status %d", got.Code)
 	}
-	if size := server.handler.limits.byToken.Size(); size != 1 {
+	if size := server.handler.tokenLimit.Size(); size != 1 {
 		t.Fatalf("byToken holds %d buckets, want 1", size)
 	}
 }
@@ -185,17 +185,17 @@ func TestPing_RealToken_CountsInByToken(t *testing.T) {
 			t.Fatalf("status %d", got.Code)
 		}
 	}
-	if size := server.handler.limits.byToken.Size(); size != 1 {
+	if size := server.handler.tokenLimit.Size(); size != 1 {
 		t.Fatalf("byToken holds %d buckets, want 1", size)
 	}
 	for range pingPerTokenBurst {
-		server.handler.limits.byToken.Allow(job.Token)
+		server.handler.tokenLimit.Allow(job.Token)
 	}
 	// Le seau du jeton en clair n'est pas celui du ping : la clé est l'empreinte.
 	if got := server.send(http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {
 		t.Fatalf("the plaintext token must not be a bucket key: status %d", got.Code)
 	}
-	if size := server.handler.limits.byToken.Size(); size != 2 {
+	if size := server.handler.tokenLimit.Size(); size != 2 {
 		t.Fatalf("byToken holds %d buckets, want 2", size)
 	}
 }

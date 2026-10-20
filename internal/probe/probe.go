@@ -1,8 +1,6 @@
 package probe
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"slices"
 	"strings"
@@ -477,15 +475,4 @@ func (d Definition) Validate() error {
 		return ErrBodyInvalid
 	}
 	return nil
-}
-
-const idBytes = 8
-
-// NewID tire l'identifiant d'une sonde, celui des adresses de l'interface.
-func NewID() (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }

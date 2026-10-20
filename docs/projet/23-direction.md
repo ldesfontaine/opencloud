@@ -161,7 +161,7 @@ issue #146) : l'agent **initie** la connexion, signe un défi, tient un flux
 `logs`, `logs_stop`, `image_checks`, au format `{Name, Payload any}`, dans une
 file de 16 en mémoire ; aucun shell, aucune écriture Docker. Le serveur
 vérifie l'agent ; **l'agent ne vérifie pas le serveur**. Pas de droits :
-chaque agent accepte les quatre commandes. Le jeton d'enrôlement vaut 24 h,
+chaque agent accepte les quatre commandes. Le jeton d'enrôlement vaut 1 h,
 sert une fois. L'agent tourne en root. Machine et agent sont une seule ligne.
 
 **Cible**

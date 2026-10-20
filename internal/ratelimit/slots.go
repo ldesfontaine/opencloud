@@ -42,8 +42,9 @@ func (s *Slots) Taken() int {
 // SourceSlots borne les places qu'une même source tient à la fois, en plus du
 // plafond global : sans elle, une adresse qui ouvre un flux par seconde finit
 // par garder toutes les places du pool, et le limiteur d'ouverture n'y change
-// rien. La clé est celle des limiteurs (SourceKey). Une source sans
-// place prise n'a pas d'entrée : la table ne garde que les flux en cours.
+// rien. La clé est celle de BySource : l'appelant passe l'adresse, Take et
+// Release la normalisent. Une source sans place prise n'a pas d'entrée : la
+// table ne garde que les flux en cours.
 type SourceSlots struct {
 	limit int
 
@@ -55,8 +56,10 @@ func NewSourceSlots(limit int) *SourceSlots {
 	return &SourceSlots{limit: limit, taken: make(map[string]int)}
 }
 
-// Take réserve une place pour cette source ; faux quand elle tient déjà sa part.
-func (s *SourceSlots) Take(source string) bool {
+// Take réserve une place pour cette adresse ; faux quand sa source tient déjà
+// sa part.
+func (s *SourceSlots) Take(address string) bool {
+	source := sourceKey(address)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.taken[source] >= s.limit {
@@ -66,7 +69,8 @@ func (s *SourceSlots) Take(source string) bool {
 	return true
 }
 
-func (s *SourceSlots) Release(source string) {
+func (s *SourceSlots) Release(address string) {
+	source := sourceKey(address)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.taken[source] <= 1 {

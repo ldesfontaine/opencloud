@@ -7,11 +7,11 @@ import "net/netip"
 // donnerait à une seule source autant de seaux pleins qu'elle a d'adresses.
 const ipv6PrefixBits = 64
 
-// SourceKey est la clé de limitation d'une adresse cliente : l'adresse
+// sourceKey est la clé de limitation d'une adresse cliente : l'adresse
 // elle-même en IPv4 (y compris une IPv4 mappée en IPv6), le /64 en IPv6.
 // Une valeur qui n'est pas une adresse reste telle quelle. Elle ne sert
 // qu'à limiter : le journal garde l'adresse complète.
-func SourceKey(address string) string {
+func sourceKey(address string) string {
 	parsed, err := netip.ParseAddr(address)
 	if err != nil {
 		return address

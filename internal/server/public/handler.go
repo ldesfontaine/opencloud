@@ -52,7 +52,9 @@ type Handler struct {
 	live          Live
 	page          func() ([]byte, error)
 	clientAddress func(r *http.Request) string
-	limits        *statusLimits
+	// Les lectures et les ouvertures de flux, chacune son seau par source.
+	readLimit   *ratelimit.BySource
+	streamLimit *ratelimit.BySource
 	// Les visiteurs en direct, et la part de chaque source dans ce pool.
 	tabs         *ratelimit.Slots
 	tabsBySource *ratelimit.SourceSlots
@@ -68,13 +70,15 @@ func New(opts Options) *Handler {
 		live:           opts.Live,
 		page:           opts.Page,
 		clientAddress:  opts.ClientAddress,
-		limits:         newStatusLimits(),
+		readLimit:      ratelimit.NewBySource(statusPerSourceRate, statusPerSourceBurst, statusIdle),
+		streamLimit:    ratelimit.NewBySource(statusStreamRate, statusStreamBurst, statusIdle),
 		tabs:           ratelimit.NewSlots(maxPublicSubscribers),
 		tabsBySource:   ratelimit.NewSourceSlots(maxPublicStreamsPerSource),
 		streamLifetime: maxPublicStreamLifetime,
 	}
 	if opts.Clock != nil {
-		handler.limits.setClock(opts.Clock)
+		handler.readLimit.SetClock(opts.Clock)
+		handler.streamLimit.SetClock(opts.Clock)
 	}
 	return handler
 }

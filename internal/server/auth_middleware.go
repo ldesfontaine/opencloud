@@ -10,13 +10,11 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
-	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -38,8 +36,7 @@ const (
 	// ne repassent plus par ici.
 	authAttemptRate  = 1.0 / 6
 	authAttemptBurst = 10
-	authSweepEvery   = 5 * time.Minute
-	authSweepIdle    = 30 * time.Minute
+	authIdle         = 30 * time.Minute
 )
 
 // Ce que le serveur attend du composant auth.
@@ -80,37 +77,6 @@ func isOperatorRoute(pattern string) bool {
 		}
 	}
 	return true
-}
-
-type authLimits struct {
-	attempts *ratelimit.Limiter
-	now      func() time.Time
-
-	mu        sync.Mutex
-	lastSweep time.Time
-}
-
-func newAuthLimits() *authLimits {
-	return &authLimits{attempts: ratelimit.New(authAttemptRate, authAttemptBurst), now: time.Now}
-}
-
-func (l *authLimits) setClock(now func() time.Time) {
-	l.now = now
-	l.attempts.SetClock(now)
-}
-
-func (l *authLimits) allowAttempt(source string) bool {
-	now := l.now()
-	l.mu.Lock()
-	due := now.Sub(l.lastSweep) >= authSweepEvery
-	if due {
-		l.lastSweep = now
-	}
-	l.mu.Unlock()
-	if due {
-		l.attempts.Sweep(authSweepIdle)
-	}
-	return l.attempts.Allow(ratelimit.SourceKey(source))
 }
 
 // requireOperator relit le mode à chaque requête : la commande de secours
@@ -282,7 +248,7 @@ func (s *Server) checkBasic(w http.ResponseWriter, r *http.Request, state auth.S
 		return true
 	}
 	source := s.clientAddress(r)
-	if !s.authLimits.allowAttempt(source) {
+	if !s.authLimit.Allow(source) {
 		s.logger.Warn("interface authentication rate limited", "source", source)
 		httpx.WriteTooMany(w)
 		return false

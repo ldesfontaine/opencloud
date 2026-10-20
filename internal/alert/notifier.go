@@ -20,6 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/egress"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
+	"github.com/ldesfontaine/opencloud/internal/wait"
 )
 
 const (
@@ -148,7 +149,7 @@ func (n *Notifier) process(ctx context.Context, job Job) {
 	}
 	var outcome Outcome
 	for attempt := 0; attempt < MaxAttempts; attempt++ {
-		if attempt > 0 && !n.wait(ctx, n.backoffs[min(attempt-1, len(n.backoffs)-1)]) {
+		if attempt > 0 && !wait.For(ctx, n.backoffs[min(attempt-1, len(n.backoffs)-1)]) {
 			return
 		}
 		job.Delivery.Attempts++
@@ -160,15 +161,6 @@ func (n *Notifier) process(ctx context.Context, job Job) {
 			"attempt", job.Delivery.Attempts, "reason", string(outcome.Reason), "code", outcome.Code)
 	}
 	n.finish(ctx, job.Delivery, outcome)
-}
-
-func (n *Notifier) wait(ctx context.Context, delay time.Duration) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(delay):
-		return true
-	}
 }
 
 func (n *Notifier) finish(ctx context.Context, delivery Delivery, outcome Outcome) {

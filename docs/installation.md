@@ -560,7 +560,7 @@ Connecté en root sans `sudo` (Debian minimal) : collez la commande sans
 seul demande le jeton (« Jeton d'enrôlement : ») et le lit sur la ligne
 suivante ; il s'affiche à la saisie.
 
-Le jeton sert **une fois** et expire en **24 h**. L'adresse vient de
+Le jeton sert **une fois** et expire en **1 h**. L'adresse vient de
 `public_url` : vérifiez-la avant de coller. `-lang en` s'ajoute si
 l'interface est en anglais.
 
@@ -1010,7 +1010,7 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent : « Adresse refusée : openCloud est en http:// et n'est pas sur cette machine, le jeton passerait en clair. Utilisez https://, ou -allow-plain si le réseau est déjà chiffré (WireGuard). » | `-server http://…` vers une autre machine | `https://`, ou `-allow-plain` sur un réseau chiffré, au premier lancement **et** dans l'unité |
 | Agent, en boucle : `clock skew, reconnecting` avec « L'horloge de cette machine et celle d'openCloud diffèrent de plus de 5 minutes… » ; la machine reste hors ligne | Horloges décalées | `timedatectl set-ntp true` sur les deux machines ; l'agent réessaie seul |
 | Agent : « Jeton refusé : il a déjà servi. Un jeton n'enrôle qu'une machine, créez-en un nouveau. » | Jeton déjà consommé | Un nouveau jeton (Ajouter une machine, ou Ré-enrôler) |
-| Agent : « Jeton refusé : il a expiré. » / « openCloud ne le connaît pas. » | Plus de 24 h, ou jeton annulé, ou mauvais serveur | Un nouveau jeton ; vérifier `-server` |
+| Agent : « Jeton refusé : il a expiré. » / « openCloud ne le connaît pas. » | Plus d'1 h, ou jeton annulé, ou mauvais serveur | Un nouveau jeton ; vérifier `-server` |
 | Agent : « Jeton d'enrôlement absent : envoyez-le sur l'entrée standard… » | Premier lancement avec `-server` mais sans jeton sur l'entrée (lancé par systemd, ou `printf` oublié) | Coller la commande d'installation telle qu'openCloud l'affiche |
 | Agent : « Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud. » | Service lancé avant l'enrôlement, ou `-state` différent | Faire le premier lancement avec le même `-state` |
 | Agent : « openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. » | Machine retirée, ou restauration d'une base plus ancienne | Ré-enrôler |
