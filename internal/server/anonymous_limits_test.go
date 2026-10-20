@@ -43,8 +43,8 @@ func TestLimiters_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
 		burst int
 		allow func(string) bool
 	}{
-		{"mcp", mcpPerSourceBurst, server.mcpLimits.allow},
-		{"mcp token", mcpTokenBurst, server.mcpLimits.allowToken},
+		{"mcp", mcpPerSourceBurst, server.mcpLimit.Allow},
+		{"mcp token", mcpTokenBurst, server.mcpTokenLimit.Allow},
 	}
 	for _, c := range cases {
 		for i := range c.burst {

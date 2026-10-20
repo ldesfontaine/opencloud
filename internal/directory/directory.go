@@ -1,12 +1,11 @@
 package directory
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -84,7 +83,6 @@ const (
 	MaxImageLength     = 512
 	MaxUnits           = 32
 	MaxPorts           = 64
-	idBytes            = 8
 )
 
 var (
@@ -270,11 +268,11 @@ func (e *LinkedError) Unwrap() error {
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis
 // 16 hexadécimaux. Jamais un identifiant Docker.
 func NewID(prefix string) (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
+	id, err := ident.New()
+	if err != nil {
 		return "", err
 	}
-	return prefix + hex.EncodeToString(raw), nil
+	return prefix + id, nil
 }
 
 // unitKindOf : un binaire sous systemd est une unité binaire, tout le reste

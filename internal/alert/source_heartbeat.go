@@ -43,5 +43,5 @@ func (e *Engine) Paused(ctx context.Context, found heartbeat.Heartbeat) {
 }
 
 func (e *Engine) Removed(ctx context.Context, id string) {
-	e.Gone(ctx, Object{Kind: ObjectHeartbeat, ID: id})
+	e.removed(ctx, Object{Kind: ObjectHeartbeat, ID: id})
 }

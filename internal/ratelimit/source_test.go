@@ -16,17 +16,17 @@ func TestSourceKey(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := SourceKey(c.address); got != c.want {
-			t.Errorf("SourceKey(%q) = %q, want %q", c.address, got, c.want)
+		if got := sourceKey(c.address); got != c.want {
+			t.Errorf("sourceKey(%q) = %q, want %q", c.address, got, c.want)
 		}
 	}
 }
 
 func TestSourceKey_ChangesOnlyWithTheSixtyFourBitPrefix(t *testing.T) {
-	if SourceKey("2001:db8:1:2::1") != SourceKey("2001:db8:1:2::2") {
+	if sourceKey("2001:db8:1:2::1") != sourceKey("2001:db8:1:2::2") {
 		t.Fatal("two addresses of one /64 must share a key")
 	}
-	if SourceKey("2001:db8:1:2::1") == SourceKey("2001:db8:1:3::1") {
+	if sourceKey("2001:db8:1:2::1") == sourceKey("2001:db8:1:3::1") {
 		t.Fatal("two /64 must not share a key")
 	}
 }

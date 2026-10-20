@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -69,32 +70,32 @@ type Options struct {
 }
 
 type Handler struct {
-	logger          *slog.Logger
-	machines        MachineService
-	resources       ResourceRecorder
-	containers      ContainerService
-	probes          ProbeService
-	updates         UpdateService
-	clientAddress   func(r *http.Request) string
-	challengeLimits *challengeLimits
-	signalLimits    *signalLimits
+	logger         *slog.Logger
+	machines       MachineService
+	resources      ResourceRecorder
+	containers     ContainerService
+	probes         ProbeService
+	updates        UpdateService
+	clientAddress  func(r *http.Request) string
+	challengeLimit *ratelimit.BySource
+	signalLimit    *ratelimit.Limiter
 }
 
 func New(opts Options) *Handler {
 	handler := &Handler{
-		logger:          opts.Logger,
-		machines:        opts.Machines,
-		resources:       opts.Resources,
-		containers:      opts.Containers,
-		probes:          opts.Probes,
-		updates:         opts.Updates,
-		clientAddress:   opts.ClientAddress,
-		challengeLimits: newChallengeLimits(),
-		signalLimits:    newSignalLimits(),
+		logger:         opts.Logger,
+		machines:       opts.Machines,
+		resources:      opts.Resources,
+		containers:     opts.Containers,
+		probes:         opts.Probes,
+		updates:        opts.Updates,
+		clientAddress:  opts.ClientAddress,
+		challengeLimit: ratelimit.NewBySource(challengePerSourceRate, challengePerSourceBurst, challengeIdle),
+		signalLimit:    ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),
 	}
 	if opts.Clock != nil {
-		handler.challengeLimits.setClock(opts.Clock)
-		handler.signalLimits.setClock(opts.Clock)
+		handler.challengeLimit.SetClock(opts.Clock)
+		handler.signalLimit.SetClock(opts.Clock)
 	}
 	return handler
 }

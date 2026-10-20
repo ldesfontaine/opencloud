@@ -277,8 +277,11 @@ type Server struct {
 	auth       AuthService
 	live       Live
 	logStreams atomic.Int32
-	mcpLimits  *mcpLimits
-	authLimits *authLimits
+	// Les limiteurs de la racine, par source : /mcp et l'autorisation
+	// OAuth, le point de jeton, et les essais d'identifiants Basic.
+	mcpLimit      *ratelimit.BySource
+	mcpTokenLimit *ratelimit.BySource
+	authLimit     *ratelimit.BySource
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -383,8 +386,9 @@ func New(opts Options) (*Server, error) {
 		mcp:            opts.MCP,
 		auth:           opts.Auth,
 		live:           opts.Live,
-		mcpLimits:      newMCPLimits(),
-		authLimits:     newAuthLimits(),
+		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
+		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),
+		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
@@ -395,8 +399,9 @@ func New(opts Options) (*Server, error) {
 		clock:          opts.Clock,
 	}
 	if opts.Clock != nil {
-		server.mcpLimits.setClock(opts.Clock)
-		server.authLimits.setClock(opts.Clock)
+		server.mcpLimit.SetClock(opts.Clock)
+		server.mcpTokenLimit.SetClock(opts.Clock)
+		server.authLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
 		Logger:        opts.Logger,

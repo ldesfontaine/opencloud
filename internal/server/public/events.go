@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/sse"
 )
@@ -15,17 +14,16 @@ import (
 // global, pour qu'un refus ne coûte une place à personne.
 func (h *Handler) serveEvents(w http.ResponseWriter, r *http.Request) {
 	address := h.clientAddress(r)
-	if !h.limits.allowStream(address) {
+	if !h.streamLimit.Allow(address) {
 		httpx.WriteTooMany(w)
 		return
 	}
-	source := ratelimit.SourceKey(address)
-	if !h.tabsBySource.Take(source) {
+	if !h.tabsBySource.Take(address) {
 		h.logger.Warn("public status streams limit reached for this source", "source", address)
 		httpx.WriteTooMany(w)
 		return
 	}
-	defer h.tabsBySource.Release(source)
+	defer h.tabsBySource.Release(address)
 	if !h.tabs.Take() {
 		http.Error(w, "busy", http.StatusServiceUnavailable)
 		return

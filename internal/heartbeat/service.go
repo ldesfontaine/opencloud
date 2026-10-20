@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
 const (
@@ -121,7 +123,9 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 	if err := definition.Validate(); err != nil {
 		return Heartbeat{}, err
 	}
-	id, err := NewID()
+	// L'identifiant des URL de l'interface n'est pas le jeton : la page ne
+	// porte pas le secret.
+	id, err := ident.New()
 	if err != nil {
 		return Heartbeat{}, fmt.Errorf("generate id: %w", err)
 	}

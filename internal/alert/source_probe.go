@@ -39,7 +39,7 @@ func (e *Engine) ProbeChanged(ctx context.Context, found probe.Probe) {
 }
 
 func (e *Engine) ProbeRemoved(ctx context.Context, id string) {
-	e.Gone(ctx, Object{Kind: ObjectProbe, ID: id})
+	e.removed(ctx, Object{Kind: ObjectProbe, ID: id})
 }
 
 // judgeCertificate lit le dernier certificat vu : l'échéance d'un côté,

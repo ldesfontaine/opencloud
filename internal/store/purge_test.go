@@ -61,7 +61,7 @@ func TestPurgeExpiredTokens_DropsTheExpiredUnusedAndKeepsTheValid(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	if err := db.PurgeExpiredTokens(ctx, purgeNow); err != nil {
+	if err := db.PurgeTokens(ctx, purgeNow, purgeNow.Add(-machine.ConsumedTokenRetention)); err != nil {
 		t.Fatal(err)
 	}
 	requireRowIDs(t, rowIDs(t, db, `SELECT id FROM enrollment_tokens ORDER BY id`), "valid")
