@@ -69,8 +69,7 @@ type mcpLifetimesJSON struct {
 }
 
 type mcpToolCountsJSON struct {
-	Reads  int `json:"reads"`
-	Writes int `json:"writes"`
+	Reads int `json:"reads"`
 }
 
 // Le secret ou le jeton en clair, une seule fois.
@@ -125,7 +124,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 			AccessSeconds: int(mcp.AccessTTL.Seconds()), RefreshSeconds: int(mcp.RefreshTTL.Seconds()),
 			APITokenDays: mcp.APITokenDays(), DefaultDays: mcp.DefaultAPITokenDays,
 		},
-		Tools: mcpToolCountsJSON{Reads: mcpReadToolCount, Writes: mcpWriteToolCount},
+		Tools: mcpToolCountsJSON{Reads: mcpReadToolCount},
 	}
 	if !enabled {
 		return response, nil

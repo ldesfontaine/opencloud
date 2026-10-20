@@ -5,14 +5,13 @@ import { Button } from "../../components/Button";
 import { Card, CardBody, CardHeader, Empty, Note } from "../../components/Card";
 import { TokenBox } from "../../components/Copy";
 import { Failure } from "../../components/Failure";
-import { EnumSelect, Field, Input, Select } from "../../components/Field";
+import { Field, Input, Select } from "../../components/Field";
 import { FormActions, FormBody } from "../../components/FormCard";
-import { Pill } from "../../components/Pill";
 import { Table } from "../../components/Table";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
-import { emptyTokenForm, expiryLabel, lifetimeLabel, mcpScopes, tokenRequestOf } from "../../lib/mcp";
+import { emptyTokenForm, expiryLabel, lifetimeLabel, tokenRequestOf } from "../../lib/mcp";
 import { ago, formatClock } from "../../lib/time";
 
 // Les jetons d'API : la liste à révoquer, et le formulaire qui en crée un.
@@ -82,7 +81,6 @@ export function MCPTokensSection({
           <thead>
             <tr>
               <th>{t("mcp.col_token")}</th>
-              <th>{t("mcp.col_scope")}</th>
               <th>{t("mcp.col_created")}</th>
               <th>{t("mcp.col_expires")}</th>
               <th>{t("mcp.col_last_used")}</th>
@@ -94,9 +92,6 @@ export function MCPTokensSection({
               <tr key={token.id}>
                 <td>
                   {token.name} <span className="mono secondary">{token.masked}</span>
-                </td>
-                <td>
-                  <Pill tone={token.scope === "write" ? "warn" : "neutral"}>{t(`mcp.scope_${token.scope}`)}</Pill>
                 </td>
                 <td className="secondary">{formatClock(token.created_at)}</td>
                 <td className="secondary">{expiryLabel(t, token.expires_at, formatClock)}</td>
@@ -119,9 +114,6 @@ export function MCPTokensSection({
         >
           <Field label={t("mcp.token_name_label")} htmlFor="mcp-token-name" help={t("mcp.token_name_help")}>
             <Input id="mcp-token-name" type="text" value={values.name} onChange={(event) => change("name", event.target.value)} maxLength={80} autoComplete="off" required />
-          </Field>
-          <Field label={t("mcp.scope_label")} htmlFor="mcp-token-scope" help={t("mcp.scope_help")}>
-            <EnumSelect id="mcp-token-scope" value={values.scope} values={mcpScopes} labelKey="mcp.scope_" onChange={(scope) => change("scope", scope)} />
           </Field>
           <Field label={t("mcp.lifetime_label")} htmlFor="mcp-token-lifetime" help={t("mcp.lifetime_help")}>
             <Select id="mcp-token-lifetime" value={String(values.days)} onChange={(event) => change("days", Number(event.target.value))}>

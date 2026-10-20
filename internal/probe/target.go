@@ -75,10 +75,24 @@ func validateTarget(kind Kind, target string) error {
 	if err != nil {
 		return err
 	}
+	if targetHasCredentials(kind, target) {
+		return ErrTargetCredentials
+	}
 	if ip := net.ParseIP(address.Host); ip != nil && egress.Forbidden(ip) {
 		return ErrTargetForbidden
 	}
 	return nil
+}
+
+// targetHasCredentials dit si une cible HTTP porte des identifiants
+// (« https://user:mot@hôte ») : openCloud ne sait pas les garder chiffrés, ils
+// finiraient en clair dans la base et dans le fichier de l'annuaire.
+func targetHasCredentials(kind Kind, target string) bool {
+	if kind == KindTCP {
+		return false
+	}
+	parsed, err := url.Parse(target)
+	return err == nil && parsed.User != nil
 }
 
 // TargetPassword est le mot de passe d'une cible « https://user:mot@hôte », ou

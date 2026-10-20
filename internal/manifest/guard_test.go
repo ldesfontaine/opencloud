@@ -196,33 +196,50 @@ func TestApply_CreatedNameTakenMeanwhileIsAStalePlan(t *testing.T) {
 	}
 }
 
-// Un mot de passe de cible qui change seul n'est pas « inchangé » : le plan le
-// dit, sans jamais l'écrire.
-func TestPlan_TargetPasswordChangeIsPlannedAndNeverShown(t *testing.T) {
+// Un fichier qui met des identifiants dans une cible est refusé, comme dans
+// l'interface. Une sonde d'avant le refus qui en porte encore se relit
+// « inchangée » depuis son propre export, et les perd par le fichier : le
+// plan le dit sans jamais montrer le mot de passe.
+func TestPlan_TargetCredentialsAreRefusedAndOldOnesRemovedUnseen(t *testing.T) {
 	b, data := seeded(t)
-	data = replaceOnce(t, data, "target: https://wiki.example.org/healthz", "target: https://u:one@wiki.example.org/healthz")
-	b.apply(t, data, false)
-	if got := b.probeByID(t, "00000000000000c1").Target; got != "https://u:one@wiki.example.org/healthz" {
-		t.Fatalf("setup: %s", got)
+	b.requireRefused(t, replaceOnce(t, data, "target: https://wiki.example.org/healthz", "target: https://u:one@wiki.example.org/healthz"), false, "probe.target_credentials")
+	b.requireRefused(t, replaceOnce(t, data, "heartbeats:\n", `  - name: private-feed
+    runner: opencloud
+    kind: http
+    target: https://reader:one@feed.example.org/status
+heartbeats:
+`), false, "probe.target_credentials")
+
+	legacy := b.probeByID(t, "00000000000000c1")
+	legacy.Target = "https://u:one@wiki.example.org/healthz"
+	if err := b.db.UpdateProbe(context.Background(), probe.Revision{Probe: legacy}); err != nil {
+		t.Fatal(err)
 	}
-	data = replaceOnce(t, data, "https://u:one@", "https://u:two@")
+	exported := string(b.export(t))
+	if !strings.Contains(exported, "https://u:one@") {
+		t.Fatalf("the operator's export keeps the target as stored:\n%s", exported)
+	}
+	if again := b.plan(t, exported, false); !again.Applicable() || len(again.Changes) > 0 {
+		t.Fatalf("an old probe re-read from its own export is unchanged: %v %v", problemKeys(again), changeLabels(again))
+	}
+
 	plan := b.plan(t, data, false)
 	if len(plan.Changes) != 1 || plan.Changes[0].Kind != manifest.KindProbe {
-		t.Fatalf("a password change must be planned: %v", changeLabels(plan))
+		t.Fatalf("removing the credentials must be planned: %v", changeLabels(plan))
 	}
 	change := plan.Changes[0]
 	if !slices.Contains(change.Notes, manifest.NotePasswordChanged) {
 		t.Errorf("the plan must say the password changes: %+v", change.Notes)
 	}
-	if len(change.Fields) != 1 || change.Fields[0].Field != "target" || change.Fields[0].After != "https://u:…@wiki.example.org/healthz" {
+	if len(change.Fields) != 1 || change.Fields[0].Before != "https://u:…@wiki.example.org/healthz" || change.Fields[0].After != "https://wiki.example.org/healthz" {
 		t.Errorf("the target is shown masked: %+v", change.Fields)
 	}
 	applied, _ := b.apply(t, data, false)
 	if applied.State != manifest.ApplyApplied {
 		t.Fatalf("apply: %+v", applied)
 	}
-	if got := b.probeByID(t, "00000000000000c1").Target; got != "https://u:two@wiki.example.org/healthz" {
-		t.Errorf("the password was not written: %s", got)
+	if got := b.probeByID(t, "00000000000000c1").Target; got != "https://wiki.example.org/healthz" {
+		t.Errorf("the credentials were not removed: %s", got)
 	}
 	stored, err := b.manifest.GetApply(context.Background(), applied.ID)
 	if err != nil {
@@ -233,10 +250,8 @@ func TestPlan_TargetPasswordChangeIsPlannedAndNeverShown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, secret := range []string{":one@", ":two@"} {
-			if strings.Contains(string(encoded), secret) || strings.Contains(fmt.Sprintf("%+v", change), secret) {
-				t.Errorf("%s carries a password: %s", name, encoded)
-			}
+		if strings.Contains(string(encoded), ":one@") || strings.Contains(fmt.Sprintf("%+v", change), ":one@") {
+			t.Errorf("%s carries a password: %s", name, encoded)
 		}
 	}
 	if again := b.plan(t, data, false); len(again.Changes) > 0 {

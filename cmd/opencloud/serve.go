@@ -229,6 +229,11 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { access.Watch(ctx) })
 	runLoop(&loops, func() { support.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
+	// Une sonde dont la cible porte des identifiants, d'avant leur refus, ne
+	// repart pas : elle attend que l'opérateur change sa cible.
+	if err := probes.PauseTargetsWithCredentials(ctx); err != nil {
+		logger.Warn("pause probes with credentials", "error", err)
+	}
 	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
 	// la base garde des sondes de cette machine repart dès le démarrage.
 	probes.Assign(ctx, machine.LocalID)
