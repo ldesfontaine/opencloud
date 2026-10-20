@@ -11,9 +11,10 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 ```
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
-internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, page publique, front servi
+internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
 internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron
+internal/server/public/      # la page de statut publique sous /statut : page, instantané, chaînes, direct
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
 migrations/                  # SQL numéroté, embarqué
@@ -27,10 +28,12 @@ dossier, et qu'un humain les cherche là ; le seul Go de `web/` est
 `embed.go`, qui expose `dist/` à `internal/server`. `web/dist` est produit
 par `make front` : il n'est pas versionné, et tout build ou test Go le fait
 d'abord. `internal/server` se découpe par consommateur : l'agent
-(`server/agentapi`) et les pings (`server/ping`) en sont sortis, chacun avec
-ses seules dépendances, son format de réponse et ses limiteurs ; la racine
-garde le montage des routes, la chaîne de middlewares et l'adresse du client,
-qu'elle leur passe en fonction. Un sous-paquet n'importe jamais `server`.
+(`server/agentapi`), les pings (`server/ping`) et la page de statut publique
+(`server/public`) en sont sortis, chacun avec ses seules dépendances, son
+format de réponse et ses limiteurs ; la racine garde le montage des routes, la
+chaîne de middlewares, les en-têtes (la politique de cadre de `/statut` se
+décide par le chemin) et l'adresse du client, qu'elle leur passe en fonction.
+Un sous-paquet n'importe jamais `server`.
 
 **Un package naît avec sa fonctionnalité.** Pas de package vide qui promet.
 Pas de package `util`. Un package = un concept.

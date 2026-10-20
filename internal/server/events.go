@@ -27,19 +27,19 @@ const (
 // les onglets, pas les abonnés du bus : la page de statut y est abonnée
 // aussi, et prendrait sinon une place.
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	if !s.eventTabs.take() {
+	if !s.eventTabs.Take() {
 		s.writeAPIError(w, http.StatusServiceUnavailable, codeBusy)
 		return
 	}
-	defer s.eventTabs.release()
-	s.streamTopics(w, r, s.live)
+	defer s.eventTabs.Release()
+	s.streamTopics(w, r)
 }
 
 // streamTopics tient une connexion SSE sur un bus jusqu'à ce que l'onglet
-// parte ; le direct public et celui de l'administration ont chacun leur
-// bus, la mécanique est la même.
-func (s *Server) streamTopics(w http.ResponseWriter, r *http.Request, bus Live) {
-	subscription := bus.Subscribe()
+// parte. Le direct public (paquet public) a son bus et sa copie de cette
+// boucle, sans le jugement d'authentification.
+func (s *Server) streamTopics(w http.ResponseWriter, r *http.Request) {
+	subscription := s.live.Subscribe()
 	defer subscription.Close()
 
 	w.Header().Set("Content-Type", "text/event-stream")

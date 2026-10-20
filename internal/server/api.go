@@ -20,11 +20,12 @@ type apiError struct {
 }
 
 const (
-	codeNotFound = "not_found"
-	codeBadJSON  = "bad_json"
-	codeInternal = "internal"
-	codeOrigin   = "bad_origin"
-	codeHost     = "bad_host"
+	retryAfterSeconds = "2"
+	codeNotFound      = "not_found"
+	codeBadJSON       = "bad_json"
+	codeInternal      = "internal"
+	codeOrigin        = "bad_origin"
+	codeHost          = "bad_host"
 )
 
 func (s *Server) readAPI(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -69,6 +70,15 @@ func (s *Server) apiRefuse(w http.ResponseWriter, status int, key string) {
 // apiNotFound sert aussi le 404 d'un composant : errors.Is(err, ErrNotFound).
 func (s *Server) apiNotFound(w http.ResponseWriter) {
 	s.writeAPIError(w, http.StatusNotFound, codeNotFound)
+}
+
+// writeTooMany répond 429 à un refus de débit ou de file : un mot, jamais
+// une clé de catalogue. L'attente est la même que pour l'agent, les pings et
+// la page publique.
+func (s *Server) writeTooMany(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", retryAfterSeconds)
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "too many requests", http.StatusTooManyRequests)
 }
 
 // failed répond à l'erreur d'un composant et dit si la réponse est partie :

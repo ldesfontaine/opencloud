@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -126,40 +127,27 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 	}
 }
 
-func TestStatusPublic_CatalogServesOnlyThePageKeysInItsLanguage(t *testing.T) {
-	server := newTestServer(t)
-	if _, err := server.status.SetPage(context.Background(), status.Page{Language: "en"}); err != nil {
-		t.Fatal(err)
-	}
-	recorder := get(server.Server, "/statut/api/i18n")
-	var strings map[string]string
-	decodeAPI(t, recorder, &strings)
-	if len(strings) == 0 || strings["status.state_down"] != "Outage" {
-		t.Fatalf("catalog %v", strings)
-	}
-	for key := range strings {
-		if !hasStatusPrefix(key) {
-			t.Fatalf("key %q is not a public one", key)
-		}
-	}
-}
-
 // Les routes publiques comptent par adresse résolue ; un en-tête forgé
-// n'ouvre pas un seau neuf tant qu'aucun mandataire n'est déclaré.
-func TestStatusPublic_IsRateLimitedBySource(t *testing.T) {
+// n'ouvre pas un seau neuf tant qu'aucun mandataire n'est déclaré. Les
+// chiffres des seaux se testent dans le paquet public ; ici, le montage et
+// l'adresse que la racine lui donne.
+func TestStatusPublic_IsRateLimitedBySourceBehindTheRoot(t *testing.T) {
 	server := newTestServer(t)
-	for i := range statusPerSourceBurst {
+	passed, refused := 0, 0
+	for i := range 100 {
 		request := httptest.NewRequest(http.MethodGet, "/statut/api/status", nil)
-		request.Header.Set("X-Forwarded-For", "203.0.113."+string(rune('0'+i%10)))
+		request.Header.Set("X-Forwarded-For", "203.0.113."+strconv.Itoa(i))
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("request %d: %d", i+1, recorder.Code)
+		switch {
+		case recorder.Code == http.StatusOK:
+			passed++
+		case recorder.Code == http.StatusTooManyRequests && recorder.Header().Get("Retry-After") != "":
+			refused++
 		}
 	}
-	recorder := get(server.Server, "/statut")
-	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") == "" {
-		t.Fatalf("beyond the burst: %d, Retry-After %q", recorder.Code, recorder.Header().Get("Retry-After"))
+	if passed == 0 || refused == 0 || passed+refused != 100 {
+		t.Fatalf("%d passed, %d refused of 100: a burst passes, then a forged X-Forwarded-For must not open a fresh bucket", passed, refused)
 	}
 	if recorder := get(server.Server, "/"); recorder.Code != http.StatusOK {
 		t.Fatalf("the administration shares no bucket with the public: %d", recorder.Code)

@@ -27,6 +27,17 @@ const embeddablePolicy = "default-src 'none'; " +
 	"frame-ancestors *; " +
 	"base-uri 'none'"
 
+// La page de statut publique vit sous /statut (paquet public). Le chemin
+// est connu ici parce que la politique de cadre se décide par lui.
+const statusPath = "/statut"
+
+// isPublicStatusPage dit si le chemin est la page HTML publique, la seule
+// réponse qui relâche frame-ancestors : c'est elle qu'un portail ou une
+// documentation met dans un cadre, jamais son API ni l'administration.
+func isPublicStatusPage(path string) bool {
+	return path == statusPath || path == statusPath+"/"
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		headers := w.Header()

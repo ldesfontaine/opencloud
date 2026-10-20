@@ -65,6 +65,13 @@ type incidentJSON struct {
 	ResolvedAt *time.Time         `json:"resolved_at"`
 }
 
+// Une mise à jour du fil d'un incident, telle que l'opérateur la lit.
+type updateJSON struct {
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type componentRefJSON struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -121,6 +128,12 @@ func componentToJSON(component status.Component) componentJSON {
 		ID: component.ID, Name: component.Name, Position: component.Position, Members: members,
 		Derived: string(component.Derived), Effective: string(component.Effective), CreatedAt: component.CreatedAt.UTC(),
 	}
+}
+
+func updatesToJSON(updates []status.Update) []updateJSON {
+	return convertAll(updates, func(update status.Update) updateJSON {
+		return updateJSON{Status: string(update.Status), Message: update.Message, CreatedAt: update.CreatedAt.UTC()}
+	})
 }
 
 func incidentToJSON(incident status.Incident) incidentJSON {
