@@ -32,6 +32,9 @@ const (
 	statusStreamBurst = 5
 	statusSweepEvery  = 5 * time.Minute
 	statusSweepIdle   = 10 * time.Minute
+	// L'attente dite à un refus de débit ; même valeur que celle de
+	// l'agent et des pings.
+	retryAfterSeconds = "2"
 	// Les visiteurs en direct, à part des onglets de l'administration.
 	maxPublicSubscribers = 256
 	// Ce qu'une même source (une IPv4, un /64 en IPv6) en tient à la fois :

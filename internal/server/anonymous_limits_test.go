@@ -5,110 +5,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 )
-
-// pingFrom joue un ping depuis une adresse de pair donnée.
-func pingFrom(server *Server, peer, path string) int {
-	request := httptest.NewRequest(http.MethodGet, path, nil)
-	request.RemoteAddr = peer
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
-	return recorder.Code
-}
-
-// Un jeton inventé d'un mégaoctet ne laisse rien en mémoire : 404 après la
-// limite par source, sans seau par jeton.
-func TestPing_OversizedToken_IsRefusedWithoutPerTokenState(t *testing.T) {
-	server := newTestServer(t)
-	path := "/ping/hb_" + strings.Repeat("a", 1<<20)
-	for i := range pingPerSourceBurst {
-		if got := ping(server.Server, http.MethodGet, path, "", ""); got.Code != http.StatusNotFound {
-			t.Fatalf("ping %d: status %d, want 404", i+1, got.Code)
-		}
-	}
-	if size := server.pingLimits.byToken.Size(); size != 0 {
-		t.Fatalf("byToken holds %d buckets after oversized tokens", size)
-	}
-	// Le refus coûte quand même un jeton de la source : le flot s'arrête.
-	if got := ping(server.Server, http.MethodGet, path, "", ""); got.Code != http.StatusTooManyRequests {
-		t.Fatalf("after the source burst: status %d, want 429", got.Code)
-	}
-}
-
-func TestPing_TokenAtTheLimit_IsLookedUpLikeAnyOther(t *testing.T) {
-	server := newTestServer(t)
-	path := "/ping/" + strings.Repeat("a", maxPingTokenLength)
-	if got := ping(server.Server, http.MethodGet, path, "", ""); got.Code != http.StatusNotFound {
-		t.Fatalf("status %d", got.Code)
-	}
-	if size := server.pingLimits.byToken.Size(); size != 1 {
-		t.Fatalf("byToken holds %d buckets, want 1", size)
-	}
-}
-
-// Un ping au vrai format compte toujours sur son seau, et la clé du seau
-// ne porte pas le jeton.
-func TestPing_RealToken_CountsInByToken(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	for range 3 {
-		if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {
-			t.Fatalf("status %d", got.Code)
-		}
-	}
-	if size := server.pingLimits.byToken.Size(); size != 1 {
-		t.Fatalf("byToken holds %d buckets, want 1", size)
-	}
-	for range pingPerTokenBurst {
-		server.pingLimits.byToken.Allow(job.Token)
-	}
-	// Le seau du jeton en clair n'est pas celui du ping : la clé est l'empreinte.
-	if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {
-		t.Fatalf("the plaintext token must not be a bucket key: status %d", got.Code)
-	}
-	if size := server.pingLimits.byToken.Size(); size != 2 {
-		t.Fatalf("byToken holds %d buckets, want 2", size)
-	}
-}
-
-// Deux adresses d'un même /64 sont une seule source pour le limiteur ; un
-// autre /64 et une IPv4 ne sont pas touchés.
-func TestPing_SourceBudget_IsSharedByAnIPv6SixtyFour(t *testing.T) {
-	server := newTestServer(t)
-	for i := range pingPerSourceBurst {
-		if got := pingFrom(server.Server, "[2001:db8:1:2::1]:4000", "/ping/hb_nope"); got != http.StatusNotFound {
-			t.Fatalf("ping %d: status %d", i+1, got)
-		}
-	}
-	if got := pingFrom(server.Server, "[2001:db8:1:2:aaaa:bbbb:cccc:dddd]:4000", "/ping/hb_nope"); got != http.StatusTooManyRequests {
-		t.Fatalf("same /64: status %d, want 429", got)
-	}
-	if got := pingFrom(server.Server, "[2001:db8:1:3::1]:4000", "/ping/hb_nope"); got != http.StatusNotFound {
-		t.Fatalf("another /64: status %d, want 404", got)
-	}
-	if got := pingFrom(server.Server, "203.0.113.9:4000", "/ping/hb_nope"); got != http.StatusNotFound {
-		t.Fatalf("an IPv4 address: status %d, want 404", got)
-	}
-}
-
-// Le journal et la source du ping gardent l'adresse complète : seule la clé
-// de limitation est agrégée.
-func TestPing_RecordedSource_StaysTheFullAddress(t *testing.T) {
-	server := newTestServer(t)
-	job := server.createJob(t, "job")
-	request := httptest.NewRequest(http.MethodGet, "/ping/"+job.Token, nil)
-	request.RemoteAddr = "[2001:db8:1:2::7]:4000"
-	server.ServeHTTP(httptest.NewRecorder(), request)
-	pings, _ := server.heartbeats.Pings(context.Background(), job.ID, 10)
-	if len(pings) != 1 || pings[0].Source != "2001:db8:1:2::7" {
-		t.Fatalf("pings %+v", pings)
-	}
-}
 
 func TestAuthBasic_AttemptBudget_IsSharedByAnIPv6SixtyFour(t *testing.T) {
 	server := newTestServer(t)
@@ -134,7 +35,8 @@ func TestAuthBasic_AttemptBudget_IsSharedByAnIPv6SixtyFour(t *testing.T) {
 	}
 }
 
-// Les autres limiteurs par adresse passent par la même clé.
+// Les autres limiteurs par adresse passent par la même clé ; ceux de
+// l'agent et des pings se testent dans leurs paquets.
 func TestLimiters_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
 	server := newTestServer(t)
 	first, second := "2001:db8:9:9::1", "2001:db8:9:9::2"
@@ -143,7 +45,6 @@ func TestLimiters_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
 		burst int
 		allow func(string) bool
 	}{
-		{"agent challenge", challengePerSourceBurst, server.agentLimits.allow},
 		{"public read", statusPerSourceBurst, server.statusLimits.allowRead},
 		{"public stream opening", statusStreamBurst, server.statusLimits.allowStream},
 		{"mcp", mcpPerSourceBurst, server.mcpLimits.allow},

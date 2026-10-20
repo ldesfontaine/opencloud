@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"log/slog"
 	"os"
 	"strings"
@@ -24,7 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/seal"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
@@ -32,7 +31,7 @@ import (
 )
 
 // L'horloge figée des tests : « vu il y a » se calcule depuis elle.
-var testNow = time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+var testNow = servertest.Now()
 
 type testServer struct {
 	*Server
@@ -59,23 +58,13 @@ type testServer struct {
 // SQLite temporaire, avec la machine openCloud déjà en place.
 func newTestServer(t *testing.T) *testServer {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
+	db, root := servertest.OpenDB(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
 	bus := live.New()
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
 	machines.SetWatcher(bus)
-	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{
+	err := machines.EnsureLocal(context.Background(), machine.LocalInfo{
 		Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
 	})
 	if err != nil {
@@ -186,26 +175,11 @@ func newTestServer(t *testing.T) *testServer {
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
 func (ts *testServer) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
-	cleartext, _, err := ts.machines.CreateToken(context.Background(), name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enrolled, err := ts.machines.Enroll(context.Background(), machine.Enrollment{
-		MachineID: id, PublicKey: public, Token: cleartext,
-		Hostname: name, Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return enrolled, private
+	return servertest.Enroll(t, ts.machines, name, id)
 }
 
 // L'identifiant de la machine distante des tests, fixe pour des rendus figés.
-const remoteID = "11111111-2222-4333-8444-555555555555"
+const remoteID = servertest.RemoteID
 
 // L'arbre des routes est figé dans testdata/routes.txt : le modifier est
 // une décision, pas un effet de bord.

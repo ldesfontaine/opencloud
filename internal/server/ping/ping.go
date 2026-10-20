@@ -1,4 +1,4 @@
-package server
+package ping
 
 import (
 	"errors"
@@ -23,7 +23,9 @@ const (
 	pingPerTokenBurst  = 30
 	pingSweepEvery     = 5 * time.Minute
 	pingSweepIdle      = 10 * time.Minute
-	retryAfterSeconds  = "2"
+	// L'attente dite à un refus de débit ; même valeur que celle de l'agent
+	// et de la page publique.
+	retryAfterSeconds = "2"
 	// Un vrai jeton fait 29 octets ; la marge laisse passer les jetons hérités
 	// en clair, dont le format n'a jamais été garanti. Au-delà, le jeton ne
 	// peut pas exister : il est refusé sans rien retenir.
@@ -88,68 +90,68 @@ func (l *pingLimits) sweepIfDue() {
 }
 
 // GET ou POST /ping/{token} : la tâche a fini.
-func (s *Server) pingFinish(w http.ResponseWriter, r *http.Request) {
-	s.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindFinish})
+func (h *Handler) finish(w http.ResponseWriter, r *http.Request) {
+	h.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindFinish})
 }
 
 // GET ou POST /ping/{token}/start : la tâche démarre.
-func (s *Server) pingStart(w http.ResponseWriter, r *http.Request) {
-	s.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindStart})
+func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
+	h.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindStart})
 }
 
 // GET ou POST /ping/{token}/{code} : la tâche a fini avec ce code de sortie.
 // Le mux donne la priorité au segment littéral : « start » n'arrive pas ici.
 // Le code est lu après la limitation, pour qu'un code faux ne soit pas
 // une route illimitée ; hors bornes, le service le refuse.
-func (s *Server) pingExitCode(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) exitCode(w http.ResponseWriter, r *http.Request) {
 	code, err := strconv.Atoi(r.PathValue("code"))
 	if err != nil {
 		code = -1
 	}
-	s.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindExitCode, ExitCode: &code})
+	h.receivePing(w, r, heartbeat.Ping{Kind: heartbeat.KindExitCode, ExitCode: &code})
 }
 
 // La réponse est du texte court, sans cookie ni JSON : un cron ne lit rien.
-func (s *Server) receivePing(w http.ResponseWriter, r *http.Request, ping heartbeat.Ping) {
+func (h *Handler) receivePing(w http.ResponseWriter, r *http.Request, ping heartbeat.Ping) {
 	token := r.PathValue("token")
-	ping.Source = s.clientAddress(r)
+	ping.Source = h.clientAddress(r)
 	ping.Method = r.Method
-	if !s.pingLimits.allow(ping.Source, token) {
+	if !h.limits.allow(ping.Source, token) {
 		w.Header().Set("Retry-After", retryAfterSeconds)
-		s.writePing(w, http.StatusTooManyRequests, "too many pings")
+		h.writePing(w, http.StatusTooManyRequests, "too many pings")
 		return
 	}
 	if len(token) > maxPingTokenLength {
-		s.writePing(w, http.StatusNotFound, "unknown token")
+		h.writePing(w, http.StatusNotFound, "unknown token")
 		return
 	}
 	if r.Method == http.MethodPost {
 		body, err := io.ReadAll(io.LimitReader(r.Body, heartbeat.MaxPayloadBytes))
 		if err != nil {
-			s.writePing(w, http.StatusBadRequest, "bad body")
+			h.writePing(w, http.StatusBadRequest, "bad body")
 			return
 		}
 		ping.Payload = string(body)
 	}
-	_, err := s.heartbeats.Receive(r.Context(), token, ping)
+	_, err := h.heartbeats.Receive(r.Context(), token, ping)
 	switch {
 	case errors.Is(err, heartbeat.ErrNotFound):
-		s.writePing(w, http.StatusNotFound, "unknown token")
+		h.writePing(w, http.StatusNotFound, "unknown token")
 	case errors.Is(err, heartbeat.ErrExitCodeInvalid):
-		s.writePing(w, http.StatusBadRequest, "bad exit code")
+		h.writePing(w, http.StatusBadRequest, "bad exit code")
 	case err != nil:
-		s.logger.Error("receive ping", "error", err)
-		s.writePing(w, http.StatusInternalServerError, "error")
+		h.logger.Error("receive ping", "error", err)
+		h.writePing(w, http.StatusInternalServerError, "error")
 	default:
-		s.writePing(w, http.StatusOK, "ok")
+		h.writePing(w, http.StatusOK, "ok")
 	}
 }
 
-func (s *Server) writePing(w http.ResponseWriter, status int, text string) {
+func (h *Handler) writePing(w http.ResponseWriter, status int, text string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if _, err := w.Write([]byte(text + "\n")); err != nil {
-		s.logger.Warn("write ping response", "error", err)
+		h.logger.Warn("write ping response", "error", err)
 	}
 }
