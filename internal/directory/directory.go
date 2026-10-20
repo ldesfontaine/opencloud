@@ -123,12 +123,14 @@ var (
 	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
 	ErrContainerNotFound = errors.New("container not found, or already gone")
-	ErrContainerDeclared = errors.New("container already belongs to a declared service")
+	ErrContainerDeclared = refusal.Conflict("directory.container_declared", "container already belongs to a declared service")
 	// Le conteneur porte un label qui ne vise aucune unité de sa machine :
 	// l'adopter créerait une unité que ce label empêcherait de rattacher.
-	ErrContainerLabelled = errors.New("container carries a label that targets no unit of its machine")
-	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
-	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
+	// Un état que l'opérateur corrige par le label, d'où un conflit.
+	ErrContainerLabelled = refusal.Conflict("directory.container_labelled", "container carries a label that targets no unit of its machine")
+	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y
+	// ajoute. Un état du service, pas une faute de saisie.
+	ErrUnitsFull = refusal.Conflict("directory.units_full", "declared service already holds the maximum number of units")
 
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")

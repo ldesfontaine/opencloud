@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 const (
@@ -148,24 +149,27 @@ type Grant struct {
 	ExpiresIn    int
 }
 
+// Les refus des gestes de l'interface portent leur clé. Le parcours OAuth
+// garde des erreurs nues, et reconnaît par errors.Is les deux qu'il partage
+// (ErrDisabled, ErrRedirectURIInvalid) : il répond au format de la RFC.
 var (
-	ErrDisabled            = errors.New("mcp: disabled")
-	ErrAlreadyEnabled      = errors.New("mcp: already enabled")
+	ErrDisabled            = refusal.Conflict("mcp.disabled", "mcp: disabled")
+	ErrAlreadyEnabled      = refusal.Conflict("mcp.already_enabled", "mcp: already enabled")
 	ErrNotFound            = errors.New("mcp: not found")
 	ErrClientUnknown       = errors.New("mcp: client unknown")
 	ErrSecretInvalid       = errors.New("mcp: client secret invalid")
 	ErrResponseTypeInvalid = errors.New("mcp: response type invalid")
-	ErrRedirectURIInvalid  = errors.New("mcp: redirect uri invalid")
+	ErrRedirectURIInvalid  = refusal.Invalid("mcp.redirect_uri_invalid", "mcp: redirect uri invalid")
 	ErrChallengeInvalid    = errors.New("mcp: code challenge invalid")
 	ErrCodeInvalid         = errors.New("mcp: authorization code invalid")
 	ErrVerifierInvalid     = errors.New("mcp: code verifier invalid")
 	ErrTokenInvalid        = errors.New("mcp: token invalid")
 	ErrTokenReplayed       = errors.New("mcp: refresh token replayed")
-	ErrNameInvalid         = errors.New("mcp: token name invalid")
-	ErrTooManyTokens       = errors.New("mcp: too many api tokens")
-	ErrTooManyRedirectURIs = errors.New("mcp: too many redirect uris")
-	ErrScopeInvalid        = errors.New("mcp: token scope invalid")
-	ErrLifetimeInvalid     = errors.New("mcp: token lifetime invalid")
+	ErrNameInvalid         = refusal.Invalid("mcp.name_invalid", "mcp: token name invalid")
+	ErrTooManyTokens       = refusal.Invalid("mcp.too_many_tokens", "mcp: too many api tokens")
+	ErrTooManyRedirectURIs = refusal.Invalid("mcp.too_many_redirect_uris", "mcp: too many redirect uris")
+	ErrScopeInvalid        = refusal.Invalid("mcp.scope_invalid", "mcp: token scope invalid")
+	ErrLifetimeInvalid     = refusal.Invalid("mcp.lifetime_invalid", "mcp: token lifetime invalid")
 )
 
 // scopeOf lit la portée demandée : vide vaut lecture seule.

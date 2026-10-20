@@ -18,11 +18,29 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
 var testActor = manifest.Actor{Kind: manifest.ActorCLI, Name: "opencloud"}
+
+// Un refus d'application porte la clé que le journal et les clients citent
+// par sa constante : les deux écritures du même mot ne divergent pas.
+func TestRefusals_CarryTheirKeyConstant(t *testing.T) {
+	cases := map[error]string{
+		manifest.ErrPlanChanged:    manifest.KeyPlanChanged,
+		manifest.ErrNotApplicable:  manifest.KeyNotApplicable,
+		manifest.ErrBusy:           manifest.KeyBusy,
+		manifest.ErrNothingToApply: manifest.KeyNothingToApply,
+		manifest.ErrExportTooLarge: manifest.KeyExportTooLarge,
+	}
+	for err, want := range cases {
+		if key, ok := refusal.KeyOf(err); !ok || key != want {
+			t.Errorf("%v: key %q, want %q", err, key, want)
+		}
+	}
+}
 
 func (b *bench) plan(t *testing.T, text string, prune bool) manifest.Plan {
 	t.Helper()

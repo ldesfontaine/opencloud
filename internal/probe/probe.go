@@ -371,7 +371,7 @@ var (
 	ErrStatusInvalid     = refusal.Invalid("probe.status_invalid", "probe expected status must be codes or families")
 	ErrBodyInvalid       = refusal.Invalid("probe.body_invalid", "probe expected body is too long")
 	ErrTooMany           = refusal.Invalid("probe.too_many", "this machine already carries the maximum number of probes")
-	ErrNotPaused         = errors.New("probe is not paused")
+	ErrNotPaused         = refusal.Conflict("probe.not_paused", "probe is not paused")
 	ErrReportInvalid     = errors.New("probe report out of range")
 )
 
