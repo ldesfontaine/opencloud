@@ -1,4 +1,4 @@
-import type { MCPScope, MCPState, MCPTokenRequest } from "../api/mcp";
+import type { MCPState, MCPTokenRequest } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -37,9 +37,6 @@ export function claudeCodeCommand(serverName: string, stdioCommand: string): str
   return `claude mcp add ${serverName} -- ${stdioCommand}`;
 }
 
-// Les portées, lecture seule d'abord : c'est le choix par défaut.
-export const mcpScopes: MCPScope[] = ["read", "write"];
-
 // Une échéance offerte, en jours : « 90 jours », ou « Sans échéance » pour 0.
 export function lifetimeLabel(t: Translate, days: number): string {
   return days === 0 ? t("mcp.lifetime_never") : t("mcp.lifetime_days", days);
@@ -50,18 +47,19 @@ export function expiryLabel(t: Translate, expiresAt: string | null, formatDate: 
   return expiresAt === null ? t("mcp.expires_never") : formatDate(expiresAt);
 }
 
-// Le formulaire d'un jeton d'API : son nom, sa portée, son échéance en jours.
+// Le formulaire d'un jeton d'API : son nom et son échéance en jours. Pas de
+// portée à choisir : le MCP HTTP est en lecture seule, et le serveur donne
+// `read` à un jeton qui n'en dit pas.
 export interface TokenFormValues {
   name: string;
-  scope: MCPScope;
   days: number;
 }
 
-// La portée part en lecture seule, l'échéance à celle que le serveur propose.
+// L'échéance part à celle que le serveur propose.
 export function emptyTokenForm(defaultDays: number): TokenFormValues {
-  return { name: "", scope: "read", days: defaultDays };
+  return { name: "", days: defaultDays };
 }
 
 export function tokenRequestOf(values: TokenFormValues): MCPTokenRequest {
-  return { name: values.name, scope: values.scope, expires_in_days: values.days };
+  return { name: values.name, expires_in_days: values.days };
 }
