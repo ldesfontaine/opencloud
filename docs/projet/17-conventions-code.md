@@ -75,7 +75,8 @@ trois fois. Ce n'est pas ce qu'on veut.
   impressionne, on la déplie.
 - **La bibliothèque standard d'abord.** Pas de réflexion, pas de génération de
   code, pas de cadre opaque.
-- **Un fichier, un sujet**, court : `queue.go`, `launch.go`, `follow.go`. Le
+- **Un fichier, un sujet**, court : `probe/check.go`, `probe/plan.go`,
+  `status/incidents.go`. Le
   type en haut, son constructeur, puis les méthodes dans l'ordre où on les
   appelle.
 - **Ce qu'on refuse en revue** : une fonction à relire, une variable d'une
@@ -145,27 +146,133 @@ binaire par plateforme.
 
 - Un composant expose un **type concret** ; celui qui le consomme déclare
   **chez lui l'interface** de ce qu'il en attend, et rien de plus
-  (`web.Authenticator`, `auth.Store`). Un composant qui a plusieurs mises en
-  œuvre (`transport` : local, ssh) définit la sienne.
-- Les tests d'un consommateur passent par le vrai composant quand il est
-  rapide et local (SQLite temporaire) ; un faux seulement pour ce qui est lent
-  ou externe — SSH, DNS, GitHub.
-- Un **constructeur** `New(deps…)` avec les dépendances explicites. **Aucune
-  variable globale**, aucun `init()`.
+  (`probe.Store`, `status.Settings`). Un composant qui a plusieurs mises en
+  œuvre définit la sienne.
+- **Aucune variable globale** hors des erreurs sentinelles, aucun `init()`.
 - `context.Context` en premier argument de tout ce qui attend ou écrit.
-- Les types du domaine portent les noms du modèle : `Machine`, `Environment`,
-  `Service`, `Domain`, `Action`, `Batch`.
+- Les types du domaine portent les noms du modèle (`24-modele-cible.md`) :
+  `Machine`, `Container`, `Probe`, `Service` et `Unit` de l'annuaire.
+
+### Les couches
+
+| Couche | Paquets | Ce qu'elle fait | Jamais |
+| --- | --- | --- | --- |
+| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche | Une règle métier |
+| HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
+| HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL |
+| Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
+| Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
+| Outils | `refusal`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config` | Un concept chacun, sans règle d'openCloud | Importer un composant |
+| Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
+
+Qui peut importer qui :
+
+| Paquet | Importe | N'importe jamais |
+| --- | --- | --- |
+| `cmd/opencloud` | tout | — |
+| `server` | ses sous-paquets, les composants, les outils, `web` | `store` |
+| `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
+| Un composant | d'autres composants (types et gestes), les outils | `server`, `store`, `cmd` |
+| `store` | les composants, pour leurs types ; `seal` ; `migrations` | `server` |
+| `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
+| Un outil | d'autres outils, la bibliothèque standard | un composant, `server`, `store` |
+| `agent`, `dockerwatch` | les composants (leurs types), les outils, `agentwire` | `server`, `store` |
+| `servertest`, `storetest`, `smtptest` | ce qu'un banc demande, `store` compris | — ; seuls des `_test.go` les importent |
+
+Deux composants qui ont besoin l'un de l'autre ne s'importent pas tous les
+deux (Go le refuse) : l'un déclare une interface et reçoit l'autre par un
+`Set*` au câblage (`containers.SetUnits(declared)`,
+`declared.SetRematcher(containers)`).
+
+### Lire et écrire un autre domaine
+
+| Geste | Par où | Exemple |
+| --- | --- | --- |
+| Lire pour dériver : un état, un compte, un écart | La base, par l'interface `Store` de celui qui lit | `status.Store` lit `ListProbes`, `ListContainers`, `LoadSettings` ; `probe.Store` a `DeclaredServiceExists` |
+| Écrire | **Toujours le composant du domaine**, par une interface déclarée chez celui qui écrit | `status` écrit le titre de la page par `settings.SetStatusPage` ; `manifest` applique par les gestes de `directory`, `probe` et `heartbeat` |
+
+Le composant porte les règles d'une écriture : existence, validation,
+plafond, direct, alertes. Une écriture par la base les sauterait ; une
+lecture ne change rien, elle prend le chemin court.
+
+### Le patron d'un composant
+
+Le modèle est `probe.Service` (`internal/probe/service.go`). Un composant
+nouveau suit le même ordre, de haut en bas du fichier :
+
+| Pièce | Règle | Dans `probe` |
+| --- | --- | --- |
+| Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` |
+| Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetLocalRunner`, `SetClock` |
+| Définition | Fonction pure, testable sans base : `Definition.Complete()` pose les valeurs par défaut, puis `Validate()` rend le premier refus | `internal/probe/probe.go` ; `heartbeat` n'a que `Validate()`, faute de valeur par défaut |
+| Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise, appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
+| `changed()` | Prévient le `Watcher` ; jamais depuis un handler | `ProbesChanged(machineID)` |
+| Lectures | Passent au store, sans règle de plus | `List`, `Get`, `Count`, `Days` |
+| Boucle | `Watch(ctx)` : rollup, purge, relances, jusqu'à l'annulation du contexte | `Watch` |
+
+- **Nommage** : `Watcher` est le direct (`internal/live`), `Alerter` le
+  moteur des alertes ; `nil` est toléré pour les deux. `Listener` ne
+  s'emploie plus.
+- **L'existence se vérifie dans le composant**, avant toute écriture : la
+  machine et le service d'une sonde, la machine d'une tâche quand elle en a
+  une. Sans cela la clé étrangère refuse en erreur brute, et MCP ou
+  `opencloud apply`, qui appellent le composant sans handler, passeraient
+  sans contrôle. Ordre des refus, celui que l'API a toujours rendu : l'objet
+  modifié (404), la machine, la définition, puis le service.
+- **Compter puis insérer** (un plafond) se tient sous un verrou du composant
+  (`probe`, `status`, `alert`) ou dans la transaction du store (annuaire).
+  Les deux marchent ; on ne les unifie pas.
+
+### Les réglages
+
+- Toute écriture d'un réglage passe par `settings.Service`
+  (`SetLanguage`, `SetMailRelay`, `SetDiskThresholds`,
+  `SetLifecycleEnabled`, `SetStatusPage`). Il porte la règle de chaque clé
+  (port par défaut du relais, mot de passe laissé vide gardé) et relit,
+  modifie, réécrit dans une transaction.
+- Un composant qui lit un réglage au moment de servir reçoit une fonction au
+  câblage : `CurrentLanguage`, `CurrentMailRelay`, `CurrentDiskThresholds`,
+  `CurrentLifecycleEnabled`. Elle relit la base à chaque appel et rend une
+  valeur de repli en échec.
+- Un handler appelle `settings.Service`, jamais le store.
+
+### Le store
+
+| Règle | Comment |
+| --- | --- |
+| Seul lieu du SQL | Aucune requête hors de `internal/store` ; `*store.DB` satisfait l'interface `Store` de chaque composant |
+| Une transaction par geste | `db.inTx(ctx, "what", func(tx *sql.Tx) error {…})` : `begin what` et `commit what` dans les erreurs, annulée si la fonction échoue |
+| Une ligne, un `scanX` | `scanAlert(row scanner)` lit une ligne ; une liste est `collect(rows, scanAlert)`, jamais `nil` |
+| Une ligne attendue | `notFoundIfNoRow(result, alert.ErrNotFound)` : aucune ligne touchée rend la sentinelle du domaine |
+| Unicité | Une contrainte violée devient la sentinelle du domaine (`isUniqueViolation` → `machine.ErrNameTaken`) ; l'annuaire vérifie avant d'écrire, dans la même transaction |
+
+### Ce qu'on ne fait pas
+
+| Idée | Pourquoi non |
+| --- | --- |
+| Un handler CRUD générique | Chaque ressource a sa règle (plafond, relecture, liste des liens) : le générique se troue au deuxième cas |
+| `Repository[T]` dans `store` | Les requêtes diffèrent toutes ; un dépôt générique cache le SQL qu'on veut lire |
+| `decode[T]` à la place de `readAPI` | Gagne une ligne par handler, ne retire aucune logique |
+| Une conversion domaine → JSON par réflexion | Réflexion interdite ; la forme JSON est figée par les goldens |
+| Un `Publish(topic)` générique à la place des `XChanged` | Perd le contrôle du compilateur sur qui publie quoi |
+
+Un générique se justifie quand la même forme revient souvent et que seul le
+type change : `convertAll`, `orEmpty`, `collect`, `sliceOf`, `guarded`.
+Petit, nommé, à cette échelle.
 
 ## Les erreurs
 
 - `fmt.Errorf("verb object: %w", err)` — le verbe et l'objet, jamais le
   contexte complet ; il se lit dans la chaîne.
 - Erreurs sentinelles par package : `var ErrNotFound = errors.New(…)`.
-- **Un refus n'est pas une erreur** : type `Refusal{Cause, Remedy string}`,
-  code de retour `2` des scripts, affiché tel quel en français. Une erreur,
-  c'est ce qu'on n'avait pas prévu.
+- **Un refus n'est pas une erreur** : la demande est impossible en l'état,
+  l'opérateur lit sa clé en français. Une erreur, c'est ce qu'on n'avait pas
+  prévu : le journal la garde, l'opérateur lit `internal`.
 - Le refus d'un domaine déclare sa clé avec l'erreur : `refusal.Invalid` ou
-  `refusal.Conflict` (`internal/refusal`), rendus en 422 ou 409 par `s.refused`.
+  `refusal.Conflict` (`internal/refusal`). Le serveur la rend par `s.failed`,
+  MCP par `s.toolFailed` ; statuts et exceptions : `22-fonctionnement.md`,
+  « Les refus ».
 
 ## La configuration
 
@@ -178,8 +285,7 @@ jamais d'état à moitié appliqué. Clé inconnue = avertissement au démarrage
 - Répertoire d'état ouvert une fois par `os.Root` ; tout accès passe par lui.
 - **Écriture atomique** : temporaire dans le même dossier, `fsync`, `rename`,
   `fsync` du dossier. Un seul helper, `internal/fsx`.
-- SQLite en WAL. Une transaction par opération métier. Requêtes dans le
-  package `store`, jamais ailleurs.
+- SQLite en WAL. Les requêtes et les transactions : « Le store », plus haut.
 
 ### Pourquoi des migrations
 
@@ -233,10 +339,19 @@ Le serveur Go sert une API JSON sous `/api/` et le front compilé pour tout le
 reste ; le navigateur fait le rendu. Les routes de l'agent (`/agent/`) et des
 pings (`/ping/`) ne changent pas.
 
-- Handlers **minces** : lire, valider, appeler un composant, répondre en
-  JSON. Aucune logique métier. Le serveur rend des **faits** (instants ISO en
+- Handlers **minces**, toujours la même forme : lire (`readAPI`, sinon
+  `400 bad_json`), appeler le composant, répondre à son erreur par
+  `if s.failed(w, r, err, probe.ErrNotFound) { return }`, écrire
+  (`writeAPI`) ; une action sans contenu finit par `finishAPIAction` (204).
+  Aucune logique métier. Le serveur rend des **faits** (instants ISO en
   UTC, durées en secondes), jamais du texte formaté : « vu il y a 12 s » se
   calcule dans le navigateur.
+- **Une lecture, une forme** pour l'API et MCP : les assembleurs vivent dans
+  `server` et servent les deux (`probeListOf`, `containerListOf`,
+  `probeResponseOf`, `containerResponseOf`, `gapsResponseOf`,
+  `alertResponseOf`). Une liste se convertit par `convertAll(alerts,
+  alertToJSON)`, jamais `null` ; `orEmpty` pour une liste déjà faite,
+  `timeOrNil` pour un instant zéro.
 - Une route par lecture, une route par action : `GET /api/jobs/{id}`,
   `POST /api/jobs/{id}/actions/pause`, `DELETE /api/jobs/{id}`. Les chemins
   de l'API sont en anglais, comme le code ; les adresses des écrans restent en
@@ -309,7 +424,20 @@ scripts relus.
   routes, les réponses JSON de l'API (`internal/server/testdata/*.golden.json`,
   `go test ./internal/server -update` pour les réécrire après vérification). Tout
   changement casse un test — c'est voulu.
-- Un composant se teste avec des faux des interfaces qu'il consomme.
+- **La vraie base** : un composant et ses consommateurs se testent sur une
+  SQLite temporaire, ouverte par `storetest.Open(t)`
+  (`internal/store/storetest`, avec `EnrollMachine` et
+  `EnsureLocalMachine`) ; `server` et ses sous-paquets partagent
+  `servertest` (`OpenDB`, `Enroll`, `OpenStream`, l'horloge figée `Now`).
+  Un faux seulement pour ce qui est lent ou externe : Docker, un registre,
+  un relais SMTP (`mail/smtptest`), un tiers sur Internet.
+- **Les gardes de règle** lisent le source : `TestNameOnlyInBrand`, et le
+  test des refus (`22-fonctionnement.md`, « Les refus »).
+- **Un test instable se corrige par sa cause** : attendre un signal (un
+  canal, une condition relue), fixer l'ordre de ce qui se croise. Jamais un
+  `time.Sleep` de plus ni un délai allongé pour « laisser le temps ». Le
+  test avance dès le signal ; la borne de l'attente est large (30 s) et ne
+  sert qu'à ne pas bloquer la CI si le code est cassé.
 - **Avec les actions, à venir** : `shellcheck`, un test qui vérifie que
   chaque action du catalogue a son `run.sh` et inversement, et
   l'idempotence : chaque `run.sh` rejoué **deux fois**, la seconde exécution
