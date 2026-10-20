@@ -243,38 +243,6 @@ func TestAPI_RemoveMachine_WithDeclaredServices_Answers409(t *testing.T) {
 	}
 }
 
-// Les clés des refus sont composées par directoryRefusalKey et
-// projectRefusalKey : le garde-fou des appels en dur ne les voit pas.
-func TestDirectory_RefusalKeysExistInEveryCatalog(t *testing.T) {
-	server := newTestServer(t)
-	refusals := []error{
-		directory.ErrMachineInvalid, directory.ErrNameInvalid, directory.ErrTitleInvalid, directory.ErrNatureInvalid,
-		directory.ErrOriginInvalid, directory.ErrComposeProjectInvalid, directory.ErrPublicURLInvalid,
-		directory.ErrProvidesInvalid, directory.ErrProvidesNeedInfra, directory.ErrUnitsInvalid,
-		directory.ErrUnitNameInvalid, directory.ErrUnitNameTaken, directory.ErrImageInvalid, directory.ErrVersionInvalid,
-		directory.ErrVersionLatest, directory.ErrDigestInvalid, directory.ErrContainerNameInvalid,
-		directory.ErrSystemdUnitInvalid, directory.ErrPortsInvalid, directory.ErrNameTaken,
-		directory.ErrComposeProjectTaken, directory.ErrMatchKeyTaken, directory.ErrUnitInvalid, directory.ErrProjectInvalid, directory.ErrUnitKeyDuplicate,
-		directory.ErrIgnoreInvalid, directory.ErrUpdatePolicyInvalid,
-	}
-	for _, refusal := range refusals {
-		key, refused := directoryRefusalKey(refusal)
-		if !refused {
-			t.Errorf("%v n'a pas de clé", refusal)
-			continue
-		}
-		requireKeyInEveryCatalog(t, server, key)
-	}
-	for _, refusal := range []error{directory.ErrProjectNameInvalid, directory.ErrProjectTitleInvalid, directory.ErrProjectNameTaken} {
-		key, refused := projectRefusalKey(refusal)
-		if !refused {
-			t.Errorf("%v n'a pas de clé", refusal)
-			continue
-		}
-		requireKeyInEveryCatalog(t, server, key)
-	}
-}
-
 func requireKeyInEveryCatalog(t *testing.T, server *testServer, key string) {
 	t.Helper()
 	for _, code := range lang.Codes() {

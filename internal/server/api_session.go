@@ -92,25 +92,21 @@ type containerCounts struct {
 }
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
-	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	language, err := s.language(r.Context())
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	language := current.Language
-	if language == "" {
-		language = lang.Default
+	disks, err := s.settings.DiskThresholds(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
 	}
-	languages := make([]string, 0, len(lang.Codes()))
-	for _, code := range lang.Codes() {
-		languages = append(languages, string(code))
-	}
+	languages := convertAll(lang.Codes(), func(code lang.Code) string { return string(code) })
 	s.writeAPI(w, http.StatusOK, sessionResponse{
 		Version:      s.version,
 		Language:     string(language),
 		Languages:    languages,
 		Certificates: certificateThresholds{Warning: probe.CertificateWarning, Danger: probe.CertificateDanger},
-		Disks:        diskThresholdsToJSON(diskThresholdsOf(current)),
+		Disks:        diskThresholdsToJSON(disks),
 	})
 }
 
@@ -121,13 +117,14 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
+	// Le 400 reste ici ; le refus du composant n'est qu'un filet.
 	code, ok := lang.Parse(request.Language)
 	if !ok {
 		s.apiRefuse(w, http.StatusBadRequest, "error.unknown_language")
 		return
 	}
-	if err := s.saveLanguage(r.Context(), code); err != nil {
-		s.apiInternalError(w, r, err)
+	err := s.settings.SetLanguage(r.Context(), code)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -151,8 +148,7 @@ func (s *Server) catalogAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	response, err := s.countsOf(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -204,10 +200,8 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 }
 
 func certificatesToJSON(counted probe.Certificates) certificateCounts {
-	response := certificateCounts{Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired}
-	if !counted.Soonest.IsZero() {
-		soonest := counted.Soonest.UTC()
-		response.SoonestExpiresAt = &soonest
+	return certificateCounts{
+		Total: counted.Total, Expiring: counted.Expiring, Expired: counted.Expired,
+		SoonestExpiresAt: timeOrNil(counted.Soonest),
 	}
-	return response
 }

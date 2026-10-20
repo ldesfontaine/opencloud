@@ -11,6 +11,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // State est ce qu'un visiteur lit d'un composant, et de la page entière :
@@ -269,20 +270,20 @@ const (
 
 var (
 	ErrNotFound            = errors.New("status: not found")
-	ErrNameInvalid         = errors.New("status: name invalid")
-	ErrTitleInvalid        = errors.New("status: title invalid")
-	ErrPageTitleInvalid    = errors.New("status: page title invalid")
-	ErrMessageInvalid      = errors.New("status: message invalid")
-	ErrAnnouncementInvalid = errors.New("status: announcement invalid")
-	ErrLanguageInvalid     = errors.New("status: language invalid")
-	ErrImpactInvalid       = errors.New("status: impact invalid")
-	ErrStatusInvalid       = errors.New("status: status invalid")
-	ErrMemberInvalid       = errors.New("status: member invalid")
-	ErrComponentInvalid    = errors.New("status: component invalid")
-	ErrWindowInvalid       = errors.New("status: window invalid")
-	ErrTooMany             = errors.New("status: too many")
+	ErrNameInvalid         = refusal.Invalid("component.name_invalid", "status: name invalid")
+	ErrTitleInvalid        = refusal.Invalid("incident.title_invalid", "status: title invalid")
+	ErrPageTitleInvalid    = refusal.Invalid("statuspage.title_invalid", "status: page title invalid")
+	ErrMessageInvalid      = refusal.Invalid("incident.message_invalid", "status: message invalid")
+	ErrAnnouncementInvalid = refusal.Invalid("statuspage.announcement_invalid", "status: announcement invalid")
+	ErrLanguageInvalid     = refusal.Invalid("statuspage.language_invalid", "status: language invalid")
+	ErrImpactInvalid       = refusal.Invalid("incident.impact_invalid", "status: impact invalid")
+	ErrStatusInvalid       = refusal.Invalid("incident.status_invalid", "status: status invalid")
+	ErrMemberInvalid       = refusal.Invalid("component.member_invalid", "status: member invalid")
+	ErrComponentInvalid    = refusal.Invalid("incident.component_invalid", "status: component invalid")
+	ErrWindowInvalid       = refusal.Invalid("incident.window_invalid", "status: window invalid")
+	ErrTooMany             = refusal.Invalid("component.too_many", "status: too many")
 	ErrResolved            = errors.New("status: incident resolved")
-	ErrUpdateEmpty         = errors.New("status: update says nothing")
+	ErrUpdateEmpty         = refusal.Invalid("incident.update_empty", "status: update says nothing")
 )
 
 func (d ComponentDefinition) Validate() error {

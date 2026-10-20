@@ -22,29 +22,29 @@ var testNow = time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
 // qu'on avance à la main.
 type fixture struct {
 	*heartbeat.Service
-	db       *store.DB
-	clock    time.Time
-	listener *recordingListener
+	db      *store.DB
+	clock   time.Time
+	alerter *recordingAlerter
 }
 
-type recordingListener struct {
+type recordingAlerter struct {
 	events []string
 }
 
-func (l *recordingListener) Late(_ context.Context, h heartbeat.Heartbeat) {
-	l.events = append(l.events, "late:"+h.Name)
+func (a *recordingAlerter) Late(_ context.Context, h heartbeat.Heartbeat) {
+	a.events = append(a.events, "late:"+h.Name)
 }
-func (l *recordingListener) Recovered(_ context.Context, h heartbeat.Heartbeat) {
-	l.events = append(l.events, "recovered:"+h.Name)
+func (a *recordingAlerter) Recovered(_ context.Context, h heartbeat.Heartbeat) {
+	a.events = append(a.events, "recovered:"+h.Name)
 }
-func (l *recordingListener) Failed(_ context.Context, h heartbeat.Heartbeat, code int) {
-	l.events = append(l.events, "failed:"+h.Name)
+func (a *recordingAlerter) Failed(_ context.Context, h heartbeat.Heartbeat, code int) {
+	a.events = append(a.events, "failed:"+h.Name)
 }
-func (l *recordingListener) Paused(_ context.Context, h heartbeat.Heartbeat) {
-	l.events = append(l.events, "paused:"+h.Name)
+func (a *recordingAlerter) Paused(_ context.Context, h heartbeat.Heartbeat) {
+	a.events = append(a.events, "paused:"+h.Name)
 }
-func (l *recordingListener) Removed(_ context.Context, id string) {
-	l.events = append(l.events, "removed:"+id)
+func (a *recordingAlerter) Removed(_ context.Context, id string) {
+	a.events = append(a.events, "removed:"+id)
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -60,9 +60,9 @@ func newFixture(t *testing.T) *fixture {
 	}
 	db.SetSealer(seal.Generate())
 	t.Cleanup(func() { db.Close() })
-	f := &fixture{db: db, Service: heartbeat.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil))), clock: testNow, listener: &recordingListener{}}
+	f := &fixture{db: db, Service: heartbeat.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil))), clock: testNow, alerter: &recordingAlerter{}}
 	f.SetClock(func() time.Time { return f.clock })
-	f.SetListener(f.listener)
+	f.SetAlerter(f.alerter)
 	return f
 }
 
@@ -124,8 +124,8 @@ func TestCheckDeadlines_NeverPinged_BecomesLateAndAlertsOnce(t *testing.T) {
 		t.Fatalf("count %d/%d", total, attention)
 	}
 	f.ping(t, h.Token, heartbeat.KindFinish, nil)
-	if want := "late:sauvegarde mal branchée,recovered:sauvegarde mal branchée"; strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("events %v", f.listener.events)
+	if want := "late:sauvegarde mal branchée,recovered:sauvegarde mal branchée"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -215,8 +215,8 @@ func TestReceive_NonZeroExitCode_FailsAndNotifies(t *testing.T) {
 		t.Fatalf("after failure %+v", got)
 	}
 	f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
-	if want := []string{"failed:job", "recovered:job"}; strings.Join(f.listener.events, ",") != strings.Join(want, ",") {
-		t.Fatalf("events %v", f.listener.events)
+	if want := []string{"failed:job", "recovered:job"}; strings.Join(f.alerter.events, ",") != strings.Join(want, ",") {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -231,12 +231,12 @@ func TestReceive_StartThenFinish_AfterLate_Recovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
-	if want := "late:job"; strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("a start alone proves nothing yet: %v", f.listener.events)
+	if want := "late:job"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("a start alone proves nothing yet: %v", f.alerter.events)
 	}
 	done := f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
-	if want := "late:job,recovered:job"; done.Status != heartbeat.StatusOnTime || strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("status %s, events %v", done.Status, f.listener.events)
+	if want := "late:job,recovered:job"; done.Status != heartbeat.StatusOnTime || strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("status %s, events %v", done.Status, f.alerter.events)
 	}
 }
 
@@ -246,8 +246,8 @@ func TestReceive_StartThenFinish_AfterFailure_Recovers(t *testing.T) {
 	f.ping(t, h.Token, heartbeat.KindExitCode, code(2))
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
 	f.ping(t, h.Token, heartbeat.KindExitCode, code(0))
-	if want := "failed:job,recovered:job"; strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("events %v", f.listener.events)
+	if want := "failed:job,recovered:job"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -262,8 +262,8 @@ func TestReceive_StartThenFailure_AfterLate_FailsWithoutRecovering(t *testing.T)
 	}
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
 	f.ping(t, h.Token, heartbeat.KindExitCode, code(1))
-	if want := "late:job,failed:job"; strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("events %v", f.listener.events)
+	if want := "late:job,failed:job"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -314,8 +314,8 @@ func TestCheckDeadlines_OverdueBecomesLateOnceAndRecoversOnPing(t *testing.T) {
 		t.Fatalf("after the deadline: %+v", got)
 	}
 	f.ping(t, h.Token, heartbeat.KindFinish, nil)
-	if want := "late:job,recovered:job"; strings.Join(f.listener.events, ",") != want {
-		t.Fatalf("events %v", f.listener.events)
+	if want := "late:job,recovered:job"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -371,7 +371,7 @@ func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	paused, _ := f.Get(ctx, h.ID)
-	f.listener.events = nil
+	f.alerter.events = nil
 	f.advance(time.Hour)
 
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
@@ -392,8 +392,8 @@ func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
 	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 4 {
 		t.Fatalf("the raw pings must be kept: %d pings", len(pings))
 	}
-	if len(f.listener.events) != 0 {
-		t.Fatalf("a ping while paused must raise nothing: %v", f.listener.events)
+	if len(f.alerter.events) != 0 {
+		t.Fatalf("a ping while paused must raise nothing: %v", f.alerter.events)
 	}
 	if err := f.CheckDeadlines(ctx); err != nil {
 		t.Fatal(err)
@@ -561,8 +561,8 @@ func TestCheckDeadlines_PingBetweenListAndWrite_IsNotLost(t *testing.T) {
 	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusOnTime {
 		t.Fatalf("status %s", got.Status)
 	}
-	if len(f.listener.events) != 0 {
-		t.Fatalf("events %v", f.listener.events)
+	if len(f.alerter.events) != 0 {
+		t.Fatalf("events %v", f.alerter.events)
 	}
 }
 
@@ -657,15 +657,15 @@ func TestUpdate_LateWithinNewInterval_BackOnTimeAndRecovered(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f.listener.events = nil
+	f.alerter.events = nil
 
 	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
 
 	if updated.Status != heartbeat.StatusOnTime || !updated.NextDeadlineAt.Equal(pinged.LastPingAt.Add(11*time.Minute)) {
 		t.Fatalf("a late job with time left must be back on time: %+v", updated)
 	}
-	if want := []string{"recovered:job"}; !slices.Equal(f.listener.events, want) {
-		t.Fatalf("events %v, want %v", f.listener.events, want)
+	if want := []string{"recovered:job"}; !slices.Equal(f.alerter.events, want) {
+		t.Fatalf("events %v, want %v", f.alerter.events, want)
 	}
 }
 
@@ -677,15 +677,15 @@ func TestUpdate_LateWithinNewInterval_AfterAFailureGoesBackToFailed(t *testing.T
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f.listener.events = nil
+	f.alerter.events = nil
 
 	updated := f.update(t, h.ID, heartbeat.Definition{Name: "job", Interval: 10 * time.Minute, Grace: time.Minute})
 
 	if updated.Status != heartbeat.StatusFailed || updated.NextDeadlineAt.IsZero() {
 		t.Fatalf("got %+v", updated)
 	}
-	if want := []string{"failed:job"}; !slices.Equal(f.listener.events, want) {
-		t.Fatalf("events %v, want %v", f.listener.events, want)
+	if want := []string{"failed:job"}; !slices.Equal(f.alerter.events, want) {
+		t.Fatalf("events %v, want %v", f.alerter.events, want)
 	}
 }
 
@@ -771,11 +771,11 @@ func TestUpdate_RenamesTheOpenAlert(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f.listener.events = nil
+	f.alerter.events = nil
 
 	f.update(t, h.ID, heartbeat.Definition{Name: "nouveau", Interval: 5 * time.Minute, Grace: time.Minute})
-	if want := []string{"late:nouveau"}; !slices.Equal(f.listener.events, want) {
-		t.Fatalf("events %v, want %v", f.listener.events, want)
+	if want := []string{"late:nouveau"}; !slices.Equal(f.alerter.events, want) {
+		t.Fatalf("events %v, want %v", f.alerter.events, want)
 	}
 }
 

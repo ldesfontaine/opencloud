@@ -153,6 +153,8 @@ binaire par plateforme.
 - **Un refus n'est pas une erreur** : type `Refusal{Cause, Remedy string}`,
   code de retour `2` des scripts, affiché tel quel en français. Une erreur,
   c'est ce qu'on n'avait pas prévu.
+- Le refus d'un domaine déclare sa clé avec l'erreur : `refusal.Invalid` ou
+  `refusal.Conflict` (`internal/refusal`), rendus en 422 ou 409 par `s.refused`.
 
 ## La configuration
 

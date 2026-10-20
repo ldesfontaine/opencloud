@@ -1,12 +1,10 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
 // Les seuils d'alerte du disque, réglés sous Paramètres. Le retour n'est
@@ -32,19 +30,12 @@ func diskSettingsToJSON(thresholds alert.DiskThresholds) diskSettingsJSON {
 	}
 }
 
-// diskThresholdsOf rend les seuils en vigueur : ceux du réglage, sinon ceux
-// du produit.
-func diskThresholdsOf(current settings.Settings) alert.DiskThresholds {
-	return alert.DiskThresholdsOr(current.DiskAttentionPercent, current.DiskDangerPercent)
-}
-
 func (s *Server) getDiskSettings(w http.ResponseWriter, r *http.Request) {
-	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	thresholds, err := s.settings.DiskThresholds(r.Context())
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(diskThresholdsOf(current)))
+	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(thresholds))
 }
 
 func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
@@ -53,27 +44,13 @@ func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	thresholds := alert.DiskThresholds{Attention: request.Attention, Danger: request.Danger}
-	err := s.saveDiskThresholds(r.Context(), thresholds)
+	err := s.settings.SetDiskThresholds(r.Context(), thresholds)
 	if errors.Is(err, alert.ErrDiskThresholdsInvalid) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "settings.disk_invalid")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(thresholds))
-}
-
-// saveDiskThresholds ne touche que les deux seuils : la langue et la page
-// de statut vivent sur la même ligne, et UpdateSettings les préserve.
-func (s *Server) saveDiskThresholds(ctx context.Context, thresholds alert.DiskThresholds) error {
-	if err := thresholds.Validate(); err != nil {
-		return err
-	}
-	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
-		current.DiskAttentionPercent = thresholds.Attention
-		current.DiskDangerPercent = thresholds.Danger
-	})
-	return err
 }

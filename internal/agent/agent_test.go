@@ -12,13 +12,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/server"
-	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -34,24 +35,17 @@ type bench struct {
 func newBench(t *testing.T) *bench {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	serverRoot, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { serverRoot.Close() })
-	db, err := store.Open(context.Background(), serverRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	machines := machine.New(db, machine.NewSessions(), logger)
 	resources := resource.New(db, logger)
+	// L'agent envoie sa section services dès que son veilleur a parlé : sans
+	// composant conteneur, le signal paniquerait côté serveur.
+	containers := container.New(db, logger)
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine : le
 	// serveur de test a donc besoin du composant, même vide.
 	probes := probe.New(db, logger)
 	updates := update.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: db, Machines: machines, Resources: resources, Probes: probes, Updates: updates})
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,13 +59,17 @@ func newBench(t *testing.T) *bench {
 	return &bench{url: server.URL, machines: machines, resources: resources, stateDir: agentRoot, logger: logger}
 }
 
+// Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
+// cassé ; un runner chargé la consomme à peine.
+const benchTimeout = 30 * time.Second
+
 func (b *bench) options(token string) Options {
 	return Options{StateDir: b.stateDir, Server: b.url, Token: token, Language: lang.English, Version: "v0.0.1", SignalInterval: 50 * time.Millisecond, SampleInterval: 20 * time.Millisecond, Logger: b.logger}
 }
 
 func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) bool) machine.Status {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(benchTimeout)
 	for time.Now().Before(deadline) {
 		statuses, _ := b.machines.List(context.Background())
 		for _, status := range statuses {
@@ -101,7 +99,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	}
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.LastSeenAt.After(online.LastSeenAt) })
 	// L'agent a mesuré cette machine et l'a livré avec son signal.
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(benchTimeout)
 	for {
 		current, err := b.resources.Current(context.Background(), online.ID)
 		if err == nil && current.Available && current.Sample.CPUCores > 0 && current.Sample.MemTotal > 0 {
@@ -168,7 +166,7 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 		if !errors.Is(err, ErrIdentityRefused) {
 			t.Fatalf("got %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(benchTimeout):
 		t.Fatal("agent kept retrying after removal")
 	}
 }

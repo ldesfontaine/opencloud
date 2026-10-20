@@ -207,51 +207,38 @@ func snapshotToJSON(snapshot status.Snapshot) publicStatusJSON {
 		GeneratedAt:  snapshot.GeneratedAt.UTC(),
 		Global:       string(snapshot.Global),
 		Components:   make([]publicComponentJSON, 0, len(snapshot.Components)),
-		Open:         make([]publicIncidentJSON, 0, len(snapshot.Open)),
-		History:      make([]publicIncidentJSON, 0, len(snapshot.History)),
+		Open:         convertAll(snapshot.Open, publicIncidentToJSON),
+		History:      convertAll(snapshot.History, publicIncidentToJSON),
 	}
 	for _, component := range snapshot.Components {
-		days := make([]statusDayJSON, 0, len(component.Days))
-		for _, day := range component.Days {
-			days = append(days, statusDayJSON{Day: day.Day.UTC().Format(time.DateOnly), Total: day.Total, Success: day.Success, Degraded: day.Degraded})
-		}
+		days := convertAll(component.Days, func(day status.Day) statusDayJSON {
+			return statusDayJSON{Day: day.Day.UTC().Format(time.DateOnly), Total: day.Total, Success: day.Success, Degraded: day.Degraded}
+		})
 		response.Components = append(response.Components, publicComponentJSON{ID: component.ID, Name: component.Name, State: string(component.State), Days: days})
-	}
-	for _, incident := range snapshot.Open {
-		response.Open = append(response.Open, publicIncidentToJSON(incident))
-	}
-	for _, incident := range snapshot.History {
-		response.History = append(response.History, publicIncidentToJSON(incident))
 	}
 	return response
 }
 
 func publicIncidentToJSON(incident status.Incident) publicIncidentJSON {
-	response := publicIncidentJSON{
+	return publicIncidentJSON{
 		ID:         incident.ID,
 		Title:      incident.Title,
 		Impact:     string(incident.Impact),
 		Status:     string(incident.Status),
 		StartsAt:   timeOrNil(incident.StartsAt),
 		EndsAt:     timeOrNil(incident.EndsAt),
-		Components: make([]string, 0, len(incident.Components)),
+		Components: convertAll(incident.Components, func(component status.ComponentRef) string { return component.Name }),
 		Updates:    updatesToJSON(incident.Updates),
 		CreatedAt:  incident.CreatedAt.UTC(),
 		UpdatedAt:  incident.UpdatedAt.UTC(),
 		ResolvedAt: timeOrNil(incident.ResolvedAt),
 	}
-	for _, component := range incident.Components {
-		response.Components = append(response.Components, component.Name)
-	}
-	return response
 }
 
 func updatesToJSON(updates []status.Update) []updateJSON {
-	response := make([]updateJSON, 0, len(updates))
-	for _, update := range updates {
-		response = append(response, updateJSON{Status: string(update.Status), Message: update.Message, CreatedAt: update.CreatedAt.UTC()})
-	}
-	return response
+	return convertAll(updates, func(update status.Update) updateJSON {
+		return updateJSON{Status: string(update.Status), Message: update.Message, CreatedAt: update.CreatedAt.UTC()}
+	})
 }
 
 // GET /statut/api/i18n : les chaînes de la page dans sa langue, et rien

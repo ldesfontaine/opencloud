@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -46,18 +45,12 @@ type overviewNetworkResponse struct {
 }
 
 func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
-	status, err := s.machines.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiNotFound(w)
+	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
-	}
-	response, err := s.networkOf(r.Context(), status)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	response, err := s.networkOf(r.Context(), found)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -65,15 +58,13 @@ func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 	statuses, err := s.machines.List(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := overviewNetworkResponse{Machines: make([]networkResponse, 0, len(statuses))}
-	for _, status := range statuses {
-		network, err := s.networkOf(r.Context(), status)
-		if err != nil {
-			s.apiInternalError(w, r, err)
+	for _, machineStatus := range statuses {
+		network, err := s.networkOf(r.Context(), machineStatus)
+		if s.failed(w, r, err, nil) {
 			return
 		}
 		response.Machines = append(response.Machines, network)
@@ -81,8 +72,8 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkResponse, error) {
-	topology, err := s.containers.Topology(ctx, status.ID)
+func (s *Server) networkOf(ctx context.Context, machineStatus machine.Status) (networkResponse, error) {
+	topology, err := s.containers.Topology(ctx, machineStatus.ID)
 	if err != nil {
 		return networkResponse{}, err
 	}
@@ -94,25 +85,22 @@ func (s *Server) networkOf(ctx context.Context, status machine.Status) (networkR
 	if err != nil {
 		return networkResponse{}, err
 	}
-	checks, err := s.updates.Checks(ctx, status.ID)
+	checks, err := s.updates.Checks(ctx, machineStatus.ID)
 	if err != nil {
 		return networkResponse{}, err
 	}
 	response := networkResponse{
-		MachineID: status.ID, MachineName: status.Name, Online: status.Online,
-		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: []edgeJSON{},
+		MachineID: machineStatus.ID, MachineName: machineStatus.Name, Online: machineStatus.Online,
+		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: convertAll(topology.Edges, edgeToJSON),
 	}
 	for _, item := range topology.Containers {
-		response.Containers = append(response.Containers, containerToJSON(item, status.Name, currents[item.ID], checks))
+		response.Containers = append(response.Containers, containerToJSON(item, machineStatus.Name, currents[item.ID], checks))
 	}
 	for _, group := range topology.Groups {
 		response.Groups = append(response.Groups, groupJSON{NetworkID: group.NetworkID, Name: group.Name, Internal: group.Internal, Members: group.Members})
 	}
-	for _, edge := range topology.Edges {
-		response.Edges = append(response.Edges, edgeToJSON(edge))
-	}
 	for _, engine := range engines {
-		if engine.MachineID == status.ID {
+		if engine.MachineID == machineStatus.ID {
 			converted := engineToJSON(engine)
 			response.Engine = &converted
 		}

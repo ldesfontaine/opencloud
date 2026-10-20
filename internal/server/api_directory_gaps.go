@@ -151,21 +151,16 @@ func (s *Server) gapsResponseOf(ctx context.Context, report directory.GapReport)
 	if err != nil {
 		return gapsResponse{}, err
 	}
-	response := gapsResponse{Services: make([]serviceGapJSON, 0, len(report.Services)), Undeclared: make([]undeclaredJSON, 0, len(report.Undeclared))}
-	for _, gap := range report.Services {
-		response.Services = append(response.Services, serviceGapToJSON(gap))
-	}
-	for _, group := range report.Undeclared {
-		response.Undeclared = append(response.Undeclared, undeclaredToJSON(group, names))
-	}
-	return response, nil
+	return gapsResponse{
+		Services:   convertAll(report.Services, serviceGapToJSON),
+		Undeclared: convertAll(report.Undeclared, func(group directory.Undeclared) undeclaredJSON { return undeclaredToJSON(group, names) }),
+	}, nil
 }
 
 func (s *Server) getDirectoryGaps(w http.ResponseWriter, r *http.Request) {
 	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
 	response, err := s.gapsOf(r.Context(), filter)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -195,22 +190,19 @@ func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
 // declaredServiceRequestOf est l'inverse de declaredServiceDefinition : la
 // définition que le serveur propose, sous la forme que le formulaire envoie.
 func declaredServiceRequestOf(definition directory.ServiceDefinition) declaredServiceRequest {
-	provides := make([]string, 0, len(definition.Provides))
-	for _, capability := range definition.Provides {
-		provides = append(provides, string(capability))
-	}
+	provides := convertAll(definition.Provides, func(capability directory.Capability) string { return string(capability) })
 	units := make([]unitRequest, 0, len(definition.Units))
 	for _, unit := range definition.Units {
 		units = append(units, unitRequest{
 			ID: unit.ID, Name: unit.Name, Image: unit.Image, Version: unit.Version, Digest: unit.Digest,
-			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: nonNil(unit.Ports),
+			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: orEmpty(unit.Ports),
 			UpdatePolicy: string(unit.UpdatePolicy),
 		})
 	}
 	return declaredServiceRequest{
 		MachineID: definition.MachineID, Name: definition.Name, Title: definition.Title, Nature: string(definition.Nature),
 		Origin: string(definition.Origin), ComposeProject: definition.ComposeProject, PublicURL: definition.PublicURL,
-		Provides: provides, Units: units, ProjectIDs: nonNil(definition.ProjectIDs),
+		Provides: provides, Units: units, ProjectIDs: orEmpty(definition.ProjectIDs),
 	}
 }
 
@@ -221,12 +213,7 @@ func (s *Server) ignoreKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key := directory.IgnoredKey{MachineID: request.MachineID, Kind: directory.IgnoreKind(request.Kind), Value: request.Value}
 	err := s.directory.Ignore(r.Context(), key)
-	if refusal, refused := directoryRefusalKey(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, refusal)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -240,8 +227,7 @@ func (s *Server) unignoreKey(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.ignore_not_found")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

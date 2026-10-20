@@ -53,10 +53,10 @@ type Presence interface {
 	IsOnline(machine Machine, now time.Time) bool
 }
 
-// Listener reçoit chaque changement qui se voit dans l'interface : une
+// Watcher reçoit chaque changement qui se voit dans l'interface : une
 // machine qui entre, se connecte, signale, part ; un jeton émis ou annulé.
 // Le direct s'y branche ; nil est toléré.
-type Listener interface {
+type Watcher interface {
 	MachineChanged(machineID string)
 }
 
@@ -73,7 +73,7 @@ type Service struct {
 	sessions   *Sessions
 	presence   Presence
 	challenges *challenges
-	listener   Listener
+	watcher    Watcher
 	alerter    Alerter
 	logger     *slog.Logger
 	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
@@ -128,8 +128,8 @@ func (s *Service) SetPresence(presence Presence) {
 	s.presence = presence
 }
 
-func (s *Service) SetListener(listener Listener) {
-	s.listener = listener
+func (s *Service) SetWatcher(watcher Watcher) {
+	s.watcher = watcher
 }
 
 func (s *Service) SetAlerter(alerter Alerter) {
@@ -137,8 +137,8 @@ func (s *Service) SetAlerter(alerter Alerter) {
 }
 
 func (s *Service) changed(machineID string) {
-	if s.listener != nil {
-		s.listener.MachineChanged(machineID)
+	if s.watcher != nil {
+		s.watcher.MachineChanged(machineID)
 	}
 }
 

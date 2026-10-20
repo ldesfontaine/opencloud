@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 const (
@@ -60,7 +61,7 @@ func (m *Manifest) Plan(ctx context.Context, request Request) (Plan, error) {
 			return Plan{}, err
 		}
 	}
-	plan := BuildPlan(file, problems, current, request.Prune, m.errorKey)
+	plan := BuildPlan(file, problems, current, request.Prune)
 	plan.FileHash = HashBytes(request.File)
 	if err := m.describeDeletions(ctx, &plan); err != nil {
 		return Plan{}, err
@@ -299,7 +300,7 @@ func (m *Manifest) failureKey(err error) string {
 		errors.Is(err, probe.ErrNotFound), errors.Is(err, heartbeat.ErrNotFound), errors.Is(err, directory.ErrIgnoredNotFound):
 		return KeyPlanChanged
 	}
-	if key := m.errorKey(err); key != "" {
+	if key, refused := refusal.KeyOf(err); refused {
 		return key
 	}
 	return KeyApplyFailed

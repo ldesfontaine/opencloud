@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Ce que le serveur attend du composant mcp : l'activation et les jetons
@@ -212,8 +213,7 @@ func (s *Server) verifyBearer(ctx context.Context, bearer string, _ *http.Reques
 // mcpEnabled répond 404 quand MCP n'est pas activé : rien à découvrir.
 func (s *Server) mcpEnabled(w http.ResponseWriter, r *http.Request) bool {
 	_, enabled, err := s.mcp.Client(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return false
 	}
 	if !enabled {
@@ -243,14 +243,36 @@ func toolJSON(payload any) (*gomcp.CallToolResult, any, error) {
 // toolRefuse rend un refus sous la forme de l'API : un seul mot, clé de
 // catalogue ou code court, que le modèle peut lire et corriger.
 func toolRefuse(code string) (*gomcp.CallToolResult, any, error) {
+	return refusedResult(code), nil, nil
+}
+
+func refusedResult(code string) *gomcp.CallToolResult {
 	encoded, _ := json.Marshal(apiError{Error: code})
-	return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(encoded)}}, IsError: true}, nil, nil
+	return &gomcp.CallToolResult{Content: []gomcp.Content{&gomcp.TextContent{Text: string(encoded)}}, IsError: true}
 }
 
 // toolInternal journalise et rend « internal » : le détail reste au journal.
 func (s *Server) toolInternal(tool string, err error) (*gomcp.CallToolResult, any, error) {
 	s.logger.Error("mcp tool failed", "tool", tool, "error", err)
 	return toolRefuse(codeInternal)
+}
+
+// toolFailed est le pendant MCP de failed : not_found sur notFound (nil quand
+// l'outil n'a pas de 404), la clé d'un refus, sinon « internal ». Le booléen
+// dit si le résultat est prêt à rendre. Les exceptions de clé (l'API rend
+// directory.unit_not_found là où l'outil rend not_found) restent à la main.
+func (s *Server) toolFailed(tool string, err, notFound error) (*gomcp.CallToolResult, bool) {
+	if err == nil {
+		return nil, false
+	}
+	if notFound != nil && errors.Is(err, notFound) {
+		return refusedResult(codeNotFound), true
+	}
+	if key, ok := refusal.KeyOf(err); ok {
+		return refusedResult(key), true
+	}
+	result, _, _ := s.toolInternal(tool, err)
+	return result, true
 }
 
 // pageOf borne une page demandée par un client sans interface.

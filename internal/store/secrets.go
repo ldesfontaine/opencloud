@@ -121,31 +121,23 @@ type storedSecret struct {
 	value string
 }
 
-// queryer est satisfait par *sql.DB et *sql.Tx.
-type queryer interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
 // readSecretColumn lit les valeurs non vides d'une colonne, avec leur ligne.
 // Les rows se referment avant qu'on écrive : une transaction n'a qu'une
 // connexion.
-func readSecretColumn(ctx context.Context, from queryer, target secretColumn) ([]storedSecret, error) {
+func readSecretColumn(ctx context.Context, from querier, target secretColumn) ([]storedSecret, error) {
 	// Table et colonne viennent de secretColumns, jamais d'une saisie.
 	query := `SELECT CAST(id AS TEXT), ` + target.column + ` FROM ` + target.table + ` WHERE ` + target.column + ` <> ''` // #nosec G202 -- constantes du paquet.
 	rows, err := from.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("read %s.%s: %w", target.table, target.column, err)
 	}
-	defer rows.Close()
-	var stored []storedSecret
-	for rows.Next() {
+	return collect(rows, func(row scanner) (storedSecret, error) {
 		var entry storedSecret
-		if err := rows.Scan(&entry.row, &entry.value); err != nil {
-			return nil, fmt.Errorf("scan %s.%s: %w", target.table, target.column, err)
+		if err := row.Scan(&entry.row, &entry.value); err != nil {
+			return storedSecret{}, fmt.Errorf("scan %s.%s: %w", target.table, target.column, err)
 		}
-		stored = append(stored, entry)
-	}
-	return stored, rows.Err()
+		return entry, nil
+	})
 }
 
 // VerifySealedSecrets ouvre chaque secret chiffré de la base avec la clé du
@@ -184,34 +176,31 @@ func (db *DB) SealPlaintextSecrets(ctx context.Context) (int, error) {
 	if db.sealer == nil {
 		return 0, ErrNoSealer
 	}
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin sealing secrets: %w", err)
-	}
-	defer tx.Rollback()
-
 	sealed := 0
-	for _, target := range secretColumns {
-		stored, err := readSecretColumn(ctx, tx, target)
-		if err != nil {
-			return 0, err
-		}
-		for _, entry := range stored {
-			scope := seal.Scope{Table: target.table, Column: target.column, Row: entry.row}
-			if seal.IsSealed(entry.value) {
-				if _, err := db.openSecret(entry.value, scope); err != nil {
-					return 0, err
+	err := db.inTx(ctx, "sealing secrets", func(tx *sql.Tx) error {
+		for _, target := range secretColumns {
+			stored, err := readSecretColumn(ctx, tx, target)
+			if err != nil {
+				return err
+			}
+			for _, entry := range stored {
+				scope := seal.Scope{Table: target.table, Column: target.column, Row: entry.row}
+				if seal.IsSealed(entry.value) {
+					if _, err := db.openSecret(entry.value, scope); err != nil {
+						return err
+					}
+					continue
 				}
-				continue
+				if err := db.sealInPlace(ctx, tx, scope, entry.value); err != nil {
+					return err
+				}
+				sealed++
 			}
-			if err := db.sealInPlace(ctx, tx, scope, entry.value); err != nil {
-				return 0, err
-			}
-			sealed++
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit sealing secrets: %w", err)
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	return sealed, nil
 }
@@ -232,11 +221,6 @@ func (db *DB) sealInPlace(ctx context.Context, tx *sql.Tx, scope seal.Scope, pla
 		return fmt.Errorf("seal %s.%s row %s: %w", scope.Table, scope.Column, scope.Row, err)
 	}
 	return nil
-}
-
-// execer est satisfait par *sql.DB et *sql.Tx.
-type execer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // writeHeartbeatToken pose le jeton d'une tâche, chiffré, avec l'empreinte
@@ -290,31 +274,27 @@ func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)
 	if db.sealer == nil {
 		return 0, 0, ErrNoSealer
 	}
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, 0, fmt.Errorf("begin forgetting secrets: %w", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx, `UPDATE settings SET mail_password = ''`); err != nil {
-		return 0, 0, fmt.Errorf("forget mail password: %w", err)
-	}
-	// Un canal e-mail n'a ni URL ni secret : il n'a rien perdu, il reste actif.
-	result, err := tx.ExecContext(ctx,
-		`UPDATE alert_channels SET url = '', secret = '', enabled = 0 WHERE url <> '' OR secret <> ''`)
-	if err != nil {
-		return 0, 0, fmt.Errorf("forget channel secrets: %w", err)
-	}
-	disabled, err := result.RowsAffected()
-	if err != nil {
-		return 0, 0, fmt.Errorf("count forgotten channels: %w", err)
-	}
-	renewed, err := db.renewHeartbeatTokens(ctx, tx, newToken)
+	var disabled int64
+	var renewed int
+	err = db.inTx(ctx, "forgetting secrets", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE settings SET mail_password = ''`); err != nil {
+			return fmt.Errorf("forget mail password: %w", err)
+		}
+		// Un canal e-mail n'a ni URL ni secret : il n'a rien perdu, il reste actif.
+		result, err := tx.ExecContext(ctx,
+			`UPDATE alert_channels SET url = '', secret = '', enabled = 0 WHERE url <> '' OR secret <> ''`)
+		if err != nil {
+			return fmt.Errorf("forget channel secrets: %w", err)
+		}
+		disabled, err = result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("count forgotten channels: %w", err)
+		}
+		renewed, err = db.renewHeartbeatTokens(ctx, tx, newToken)
+		return err
+	})
 	if err != nil {
 		return 0, 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, 0, fmt.Errorf("commit forgetting secrets: %w", err)
 	}
 	return int(disabled), renewed, nil // #nosec G115 -- au plus le nombre de canaux de la base.
 }
@@ -338,19 +318,16 @@ func (db *DB) renewHeartbeatTokens(ctx context.Context, tx *sql.Tx, newToken fun
 
 // Les identifiants se lisent d'abord, rows refermées, puis les jetons
 // s'écrivent : une transaction n'a qu'une connexion.
-func listHeartbeatIDs(ctx context.Context, from queryer) ([]string, error) {
+func listHeartbeatIDs(ctx context.Context, from querier) ([]string, error) {
 	rows, err := from.QueryContext(ctx, `SELECT id FROM heartbeats`)
 	if err != nil {
 		return nil, fmt.Errorf("list heartbeat ids: %w", err)
 	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
+	return collect(rows, func(row scanner) (string, error) {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan heartbeat id: %w", err)
+		if err := row.Scan(&id); err != nil {
+			return "", fmt.Errorf("scan heartbeat id: %w", err)
 		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+		return id, nil
+	})
 }

@@ -44,39 +44,33 @@ const rollupUpdate = `ON CONFLICT (machine_id, bucket) DO UPDATE SET
 // ses volumes ; un échantillon déjà là, rejoué après une coupure, est
 // ignoré, ses volumes avec.
 func (db *DB) InsertSamples(ctx context.Context, machineID string, readings []sampler.Reading) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert samples: %w", err)
-	}
-	defer tx.Rollback()
-	for _, reading := range readings {
-		result, err := tx.ExecContext(ctx, `
+	return db.inTx(ctx, "insert samples", func(tx *sql.Tx) error {
+		for _, reading := range readings {
+			result, err := tx.ExecContext(ctx, `
 			INSERT OR IGNORE INTO machine_samples (machine_id, sampled_at, cpu_percent, cpu_cores, load_1,
 				mem_used, mem_total, swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			machineID, reading.SampledAt.Unix(), reading.CPUPercent, reading.CPUCores, reading.Load1,
-			reading.MemUsed, reading.MemTotal, reading.SwapUsed, reading.SwapTotal,
-			reading.DiskUsed, reading.DiskTotal, reading.NetRxPerSecond, reading.NetTxPerSecond)
-		if err != nil {
-			return fmt.Errorf("insert sample: %w", err)
-		}
-		if inserted, _ := result.RowsAffected(); inserted == 0 {
-			continue
-		}
-		for _, disk := range reading.Disks {
-			_, err := tx.ExecContext(ctx, `
+				machineID, reading.SampledAt.Unix(), reading.CPUPercent, reading.CPUCores, reading.Load1,
+				reading.MemUsed, reading.MemTotal, reading.SwapUsed, reading.SwapTotal,
+				reading.DiskUsed, reading.DiskTotal, reading.NetRxPerSecond, reading.NetTxPerSecond)
+			if err != nil {
+				return fmt.Errorf("insert sample: %w", err)
+			}
+			if inserted, _ := result.RowsAffected(); inserted == 0 {
+				continue
+			}
+			for _, disk := range reading.Disks {
+				_, err := tx.ExecContext(ctx, `
 				INSERT INTO machine_disks (machine_id, sampled_at, mount_point, device, disk_used, disk_total)
 				VALUES (?, ?, ?, ?, ?, ?)`,
-				machineID, reading.SampledAt.Unix(), disk.MountPoint, disk.Device, disk.Used, disk.Total)
-			if err != nil {
-				return fmt.Errorf("insert disk: %w", err)
+					machineID, reading.SampledAt.Unix(), disk.MountPoint, disk.Device, disk.Used, disk.Total)
+				if err != nil {
+					return fmt.Errorf("insert disk: %w", err)
+				}
 			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert samples: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 const latestSampleQuery = `
@@ -108,16 +102,8 @@ func (db *DB) LatestSamples(ctx context.Context) ([]resource.Sample, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list latest samples: %w", err)
 	}
-	defer rows.Close()
-	var samples []resource.Sample
-	for rows.Next() {
-		sample, err := scanSample(rows)
-		if err != nil {
-			return nil, err
-		}
-		samples = append(samples, sample)
-	}
-	if err := rows.Err(); err != nil {
+	samples, err := collect(rows, scanSample)
+	if err != nil {
 		return nil, err
 	}
 	disks, err := db.listLatestDisks(ctx)
@@ -198,16 +184,7 @@ func (db *DB) queryReadings(ctx context.Context, query string, args ...any) ([]s
 	if err != nil {
 		return nil, fmt.Errorf("list readings: %w", err)
 	}
-	defer rows.Close()
-	readings := []sampler.Reading{}
-	for rows.Next() {
-		reading, err := scanReading(rows)
-		if err != nil {
-			return nil, err
-		}
-		readings = append(readings, reading)
-	}
-	return readings, rows.Err()
+	return collect(rows, scanReading)
 }
 
 // RollupHourly agrège un seau du brut en une seule instruction ; le seau
@@ -241,29 +218,23 @@ func (db *DB) RollupDaily(ctx context.Context, bucketStart, bucketEnd time.Time)
 }
 
 func (db *DB) PurgeSamples(ctx context.Context, rawBefore, hourlyBefore, dailyBefore time.Time) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin purge samples: %w", err)
-	}
-	defer tx.Rollback()
-	// Les volumes d'abord, par leur index : la cascade de la clé étrangère
-	// ferait le même travail ligne à ligne.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_disks WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
-		return fmt.Errorf("purge disks: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
-		return fmt.Errorf("purge samples: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_hourly WHERE bucket < ?`, hourlyBefore.Unix()); err != nil {
-		return fmt.Errorf("purge hourly: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_daily WHERE bucket < ?`, dailyBefore.Unix()); err != nil {
-		return fmt.Errorf("purge daily: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit purge samples: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "purge samples", func(tx *sql.Tx) error {
+		// Les volumes d'abord, par leur index : la cascade de la clé étrangère
+		// ferait le même travail ligne à ligne.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_disks WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
+			return fmt.Errorf("purge disks: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
+			return fmt.Errorf("purge samples: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_hourly WHERE bucket < ?`, hourlyBefore.Unix()); err != nil {
+			return fmt.Errorf("purge hourly: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_daily WHERE bucket < ?`, dailyBefore.Unix()); err != nil {
+			return fmt.Errorf("purge daily: %w", err)
+		}
+		return nil
+	})
 }
 
 func scanSample(row scanner) (resource.Sample, error) {

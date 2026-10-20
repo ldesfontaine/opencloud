@@ -347,7 +347,7 @@ func TestAPI_SetLanguage_SavesAndRefusesUnknown(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPut, "/api/session/language", languageRequest{Language: "en"}); got.Code != http.StatusNoContent {
 		t.Fatalf("status %d: %s", got.Code, got.Body.String())
 	}
-	saved, err := server.settings.LoadSettings(context.Background())
+	saved, err := server.db.LoadSettings(context.Background())
 	if err != nil || saved.Language != "en" {
 		t.Fatalf("saved %+v %v", saved, err)
 	}
@@ -390,7 +390,7 @@ func TestAPI_Writes_RequireTheSameOrigin(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("cross-site read: %d", recorder.Code)
 	}
-	if saved, _ := server.settings.LoadSettings(context.Background()); saved.Language == "en" {
+	if saved, _ := server.db.LoadSettings(context.Background()); saved.Language == "en" {
 		t.Fatal("a refused write must not be applied")
 	}
 }
@@ -510,9 +510,11 @@ func TestAPI_UnknownRoute_IsAJSON404(t *testing.T) {
 
 var refusalCall = regexp.MustCompile(`apiRefuse\(w, http\.Status[A-Za-z]+, "([^"]+)"\)`)
 
-// Le garde-fou : chaque refus porte une clé qui existe dans les deux
-// catalogues, jamais une phrase en dur.
-func TestAPI_RefusalKeysExistInEveryCatalog(t *testing.T) {
+// Le garde-fou des refus encore écrits à la main dans un handler (404 avec
+// clé, 503, refus sans sentinelle) : leur clé existe dans les deux
+// catalogues. Ceux des domaines sont vérifiés par
+// TestRefusals_KeysExistInEveryCatalog.
+func TestAPI_LiteralRefusalKeysExistInEveryCatalog(t *testing.T) {
 	server := newTestServer(t)
 	sources, err := filepath.Glob("*.go")
 	if err != nil {

@@ -197,12 +197,11 @@ func TestManifest_ProblemKeysExistInEveryCatalogWithTheirArguments(t *testing.T)
 }
 
 // newTestManifest câble le fichier comme serve : les mêmes composants que
-// l'interface, la même traduction des refus, le direct prévenu.
+// l'interface, le direct prévenu.
 func newTestManifest(declared *directory.Directory, probes *probe.Service, heartbeats *heartbeat.Service, db *store.DB, bus *live.Bus, logger *slog.Logger) *manifest.Manifest {
 	component := manifest.New(manifest.Dependencies{
 		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
 	}, logger)
-	component.SetErrorKeys(RefusalKey)
 	component.SetWatcher(bus)
 	component.SetClock(func() time.Time { return testNow })
 	return component

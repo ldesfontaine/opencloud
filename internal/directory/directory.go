@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Nature dit si le service est ce que l'on déploie pour ses utilisateurs ou
@@ -89,37 +90,37 @@ const (
 var (
 	ErrNotFound = errors.New("declared service not found")
 
-	ErrMachineInvalid        = errors.New("declared service machine must exist")
-	ErrNameInvalid           = errors.New("declared service name must be a lowercase label: letters, digits, dashes, underscores")
-	ErrTitleInvalid          = errors.New("declared service title must be at most 80 characters")
-	ErrNatureInvalid         = errors.New("declared service nature must be application or infra")
-	ErrOriginInvalid         = errors.New("declared service origin must be compose, container or binary")
-	ErrComposeProjectInvalid = errors.New("compose project is required for a compose service, and only for it")
-	ErrPublicURLInvalid      = errors.New("public url must be an absolute http or https address")
-	ErrProvidesInvalid       = errors.New("a service can only provide sso, proxy, tls or backup-target")
-	ErrProvidesNeedInfra     = errors.New("only an infrastructure service provides a capability")
-	ErrUnitsInvalid          = errors.New("a service has from 1 to 32 units")
-	ErrUnitNameInvalid       = errors.New("unit name is not valid")
-	ErrUnitNameTaken         = errors.New("unit name already used in this service")
-	ErrImageInvalid          = errors.New("unit image must be a reference without tag or digest, and only for a container")
-	ErrVersionInvalid        = errors.New("unit version is not a valid tag")
-	ErrVersionLatest         = errors.New("unit version cannot be latest")
-	ErrDigestInvalid         = errors.New("unit digest must be sha256 followed by 64 hexadecimal digits, and only for an image")
-	ErrContainerNameInvalid  = errors.New("container name is required for a container service, and only for it")
-	ErrSystemdUnitInvalid    = errors.New("systemd unit is required for a binary service, and only for it")
-	ErrUnitKeyDuplicate      = errors.New("two units of the service declare the same container name or systemd unit")
-	ErrPortsInvalid          = errors.New("unit ports must be port, host:port, with an optional /tcp or /udp")
-	ErrNameTaken             = errors.New("declared service name already used on this machine")
-	ErrComposeProjectTaken   = errors.New("compose project already declared on this machine")
-	ErrMatchKeyTaken         = errors.New("container name or systemd unit already declared on this machine")
-	ErrUnitInvalid           = errors.New("unit does not belong to this service")
-	ErrProjectInvalid        = errors.New("project must exist")
+	ErrMachineInvalid        = refusal.Invalid("directory.machine_invalid", "declared service machine must exist")
+	ErrNameInvalid           = refusal.Invalid("directory.name_invalid", "declared service name must be a lowercase label: letters, digits, dashes, underscores")
+	ErrTitleInvalid          = refusal.Invalid("directory.title_invalid", "declared service title must be at most 80 characters")
+	ErrNatureInvalid         = refusal.Invalid("directory.nature_invalid", "declared service nature must be application or infra")
+	ErrOriginInvalid         = refusal.Invalid("directory.origin_invalid", "declared service origin must be compose, container or binary")
+	ErrComposeProjectInvalid = refusal.Invalid("directory.compose_project_invalid", "compose project is required for a compose service, and only for it")
+	ErrPublicURLInvalid      = refusal.Invalid("directory.public_url_invalid", "public url must be an absolute http or https address")
+	ErrProvidesInvalid       = refusal.Invalid("directory.provides_invalid", "a service can only provide sso, proxy, tls or backup-target")
+	ErrProvidesNeedInfra     = refusal.Invalid("directory.provides_need_infra", "only an infrastructure service provides a capability")
+	ErrUnitsInvalid          = refusal.Invalid("directory.units_invalid", "a service has from 1 to 32 units")
+	ErrUnitNameInvalid       = refusal.Invalid("directory.unit_name_invalid", "unit name is not valid")
+	ErrUnitNameTaken         = refusal.Invalid("directory.unit_name_taken", "unit name already used in this service")
+	ErrImageInvalid          = refusal.Invalid("directory.image_invalid", "unit image must be a reference without tag or digest, and only for a container")
+	ErrVersionInvalid        = refusal.Invalid("directory.version_invalid", "unit version is not a valid tag")
+	ErrVersionLatest         = refusal.Invalid("directory.version_latest", "unit version cannot be latest")
+	ErrDigestInvalid         = refusal.Invalid("directory.digest_invalid", "unit digest must be sha256 followed by 64 hexadecimal digits, and only for an image")
+	ErrContainerNameInvalid  = refusal.Invalid("directory.container_name_invalid", "container name is required for a container service, and only for it")
+	ErrSystemdUnitInvalid    = refusal.Invalid("directory.systemd_unit_invalid", "systemd unit is required for a binary service, and only for it")
+	ErrUnitKeyDuplicate      = refusal.Invalid("directory.unit_key_duplicate", "two units of the service declare the same container name or systemd unit")
+	ErrPortsInvalid          = refusal.Invalid("directory.ports_invalid", "unit ports must be port, host:port, with an optional /tcp or /udp")
+	ErrNameTaken             = refusal.Invalid("directory.name_taken", "declared service name already used on this machine")
+	ErrComposeProjectTaken   = refusal.Invalid("directory.compose_project_taken", "compose project already declared on this machine")
+	ErrMatchKeyTaken         = refusal.Invalid("directory.match_key_taken", "container name or systemd unit already declared on this machine")
+	ErrUnitInvalid           = refusal.Invalid("directory.unit_invalid", "unit does not belong to this service")
+	ErrProjectInvalid        = refusal.Invalid("directory.project_invalid", "project must exist")
 	ErrProjectNotFound       = errors.New("project not found")
-	ErrProjectNameInvalid    = errors.New("project name must be a lowercase label: letters, digits, dashes, underscores")
-	ErrProjectTitleInvalid   = errors.New("project title must be at most 80 characters")
-	ErrProjectNameTaken      = errors.New("project name already used")
+	ErrProjectNameInvalid    = refusal.Invalid("project.name_invalid", "project name must be a lowercase label: letters, digits, dashes, underscores")
+	ErrProjectTitleInvalid   = refusal.Invalid("project.title_invalid", "project title must be at most 80 characters")
+	ErrProjectNameTaken      = refusal.Invalid("project.name_taken", "project name already used")
 
-	ErrIgnoreInvalid     = errors.New("ignored key needs an existing machine, a known kind and a value that fits it")
+	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
 	ErrContainerNotFound = errors.New("container not found, or already gone")
 	ErrContainerDeclared = errors.New("container already belongs to a declared service")
@@ -129,12 +130,11 @@ var (
 	// Le service du projet Compose a déjà MaxUnits unités : rien ne s'y ajoute.
 	ErrUnitsFull = errors.New("declared service already holds the maximum number of units")
 
-	ErrUpdatePolicyInvalid = errors.New("unit update policy must be watch, hold or ignore, and only watch for a binary")
+	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
 	// ErrServiceLinked : des sondes ou des composants de statut visent le
-	// service. LinkedError porte la liste ; errors.Is(err, ErrServiceLinked)
-	// le reconnaît.
-	ErrServiceLinked = errors.New("declared service is still watched or shown")
+	// service. LinkedError porte la liste et enveloppe ce refus.
+	ErrServiceLinked = refusal.Conflict("directory.service_linked", "declared service is still watched or shown")
 )
 
 // Service est un service tel que l'opérateur l'a déclaré, avec ses unités.
@@ -259,8 +259,10 @@ func (e *LinkedError) Error() string {
 	return ErrServiceLinked.Error()
 }
 
-func (e *LinkedError) Is(target error) bool {
-	return target == ErrServiceLinked
+// Unwrap rend le refus : errors.Is le reconnaît, et refusal.KeyOf y lit la
+// clé, pour le fichier de l'annuaire qui n'a pas besoin de la liste.
+func (e *LinkedError) Unwrap() error {
+	return ErrServiceLinked
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

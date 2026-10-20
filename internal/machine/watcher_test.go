@@ -7,20 +7,20 @@ import (
 	"testing"
 )
 
-type recordingListener struct {
+type recordingWatcher struct {
 	changes []string
 }
 
-func (l *recordingListener) MachineChanged(id string) {
-	l.changes = append(l.changes, id)
+func (w *recordingWatcher) MachineChanged(id string) {
+	w.changes = append(w.changes, id)
 }
 
 // Tout ce que l'interface montre d'une machine passe par le crochet : le
 // jeton, l'enrôlement, la connexion, le signal, la déconnexion, le retrait.
-func TestListener_HearsEveryVisibleChange(t *testing.T) {
+func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 	h := newHarness(t)
-	listener := &recordingListener{}
-	h.service.SetListener(listener)
+	watcher := &recordingWatcher{}
+	h.service.SetWatcher(watcher)
 	ctx := context.Background()
 
 	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1")
@@ -44,17 +44,17 @@ func TestListener_HearsEveryVisibleChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"", id, id, id, id, id}
-	if len(listener.changes) != len(want) {
-		t.Fatalf("changes %v, want %v", listener.changes, want)
+	if len(watcher.changes) != len(want) {
+		t.Fatalf("changes %v, want %v", watcher.changes, want)
 	}
-	for i, got := range listener.changes {
+	for i, got := range watcher.changes {
 		if got != want[i] {
 			t.Fatalf("change %d: %q, want %q", i, got, want[i])
 		}
 	}
 }
 
-func TestListener_NilIsTolerated(t *testing.T) {
+func TestWatcher_NilIsTolerated(t *testing.T) {
 	h := newHarness(t)
 	if _, _, err := h.service.CreateToken(context.Background(), "vps-paris-1"); err != nil {
 		t.Fatal(err)

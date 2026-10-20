@@ -167,30 +167,36 @@ func (s *Server) listMachineContainers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) writeContainers(w http.ResponseWriter, r *http.Request, machineID string) {
-	containers, err := s.containers.List(r.Context(), machineID)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	response, err := s.containerListOf(r.Context(), machineID)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	names, err := s.machineNames(r.Context())
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+// containerListOf assemble la liste des conteneurs d'une machine, ou de
+// toutes quand machineID est vide, avec l'état du Docker de chacune ; l'API
+// et l'outil MCP la rendent telle quelle, l'outil la pagine après.
+func (s *Server) containerListOf(ctx context.Context, machineID string) (containersResponse, error) {
+	containers, err := s.containers.List(ctx, machineID)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return containersResponse{}, err
 	}
-	currents, err := s.currentByContainer(r.Context())
+	names, err := s.machineNames(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return containersResponse{}, err
 	}
-	engines, err := s.containers.Engines(r.Context())
+	currents, err := s.currentByContainer(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return containersResponse{}, err
 	}
-	checks, err := s.updates.Checks(r.Context(), machineID)
+	engines, err := s.containers.Engines(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return containersResponse{}, err
+	}
+	checks, err := s.updates.Checks(ctx, machineID)
+	if err != nil {
+		return containersResponse{}, err
 	}
 	response := containersResponse{Containers: make([]containerJSON, 0, len(containers)), Engines: []engineJSON{}}
 	for _, item := range containers {
@@ -201,7 +207,7 @@ func (s *Server) writeContainers(w http.ResponseWriter, r *http.Request, machine
 			response.Engines = append(response.Engines, engineToJSON(engine))
 		}
 	}
-	s.writeAPI(w, http.StatusOK, response)
+	return response, nil
 }
 
 func (s *Server) getContainer(w http.ResponseWriter, r *http.Request) {
@@ -210,8 +216,7 @@ func (s *Server) getContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response, err := s.containerResponseOf(r.Context(), item)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -268,8 +273,7 @@ func (s *Server) listContainerTransitions(w http.ResponseWriter, r *http.Request
 		limit = min(value, maxTransitions)
 	}
 	transitions, err := s.containers.Transitions(r.Context(), item.ID, limit)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, transitionsResponse{Transitions: transitionsToJSON(transitions)})
@@ -291,10 +295,7 @@ func (s *Server) getContainerLogs(w http.ResponseWriter, r *http.Request) {
 		s.writeLogsError(w, r, err)
 		return
 	}
-	response := logsResponse{Lines: make([]logLineJSON, 0, len(lines))}
-	for _, line := range lines {
-		response.Lines = append(response.Lines, logLineToJSON(line))
-	}
+	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
@@ -417,12 +418,7 @@ func logsRefusal(err error) (string, int, bool) {
 
 func (s *Server) containerOr404(w http.ResponseWriter, r *http.Request) (container.Container, bool) {
 	item, err := s.containers.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, container.ErrNotFound) {
-		s.apiNotFound(w)
-		return container.Container{}, false
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, container.ErrNotFound) {
 		return container.Container{}, false
 	}
 	return item, true
@@ -434,8 +430,8 @@ func (s *Server) machineNames(ctx context.Context) (map[string]string, error) {
 		return nil, err
 	}
 	names := make(map[string]string, len(statuses))
-	for _, status := range statuses {
-		names[status.ID] = status.Name
+	for _, machineStatus := range statuses {
+		names[machineStatus.ID] = machineStatus.Name
 	}
 	return names, nil
 }
@@ -496,14 +492,6 @@ func imageCheckToJSON(item container.Container, checks map[string]update.Check) 
 		converted.Command = update.Command(item, check)
 	}
 	return converted
-}
-
-// Une liste nulle s'écrit [] : le front n'a pas à distinguer null de vide.
-func orEmpty[T any](list []T) []T {
-	if list == nil {
-		return []T{}
-	}
-	return list
 }
 
 func engineToJSON(engine container.Engine) engineJSON {

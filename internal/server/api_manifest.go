@@ -12,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
-	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
 
@@ -46,8 +45,7 @@ func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, manifest.KeyExportTooLarge)
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
@@ -205,11 +203,8 @@ func (s *Server) planToJSON(ctx context.Context, plan manifest.Plan) (planJSON, 
 			Create: created, Update: updated, Delete: deleted, Unchanged: plan.Unchanged, Unmanaged: len(plan.Unmanaged),
 		},
 		Changes:   changesToJSON(plan.Changes),
-		Unmanaged: make([]refJSON, 0, len(plan.Unmanaged)),
+		Unmanaged: convertAll(plan.Unmanaged, func(ref manifest.Ref) refJSON { return refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name} }),
 		Problems:  make([]problemJSON, 0, len(plan.Problems)),
-	}
-	for _, ref := range plan.Unmanaged {
-		response.Unmanaged = append(response.Unmanaged, refJSON{Kind: string(ref.Kind), ID: ref.ID, Name: ref.Name})
 	}
 	for _, problem := range plan.Problems {
 		response.Problems = append(response.Problems, problemJSON{
@@ -226,10 +221,7 @@ func applyToJSON(found manifest.Apply, withChanges bool) applyJSON {
 		State:   string(found.State),
 		Summary: applySummaryJSON{Create: found.Created, Update: found.Updated, Delete: found.Deleted, Unchanged: found.Unchanged},
 		Done:    found.Done, Error: found.Error, ErrorObject: found.ErrorObject,
-	}
-	if !found.FinishedAt.IsZero() {
-		finished := found.FinishedAt.UTC()
-		response.FinishedAt = &finished
+		FinishedAt: timeOrNil(found.FinishedAt),
 	}
 	if withChanges {
 		response.Changes = changesToJSON(found.Changes)
@@ -302,13 +294,11 @@ func (s *Server) planManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan, err := s.manifest.Plan(r.Context(), request.toRequest())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response, err := s.planToJSON(r.Context(), plan)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -339,8 +329,7 @@ func (s *Server) applyManifest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) refuseWithPlan(w http.ResponseWriter, r *http.Request, status int, key string, plan manifest.Plan) {
 	response, err := s.planToJSON(r.Context(), plan)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, status, manifestRefusalJSON{Error: key, Plan: response})
@@ -364,47 +353,17 @@ func (s *Server) listApplies(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 	found, err := s.manifest.Applies(r.Context(), limit)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	response := appliesResponse{Applies: make([]applyJSON, 0, len(found))}
-	for _, item := range found {
-		response.Applies = append(response.Applies, applyToJSON(item, false))
-	}
+	response := appliesResponse{Applies: convertAll(found, func(item manifest.Apply) applyJSON { return applyToJSON(item, false) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
 func (s *Server) getApply(w http.ResponseWriter, r *http.Request) {
 	found, err := s.manifest.GetApply(r.Context(), r.PathValue("id"))
-	if errors.Is(err, manifest.ErrApplyNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, manifest.ErrApplyNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, applyToJSON(found, true))
-}
-
-// RefusalKey traduit en clé du catalogue le refus qu'un composant du domaine
-// oppose à un geste du fichier ; vide si l'erreur n'est pas un refus. C'est
-// ce que manifest.SetErrorKeys reçoit : le paquet manifest ne connaît pas
-// les clés du serveur.
-func RefusalKey(err error) string {
-	return manifestProblemKey(err)
-}
-
-// manifestProblemKey essaie les refus de chaque domaine que le fichier écrit.
-func manifestProblemKey(err error) string {
-	if errors.Is(err, directory.ErrServiceLinked) {
-		return "directory.service_linked"
-	}
-	for _, refusal := range []func(error) (string, bool){directoryRefusalKey, projectRefusalKey, probeRefusalKey, jobRefusalKey} {
-		if key, refused := refusal(err); refused {
-			return key
-		}
-	}
-	return ""
 }

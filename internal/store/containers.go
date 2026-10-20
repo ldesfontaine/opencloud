@@ -38,16 +38,8 @@ func (db *DB) ListContainers(ctx context.Context, machineID string) ([]container
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
-	defer rows.Close()
-	containers := []container.Container{}
-	for rows.Next() {
-		item, err := scanContainer(rows)
-		if err != nil {
-			return nil, err
-		}
-		containers = append(containers, item)
-	}
-	if err := rows.Err(); err != nil {
+	containers, err := collect(rows, scanContainer)
+	if err != nil {
 		return nil, err
 	}
 	if machineID == "" {
@@ -108,55 +100,49 @@ func (db *DB) attachNetworks(ctx context.Context, where string, args []any, cont
 // ApplyChanges écrit un rapport entier dans une transaction : fiches,
 // archivage des absentes, transitions, échantillons, état du Docker.
 func (db *DB) ApplyChanges(ctx context.Context, changes container.Changes) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin apply containers: %w", err)
-	}
-	defer tx.Rollback()
-	for _, item := range changes.Containers {
-		if err := upsertContainer(ctx, tx, item); err != nil {
-			return err
+	return db.inTx(ctx, "apply containers", func(tx *sql.Tx) error {
+		for _, item := range changes.Containers {
+			if err := upsertContainer(ctx, tx, item); err != nil {
+				return err
+			}
 		}
-	}
-	if changes.ArchiveMissing {
-		if err := archiveMissing(ctx, tx, changes.MachineID, changes.Keep, changes.Now); err != nil {
-			return err
+		if changes.ArchiveMissing {
+			if err := archiveMissing(ctx, tx, changes.MachineID, changes.Keep, changes.Now); err != nil {
+				return err
+			}
 		}
-	}
-	for _, transition := range changes.Transitions {
-		if err := insertTransition(ctx, tx, transition); err != nil {
-			return err
+		for _, transition := range changes.Transitions {
+			if err := insertTransition(ctx, tx, transition); err != nil {
+				return err
+			}
 		}
-	}
-	for _, sample := range changes.Samples {
-		if err := insertSample(ctx, tx, sample); err != nil {
-			return err
+		for _, sample := range changes.Samples {
+			if err := insertSample(ctx, tx, sample); err != nil {
+				return err
+			}
 		}
-	}
-	if changes.MaxArchived > 0 && (changes.ArchiveMissing || len(changes.Containers) > 0) {
-		if err := capArchivedContainers(ctx, tx, changes.MachineID, changes.MaxArchived); err != nil {
-			return err
+		if changes.MaxArchived > 0 && (changes.ArchiveMissing || len(changes.Containers) > 0) {
+			if err := capArchivedContainers(ctx, tx, changes.MachineID, changes.MaxArchived); err != nil {
+				return err
+			}
 		}
-	}
-	if changes.MaxTransitions > 0 && len(changes.Transitions) > 0 {
-		if err := capTransitions(ctx, tx, changes.MachineID, changes.MaxTransitions); err != nil {
-			return err
+		if changes.MaxTransitions > 0 && len(changes.Transitions) > 0 {
+			if err := capTransitions(ctx, tx, changes.MachineID, changes.MaxTransitions); err != nil {
+				return err
+			}
 		}
-	}
-	if changes.Engine != nil {
-		if err := saveEngine(ctx, tx, *changes.Engine); err != nil {
-			return err
+		if changes.Engine != nil {
+			if err := saveEngine(ctx, tx, *changes.Engine); err != nil {
+				return err
+			}
 		}
-	}
-	if changes.ReplaceNetworks {
-		if err := replaceMachineNetworks(ctx, tx, changes.MachineID, changes.Networks); err != nil {
-			return err
+		if changes.ReplaceNetworks {
+			if err := replaceMachineNetworks(ctx, tx, changes.MachineID, changes.Networks); err != nil {
+				return err
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit apply containers: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) error {
@@ -204,26 +190,20 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 // transaction. Une unité qui n'existe plus s'écrit comme « non déclaré » :
 // l'annuaire a pu la supprimer entre le rapprochement et l'écriture.
 func (db *DB) SetContainerUnits(ctx context.Context, assignments []container.UnitAssignment) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin set container units: %w", err)
-	}
-	defer tx.Rollback()
-	for _, assignment := range assignments {
-		_, err := tx.ExecContext(ctx, `
+	return db.inTx(ctx, "set container units", func(tx *sql.Tx) error {
+		for _, assignment := range assignments {
+			_, err := tx.ExecContext(ctx, `
 			UPDATE containers SET
 				unit_id = (SELECT id FROM service_units WHERE id = ?),
 				match_level = CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END
 			WHERE id = ?`,
-			assignment.UnitID, assignment.UnitID, string(assignment.Level), assignment.ContainerID)
-		if err != nil {
-			return fmt.Errorf("set unit of container %s: %w", assignment.ContainerID, err)
+				assignment.UnitID, assignment.UnitID, string(assignment.Level), assignment.ContainerID)
+			if err != nil {
+				return fmt.Errorf("set unit of container %s: %w", assignment.ContainerID, err)
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit set container units: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // Une liste nulle s'écrit « [] » : la colonne ne connaît pas null.
@@ -286,20 +266,19 @@ func (db *DB) ListNetworks(ctx context.Context, machineID string) ([]container.N
 	if err != nil {
 		return nil, fmt.Errorf("list machine networks: %w", err)
 	}
-	defer rows.Close()
-	networks := []container.Network{}
-	for rows.Next() {
-		var network container.Network
-		var internal int
-		var seenAt int64
-		if err := rows.Scan(&network.MachineID, &network.NetworkID, &network.Name, &network.Driver, &internal, &network.Group, &seenAt); err != nil {
-			return nil, err
-		}
-		network.Internal = internal != 0
-		network.SeenAt = time.Unix(seenAt, 0).UTC()
-		networks = append(networks, network)
+	return collect(rows, scanNetwork)
+}
+
+func scanNetwork(row scanner) (container.Network, error) {
+	var network container.Network
+	var internal int
+	var seenAt int64
+	if err := row.Scan(&network.MachineID, &network.NetworkID, &network.Name, &network.Driver, &internal, &network.Group, &seenAt); err != nil {
+		return container.Network{}, err
 	}
-	return networks, rows.Err()
+	network.Internal = internal != 0
+	network.SeenAt = time.Unix(seenAt, 0).UTC()
+	return network, nil
 }
 
 // archiveMissing archive les fiches vivantes de la machine que
@@ -409,24 +388,23 @@ func (db *DB) ListTransitions(ctx context.Context, containerID string, limit int
 	if err != nil {
 		return nil, fmt.Errorf("list transitions: %w", err)
 	}
-	defer rows.Close()
-	transitions := []container.Transition{}
-	for rows.Next() {
-		var t container.Transition
-		var at int64
-		var exitCode sql.NullInt64
-		var oomKilled, killed, replayed int
-		if err := rows.Scan(&t.ID, &t.ContainerID, &at, &t.Action, &t.PreviousState, &t.NewState, &t.PreviousHealth, &t.NewHealth, &exitCode, &oomKilled, &killed, &replayed, &t.Snippet); err != nil {
-			return nil, err
-		}
-		t.At = time.Unix(at, 0).UTC()
-		t.ExitCode = intPointer(exitCode)
-		t.OOMKilled = oomKilled != 0
-		t.Killed = killed != 0
-		t.Replayed = replayed != 0
-		transitions = append(transitions, t)
+	return collect(rows, scanTransition)
+}
+
+func scanTransition(row scanner) (container.Transition, error) {
+	var transition container.Transition
+	var at int64
+	var exitCode sql.NullInt64
+	var oomKilled, killed, replayed int
+	if err := row.Scan(&transition.ID, &transition.ContainerID, &at, &transition.Action, &transition.PreviousState, &transition.NewState, &transition.PreviousHealth, &transition.NewHealth, &exitCode, &oomKilled, &killed, &replayed, &transition.Snippet); err != nil {
+		return container.Transition{}, err
 	}
-	return transitions, rows.Err()
+	transition.At = time.Unix(at, 0).UTC()
+	transition.ExitCode = intPointer(exitCode)
+	transition.OOMKilled = oomKilled != 0
+	transition.Killed = killed != 0
+	transition.Replayed = replayed != 0
+	return transition, nil
 }
 
 // LatestContainerSamples rend le dernier échantillon de chaque conteneur.
@@ -438,18 +416,17 @@ func (db *DB) LatestContainerSamples(ctx context.Context) ([]container.Sample, e
 	if err != nil {
 		return nil, fmt.Errorf("list latest container samples: %w", err)
 	}
-	defer rows.Close()
-	samples := []container.Sample{}
-	for rows.Next() {
-		var sample container.Sample
-		var sampledAt int64
-		if err := rows.Scan(&sample.ContainerID, &sampledAt, &sample.CPUPercent, &sample.MemUsed, &sample.MemLimit); err != nil {
-			return nil, err
-		}
-		sample.SampledAt = time.Unix(sampledAt, 0).UTC()
-		samples = append(samples, sample)
+	return collect(rows, scanContainerSample)
+}
+
+func scanContainerSample(row scanner) (container.Sample, error) {
+	var sample container.Sample
+	var sampledAt int64
+	if err := row.Scan(&sample.ContainerID, &sampledAt, &sample.CPUPercent, &sample.MemUsed, &sample.MemLimit); err != nil {
+		return container.Sample{}, err
 	}
-	return samples, rows.Err()
+	sample.SampledAt = time.Unix(sampledAt, 0).UTC()
+	return sample, nil
 }
 
 func (db *DB) ListEngines(ctx context.Context) ([]container.Engine, error) {
@@ -457,44 +434,37 @@ func (db *DB) ListEngines(ctx context.Context) ([]container.Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list engines: %w", err)
 	}
-	defer rows.Close()
-	engines := []container.Engine{}
-	for rows.Next() {
-		var engine container.Engine
-		var present int
-		var checkedAt int64
-		if err := rows.Scan(&engine.MachineID, &present, &engine.Reason, &engine.Version, &engine.APIVersion, &checkedAt); err != nil {
-			return nil, err
-		}
-		engine.Present = present != 0
-		engine.CheckedAt = time.Unix(checkedAt, 0).UTC()
-		engines = append(engines, engine)
+	return collect(rows, scanEngine)
+}
+
+func scanEngine(row scanner) (container.Engine, error) {
+	var engine container.Engine
+	var present int
+	var checkedAt int64
+	if err := row.Scan(&engine.MachineID, &present, &engine.Reason, &engine.Version, &engine.APIVersion, &checkedAt); err != nil {
+		return container.Engine{}, err
 	}
-	return engines, rows.Err()
+	engine.Present = present != 0
+	engine.CheckedAt = time.Unix(checkedAt, 0).UTC()
+	return engine, nil
 }
 
 // PurgeContainers efface les transitions trop vieilles, les fiches archivées
 // depuis trop longtemps (leurs transitions et échantillons partent avec),
 // et le brut des mesures.
 func (db *DB) PurgeContainers(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin purge containers: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM container_events WHERE at < ?`, transitionsBefore.Unix()); err != nil {
-		return fmt.Errorf("purge transitions: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM containers WHERE archived_at IS NOT NULL AND archived_at < ?`, archivedBefore.Unix()); err != nil {
-		return fmt.Errorf("purge archived containers: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM container_samples WHERE sampled_at < ?`, samplesBefore.Unix()); err != nil {
-		return fmt.Errorf("purge container samples: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit purge containers: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "purge containers", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM container_events WHERE at < ?`, transitionsBefore.Unix()); err != nil {
+			return fmt.Errorf("purge transitions: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM containers WHERE archived_at IS NOT NULL AND archived_at < ?`, archivedBefore.Unix()); err != nil {
+			return fmt.Errorf("purge archived containers: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM container_samples WHERE sampled_at < ?`, samplesBefore.Unix()); err != nil {
+			return fmt.Errorf("purge container samples: %w", err)
+		}
+		return nil
+	})
 }
 
 func scanContainer(row scanner) (container.Container, error) {

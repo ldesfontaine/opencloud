@@ -138,37 +138,30 @@ type updatePolicyInput struct {
 
 func (s *Server) acknowledgeAlertTool(ctx context.Context, input alertInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.alerts.Acknowledge(ctx, input.AlertID)
-	switch {
-	case errors.Is(err, alert.ErrNotFound):
-		return toolRefuse(codeNotFound)
-	case errors.Is(err, alert.ErrAlreadyClosed):
+	if errors.Is(err, alert.ErrAlreadyClosed) {
 		return toolRefuse("alert.already_resolved")
-	case err != nil:
-		return s.toolInternal("acknowledge_alert", err)
+	}
+	if result, done := s.toolFailed("acknowledge_alert", err, alert.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return toolJSON(alertToJSON(found))
 }
 
 func (s *Server) pauseProbeTool(ctx context.Context, input probeInput) (*gomcp.CallToolResult, any, error) {
 	err := s.probes.Pause(ctx, input.ProbeID)
-	if errors.Is(err, probe.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("pause_probe", err)
+	if result, done := s.toolFailed("pause_probe", err, probe.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return s.probeAfterWrite(ctx, "pause_probe", input.ProbeID)
 }
 
 func (s *Server) resumeProbeTool(ctx context.Context, input probeInput) (*gomcp.CallToolResult, any, error) {
 	err := s.probes.Resume(ctx, input.ProbeID)
-	switch {
-	case errors.Is(err, probe.ErrNotFound):
-		return toolRefuse(codeNotFound)
-	case errors.Is(err, probe.ErrNotPaused):
+	if errors.Is(err, probe.ErrNotPaused) {
 		return toolRefuse("probe.not_paused")
-	case err != nil:
-		return s.toolInternal("resume_probe", err)
+	}
+	if result, done := s.toolFailed("resume_probe", err, probe.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return s.probeAfterWrite(ctx, "resume_probe", input.ProbeID)
 }
@@ -187,24 +180,19 @@ func (s *Server) probeAfterWrite(ctx context.Context, tool, id string) (*gomcp.C
 
 func (s *Server) pauseJobTool(ctx context.Context, input jobInput) (*gomcp.CallToolResult, any, error) {
 	err := s.heartbeats.Pause(ctx, input.JobID)
-	if errors.Is(err, heartbeat.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("pause_job", err)
+	if result, done := s.toolFailed("pause_job", err, heartbeat.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return s.jobAfterWrite(ctx, "pause_job", input.JobID)
 }
 
 func (s *Server) resumeJobTool(ctx context.Context, input jobInput) (*gomcp.CallToolResult, any, error) {
 	err := s.heartbeats.Resume(ctx, input.JobID)
-	switch {
-	case errors.Is(err, heartbeat.ErrNotFound):
-		return toolRefuse(codeNotFound)
-	case errors.Is(err, heartbeat.ErrNotPaused):
+	if errors.Is(err, heartbeat.ErrNotPaused) {
 		return toolRefuse("job.not_paused")
-	case err != nil:
-		return s.toolInternal("resume_job", err)
+	}
+	if result, done := s.toolFailed("resume_job", err, heartbeat.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return s.jobAfterWrite(ctx, "resume_job", input.JobID)
 }
@@ -230,28 +218,19 @@ func (s *Server) openIncidentTool(ctx context.Context, input openIncidentInput) 
 		Title: input.Title, Impact: status.Impact(input.Impact), Status: status.IncidentStatus(input.Status),
 		Message: input.Message, ComponentIDs: input.ComponentIDs, StartsAt: startsAt, EndsAt: endsAt,
 	})
-	if key, refused := statusRefusalKey(err); refused {
-		return toolRefuse(key)
-	}
-	if err != nil {
-		return s.toolInternal("open_incident", err)
+	if result, done := s.toolFailed("open_incident", err, nil); done {
+		return result, nil, nil
 	}
 	return toolJSON(incidentToJSON(opened))
 }
 
 func (s *Server) addIncidentUpdateTool(ctx context.Context, input incidentUpdateInput) (*gomcp.CallToolResult, any, error) {
 	updated, err := s.status.AddUpdate(ctx, input.IncidentID, status.IncidentStatus(input.Status), input.Message)
-	switch {
-	case errors.Is(err, status.ErrNotFound):
-		return toolRefuse(codeNotFound)
-	case errors.Is(err, status.ErrResolved):
+	if errors.Is(err, status.ErrResolved) {
 		return toolRefuse("incident.already_resolved")
 	}
-	if key, refused := statusRefusalKey(err); refused {
-		return toolRefuse(key)
-	}
-	if err != nil {
-		return s.toolInternal("add_incident_update", err)
+	if result, done := s.toolFailed("add_incident_update", err, status.ErrNotFound); done {
+		return result, nil, nil
 	}
 	return toolJSON(incidentToJSON(updated))
 }
@@ -269,11 +248,8 @@ func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*go
 		Reason:   input.Reason,
 		Duration: time.Duration(input.DurationMinutes) * time.Minute,
 	})
-	if key, refused := alertRefusalKey(err); refused {
-		return toolRefuse(key)
-	}
-	if err != nil {
-		return s.toolInternal("create_silence", err)
+	if result, done := s.toolFailed("create_silence", err, nil); done {
+		return result, nil, nil
 	}
 	return toolJSON(silenceToJSON(silence, s.now()))
 }
@@ -283,11 +259,8 @@ func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInpu
 	if errors.Is(err, directory.ErrUnitNotFound) {
 		return toolRefuse(codeNotFound)
 	}
-	if key, refused := directoryRefusalKey(err); refused {
-		return toolRefuse(key)
-	}
-	if err != nil {
-		return s.toolInternal("set_update_policy", err)
+	if result, done := s.toolFailed("set_update_policy", err, nil); done {
+		return result, nil, nil
 	}
 	return toolJSON(declaredServiceToJSON(owner))
 }

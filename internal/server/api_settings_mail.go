@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -46,12 +44,11 @@ func mailSettingsToJSON(relay mail.Relay) mailSettingsJSON {
 }
 
 func (s *Server) getMailSettings(w http.ResponseWriter, r *http.Request) {
-	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	relay, err := s.settings.MailRelay(r.Context())
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(current.MailRelay()))
+	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(relay))
 }
 
 func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
@@ -59,47 +56,18 @@ func (s *Server) setMailSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	relay, err := s.saveMailRelay(r.Context(), request)
-	if key, refused := mailRefusal(err); refused {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, key)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	relay, err := s.settings.SetMailRelay(r.Context(), settings.MailRelayChange{
+		Relay: mail.Relay{
+			Host: request.Host, Port: request.Port, TLS: mail.TLSMode(request.TLS),
+			Username: request.Username, Password: request.Password, From: request.From,
+		},
+		ClearPassword: request.ClearPassword,
+	})
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.logger.Info("mail relay changed", "configured", relay.Configured(), "host", relay.Host, "tls", string(relay.TLS))
 	s.writeAPI(w, http.StatusOK, mailSettingsToJSON(relay))
-}
-
-// saveMailRelay valide puis n'écrit que les clés du relais : la langue et
-// les seuils vivent sur la même ligne, et UpdateSettings les préserve.
-func (s *Server) saveMailRelay(ctx context.Context, request mailSettingsRequest) (mail.Relay, error) {
-	relay := mail.Relay{
-		Host: strings.TrimSpace(request.Host), Port: request.Port, TLS: mail.TLSMode(request.TLS),
-		Username: request.Username, Password: request.Password, From: strings.TrimSpace(request.From),
-	}
-	// Un mot de passe laissé vide garde celui de la base, relu dans la même
-	// transaction ; il a été validé quand il a été écrit.
-	keepPassword := relay.Password == "" && !request.ClearPassword
-	if relay.Port == 0 {
-		relay.Port = mail.DefaultPortFor(relay.TLS)
-	}
-	if relay.Host != "" {
-		if err := relay.Validate(); err != nil {
-			return mail.Relay{}, err
-		}
-	}
-	current, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
-		if keepPassword {
-			relay.Password = current.MailPassword
-		}
-		current.SetMailRelay(relay)
-	})
-	if err != nil {
-		return mail.Relay{}, err
-	}
-	return current.MailRelay(), nil
 }
 
 // testMailSettings envoie l'e-mail de test vers une adresse saisie, par
@@ -115,29 +83,8 @@ func (s *Server) testMailSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outcome, err := s.notifier.TestMail(r.Context(), recipient)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, channelTestResponse{OK: outcome.OK(), Reason: string(outcome.Reason), Code: outcome.Code})
-}
-
-func mailRefusal(err error) (string, bool) {
-	switch {
-	case errors.Is(err, mail.ErrHostInvalid):
-		return "settings.mail_host_invalid", true
-	case errors.Is(err, mail.ErrPortInvalid):
-		return "settings.mail_port_invalid", true
-	case errors.Is(err, mail.ErrTLSModeInvalid):
-		return "settings.mail_tls_invalid", true
-	case errors.Is(err, mail.ErrPlainNotPrivate):
-		return "settings.mail_plain_public", true
-	case errors.Is(err, mail.ErrUsernameInvalid):
-		return "settings.mail_username_invalid", true
-	case errors.Is(err, mail.ErrPasswordInvalid):
-		return "settings.mail_password_invalid", true
-	case errors.Is(err, mail.ErrFromInvalid):
-		return "settings.mail_from_invalid", true
-	}
-	return "", false
 }

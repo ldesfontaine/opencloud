@@ -94,8 +94,7 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	redirectURI := query.Get("redirect_uri")
 	allowed, err := s.mcp.RedirectAllowed(r.Context(), redirectURI)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	if !allowed {

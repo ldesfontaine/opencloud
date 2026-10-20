@@ -271,20 +271,16 @@ func (s *Server) listMachinesTool(ctx context.Context, _ *gomcp.CallToolRequest,
 	if err != nil {
 		return s.toolInternal("list_machines", err)
 	}
-	response := machinesToolResponse{Machines: make([]machineJSON, 0, len(statuses))}
-	for _, status := range statuses {
-		response.Machines = append(response.Machines, s.machineJSONOf(status, withLifecycle))
-	}
-	return toolJSON(response)
+	machines := convertAll(statuses, func(machineStatus machine.Status) machineJSON {
+		return s.machineJSONOf(machineStatus, withLifecycle)
+	})
+	return toolJSON(machinesToolResponse{Machines: machines})
 }
 
 func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, input machineInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.machines.Get(ctx, input.MachineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_machine", err)
+	if result, done := s.toolFailed("get_machine", err, machine.ErrNotFound); done {
+		return result, nil, nil
 	}
 	current, err := s.resources.Current(ctx, found.ID)
 	if err != nil {
@@ -310,11 +306,8 @@ func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 
 func (s *Server) getMachineNetworkTool(ctx context.Context, _ *gomcp.CallToolRequest, input machineInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.machines.Get(ctx, input.MachineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_machine_network", err)
+	if result, done := s.toolFailed("get_machine_network", err, machine.ErrNotFound); done {
+		return result, nil, nil
 	}
 	response, err := s.networkOf(ctx, found)
 	if err != nil {
@@ -324,42 +317,18 @@ func (s *Server) getMachineNetworkTool(ctx context.Context, _ *gomcp.CallToolReq
 }
 
 func (s *Server) listContainersTool(ctx context.Context, _ *gomcp.CallToolRequest, input listContainersInput) (*gomcp.CallToolResult, any, error) {
-	containers, err := s.containers.List(ctx, input.MachineID)
+	listing, err := s.containerListOf(ctx, input.MachineID)
 	if err != nil {
 		return s.toolInternal("list_containers", err)
 	}
-	names, err := s.machineNames(ctx)
-	if err != nil {
-		return s.toolInternal("list_containers", err)
-	}
-	currents, err := s.currentByContainer(ctx)
-	if err != nil {
-		return s.toolInternal("list_containers", err)
-	}
-	engines, err := s.containers.Engines(ctx)
-	if err != nil {
-		return s.toolInternal("list_containers", err)
-	}
-	checks, err := s.updates.Checks(ctx, input.MachineID)
-	if err != nil {
-		return s.toolInternal("list_containers", err)
-	}
-	kept := make([]container.Container, 0, len(containers))
-	for _, item := range containers {
+	kept := make([]containerJSON, 0, len(listing.Containers))
+	for _, item := range listing.Containers {
 		if input.Group == "" || item.Group == input.Group {
 			kept = append(kept, item)
 		}
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := containersToolResponse{Containers: []containerJSON{}, Engines: []engineJSON{}, Total: len(kept), Offset: offset, Limit: limit}
-	for _, item := range sliceOf(kept, limit, offset) {
-		response.Containers = append(response.Containers, containerToJSON(item, names[item.MachineID], currents[item.ID], checks))
-	}
-	for _, engine := range engines {
-		if input.MachineID == "" || engine.MachineID == input.MachineID {
-			response.Engines = append(response.Engines, engineToJSON(engine))
-		}
-	}
+	response := containersToolResponse{Containers: sliceOf(kept, limit, offset), Engines: listing.Engines, Total: len(kept), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -406,11 +375,8 @@ func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolReque
 
 func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerInput) (*gomcp.CallToolResult, any, error) {
 	item, err := s.containers.Get(ctx, input.ID)
-	if errors.Is(err, container.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_container", err)
+	if result, done := s.toolFailed("get_container", err, container.ErrNotFound); done {
+		return result, nil, nil
 	}
 	response, err := s.containerResponseOf(ctx, item)
 	if err != nil {
@@ -421,11 +387,8 @@ func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest,
 
 func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerLogsInput) (*gomcp.CallToolResult, any, error) {
 	item, err := s.containers.Get(ctx, input.ID)
-	if errors.Is(err, container.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_container_logs", err)
+	if result, done := s.toolFailed("get_container_logs", err, container.ErrNotFound); done {
+		return result, nil, nil
 	}
 	if !s.takeLogSlot() {
 		return toolRefuse(codeLogsBusy)
@@ -438,10 +401,7 @@ func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequ
 		}
 		return s.toolInternal("get_container_logs", err)
 	}
-	response := logsResponse{Lines: make([]logLineJSON, 0, len(lines))}
-	for _, line := range lines {
-		response.Lines = append(response.Lines, logLineToJSON(line))
-	}
+	response := logsResponse{Lines: convertAll(lines, logLineToJSON)}
 	return toolJSON(response)
 }
 
@@ -451,20 +411,14 @@ func (s *Server) listJobsTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 		return s.toolInternal("list_jobs", err)
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := jobsToolResponse{Jobs: []jobJSON{}, Total: len(heartbeats), Offset: offset, Limit: limit}
-	for _, found := range sliceOf(heartbeats, limit, offset) {
-		response.Jobs = append(response.Jobs, jobToJSON(found))
-	}
+	response := jobsToolResponse{Jobs: convertAll(sliceOf(heartbeats, limit, offset), jobToJSON), Total: len(heartbeats), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
 func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input jobInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.heartbeats.Get(ctx, input.JobID)
-	if errors.Is(err, heartbeat.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_job", err)
+	if result, done := s.toolFailed("get_job", err, heartbeat.ErrNotFound); done {
+		return result, nil, nil
 	}
 	runs, err := s.heartbeats.Runs(ctx, found.ID, jobRunsShown)
 	if err != nil {
@@ -474,13 +428,7 @@ func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input
 	if err != nil {
 		return s.toolInternal("get_job", err)
 	}
-	response := jobToolResponse{Job: jobToJSON(found), Runs: make([]runJSON, 0, len(runs)), Pings: make([]pingJSON, 0, len(pings))}
-	for _, run := range runs {
-		response.Runs = append(response.Runs, runToJSON(run))
-	}
-	for _, ping := range pings {
-		response.Pings = append(response.Pings, pingToJSON(ping))
-	}
+	response := jobToolResponse{Job: jobToJSON(found), Runs: convertAll(runs, runToJSON), Pings: convertAll(pings, pingToJSON)}
 	return toolJSON(response)
 }
 
@@ -488,34 +436,27 @@ func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input
 // de passe, comme dans le plan d'apply et les alertes. La description des
 // outils promet qu'aucun secret n'en sort.
 func mcpProbeJSON(found probe.Probe, online bool) probeJSON {
-	converted := probeToJSON(found, online)
+	return redactedProbe(probeToJSON(found, online))
+}
+
+// redactedProbe est la seule règle « MCP masque la cible » : la liste et la
+// fiche d'une sonde passent par elle.
+func redactedProbe(converted probeJSON) probeJSON {
 	converted.Target = probe.RedactTarget(converted.Target)
 	return converted
 }
 
 func (s *Server) listProbesTool(ctx context.Context, _ *gomcp.CallToolRequest, input listProbesInput) (*gomcp.CallToolResult, any, error) {
-	probes, err := s.probes.List(ctx, input.MachineID)
-	if err != nil {
-		return s.toolInternal("list_probes", err)
-	}
-	online, err := s.onlineMachines(ctx)
-	if err != nil {
-		return s.toolInternal("list_probes", err)
-	}
-	days, err := s.probes.Days(ctx, "", probeListDays)
+	listing, err := s.probeListOf(ctx, input.MachineID)
 	if err != nil {
 		return s.toolInternal("list_probes", err)
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := probesToolResponse{Probes: []probeJSON{}, Days: map[string][]dayJSON{}, Total: len(probes), Offset: offset, Limit: limit}
-	carried := map[string]bool{}
-	for _, found := range sliceOf(probes, limit, offset) {
-		carried[found.ID] = true
-		response.Probes = append(response.Probes, mcpProbeJSON(found, online[found.MachineID]))
-	}
-	for _, day := range days {
-		if carried[day.ProbeID] {
-			response.Days[day.ProbeID] = append(response.Days[day.ProbeID], dayToJSON(day))
+	response := probesToolResponse{Probes: sliceOf(listing.Probes, limit, offset), Days: map[string][]dayJSON{}, Total: len(listing.Probes), Offset: offset, Limit: limit}
+	for index, found := range response.Probes {
+		response.Probes[index] = redactedProbe(found)
+		if days, carried := listing.Days[found.ID]; carried {
+			response.Days[found.ID] = days
 		}
 	}
 	return toolJSON(response)
@@ -523,17 +464,14 @@ func (s *Server) listProbesTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 
 func (s *Server) getProbeTool(ctx context.Context, _ *gomcp.CallToolRequest, input probeInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.probes.Get(ctx, input.ProbeID)
-	if errors.Is(err, probe.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_probe", err)
+	if result, done := s.toolFailed("get_probe", err, probe.ErrNotFound); done {
+		return result, nil, nil
 	}
 	response, err := s.probeResponseOf(ctx, found)
 	if err != nil {
 		return s.toolInternal("get_probe", err)
 	}
-	response.Probe.Target = probe.RedactTarget(response.Probe.Target)
+	response.Probe = redactedProbe(response.Probe)
 	return toolJSON(response)
 }
 
@@ -576,10 +514,7 @@ func (s *Server) listIncidentsTool(ctx context.Context, _ *gomcp.CallToolRequest
 		}
 	}
 	limit, offset := pageOf(input.Limit, input.Offset)
-	response := incidentsToolResponse{Incidents: []incidentJSON{}, Total: len(kept), Offset: offset, Limit: limit}
-	for _, incident := range sliceOf(kept, limit, offset) {
-		response.Incidents = append(response.Incidents, incidentToJSON(incident))
-	}
+	response := incidentsToolResponse{Incidents: convertAll(sliceOf(kept, limit, offset), incidentToJSON), Total: len(kept), Offset: offset, Limit: limit}
 	return toolJSON(response)
 }
 
@@ -596,20 +531,14 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("list_alerts", err)
 	}
-	response := alertsResponse{Alerts: make([]alertJSON, 0, len(alerts)), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
-	for _, found := range alerts {
-		response.Alerts = append(response.Alerts, alertToJSON(found))
-	}
+	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
 	return toolJSON(response)
 }
 
 func (s *Server) getAlertTool(ctx context.Context, _ *gomcp.CallToolRequest, input alertInput) (*gomcp.CallToolResult, any, error) {
 	found, err := s.alerts.Get(ctx, input.AlertID)
-	if errors.Is(err, alert.ErrNotFound) {
-		return toolRefuse(codeNotFound)
-	}
-	if err != nil {
-		return s.toolInternal("get_alert", err)
+	if result, done := s.toolFailed("get_alert", err, alert.ErrNotFound); done {
+		return result, nil, nil
 	}
 	deliveries, err := s.alerts.Deliveries(ctx, found.ID)
 	if err != nil {
