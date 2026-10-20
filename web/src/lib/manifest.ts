@@ -1,6 +1,6 @@
-import type { Apply, ApplyState, ManifestCarry, ManifestChange, ManifestFieldChange } from "../api/types";
+import type { Apply, ApplyState, ManifestCarry, ManifestChange, ManifestFieldChange } from "../api/manifest";
 import type { Translate } from "../i18n/context";
-import type { Tone } from "../components/Pill";
+import type { Tone } from "./tone";
 
 // Les états d'un passage, tels que le serveur les écrit ; un test Go vérifie
 // que chacun a son libellé dans les deux langues.

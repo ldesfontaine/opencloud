@@ -1,4 +1,5 @@
-import type { Disk, DiskSettings } from "../api/types";
+import type { Disk } from "../api/resources";
+import type { DiskSettings } from "../api/settings";
 import { percentOf } from "./units";
 
 // Les volumes d'une machine, la plus pleine en tête ; à part égale, par
@@ -25,4 +26,19 @@ export function diskSettingsError(
     return "settings.disk_invalid";
   }
   return null;
+}
+
+// Les deux seuils tels que les champs les montrent : du texte, jusqu'à
+// l'envoi.
+export interface DiskFormValues {
+  attention: string;
+  danger: string;
+}
+
+export function diskFormOf(settings: Pick<DiskSettings, "attention" | "danger">): DiskFormValues {
+  return { attention: String(settings.attention), danger: String(settings.danger) };
+}
+
+export function diskRequestOf(values: DiskFormValues): { attention: number; danger: number } {
+  return { attention: Number(values.attention), danger: Number(values.danger) };
 }

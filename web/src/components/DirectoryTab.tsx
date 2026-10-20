@@ -1,15 +1,17 @@
 import { useState } from "react";
 
-import type { DeclaredServicesResponse, GapsResponse, MachinesResponse, ProjectsResponse } from "../api/types";
-import { useResource } from "../hooks/useResource";
+import { useDeclaredServices, useGaps, useProjects } from "../api/directory";
+import { useMachines } from "../api/machines";
+import { manifestExportPath } from "../api/manifest";
 import { useT } from "../i18n/context";
 import { directorySubtitle } from "../lib/directory";
-import { gapsByService, gapsPath } from "../lib/gaps";
+import { gapsByService } from "../lib/gaps";
 import { Button } from "./Button";
-import { Card, Empty } from "./Card";
+import { Card, Empty, EmptyCard } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
 import { Failure } from "./Failure";
 import { Select } from "./Field";
+import { MachineSelect } from "./MachineSelect";
 import { UndeclaredList } from "./UndeclaredList";
 import { PageHead } from "./PageHead";
 import { ServicesTabs } from "./ServicesTabs";
@@ -22,12 +24,12 @@ import { ServicesTabs } from "./ServicesTabs";
 // exclut.
 export function DirectoryTab() {
   const t = useT();
-  const services = useResource<DeclaredServicesResponse>("/api/directory/services");
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const services = useDeclaredServices();
+  const projects = useProjects();
+  const machines = useMachines();
   const [machineID, setMachineID] = useState("");
   const [projectID, setProjectID] = useState("");
-  const gaps = useResource<GapsResponse>(gapsPath(machineID, projectID));
+  const gaps = useGaps({ machineID, projectID });
   const all = services.data?.services ?? [];
   const shown = all.filter(
     (service) => (machineID === "" || service.machine_id === machineID) && (projectID === "" || service.project_ids.includes(projectID)),
@@ -42,7 +44,7 @@ export function DirectoryTab() {
             <Button icon="clock" to="/services/annuaire/journal">
               {t("manifest.journal")}
             </Button>
-            <Button icon="file" href="/api/manifest/export" download="">
+            <Button icon="file" href={manifestExportPath} download="">
               {t("manifest.export")}
             </Button>
             <Button variant="primary" icon="plus" to="/services/annuaire/nouveau">
@@ -54,22 +56,20 @@ export function DirectoryTab() {
       <ServicesTabs />
       {services.error && <Failure error={services.error} />}
       {services.data && all.length === 0 && (
-        <Card>
-          <Empty icon="box" title={t("directory.empty_title")} text={t("directory.empty_text")} />
-        </Card>
+        <EmptyCard icon="box" title={t("directory.empty_title")} text={t("directory.empty_text")} />
       )}
       {services.data && all.length > 0 && (
         <Card className="scroll-x">
           <div className="table-bar">
             <span className="cluster">
-              <Select icon="server" aria-label={t("directory.col_machine")} value={machineID} onChange={(event) => setMachineID(event.target.value)}>
-                <option value="">{t("services.all_machines")}</option>
-                {(machines.data?.machines ?? []).map((machine) => (
-                  <option key={machine.id} value={machine.id}>
-                    {machine.name}
-                  </option>
-                ))}
-              </Select>
+              <MachineSelect
+                icon="server"
+                aria-label={t("directory.col_machine")}
+                machines={machines.data?.machines ?? []}
+                value={machineID}
+                onChange={setMachineID}
+                noneLabel={t("services.all_machines")}
+              />
               <Select aria-label={t("directory.col_projects")} value={projectID} onChange={(event) => setProjectID(event.target.value)}>
                 <option value="">{t("directory.all_projects")}</option>
                 {(projects.data?.projects ?? []).map((project) => (

@@ -1,5 +1,6 @@
-import type { Lifecycle, LifecycleSettings, LifecycleStatus, NewerCycle } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Lifecycle, LifecycleStatus, NewerCycle } from "../api/lifecycle";
+import type { LifecycleSettings } from "../api/settings";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { ago } from "./time";
 

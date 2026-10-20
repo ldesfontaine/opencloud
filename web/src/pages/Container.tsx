@@ -1,23 +1,21 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { ApiError, segment } from "../api/client";
-import type { ContainerResponse, Transition } from "../api/types";
+import { useContainer, type ContainerResponse, type Transition } from "../api/containers";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
-import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { LogViewer } from "../components/LogViewer";
-import { modeText } from "../components/NetworkInspector";
 import { PageHead } from "../components/PageHead";
 import { Dot, ContainerPill } from "../components/Pill";
 import { List, RowText, RowWhen } from "../components/Table";
 import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, transitionTitle } from "../lib/containers";
+import { modeText } from "../lib/network";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatDecimal } from "../lib/units";
 
@@ -25,14 +23,12 @@ import { formatBytes, formatDecimal } from "../lib/units";
 // journaux en direct, et de quoi le mettre sous sonde.
 export function ContainerPage() {
   const { id = "" } = useParams();
-  const response = useResource<ContainerResponse>(() => `/api/containers/${segment(id)}`);
-  if (response.error instanceof ApiError && response.error.status === 404) {
-    return <ContainerNotFound />;
-  }
-  if (!response.data) {
-    return response.error ? <Failure error={response.error} /> : null;
-  }
-  return <ContainerView response={response.data} reload={response.reload} />;
+  const response = useContainer(id);
+  return (
+    <Loaded resource={response} notFound={<ContainerNotFound />}>
+      {(data) => <ContainerView response={data} reload={response.reload} />}
+    </Loaded>
+  );
 }
 
 // Une fiche absente : jamais vue, ou détruite depuis plus de trente jours.
@@ -41,9 +37,12 @@ function ContainerNotFound() {
   return (
     <>
       <PageHead title={t("container.not_found_title")} subtitle={t("container.not_found_text")} />
-      <Card>
-        <Empty icon="search" title={t("container.not_found_title")} text={t("container.not_found_text")} action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>} />
-      </Card>
+      <EmptyCard
+        icon="search"
+        title={t("container.not_found_title")}
+        text={t("container.not_found_text")}
+        action={<Button to="/services/conteneurs">{t("services.tab_containers")}</Button>}
+      />
     </>
   );
 }

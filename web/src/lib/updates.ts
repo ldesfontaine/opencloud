@@ -1,4 +1,4 @@
-import type { ImageCheck, Container } from "../api/types";
+import type { ImageCheck, Container } from "../api/containers";
 import type { Translate } from "../i18n/context";
 
 type Checked = Pick<Container, "update_policy" | "image_check">;

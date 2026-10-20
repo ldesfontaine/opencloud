@@ -1,5 +1,6 @@
-import type { Alert, AlertKind, AlertObject, AlertSeverity, ChannelTest, Delivery, DiskThresholds, Silence } from "../api/types";
-import type { Tone } from "../components/Pill";
+import type { Alert, AlertKind, AlertObject, AlertObjectKind, AlertSeverity, Channel, ChannelFormat, ChannelRequest, ChannelTest, Delivery, Silence, SilenceRequest } from "../api/alerts";
+import type { DiskThresholds } from "../api/session";
+import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
 import { formatDuration, since } from "./time";
@@ -102,7 +103,7 @@ export function stateOf(alert: Pick<Alert, "status" | "acknowledged_at">): Alert
   return alert.acknowledged_at !== null ? "acknowledged" : "open";
 }
 
-export const stateTones: Record<AlertState, Tone> = {
+export const alertStateTones: Record<AlertState, Tone> = {
   open: "danger",
   acknowledged: "accent",
   resolved: "ok",
@@ -183,3 +184,106 @@ export const silenceDurations: readonly { key: string; minutes: number }[] = [
   { key: "24h", minutes: 24 * 60 },
   { key: "7d", minutes: 7 * 24 * 60 },
 ];
+
+// Le genre d'objet qu'un silence vise ; vide : aucun objet.
+export type SilenceObjectKind = AlertObjectKind | "";
+
+// Le formulaire d'un silence, tel que l'opérateur le règle. La page le
+// pré-remplit depuis l'adresse (type, objet) quand elle vient d'une alerte.
+export interface SilenceFormValues {
+  kind: AlertKind | "";
+  objectKind: SilenceObjectKind;
+  objectID: string;
+  objectName: string;
+  minutes: number;
+  reason: string;
+}
+
+const defaultSilenceMinutes = 60;
+
+export const emptySilenceForm: SilenceFormValues = {
+  kind: "",
+  objectKind: "",
+  objectID: "",
+  objectName: "",
+  minutes: defaultSilenceMinutes,
+  reason: "",
+};
+
+// Un genre sans objet choisi ne vise rien : le serveur ne reçoit pas un genre
+// orphelin.
+export function silenceRequestOf(values: SilenceFormValues): SilenceRequest {
+  return {
+    kind: values.kind,
+    object_kind: values.objectID !== "" ? values.objectKind : "",
+    object_id: values.objectID,
+    object_name: values.objectName,
+    reason: values.reason,
+    duration_minutes: values.minutes,
+  };
+}
+
+// Un silence vise quelque chose : un type d'alerte, un objet, ou les deux.
+export function hasSilenceTarget(values: Pick<SilenceFormValues, "kind" | "objectID">): boolean {
+  return values.kind !== "" || values.objectID !== "";
+}
+
+// Les listes fermées du formulaire d'un canal, dans son ordre.
+export const channelFormats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email", "matrix"];
+export const alertSeverities: readonly AlertSeverity[] = ["attention", "danger"];
+
+// Le formulaire d'un canal. Le secret (ou le jeton d'un bot Matrix) ne
+// revient jamais du serveur : le champ part vide, et vide il garde celui
+// qui est enregistré ; clearSecret le retire.
+export interface ChannelFormValues {
+  name: string;
+  url: string;
+  format: ChannelFormat;
+  destination: string;
+  secret: string;
+  clearSecret: boolean;
+  minSeverity: AlertSeverity;
+  notifyResolve: boolean;
+  enabled: boolean;
+}
+
+export const emptyChannelForm: ChannelFormValues = {
+  name: "",
+  url: "",
+  format: "json",
+  destination: "",
+  secret: "",
+  clearSecret: false,
+  minSeverity: "attention",
+  notifyResolve: true,
+  enabled: true,
+};
+
+// Un webhook n'a pas de destination : le champ part vide.
+export function channelFormOf(channel: Channel): ChannelFormValues {
+  return {
+    name: channel.name,
+    url: channel.url,
+    format: channel.format,
+    destination: channel.destination ?? "",
+    secret: "",
+    clearSecret: false,
+    minSeverity: channel.min_severity,
+    notifyResolve: channel.notify_resolve,
+    enabled: channel.enabled,
+  };
+}
+
+export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
+  return {
+    name: values.name,
+    url: values.url,
+    format: values.format,
+    destination: values.destination,
+    secret: values.secret,
+    clear_secret: values.clearSecret,
+    min_severity: values.minSeverity,
+    notify_resolve: values.notifyResolve,
+    enabled: values.enabled,
+  };
+}

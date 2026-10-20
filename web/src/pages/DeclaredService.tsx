@@ -1,23 +1,31 @@
-import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, errorKey, segment } from "../api/client";
-import type { DeclaredServiceDetail, GapsResponse, LinkedObject, Project, ProjectsResponse, ServiceGap, ServiceLinks } from "../api/types";
+import {
+  deleteDeclaredService,
+  linksOfRefusal,
+  reviewDeclaredService,
+  useDeclaredService,
+  useGaps,
+  useProjects,
+  type DeclaredServiceDetail,
+  type LinkedObject,
+  type Project,
+  type ServiceGap,
+  type ServiceLinks,
+} from "../api/directory";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
-import { NaturePill, projectNames } from "../components/DeclaredServiceTable";
+import { NaturePill } from "../components/DeclaredServiceTable";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { formatPorts, hasLinks, linksOfRefusal, unitKeyOf } from "../lib/directory";
-import { gapsPath } from "../lib/gaps";
-import { useRefresh } from "../lib/refresh";
+import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
 import { formatClock } from "../lib/time";
-import { NotFound } from "./NotFound";
 
 // La fiche d'un service déclaré : ses faits, ses unités, ce qu'il fournit,
 // ses projets, ce qui le lie (sondes et composants de statut), et l'écart
@@ -25,18 +33,17 @@ import { NotFound } from "./NotFound";
 // rattachés. Un service repris de l'existant se valide ici.
 export function DeclaredServicePage() {
   const { id = "" } = useParams();
-  const service = useResource<DeclaredServiceDetail>(() => `/api/directory/services/${segment(id)}`);
-  const projects = useResource<ProjectsResponse>("/api/directory/projects");
+  const service = useDeclaredService(id);
+  const projects = useProjects();
   // L'écart se lit pour la machine du service ; le service s'y retrouve par son id.
-  const gaps = useResource<GapsResponse>(service.data ? gapsPath(service.data.machine_id, "") : null);
-  if (service.error instanceof ApiError && service.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!service.data) {
-    return service.error ? <Failure error={service.error} /> : null;
-  }
-  const gap = gaps.data?.services.find((candidate) => candidate.service_id === service.data?.id);
-  return <DeclaredServiceView service={service.data} projects={projects.data?.projects ?? []} gap={gap} />;
+  const gaps = useGaps(service.data ? { machineID: service.data.machine_id, projectID: "" } : null);
+  return (
+    <Loaded resource={service}>
+      {(data) => (
+        <DeclaredServiceView service={data} projects={projects.data?.projects ?? []} gap={gaps.data?.services.find((candidate) => candidate.service_id === data.id)} />
+      )}
+    </Loaded>
+  );
 }
 
 function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServiceDetail; projects: Project[]; gap: ServiceGap | undefined }) {
@@ -145,7 +152,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
                   <td className="mono wide-only">{unit.image !== "" ? unit.image : "—"}</td>
                   <td className="mono">{unit.version !== "" ? unit.version : "—"}</td>
                   {service.origin !== "compose" && <td className="mono wide-only">{unitKeyOf(unit, service.origin)}</td>}
-                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatPorts(unit.ports) : "—"}</td>
+                  <td className="mono td-end wide-only">{unit.ports.length > 0 ? formatUnitPorts(unit.ports) : "—"}</td>
                   <td>{unit.kind === "container" ? t(`update.policy_${unit.update_policy}`) : <span className="muted">—</span>}</td>
                   <td>{unitGap(gap, unit.id)}</td>
                 </tr>
@@ -222,17 +229,9 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
 // dit pourquoi par sa clé.
 function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const action = useAction();
   const review = () => {
-    setError(null);
-    setBusy(true);
-    api
-      .post(`/api/directory/services/${service.id}/actions/review`)
-      .then(() => refresh("directory"))
-      .catch((failed: unknown) => setError(errorKey(failed)))
-      .finally(() => setBusy(false));
+    action.run(() => reviewDeclaredService(service.id), { topic: "directory" });
   };
   return (
     <Card>
@@ -244,9 +243,9 @@ function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
         ) : (
           <Note tone="warn">{t("directory.review_banner_completed")}</Note>
         )}
-        {error !== null && <Note tone="danger">{t(error)}</Note>}
+        <Failure error={action.error} />
         <span className="cluster">
-          <Button variant="primary" icon="check" onClick={review} disabled={busy}>
+          <Button variant="primary" icon="check" onClick={review} disabled={action.busy}>
             {t("directory.review")}
           </Button>
           <Button to={`/services/annuaire/${service.id}/modifier`}>{t("directory.edit")}</Button>
@@ -304,34 +303,20 @@ function LinkList({ label, objects, to }: { label: string; objects: LinkedObject
 function Actions({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
-  const [refused, setRefused] = useState<ServiceLinks | null>(null);
   const linked = hasLinks(service.links);
+  const action = useAction();
   const remove = () => {
-    if (!window.confirm(t("directory.delete_confirm", service.name))) {
-      return;
-    }
-    setError(null);
-    setRefused(null);
-    api
-      .delete(`/api/directory/services/${service.id}`)
-      .then(() => {
-        refresh("directory");
-        void navigate("/services");
-      })
-      .catch((failed: unknown) => {
-        const links = linksOfRefusal(failed);
-        if (links !== null) {
-          setRefused(links);
-          return;
-        }
-        setError(failed);
-      });
+    action.run(() => deleteDeclaredService(service.id), {
+      confirm: t("directory.delete_confirm", service.name),
+      topic: "directory",
+      onDone: () => void navigate("/services"),
+    });
   };
+  // Le 409 porte la liste de ce qui vise le service : elle remplace le message.
+  const refused = linksOfRefusal(action.error);
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      {refused === null && <Failure error={action.error} />}
       {refused !== null && (
         <Note tone="danger">
           {t("directory.service_linked")} {[...refused.probes, ...refused.components].map((object) => object.name).join(", ")}

@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 
-import type { Job, Run, RunOutcome } from "../api/types";
+import type { Job, JobStatus, Run, RunOutcome } from "../api/jobs";
 import type { Translate } from "../i18n/context";
-import { awaitsFirstPing, currentStreak, jobFact, jobFormOf, jobRequestOf, lastSuccessText, runHistoryLimit } from "./jobs";
+import { awaitsFirstPing, currentStreak, jobFact, jobFormOf, jobRequestOf, jobsSubtitle, jobTones, lastSuccessText, runHistoryLimit } from "./jobs";
 
 // Un faux catalogue : la clé et ses arguments, pour lire ce qui est demandé.
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -122,4 +122,17 @@ test("une tâche relue puis renvoyée garde son rythme", () => {
   const request = jobRequestOf(jobFormOf(job));
   expect(request.interval_minutes * 60).toBe(job.interval_seconds);
   expect(request.grace_minutes * 60).toBe(job.grace_seconds);
+});
+
+test("jobTones donne un ton à chaque état de tâche : le danger pour le retard et l'échec", () => {
+  const statuses: JobStatus[] = ["new", "on_time", "started", "late", "failed", "paused"];
+  expect(statuses.map((status) => jobTones[status])).toEqual(["neutral", "ok", "accent", "danger", "danger", "neutral"]);
+});
+
+test("jobsSubtitle compte les tâches et ce qui demande attention", () => {
+  expect(jobsSubtitle(t, 0, 0)).toBe("jobs.subtitle_none");
+  expect(jobsSubtitle(t, 1, 0)).toBe("jobs.subtitle_one");
+  expect(jobsSubtitle(t, 1, 1)).toBe("jobs.subtitle_one_attention");
+  expect(jobsSubtitle(t, 6, 0)).toBe("jobs.subtitle_ok:6");
+  expect(jobsSubtitle(t, 6, 2)).toBe("jobs.subtitle_attention:6:2");
 });

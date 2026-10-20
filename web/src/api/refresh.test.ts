@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { topicsOf } from "./refresh";
+import { bumpVersions, initialVersions, topics, topicsOf } from "./refresh";
 
 describe("topicsOf", () => {
   it("sends the declared directory to its own topic, though its path says services", () => {
@@ -36,5 +36,37 @@ describe("topicsOf", () => {
 
   it("refreshes every topic for an unknown path", () => {
     expect(topicsOf("/api/unknown")).toContain("directory");
+  });
+});
+
+describe("topics", () => {
+  it("liste chaque sujet du direct une seule fois", () => {
+    expect(new Set(topics).size).toBe(topics.length);
+  });
+
+  it("relit tout sauf les mesures pour un chemin inconnu", () => {
+    expect(topicsOf("/api/unknown")).toEqual(["machines", "jobs", "containers", "probes", "status", "alerts", "directory"]);
+  });
+});
+
+describe("bumpVersions", () => {
+  it("part de zéro pour chaque sujet", () => {
+    const versions = initialVersions();
+    expect(Object.keys(versions)).toEqual([...topics]);
+    expect(Object.values(versions).every((version) => version === 0)).toBe(true);
+  });
+
+  it("fait avancer le seul sujet demandé", () => {
+    const next = bumpVersions(initialVersions(), "jobs");
+    expect(next.jobs).toBe(1);
+    expect(topics.filter((topic) => next[topic] !== 0)).toEqual(["jobs"]);
+  });
+
+  it("fait avancer tous les sujets sans argument, sans toucher à l'original", () => {
+    const before = initialVersions();
+    const next = bumpVersions(bumpVersions(before, "alerts"));
+    expect(next.alerts).toBe(2);
+    expect(next.machines).toBe(1);
+    expect(topics.every((topic) => before[topic] === 0)).toBe(true);
   });
 });

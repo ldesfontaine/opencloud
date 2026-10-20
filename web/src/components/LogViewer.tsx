@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError } from "../api/client";
-import type { LogLine, LogsResponse } from "../api/types";
+import { ApiError, failureOf } from "../api/client";
+import { containerLogStreamPath, fetchContainerLogs, type LogLine } from "../api/containers";
 import { useT } from "../i18n/context";
 import { formatClock } from "../lib/time";
 import { Button } from "./Button";
@@ -28,7 +28,7 @@ export function LogViewer({ containerID }: { containerID: string }) {
   const t = useT();
   const [lines, setLines] = useState<Shown[]>([]);
   const [status, setStatus] = useState<Status>("connecting");
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [following, setFollowing] = useState(true);
   const nextKey = useRef(1);
   const stickToBottom = useRef(true);
@@ -43,14 +43,13 @@ export function LogViewer({ containerID }: { containerID: string }) {
 
   const fetchOnce = useCallback(() => {
     setStatus("connecting");
-    api
-      .get<LogsResponse>(`/api/containers/${containerID}/logs?tail=${tail}`)
+    fetchContainerLogs(containerID, tail)
       .then((response) => {
         setLines(response.lines.map((line) => ({ ...line, key: nextKey.current++ })));
         setStatus("fallback");
       })
       .catch((failure: unknown) => {
-        setError(failure instanceof ApiError ? failure : new ApiError(0, "internal"));
+        setError(failureOf(failure));
         setStatus("error");
       });
   }, [containerID]);
@@ -63,7 +62,17 @@ export function LogViewer({ containerID }: { containerID: string }) {
     setError(null);
     setStatus("connecting");
     let received = false;
-    const source = new EventSource(`/api/containers/${containerID}/logs/stream?tail=${tail}`);
+    // Un identifiant qui n'en a pas la forme : rien ne part, l'erreur se dit.
+    let path: string;
+    try {
+      path = containerLogStreamPath(containerID, tail);
+    } catch (failure) {
+      setFollowing(false);
+      setError(failureOf(failure));
+      setStatus("error");
+      return;
+    }
+    const source = new EventSource(path);
     source.addEventListener("line", (event: MessageEvent<string>) => {
       received = true;
       setStatus("live");

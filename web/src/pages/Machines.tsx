@@ -1,25 +1,22 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
-import { api } from "../api/client";
-import type { MachinesResponse, PendingToken } from "../api/types";
+import { deleteMachineToken, useMachines, type PendingToken } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, Pill, StatePill } from "../components/Pill";
+import { Dot, Pill, OnlinePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { useRefresh } from "../lib/refresh";
-import { machinesSubtitle } from "../lib/subtitles";
+import { machinesSubtitle } from "../lib/machines";
 import { formatRemaining, seenAgo } from "../lib/time";
 
 export function Machines() {
   const t = useT();
   const now = useNow();
-  const machines = useResource<MachinesResponse>("/api/machines");
+  const machines = useMachines();
   const list = machines.data?.machines ?? [];
   const online = list.filter((machine) => machine.online).length;
   return (
@@ -68,7 +65,7 @@ export function Machines() {
                     <td className="wide-only">{machine.os}</td>
                     <td className="num wide-only">{machine.agent_version}</td>
                     <td>
-                      <StatePill online={machine.online} />
+                      <OnlinePill online={machine.online} />
                     </td>
                     <td className="secondary nowrap">{seenAgo(t, machine.last_seen_at, now)}</td>
                     <td className="td-end wide-only">
@@ -91,21 +88,14 @@ export function Machines() {
 // Les jetons émis dont la commande n'a pas encore été jouée.
 function Pending({ tokens, now, onChange }: { tokens: PendingToken[]; now: number; onChange: () => void }) {
   const t = useT();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
   const cancel = (id: string) => {
-    api
-      .delete(`/api/machines/tokens/${id}`)
-      .then(() => {
-        onChange();
-        refresh();
-      })
-      .catch(setError);
+    action.run(() => deleteMachineToken(id), { topic: "all", onDone: onChange });
   };
   return (
     <Card>
       <CardHeader title={t("machines.pending_title")} aside={t("machines.pending_text")} />
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <List>
         {tokens.map((token) => (
           <div className="row" key={token.id}>

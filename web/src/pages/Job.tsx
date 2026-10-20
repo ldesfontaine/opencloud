@@ -1,39 +1,31 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { api, ApiError, segment } from "../api/client";
-import type { Job, JobResponse, Ping, Run } from "../api/types";
+import { deleteJob, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
+import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
-import { Dot, JobPill, jobTones } from "../components/Pill";
+import { Dot, JobPill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
-import { useResource } from "../hooks/useResource";
+import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, jobFact, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
-import { useRefresh } from "../lib/refresh";
+import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
-import { NotFound } from "./NotFound";
 
 // La page d'une tâche : le verdict, les dernières exécutions, puis les
 // pings bruts et l'installation, repliés. Tant qu'aucun ping n'est arrivé,
 // l'installation passe devant, ouverte : c'est ce qu'il reste à faire.
 export function JobPage() {
   const { id = "" } = useParams();
-  const job = useResource<JobResponse>(() => `/api/jobs/${segment(id)}`);
-  if (job.error instanceof ApiError && job.error.status === 404) {
-    return <NotFound />;
-  }
-  if (!job.data) {
-    return job.error ? <Failure error={job.error} /> : null;
-  }
-  return <JobView key={job.data.job.id} response={job.data} reload={job.reload} />;
+  const job = useJob(id);
+  return <Loaded resource={job}>{(data) => <JobView key={data.job.id} response={data} reload={job.reload} />}</Loaded>;
 }
 
 function JobView({ response, reload }: { response: JobResponse; reload: () => void }) {
@@ -166,18 +158,12 @@ function Pings({ pings }: { pings: Ping[] }) {
 // confirmation : l'ancienne URL cesse aussitôt de répondre.
 function Installation({ response, reload, initiallyOpen }: { response: JobResponse; reload: () => void; initiallyOpen: boolean }) {
   const t = useT();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
   const regenerate = () => {
-    if (!window.confirm(t("job.regenerate_confirm", response.job.name))) {
-      return;
-    }
-    api
-      .post(`/api/jobs/${response.job.id}/actions/regenerate-token`)
-      .then(() => {
-        setError(null);
-        reload();
-      })
-      .catch(setError);
+    action.run(() => regenerateJobToken(response.job.id), {
+      confirm: t("job.regenerate_confirm", response.job.name),
+      onDone: reload,
+    });
   };
   return (
     <Disclosure title={t("job.install_title")} aside={t("job.install_text")} initiallyOpen={initiallyOpen}>
@@ -185,7 +171,7 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
         <FoldSection title={t("job.ping_url_title")} text={t("job.ping_url_text")}>
           <TokenBox value={response.ping_url} />
           {response.url_local && <Note tone="danger">{t("job.url_local")}</Note>}
-          {error !== null && <Failure error={error} />}
+          <Failure error={action.error} />
           <div className="cluster">
             <Button variant="ghost" icon="refresh" onClick={regenerate}>
               {t("job.regenerate")}
@@ -253,43 +239,34 @@ function RunRow({ run, now }: { run: Run; now: number }) {
 function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
-  const { refresh } = useRefresh();
-  const [error, setError] = useState<unknown>(null);
+  const action = useAction();
 
-  const act = (action: "pause" | "resume") => {
-    api
-      .post(`/api/jobs/${job.id}/actions/${action}`)
-      .then(() => {
-        reload();
-        refresh();
-      })
-      .catch(setError);
+  const pause = () => {
+    action.run(() => pauseJob(job.id), { topic: "all", onDone: reload });
+  };
+  const resume = () => {
+    action.run(() => resumeJob(job.id), { topic: "all", onDone: reload });
   };
   const remove = () => {
-    if (!window.confirm(t("job.delete_confirm", job.name))) {
-      return;
-    }
-    api
-      .delete(`/api/jobs/${job.id}`)
-      .then(() => {
-        refresh();
-        void navigate("/taches");
-      })
-      .catch(setError);
+    action.run(() => deleteJob(job.id), {
+      confirm: t("job.delete_confirm", job.name),
+      topic: "all",
+      onDone: () => void navigate("/taches"),
+    });
   };
 
   return (
     <>
-      {error !== null && <Failure error={error} />}
+      <Failure error={action.error} />
       <Button icon="settings" to={`/taches/${job.id}/modifier`}>
         {t("job.edit")}
       </Button>
       {job.status === "paused" ? (
-        <Button icon="refresh" onClick={() => act("resume")}>
+        <Button icon="refresh" onClick={resume}>
           {t("job.resume")}
         </Button>
       ) : (
-        <Button icon="pause" onClick={() => act("pause")}>
+        <Button icon="pause" onClick={pause}>
           {t("job.pause")}
         </Button>
       )}

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import type { Alert } from "../api/types";
-import { alertsSubtitle, deliveryReason, describeAlert, objectPath, silenceTargets, stateOf } from "./alerts";
+import type { Alert, Channel } from "../api/alerts";
+import {
+  alertsSubtitle,
+  channelFormOf,
+  channelRequestOf,
+  deliveryReason,
+  describeAlert,
+  emptyChannelForm,
+  emptySilenceForm,
+  hasSilenceTarget,
+  objectPath,
+  silenceRequestOf,
+  silenceTargets,
+  stateOf,
+} from "./alerts";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
 const now = Date.parse("2026-09-22T10:00:00Z");
@@ -115,5 +128,74 @@ describe("silenceTargets", () => {
     expect(silenceTargets(t, { ...silence, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
     expect(silenceTargets(t, { ...silence, object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
     expect(silenceTargets(t, { ...silence, kind: "disk_full", object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
+  });
+});
+
+describe("silenceRequestOf", () => {
+  it("rend le silence tel que réglé, durée en minutes", () => {
+    const values = { kind: "disk_full" as const, objectKind: "machine" as const, objectID: "m1", objectName: "vps", minutes: 240, reason: "maintenance" };
+    expect(silenceRequestOf(values)).toEqual({
+      kind: "disk_full",
+      object_kind: "machine",
+      object_id: "m1",
+      object_name: "vps",
+      reason: "maintenance",
+      duration_minutes: 240,
+    });
+  });
+  it("n'envoie pas de genre d'objet quand aucun objet n'est choisi", () => {
+    const request = silenceRequestOf({ ...emptySilenceForm, kind: "job_late", objectKind: "probe" });
+    expect(request).toMatchObject({ kind: "job_late", object_kind: "", object_id: "" });
+  });
+  it("part d'une heure, sans type ni objet", () => {
+    expect(silenceRequestOf(emptySilenceForm)).toMatchObject({ kind: "", object_kind: "", duration_minutes: 60 });
+  });
+});
+
+describe("hasSilenceTarget", () => {
+  it("demande un type d'alerte, un objet, ou les deux", () => {
+    expect(hasSilenceTarget(emptySilenceForm)).toBe(false);
+    expect(hasSilenceTarget({ kind: "job_late", objectID: "" })).toBe(true);
+    expect(hasSilenceTarget({ kind: "", objectID: "m1" })).toBe(true);
+  });
+});
+
+describe("channelFormOf et channelRequestOf", () => {
+  const matrix: Channel = {
+    id: 3,
+    name: "astreinte",
+    url: "https://matrix.exemple.fr",
+    format: "matrix",
+    destination: "!salon:exemple.fr",
+    has_secret: true,
+    min_severity: "danger",
+    notify_resolve: false,
+    enabled: true,
+    plain: false,
+    created_at: "2026-10-01T10:00:00Z",
+  };
+
+  it("renvoient au serveur le canal lu, sans toucher au secret gardé", () => {
+    expect(channelRequestOf(channelFormOf(matrix))).toEqual({
+      name: "astreinte",
+      url: "https://matrix.exemple.fr",
+      format: "matrix",
+      destination: "!salon:exemple.fr",
+      secret: "",
+      clear_secret: false,
+      min_severity: "danger",
+      notify_resolve: false,
+      enabled: true,
+    });
+  });
+
+  it("laissent vide la destination d'un webhook", () => {
+    const webhook: Channel = { ...matrix, format: "json" };
+    delete webhook.destination;
+    expect(channelFormOf(webhook).destination).toBe("");
+  });
+
+  it("partent d'un canal JSON actif, qui prévient du retour à la normale", () => {
+    expect(channelRequestOf(emptyChannelForm)).toMatchObject({ format: "json", min_severity: "attention", notify_resolve: true, enabled: true });
   });
 });

@@ -1,10 +1,14 @@
-import { errorKey } from "../api/client";
+import { errorKey, type ApiError } from "../api/client";
 import { useT } from "../i18n/context";
 import { Note } from "./Card";
 
-// Une erreur dite à l'opérateur dans sa langue : la clé du serveur si c'est
-// un refus, sinon le message générique.
-export function Failure({ error }: { error: unknown }) {
+// Une erreur se dit en note, jamais en pastille : la pastille dit l'état
+// d'un objet. L'erreur arrive telle que l'API l'a rendue, ou déjà en clé du
+// catalogue (les formulaires). Sans erreur, rien.
+export function Failure({ error }: { error: ApiError | string | null | undefined }) {
   const t = useT();
-  return <Note tone="danger">{t(errorKey(error))}</Note>;
+  if (error === null || error === undefined) {
+    return null;
+  }
+  return <Note tone="danger">{t(typeof error === "string" ? error : errorKey(error))}</Note>;
 }

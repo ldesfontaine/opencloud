@@ -1,16 +1,14 @@
 import { useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
 
-import type { OverviewNetworkResponse } from "../api/types";
+import { useNetworkOverview } from "../api/network";
 import { useSize } from "../hooks/useSize";
-import { useResource } from "../hooks/useResource";
 import { useT } from "../i18n/context";
-import { compactHeight, compactWidth, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
+import { compactHeight, compactWidth, fitPorts, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
 import { nodeTone, containerIcon } from "../lib/containers";
-import { Card, Empty } from "./Card";
+import { EmptyCard } from "./Card";
 import { Failure } from "./Failure";
 import { iconPaths } from "./Icon";
-import { fitPorts } from "./NetworkGraph";
 import "./NetworkGraph.scss";
 import "./NetworkOverview.scss";
 
@@ -25,18 +23,14 @@ export function NetworkOverview() {
   const navigate = useNavigate();
   const holder = useRef<HTMLDivElement>(null);
   const width = useSize(holder).width;
-  const network = useResource<OverviewNetworkResponse>("/api/network");
+  const network = useNetworkOverview();
   const response = network.data;
   const layout = useMemo(() => (response ? layoutOverview(response) : null), [response]);
   if (network.error && !response) {
     return <Failure error={network.error} />;
   }
   if (response && response.machines.every((machine) => machine.containers.length === 0)) {
-    return (
-      <Card>
-        <Empty icon="network" text={t("network.overview_empty")} />
-      </Card>
-    );
+    return <EmptyCard icon="network" text={t("network.overview_empty")} />;
   }
   const ports = publicPorts(response?.machines.flatMap((machine) => machine.edges) ?? []);
   const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");

@@ -29,3 +29,8 @@ a.machine-card {
   gap: 2px;
   min-width: 0;
 }
+
+// La carte de la vue d'ensemble : trois lignes au plus, le reste par le lien.
+.overview-alerts .row {
+  padding: 10px 20px;
+}
