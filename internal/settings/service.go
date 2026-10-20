@@ -26,8 +26,8 @@ var ErrLanguageUnknown = refusal.Invalid("error.unknown_language", "settings: un
 
 // Service lit et écrit les réglages de l'opérateur. Chaque geste ne touche
 // que ses clés : les autres vivent sur la même ligne, et UpdateSettings les
-// préserve. Rien n'est gardé en mémoire : un autre processus, ou la reprise
-// de settings.toml, a pu changer la base.
+// préserve. Rien n'est gardé en mémoire : un autre processus a pu changer
+// la base.
 type Service struct {
 	store  Store
 	logger *slog.Logger

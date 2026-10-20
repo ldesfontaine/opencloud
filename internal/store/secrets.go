@@ -122,8 +122,6 @@ type storedSecret struct {
 }
 
 // readSecretColumn lit les valeurs non vides d'une colonne, avec leur ligne.
-// Les rows se referment avant qu'on écrive : une transaction n'a qu'une
-// connexion.
 func readSecretColumn(ctx context.Context, from querier, target secretColumn) ([]storedSecret, error) {
 	// Table et colonne viennent de secretColumns, jamais d'une saisie.
 	query := `SELECT CAST(id AS TEXT), ` + target.column + ` FROM ` + target.table + ` WHERE ` + target.column + ` <> ''` // #nosec G202 -- constantes du paquet.
@@ -166,63 +164,6 @@ func (db *DB) VerifySealedSecrets(ctx context.Context) error {
 	return nil
 }
 
-// SealPlaintextSecrets chiffre sur place les secrets restés en clair, dans
-// une seule transaction : une base saisie avant le chiffrement, ou écrite par
-// un ancien binaire. Un secret déjà chiffré est ouvert pour vérification :
-// une base qui ne s'ouvre pas avec la clé du serveur est refusée dès le
-// démarrage, pas à la première alerte. Rend le nombre de secrets chiffrés ;
-// rejouée, elle rend zéro.
-func (db *DB) SealPlaintextSecrets(ctx context.Context) (int, error) {
-	if db.sealer == nil {
-		return 0, ErrNoSealer
-	}
-	sealed := 0
-	err := db.inTx(ctx, "sealing secrets", func(tx *sql.Tx) error {
-		for _, target := range secretColumns {
-			stored, err := readSecretColumn(ctx, tx, target)
-			if err != nil {
-				return err
-			}
-			for _, entry := range stored {
-				scope := seal.Scope{Table: target.table, Column: target.column, Row: entry.row}
-				if seal.IsSealed(entry.value) {
-					if _, err := db.openSecret(entry.value, scope); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := db.sealInPlace(ctx, tx, scope, entry.value); err != nil {
-					return err
-				}
-				sealed++
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return sealed, nil
-}
-
-// sealInPlace remplace un clair par son chiffré. Le jeton de ping pose aussi
-// son empreinte, par laquelle on le retrouve.
-func (db *DB) sealInPlace(ctx context.Context, tx *sql.Tx, scope seal.Scope, plaintext string) error {
-	if scope.Table == "heartbeats" {
-		if _, err := db.writeHeartbeatToken(ctx, tx, scope.Row, plaintext); err != nil {
-			return fmt.Errorf("seal %s.%s row %s: %w", scope.Table, scope.Column, scope.Row, err)
-		}
-		return nil
-	}
-	sealed := db.sealer.Seal(plaintext, scope)
-	// Table et colonne viennent de secretColumns, jamais d'une saisie.
-	query := `UPDATE ` + scope.Table + ` SET ` + scope.Column + ` = ? WHERE id = ?` // #nosec G202 -- constantes du paquet.
-	if _, err := tx.ExecContext(ctx, query, sealed, scope.Row); err != nil {
-		return fmt.Errorf("seal %s.%s row %s: %w", scope.Table, scope.Column, scope.Row, err)
-	}
-	return nil
-}
-
 // writeHeartbeatToken pose le jeton d'une tâche, chiffré, avec l'empreinte
 // par laquelle un ping le retrouve : les deux colonnes s'écrivent ensemble
 // ou pas du tout.
@@ -233,35 +174,6 @@ func (db *DB) writeHeartbeatToken(ctx context.Context, to execer, id, token stri
 	}
 	return to.ExecContext(ctx, `UPDATE heartbeats SET token = ?, token_hash = ? WHERE id = ?`,
 		sealed, heartbeat.HashToken(token), id)
-}
-
-// Compact réécrit le fichier de la base pour que les clairs qu'elle vient de
-// quitter n'y restent pas : les pages libérées d'un VACUUM sont réécrites,
-// et le journal est vidé de part et d'autre. Les copies de la base faites
-// avant gardent les clairs. Un lecteur qui tient le journal le laisse
-// partiellement plein : c'est une erreur, la base reste saine.
-func (db *DB) Compact(ctx context.Context) error {
-	if err := db.truncateJournal(ctx); err != nil {
-		return err
-	}
-	if _, err := db.sql.ExecContext(ctx, `VACUUM`); err != nil {
-		return fmt.Errorf("vacuum database: %w", err)
-	}
-	return db.truncateJournal(ctx)
-}
-
-// truncateJournal lit la ligne que rend le checkpoint : busy non nul veut dire
-// qu'un lecteur a empêché de vider tout le journal.
-func (db *DB) truncateJournal(ctx context.Context) error {
-	var busy, journalPages, movedPages int
-	err := db.sql.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &journalPages, &movedPages)
-	if err != nil {
-		return fmt.Errorf("checkpoint journal: %w", err)
-	}
-	if busy != 0 {
-		return fmt.Errorf("checkpoint journal: a reader holds it, %d of %d pages moved", movedPages, journalPages)
-	}
-	return nil
 }
 
 // ForgetSecrets est la sortie de secours d'une clé perdue : ce qui était

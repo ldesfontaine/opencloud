@@ -103,16 +103,12 @@ func runServe(args []string) error {
 		return err
 	}
 	defer db.Close()
-	// La clé avant tout ce qui lit un secret, et avant la reprise des
-	// réglages, qui en écrit un.
+	// La clé avant tout ce qui lit un secret.
 	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
 		return err
 	}
 	if err := db.PurgeExpiredTokens(ctx, time.Now()); err != nil {
 		logger.Warn("purge expired tokens", "error", err)
-	}
-	if err := importLegacySettings(ctx, stateDir, db, logger); err != nil {
-		return err
 	}
 	// Les réglages de l'opérateur : relus dans la base à chaque usage.
 	preferences := settings.New(db, logger)
@@ -301,29 +297,6 @@ func runServe(args []string) error {
 	}
 	control := startControlSocket(logger, stateDir, cfg.StateDir, server.ControlHandler())
 	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), listener, control, cfg)
-}
-
-// importLegacySettings reprend settings.toml, où vivaient les réglages avant
-// la base, puis l'efface. Un fichier illisible arrête le démarrage ; un
-// fichier qui ne s'efface pas est seulement signalé, la base a les réglages.
-func importLegacySettings(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) error {
-	outcome, err := settings.ImportLegacyFile(ctx, stateDir, db)
-	if errors.Is(err, settings.ErrLegacyFileKept) {
-		logger.Warn("legacy settings file kept", "file", "settings.toml", "imported", outcome == settings.Imported, "error", err)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	switch outcome {
-	case settings.Imported:
-		logger.Info("settings imported into the database", "file", "settings.toml")
-	case settings.AlreadyInDatabase:
-		// Un ancien binaire a pu réécrire le fichier entre-temps : ce qu'il y
-		// a changé est perdu, l'opérateur doit le savoir.
-		logger.Warn("legacy settings file removed without applying it, the database already had settings", "file", "settings.toml")
-	}
-	return nil
 }
 
 // warnIfOpen dit au journal que l'interface n'est pas protégée, plus fort

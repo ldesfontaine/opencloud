@@ -75,14 +75,3 @@ func Exposure(s Container) []Finding {
 	})
 	return findings
 }
-
-// NeedsCaution dit si au moins un constat est au niveau attention : le
-// point orange du nœud.
-func NeedsCaution(findings []Finding) bool {
-	for _, finding := range findings {
-		if finding.Level == LevelWarn {
-			return true
-		}
-	}
-	return false
-}

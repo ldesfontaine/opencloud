@@ -61,10 +61,6 @@ const (
 	KindAPI     Kind = "api"
 )
 
-func Kinds() []Kind {
-	return []Kind{KindAccess, KindRefresh, KindAPI}
-}
-
 // Client est le client OAuth : il existe quand MCP est activé. Le secret
 // n'est stocké que haché ; le préfixe sert à le reconnaître.
 type Client struct {

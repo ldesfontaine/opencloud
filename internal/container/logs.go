@@ -318,8 +318,3 @@ func clampTail(tail int) int {
 	}
 	return min(tail, MaxLogTail)
 }
-
-// Pour les tests : un identifiant prévisible.
-func (r *Relay) setIDs(newID func() string) {
-	r.newID = newID
-}
