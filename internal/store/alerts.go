@@ -128,7 +128,7 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 	if err != nil {
 		return fmt.Errorf("update alert: %w", err)
 	}
-	return alertNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 // AcknowledgeAlerts n'écrit qu'une instruction, donc une transaction :
@@ -180,16 +180,7 @@ func (db *DB) queryAlerts(ctx context.Context, query string, args ...any) ([]ale
 	if err != nil {
 		return nil, fmt.Errorf("list alerts: %w", err)
 	}
-	defer rows.Close()
-	alerts := []alert.Alert{}
-	for rows.Next() {
-		found, err := scanAlert(rows)
-		if err != nil {
-			return nil, err
-		}
-		alerts = append(alerts, found)
-	}
-	return alerts, rows.Err()
+	return collect(rows, scanAlert)
 }
 
 func scanAlert(row scanner) (alert.Alert, error) {
@@ -216,17 +207,6 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	return found, nil
 }
 
-func alertNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return alert.ErrNotFound
-	}
-	return nil
-}
-
 // --- Canaux ---
 
 const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at`
@@ -235,30 +215,25 @@ const channelColumns = `id, name, url, format, destination, secret, min_severity
 // de l'URL et du secret est lié à l'id de la ligne, qui n'existe qu'après
 // l'INSERT.
 func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("begin channel insert: %w", err)
-	}
-	defer tx.Rollback()
-
-	result, err := tx.ExecContext(ctx, `
+	var id int64
+	err := db.inTx(ctx, "channel insert", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
 		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at)
 		VALUES (?, '', ?, ?, '', ?, ?, ?, ?)`,
-		channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
-		channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
+			channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
+			channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert channel: %w", err)
+		}
+		id, err = result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("read channel id: %w", err)
+		}
+		channel.ID = id
+		return db.writeChannelSecrets(ctx, tx, channel)
+	})
 	if err != nil {
-		return 0, fmt.Errorf("insert channel: %w", err)
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("read channel id: %w", err)
-	}
-	channel.ID = id
-	if err := db.writeChannelSecrets(ctx, tx, channel); err != nil {
 		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit channel insert: %w", err)
 	}
 	return id, nil
 }
@@ -285,16 +260,7 @@ func (db *DB) ListChannels(ctx context.Context) ([]alert.Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
-	defer rows.Close()
-	channels := []alert.Channel{}
-	for rows.Next() {
-		channel, err := db.scanChannel(rows)
-		if err != nil {
-			return nil, err
-		}
-		channels = append(channels, channel)
-	}
-	return channels, rows.Err()
+	return collect(rows, db.scanChannel)
 }
 
 func (db *DB) GetChannel(ctx context.Context, id int64) (alert.Channel, error) {
@@ -316,7 +282,7 @@ func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
-	return alertNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 func (db *DB) DeleteChannel(ctx context.Context, id int64) error {
@@ -324,7 +290,7 @@ func (db *DB) DeleteChannel(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("delete channel: %w", err)
 	}
-	return alertNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
@@ -373,20 +339,19 @@ func (db *DB) ListSilences(ctx context.Context) ([]alert.Silence, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list silences: %w", err)
 	}
-	defer rows.Close()
-	silences := []alert.Silence{}
-	for rows.Next() {
-		var silence alert.Silence
-		var startsAt, endsAt, createdAt int64
-		if err := rows.Scan(&silence.ID, &silence.Kind, &silence.Object.Kind, &silence.Object.ID, &silence.Object.Name, &silence.Reason, &startsAt, &endsAt, &createdAt); err != nil {
-			return nil, fmt.Errorf("scan silence: %w", err)
-		}
-		silence.StartsAt = time.Unix(startsAt, 0)
-		silence.EndsAt = time.Unix(endsAt, 0)
-		silence.CreatedAt = time.Unix(createdAt, 0)
-		silences = append(silences, silence)
+	return collect(rows, scanSilence)
+}
+
+func scanSilence(row scanner) (alert.Silence, error) {
+	var silence alert.Silence
+	var startsAt, endsAt, createdAt int64
+	if err := row.Scan(&silence.ID, &silence.Kind, &silence.Object.Kind, &silence.Object.ID, &silence.Object.Name, &silence.Reason, &startsAt, &endsAt, &createdAt); err != nil {
+		return alert.Silence{}, fmt.Errorf("scan silence: %w", err)
 	}
-	return silences, rows.Err()
+	silence.StartsAt = time.Unix(startsAt, 0)
+	silence.EndsAt = time.Unix(endsAt, 0)
+	silence.CreatedAt = time.Unix(createdAt, 0)
+	return silence, nil
 }
 
 func (db *DB) DeleteSilence(ctx context.Context, id int64) error {
@@ -394,7 +359,7 @@ func (db *DB) DeleteSilence(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("delete silence: %w", err)
 	}
-	return alertNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 // --- Livraisons ---
@@ -423,7 +388,7 @@ func (db *DB) UpdateDelivery(ctx context.Context, delivery alert.Delivery) error
 	if err != nil {
 		return fmt.Errorf("update delivery: %w", err)
 	}
-	return alertNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 func (db *DB) ListDeliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error) {
@@ -439,18 +404,17 @@ func (db *DB) queryDeliveries(ctx context.Context, query string, args ...any) ([
 	if err != nil {
 		return nil, fmt.Errorf("list deliveries: %w", err)
 	}
-	defer rows.Close()
-	deliveries := []alert.Delivery{}
-	for rows.Next() {
-		var delivery alert.Delivery
-		var createdAt, updatedAt int64
-		if err := rows.Scan(&delivery.ID, &delivery.AlertID, &delivery.ChannelID, &delivery.Event, &delivery.Status, &delivery.Attempts,
-			&delivery.Reason, &delivery.Code, &createdAt, &updatedAt); err != nil {
-			return nil, fmt.Errorf("scan delivery: %w", err)
-		}
-		delivery.CreatedAt = time.Unix(createdAt, 0)
-		delivery.UpdatedAt = time.Unix(updatedAt, 0)
-		deliveries = append(deliveries, delivery)
+	return collect(rows, scanDelivery)
+}
+
+func scanDelivery(row scanner) (alert.Delivery, error) {
+	var delivery alert.Delivery
+	var createdAt, updatedAt int64
+	if err := row.Scan(&delivery.ID, &delivery.AlertID, &delivery.ChannelID, &delivery.Event, &delivery.Status, &delivery.Attempts,
+		&delivery.Reason, &delivery.Code, &createdAt, &updatedAt); err != nil {
+		return alert.Delivery{}, fmt.Errorf("scan delivery: %w", err)
 	}
-	return deliveries, rows.Err()
+	delivery.CreatedAt = time.Unix(createdAt, 0)
+	delivery.UpdatedAt = time.Unix(updatedAt, 0)
+	return delivery, nil
 }

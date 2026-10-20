@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,10 +56,14 @@ func (s *recordingSink) Deliver(report container.Report) {
 	}
 }
 
-// waitFor attend qu'un rapport satisfasse le prédicat, une seconde au plus.
+// Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
+// cassé ; un runner chargé la consomme à peine.
+const waitLimit = 30 * time.Second
+
+// waitFor attend qu'un rapport satisfasse le prédicat, au plus waitLimit.
 func (s *recordingSink) waitFor(t *testing.T, what string, match func(container.Report) bool) container.Report {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(waitLimit)
 	for {
 		s.mu.Lock()
 		for _, report := range s.reports {
@@ -76,10 +81,11 @@ func (s *recordingSink) waitFor(t *testing.T, what string, match func(container.
 	}
 }
 
-func (s *recordingSink) count() int {
+// delivered rend une copie des rapports reçus jusque-là.
+func (s *recordingSink) delivered() []container.Report {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return len(s.reports)
+	return slices.Clone(s.reports)
 }
 
 type daemon struct {
@@ -162,20 +168,76 @@ func serve(t *testing.T, handler http.Handler) *dockerapi.Client {
 	return dockerapi.New(socket)
 }
 
+const probeInterval = 20 * time.Millisecond
+
 func newWatcher(client *dockerapi.Client, sink Sink) *Watcher {
 	return New(client, sink, Options{
 		Logger: slog.New(slog.NewTextHandler(os.Stderr, nil)), SampleInterval: 20 * time.Millisecond,
-		InventoryInterval: time.Hour, ProbeInterval: 20 * time.Millisecond,
+		InventoryInterval: time.Hour, ProbeInterval: probeInterval,
 	})
 }
 
+// Le veilleur resonde la socket plusieurs fois et n'en dit qu'un mot. On
+// regarde ce qu'il a livré avant l'arrêt : couper une sonde en plein vol
+// rend une erreur de contexte, que Run range sous « le démon ne répond
+// pas ». Attendre plus longtemps ne peut que laisser passer plus de sondes.
 func TestRun_WithoutDocker_ReportsTheAbsenceOnce(t *testing.T) {
 	sink := newSink()
 	watcher := newWatcher(dockerapi.New("/tmp/none-oc.sock"), sink)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	watcher.Run(ctx)
-	if sink.count() != 1 || sink.reports[0].Engine == nil || sink.reports[0].Engine.Present || sink.reports[0].Engine.Reason != container.ReasonNoSocket {
+	stopped := make(chan struct{})
+	go func() {
+		watcher.Run(ctx)
+		close(stopped)
+	}()
+
+	sink.waitFor(t, "absence", func(r container.Report) bool { return r.Engine != nil })
+	time.Sleep(5 * probeInterval)
+	reports := sink.delivered()
+	cancel()
+	<-stopped
+
+	if len(reports) != 1 || reports[0].Engine == nil || reports[0].Engine.Present || reports[0].Engine.Reason != container.ReasonNoSocket {
+		t.Fatalf("reports = %+v", reports)
+	}
+}
+
+// Le démon ne répond pas à la sonde ; on annule pendant qu'elle attend. Run
+// part sans rien livrer : l'annulation est la nôtre, pas celle du démon.
+func TestRun_CancelledDuringPing_DeliversNoReport(t *testing.T) {
+	// Borne large : elle ne sert qu'à ne pas bloquer la CI si le code est cassé.
+	const patience = 30 * time.Second
+	pinging := make(chan struct{})
+	var announce sync.Once
+	client := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		announce.Do(func() { close(pinging) })
+		<-r.Context().Done()
+	}))
+	sink := newSink()
+	watcher := newWatcher(client, sink)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := make(chan struct{})
+	go func() {
+		watcher.Run(ctx)
+		close(stopped)
+	}()
+
+	select {
+	case <-pinging:
+	case <-time.After(patience):
+		t.Fatal("the ping never reached the daemon")
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(patience):
+		t.Fatal("Run did not stop after the cancellation")
+	}
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.reports) != 0 {
 		t.Fatalf("reports = %+v", sink.reports)
 	}
 }

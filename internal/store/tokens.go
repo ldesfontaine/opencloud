@@ -32,16 +32,7 @@ func (db *DB) ListPendingTokens(ctx context.Context, now time.Time) ([]machine.T
 	if err != nil {
 		return nil, fmt.Errorf("list pending tokens: %w", err)
 	}
-	defer rows.Close()
-	var tokens []machine.Token
-	for rows.Next() {
-		t, err := scanToken(rows)
-		if err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, t)
-	}
-	return tokens, rows.Err()
+	return collect(rows, scanToken)
 }
 
 // DeleteToken annule un jeton non consommé ; un jeton déjà servi reste, pour
@@ -52,10 +43,7 @@ func (db *DB) DeleteToken(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete token: %w", err)
 	}
-	if err := notFoundIfNoRow(result); err != nil {
-		return machine.ErrTokenNotFound
-	}
-	return nil
+	return notFoundIfNoRow(result, machine.ErrTokenNotFound)
 }
 
 // PurgeExpiredTokens efface les jetons périmés jamais consommés.

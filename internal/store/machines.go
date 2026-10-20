@@ -39,16 +39,7 @@ func (db *DB) ListMachines(ctx context.Context) ([]machine.Machine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list machines: %w", err)
 	}
-	defer rows.Close()
-	var machines []machine.Machine
-	for rows.Next() {
-		m, err := scanMachine(rows)
-		if err != nil {
-			return nil, err
-		}
-		machines = append(machines, m)
-	}
-	return machines, rows.Err()
+	return collect(rows, scanMachine)
 }
 
 func (db *DB) GetMachine(ctx context.Context, id string) (machine.Machine, error) {
@@ -65,30 +56,21 @@ func (db *DB) GetMachine(ctx context.Context, id string) (machine.Machine, error
 // déclaré entre les deux ferait échouer la suppression sur la clé étrangère,
 // en erreur brute.
 func (db *DB) DeleteMachine(ctx context.Context, id string) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin delete machine: %w", err)
-	}
-	defer tx.Rollback()
-	var declared int
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE machine_id = ?`, id).Scan(&declared)
-	if err != nil {
-		return fmt.Errorf("count declared services: %w", err)
-	}
-	if declared > 0 {
-		return machine.ErrHasDeclaredServices
-	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND kind != 'local'`, id)
-	if err != nil {
-		return fmt.Errorf("delete machine: %w", err)
-	}
-	if err := notFoundIfNoRow(result); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit delete machine: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "delete machine", func(tx *sql.Tx) error {
+		var declared int
+		err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE machine_id = ?`, id).Scan(&declared)
+		if err != nil {
+			return fmt.Errorf("count declared services: %w", err)
+		}
+		if declared > 0 {
+			return machine.ErrHasDeclaredServices
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND kind != 'local'`, id)
+		if err != nil {
+			return fmt.Errorf("delete machine: %w", err)
+		}
+		return notFoundIfNoRow(result, machine.ErrNotFound)
+	})
 }
 
 func (db *DB) TouchMachine(ctx context.Context, id string, at time.Time) error {
@@ -96,7 +78,7 @@ func (db *DB) TouchMachine(ctx context.Context, id string, at time.Time) error {
 	if err != nil {
 		return fmt.Errorf("touch machine: %w", err)
 	}
-	return notFoundIfNoRow(result)
+	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
 // RecordSystem note le système que l'agent dit à l'ouverture du flux.
@@ -105,7 +87,7 @@ func (db *DB) RecordSystem(ctx context.Context, id, system string) error {
 	if err != nil {
 		return fmt.Errorf("record system: %w", err)
 	}
-	return notFoundIfNoRow(result)
+	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
 // RecordConnection note l'adresse et la version vues à l'ouverture du flux :
@@ -117,7 +99,7 @@ func (db *DB) RecordConnection(ctx context.Context, id, address, agentVersion st
 	if err != nil {
 		return fmt.Errorf("record connection: %w", err)
 	}
-	return notFoundIfNoRow(result)
+	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
 // Enroll consomme le jeton et écrit la machine dans une seule transaction :
@@ -125,46 +107,38 @@ func (db *DB) RecordConnection(ctx context.Context, id, address, agentVersion st
 // n'est consommé que par l'UPDATE conditionnel ; l'échec n'est classé
 // qu'après, pour le message.
 func (db *DB) Enroll(ctx context.Context, tokenHash string, candidate machine.Machine, now time.Time) (machine.Machine, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return machine.Machine{}, fmt.Errorf("begin enroll: %w", err)
-	}
-	defer tx.Rollback()
-
-	result, err := tx.ExecContext(ctx, `
+	err := db.inTx(ctx, "enroll", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
 		UPDATE enrollment_tokens SET consumed_at = ?, consumed_by = ?
 		WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`,
-		now.Unix(), candidate.ID, tokenHash, now.Unix())
-	if err != nil {
-		return machine.Machine{}, fmt.Errorf("consume token: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return machine.Machine{}, fmt.Errorf("consume token rows: %w", err)
-	}
-	if affected != 1 {
-		return machine.Machine{}, classifyTokenFailure(ctx, tx, tokenHash, now)
-	}
+			now.Unix(), candidate.ID, tokenHash, now.Unix())
+		if err != nil {
+			return fmt.Errorf("consume token: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("consume token rows: %w", err)
+		}
+		if affected != 1 {
+			return classifyTokenFailure(ctx, tx, tokenHash, now)
+		}
 
-	var name string
-	var existingID sql.NullString
-	if err := tx.QueryRowContext(ctx,
-		`SELECT name, machine_id FROM enrollment_tokens WHERE token_hash = ?`, tokenHash,
-	).Scan(&name, &existingID); err != nil {
-		return machine.Machine{}, fmt.Errorf("read token: %w", err)
-	}
-	candidate.Name = name
-	if existingID.Valid {
-		candidate.ID = existingID.String
-		err = reenroll(ctx, tx, candidate)
-	} else {
-		err = insertMachine(ctx, tx, candidate)
-	}
+		var name string
+		var existingID sql.NullString
+		if err := tx.QueryRowContext(ctx,
+			`SELECT name, machine_id FROM enrollment_tokens WHERE token_hash = ?`, tokenHash,
+		).Scan(&name, &existingID); err != nil {
+			return fmt.Errorf("read token: %w", err)
+		}
+		candidate.Name = name
+		if existingID.Valid {
+			candidate.ID = existingID.String
+			return reenroll(ctx, tx, candidate)
+		}
+		return insertMachine(ctx, tx, candidate)
+	})
 	if err != nil {
 		return machine.Machine{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return machine.Machine{}, fmt.Errorf("commit enroll: %w", err)
 	}
 	return db.GetMachine(ctx, candidate.ID)
 }
@@ -195,7 +169,7 @@ func reenroll(ctx context.Context, tx *sql.Tx, m machine.Machine) error {
 	if err != nil {
 		return fmt.Errorf("reenroll machine: %w", err)
 	}
-	return notFoundIfNoRow(result)
+	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
 func classifyTokenFailure(ctx context.Context, tx *sql.Tx, tokenHash string, now time.Time) error {
