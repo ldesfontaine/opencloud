@@ -7,7 +7,11 @@
 # sur ce banc : adaptez le sous-réseau s'il est déjà pris chez vous.
 services:
   traefik:
-    image: traefik:v3.5
+    # Tag de correctif, jamais le tag flottant v3.5. Digest à poser à la
+    # première installation, puis à l'ajouter derrière le tag
+    # (traefik:v3.5.3@sha256:…) :
+    #   docker pull traefik:v3.5.3 && docker inspect --format='{{index .RepoDigests 0}}' traefik:v3.5.3
+    image: traefik:v3.5.3
     command:
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.letsencrypt.acme.tlschallenge=true

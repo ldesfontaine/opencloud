@@ -1,0 +1,37 @@
+# Mises à jour hebdomadaires, une pull request par écosystème, vers dev.
+# Les actions de ci.yml sont épinglées par SHA : dependabot met à jour le SHA
+# et le commentaire de version ensemble (son comportement par défaut).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      go:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /web
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
