@@ -37,7 +37,11 @@ front: $(FRONT_DIR)/node_modules/.stamp
 	find $(FRONT_DIR)/dist -mindepth 1 -not -name .gitkeep -delete
 	cd $(FRONT_DIR) && npm run build
 
+# L'audit précède les tests : une dépendance de production vulnérable arrête
+# tout. `audit=false` du .npmrc ne coupe que l'audit de npm ci ; l'appel
+# explicite interroge le registre (il faut donc le réseau).
 front-check: $(FRONT_DIR)/node_modules/.stamp
+	cd $(FRONT_DIR) && npm audit --omit=dev --audit-level=high
 	cd $(FRONT_DIR) && npm run check
 
 # dev/ est ton /etc et ton /var/lib locaux : créé une fois, jamais effacé.
