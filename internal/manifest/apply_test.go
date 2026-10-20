@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -368,7 +369,8 @@ func TestApply_PruneDeletesAndSaysWhatItCarries(t *testing.T) {
 
 func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
-	statuses := status.New(b.db, b.machines, b.db, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	statuses := status.New(b.db, b.machines, settings.New(b.db, logger), logger)
 	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})

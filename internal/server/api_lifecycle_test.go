@@ -43,13 +43,6 @@ func (s *supportSource) Product(_ context.Context, name string) (lifecycle.Produ
 	return lifecycle.Product{}, lifecycle.ErrNoProduct
 }
 
-func lifecycleSetting(preferences SettingsStore) func() bool {
-	return func() bool {
-		current, err := preferences.LoadSettings(context.Background())
-		return err == nil && current.LifecycleEnabled()
-	}
-}
-
 // Coupé : la fiche ne dit rien du support, et rien ne sort vers la
 // source, même si on la presse.
 func TestAPI_Lifecycle_TurnedOff_ShowsNothingAndReadsNothing(t *testing.T) {
@@ -88,7 +81,7 @@ func TestAPI_Lifecycle_Enabled_TheServiceSaysItsSupport(t *testing.T) {
 	if got.Code != http.StatusOK || !state.Enabled || state.FetchedAt != nil {
 		t.Fatalf("status %d: %+v", got.Code, state)
 	}
-	saved, err := server.settings.LoadSettings(context.Background())
+	saved, err := server.db.LoadSettings(context.Background())
 	if err != nil || !saved.LifecycleEnabled() || saved.Language != "en" {
 		t.Fatalf("file %+v %v", saved, err)
 	}

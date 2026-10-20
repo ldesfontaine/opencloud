@@ -3,9 +3,7 @@ package alert
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 )
@@ -71,29 +69,6 @@ type Sender interface {
 	Enqueue(job Job)
 }
 
-// Job est tout ce qu'il faut pour livrer : la ligne réservée, l'alerte
-// telle qu'elle était, le canal.
-type Job struct {
-	Delivery Delivery
-	Alert    Alert
-	Channel  Channel
-	// Held : pour un résumé, ce que la limite a retenu.
-	Held Held
-}
-
-// Held est ce qu'un résumé remplace : combien d'envois la limite d'un canal
-// a retenus, la gravité la plus haute parmi eux, et les machines qui les
-// ont causés. Un résumé qui taisait la gravité ferait passer pour banal ce
-// qu'une machine bruyante aurait masqué.
-type Held struct {
-	Count    int
-	Severity Severity
-	// Machines : les noms, triés, au plus MaxSummaryMachines ; Others compte
-	// celles qui ne tiennent pas dans la liste.
-	Machines []string
-	Others   int
-}
-
 type Engine struct {
 	store       Store
 	sender      Sender
@@ -113,11 +88,6 @@ type Engine struct {
 	// chaque machine sur chaque canal ; sous mu.
 	limits map[int64]*channelLimit
 	shares map[shareKey]*sendWindow
-}
-
-type shareKey struct {
-	channelID int64
-	machineID string
 }
 
 func New(store Store, logger *slog.Logger) *Engine {
@@ -328,68 +298,6 @@ func (e *Engine) resolveAll(ctx context.Context, filter Filter) {
 	}
 }
 
-// Acknowledge note que l'opérateur a vu : l'alerte reste ouverte et sort
-// du compteur rouge. Une aggravation la ré-arme.
-func (e *Engine) Acknowledge(ctx context.Context, id int64) (Alert, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	alert, err := e.store.GetAlert(ctx, id)
-	if err != nil {
-		return Alert{}, err
-	}
-	if !alert.IsOpen() {
-		return Alert{}, ErrAlreadyClosed
-	}
-	if alert.IsAcknowledged() {
-		return alert, nil
-	}
-	alert.AcknowledgedAt = e.now()
-	if err := e.store.UpdateAlert(ctx, alert); err != nil {
-		return Alert{}, err
-	}
-	e.logger.Info("alert acknowledged", "alert_id", id)
-	e.changed()
-	return alert, nil
-}
-
-// AcknowledgeMany acquitte une sélection en une écriture. Une alerte
-// résolue, déjà acquittée ou disparue entre l'affichage et le clic est
-// passée sans refus : l'opérateur voulait qu'elle ne compte plus, c'est le
-// cas. Rend le nombre d'alertes réellement acquittées.
-func (e *Engine) AcknowledgeMany(ctx context.Context, ids []int64) (int, error) {
-	unique := uniqueIDs(ids)
-	if len(unique) == 0 {
-		return 0, ErrSelectionEmpty
-	}
-	if len(unique) > MaxAcknowledgedAtOnce {
-		return 0, ErrSelectionTooLarge
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	acknowledged, err := e.store.AcknowledgeAlerts(ctx, unique, e.now())
-	if err != nil {
-		return 0, err
-	}
-	e.logger.Info("alerts acknowledged", "requested", len(unique), "acknowledged", acknowledged)
-	if acknowledged > 0 {
-		e.changed()
-	}
-	return acknowledged, nil
-}
-
-func uniqueIDs(ids []int64) []int64 {
-	seen := make(map[int64]bool, len(ids))
-	unique := make([]int64, 0, len(ids))
-	for _, id := range ids {
-		if id <= 0 || seen[id] {
-			continue
-		}
-		seen[id] = true
-		unique = append(unique, id)
-	}
-	return unique
-}
-
 func (e *Engine) Get(ctx context.Context, id int64) (Alert, error) {
 	return e.store.GetAlert(ctx, id)
 }
@@ -430,257 +338,6 @@ func (e *Engine) silenced(ctx context.Context, fact Fact, now time.Time) (bool, 
 	return e.maintenance.UnderMaintenance(ctx, string(object.Kind), object.ID)
 }
 
-// deliver réserve une livraison par canal qui veut cet événement, puis la
-// confie au notifieur. Réserver d'abord : une coupure entre les deux laisse
-// une ligne en attente que le démarrage rejoue, jamais un doublon.
-func (e *Engine) deliver(ctx context.Context, alert Alert, event Event) {
-	if e.sender == nil {
-		return
-	}
-	channels, err := e.store.ListChannels(ctx)
-	if err != nil {
-		e.fail(ctx, "list channels", err)
-		return
-	}
-	told := e.toldChannels(ctx, alert, event)
-	now := e.now()
-	for _, channel := range channels {
-		if !channel.Wants(alert, event) && !(told[channel.ID] && channel.Enabled && channel.NotifyResolve) {
-			continue
-		}
-		limit := e.limitOf(channel.ID)
-		e.flushSummary(limit, channel, now)
-		delivery := Delivery{AlertID: alert.ID, ChannelID: channel.ID, Event: event, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}
-		allowed := e.allowSend(limit, channel.ID, alert.MachineID, now)
-		if !allowed {
-			delivery.Status = DeliveryHeld
-		}
-		id, err := e.store.InsertDelivery(ctx, delivery)
-		if errors.Is(err, ErrDeliveryExists) {
-			continue
-		}
-		if err != nil {
-			e.fail(ctx, "reserve delivery", err)
-			continue
-		}
-		if !allowed {
-			limit.held.note(alert)
-			e.logger.Warn("alert delivery held by the channel rate limit", "alert_id", alert.ID, "channel_id", channel.ID, "machine_id", alert.MachineID, "event", string(event))
-			continue
-		}
-		delivery.ID = id
-		e.sender.Enqueue(Job{Delivery: delivery, Alert: alert, Channel: channel})
-	}
-}
-
-// toldChannels rend, pour une résolution, les canaux à qui l'alerte a été
-// annoncée : ils apprennent sa fin même si sa gravité est redescendue sous
-// leur seuil, un plantage relancé n'étant plus qu'une attention.
-func (e *Engine) toldChannels(ctx context.Context, alert Alert, event Event) map[int64]bool {
-	told := map[int64]bool{}
-	if event != EventResolved {
-		return told
-	}
-	deliveries, err := e.store.ListDeliveries(ctx, alert.ID)
-	if err != nil {
-		e.fail(ctx, "list deliveries", err)
-		return told
-	}
-	for _, delivery := range deliveries {
-		if delivery.Status != DeliveryHeld {
-			told[delivery.ChannelID] = true
-		}
-	}
-	return told
-}
-
-func (e *Engine) limitOf(channelID int64) *channelLimit {
-	limit, found := e.limits[channelID]
-	if !found {
-		limit = &channelLimit{}
-		e.limits[channelID] = limit
-	}
-	return limit
-}
-
-// allowSend accorde un envoi à une machine sur un canal, ou le refuse. Deux
-// plafonds : la part de la machine, qu'elle seule épuise, et celui du
-// canal. Une machine qui n'a rien envoyé sur la fenêtre peut dépasser le
-// plafond du canal de ChannelReserve : la première alerte d'une machine
-// calme n'est pas retenue parce que d'autres ont rempli le canal.
-func (e *Engine) allowSend(limit *channelLimit, channelID int64, machineID string, now time.Time) bool {
-	key := shareKey{channelID: channelID, machineID: machineID}
-	share, found := e.shares[key]
-	if !found {
-		share = &sendWindow{}
-		e.shares[key] = share
-	}
-	used := share.count(now)
-	if used >= MachineRateLimit {
-		return false
-	}
-	ceiling := ChannelRateLimit
-	if used == 0 {
-		ceiling += ChannelReserve
-	}
-	if limit.window.count(now) >= ceiling {
-		return false
-	}
-	share.add(now)
-	limit.window.add(now)
-	return true
-}
-
-// flushSummary envoie le résumé de ce que la limite a retenu, dès que la
-// fenêtre du canal a de la place : un message, quel que soit le nombre.
-// Il n'est la livraison d'aucune alerte, rien n'en reste en base.
-func (e *Engine) flushSummary(limit *channelLimit, channel Channel, now time.Time) {
-	// Le résumé attend que la fenêtre ait de la place, pour le canal et pour
-	// chaque machine retenue : tant qu'une machine bruyante est à sa limite, la
-	// tempête dure et un résumé par alerte retenue serait un envoi de plus.
-	// Il prend une place du canal, mais pas dans la réserve : elle est aux
-	// machines calmes.
-	if limit.held.count == 0 || limit.window.count(now) >= ChannelRateLimit || !e.sharesHaveRoom(channel.ID, limit.held, now) {
-		return
-	}
-	limit.window.add(now)
-	held := limit.held.summary()
-	limit.held = heldAlerts{}
-	e.logger.Info("alert deliveries summarized", "channel_id", channel.ID, "held", held.Count, "severity", string(held.Severity))
-	e.sender.Enqueue(Job{Delivery: Delivery{ChannelID: channel.ID, Event: EventSummary, Status: DeliveryPending, CreatedAt: now, UpdatedAt: now}, Channel: channel, Held: held})
-}
-
-func (e *Engine) sharesHaveRoom(channelID int64, held heldAlerts, now time.Time) bool {
-	for machineID := range held.machines {
-		share, found := e.shares[shareKey{channelID: channelID, machineID: machineID}]
-		if found && share.count(now) >= MachineRateLimit {
-			return false
-		}
-	}
-	return true
-}
-
-// flushSummaries passe sur chaque canal qui a retenu des envois ; le
-// balayage l'appelle, une tempête finie se résume sans attendre une
-// nouvelle alerte.
-func (e *Engine) flushSummaries(ctx context.Context) {
-	if e.sender == nil {
-		return
-	}
-	pending := false
-	for _, limit := range e.limits {
-		pending = pending || limit.held.count > 0
-	}
-	if !pending {
-		return
-	}
-	channels, err := e.store.ListChannels(ctx)
-	if err != nil {
-		e.fail(ctx, "list channels", err)
-		return
-	}
-	now := e.now()
-	for _, channel := range channels {
-		if limit, found := e.limits[channel.ID]; found && channel.Enabled {
-			e.flushSummary(limit, channel, now)
-		}
-	}
-}
-
-// sendWindow compte des envois sur une fenêtre glissante.
-type sendWindow struct {
-	sent []time.Time
-}
-
-// count oublie les envois sortis de la fenêtre et dit combien restent.
-func (w *sendWindow) count(now time.Time) int {
-	kept := w.sent[:0]
-	for _, at := range w.sent {
-		if at.After(now.Add(-ChannelRateWindow)) {
-			kept = append(kept, at)
-		}
-	}
-	w.sent = kept
-	return len(w.sent)
-}
-
-func (w *sendWindow) add(now time.Time) {
-	w.sent = append(w.sent, now)
-}
-
-// channelLimit tient les envois d'un canal sur la fenêtre, et ce que la
-// limite a retenu depuis le dernier résumé.
-type channelLimit struct {
-	window sendWindow
-	held   heldAlerts
-}
-
-// heldAlerts note ce que la limite retient, pour le résumé.
-type heldAlerts struct {
-	count    int
-	severity Severity
-	// machines : nom par identifiant, pour ne compter chaque machine qu'une
-	// fois. Une alerte sans machine y entre sous l'identifiant vide, sans nom.
-	machines map[string]string
-}
-
-func (h *heldAlerts) note(alert Alert) {
-	h.count++
-	if h.severity == "" || rank(alert.Severity) > rank(h.severity) {
-		h.severity = alert.Severity
-	}
-	if h.machines == nil {
-		h.machines = map[string]string{}
-	}
-	name := alert.MachineName
-	if name == "" {
-		name = alert.MachineID
-	}
-	h.machines[alert.MachineID] = name
-}
-
-func (h heldAlerts) summary() Held {
-	names := make([]string, 0, len(h.machines))
-	for _, name := range h.machines {
-		if name != "" {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-	held := Held{Count: h.count, Severity: h.severity, Machines: names}
-	if len(names) > MaxSummaryMachines {
-		held.Machines, held.Others = names[:MaxSummaryMachines], len(names)-MaxSummaryMachines
-	}
-	return held
-}
-
-// Requeue rejoue au démarrage les livraisons restées en attente : une
-// fois chacune, avec l'alerte et le canal tels qu'ils sont maintenant.
-func (e *Engine) Requeue(ctx context.Context) error {
-	if e.sender == nil {
-		return nil
-	}
-	pending, err := e.store.ListPendingDeliveries(ctx)
-	if err != nil {
-		return err
-	}
-	for _, delivery := range pending {
-		alert, err := e.store.GetAlert(ctx, delivery.AlertID)
-		if err != nil {
-			return fmt.Errorf("requeue delivery %d: %w", delivery.ID, err)
-		}
-		channel, err := e.store.GetChannel(ctx, delivery.ChannelID)
-		if err != nil {
-			return fmt.Errorf("requeue delivery %d: %w", delivery.ID, err)
-		}
-		e.sender.Enqueue(Job{Delivery: delivery, Alert: alert, Channel: channel})
-	}
-	if len(pending) > 0 {
-		e.logger.Info("alert deliveries requeued", "count", len(pending))
-	}
-	return nil
-}
-
 // Sweep fait ce que le temps seul change : les alertes d'un objet disparu
 // se résolvent ; celles d'un service redevenu bon aussi, passé leur délai
 // de calme : RestartWindow après un redémarrage, ServiceClearDelay pour un
@@ -695,16 +352,6 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceUnhealthy, ClearBefore: now.Add(-ServiceClearDelay)})
 	e.flushSummaries(ctx)
 	e.forgetIdleShares(now)
-}
-
-// forgetIdleShares oublie les parts vides : une machine retirée ne laisse
-// rien en mémoire, et une machine calme repart d'une fenêtre neuve.
-func (e *Engine) forgetIdleShares(now time.Time) {
-	for key, share := range e.shares {
-		if share.count(now) == 0 {
-			delete(e.shares, key)
-		}
-	}
 }
 
 func (e *Engine) Purge(ctx context.Context) error {

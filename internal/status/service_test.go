@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
@@ -60,7 +61,7 @@ func newFixture(t *testing.T) *fixture {
 	f.services.SetUnits(f.directory)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
-	f.status = status.New(db, f.machines, db, logger)
+	f.status = status.New(db, f.machines, settings.New(db, logger), logger)
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)

@@ -25,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
+	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -86,29 +87,30 @@ func runMCP(args []string) error {
 	// Ce processus ne fait que lire : l'écart voit les conteneurs que serve
 	// a rattachés, il n'écrit et ne rattache rien.
 	declared.SetObserved(containers, updates)
-	statusPage := status.New(db, machines, db, logger)
+	preferences := settings.New(db, logger)
+	statusPage := status.New(db, machines, preferences, logger)
 	catalogs, err := lang.Load()
 	if err != nil {
 		return fmt.Errorf("load languages: %w", err)
 	}
 	alerts := alert.New(db, logger)
-	notifier := alert.NewNotifier(db, catalogs, languageOf(db), logger)
+	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
 	notifier.SetPublicURL(cfg.PublicURL)
-	notifier.SetMail(mailRelayOf(db), mail.NewSender(alert.MailTimeout))
+	notifier.SetMail(preferences.CurrentMailRelay, mail.NewSender(alert.MailTimeout))
 	access, err := auth.New(db, logger)
 	if err != nil {
 		return err
 	}
 	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
 	// processus ne lit jamais la source lui-même.
-	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), lifecycleEnabledOf(db, logger), logger)
+	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), preferences.CurrentLifecycleEnabled, logger)
 	if err := support.Load(); err != nil {
 		logger.Warn("load lifecycle snapshot", "error", err)
 	}
 	srv, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
-		Settings:       db,
+		Settings:       preferences,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
 		Resources:      resources,

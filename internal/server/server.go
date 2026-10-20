@@ -23,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -33,10 +34,17 @@ import (
 	"github.com/ldesfontaine/opencloud/web"
 )
 
-// Ce que le serveur attend de la base, qui mémorise les réglages.
-type SettingsStore interface {
-	LoadSettings(ctx context.Context) (settings.Settings, error)
-	UpdateSettings(ctx context.Context, change func(*settings.Settings)) (settings.Settings, error)
+// Ce que le serveur attend du composant des réglages.
+type SettingsService interface {
+	Language(ctx context.Context) (lang.Code, error)
+	SetLanguage(ctx context.Context, code lang.Code) error
+	MailRelay(ctx context.Context) (mail.Relay, error)
+	SetMailRelay(ctx context.Context, change settings.MailRelayChange) (mail.Relay, error)
+	DiskThresholds(ctx context.Context) (alert.DiskThresholds, error)
+	SetDiskThresholds(ctx context.Context, thresholds alert.DiskThresholds) error
+	LifecycleEnabled(ctx context.Context) (bool, error)
+	// SetLifecycleEnabled dit si la fin de support vient d'être rallumée.
+	SetLifecycleEnabled(ctx context.Context, enabled bool) (isTurnedOn bool, err error)
 }
 
 // Ce que le serveur attend du composant machine : l'API d'un côté,
@@ -249,7 +257,7 @@ type Server struct {
 	logger       *slog.Logger
 	version      string
 	catalogs     lang.Catalogs
-	settings     SettingsStore
+	settings     SettingsService
 	machines     MachineService
 	heartbeats   HeartbeatService
 	resources    ResourceService
@@ -304,7 +312,7 @@ type Server struct {
 type Options struct {
 	Logger     *slog.Logger
 	Version    string
-	Settings   SettingsStore
+	Settings   SettingsService
 	Machines   MachineService
 	Heartbeats HeartbeatService
 	Resources  ResourceService
@@ -420,28 +428,10 @@ func (s *Server) now() time.Time {
 	return time.Now()
 }
 
-// language rend la langue de l'interface : celle du réglage, sinon le
-// français. Les réglages se relisent dans la base à chaque usage, jamais
-// d'une copie : un autre processus, ou la reprise de settings.toml, a pu
-// les changer.
+// language rend la langue de l'interface, relue dans la base à chaque
+// usage : voir settings.Service.
 func (s *Server) language(ctx context.Context) (lang.Code, error) {
-	current, err := s.settings.LoadSettings(ctx)
-	if err != nil {
-		return "", err
-	}
-	if current.Language == "" {
-		return lang.Default, nil
-	}
-	return current.Language, nil
-}
-
-// saveLanguage ne touche que la langue : la page de statut tient ses
-// propres clés sur la même ligne, et UpdateSettings les préserve.
-func (s *Server) saveLanguage(ctx context.Context, code lang.Code) error {
-	_, err := s.settings.UpdateSettings(ctx, func(current *settings.Settings) {
-		current.Language = code
-	})
-	return err
+	return s.settings.Language(ctx)
 }
 
 // Command fait du serveur le commandeur des agents : c'est lui qui tient
