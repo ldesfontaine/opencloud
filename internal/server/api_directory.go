@@ -216,8 +216,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
 	found, err := s.directory.ListServices(r.Context(), filter)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := declaredServicesResponse{Services: convertAll(found, declaredServiceToJSON)}
@@ -226,17 +225,11 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.GetService(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	links, err := s.directory.ServiceLinks(r.Context(), found.ID)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceDetailJSON{declaredServiceJSON: declaredServiceToJSON(found), Links: linksToJSON(links)})
@@ -250,11 +243,7 @@ func (s *Server) createDeclaredService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateService(r.Context(), declaredServiceDefinition(request))
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, declaredServiceToJSON(created))
@@ -268,15 +257,7 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.directory.UpdateService(r.Context(), r.PathValue("id"), declaredServiceDefinition(request))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(updated))
@@ -299,15 +280,7 @@ func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
 // celui de la première règle violée.
 func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
 	reviewed, err := s.directory.Review(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(reviewed))
@@ -321,15 +294,11 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.directory.SetUnitUpdatePolicy(r.Context(), r.PathValue("id"), container.UpdatePolicy(request.Policy))
-	if s.refused(w, err) {
-		return
-	}
 	if errors.Is(err, directory.ErrUnitNotFound) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.unit_not_found")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -337,8 +306,7 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.ListProjects(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := projectsResponse{Projects: convertAll(found, projectToJSON)}
@@ -347,12 +315,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 	found, err := s.directory.GetProject(r.Context(), r.PathValue("id"))
-	if errors.Is(err, directory.ErrProjectNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, projectToJSON(found))
@@ -364,11 +327,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.directory.CreateProject(r.Context(), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, projectToJSON(created))
@@ -380,15 +339,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.directory.UpdateProject(r.Context(), r.PathValue("id"), directory.ProjectDefinition{Name: request.Name, Title: request.Title})
-	if errors.Is(err, directory.ErrProjectNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, projectToJSON(updated))

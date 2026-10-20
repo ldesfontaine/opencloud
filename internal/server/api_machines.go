@@ -95,18 +95,15 @@ func timeOrNil(at time.Time) *time.Time {
 
 func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	statuses, err := s.machines.List(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	pending, err := s.machines.PendingTokens(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	withLifecycle, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := machinesResponse{
@@ -127,17 +124,11 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
 	withLifecycle, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, withLifecycle))
@@ -154,8 +145,7 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "machine.name_invalid")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeToken(w, r, token, cleartext)
@@ -164,8 +154,7 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string) {
 	url, isLocal := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
@@ -218,14 +207,12 @@ func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
 // Ré-enrôler : un nouveau jeton pour la même machine, qui garde son id.
 func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"))
-	switch {
-	case errors.Is(err, machine.ErrLocalMachine):
+	if errors.Is(err, machine.ErrLocalMachine) {
 		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-	case errors.Is(err, machine.ErrNotFound):
-		s.apiNotFound(w)
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeToken(w, r, token, cleartext)
+		return
 	}
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	s.writeToken(w, r, token, cleartext)
 }

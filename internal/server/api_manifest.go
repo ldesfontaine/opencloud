@@ -45,8 +45,7 @@ func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, manifest.KeyExportTooLarge)
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
@@ -295,13 +294,11 @@ func (s *Server) planManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan, err := s.manifest.Plan(r.Context(), request.toRequest())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response, err := s.planToJSON(r.Context(), plan)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -332,8 +329,7 @@ func (s *Server) applyManifest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) refuseWithPlan(w http.ResponseWriter, r *http.Request, status int, key string, plan manifest.Plan) {
 	response, err := s.planToJSON(r.Context(), plan)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, status, manifestRefusalJSON{Error: key, Plan: response})
@@ -357,8 +353,7 @@ func (s *Server) listApplies(w http.ResponseWriter, r *http.Request) {
 		limit = parsed
 	}
 	found, err := s.manifest.Applies(r.Context(), limit)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := appliesResponse{Applies: convertAll(found, func(item manifest.Apply) applyJSON { return applyToJSON(item, false) })}
@@ -367,12 +362,7 @@ func (s *Server) listApplies(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getApply(w http.ResponseWriter, r *http.Request) {
 	found, err := s.manifest.GetApply(r.Context(), r.PathValue("id"))
-	if errors.Is(err, manifest.ErrApplyNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, manifest.ErrApplyNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, applyToJSON(found, true))

@@ -149,8 +149,7 @@ func (s *Server) statusPublicURL(r *http.Request) string {
 
 func (s *Server) listComponents(w http.ResponseWriter, r *http.Request) {
 	components, err := s.status.Components(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := componentsResponse{PublicURL: s.statusPublicURL(r), Components: make([]componentJSON, 0, len(components))}
@@ -167,12 +166,7 @@ func (s *Server) listComponents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getComponent(w http.ResponseWriter, r *http.Request) {
 	component, err := s.status.GetComponent(r.Context(), r.PathValue("id"))
-	if errors.Is(err, status.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, componentToJSON(component))
@@ -192,11 +186,7 @@ func (s *Server) createComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.status.CreateComponent(r.Context(), componentDefinitionOf(request))
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, componentToJSON(created))
@@ -208,15 +198,7 @@ func (s *Server) updateComponent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.status.UpdateComponent(r.Context(), r.PathValue("id"), componentDefinitionOf(request))
-	if errors.Is(err, status.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, componentToJSON(updated))
@@ -228,8 +210,7 @@ func (s *Server) deleteComponent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 	incidents, err := s.status.Incidents(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := incidentsResponse{Incidents: convertAll(incidents, incidentToJSON)}
@@ -238,12 +219,7 @@ func (s *Server) listIncidents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getIncident(w http.ResponseWriter, r *http.Request) {
 	incident, err := s.status.GetIncident(r.Context(), r.PathValue("id"))
-	if errors.Is(err, status.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, incidentToJSON(incident))
@@ -263,11 +239,7 @@ func (s *Server) openIncident(w http.ResponseWriter, r *http.Request) {
 		StartsAt:     timeOrZero(request.StartsAt),
 		EndsAt:       timeOrZero(request.EndsAt),
 	})
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, incidentToJSON(opened))
@@ -279,19 +251,11 @@ func (s *Server) addIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := s.status.AddUpdate(r.Context(), r.PathValue("id"), status.IncidentStatus(request.Status), request.Message)
-	if errors.Is(err, status.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
 	if errors.Is(err, status.ErrResolved) {
 		s.apiRefuse(w, http.StatusConflict, "incident.already_resolved")
 		return
 	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, incidentToJSON(updated))
@@ -306,15 +270,7 @@ func (s *Server) changeIncident(w http.ResponseWriter, r *http.Request) {
 		Title: request.Title, ComponentIDs: request.ComponentIDs,
 		StartsAt: timeOrZero(request.StartsAt), EndsAt: timeOrZero(request.EndsAt),
 	})
-	if errors.Is(err, status.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, status.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, incidentToJSON(changed))
@@ -326,8 +282,7 @@ func (s *Server) deleteIncident(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getStatusPage(w http.ResponseWriter, r *http.Request) {
 	page, err := s.status.Page(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, pageJSON{Title: page.Title, Announcement: page.Announcement, Language: string(page.Language), PublicURL: s.statusPublicURL(r)})
@@ -339,11 +294,7 @@ func (s *Server) setStatusPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saved, err := s.status.SetPage(r.Context(), status.Page{Title: request.Title, Announcement: request.Announcement, Language: lang.Code(request.Language)})
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, pageJSON{Title: saved.Title, Announcement: saved.Announcement, Language: string(saved.Language), PublicURL: s.statusPublicURL(r)})

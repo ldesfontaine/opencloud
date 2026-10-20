@@ -52,8 +52,7 @@ func currentToJSON(current resource.Current) currentJSON {
 // celles qui manquent.
 func (s *Server) listResources(w http.ResponseWriter, r *http.Request) {
 	currents, err := s.resources.CurrentAll(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := resourcesResponse{Machines: convertAll(currents, currentToJSON)}
@@ -66,8 +65,7 @@ func (s *Server) getMachineResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current, err := s.resources.Current(r.Context(), id)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, currentToJSON(current))
@@ -87,8 +85,7 @@ func (s *Server) getMachineHistory(w http.ResponseWriter, r *http.Request) {
 		s.writeAPIError(w, http.StatusBadRequest, codeWindowUnknown)
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, historyResponse{
@@ -104,13 +101,5 @@ func (s *Server) getMachineHistory(w http.ResponseWriter, r *http.Request) {
 // s'arrêter là.
 func (s *Server) machineExists(w http.ResponseWriter, r *http.Request, id string) bool {
 	_, err := s.machines.Get(r.Context(), id)
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiNotFound(w)
-		return false
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
-		return false
-	}
-	return true
+	return !s.failed(w, r, err, machine.ErrNotFound)
 }

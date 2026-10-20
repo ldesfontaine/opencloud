@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -47,17 +46,11 @@ type overviewNetworkResponse struct {
 
 func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 	found, err := s.machines.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
 	response, err := s.networkOf(r.Context(), found)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -65,15 +58,13 @@ func (s *Server) getMachineNetwork(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request) {
 	statuses, err := s.machines.List(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := overviewNetworkResponse{Machines: make([]networkResponse, 0, len(statuses))}
 	for _, machineStatus := range statuses {
 		network, err := s.networkOf(r.Context(), machineStatus)
-		if err != nil {
-			s.apiInternalError(w, r, err)
+		if s.failed(w, r, err, nil) {
 			return
 		}
 		response.Machines = append(response.Machines, network)

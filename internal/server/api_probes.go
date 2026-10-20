@@ -211,12 +211,7 @@ func (s *Server) listProbes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listMachineProbes(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.machines.Get(r.Context(), r.PathValue("id")); err != nil {
-		if errors.Is(err, machine.ErrNotFound) {
-			s.apiNotFound(w)
-			return
-		}
-		s.apiInternalError(w, r, err)
+	if !s.machineExists(w, r, r.PathValue("id")) {
 		return
 	}
 	s.writeProbeList(w, r, r.PathValue("id"))
@@ -225,20 +220,28 @@ func (s *Server) listMachineProbes(w http.ResponseWriter, r *http.Request) {
 // La liste porte les jours de chaque sonde : la barre d'uptime de la page
 // ne demande pas une lecture par ligne.
 func (s *Server) writeProbeList(w http.ResponseWriter, r *http.Request, machineID string) {
-	probes, err := s.probes.List(r.Context(), machineID)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	response, err := s.probeListOf(r.Context(), machineID)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	online, err := s.onlineMachines(r.Context())
+	s.writeAPI(w, http.StatusOK, response)
+}
+
+// probeListOf assemble les sondes d'une machine, ou de toutes quand
+// machineID est vide, avec leurs jours ; l'API et l'outil MCP la rendent
+// telle quelle, l'outil la pagine et masque les cibles après.
+func (s *Server) probeListOf(ctx context.Context, machineID string) (probesResponse, error) {
+	probes, err := s.probes.List(ctx, machineID)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return probesResponse{}, err
 	}
-	days, err := s.probes.Days(r.Context(), "", probeListDays)
+	online, err := s.onlineMachines(ctx)
 	if err != nil {
-		s.apiInternalError(w, r, err)
-		return
+		return probesResponse{}, err
+	}
+	days, err := s.probes.Days(ctx, "", probeListDays)
+	if err != nil {
+		return probesResponse{}, err
 	}
 	response := probesResponse{Probes: make([]probeJSON, 0, len(probes)), Days: map[string][]dayJSON{}}
 	carried := make(map[string]bool, len(probes))
@@ -251,24 +254,18 @@ func (s *Server) writeProbeList(w http.ResponseWriter, r *http.Request, machineI
 			response.Days[day.ProbeID] = append(response.Days[day.ProbeID], dayToJSON(day))
 		}
 	}
-	s.writeAPI(w, http.StatusOK, response)
+	return response, nil
 }
 
 // La page d'une sonde : ses faits, son uptime par fenêtre, ses jours et
 // ses derniers essais.
 func (s *Server) getProbe(w http.ResponseWriter, r *http.Request) {
 	found, err := s.probes.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, probe.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, probe.ErrNotFound) {
 		return
 	}
 	response, err := s.probeResponseOf(r.Context(), found)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -315,16 +312,11 @@ func (s *Server) createProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.probes.Create(r.Context(), probeDefinition(request))
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	online, err := s.onlineMachines(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, probeToJSON(created, online[created.MachineID]))
@@ -340,32 +332,18 @@ func (s *Server) updateProbe(w http.ResponseWriter, r *http.Request) {
 	}
 	// L'objet d'abord : une sonde inconnue est un 404, quoi que dise le corps.
 	_, err := s.probes.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, probe.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, probe.ErrNotFound) {
 		return
 	}
 	if s.refuseUnknownProbeMachine(w, r, request.MachineID) {
 		return
 	}
 	updated, err := s.probes.Update(r.Context(), r.PathValue("id"), probeDefinition(request))
-	if errors.Is(err, probe.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, probe.ErrNotFound) {
 		return
 	}
 	online, err := s.onlineMachines(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, probeToJSON(updated, online[updated.MachineID]))
@@ -379,11 +357,7 @@ func (s *Server) refuseUnknownProbeMachine(w http.ResponseWriter, r *http.Reques
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "probe.machine_invalid")
 		return true
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
-		return true
-	}
-	return false
+	return s.failed(w, r, err, nil)
 }
 
 func probeDefinition(request probeRequest) probe.Definition {

@@ -128,8 +128,7 @@ func pingToJSON(ping heartbeat.Ping) pingJSON {
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	heartbeats, err := s.heartbeats.List(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := jobsResponse{Jobs: convertAll(heartbeats, jobToJSON)}
@@ -147,11 +146,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := s.heartbeats.Create(r.Context(), jobDefinition(request))
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, jobToJSON(created))
@@ -166,27 +161,14 @@ func (s *Server) updateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	// L'objet d'abord : une tâche inconnue est un 404, quoi que dise le corps.
 	_, err := s.heartbeats.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, heartbeat.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, heartbeat.ErrNotFound) {
 		return
 	}
 	if s.refuseUnknownJobMachine(w, r, request.MachineID) {
 		return
 	}
 	updated, err := s.heartbeats.Update(r.Context(), r.PathValue("id"), jobDefinition(request))
-	if errors.Is(err, heartbeat.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, heartbeat.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, jobToJSON(updated))
@@ -203,11 +185,7 @@ func (s *Server) refuseUnknownJobMachine(w http.ResponseWriter, r *http.Request,
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "job.machine_invalid")
 		return true
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
-		return true
-	}
-	return false
+	return s.failed(w, r, err, nil)
 }
 
 func jobDefinition(request jobRequest) heartbeat.Definition {
@@ -223,22 +201,15 @@ func jobDefinition(request jobRequest) heartbeat.Definition {
 // puis les dernières exécutions et les derniers pings.
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	found, err := s.heartbeats.Get(r.Context(), r.PathValue("id"))
-	if errors.Is(err, heartbeat.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, heartbeat.ErrNotFound) {
 		return
 	}
 	runs, err := s.heartbeats.Runs(r.Context(), found.ID, jobRunsShown)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	pings, err := s.heartbeats.Pings(r.Context(), found.ID, jobPingsShown)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	publicURL, isLocal := s.resolvePublicURL(r)

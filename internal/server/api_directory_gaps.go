@@ -160,8 +160,7 @@ func (s *Server) gapsResponseOf(ctx context.Context, report directory.GapReport)
 func (s *Server) getDirectoryGaps(w http.ResponseWriter, r *http.Request) {
 	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
 	response, err := s.gapsOf(r.Context(), filter)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)
@@ -214,11 +213,7 @@ func (s *Server) ignoreKey(w http.ResponseWriter, r *http.Request) {
 	}
 	key := directory.IgnoredKey{MachineID: request.MachineID, Kind: directory.IgnoreKind(request.Kind), Value: request.Value}
 	err := s.directory.Ignore(r.Context(), key)
-	if s.refused(w, err) {
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -232,8 +227,7 @@ func (s *Server) unignoreKey(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.ignore_not_found")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

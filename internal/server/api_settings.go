@@ -40,8 +40,7 @@ func diskThresholdsOf(current settings.Settings) alert.DiskThresholds {
 
 func (s *Server) getDiskSettings(w http.ResponseWriter, r *http.Request) {
 	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(diskThresholdsOf(current)))
@@ -58,8 +57,7 @@ func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "settings.disk_invalid")
 		return
 	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, diskSettingsToJSON(thresholds))

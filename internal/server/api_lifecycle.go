@@ -92,8 +92,7 @@ func (s *Server) lifecycleSettings(enabled bool) lifecycleSettingsJSON {
 
 func (s *Server) getLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 	enabled, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, s.lifecycleSettings(enabled))
@@ -105,12 +104,11 @@ func (s *Server) setLifecycleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wasEnabled, err := s.lifecycleEnabled(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
-	if err := s.saveLifecycleEnabled(r.Context(), request.Enabled); err != nil {
-		s.apiInternalError(w, r, err)
+	err = s.saveLifecycleEnabled(r.Context(), request.Enabled)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	// Vient d'être rallumé : une lecture part tout de suite, sans attendre

@@ -93,8 +93,7 @@ type containerCounts struct {
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	current, err := s.settings.LoadSettings(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	language := current.Language
@@ -123,8 +122,8 @@ func (s *Server) setLanguage(w http.ResponseWriter, r *http.Request) {
 		s.apiRefuse(w, http.StatusBadRequest, "error.unknown_language")
 		return
 	}
-	if err := s.saveLanguage(r.Context(), code); err != nil {
-		s.apiInternalError(w, r, err)
+	err := s.saveLanguage(r.Context(), code)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -148,8 +147,7 @@ func (s *Server) catalogAPI(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	response, err := s.countsOf(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, response)

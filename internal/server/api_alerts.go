@@ -181,13 +181,11 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 		status = alert.StatusResolved
 	}
 	alerts, err := s.alerts.List(r.Context(), status)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	counts, err := s.alerts.Count(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := alertsResponse{Alerts: convertAll(alerts, alertToJSON), Counts: alertCountsJSON{Open: counts.Open, Unacknowledged: counts.Unacknowledged}}
@@ -201,17 +199,11 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found, err := s.alerts.Get(r.Context(), id)
-	if errors.Is(err, alert.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	deliveries, err := s.alerts.Deliveries(r.Context(), id)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, alertResponseOf(found, deliveries))
@@ -237,16 +229,14 @@ func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found, err := s.alerts.Acknowledge(r.Context(), id)
-	switch {
-	case errors.Is(err, alert.ErrNotFound):
-		s.apiNotFound(w)
-	case errors.Is(err, alert.ErrAlreadyClosed):
+	if errors.Is(err, alert.ErrAlreadyClosed) {
 		s.apiRefuse(w, http.StatusConflict, "alert.already_resolved")
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeAPI(w, http.StatusOK, alertToJSON(found))
+		return
 	}
+	if s.failed(w, r, err, alert.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, alertToJSON(found))
 }
 
 type acknowledgeAlertsRequest struct {
@@ -265,24 +255,25 @@ func (s *Server) acknowledgeAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acknowledged, err := s.alerts.AcknowledgeMany(r.Context(), request.IDs)
-	switch {
-	case errors.Is(err, alert.ErrSelectionEmpty):
+	if errors.Is(err, alert.ErrSelectionEmpty) {
 		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_empty")
-	case errors.Is(err, alert.ErrSelectionTooLarge):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_too_large")
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeAPI(w, http.StatusOK, acknowledgeAlertsResponse{Acknowledged: acknowledged})
+		return
 	}
+	if errors.Is(err, alert.ErrSelectionTooLarge) {
+		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_too_large")
+		return
+	}
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, acknowledgeAlertsResponse{Acknowledged: acknowledged})
 }
 
 // --- Canaux ---
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := s.alerts.Channels(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	response := channelsResponse{Channels: convertAll(channels, channelToJSON)}
@@ -296,12 +287,7 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channel, err := s.alerts.GetChannel(r.Context(), id)
-	if errors.Is(err, alert.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, channelToJSON(channel))
@@ -320,7 +306,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channel, err := s.alerts.CreateChannel(r.Context(), channelDefinition(request))
-	if s.refuseAlert(w, r, err) {
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, channelToJSON(channel))
@@ -337,7 +323,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channel, err := s.alerts.UpdateChannel(r.Context(), id, channelDefinition(request))
-	if s.refuseAlert(w, r, err) {
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, channelToJSON(channel))
@@ -361,17 +347,11 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channel, err := s.alerts.GetChannel(r.Context(), id)
-	if errors.Is(err, alert.ErrNotFound) {
-		s.apiNotFound(w)
-		return
-	}
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	outcome, err := s.notifier.Test(r.Context(), channel)
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusOK, channelTestResponse{OK: outcome.OK(), Reason: string(outcome.Reason), Code: outcome.Code})
@@ -381,8 +361,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listSilences(w http.ResponseWriter, r *http.Request) {
 	silences, err := s.alerts.Silences(r.Context())
-	if err != nil {
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	now := s.now()
@@ -401,7 +380,7 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 		Reason:   request.Reason,
 		Duration: time.Duration(request.DurationMinutes) * time.Minute,
 	})
-	if s.refuseAlert(w, r, err) {
+	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, silenceToJSON(silence, s.now()))
@@ -414,21 +393,4 @@ func (s *Server) deleteSilence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.finishAPIAction(w, r, s.alerts.DeleteSilence(r.Context(), id), alert.ErrNotFound)
-}
-
-// refuseAlert répond au refus d'un canal ou d'un silence par la clé du
-// catalogue ; vrai quand la requête est finie.
-func (s *Server) refuseAlert(w http.ResponseWriter, r *http.Request, err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, alert.ErrNotFound) {
-		s.apiNotFound(w)
-		return true
-	}
-	if s.refused(w, err) {
-		return true
-	}
-	s.apiInternalError(w, r, err)
-	return true
 }
