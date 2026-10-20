@@ -56,7 +56,7 @@ func (db *DB) SetHeartbeatToken(ctx context.Context, id, token string) error {
 	if err != nil {
 		return err
 	}
-	return heartbeatNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
 }
 
 func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
@@ -64,7 +64,7 @@ func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete heartbeat: %w", err)
 	}
-	return heartbeatNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
 }
 
 // CountHeartbeats rend le nombre de moniteurs et ceux à traiter, en retard
@@ -184,7 +184,7 @@ func updateHeartbeatState(ctx context.Context, tx *sql.Tx, h heartbeat.Heartbeat
 	if err != nil {
 		return fmt.Errorf("update heartbeat state: %w", err)
 	}
-	return heartbeatNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
 }
 
 // ListPings rend les derniers pings, le plus récent d'abord.
@@ -195,22 +195,21 @@ func (db *DB) ListPings(ctx context.Context, heartbeatID string, limit int) ([]h
 	if err != nil {
 		return nil, fmt.Errorf("list pings: %w", err)
 	}
-	defer rows.Close()
-	var pings []heartbeat.Ping
-	for rows.Next() {
-		var p heartbeat.Ping
-		var kind string
-		var exitCode sql.NullInt64
-		var receivedAt int64
-		if err := rows.Scan(&p.ID, &p.HeartbeatID, &kind, &exitCode, &p.Source, &p.Method, &p.Payload, &receivedAt); err != nil {
-			return nil, err
-		}
-		p.Kind = heartbeat.Kind(kind)
-		p.ExitCode = intPointer(exitCode)
-		p.ReceivedAt = time.Unix(receivedAt, 0)
-		pings = append(pings, p)
+	return collect(rows, scanPing)
+}
+
+func scanPing(row scanner) (heartbeat.Ping, error) {
+	var ping heartbeat.Ping
+	var kind string
+	var exitCode sql.NullInt64
+	var receivedAt int64
+	if err := row.Scan(&ping.ID, &ping.HeartbeatID, &kind, &exitCode, &ping.Source, &ping.Method, &ping.Payload, &receivedAt); err != nil {
+		return heartbeat.Ping{}, err
 	}
-	return pings, rows.Err()
+	ping.Kind = heartbeat.Kind(kind)
+	ping.ExitCode = intPointer(exitCode)
+	ping.ReceivedAt = time.Unix(receivedAt, 0)
+	return ping, nil
 }
 
 // ListRuns rend les dernières exécutions, la plus récente d'abord.
@@ -221,44 +220,37 @@ func (db *DB) ListRuns(ctx context.Context, heartbeatID string, limit int) ([]he
 	if err != nil {
 		return nil, fmt.Errorf("list runs: %w", err)
 	}
-	defer rows.Close()
-	var runs []heartbeat.Run
-	for rows.Next() {
-		var r heartbeat.Run
-		var outcome string
-		var startedAt, completedAt, durationMs, exitCode sql.NullInt64
-		if err := rows.Scan(&r.ID, &r.HeartbeatID, &startedAt, &completedAt, &durationMs, &exitCode, &outcome, &r.Payload); err != nil {
-			return nil, err
-		}
-		r.Outcome = heartbeat.Outcome(outcome)
-		r.StartedAt = timeOf(startedAt)
-		r.CompletedAt = timeOf(completedAt)
-		r.Duration = durationPointer(durationMs)
-		r.ExitCode = intPointer(exitCode)
-		runs = append(runs, r)
+	return collect(rows, scanRun)
+}
+
+func scanRun(row scanner) (heartbeat.Run, error) {
+	var run heartbeat.Run
+	var outcome string
+	var startedAt, completedAt, durationMs, exitCode sql.NullInt64
+	if err := row.Scan(&run.ID, &run.HeartbeatID, &startedAt, &completedAt, &durationMs, &exitCode, &outcome, &run.Payload); err != nil {
+		return heartbeat.Run{}, err
 	}
-	return runs, rows.Err()
+	run.Outcome = heartbeat.Outcome(outcome)
+	run.StartedAt = timeOf(startedAt)
+	run.CompletedAt = timeOf(completedAt)
+	run.Duration = durationPointer(durationMs)
+	run.ExitCode = intPointer(exitCode)
+	return run, nil
 }
 
 // PurgeHistory efface le brut et les exécutions trop anciens ; une
 // exécution ouverte se juge à son début.
 func (db *DB) PurgeHistory(ctx context.Context, pingsBefore, runsBefore time.Time) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin purge: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM heartbeat_pings WHERE received_at < ?`, pingsBefore.Unix()); err != nil {
-		return fmt.Errorf("purge pings: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM heartbeat_runs WHERE COALESCE(completed_at, started_at) < ?`, runsBefore.Unix()); err != nil {
-		return fmt.Errorf("purge runs: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit purge: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "purge", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM heartbeat_pings WHERE received_at < ?`, pingsBefore.Unix()); err != nil {
+			return fmt.Errorf("purge pings: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM heartbeat_runs WHERE COALESCE(completed_at, started_at) < ?`, runsBefore.Unix()); err != nil {
+			return fmt.Errorf("purge runs: %w", err)
+		}
+		return nil
+	})
 }
 
 func (db *DB) queryHeartbeats(ctx context.Context, query string, args ...any) ([]heartbeat.Heartbeat, error) {
@@ -266,16 +258,7 @@ func (db *DB) queryHeartbeats(ctx context.Context, query string, args ...any) ([
 	if err != nil {
 		return nil, fmt.Errorf("list heartbeats: %w", err)
 	}
-	defer rows.Close()
-	var heartbeats []heartbeat.Heartbeat
-	for rows.Next() {
-		h, err := db.scanHeartbeat(rows)
-		if err != nil {
-			return nil, err
-		}
-		heartbeats = append(heartbeats, h)
-	}
-	return heartbeats, rows.Err()
+	return collect(rows, db.scanHeartbeat)
 }
 
 func (db *DB) scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
@@ -308,17 +291,6 @@ func (db *DB) scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
 	h.LastDuration = durationPointer(lastDurationMs)
 	h.CreatedAt = time.Unix(createdAt, 0)
 	return h, nil
-}
-
-func heartbeatNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return heartbeat.ErrNotFound
-	}
-	return nil
 }
 
 // CountHeartbeatHistory compte ce qu'emporte la suppression d'une tâche : ses
