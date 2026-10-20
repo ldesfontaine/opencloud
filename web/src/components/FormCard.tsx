@@ -41,36 +41,40 @@ export function FormCard({
   );
 }
 
-// Valider, annuler quand la page le propose (un lien avec cancelTo, un
-// rappel avec onCancel), et supprimer. Valider attend que la saisie le
-// permette (canSubmit) et la fin de l'écriture en cours ; supprimer attend
-// la fin de l'écriture en cours.
+// Valider, ce que la page ajoute juste après (un essai, « Enregistré »),
+// annuler quand la page le propose (un lien avec cancelTo, un rappel avec
+// onCancel), et supprimer. Valider attend que la saisie le permette
+// (canSubmit : un formulaire d'édition passe form.isFilled) et la fin de
+// l'écriture en cours ; supprimer attend la fin de l'écriture en cours.
 export function FormActions({
   submitLabel,
   submitIcon,
   busy,
-  canSubmit,
+  canSubmit = true,
   cancelLabel,
   cancelTo,
   onCancel,
   deleteLabel,
   onDelete,
+  children,
 }: {
   submitLabel: string;
   submitIcon: IconName;
   busy: boolean;
-  canSubmit: boolean;
+  canSubmit?: boolean;
   cancelLabel?: string;
   cancelTo?: string;
   onCancel?: () => void;
   deleteLabel?: string;
   onDelete?: (() => void) | undefined;
+  children?: ReactNode;
 }) {
   return (
     <div className="cluster">
       <Button type="submit" variant="primary" icon={submitIcon} disabled={busy || !canSubmit}>
         {submitLabel}
       </Button>
+      {children}
       {cancelTo !== undefined && (
         <Button variant="ghost" to={cancelTo}>
           {cancelLabel}

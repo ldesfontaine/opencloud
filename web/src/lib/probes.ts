@@ -1,4 +1,7 @@
+import type { Container } from "../api/containers";
+import type { DeclaredService } from "../api/directory";
 import type { Probe, ProbeDay, ProbeKind, ProbeRequest, ProbeStatus } from "../api/probes";
+import { isPublicIP } from "./containers";
 import type { SegmentTone, Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
@@ -76,6 +79,9 @@ export function probesSubtitle(t: Translate, total: number, attention: number): 
   return t("probes.subtitle_attention", total, attention);
 }
 
+// Les natures d'une sonde, dans l'ordre du formulaire.
+export const probeKinds: readonly ProbeKind[] = ["http", "tcp"];
+
 // Le formulaire d'une sonde, champ par champ, tel que l'opérateur le tape :
 // des textes, que probeRequestOf convertit pour le serveur.
 export interface ProbeFormValues {
@@ -83,6 +89,8 @@ export interface ProbeFormValues {
   kind: ProbeKind;
   target: string;
   machineID: string;
+  // Le service déclaré que la sonde vise ; vide : aucun.
+  serviceID: string;
   interval: string;
   timeout: string;
   failure: string;
@@ -103,6 +111,7 @@ export const emptyProbeForm: ProbeFormValues = {
   kind: "http",
   target: "",
   machineID: "",
+  serviceID: "",
   interval: "60",
   timeout: "10",
   failure: "3",
@@ -124,6 +133,7 @@ export function probeFormOf(probe: Probe): ProbeFormValues {
     kind: probe.kind,
     target: probe.target,
     machineID: probe.machine_id,
+    serviceID: probe.service_id,
     interval: String(probe.interval_seconds),
     timeout: String(probe.timeout_seconds),
     failure: String(probe.failure_threshold),
@@ -139,14 +149,14 @@ export function probeFormOf(probe: Probe): ProbeFormValues {
 // Le corps de la création comme de l'édition : le serveur remplace la
 // définition entière. Une sonde TCP envoie les champs HTTP vides, que le
 // serveur ne retient pas.
-export function probeRequestOf(values: ProbeFormValues, serviceID: string): ProbeRequest {
+export function probeRequestOf(values: ProbeFormValues): ProbeRequest {
   const isHTTP = values.kind === "http";
   return {
     name: values.name,
     kind: values.kind,
     target: values.target,
     machine_id: values.machineID,
-    service_id: serviceID,
+    service_id: values.serviceID,
     interval_seconds: Number(values.interval),
     timeout_seconds: Number(values.timeout),
     failure_threshold: Number(values.failure),
@@ -157,4 +167,25 @@ export function probeRequestOf(values: ProbeFormValues, serviceID: string): Prob
     follow_redirects: isHTTP && values.redirects === "yes",
     tls: values.kind === "tcp" && values.useTLS === "yes",
   };
+}
+
+// Venue d'un service déclaré, la sonde en prend le nom. Venue d'un de ses
+// conteneurs, la machine qui le porte sonde, port publié ou non : c'est la
+// vue depuis l'intérieur, qui marche derrière un NAT comme ailleurs. Avec un
+// port publié, la sonde le vise ; sans port, il n'y a pas de cible à deviner.
+export function probeSuggestionOf(
+  service: Pick<DeclaredService, "name" | "title">,
+  carrier: Pick<Container, "machine_id" | "ports"> | undefined,
+): Partial<ProbeFormValues> {
+  const suggestion: Partial<ProbeFormValues> = { name: service.title !== "" ? service.title : service.name };
+  if (carrier === undefined) {
+    return suggestion;
+  }
+  suggestion.machineID = carrier.machine_id;
+  const port = carrier.ports[0];
+  if (port !== undefined) {
+    const host = isPublicIP(port.ip) ? "127.0.0.1" : port.ip;
+    suggestion.target = `http://${host}:${String(port.host_port)}/`;
+  }
+  return suggestion;
 }

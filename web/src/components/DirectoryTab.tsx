@@ -11,6 +11,7 @@ import { Card, Empty } from "./Card";
 import { DeclaredServiceTable } from "./DeclaredServiceTable";
 import { Failure } from "./Failure";
 import { Select } from "./Field";
+import { MachineSelect } from "./MachineSelect";
 import { UndeclaredList } from "./UndeclaredList";
 import { PageHead } from "./PageHead";
 import { ServicesTabs } from "./ServicesTabs";
@@ -63,14 +64,14 @@ export function DirectoryTab() {
         <Card className="scroll-x">
           <div className="table-bar">
             <span className="cluster">
-              <Select icon="server" aria-label={t("directory.col_machine")} value={machineID} onChange={(event) => setMachineID(event.target.value)}>
-                <option value="">{t("services.all_machines")}</option>
-                {(machines.data?.machines ?? []).map((machine) => (
-                  <option key={machine.id} value={machine.id}>
-                    {machine.name}
-                  </option>
-                ))}
-              </Select>
+              <MachineSelect
+                icon="server"
+                aria-label={t("directory.col_machine")}
+                machines={machines.data?.machines ?? []}
+                value={machineID}
+                onChange={setMachineID}
+                noneLabel={t("services.all_machines")}
+              />
               <Select aria-label={t("directory.col_projects")} value={projectID} onChange={(event) => setProjectID(event.target.value)}>
                 <option value="">{t("directory.all_projects")}</option>
                 {(projects.data?.projects ?? []).map((project) => (

@@ -30,17 +30,19 @@ import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { TokenBox } from "../components/Copy";
 import { Failure } from "../components/Failure";
-import { Field, Input, Select } from "../components/Field";
+import { Field, Input, Select, Textarea } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { Table } from "../components/Table";
 import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useNow } from "../hooks/useNow";
 import { useI18n, useT } from "../i18n/context";
 import { diskSettingsError } from "../lib/disks";
 import { readingText } from "../lib/lifecycle";
 import { isForwardInsecure, passwordFormError } from "../lib/auth";
-import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "../lib/mcp";
+import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectFormOf, redirectRequestOf } from "../lib/mcp";
 import { ago, formatClock } from "../lib/time";
 import { MailSection } from "./SettingsMail";
 import "./StatusAdmin.scss";
@@ -506,44 +508,40 @@ function MCPSection({ state, reload }: { state: MCPState; reload: () => void }) 
 
 function RedirectURIs({ state, reload }: { state: MCPState; reload: () => void }) {
   const t = useT();
-  const [text, setText] = useState(state.redirect_uris.join("\n"));
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
   // Les adresses se lisent une fois, à l'ouverture : une relecture ne doit
   // pas écraser ce que l'opérateur est en train de taper.
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
+  const form = useForm(redirectFormOf(state));
+  const { values, change, update } = form;
+  const action = useAction();
+  const [saved, setSaved] = useState(false);
+  const save = () => {
     setSaved(false);
-    saveRedirectURIs(redirectLines(text))
-      .then((kept) => {
+    const uris = redirectRequestOf(values);
+    action.run(() => saveRedirectURIs(uris), {
+      onDone: (kept) => {
         // La zone reprend les adresses gardées (lignes vides et espaces retirés).
-        setText(kept.redirect_uris.join("\n"));
-        setError(null);
+        update(redirectFormOf(kept));
         setSaved(true);
         reload();
-      })
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+      },
+    });
   };
   return (
-    <Card className="form-card">
-      <CardHeader title={t("mcp.redirect_title")} />
-      <form className="card-b" onSubmit={submit}>
-        <p className="secondary">{t("mcp.redirect_text")}</p>
-        <Field label={t("mcp.redirect_label")} htmlFor="mcp-redirects" help={t("mcp.redirect_help")}>
-          <textarea id="mcp-redirects" className="input textarea mono" value={text} onChange={(event) => setText(event.target.value)} rows={3} />
-        </Field>
-        <Failure error={error} />
-        <div className="cluster">
-          <Button type="submit" variant="primary" icon="check" disabled={busy}>
-            {t("mcp.save")}
-          </Button>
+    <FormCard
+      onSubmit={save}
+      error={action.error}
+      header={<CardHeader title={t("mcp.redirect_title")} />}
+      actions={
+        <FormActions submitLabel={t("mcp.save")} submitIcon="check" busy={action.busy}>
           {saved && <Pill tone="ok">{t("mcp.saved")}</Pill>}
-        </div>
-      </form>
-    </Card>
+        </FormActions>
+      }
+    >
+      <p className="secondary">{t("mcp.redirect_text")}</p>
+      <Field label={t("mcp.redirect_label")} htmlFor="mcp-redirects" help={t("mcp.redirect_help")}>
+        <Textarea id="mcp-redirects" mono value={values.uris} onChange={(event) => change("uris", event.target.value)} rows={3} />
+      </Field>
+    </FormCard>
   );
 }
 

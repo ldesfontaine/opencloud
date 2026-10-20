@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import type { DeclaredService, Project, ProposalResponse } from "../api/directory";
-import { emptyServiceForm, formatUnitPorts, hasLinks, parsePorts, projectFormOf, projectNames, serviceFormOf, serviceFormOfDefinition, serviceRequestOf, toggled, unitKeyOf } from "./directory";
+import {
+  emptyServiceForm,
+  formatUnitPorts,
+  hasLinks,
+  parsePorts,
+  projectFormOf,
+  projectNames,
+  serviceFormOf,
+  serviceFormOfDefinition,
+  serviceFormStart,
+  serviceRequestOf,
+  toggled,
+  unitKeyOf,
+} from "./directory";
 
 function nextcloud(): DeclaredService {
   return {
@@ -178,6 +191,48 @@ describe("serviceFormOfDefinition", () => {
     const form = serviceFormOfDefinition(definition);
     form.projectIDs.push("prj_2");
     expect(definition.project_ids).toEqual(["prj_1"]);
+  });
+});
+
+describe("serviceFormStart", () => {
+  // Ce que le serveur propose pour un conteneur : un service neuf (sans
+  // identifiant) ou l'édition de svc_1, à laquelle s'ajoute une unité.
+  function proposal(serviceID: string): ProposalResponse {
+    return {
+      service_id: serviceID,
+      definition: {
+        machine_id: "m2",
+        name: "nextcloud",
+        title: "",
+        nature: "application",
+        origin: "compose",
+        compose_project: "nextcloud",
+        public_url: "",
+        provides: [],
+        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] }],
+        project_ids: [],
+      },
+    };
+  }
+
+  it("attend le service à modifier, et la proposition tant qu'elle n'est ni arrivée ni refusée", () => {
+    expect(serviceFormStart("svc_1", null, null, false)).toBeNull();
+    expect(serviceFormStart("svc_1", nextcloud(), null, true)).toBeNull();
+  });
+
+  it("part du service gardé sans proposition, ou quand elle en vise un autre", () => {
+    expect(serviceFormStart("svc_1", nextcloud(), null, false)?.machineID).toBe("m1");
+    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_9"), false)?.machineID).toBe("m1");
+  });
+
+  it("part de la proposition quand elle vise le service modifié", () => {
+    expect(serviceFormStart("svc_1", nextcloud(), proposal("svc_1"), false)?.units.map((unit) => unit.name)).toEqual(["redis"]);
+  });
+
+  it("en création, part d'une proposition de service neuf, jamais de celle qui redirige", () => {
+    expect(serviceFormStart(undefined, null, null, true)).toBeNull();
+    expect(serviceFormStart(undefined, null, proposal("svc_1"), false)).toBeNull();
+    expect(serviceFormStart(undefined, null, proposal(""), false)?.machineID).toBe("m2");
   });
 });
 

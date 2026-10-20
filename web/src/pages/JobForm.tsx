@@ -4,8 +4,9 @@ import { saveJob, useJob, type JobResponse } from "../api/jobs";
 import { useMachines } from "../api/machines";
 import { Note } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { Field, Input, Select } from "../components/Field";
+import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
@@ -75,14 +76,13 @@ export function JobForm() {
           />
         </Field>
         <Field label={t("job.machine_label")} htmlFor="job-machine" help={t("job.machine_help")}>
-          <Select id="job-machine" value={values.machineID} onChange={(event) => change("machineID", event.target.value)}>
-            <option value="">{t("job.machine_none")}</option>
-            {(machines.data?.machines ?? []).map((machine) => (
-              <option key={machine.id} value={machine.id}>
-                {machine.name}
-              </option>
-            ))}
-          </Select>
+          <MachineSelect
+            id="job-machine"
+            machines={machines.data?.machines ?? []}
+            value={values.machineID}
+            onChange={(machineID) => change("machineID", machineID)}
+            noneLabel={t("job.machine_none")}
+          />
         </Field>
         <div className="grid-2">
           <Field label={t("job.interval_label")} htmlFor="job-interval" help={t("job.interval_help")}>

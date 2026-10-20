@@ -5,7 +5,7 @@ import { useMachines } from "../api/machines";
 import { Card, CardBody, Empty, EmptyCard, Note } from "../components/Card";
 import { DirectoryTab } from "../components/DirectoryTab";
 import { Failure } from "../components/Failure";
-import { Select } from "../components/Field";
+import { MachineSelect } from "../components/MachineSelect";
 import { PageHead } from "../components/PageHead";
 import { ProjectsTab } from "../components/ProjectsTab";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
@@ -46,14 +46,14 @@ function ContainersTab() {
         title={t("nav.services")}
         subtitle={containers.data ? servicesSubtitle(t, all.length, attention) : ""}
         actions={
-          <Select icon="server" aria-label={t("services.col_machine")} value={machineID} onChange={(event) => setMachineID(event.target.value)}>
-            <option value="">{t("services.all_machines")}</option>
-            {(machines.data?.machines ?? []).map((machine) => (
-              <option key={machine.id} value={machine.id}>
-                {machine.name}
-              </option>
-            ))}
-          </Select>
+          <MachineSelect
+            icon="server"
+            aria-label={t("services.col_machine")}
+            machines={machines.data?.machines ?? []}
+            value={machineID}
+            onChange={setMachineID}
+            noneLabel={t("services.all_machines")}
+          />
         }
       />
       <ServicesTabs />

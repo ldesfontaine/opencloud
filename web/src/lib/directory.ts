@@ -119,6 +119,35 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
   };
 }
 
+// Les valeurs dont part le formulaire d'un service, ou null tant qu'il faut
+// attendre. En édition : le service tel qu'il est gardé, ou la proposition
+// d'adoption quand elle le vise (elle y ajoute les unités qui manquent), une
+// fois la proposition arrivée ou refusée. En création : la proposition, si
+// elle déclare un service neuf ; une proposition qui vise un service déjà
+// déclaré redirige vers son édition, la page s'en charge.
+export function serviceFormStart(
+  editedID: string | undefined,
+  service: DeclaredService | null,
+  proposal: ProposalResponse | null,
+  awaitingProposal: boolean,
+): ServiceFormValues | null {
+  if (editedID !== undefined) {
+    if (service === null || awaitingProposal) {
+      return null;
+    }
+    // Une proposition pour un autre service n'est pas la nôtre : le service
+    // tel qu'il est gardé fait foi.
+    if (proposal !== null && proposal.service_id === editedID) {
+      return serviceFormOfDefinition(proposal.definition);
+    }
+    return serviceFormOf(service);
+  }
+  if (proposal === null || proposal.service_id !== "") {
+    return null;
+  }
+  return serviceFormOfDefinition(proposal.definition);
+}
+
 export function parsePorts(text: string): string[] {
   return text.split(/[\s,]+/).filter((port) => port !== "");
 }

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import type { Alert } from "../api/alerts";
-import { alertsSubtitle, deliveryReason, describeAlert, emptySilenceForm, hasSilenceTarget, objectPath, silenceRequestOf, silenceTargets, stateOf } from "./alerts";
+import type { Alert, Channel } from "../api/alerts";
+import {
+  alertsSubtitle,
+  channelFormOf,
+  channelRequestOf,
+  deliveryReason,
+  describeAlert,
+  emptyChannelForm,
+  emptySilenceForm,
+  hasSilenceTarget,
+  objectPath,
+  silenceRequestOf,
+  silenceTargets,
+  stateOf,
+} from "./alerts";
 
 const t = (key: string, ...args: (string | number)[]) => [key, ...args].join(" ");
 const now = Date.parse("2026-09-22T10:00:00Z");
@@ -144,5 +157,45 @@ describe("hasSilenceTarget", () => {
     expect(hasSilenceTarget(emptySilenceForm)).toBe(false);
     expect(hasSilenceTarget({ kind: "job_late", objectID: "" })).toBe(true);
     expect(hasSilenceTarget({ kind: "", objectID: "m1" })).toBe(true);
+  });
+});
+
+describe("channelFormOf et channelRequestOf", () => {
+  const matrix: Channel = {
+    id: 3,
+    name: "astreinte",
+    url: "https://matrix.exemple.fr",
+    format: "matrix",
+    destination: "!salon:exemple.fr",
+    has_secret: true,
+    min_severity: "danger",
+    notify_resolve: false,
+    enabled: true,
+    plain: false,
+    created_at: "2026-10-01T10:00:00Z",
+  };
+
+  it("renvoient au serveur le canal lu, sans toucher au secret gardé", () => {
+    expect(channelRequestOf(channelFormOf(matrix))).toEqual({
+      name: "astreinte",
+      url: "https://matrix.exemple.fr",
+      format: "matrix",
+      destination: "!salon:exemple.fr",
+      secret: "",
+      clear_secret: false,
+      min_severity: "danger",
+      notify_resolve: false,
+      enabled: true,
+    });
+  });
+
+  it("laissent vide la destination d'un webhook", () => {
+    const webhook: Channel = { ...matrix, format: "json" };
+    delete webhook.destination;
+    expect(channelFormOf(webhook).destination).toBe("");
+  });
+
+  it("partent d'un canal JSON actif, qui prévient du retour à la normale", () => {
+    expect(channelRequestOf(emptyChannelForm)).toMatchObject({ format: "json", min_severity: "attention", notify_resolve: true, enabled: true });
   });
 });

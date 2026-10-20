@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { Incident } from "../api/status";
+import type { Incident, StatusComponent } from "../api/status";
 import {
+  componentFormOf,
+  componentRequestOf,
+  emptyComponentForm,
   emptyIncidentForm,
   formatPercent,
   fromLocalInput,
@@ -14,6 +17,7 @@ import {
   openingStatuses,
   saysNothing,
   statusesFor,
+  statusPageFormOf,
   toggleComponent,
   toLocalInput,
   updateStatusesFor,
@@ -179,5 +183,42 @@ describe("formulaire de correction", () => {
     const request = incidentEditRequestOf(incidentEditFormOf(maintenance), "maintenance");
     expect(request.starts_at).toBe(maintenance.starts_at);
     expect(request.ends_at).toBe(maintenance.ends_at);
+  });
+});
+
+describe("componentFormOf et componentRequestOf", () => {
+  const component: StatusComponent = {
+    id: "cmp_1",
+    name: "Cloud",
+    position: 2,
+    members: [
+      { kind: "probe", id: "prb_1", name: "site", state: "operational", counts: true, present: true },
+      { kind: "service", id: "svc_1", name: "nextcloud", state: "", counts: false, present: false },
+    ],
+    derived: "operational",
+    effective: "operational",
+    created_at: "2026-10-01T10:00:00Z",
+  };
+
+  it("renvoient au serveur le composant lu, objets réduits à leur genre et leur identifiant", () => {
+    expect(componentRequestOf(componentFormOf(component))).toEqual({
+      name: "Cloud",
+      position: 2,
+      members: [
+        { kind: "probe", id: "prb_1" },
+        { kind: "service", id: "svc_1" },
+      ],
+    });
+  });
+
+  it("partent d'un composant sans objet, en tête de page", () => {
+    expect(componentRequestOf(emptyComponentForm())).toEqual({ name: "", position: 0, members: [] });
+  });
+});
+
+describe("statusPageFormOf", () => {
+  it("garde ce qui se règle, pas l'adresse publique", () => {
+    const settings = { title: "État", announcement: "Travaux jeudi", language: "fr", public_url: "https://statut.exemple.fr" };
+    expect(statusPageFormOf(settings)).toEqual({ title: "État", announcement: "Travaux jeudi", language: "fr" });
   });
 });

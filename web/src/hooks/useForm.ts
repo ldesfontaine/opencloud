@@ -11,6 +11,8 @@ export interface Filling<Source, Values> {
 export interface Form<Values> {
   values: Values;
   change: <Key extends keyof Values>(key: Key, value: Values[Key]) => void;
+  // Plusieurs champs d'un coup, par-dessus la saisie : voir useForm.
+  update: (patch: Partial<Values>) => void;
   // Faux tant qu'un formulaire d'édition attend sa source : l'enregistrer
   // écraserait l'objet avec les valeurs vides.
   isFilled: boolean;
@@ -24,6 +26,21 @@ export interface Form<Values> {
 // Le filling est un objet à part plutôt qu'une source « null ou undefined » :
 // « rien à attendre » et « pas encore arrivé » se lisent sans connaître la
 // différence entre les deux.
+//
+// update écrit les champs qu'on lui passe et garde les autres. Deux usages :
+// une suggestion venue d'ailleurs (la machine locale, le conteneur d'où part
+// une sonde), qui complète la saisie sans l'effacer ; et, pour un formulaire
+// qui reste affiché après l'enregistrement, ce que le serveur a gardé
+// (passer toutes les valeurs est un cas particulier). Il ne touche pas au
+// remplissage depuis la source : celui-ci reste unique, et une suggestion
+// écrite avant l'arrivée de la source est remplacée par elle.
+//
+// Pourquoi pas un set(values) entier : la page ne voit que les valeurs de
+// son dernier rendu, pas une écriture encore en attente (la machine locale
+// posée dans le même passage) ; update ne réécrit que ses champs, sur les
+// valeurs les plus récentes. Pourquoi pas un second Filling : une
+// suggestion ne bloque pas l'enregistrement (isFilled), et une réponse du
+// serveur n'arrive pas par la source.
 export function useForm<Values, Source = never>(empty: Values, filling: Filling<Source, Values> | null = null): Form<Values> {
   const [values, setValues] = useState<Values>(empty);
   const [filled, setFilled] = useState(false);
@@ -43,7 +60,11 @@ export function useForm<Values, Source = never>(empty: Values, filling: Filling<
     setValues((current) => ({ ...current, [key]: value }));
   };
 
-  return { values, change, isFilled: filling === null || filled };
+  const update = (patch: Partial<Values>) => {
+    setValues((current) => ({ ...current, ...patch }));
+  };
+
+  return { values, change, update, isFilled: filling === null || filled };
 }
 
 // La source remplit le formulaire à sa première arrivée, et jamais après.

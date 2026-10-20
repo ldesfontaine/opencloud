@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectLines } from "./mcp";
+import { claudeCodeCommand, expiryLabel, lifetimeLabel, lifetimesOf, mcpScopes, redirectFormOf, redirectLines, redirectRequestOf } from "./mcp";
 
 const french: Record<string, string> = {
   "time.hours": "%d h",
@@ -50,4 +50,10 @@ test("expiryLabel dit la date, ou jamais pour un jeton sans échéance", () => {
 
 test("la lecture seule est la première portée, celle par défaut", () => {
   expect(mcpScopes).toEqual(["read", "write"]);
+});
+
+test("redirectFormOf montre une adresse par ligne, redirectRequestOf renvoie la liste nettoyée", () => {
+  const form = redirectFormOf({ redirect_uris: ["https://a.exemple.fr/cb", "http://localhost:3000/cb"] });
+  expect(form.uris).toBe("https://a.exemple.fr/cb\nhttp://localhost:3000/cb");
+  expect(redirectRequestOf({ uris: `${form.uris}\n\n  https://b.exemple.fr/cb  ` })).toEqual(["https://a.exemple.fr/cb", "http://localhost:3000/cb", "https://b.exemple.fr/cb"]);
 });

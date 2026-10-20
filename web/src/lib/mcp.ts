@@ -1,4 +1,4 @@
-import type { MCPScope } from "../api/mcp";
+import type { MCPScope, MCPState } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -9,6 +9,20 @@ export function redirectLines(text: string): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
+}
+
+// Les adresses de retour telles que la zone de texte les montre : une par
+// ligne. Le serveur reçoit la liste nettoyée (redirectLines).
+export interface RedirectFormValues {
+  uris: string;
+}
+
+export function redirectFormOf(state: Pick<MCPState, "redirect_uris">): RedirectFormValues {
+  return { uris: state.redirect_uris.join("\n") };
+}
+
+export function redirectRequestOf(values: RedirectFormValues): string[] {
+  return redirectLines(values.uris);
 }
 
 // « Un accès vaut 1 h, renouvelé jusqu'à 30 j » : les durées viennent du

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Probe, ProbeDay } from "../api/probes";
-import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeNeedsAttention, probeRequestOf, uptimeOfDays, uptimePercent } from "./probes";
+import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeNeedsAttention, probeRequestOf, probeSuggestionOf, uptimeOfDays, uptimePercent } from "./probes";
 
 function day(date: string, total: number, success: number, degraded = 0): ProbeDay {
   return { day: date, total, success, degraded, duration_ms: 12 };
@@ -102,7 +102,7 @@ const httpProbe: Probe = {
 
 describe("probeFormOf et probeRequestOf", () => {
   it("renvoient au serveur la sonde qu'ils ont lue, service compris", () => {
-    expect(probeRequestOf(probeFormOf(httpProbe), httpProbe.service_id)).toEqual({
+    expect(probeRequestOf(probeFormOf(httpProbe))).toEqual({
       name: "site nextcloud",
       kind: "http",
       target: "https://cloud.exemple.fr/",
@@ -121,14 +121,14 @@ describe("probeFormOf et probeRequestOf", () => {
   });
 
   it("détache le service quand l'opérateur le retire", () => {
-    expect(probeRequestOf(probeFormOf(httpProbe), "").service_id).toBe("");
+    expect(probeRequestOf({ ...probeFormOf(httpProbe), serviceID: "" }).service_id).toBe("");
   });
 
   it("envoie vides les champs HTTP d'une sonde TCP", () => {
     const tcp: Probe = { ...httpProbe, kind: "tcp", target: "10.8.0.2:5432", method: "", expected_status: "", expected_body: "", follow_redirects: false, tls: true };
     const form = probeFormOf(tcp);
     expect(form.method).toBe(emptyProbeForm.method);
-    expect(probeRequestOf(form, "")).toMatchObject({
+    expect(probeRequestOf(form)).toMatchObject({
       kind: "tcp",
       method: "",
       expected_status: "",
@@ -140,6 +140,30 @@ describe("probeFormOf et probeRequestOf", () => {
 
   it("ne retient pas la poignée de main d'une sonde HTTP", () => {
     const form = { ...probeFormOf(httpProbe), useTLS: "yes" as const };
-    expect(probeRequestOf(form, "").tls).toBe(false);
+    expect(probeRequestOf(form).tls).toBe(false);
+  });
+});
+
+describe("probeSuggestionOf", () => {
+  const service = { name: "nextcloud", title: "Nextcloud" };
+  const port = { ip: "0.0.0.0", host_port: 8080, container_port: 80, protocol: "tcp" };
+
+  it("prend le titre du service, son nom à défaut, et rien d'autre sans conteneur", () => {
+    expect(probeSuggestionOf(service, undefined)).toEqual({ name: "Nextcloud" });
+    expect(probeSuggestionOf({ ...service, title: "" }, undefined)).toEqual({ name: "nextcloud" });
+  });
+
+  it("sonde depuis la machine du conteneur, vers son premier port publié", () => {
+    const carrier = { machine_id: "machine-2", ports: [port, { ...port, host_port: 8443 }] };
+    expect(probeSuggestionOf(service, carrier)).toEqual({ name: "Nextcloud", machineID: "machine-2", target: "http://127.0.0.1:8080/" });
+  });
+
+  it("garde l'adresse d'un port publié sur une seule interface", () => {
+    const carrier = { machine_id: "machine-2", ports: [{ ...port, ip: "10.8.0.2" }] };
+    expect(probeSuggestionOf(service, carrier).target).toBe("http://10.8.0.2:8080/");
+  });
+
+  it("ne devine pas de cible sans port publié, mais garde la machine", () => {
+    expect(probeSuggestionOf(service, { machine_id: "machine-2", ports: [] })).toEqual({ name: "Nextcloud", machineID: "machine-2" });
   });
 });

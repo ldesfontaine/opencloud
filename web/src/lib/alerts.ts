@@ -1,4 +1,4 @@
-import type { Alert, AlertKind, AlertObject, AlertObjectKind, AlertSeverity, ChannelTest, Delivery, Silence, SilenceRequest } from "../api/alerts";
+import type { Alert, AlertKind, AlertObject, AlertObjectKind, AlertSeverity, Channel, ChannelFormat, ChannelRequest, ChannelTest, Delivery, Silence, SilenceRequest } from "../api/alerts";
 import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
@@ -226,4 +226,64 @@ export function silenceRequestOf(values: SilenceFormValues): SilenceRequest {
 // Un silence vise quelque chose : un type d'alerte, un objet, ou les deux.
 export function hasSilenceTarget(values: Pick<SilenceFormValues, "kind" | "objectID">): boolean {
   return values.kind !== "" || values.objectID !== "";
+}
+
+// Les listes fermées du formulaire d'un canal, dans son ordre.
+export const channelFormats: readonly ChannelFormat[] = ["json", "text", "discord", "slack", "email", "matrix"];
+export const alertSeverities: readonly AlertSeverity[] = ["attention", "danger"];
+
+// Le formulaire d'un canal. Le secret (ou le jeton d'un bot Matrix) ne
+// revient jamais du serveur : le champ part vide, et vide il garde celui
+// qui est enregistré ; clearSecret le retire.
+export interface ChannelFormValues {
+  name: string;
+  url: string;
+  format: ChannelFormat;
+  destination: string;
+  secret: string;
+  clearSecret: boolean;
+  minSeverity: AlertSeverity;
+  notifyResolve: boolean;
+  enabled: boolean;
+}
+
+export const emptyChannelForm: ChannelFormValues = {
+  name: "",
+  url: "",
+  format: "json",
+  destination: "",
+  secret: "",
+  clearSecret: false,
+  minSeverity: "attention",
+  notifyResolve: true,
+  enabled: true,
+};
+
+// Un webhook n'a pas de destination : le champ part vide.
+export function channelFormOf(channel: Channel): ChannelFormValues {
+  return {
+    name: channel.name,
+    url: channel.url,
+    format: channel.format,
+    destination: channel.destination ?? "",
+    secret: "",
+    clearSecret: false,
+    minSeverity: channel.min_severity,
+    notifyResolve: channel.notify_resolve,
+    enabled: channel.enabled,
+  };
+}
+
+export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
+  return {
+    name: values.name,
+    url: values.url,
+    format: values.format,
+    destination: values.destination,
+    secret: values.secret,
+    clear_secret: values.clearSecret,
+    min_severity: values.minSeverity,
+    notify_resolve: values.notifyResolve,
+    enabled: values.enabled,
+  };
 }

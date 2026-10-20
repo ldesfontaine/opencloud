@@ -1,4 +1,18 @@
-import type { Impact, Incident, IncidentEditRequest, IncidentRequest, IncidentStatus, IncidentUpdateRequest, PublicIncident, StatusState } from "../api/status";
+import type {
+  Impact,
+  Incident,
+  IncidentEditRequest,
+  IncidentRequest,
+  IncidentStatus,
+  IncidentUpdateRequest,
+  MemberKind,
+  PublicIncident,
+  StatusComponent,
+  StatusComponentRequest,
+  StatusPageRequest,
+  StatusPageSettings,
+  StatusState,
+} from "../api/status";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 
@@ -189,4 +203,47 @@ export function incidentEditRequestOf(values: IncidentEditFormValues, impact: Im
     starts_at: isScheduled ? fromLocalInput(values.startsAt) : null,
     ends_at: isScheduled ? fromLocalInput(values.endsAt) : null,
   };
+}
+
+// Les genres d'objets qu'un composant rattache, dans l'ordre du sélecteur.
+export const memberKinds: readonly MemberKind[] = ["machine", "service", "heartbeat", "probe"];
+
+// Un objet rattaché, tel que le formulaire le garde et le renvoie.
+export interface MemberChoice {
+  kind: MemberKind;
+  id: string;
+}
+
+export interface ComponentFormValues {
+  name: string;
+  position: string;
+  members: MemberChoice[];
+}
+
+// Une fonction, pas une constante : la liste ne se partage pas entre deux
+// formulaires.
+export function emptyComponentForm(): ComponentFormValues {
+  return { name: "", position: "0", members: [] };
+}
+
+// Le formulaire ne garde des objets que le genre et l'identifiant : leur
+// nom et leur état se relisent à chaque rendu.
+export function componentFormOf(component: StatusComponent): ComponentFormValues {
+  return {
+    name: component.name,
+    position: String(component.position),
+    members: component.members.map((member) => ({ kind: member.kind, id: member.id })),
+  };
+}
+
+export function componentRequestOf(values: ComponentFormValues): StatusComponentRequest {
+  return { name: values.name, position: Number(values.position), members: values.members };
+}
+
+// Le formulaire des réglages de la page est aussi le corps de leur
+// enregistrement : le titre, l'annonce, la langue.
+export const emptyStatusPageForm: StatusPageRequest = { title: "", announcement: "", language: "" };
+
+export function statusPageFormOf(settings: StatusPageSettings): StatusPageRequest {
+  return { title: settings.title, announcement: settings.announcement, language: settings.language };
 }

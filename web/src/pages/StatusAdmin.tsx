@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
 
-import { errorKey, type ApiError } from "../api/client";
+import type { ApiError } from "../api/client";
 import {
   saveStatusPageSettings,
   useIncidents,
@@ -15,15 +15,18 @@ import {
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
-import { Field, Input, Select } from "../components/Field";
+import { EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { FormActions, FormCard } from "../components/FormCard";
 import { Icon } from "../components/Icon";
 import { PageHead } from "../components/PageHead";
 import { TabNav } from "../components/TabNav";
 import { Pill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
+import { useAction } from "../hooks/useAction";
+import { useForm } from "../hooks/useForm";
 import { useNow } from "../hooks/useNow";
 import { useI18n, useT } from "../i18n/context";
-import { impactTones, incidentTones, incidentsSubtitle, isOpen, statusStateTones } from "../lib/status";
+import { emptyStatusPageForm, impactTones, incidentTones, incidentsSubtitle, isOpen, statusPageFormOf, statusStateTones } from "../lib/status";
 import { ago } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./StatusAdmin.scss";
@@ -225,44 +228,22 @@ function SettingsTab() {
   const t = useT();
   const { languages } = useI18n();
   const settings = useStatusPageSettings();
-  const [title, setTitle] = useState("");
-  const [announcement, setAnnouncement] = useState("");
-  const [language, setLanguage] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const form = useForm(emptyStatusPageForm, { source: settings.data, fill: statusPageFormOf });
+  const { values, change, update } = form;
+  const action = useAction();
   const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState(false);
-  // Les réglages se lisent une fois : une relecture (le signal de
-  // rafraîchissement passe) ne doit pas écraser ce que l'opérateur est en
-  // train de taper.
-  const [filled, setFilled] = useState(false);
 
-  useEffect(() => {
-    if (filled || settings.data === null) {
-      return;
-    }
-    setFilled(true);
-    setTitle(settings.data.title);
-    setAnnouncement(settings.data.announcement);
-    setLanguage(settings.data.language);
-  }, [settings.data, filled]);
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
+  const save = () => {
     setSaved(false);
-    saveStatusPageSettings({ title, announcement, language })
-      .then((kept) => {
+    action.run(() => saveStatusPageSettings(values), {
+      onDone: (kept) => {
         // Le formulaire reprend les réglages gardés, tels que le serveur les
         // a rendus.
-        setTitle(kept.title);
-        setAnnouncement(kept.announcement);
-        setLanguage(kept.language);
-        setError(null);
+        update(statusPageFormOf(kept));
         setSaved(true);
         settings.reload();
-      })
-      .catch((failure: unknown) => setError(errorKey(failure)))
-      .finally(() => setBusy(false));
+      },
+    });
   };
 
   if (settings.error) {
@@ -272,32 +253,25 @@ function SettingsTab() {
     return null;
   }
   return (
-    <Card className="form-card">
-      <CardHeader title={t("statuspage.settings_title")} aside={t("statuspage.settings_text")} />
-      <form className="card-b" onSubmit={submit}>
-        <Field label={t("statuspage.title_label")} htmlFor="status-title" help={t("statuspage.title_help")}>
-          <Input id="status-title" type="text" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} autoComplete="off" />
-        </Field>
-        <Field label={t("statuspage.announcement_label")} htmlFor="status-announcement" help={t("statuspage.announcement_help")}>
-          <textarea id="status-announcement" className="input textarea" value={announcement} onChange={(event) => setAnnouncement(event.target.value)} maxLength={500} rows={3} />
-        </Field>
-        <Field label={t("statuspage.language_label")} htmlFor="status-language" help={t("statuspage.language_help")}>
-          <Select id="status-language" value={language} onChange={(event) => setLanguage(event.target.value)}>
-            {languages.map((code) => (
-              <option key={code} value={code}>
-                {t(`language.${code}`)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Failure error={error} />
-        <div className="cluster">
-          <Button type="submit" variant="primary" icon="check" disabled={busy}>
-            {t("statuspage.save")}
-          </Button>
+    <FormCard
+      onSubmit={save}
+      error={action.error}
+      header={<CardHeader title={t("statuspage.settings_title")} aside={t("statuspage.settings_text")} />}
+      actions={
+        <FormActions submitLabel={t("statuspage.save")} submitIcon="check" busy={action.busy} canSubmit={form.isFilled}>
           {saved && <Pill tone="ok">{t("statuspage.saved")}</Pill>}
-        </div>
-      </form>
-    </Card>
+        </FormActions>
+      }
+    >
+      <Field label={t("statuspage.title_label")} htmlFor="status-title" help={t("statuspage.title_help")}>
+        <Input id="status-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={120} autoComplete="off" />
+      </Field>
+      <Field label={t("statuspage.announcement_label")} htmlFor="status-announcement" help={t("statuspage.announcement_help")}>
+        <Textarea id="status-announcement" value={values.announcement} onChange={(event) => change("announcement", event.target.value)} maxLength={500} rows={3} />
+      </Field>
+      <Field label={t("statuspage.language_label")} htmlFor="status-language" help={t("statuspage.language_help")}>
+        <EnumSelect id="status-language" value={values.language} values={languages} labelKey="language." onChange={(language) => change("language", language)} />
+      </Field>
+    </FormCard>
   );
 }
