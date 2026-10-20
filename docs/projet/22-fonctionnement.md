@@ -116,7 +116,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
@@ -134,8 +134,8 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 `heartbeats.token`. Un secret vide reste vide. Un chiffré se reconnaît à sa seule forme, `v1:<8 hexadécimaux>:<base64>` : un vrai mot de passe de cette forme serait pris pour un chiffré, et le démarrage le refuserait faute de pouvoir l'ouvrir (improbable). Les jetons d'enrôlement, les jetons
 MCP et le mot de passe de l'interface étaient déjà hachés.
 
-**Ce qu'il ne couvre pas.** La cible d'une sonde (identifiants éventuels de
-l'adresse), les extraits de journaux d'un arrêt anormal et le corps des pings
+**Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
+avant leur refus (la sonde est en pause, « Comment une cible est sondée »), les extraits de journaux d'un arrêt anormal et le corps des pings
 restent en clair : ils peuvent contenir un secret que l'opérateur n'a pas saisi
 comme tel. La clé est **à côté de la base**, sous le même compte : le gain vaut
 pour une copie de la base seule (sauvegarde égarée, disque rendu), pas pour qui
@@ -878,8 +878,8 @@ est régénéré par l'export, la lecture ne le lit pas.
   télécharge `GET /api/manifest/export` (même garde que le reste de l'API) ;
   `opencloud export [-o fichier]` demande la même route à `serve` par la socket
   `state_dir/control.sock`. L'outil MCP `export_directory` rend le même texte
-  dans le champ `yaml`, mais **sans le mot de passe d'une cible de sonde**
-  (`https://user:…@hôte`) : le fichier de l'opérateur le garde tel qu'il est
+  dans le champ `yaml`, mais **sans le mot de passe qu'une cible de sonde
+  d'avant leur refus porte encore** (`https://user:…@hôte`) : le fichier de l'opérateur le garde tel qu'il est
   stocké, parce que l'apply le compare, un fichier masqué le remplacerait par
   « … ». Le texte rendu à MCP se lit, il ne se réapplique pas tel quel. Les commentaires du fichier sont dans la langue de
   l'interface.
@@ -1027,8 +1027,10 @@ changements avec leurs valeurs d'avant, leurs conséquences et ce qu'une
 suppression emporte **de structure** (unités, liens de projet) ; l'historique
 (essais, jours, pings, exécutions) n'y est pas, il grossit pendant qu'on lit.
 Toute modification faite dans l'interface entre le plan et l'application la
-change. Un mot de passe de cible qui change seul est un changement du plan : le
-champ `target` reste masqué (`user:…@hôte`) et la conséquence
+change. Un fichier qui met des identifiants dans une cible est refusé
+(`probe.target_credentials`), comme dans l'interface. Une sonde d'avant ce refus
+se relit inchangée depuis son propre export, et perd ses identifiants par le
+fichier : le champ `target` reste masqué (`user:…@hôte`) et la conséquence
 `password_changed` le dit.
 
 ### L'application
@@ -1452,6 +1454,18 @@ création est refusée (`probe.service_invalid`, 422), jamais en erreur
 interne. Le lien est en `restrict` : le service ne se supprime pas tant qu'une
 sonde le vise. La sonde qui sonde de l'extérieur un service d'une autre
 machine est le cas courant.
+
+**La cible n'accepte pas d'identifiants.** `https://user:mot@hôte`, ou
+`https://user@hôte`, est refusé à la création, à l'édition et par le fichier
+de l'annuaire (`probe.target_credentials`, 422) : ce n'est pas pris en charge
+pour l'instant, faute de pouvoir les garder chiffrés ; ils finiraient en clair
+dans la base et dans l'export, qui va dans Git. Une sonde créée avant ce refus
+qui en porte passe **en pause au démarrage** de `serve`, avec une ligne `WARN`
+(identifiant, nom, machine, cible masquée `user:…@hôte`), redite à chaque
+démarrage tant que la cible n'a pas changé. La reprendre est refusé avec la
+même clé ; l'éditer demande une cible sans identifiants. Le masque
+`user:…@hôte` reste sur toutes les sorties, pour ces sondes et pour
+l'historique (alertes passées).
 
 **Une sonde s'édite sur place.** `PUT /api/probes/{id}` remplace la
 définition entière, comme la création la donne : un champ omis prend sa
@@ -2149,7 +2163,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`, et le mot de passe d'une cible de sonde masqué, `user:…@hôte`) | 256 Kio ; au-delà, le refus `manifest.export_too_large`. Avec `propose: true`, les propositions en plus (voir l'export) |
 | `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
-| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` et `resume_probe` la masquent de même | 50 essais |
+| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` la masque de même ; `resume_probe` refuse une telle sonde (`probe.target_credentials`) | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
 | `list_alerts`, `get_alert`, `list_alert_channels` | Les alertes ouvertes ou résolues avec les compteurs ; une alerte et ses livraisons ; les canaux avec **l'URL réduite à son hôte**, un webhook Discord porte son jeton dans son chemin | 200 |
 
@@ -2470,7 +2484,6 @@ refusés avant d'envoyer quoi que ce soit.
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
 | Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
-| Une cible de sonde avec mot de passe | `https://user:motdepasse@hôte` est accepté à la création d'une sonde, et s'exporte donc dans le fichier, qui va dans Git. Le plan, le journal, les alertes et tous les outils MCP (dont `export_directory`) la masquent ; l'export fichier et la base, non | À corriger à la création d'une sonde, chantier à part : refuser le mot de passe dans la cible, le garder dans une colonne chiffrée |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |

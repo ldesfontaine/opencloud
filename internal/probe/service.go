@@ -409,6 +409,11 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 	if wasPaused && !found.IsPaused() {
 		return ErrNotPaused
 	}
+	// Une sonde mise en pause pour ses identifiants ne repart qu'avec une
+	// cible changée.
+	if wasPaused && targetHasCredentials(found.Kind, found.Target) {
+		return ErrTargetCredentials
+	}
 	if err := s.store.SetProbeStatus(ctx, id, status); err != nil {
 		return err
 	}
@@ -419,6 +424,30 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 	}
 	s.Assign(ctx, found.MachineID)
 	s.changed(found.MachineID)
+	return nil
+}
+
+// PauseTargetsWithCredentials met en pause chaque sonde dont la cible porte
+// des identifiants, acceptés avant que la création les refuse. Ils restent
+// en base, en clair, tant que l'opérateur ne change pas la cible : le journal
+// le redit à chaque démarrage, cible masquée.
+func (s *Service) PauseTargetsWithCredentials(ctx context.Context) error {
+	probes, err := s.store.ListProbes(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list probes: %w", err)
+	}
+	for _, found := range probes {
+		if !targetHasCredentials(found.Kind, found.Target) {
+			continue
+		}
+		if !found.IsPaused() {
+			if err := s.Pause(ctx, found.ID); err != nil {
+				return fmt.Errorf("pause probe %s: %w", found.ID, err)
+			}
+		}
+		s.logger.Warn("probe paused, its target carries credentials: change the target to resume it",
+			"probe_id", found.ID, "name", found.Name, "machine_id", found.MachineID, "target", RedactTarget(found.Target))
+	}
 	return nil
 }
 

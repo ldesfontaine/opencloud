@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Le catalogue, fermé : dix-huit lectures, neuf écritures. Un outil ajouté
@@ -235,22 +236,20 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	}
 }
 
-// seedSecuredProbe crée une sonde dont la cible porte un identifiant et un
-// mot de passe : openCloud l'accepte, et nulle sortie MCP ne doit le rendre.
+// seedSecuredProbe écrit en base une sonde dont la cible porte un identifiant
+// et un mot de passe, comme une base d'avant leur refus la garde : nulle sortie
+// MCP ne doit le rendre.
 func (ts *testServer) seedSecuredProbe(t *testing.T) string {
 	t.Helper()
-	created, err := ts.probes.Create(context.Background(), probe.Definition{
+	seeded := storetest.InsertProbe(t, ts.db, "5ec0be5ec0be5ec0", probe.Definition{
 		Name: "api interne", Kind: probe.KindHTTP, Target: "https://svc:" + probeTargetPassword + "@interne.exemple.fr/health", MachineID: remoteID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return created.ID
+	}, testNow)
+	return seeded.ID
 }
 
 // Le mot de passe d'une cible de sonde ne sort par aucun outil MCP : ni les
-// lectures seules, ni l'export, ni la réponse d'une pause ou d'une reprise.
-// L'export fichier de l'opérateur, lui, le garde : l'apply le compare.
+// lectures seules, ni l'export, ni la réponse d'une pause, ni le refus d'une
+// reprise. L'export fichier de l'opérateur, lui, le garde : l'apply le compare.
 func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
@@ -267,7 +266,6 @@ func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 		{"export_directory", nil},
 		{"export_directory", map[string]any{"propose": true}},
 		{"pause_probe", map[string]any{"probe_id": probeID}},
-		{"resume_probe", map[string]any{"probe_id": probeID}},
 	}
 	for _, call := range calls {
 		text, isError := callTool(t, session, call.tool, call.args)
@@ -280,6 +278,10 @@ func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 		if !strings.Contains(text, masked) {
 			t.Errorf("%s does not show the masked target: %s", call.tool, text)
 		}
+	}
+	text, isError := callTool(t, session, "resume_probe", map[string]any{"probe_id": probeID})
+	if !isError || toolErrorCode(t, text) != "probe.target_credentials" || strings.Contains(text, probeTargetPassword) {
+		t.Errorf("resume_probe must refuse a target with credentials, without it: %v %s", isError, text)
 	}
 
 	file := callAPI(server.Server, http.MethodGet, "/api/manifest/export", nil)
