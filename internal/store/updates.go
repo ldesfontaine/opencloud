@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -15,29 +16,23 @@ const imageCheckColumns = `machine_id, image, checked_at, outcome, local_digest,
 // ApplyImageChecks écrase le constat de chaque (machine, image), en une
 // transaction.
 func (db *DB) ApplyImageChecks(ctx context.Context, checks []update.Check) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin apply image checks: %w", err)
-	}
-	defer tx.Rollback()
-	for _, check := range checks {
-		_, err := tx.ExecContext(ctx, `
+	return db.inTx(ctx, "apply image checks", func(tx *sql.Tx) error {
+		for _, check := range checks {
+			_, err := tx.ExecContext(ctx, `
 			INSERT INTO image_checks (`+imageCheckColumns+`)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (machine_id, image) DO UPDATE SET
 				checked_at = excluded.checked_at, outcome = excluded.outcome,
 				local_digest = excluded.local_digest, remote_digest = excluded.remote_digest,
 				newer_tag = excluded.newer_tag, newer_digest = excluded.newer_digest, kind = excluded.kind`,
-			check.MachineID, check.Image, check.CheckedAt.Unix(), string(check.Outcome),
-			check.LocalDigest, check.RemoteDigest, check.NewerTag, check.NewerDigest, string(check.Kind))
-		if err != nil {
-			return fmt.Errorf("upsert image check %s: %w", check.Image, err)
+				check.MachineID, check.Image, check.CheckedAt.Unix(), string(check.Outcome),
+				check.LocalDigest, check.RemoteDigest, check.NewerTag, check.NewerDigest, string(check.Kind))
+			if err != nil {
+				return fmt.Errorf("upsert image check %s: %w", check.Image, err)
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit apply image checks: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // ListImageChecks rend les constats d'une machine, ou de toutes si
@@ -53,20 +48,19 @@ func (db *DB) ListImageChecks(ctx context.Context, machineID string) ([]update.C
 	if err != nil {
 		return nil, fmt.Errorf("list image checks: %w", err)
 	}
-	defer rows.Close()
-	checks := []update.Check{}
-	for rows.Next() {
-		var check update.Check
-		var checkedAt int64
-		var outcome, kind string
-		if err := rows.Scan(&check.MachineID, &check.Image, &checkedAt, &outcome, &check.LocalDigest, &check.RemoteDigest, &check.NewerTag, &check.NewerDigest, &kind); err != nil {
-			return nil, err
-		}
-		check.CheckedAt = time.Unix(checkedAt, 0).UTC()
-		check.Outcome, check.Kind = update.Outcome(outcome), update.Kind(kind)
-		checks = append(checks, check)
+	return collect(rows, scanImageCheck)
+}
+
+func scanImageCheck(row scanner) (update.Check, error) {
+	var check update.Check
+	var checkedAt int64
+	var outcome, kind string
+	if err := row.Scan(&check.MachineID, &check.Image, &checkedAt, &outcome, &check.LocalDigest, &check.RemoteDigest, &check.NewerTag, &check.NewerDigest, &kind); err != nil {
+		return update.Check{}, err
 	}
-	return checks, rows.Err()
+	check.CheckedAt = time.Unix(checkedAt, 0).UTC()
+	check.Outcome, check.Kind = update.Outcome(outcome), update.Kind(kind)
+	return check, nil
 }
 
 func (db *DB) PurgeImageChecks(ctx context.Context, before time.Time) error {
@@ -83,5 +77,5 @@ func (db *DB) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy con
 	if err != nil {
 		return fmt.Errorf("set update policy of unit %s: %w", unitID, err)
 	}
-	return directoryNotFoundIfNoRow(result, directory.ErrUnitNotFound)
+	return notFoundIfNoRow(result, directory.ErrUnitNotFound)
 }

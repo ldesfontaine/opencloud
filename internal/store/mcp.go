@@ -46,7 +46,7 @@ func (db *DB) UpdateMCPClientSecret(ctx context.Context, hash, prefix string) er
 	if err != nil {
 		return fmt.Errorf("update mcp client secret: %w", err)
 	}
-	return mcpNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, mcp.ErrNotFound)
 }
 
 func (db *DB) UpdateMCPClientRedirectURIs(ctx context.Context, uris []string) error {
@@ -54,7 +54,7 @@ func (db *DB) UpdateMCPClientRedirectURIs(ctx context.Context, uris []string) er
 	if err != nil {
 		return fmt.Errorf("update mcp client redirect uris: %w", err)
 	}
-	return mcpNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, mcp.ErrNotFound)
 }
 
 func (db *DB) DeleteMCPClient(ctx context.Context) error {
@@ -62,7 +62,7 @@ func (db *DB) DeleteMCPClient(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("delete mcp client: %w", err)
 	}
-	return mcpNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, mcp.ErrNotFound)
 }
 
 // --- Codes ---
@@ -183,7 +183,7 @@ func (db *DB) RevokeMCPToken(ctx context.Context, id string, at time.Time) error
 	if err != nil {
 		return fmt.Errorf("revoke mcp token: %w", err)
 	}
-	return mcpNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, mcp.ErrNotFound)
 }
 
 func (db *DB) RevokeMCPFamily(ctx context.Context, familyID string, at time.Time) error {
@@ -192,30 +192,24 @@ func (db *DB) RevokeMCPFamily(ctx context.Context, familyID string, at time.Time
 	if err != nil {
 		return fmt.Errorf("revoke mcp family: %w", err)
 	}
-	return mcpNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, mcp.ErrNotFound)
 }
 
 // RevokeMCPOAuthTokens révoque tout ce qui vient d'une autorisation OAuth,
 // codes en attente compris : un code non échangé se changerait encore en
 // jetons. Les jetons d'API restent.
 func (db *DB) RevokeMCPOAuthTokens(ctx context.Context, at time.Time) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin revoke mcp oauth tokens: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	_, err = tx.ExecContext(ctx,
-		`UPDATE mcp_tokens SET revoked_at = ? WHERE kind != ? AND revoked_at IS NULL`, at.Unix(), string(mcp.KindAPI))
-	if err != nil {
-		return fmt.Errorf("revoke mcp oauth tokens: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
-		return fmt.Errorf("revoke mcp codes: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit revoke mcp oauth tokens: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "revoke mcp oauth tokens", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`UPDATE mcp_tokens SET revoked_at = ? WHERE kind != ? AND revoked_at IS NULL`, at.Unix(), string(mcp.KindAPI))
+		if err != nil {
+			return fmt.Errorf("revoke mcp oauth tokens: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
+			return fmt.Errorf("revoke mcp codes: %w", err)
+		}
+		return nil
+	})
 }
 
 // RevokeAllMCPTokens révoque, en une transaction, tout jeton vivant (non
@@ -224,29 +218,27 @@ func (db *DB) RevokeMCPOAuthTokens(ctx context.Context, at time.Time) error {
 // familles OAuth tombent ; un jeton déjà échu ne compte pas, il ne servait
 // plus.
 func (db *DB) RevokeAllMCPTokens(ctx context.Context, at time.Time) (mcp.Revoked, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return mcp.Revoked{}, fmt.Errorf("begin revoke mcp tokens: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
 	const alive = `revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
 	var revoked mcp.Revoked
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mcp_tokens WHERE kind = ? AND `+alive, string(mcp.KindAPI), at.Unix()).Scan(&revoked.APITokens)
+	err := db.inTx(ctx, "revoke mcp tokens", func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mcp_tokens WHERE kind = ? AND `+alive, string(mcp.KindAPI), at.Unix()).Scan(&revoked.APITokens)
+		if err != nil {
+			return fmt.Errorf("count mcp api tokens: %w", err)
+		}
+		err = tx.QueryRowContext(ctx, `SELECT COUNT(DISTINCT family_id) FROM mcp_tokens WHERE family_id != '' AND `+alive, at.Unix()).Scan(&revoked.Sessions)
+		if err != nil {
+			return fmt.Errorf("count mcp sessions: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE mcp_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, at.Unix()); err != nil {
+			return fmt.Errorf("revoke mcp tokens: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
+			return fmt.Errorf("revoke mcp codes: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return mcp.Revoked{}, fmt.Errorf("count mcp api tokens: %w", err)
-	}
-	err = tx.QueryRowContext(ctx, `SELECT COUNT(DISTINCT family_id) FROM mcp_tokens WHERE family_id != '' AND `+alive, at.Unix()).Scan(&revoked.Sessions)
-	if err != nil {
-		return mcp.Revoked{}, fmt.Errorf("count mcp sessions: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE mcp_tokens SET revoked_at = ? WHERE revoked_at IS NULL`, at.Unix()); err != nil {
-		return mcp.Revoked{}, fmt.Errorf("revoke mcp tokens: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_codes`); err != nil {
-		return mcp.Revoked{}, fmt.Errorf("revoke mcp codes: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return mcp.Revoked{}, fmt.Errorf("commit revoke mcp tokens: %w", err)
+		return mcp.Revoked{}, err
 	}
 	return revoked, nil
 }
@@ -268,16 +260,7 @@ func (db *DB) ListMCPTokens(ctx context.Context, kind mcp.Kind) ([]mcp.Token, er
 	if err != nil {
 		return nil, fmt.Errorf("list mcp tokens: %w", err)
 	}
-	defer rows.Close()
-	tokens := []mcp.Token{}
-	for rows.Next() {
-		token, err := scanMCPToken(rows)
-		if err != nil {
-			return nil, err
-		}
-		tokens = append(tokens, token)
-	}
-	return tokens, rows.Err()
+	return collect(rows, scanMCPToken)
 }
 
 // ListMCPSessions rend les familles dont un jeton de rafraîchissement est
@@ -294,22 +277,21 @@ func (db *DB) ListMCPSessions(ctx context.Context, now time.Time) ([]mcp.Session
 	if err != nil {
 		return nil, fmt.Errorf("list mcp sessions: %w", err)
 	}
-	defer rows.Close()
-	sessions := []mcp.Session{}
-	for rows.Next() {
-		var session mcp.Session
-		var startedAt, lastUsedAt, expiresAt int64
-		if err := rows.Scan(&session.FamilyID, &startedAt, &lastUsedAt, &expiresAt); err != nil {
-			return nil, err
-		}
-		session.StartedAt = time.Unix(startedAt, 0)
-		session.ExpiresAt = time.Unix(expiresAt, 0)
-		if lastUsedAt != 0 {
-			session.LastUsedAt = time.Unix(lastUsedAt, 0)
-		}
-		sessions = append(sessions, session)
+	return collect(rows, scanMCPSession)
+}
+
+func scanMCPSession(row scanner) (mcp.Session, error) {
+	var session mcp.Session
+	var startedAt, lastUsedAt, expiresAt int64
+	if err := row.Scan(&session.FamilyID, &startedAt, &lastUsedAt, &expiresAt); err != nil {
+		return mcp.Session{}, err
 	}
-	return sessions, rows.Err()
+	session.StartedAt = time.Unix(startedAt, 0)
+	session.ExpiresAt = time.Unix(expiresAt, 0)
+	if lastUsedAt != 0 {
+		session.LastUsedAt = time.Unix(lastUsedAt, 0)
+	}
+	return session, nil
 }
 
 // PurgeMCPExpired efface les codes et jetons échus, révoqués ou non : un
@@ -340,17 +322,6 @@ func scanMCPToken(row scanner) (mcp.Token, error) {
 	token.LastUsedAt = timeOf(lastUsedAt)
 	token.RevokedAt = timeOf(revokedAt)
 	return token, nil
-}
-
-func mcpNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return mcp.ErrNotFound
-	}
-	return nil
 }
 
 func splitLines(value string) []string {

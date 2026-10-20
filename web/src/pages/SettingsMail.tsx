@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 import { api, errorKey } from "../api/client";
 import type { ChannelTest, MailSettings, MailTLSMode } from "../api/types";
@@ -29,13 +29,9 @@ export function MailSection({ settings, reload }: { settings: MailSettings; relo
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<ChannelTest | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setHost(settings.host);
-    setPort(String(settings.port));
-    setMode(settings.tls);
-    setUsername(settings.username);
-    setFrom(settings.from);
-  }, [settings]);
+  // Le relais se lit une fois, à l'ouverture : une relecture (le signal de
+  // rafraîchissement passe) ne doit pas écraser ce que l'opérateur est en
+  // train de taper.
 
   // Changer de mode propose son port, sauf si l'opérateur en a tapé un autre.
   const changeMode = (next: MailTLSMode) => {
@@ -53,7 +49,14 @@ export function MailSection({ settings, reload }: { settings: MailSettings; relo
     const body = { host, port: Number(port), tls: mode, username, password, clear_password: clearPassword, from };
     api
       .put<MailSettings>("/api/settings/mail", body)
-      .then(() => {
+      .then((relay) => {
+        // Le formulaire reprend le relais enregistré, tel que le serveur l'a
+        // gardé (espaces retirés).
+        setHost(relay.host);
+        setPort(String(relay.port));
+        setMode(relay.tls);
+        setUsername(relay.username);
+        setFrom(relay.from);
         setSaved(true);
         setPassword("");
         setClearPassword(false);

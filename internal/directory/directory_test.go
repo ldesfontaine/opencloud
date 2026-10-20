@@ -2,8 +2,6 @@ package directory_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"os"
@@ -16,8 +14,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -50,26 +48,13 @@ func (b *bench) changeCount() int {
 // openCloud et une machine enrôlée en place.
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(func() time.Time { return testNow })
-	err = machines.EnsureLocal(context.Background(), machine.LocalInfo{Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, machines)
+	storetest.EnrollMachine(t, machines, remoteID, "vps-paris-1")
 	b := &bench{db: db, machines: machines}
-	enrollRemote(t, b)
 	b.directory = directory.New(db, logger)
 	b.directory.SetClock(func() time.Time { return testNow })
 	b.directory.SetWatcher(b)
@@ -81,25 +66,6 @@ func newBench(t *testing.T) *bench {
 	b.directory.SetObserved(b.containers, update.New(db, logger))
 	b.directory.SetRematcher(b.containers)
 	return b
-}
-
-func enrollRemote(t *testing.T, b *bench) {
-	t.Helper()
-	cleartext, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = b.machines.Enroll(context.Background(), machine.Enrollment{
-		MachineID: remoteID, PublicKey: public, Token: cleartext,
-		Hostname: "vps-paris-1", Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 func composeDefinition(machineID string) directory.ServiceDefinition {

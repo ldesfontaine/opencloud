@@ -12,8 +12,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
@@ -65,17 +65,7 @@ func (m *fakeMaintenance) UnderMaintenance(_ context.Context, kind, id string) (
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	f := &fixture{Engine: alert.New(db, logger), db: db, clock: testNow, sender: &recordingSender{}, watcher: &countingWatcher{}, maintenance: &fakeMaintenance{under: map[string]bool{}}}
 	f.SetClock(func() time.Time { return f.clock })
