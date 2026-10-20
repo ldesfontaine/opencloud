@@ -50,18 +50,23 @@ export function AlertChannelForm() {
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<ChannelTest | null>(null);
   const [busy, setBusy] = useState(false);
+  // Le canal se lit une fois : une relecture (le signal de rafraîchissement
+  // passe) ne doit pas écraser ce que l'opérateur est en train de taper.
+  const [filled, setFilled] = useState(false);
 
   useEffect(() => {
-    if (existing.data) {
-      setName(existing.data.name);
-      setURL(existing.data.url);
-      setDestination(existing.data.destination ?? "");
-      setFormat(existing.data.format);
-      setMinSeverity(existing.data.min_severity);
-      setNotifyResolve(existing.data.notify_resolve);
-      setEnabled(existing.data.enabled);
+    if (filled || existing.data === null) {
+      return;
     }
-  }, [existing.data]);
+    setFilled(true);
+    setName(existing.data.name);
+    setURL(existing.data.url);
+    setDestination(existing.data.destination ?? "");
+    setFormat(existing.data.format);
+    setMinSeverity(existing.data.min_severity);
+    setNotifyResolve(existing.data.notify_resolve);
+    setEnabled(existing.data.enabled);
+  }, [existing.data, filled]);
 
   if (id !== undefined && existing.error?.status === 404) {
     return <NotFound />;

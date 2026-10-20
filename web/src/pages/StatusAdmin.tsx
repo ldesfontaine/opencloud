@@ -232,14 +232,20 @@ function SettingsTab() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Les réglages se lisent une fois : une relecture (le signal de
+  // rafraîchissement passe) ne doit pas écraser ce que l'opérateur est en
+  // train de taper.
+  const [filled, setFilled] = useState(false);
 
   useEffect(() => {
-    if (settings.data) {
-      setTitle(settings.data.title);
-      setAnnouncement(settings.data.announcement);
-      setLanguage(settings.data.language);
+    if (filled || settings.data === null) {
+      return;
     }
-  }, [settings.data]);
+    setFilled(true);
+    setTitle(settings.data.title);
+    setAnnouncement(settings.data.announcement);
+    setLanguage(settings.data.language);
+  }, [settings.data, filled]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -247,7 +253,12 @@ function SettingsTab() {
     setSaved(false);
     api
       .put<StatusPageSettings>("/api/status/page", { title, announcement, language })
-      .then(() => {
+      .then((kept) => {
+        // Le formulaire reprend les réglages gardés, tels que le serveur les
+        // a rendus.
+        setTitle(kept.title);
+        setAnnouncement(kept.announcement);
+        setLanguage(kept.language);
         setError(null);
         setSaved(true);
         settings.reload();

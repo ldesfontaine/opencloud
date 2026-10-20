@@ -13,11 +13,12 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 func newService(t *testing.T) (*settings.Service, *store.DB) {
 	t.Helper()
-	_, db := openStateDir(t)
+	db := storetest.Open(t)
 	return settings.New(db, slog.New(slog.NewTextHandler(io.Discard, nil))), db
 }
 

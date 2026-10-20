@@ -2,8 +2,6 @@ package alert_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 const remoteID = "11111111-2222-4333-8444-555555555555"
@@ -34,20 +33,7 @@ func (f *fixture) kinds(t *testing.T) string {
 
 func (f *fixture) enrollRemote(t *testing.T) machine.Machine {
 	t.Helper()
-	ctx := context.Background()
-	cleartext, _, err := f.machines.CreateToken(ctx, "vps-paris-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enrolled, err := f.machines.Enroll(ctx, machine.Enrollment{MachineID: remoteID, PublicKey: public, Token: cleartext, Hostname: "paris"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return enrolled
+	return storetest.EnrollMachine(t, f.machines, remoteID, "vps-paris-1")
 }
 
 func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {

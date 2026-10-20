@@ -7,15 +7,14 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/mcp"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
@@ -30,17 +29,7 @@ type fixture struct {
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	f := &fixture{db: db, clock: testNow}
 	f.Service = mcp.New(db, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	f.SetClock(func() time.Time { return f.clock })

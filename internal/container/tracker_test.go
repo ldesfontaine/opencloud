@@ -12,8 +12,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
@@ -41,23 +41,8 @@ func (b *bench) ContainersChanged(machineID string) {
 // machine openCloud en place et une horloge qu'on avance à la main.
 func newBench(t *testing.T) *bench {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
-	err = db.SaveLocalMachine(context.Background(), machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, EnrolledAt: testNow, CreatedAt: testNow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := storetest.Open(t)
+	storetest.SaveLocalMachine(t, db, testNow)
 	b := &bench{db: db, now: testNow}
 	b.tracker = container.New(db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	b.tracker.SetClock(func() time.Time { return b.now })

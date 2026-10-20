@@ -2,8 +2,6 @@ package status_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"os"
@@ -19,10 +17,9 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
-	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
@@ -47,25 +44,13 @@ func (c *counter) StatusChanged() { c.count++ }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	root, err := os.OpenRoot(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { root.Close() })
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	db, err := store.Open(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetSealer(seal.Generate())
-	t.Cleanup(func() { db.Close() })
+	db := storetest.Open(t)
 	f := &fixture{bus: live.New(), published: &counter{}, now: testNow}
 	clock := func() time.Time { return f.now }
 	f.machines = machine.New(db, machine.NewSessions(), logger)
 	f.machines.SetClock(clock)
-	if err := f.machines.EnsureLocal(context.Background(), machine.LocalInfo{Hostname: "opencloud-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1"}); err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, f.machines)
 	f.heartbeats = heartbeat.New(db, logger)
 	f.heartbeats.SetClock(clock)
 	f.services = container.New(db, logger)
@@ -112,23 +97,7 @@ func (f *fixture) probe(t *testing.T, name string, outcome probe.Outcome, certif
 // enroll une machine distante, sans flux : hors ligne.
 func (f *fixture) enroll(t *testing.T, name string) string {
 	t.Helper()
-	ctx := context.Background()
-	cleartext, _, err := f.machines.CreateToken(ctx, name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	enrolled, err := f.machines.Enroll(ctx, machine.Enrollment{
-		MachineID: "22222222-2222-4333-8444-555555555555", PublicKey: public, Token: cleartext,
-		Hostname: name, Address: "51.15.20.114", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return enrolled.ID
+	return storetest.EnrollMachine(t, f.machines, "22222222-2222-4333-8444-555555555555", name).ID
 }
 
 // service pose un conteneur sur la machine openCloud et le déclare à l'annuaire :

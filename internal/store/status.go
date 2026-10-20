@@ -13,52 +13,40 @@ import (
 // --- Composants ---
 
 func (db *DB) InsertComponent(ctx context.Context, component status.Component) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert component: %w", err)
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `
+	return db.inTx(ctx, "insert component", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
 		INSERT INTO status_components (id, name, position, created_at) VALUES (?, ?, ?, ?)`,
-		component.ID, component.Name, component.Position, component.CreatedAt.Unix())
-	if err != nil {
-		return fmt.Errorf("insert component: %w", err)
-	}
-	if err := insertMembers(ctx, tx, component); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert component: %w", err)
-	}
-	return nil
+			component.ID, component.Name, component.Position, component.CreatedAt.Unix())
+		if err != nil {
+			return fmt.Errorf("insert component: %w", err)
+		}
+		if err := insertMembers(ctx, tx, component); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // UpdateComponent réécrit le nom, l'ordre et les objets rattachés : les
 // liens sont remplacés, pas rapprochés.
 func (db *DB) UpdateComponent(ctx context.Context, component status.Component) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update component: %w", err)
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE status_components SET name = ?, position = ? WHERE id = ?`,
-		component.Name, component.Position, component.ID)
-	if err != nil {
-		return fmt.Errorf("update component: %w", err)
-	}
-	if err := statusNotFoundIfNoRow(result); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM status_component_members WHERE component_id = ?`, component.ID); err != nil {
-		return fmt.Errorf("clear members: %w", err)
-	}
-	if err := insertMembers(ctx, tx, component); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit update component: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "update component", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE status_components SET name = ?, position = ? WHERE id = ?`,
+			component.Name, component.Position, component.ID)
+		if err != nil {
+			return fmt.Errorf("update component: %w", err)
+		}
+		if err := notFoundIfNoRow(result, status.ErrNotFound); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM status_component_members WHERE component_id = ?`, component.ID); err != nil {
+			return fmt.Errorf("clear members: %w", err)
+		}
+		if err := insertMembers(ctx, tx, component); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // Une requête par genre d'objet : quatre colonnes, quatre instructions
@@ -108,16 +96,8 @@ func (db *DB) ListComponents(ctx context.Context) ([]status.Component, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list components: %w", err)
 	}
-	defer rows.Close()
-	components := []status.Component{}
-	for rows.Next() {
-		component, err := scanComponent(rows)
-		if err != nil {
-			return nil, err
-		}
-		components = append(components, component)
-	}
-	if err := rows.Err(); err != nil {
+	components, err := collect(rows, scanComponent)
+	if err != nil {
 		return nil, err
 	}
 	for i := range components {
@@ -188,7 +168,7 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete component: %w", err)
 	}
-	return statusNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, status.ErrNotFound)
 }
 
 func (db *DB) CountComponents(ctx context.Context) (int, error) {
@@ -206,60 +186,48 @@ const incidentColumns = `id, title, impact, status, starts_at, ends_at, created_
 // InsertIncident écrit l'incident, ses composants et la première entrée de
 // son fil d'un coup.
 func (db *DB) InsertIncident(ctx context.Context, incident status.Incident) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin insert incident: %w", err)
-	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `
+	return db.inTx(ctx, "insert incident", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
 		INSERT INTO incidents (`+incidentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		incident.ID, incident.Title, string(incident.Impact), string(incident.Status),
-		nullableTime(incident.StartsAt), nullableTime(incident.EndsAt),
-		incident.CreatedAt.Unix(), incident.UpdatedAt.Unix(), nullableTime(incident.ResolvedAt))
-	if err != nil {
-		return fmt.Errorf("insert incident: %w", err)
-	}
-	if err := insertIncidentComponents(ctx, tx, incident); err != nil {
-		return err
-	}
-	for _, update := range incident.Updates {
-		if err := insertUpdate(ctx, tx, incident.ID, update); err != nil {
+			incident.ID, incident.Title, string(incident.Impact), string(incident.Status),
+			nullableTime(incident.StartsAt), nullableTime(incident.EndsAt),
+			incident.CreatedAt.Unix(), incident.UpdatedAt.Unix(), nullableTime(incident.ResolvedAt))
+		if err != nil {
+			return fmt.Errorf("insert incident: %w", err)
+		}
+		if err := insertIncidentComponents(ctx, tx, incident); err != nil {
 			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit insert incident: %w", err)
-	}
-	return nil
+		for _, update := range incident.Updates {
+			if err := insertUpdate(ctx, tx, incident.ID, update); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // UpdateIncident réécrit ce que l'opérateur corrige : le titre, la
 // fenêtre, les composants. Le statut et le fil passent par Transition.
 func (db *DB) UpdateIncident(ctx context.Context, incident status.Incident) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin update incident: %w", err)
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `
+	return db.inTx(ctx, "update incident", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
 		UPDATE incidents SET title = ?, starts_at = ?, ends_at = ?, updated_at = ? WHERE id = ?`,
-		incident.Title, nullableTime(incident.StartsAt), nullableTime(incident.EndsAt), incident.UpdatedAt.Unix(), incident.ID)
-	if err != nil {
-		return fmt.Errorf("update incident: %w", err)
-	}
-	if err := statusNotFoundIfNoRow(result); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM incident_components WHERE incident_id = ?`, incident.ID); err != nil {
-		return fmt.Errorf("clear incident components: %w", err)
-	}
-	if err := insertIncidentComponents(ctx, tx, incident); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit update incident: %w", err)
-	}
-	return nil
+			incident.Title, nullableTime(incident.StartsAt), nullableTime(incident.EndsAt), incident.UpdatedAt.Unix(), incident.ID)
+		if err != nil {
+			return fmt.Errorf("update incident: %w", err)
+		}
+		if err := notFoundIfNoRow(result, status.ErrNotFound); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM incident_components WHERE incident_id = ?`, incident.ID); err != nil {
+			return fmt.Errorf("clear incident components: %w", err)
+		}
+		if err := insertIncidentComponents(ctx, tx, incident); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func insertIncidentComponents(ctx context.Context, tx *sql.Tx, incident status.Incident) error {
@@ -287,26 +255,20 @@ func insertUpdate(ctx context.Context, tx *sql.Tx, incidentID string, update sta
 
 // Transition écrit le statut et l'entrée du fil dans la même transaction.
 func (db *DB) Transition(ctx context.Context, incident status.Incident, update status.Update) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin transition: %w", err)
-	}
-	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE incidents SET status = ?, updated_at = ?, resolved_at = ? WHERE id = ?`,
-		string(incident.Status), incident.UpdatedAt.Unix(), nullableTime(incident.ResolvedAt), incident.ID)
-	if err != nil {
-		return fmt.Errorf("update incident status: %w", err)
-	}
-	if err := statusNotFoundIfNoRow(result); err != nil {
-		return err
-	}
-	if err := insertUpdate(ctx, tx, incident.ID, update); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transition: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "transition", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE incidents SET status = ?, updated_at = ?, resolved_at = ? WHERE id = ?`,
+			string(incident.Status), incident.UpdatedAt.Unix(), nullableTime(incident.ResolvedAt), incident.ID)
+		if err != nil {
+			return fmt.Errorf("update incident status: %w", err)
+		}
+		if err := notFoundIfNoRow(result, status.ErrNotFound); err != nil {
+			return err
+		}
+		if err := insertUpdate(ctx, tx, incident.ID, update); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 // ListIncidents rend les incidents ouverts et ceux résolus depuis
@@ -324,16 +286,8 @@ func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]sta
 	if err != nil {
 		return nil, fmt.Errorf("list incidents: %w", err)
 	}
-	defer rows.Close()
-	incidents := []status.Incident{}
-	for rows.Next() {
-		incident, err := scanIncident(rows)
-		if err != nil {
-			return nil, err
-		}
-		incidents = append(incidents, incident)
-	}
-	if err := rows.Err(); err != nil {
+	incidents, err := collect(rows, scanIncident)
+	if err != nil {
 		return nil, err
 	}
 	for i := range incidents {
@@ -386,16 +340,8 @@ func (db *DB) attachIncident(ctx context.Context, incident *status.Incident) err
 	if err != nil {
 		return fmt.Errorf("list incident components: %w", err)
 	}
-	defer rows.Close()
-	incident.Components = []status.ComponentRef{}
-	for rows.Next() {
-		var ref status.ComponentRef
-		if err := rows.Scan(&ref.ID, &ref.Name); err != nil {
-			return fmt.Errorf("scan incident component: %w", err)
-		}
-		incident.Components = append(incident.Components, ref)
-	}
-	if err := rows.Err(); err != nil {
+	incident.Components, err = collect(rows, scanComponentRef)
+	if err != nil {
 		return err
 	}
 	updates, err := db.sql.QueryContext(ctx, `
@@ -403,20 +349,28 @@ func (db *DB) attachIncident(ctx context.Context, incident *status.Incident) err
 	if err != nil {
 		return fmt.Errorf("list incident updates: %w", err)
 	}
-	defer updates.Close()
-	incident.Updates = []status.Update{}
-	for updates.Next() {
-		var update status.Update
-		var state string
-		var createdAt int64
-		if err := updates.Scan(&update.ID, &state, &update.Message, &createdAt); err != nil {
-			return fmt.Errorf("scan incident update: %w", err)
-		}
-		update.Status = status.IncidentStatus(state)
-		update.CreatedAt = time.Unix(createdAt, 0)
-		incident.Updates = append(incident.Updates, update)
+	incident.Updates, err = collect(updates, scanIncidentUpdate)
+	return err
+}
+
+func scanComponentRef(row scanner) (status.ComponentRef, error) {
+	var ref status.ComponentRef
+	if err := row.Scan(&ref.ID, &ref.Name); err != nil {
+		return status.ComponentRef{}, fmt.Errorf("scan incident component: %w", err)
 	}
-	return updates.Err()
+	return ref, nil
+}
+
+func scanIncidentUpdate(row scanner) (status.Update, error) {
+	var update status.Update
+	var state string
+	var createdAt int64
+	if err := row.Scan(&update.ID, &state, &update.Message, &createdAt); err != nil {
+		return status.Update{}, fmt.Errorf("scan incident update: %w", err)
+	}
+	update.Status = status.IncidentStatus(state)
+	update.CreatedAt = time.Unix(createdAt, 0)
+	return update, nil
 }
 
 func (db *DB) DeleteIncident(ctx context.Context, id string) error {
@@ -424,7 +378,7 @@ func (db *DB) DeleteIncident(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete incident: %w", err)
 	}
-	return statusNotFoundIfNoRow(result)
+	return notFoundIfNoRow(result, status.ErrNotFound)
 }
 
 func (db *DB) CountOpenIncidents(ctx context.Context) (int, error) {
@@ -440,17 +394,6 @@ func (db *DB) CountOpenIncidents(ctx context.Context) (int, error) {
 func (db *DB) PurgeIncidents(ctx context.Context, resolvedBefore time.Time) error {
 	if _, err := db.sql.ExecContext(ctx, `DELETE FROM incidents WHERE resolved_at IS NOT NULL AND resolved_at < ?`, resolvedBefore.Unix()); err != nil {
 		return fmt.Errorf("purge incidents: %w", err)
-	}
-	return nil
-}
-
-func statusNotFoundIfNoRow(result sql.Result) error {
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return status.ErrNotFound
 	}
 	return nil
 }
