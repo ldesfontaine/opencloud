@@ -161,7 +161,7 @@ binaire par plateforme.
 
 | Couche | Paquets | Ce qu'elle fait | Jamais |
 | --- | --- | --- | --- |
-| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche | Une règle métier |
+| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et `mcp` | Une règle métier |
 | HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
