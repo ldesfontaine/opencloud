@@ -5,40 +5,31 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-// La machine openCloud elle-même : gérée comme les autres, jamais retirée,
-// jamais authentifiée par le réseau.
+// L'identifiant stable de la machine openCloud : la ligne qu'elle a toujours
+// eue, et celle que prend l'agent qui s'enrôle depuis la même machine que le
+// serveur (local.go). C'est une machine comme les autres : rien d'autre ne la
+// distingue.
 const LocalID = "local"
 
-type Kind string
-
-const (
-	KindLocal  Kind = "local"
-	KindRemote Kind = "remote"
-)
-
+// Machine est l'hôte : son nom, son système, son historique. Elle survit à
+// ses agents : ré-enrôler, réinstaller ou révoquer la garde.
 type Machine struct {
-	ID           string
-	Name         string
-	Kind         Kind
-	PublicKey    []byte
-	Hostname     string
-	Address      string
-	OS           string
-	Arch         string
-	AgentVersion string
-	EnrolledAt   time.Time
-	// Zéro tant que l'agent n'a jamais donné signe de vie.
+	ID       string
+	Name     string
+	Hostname string
+	Address  string
+	OS       string
+	Arch     string
+	// Le dernier signe de vie de son agent ; zéro tant qu'il n'en a donné
+	// aucun.
 	LastSeenAt time.Time
 	CreatedAt  time.Time
-}
-
-func (m Machine) IsLocal() bool {
-	return m.Kind == KindLocal
+	// L'agent courant : l'actif, sinon le dernier révoqué ; vide sans agent.
+	Agent Agent
 }
 
 // Status est ce que l'opérateur voit : la machine et si elle est en ligne.
@@ -54,11 +45,15 @@ type Token struct {
 	Prefix    string
 	Name      string
 	MachineID string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	// Les droits demandés à l'émission ; vide pour un jeton d'avant les
+	// droits.
+	Capabilities []Capability
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
 	// Zéro tant que le jeton n'a pas servi.
 	ConsumedAt time.Time
-	ConsumedBy string
+	// L'agent qui l'a consommé.
+	AgentID string
 }
 
 // Ce que l'agent envoie pour s'enrôler.
@@ -78,7 +73,6 @@ type Enrollment struct {
 
 var (
 	ErrNotFound      = errors.New("machine not found")
-	ErrLocalMachine  = errors.New("the local machine cannot be removed or re-enrolled by token")
 	ErrNameInvalid   = refusal.Invalid("machine.name_invalid", "machine name must be a lowercase label: letters, digits, dashes")
 	ErrNameTaken     = errors.New("machine name already used")
 	ErrTokenNotFound = errors.New("enrollment token not found")
@@ -91,7 +85,17 @@ var (
 	ErrBadSignature  = errors.New("invalid signature")
 	ErrNotConnected  = errors.New("machine not connected")
 	ErrBusy          = errors.New("machine command queue full")
-	ErrIsOpenCloud   = errors.New("the agent runs on the " + brand.ProductName + " machine itself")
+	// L'agent de la machine est révoqué : il est refusé jusqu'au
+	// ré-enrôlement, qui en installe un nouveau.
+	ErrAgentRevoked = errors.New("agent revoked")
+	ErrNoAgent      = refusal.Conflict("machine.no_agent", "the machine has no active agent")
+	// Un agent s'enrôle depuis la machine du serveur, par un jeton de
+	// machine neuve, alors que la machine openCloud a déjà un agent actif :
+	// c'est un ré-enrôlement, qui se demande sur sa fiche.
+	ErrLocalAgentActive = errors.New("the server machine already has an active agent")
+	// La machine openCloud a, ou a eu, un agent : sa ligne d'installation ne
+	// s'offre plus d'elle-même.
+	ErrLocalEnrolled = refusal.Conflict("machine.local_enrolled", "the server machine already has, or had, an agent")
 )
 
 // Ce qui retient le retrait d'une machine : ce qui y est déclaré ou la vise

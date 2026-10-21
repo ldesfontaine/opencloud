@@ -15,7 +15,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -215,37 +214,6 @@ func TestContainerLogs_OfflineMachineAndUnknownContainer(t *testing.T) {
 	}
 }
 
-// La machine openCloud sert ses journaux en processus : le tirage unique
-// passe par la source locale, sans agent.
-type fakeLocalLogs struct{}
-
-func (fakeLocalLogs) OpenLogs(_ context.Context, request container.LogRequest) (<-chan container.LogBatch, error) {
-	batches := make(chan container.LogBatch, 1)
-	batches <- container.LogBatch{Lines: []container.LogLine{{At: testNow, Stream: "stdout", Text: "local line " + request.ContainerID[:4]}}, Done: true}
-	close(batches)
-	return batches, nil
-}
-
-func TestContainerLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
-	server := newTestServer(t)
-	server.containers.SetLocalLogSource(machine.LocalID, fakeLocalLogs{})
-	report := container.Report{Complete: true, Inventory: []container.Observed{{
-		ContainerID: strings.Repeat("d", 64), Name: "traefik", Image: "traefik:3.1", State: container.StateRunning, CreatedAt: testNow,
-	}}}
-	if err := server.containers.Record(context.Background(), machine.LocalID, report); err != nil {
-		t.Fatal(err)
-	}
-	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+container.ID(machine.LocalID, strings.Repeat("d", 64))+"/logs?tail=5", nil)
-	if got.Code != http.StatusOK {
-		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
-	}
-	var response logsResponse
-	decodeAPI(t, got, &response)
-	if len(response.Lines) != 1 || response.Lines[0].Text != "local line dddd" || response.Lines[0].At == nil {
-		t.Fatalf("lines = %+v", response.Lines)
-	}
-}
-
 // Une machine ne livre pas dans la requête poussée à une autre : sans quoi
 // un agent enrôlé écrirait dans les journaux qu'un onglet lit ailleurs.
 func TestContainerLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
@@ -355,10 +323,10 @@ func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 // 500 ; le jeu de sondes refusé repart au cycle suivant.
 func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
+	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
 	// Une session sans boucle de flux : personne ne vide la file.
-	session, err := server.machines.Connect(context.Background(), remoteID, "51.15.20.114", "v0.0.1")
+	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

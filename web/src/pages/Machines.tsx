@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { Card, CardHeader } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { Dot, Pill, OnlinePill } from "../components/Pill";
+import { Dot, OnlinePill } from "../components/Pill";
 import { List, RowText, Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
@@ -53,17 +53,12 @@ export function Machines() {
                       <Link className="svc" to={`/machines/${machine.id}`}>
                         <Subject icon="server">
                           {machine.name}
-                          {machine.local && (
-                            <Pill tone="neutral" dot={false}>
-                              {t("machine.this_machine")}
-                            </Pill>
-                          )}
                         </Subject>
                       </Link>
                     </td>
                     <td className="num wide-only">{machine.address}</td>
                     <td className="wide-only">{machine.os}</td>
-                    <td className="num wide-only">{machine.agent_version}</td>
+                    <td className="num wide-only">{machine.agent?.version ?? "—"}</td>
                     <td>
                       <OnlinePill online={machine.online} />
                     </td>

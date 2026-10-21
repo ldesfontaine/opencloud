@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/deletion"
@@ -75,10 +74,6 @@ func (s *Server) writeDeletionPlan(w http.ResponseWriter, r *http.Request, plan 
 
 func (s *Server) getMachineDeletePlan(w http.ResponseWriter, r *http.Request) {
 	plan, err := s.machines.DeletePlan(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrLocalMachine) {
-		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-		return
-	}
 	s.writeDeletionPlan(w, r, plan, err, machine.ErrNotFound)
 }
 

@@ -12,7 +12,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
-	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -89,8 +88,8 @@ func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err e
 		h.writeError(w, http.StatusConflict, "token_expired")
 	case errors.Is(err, machine.ErrNameTaken):
 		h.writeError(w, http.StatusConflict, "name_taken")
-	case errors.Is(err, machine.ErrIsOpenCloud):
-		h.writeError(w, http.StatusConflict, brand.AgentErrorIsHost)
+	case errors.Is(err, machine.ErrLocalAgentActive):
+		h.writeError(w, http.StatusConflict, agentwire.CodeLocalAgentActive)
 	default:
 		h.logger.Error("enroll", "path", r.URL.Path, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
@@ -140,14 +139,16 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(agentwire.HeaderAgentOS)); err != nil {
 		h.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
 	}
-	session, err := h.machines.Connect(r.Context(), authenticated.ID, h.clientAddress(r), r.Header.Get(agentwire.HeaderAgentVersion))
+	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
+	// dit, comparés à ce que son jeton demandait, pas encore appliqués.
+	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
+		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights))
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	defer h.machines.Disconnect(session)
-	h.machines.WarnIfOpenCloudHost(authenticated, r.Header.Get(agentwire.HeaderHostFingerprint))
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine et
 	// les images à ne pas interroger : les commandes attendent dans la
 	// file que la boucle ci-dessous va lire.
@@ -203,6 +204,11 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusUnauthorized, "challenge_expired")
 	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
 		h.writeError(w, http.StatusUnauthorized, "bad_proof")
+	// L'agent a prouvé sa clé, mais l'opérateur l'a révoqué : il s'arrête,
+	// comme pour bad_proof. Un agent plus vieux ne connaît pas ce code et
+	// réessaie, avec son délai croissant, sans jamais être admis.
+	case errors.Is(err, machine.ErrAgentRevoked):
+		h.writeError(w, http.StatusUnauthorized, agentwire.CodeRevoked)
 	default:
 		h.logger.Error("authenticate", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")

@@ -96,7 +96,7 @@ func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *byt
 	t.Helper()
 	httpServer := httptest.NewServer(server.handler())
 	t.Cleanup(httpServer.Close)
-	identity, err := NewIdentity(httpServer.URL, "", lang.French)
+	identity, err := NewIdentity(httpServer.URL, "", lang.French, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

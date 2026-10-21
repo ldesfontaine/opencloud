@@ -61,13 +61,14 @@ export function DeclaredServiceForm() {
   const { values, change } = form;
   const action = useAction();
 
-  // À défaut de choix, la machine openCloud : c'est celle qu'on a sous la main.
-  const local = machines.data?.machines.find((machine) => machine.local);
+  // À défaut de choix, la première machine de la liste : le sélecteur n'a
+  // pas d'option vide, il montrerait une machine sans l'avoir choisie.
+  const first = machines.data?.machines[0];
   useEffect(() => {
-    if (!isEditing && values.machineID === "" && local !== undefined) {
-      change("machineID", local.id);
+    if (!isEditing && values.machineID === "" && first !== undefined) {
+      change("machineID", first.id);
     }
-  }, [isEditing, local, values.machineID]);
+  }, [isEditing, first, values.machineID]);
 
   if (isEditing && existing.error?.status === 404) {
     return <NotFound />;

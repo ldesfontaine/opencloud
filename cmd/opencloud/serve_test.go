@@ -2,13 +2,18 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/config"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Un flux en direct ouvert n'empêche plus l'arrêt : il finit avec le
@@ -86,5 +91,42 @@ func TestNewHTTPServer_OversizedHeaders_AreRefused(t *testing.T) {
 	}
 	if got := get(100 << 10); got != http.StatusRequestHeaderFieldsTooLarge {
 		t.Fatalf("100 KiB of headers: status %d, want 431", got)
+	}
+}
+
+// Au premier démarrage, serve émet le jeton de l'agent de sa machine : le
+// journal dit qu'il attend, dans la langue de l'interface, sans jamais le
+// porter. Une fois l'agent enrôlé, plus rien n'est émis.
+func TestOfferLocalEnrollment_LogsThatATokenWaitsButNeverTheToken(t *testing.T) {
+	root, db := storetest.OpenWithStateDir(t)
+	var journal bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&journal, nil))
+	parts, err := buildComponents(config.Default(), root, db, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts.machines.SetServerHost("sha256:server", "oc-host")
+	ctx := context.Background()
+	offerLocalEnrollment(ctx, logger, parts)
+	pending, err := parts.machines.PendingTokens(ctx)
+	if err != nil || len(pending) != 1 || pending[0].Name != "oc-host" {
+		t.Fatalf("pending %+v %v", pending, err)
+	}
+	if !strings.Contains(journal.String(), "enrollment token waiting") || !strings.Contains(journal.String(), "un jeton d'enrôlement attend") {
+		t.Fatalf("journal %s", journal.String())
+	}
+	cleartext, _, err := parts.machines.OfferLocalEnrollment(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(journal.String(), cleartext) || strings.Contains(journal.String(), pending[0].Prefix) {
+		t.Fatal("the token must never reach the journal")
+	}
+
+	storetest.EnsureLocalMachine(t, parts.machines)
+	journal.Reset()
+	offerLocalEnrollment(ctx, logger, parts)
+	if journal.Len() != 0 {
+		t.Fatalf("an enrolled machine needs no offer: %s", journal.String())
 	}
 }

@@ -49,6 +49,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 			{deletion.KindComponents, componentsShowing("machine_id")},
 		},
 		[]planQuery{
+			{deletion.KindAgents, `SELECT COUNT(*) FROM agents WHERE machine_id = ?`},
 			{deletion.KindEnrollmentTokens, `SELECT COUNT(*) FROM enrollment_tokens WHERE machine_id = ?`},
 			{deletion.KindMachineSamples, `SELECT COUNT(*) FROM (
 				SELECT machine_id FROM machine_samples

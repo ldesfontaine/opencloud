@@ -21,13 +21,23 @@ const (
 	// l'enrôlement le fige, une montée de version le change. Absent chez un
 	// agent plus vieux.
 	HeaderAgentOS = brand.HeaderPrefix + "Agent-OS"
-	// L'empreinte de l'identifiant de la machine de l'agent : à
-	// l'ouverture du flux, elle dit si un agent tourne sur la machine
-	// openCloud elle-même.
-	HeaderHostFingerprint = brand.HeaderPrefix + "Host-Fingerprint"
 	// Posé par un agent qui sait lire un refus par section ; sans lui, le
 	// serveur répond comme avant, par un 400 global.
 	HeaderSignalSections = brand.HeaderPrefix + "Signal-Sections"
+	// Les droits que l'agent lit dans son fichier, redits à chaque ouverture
+	// du flux, sous leur forme texte (machine.FormatCapabilities). Absent
+	// chez un agent plus vieux : rien n'est rapporté.
+	HeaderAgentRights = brand.HeaderPrefix + "Agent-Rights"
+)
+
+const (
+	// CodeRevoked : l'agent a prouvé sa clé, mais il est révoqué. Il
+	// s'arrête.
+	CodeRevoked = "revoked"
+	// CodeLocalAgentActive : l'agent s'enrôle depuis la machine du serveur
+	// par un jeton de machine neuve, et la machine openCloud a déjà un agent
+	// actif. Le jeton n'est pas consommé.
+	CodeLocalAgentActive = "local_agent_active"
 )
 
 type EnrollRequest struct {
@@ -38,8 +48,9 @@ type EnrollRequest struct {
 	OS           string `json:"os"`
 	Arch         string `json:"arch"`
 	AgentVersion string `json:"agent_version"`
-	// Absente chez un agent plus vieux ou sur une machine sans
-	// identifiant : pas de contrôle.
+	// L'empreinte de la machine : celle du serveur fait de l'agent celui de
+	// la machine openCloud. Absente chez un agent plus vieux ou sur une
+	// machine sans identifiant : pas de rapprochement.
 	HostFingerprint string `json:"host_fingerprint,omitempty"`
 }
 

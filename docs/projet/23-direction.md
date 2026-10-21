@@ -28,8 +28,10 @@
 `opencloud`, agent en **root** (`/proc`, volumes montés, socket Docker). Les
 réglages vivent à quatre endroits : `config.toml`, `settings.toml`,
 `lifecycle.json`, la base ([« Ce qui est stocké »](22-fonctionnement.md#ce-qui-est-stocké-et-où)).
-La machine openCloud est mesurée par un chemin intégré à `serve`, pas par un
-agent. Aucune mise à jour automatique, ni du serveur ni des agents.
+La machine openCloud reçoit un agent comme les autres, installé dès la
+première configuration ; `serve` n'observe plus rien d'elle (**fait**,
+21 octobre 2026). Aucune mise à jour automatique, ni du serveur ni des
+agents.
 
 **Cible** : un contrat d'installation écrit, identique sur toute machine, la
 machine openCloud comprise : elle reçoit un agent comme les autres.
@@ -53,7 +55,7 @@ et en-têtes qui le portent passent par un seul paquet de constantes
 | Nom à un seul endroit | constante d'affichage + catalogues `internal/lang` ; paquet de constantes techniques | Changer de nom sans chasser chaque occurrence | Faible à moyen : relever les occurrences une fois |
 | Agent installé par une **ligne générée** dans l'interface | serveur, script d'installation | `curl … \| sh`, aussi en cloud-init ; jeton à usage unique lu sur stdin ou dans un fichier, jamais en argv. Le serveur n'a jamais d'accès SSH | Moyen : le script, la page qui le génère |
 | Racine déjà occupée | script d'installation | Si le dossier existe et n'est pas vide, l'installation s'arrête et demande un autre chemin | Faible |
-| Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé |
+| Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé. **Fait** (migration `030_agents.sql`) : l'agent s'installe dès la première configuration, l'empreinte du serveur le rattache à l'identifiant `local` |
 | Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer |
 | Le **serveur** ne se met jamais à jour seul | doc | Il porte la base ; une montée ratée casse tout | Nul |
 | Agent root ou non | `opencloud-agent.service` | Lire `/proc` et Docker en root est accepté aujourd'hui ; écrire dans `/srv/workspace` en root l'est moins | Reportée avant l'étape 2 (décision 2) |
@@ -160,16 +162,20 @@ issue #146) : l'agent **initie** la connexion, signe un défi, tient un flux
 (SSE + POST). Il n'exécute que **quatre commandes** du serveur : `probes`,
 `logs`, `logs_stop`, `image_checks`, au format `{Name, Payload any}`, dans une
 file de 16 en mémoire ; aucun shell, aucune écriture Docker. Le serveur
-vérifie l'agent ; **l'agent ne vérifie pas le serveur**. Pas de droits :
-chaque agent accepte les quatre commandes. Le jeton d'enrôlement vaut 1 h,
-sert une fois. L'agent tourne en root. Machine et agent sont une seule ligne.
+vérifie l'agent ; **l'agent ne vérifie pas le serveur**. Les droits sont
+cochés à l'installation, écrits dans le fichier de l'agent, rapportés et
+affichés, **pas encore appliqués** : chaque agent accepte les quatre
+commandes. Le jeton d'enrôlement vaut 1 h, sert une fois. L'agent tourne en
+root. Machine et agent sont deux tables (`agents`, migration
+`030_agents.sql`) ; un agent se révoque sans supprimer sa machine
+([« Comment une machine entre »](22-fonctionnement.md#comment-une-machine-entre)).
 
 **Cible**
 
 | Pièce | Position | Modèle vu ailleurs |
 | --- | --- | --- |
 | Actions | une **liste fermée, typée** (`type` + `params`, un identifiant d'exécution) ; jamais une chaîne shell dans le protocole. Le format actuel se casse ; transport, enrôlement Ed25519 et relais des journaux restent | Komodo `PeripheryRequest` (~100 variantes), Beszel `WebSocketAction` (10) |
-| Droits (capacités) | **pas de « modes »** : un seul agent, une liste de droits cochée dans l'interface à l'installation, écrite par la ligne générée dans le fichier local de l'agent. L'agent fait ce qu'il a le droit de faire, rien d'autre ; un refus est journalisé. Liste de départ et changement après l'installation : décisions 9 et 10, reportées. Candidats : `observe` (toujours), `docker.deploy`, `docker.update`, `files.write` limité à des chemins, `ssh.keys` limité à des comptes, `agent.update` | Komodo `disable_terminals`, `core_public_keys` ; Netdata `allow from` |
+| Droits (capacités) | **pas de « modes »** : un seul agent, une liste de droits cochée dans l'interface à l'installation, écrite par la ligne générée dans le fichier local de l'agent. L'agent fait ce qu'il a le droit de faire, rien d'autre ; un refus est journalisé. Liste de départ : décision 9, **prise** ; changement après l'installation : décision 10, reportée. **Fait** : cochés, écrits, rapportés et affichés avec l'écart (030) ; les appliquer reste #146 | Komodo `disable_terminals`, `core_public_keys` ; Netdata `allow from` |
 | Vérification réciproque | l'agent connaît la clé publique du serveur et vérifie chaque session ; un faux serveur ne commande rien | Komodo (clés `core_public_keys`), Beszel (le hub signe le jeton) |
 | Enrôlement | jeton à usage unique, porté par la ligne générée ; **rotation** de la clé de l'agent et de celle du serveur. Machine et agent séparés : ré-enrôler, réinstaller ou tourner la clé garde la machine et son historique | Teleport (jeton 30 min), Komodo `RotatePrivateKey`, Swarm (3 mois) |
 | Root | reporté avant l'étape 2 (décision 2). Piste : un observateur non privilégié + un exécuteur root étroit avec politique locale | — |
@@ -310,7 +316,7 @@ donné avant la décision.
 | 6 | Version `latest` autorisée au déploiement ? | jamais ; avec avertissement | jamais | Jamais écrite : « dernière version » écrit le numéro du jour, épinglé. openCloud propose les montées, ne les applique jamais seul |
 | 7 | Volumes | bind mounts ; volumes nommés ; au choix | bind mounts seulement | Bind mounts seulement, un dossier par service : `compose.yml`, `.env`, conf ; `data/` = données. Sauvegarde d'un service : `data/` + `.env`, chiffrés |
 | 8 | Docker seulement pour déployer ? | oui ; aussi des binaires | oui | Oui, dans un premier temps ; les binaires restent supervisés |
-| 9 | Liste de droits de départ | la liste du thème 5 ; autre | la liste du thème 5 | Reportée avant l'étape 2. Base : l'audit de l'agent |
+| 9 | Liste de droits de départ | la liste du thème 5 ; autre | la liste du thème 5 | **Prise le 21 octobre 2026** : `observe` (implicite, toujours), `agent.update`, `docker.deploy`, `docker.update`, `backup.receive` (un chemin), `files.write` (des chemins). `ssh.keys` attend #152. Stockés et affichés (migration `030_agents.sql`), appliqués avec #146 |
 | 10 | Droits dans le fichier de l'agent ou dans l'interface ? | fichier ; interface ; les deux | fichier, l'interface ne fait que les lire | Cochés dans l'interface à l'installation, écrits dans le fichier de l'agent. Qui les change ensuite : reportée avant l'étape 2. Piste : un changement signé par une clé de l'opérateur, pas du serveur |
 | 11 | Rétention locale de l'agent | SQLite 24 h ; tampon mémoire ; rien | SQLite 24 h | SQLite 24 h, rejeu à la reconnexion |
 | 12 | Sauvegarde de la base | copie locale ; copie + poussée vers un agent ; rien | copie locale d'abord, poussée ensuite | Pas de copie locale : envoi vers une destination choisie (machine avec agent, plus tard stockage externe). Sans destination, l'interface le dit |
@@ -364,7 +370,7 @@ Il peut revoir chacun.
 
 | Sujet | Décision | Pourquoi |
 | --- | --- | --- |
-| Machine openCloud | Reçoit un agent comme les autres ; le chemin intégré à `serve` disparaît | Trois bouts de code recopiés en moins, un seul mécanisme |
+| Machine openCloud | Reçoit un agent comme les autres ; le chemin intégré à `serve` disparaît. **Fait** le 21 octobre 2026, décision de Lucas : l'agent s'installe dès la première étape, la ligne s'affiche à la première configuration | Trois bouts de code recopiés en moins, un seul mécanisme |
 | Direct | `machines` publié seulement sur un vrai changement (en ligne, hors ligne, système) ; l'événement porte l'identifiant ; une seule liste de sujets ; un sujet « exécutions » | Aujourd'hui 10 machines = relecture complète toutes les 3 s par onglet |
 | Mesures | Gardées ; rétention 24 h chez l'agent (décision 11) ; interfaces virtuelles (veth, ponts) écartées ; agrégat horaire par volume ; historique long par service sur l'identité stable | Trafic compté deux fois, volume plein noyé dans la somme |
 | E-mail | Gardé, relais migré en base, mot de passe chiffré | Isolé, facultatif, c'est le canal que tout opérateur a déjà |

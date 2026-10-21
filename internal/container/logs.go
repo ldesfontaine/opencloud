@@ -8,9 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// LogSource sait ouvrir un journal sur une machine : en processus pour la
-// machine openCloud, par l'agent pour les autres. Le canal se ferme quand
-// le journal finit ou que le contexte s'arrête.
+// LogSource sait ouvrir un journal sur sa machine : c'est l'agent, qui lit
+// son Docker. Le canal se ferme quand le journal finit ou que le contexte
+// s'arrête.
 type LogSource interface {
 	OpenLogs(ctx context.Context, request LogRequest) (<-chan LogBatch, error)
 }
@@ -25,15 +25,13 @@ type Commander interface {
 // bloque sur son POST, ce qui freine la source.
 const batchBacklog = 16
 
-// Relay route une demande de journaux vers la bonne source et fait suivre
-// les lots que l'agent livre à qui les attend.
+// Relay demande un journal à l'agent d'une machine et fait suivre les lots
+// qu'il livre à qui les attend.
 type Relay struct {
 	mu        sync.Mutex
-	local     map[string]LogSource
 	commander Commander
 	pending   map[string]*follow
-	// Le compte de suivis ouverts par machine, distants seulement : la
-	// source locale se borne elle-même.
+	// Le compte de suivis ouverts par machine.
 	open  map[string]int
 	newID func() string
 }
@@ -54,13 +52,7 @@ func (f *follow) markDone() {
 }
 
 func NewRelay() *Relay {
-	return &Relay{local: make(map[string]LogSource), pending: make(map[string]*follow), open: make(map[string]int), newID: newRequestID}
-}
-
-func (r *Relay) SetLocal(machineID string, source LogSource) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.local[machineID] = source
+	return &Relay{pending: make(map[string]*follow), open: make(map[string]int), newID: newRequestID}
 }
 
 func (r *Relay) SetCommander(commander Commander) {
@@ -73,16 +65,6 @@ func (r *Relay) SetCommander(commander Commander) {
 // reçu de l'agent ni du navigateur.
 func (r *Relay) Open(ctx context.Context, machineID string, request LogRequest) (<-chan LogBatch, error) {
 	request.ID = r.newID()
-	r.mu.Lock()
-	source, isLocal := r.local[machineID]
-	r.mu.Unlock()
-	if isLocal {
-		return source.OpenLogs(ctx, request)
-	}
-	return r.openRemote(ctx, machineID, request)
-}
-
-func (r *Relay) openRemote(ctx context.Context, machineID string, request LogRequest) (<-chan LogBatch, error) {
 	r.mu.Lock()
 	if r.commander == nil {
 		r.mu.Unlock()
@@ -221,10 +203,6 @@ func newRequestID() string {
 }
 
 // Les journaux d'un conteneur, par son relais.
-
-func (t *Tracker) SetLocalLogSource(machineID string, source LogSource) {
-	t.relay.SetLocal(machineID, source)
-}
 
 func (t *Tracker) SetCommander(commander Commander) {
 	t.relay.SetCommander(commander)

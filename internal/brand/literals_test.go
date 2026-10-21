@@ -20,7 +20,6 @@ type exception struct {
 }
 
 var exceptions = map[exception]string{
-	{"internal/agent/explain.go", "agent.machine_is_opencloud"}:      "clé de catalogue : les clés ne changent pas avec le nom",
 	{"internal/alert/payload.go", "alert.open_in_opencloud"}:         "clé de catalogue : les clés ne changent pas avec le nom",
 	{"internal/server/mcp_tools_read.go", mcpMachineIDSchemaLiteral}: "étiquette jsonschema : une étiquette de champ ne se construit pas",
 }

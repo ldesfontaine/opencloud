@@ -22,7 +22,7 @@ func deletionBench(t *testing.T) *DB {
 	t.Helper()
 	db := openTestDB(t)
 	declaredOnLocal(t, db)
-	exec(t, db, `INSERT INTO machines (id, name, kind, enrolled_at, created_at) VALUES ('m1', 'vps-paris-1', 'remote', 1, 1)`)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES ('m1', 'vps-paris-1', 1)`)
 	return db
 }
 
@@ -151,6 +151,9 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	db := deletionBench(t)
 	exec(t, db, `INSERT INTO enrollment_tokens (id, token_hash, token_prefix, name, machine_id, created_at, expires_at)
 		VALUES ('tok1', 'hash', 'oc_', 'vps-paris-1', 'm1', 1, 9999999999)`)
+	exec(t, db, `INSERT INTO agents (id, machine_id, public_key, enrolled_at, revoked_at) VALUES ('agt_1', 'm1', zeroblob(32), 1, 2)`)
+	exec(t, db, `INSERT INTO agents (id, machine_id, public_key, enrolled_at) VALUES ('agt_2', 'm1', zeroblob(32), 2)`)
+	exec(t, db, `INSERT INTO agent_capabilities (agent_id, capability, reported_at) VALUES ('agt_2', 'observe', 2)`)
 	exec(t, db, `INSERT INTO machine_samples (machine_id, sampled_at, cpu_percent, cpu_cores, load_1, mem_used, mem_total,
 		swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second) VALUES ('m1', 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0)`)
 	exec(t, db, `INSERT INTO machine_samples_hourly (machine_id, bucket, avg_cpu_percent, cpu_cores, avg_load_1, avg_mem_used, avg_mem_total,
@@ -175,6 +178,7 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	}
 	want := deletion.Plan{
 		Removes: []deletion.Count{
+			{Kind: deletion.KindAgents, Count: 2},
 			{Kind: deletion.KindEnrollmentTokens, Count: 1}, {Kind: deletion.KindMachineSamples, Count: 2},
 			{Kind: deletion.KindMachineNetworks, Count: 1}, {Kind: deletion.KindContainers, Count: 1},
 			{Kind: deletion.KindContainerEvents, Count: 2}, {Kind: deletion.KindImageChecks, Count: 1},
@@ -189,13 +193,16 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	if err := db.DeleteMachine(ctx, "m1"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"enrollment_tokens", "machine_samples", "machine_samples_hourly", "machine_networks", "containers", "image_checks", "ignored_keys"} {
+	for _, table := range []string{"agents", "enrollment_tokens", "machine_samples", "machine_samples_hourly", "machine_networks", "containers", "image_checks", "ignored_keys"} {
 		if got := count(t, db, `SELECT COUNT(*) FROM `+table+` WHERE machine_id = 'm1'`); got != 0 {
 			t.Errorf("%s : %d ligne(s) survivent à la machine", table, got)
 		}
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM container_events`); got != 0 {
 		t.Errorf("container_events : %d ligne(s) survivent", got)
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM agent_capabilities`); got != 0 {
+		t.Errorf("agent_capabilities : %d ligne(s) survivent", got)
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM mutes`); got != 1 {
 		t.Errorf("mutes : %d, seule la fenêtre sans cible doit rester", got)

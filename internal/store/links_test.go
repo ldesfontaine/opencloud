@@ -22,12 +22,7 @@ var linksNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 func declaredOnLocal(t *testing.T, db *DB) directory.Service {
 	t.Helper()
 	ctx := context.Background()
-	err := db.SaveLocalMachine(ctx, machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, Hostname: "host", EnrolledAt: linksNow, CreatedAt: linksNow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	exec(t, db, `INSERT INTO machines (id, name, hostname, created_at) VALUES (?, 'opencloud', 'host', ?)`, machine.LocalID, linksNow.Unix())
 	declared := directory.Service{
 		ID: "svc_0123456789abcdef", MachineID: machine.LocalID, Name: "whoami", Nature: directory.NatureApplication,
 		Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator, CreatedAt: linksNow, UpdatedAt: linksNow,

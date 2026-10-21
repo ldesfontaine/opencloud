@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -18,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -51,6 +53,9 @@ type Options struct {
 	// Language est la langue de l'opérateur, donnée par la commande
 	// d'installation ; l'identité la garde ensuite.
 	Language lang.Code
+	// Rights sont les droits que la commande d'installation donne
+	// (-rights) ; l'identité les garde ensuite. Vides : observe seul.
+	Rights []machine.Capability
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
@@ -82,6 +87,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	client.SetCapabilities(identity.Capabilities())
 	// Ce que l'opérateur doit régler sans que l'agent s'arrête s'écrit au
 	// journal dans sa langue.
 	catalogs, err := lang.Load()
@@ -163,7 +169,11 @@ func loadOrEnroll(ctx context.Context, opts Options) (Identity, error) {
 // enroll tire l'identité, la présente avec le jeton, puis l'écrit avec l'id
 // que le serveur a retenu : un ré-enrôlement garde l'id de la machine.
 func enroll(ctx context.Context, opts Options) (Identity, error) {
-	identity, err := NewIdentity(opts.Server, opts.Pin, opts.Language)
+	rights, err := machine.NormalizeCapabilities(opts.Rights)
+	if err != nil {
+		return Identity{}, err
+	}
+	identity, err := NewIdentity(opts.Server, opts.Pin, opts.Language, rights)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -180,7 +190,7 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	if err := SaveIdentity(opts.StateDir, identity); err != nil {
 		return Identity{}, err
 	}
-	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name)
+	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name, "rights", strings.Join(identity.Rights, ","))
 	return identity, nil
 }
 

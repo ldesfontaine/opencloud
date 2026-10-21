@@ -8,8 +8,7 @@ import (
 )
 
 // Sink reçoit ce qu'une machine a sondé : le tampon de l'agent, qui le
-// livre avec le signal, ou directement le composant sur la machine
-// openCloud, qui est son propre agent.
+// livre avec le signal.
 type Sink interface {
 	Deliver(Report)
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/status"
@@ -60,8 +61,12 @@ func TestAPI_DeleteMachine_ReadsThePlanThenRefusesThenRemoves(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodGet, "/api/machines/"+remoteID+"/delete-plan", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("plan d'une machine retirée: %d", got.Code)
 	}
-	if got := callAPI(server.Server, http.MethodGet, "/api/machines/"+machine.LocalID+"/delete-plan", nil); got.Code != http.StatusForbidden || errorCode(t, got) != "machine.local_kept" {
-		t.Fatalf("machine openCloud: %d %s", got.Code, got.Body.String())
+	// La machine openCloud a son plan comme les autres : elle emporte son
+	// agent.
+	var local deletionPlanJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/"+machine.LocalID+"/delete-plan", nil), &local)
+	if local.Blocked || len(local.Removes) == 0 || local.Removes[0].Kind != string(deletion.KindAgents) {
+		t.Fatalf("machine openCloud: %+v", local)
 	}
 }
 

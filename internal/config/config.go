@@ -19,9 +19,6 @@ const (
 	DefaultPath     = brand.ConfigPath
 	defaultListen   = "127.0.0.1:8080"
 	defaultStateDir = brand.StateDir
-	// La socket du démon Docker de la machine openCloud, pour son rôle
-	// d'agent ; le processus doit pouvoir la lire.
-	defaultDockerSocket = "/var/run/docker.sock"
 )
 
 type Config struct {
@@ -37,14 +34,6 @@ type Config struct {
 	// Niveau du journal : debug, info, warn, error. Vide : info. En debug,
 	// chaque requête HTTP fait une ligne.
 	LogLevel string `toml:"log_level" validate:"omitempty,oneof=debug info warn error"`
-	// Socket du démon Docker de cette machine. Absente : la machine
-	// openCloud n'a aucun service, ce n'est pas une erreur.
-	DockerSocket string `toml:"docker_socket" validate:"required"`
-	// Paquet PEM d'une autorité interne, ajouté au magasin du système pour
-	// vérifier les chaînes que les sondes voient. Vide : le magasin du
-	// système seul. À poser sur chaque machine qui sonde : c'est elle qui
-	// juge, pas le serveur à sa place.
-	CAFile string `toml:"ca_file"`
 	// Fichier d'une ligne qui porte le secret partagé avec le mandataire
 	// d'authentification (32 caractères au moins, illisible pour les autres
 	// comptes). En mode forward, l'identité n'est crue que d'une requête qui
@@ -55,9 +44,8 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Listen:       defaultListen,
-		StateDir:     defaultStateDir,
-		DockerSocket: defaultDockerSocket,
+		Listen:   defaultListen,
+		StateDir: defaultStateDir,
 	}
 }
 

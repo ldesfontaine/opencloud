@@ -8,7 +8,7 @@ import type { Counts } from "./counts";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Machine, MachinesResponse } from "./machines";
+import type { Agent, Capability, Machine, MachinesResponse } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPState } from "./mcp";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
@@ -94,19 +94,27 @@ const lifecycle = shape<NonNullable<Machine["lifecycle"]>>("Lifecycle", {
   is_stale: value,
 });
 
+const capability = shape<Capability>("Capability", { name: value, paths: value });
+
 const machine = shape<Machine>("Machine", {
   id: value,
   name: value,
-  kind: value,
   hostname: value,
   address: value,
   os: value,
   arch: value,
-  agent_version: value,
-  local: value,
   online: value,
-  enrolled_at: value,
   last_seen_at: value,
+  agent: shape<Agent>("Agent", {
+    id: value,
+    version: value,
+    enrolled_at: value,
+    revoked_at: value,
+    capabilities: capability,
+    reported_at: value,
+    requested: capability,
+    capabilities_differ: value,
+  }),
   lifecycle: optional(lifecycle),
 });
 

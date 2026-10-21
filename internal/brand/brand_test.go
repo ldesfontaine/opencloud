@@ -42,7 +42,6 @@ func TestValues_AreFrozen(t *testing.T) {
 		"MCPAPIScheme":            {MCPAPIScheme, "ock_"},
 		"HostFingerprintPrefix":   {HostFingerprintPrefix, "opencloud-host:"},
 		"OAuthClientID":           {OAuthClientID, "opencloud"},
-		"AgentErrorIsHost":        {AgentErrorIsHost, "machine_is_opencloud"},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %q, want %q", name, pair[0], pair[1])

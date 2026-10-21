@@ -40,8 +40,13 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	f := newFixture(t)
 	f.channel(t, "ops", alert.SeverityAttention, true)
 	ctx := context.Background()
+	// La machine openCloud du banc n'a jamais donné signe de vie : sans
+	// agent actif, elle ne se perd pas, et ne compte pas ici.
+	if err := f.machines.Revoke(ctx, machine.LocalID); err != nil {
+		t.Fatal(err)
+	}
 	enrolled := f.enrollRemote(t)
-	session, err := f.machines.Connect(ctx, enrolled.ID, "51.15.20.114", "v0.0.1")
+	session, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,11 +63,11 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	if lost.Object.Name != "vps-paris-1" || lost.MachineName != "vps-paris-1" || lost.Details.Since.IsZero() {
 		t.Fatalf("lost %+v", lost)
 	}
-	// Une seconde passe ne fait rien de plus ; la machine openCloud n'est jamais perdue.
+	// Une seconde passe ne fait rien de plus.
 	if err := f.machines.CheckLost(ctx); err != nil || len(f.open(t, alert.StatusOpen)) != 1 {
 		t.Fatal("dedup")
 	}
-	if _, err := f.machines.Connect(ctx, enrolled.ID, "51.15.20.114", "v0.0.1"); err != nil {
+	if _, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" || f.sender.events() != "opened:ops,resolved:ops" {

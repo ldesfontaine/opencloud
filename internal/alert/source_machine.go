@@ -7,12 +7,10 @@ import (
 )
 
 // Ce que le composant machine constate : une machine perdue, revenue,
-// retirée. La machine openCloud n'est jamais perdue, elle est ce processus.
+// retirée. La machine openCloud comme les autres : c'est son agent qui se
+// perd.
 
 func (e *Engine) MachineLost(ctx context.Context, lost machine.Machine) {
-	if lost.IsLocal() {
-		return
-	}
 	e.Open(ctx, Fact{
 		Kind: KindMachineLost, Severity: SeverityDanger,
 		Object:    Object{Kind: ObjectMachine, ID: lost.ID, Name: lost.Name},

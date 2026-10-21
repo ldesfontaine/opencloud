@@ -49,17 +49,6 @@ trusted_proxies = ["127.0.0.1/32", "::1/128"]
 # démarrage. Vide (défaut) : l'adresse du pair seule décide.
 # forward_secret_file = "/etc/opencloud/forward.secret"
 
-# Socket du démon Docker de la machine openCloud, lue en lecture seule pour
-# suivre ses conteneurs. Absente : la machine n'a simplement aucun service.
-# Le compte du service doit pouvoir la lire (root, ou le groupe docker).
-docker_socket = "/var/run/docker.sock"
-
-# Paquet PEM d'une autorité interne, ajouté au magasin du système pour juger
-# les certificats que les sondes de cette machine voient. Vide (défaut) : le
-# magasin du système seul. Un chemin illisible arrête le démarrage.
-# Chaque machine qui sonde a le sien (drapeau -ca-file de l'agent).
-ca_file = ""
-
 # Niveau du journal (JSON sur stderr) : debug, info, warn, error.
 # Vide (défaut) : info. En debug, chaque requête HTTP fait une ligne.
 log_level = "info"

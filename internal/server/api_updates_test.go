@@ -99,30 +99,19 @@ func TestAPI_UnitUpdatePolicy_SurvivesTheRecreationOfTheContainer(t *testing.T) 
 }
 
 // Vérifier maintenant vers une machine hors ligne est refusé avec la clé
-// du catalogue ; la machine openCloud, elle, vérifie sans réseau.
-func TestCheckUpdates_OfflineRefused_LocalAccepted(t *testing.T) {
+// du catalogue, la machine openCloud comme les autres : c'est son agent qui
+// vérifie.
+func TestCheckUpdates_OfflineRefused_TheOpenCloudMachineToo(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/check-updates", nil); got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "update.machine_offline" {
-		t.Fatalf("offline: %d %s", got.Code, got.Body.String())
+	for _, machineID := range []string{remoteID, machine.LocalID} {
+		if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+machineID+"/actions/check-updates", nil); got.Code != http.StatusServiceUnavailable || errorCode(t, got) != "update.machine_offline" {
+			t.Fatalf("%s offline: %d %s", machineID, got.Code, got.Body.String())
+		}
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nope/actions/check-updates", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown machine: %d", got.Code)
 	}
-	runner := &fakeUpdateRunner{}
-	server.updates.SetLocalRunner(machine.LocalID, runner)
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/check-updates", nil); got.Code != http.StatusNoContent {
-		t.Fatalf("local: %d %s", got.Code, got.Body.String())
-	}
-	if len(runner.assignments) != 1 || !runner.assignments[0].Now {
-		t.Fatalf("local runner got %+v", runner.assignments)
-	}
-}
-
-type fakeUpdateRunner struct{ assignments []update.Assignment }
-
-func (f *fakeUpdateRunner) Assign(assignment update.Assignment) {
-	f.assignments = append(f.assignments, assignment)
 }
 
 // Le signal porte la section images : elle s'écrit au nom de la machine

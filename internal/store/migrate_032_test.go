@@ -10,7 +10,7 @@ import (
 // cours sur un composant qui les montre.
 func seedBefore032(t *testing.T, db *DB) {
 	t.Helper()
-	exec(t, db, `INSERT INTO machines (id, name, kind, public_key, enrolled_at, created_at) VALUES (?, 'vps-1', 'remote', zeroblob(32), 1, 1)`, m1)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES (?, 'vps-1', 1)`, m1)
 	exec(t, db, `INSERT INTO declared_services (id, machine_id, name, nature, origin, compose_project, declared_by, created_at, updated_at)
 		VALUES ('svc_a', ?, 'shop', 'application', 'compose', 'shop', 'operator', 1, 1)`, m1)
 	exec(t, db, `INSERT INTO service_units (id, service_id, name, kind) VALUES ('unit_a', 'svc_a', 'app', 'container')`)

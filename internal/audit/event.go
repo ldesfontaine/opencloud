@@ -30,6 +30,7 @@ type ObjectKind string
 
 const (
 	ObjectMachine         ObjectKind = "machine"
+	ObjectAgent           ObjectKind = "agent"
 	ObjectEnrollmentToken ObjectKind = "enrollment_token" // #nosec G101 -- un nom, pas un secret.
 	ObjectProject         ObjectKind = "project"
 	ObjectService         ObjectKind = "service"
@@ -53,7 +54,7 @@ const (
 
 func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
-		ObjectMachine, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
+		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets,
@@ -65,9 +66,14 @@ func ObjectKinds() []ObjectKind {
 type Action string
 
 const (
-	MachineEnroll   Action = "machine.enroll"
 	MachineReenroll Action = "machine.reenroll"
 	MachineDelete   Action = "machine.delete"
+
+	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
+	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
+	// s'écrivait machine.enroll.
+	AgentEnroll Action = "agent.enroll"
+	AgentRevoke Action = "agent.revoke"
 
 	EnrollmentTokenCreate Action = "enrollment_token.create" // #nosec G101 -- un nom, pas un secret.
 	EnrollmentTokenCancel Action = "enrollment_token.cancel" // #nosec G101 -- un nom, pas un secret.
@@ -144,7 +150,8 @@ const (
 
 func Actions() []Action {
 	return []Action{
-		MachineEnroll, MachineReenroll, MachineDelete,
+		MachineReenroll, MachineDelete,
+		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,
 		ServiceCreate, ServiceUpdate, ServiceDelete, ServiceReview,

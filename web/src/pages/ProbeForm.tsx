@@ -44,14 +44,14 @@ export function ProbeForm() {
   const action = useAction();
   const [prefilled, setPrefilled] = useState(false);
 
-  // À défaut de choix, la machine openCloud sonde : c'est la vue depuis
-  // l'extérieur, celle qu'on veut presque toujours.
-  const local = machines.data?.machines.find((machine) => machine.local);
+  // À défaut de choix, la première machine de la liste : le sélecteur n'a
+  // pas d'option vide, il montrerait une machine sans l'avoir choisie.
+  const first = machines.data?.machines[0];
   useEffect(() => {
-    if (!isEditing && values.machineID === "" && local !== undefined) {
-      change("machineID", local.id);
+    if (!isEditing && values.machineID === "" && first !== undefined) {
+      change("machineID", first.id);
     }
-  }, [isEditing, local, values.machineID]);
+  }, [isEditing, first, values.machineID]);
 
   // Venue d'un service déclaré, ou d'un de ses conteneurs, la sonde part de
   // ce qu'ils disent (probeSuggestionOf), une seule fois, quand tout est lu.

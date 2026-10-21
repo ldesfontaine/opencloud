@@ -101,7 +101,7 @@ func TestMigration034_TheSinglePageBecomesAPage(t *testing.T) {
 	db := openAtVersion(t, 33)
 	exec(t, db, `INSERT INTO settings (id, language, status_title, status_announcement, status_language, disk_attention_percent, mail_from, updated_at)
 		VALUES (1, 'en', 'Statut de la maison', 'Coupure samedi.', 'fr', 70, 'oc@example.org', 1)`)
-	exec(t, db, `INSERT INTO machines (id, name, kind, public_key, enrolled_at, created_at) VALUES (?, 'vps-1', 'remote', zeroblob(32), 1, 1)`, m1)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES (?, 'vps-1', 1)`, m1)
 	exec(t, db, `INSERT INTO status_components (id, name, position, created_at) VALUES ('cmp1', 'Boutique', 2, 1), ('cmp2', 'Nuage', 1, 1)`)
 	exec(t, db, `INSERT INTO status_component_members (component_id, machine_id) VALUES ('cmp1', ?)`, m1)
 	exec(t, db, `INSERT INTO incidents (id, title, impact, status, created_at, updated_at) VALUES ('i1', 'Panne', 'down', 'investigating', 1, 1)`)

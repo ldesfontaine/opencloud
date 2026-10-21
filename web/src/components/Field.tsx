@@ -95,10 +95,11 @@ export function Checks({ children }: { children: ReactNode }) {
   return <div className="checks">{children}</div>;
 }
 
-export function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+// disabled : une case montrée pour ce qu'elle dit, qu'on ne change pas.
+export function Checkbox({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
     <label>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
       {label}
     </label>
   );

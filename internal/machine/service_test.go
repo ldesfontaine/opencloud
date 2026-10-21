@@ -25,11 +25,6 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{machines: map[string]Machine{}, tokens: map[string]Token{}}
 }
 
-func (f *fakeStore) SaveLocalMachine(_ context.Context, m Machine) error {
-	f.machines[m.ID] = m
-	return nil
-}
-
 func (f *fakeStore) ListMachines(context.Context) ([]Machine, error) {
 	var out []Machine
 	for _, m := range f.machines {
@@ -55,11 +50,15 @@ func (f *fakeStore) MachineDeletionPlan(context.Context, string) (deletion.Plan,
 	return deletion.Plan{}, nil
 }
 
-func (f *fakeStore) TouchMachine(_ context.Context, id string, at time.Time) error {
-	m := f.machines[id]
-	m.LastSeenAt = at
-	f.machines[id] = m
-	return nil
+func (f *fakeStore) TouchAgent(_ context.Context, agentID string, at time.Time) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.LastSeenAt, m.LastSeenAt = at, at
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
@@ -69,11 +68,29 @@ func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
 	return nil
 }
 
-func (f *fakeStore) RecordConnection(_ context.Context, id, address, version string, at time.Time) error {
-	m := f.machines[id]
-	m.Address, m.AgentVersion, m.LastSeenAt = address, version, at
-	f.machines[id] = m
+func (f *fakeStore) RecordConnection(_ context.Context, c Connection) error {
+	m := f.machines[c.MachineID]
+	m.Address, m.Agent.Version, m.Agent.LastSeenAt, m.LastSeenAt = c.Address, c.Version, c.At, c.At
+	if c.Capabilities != nil {
+		m.Agent.Capabilities, m.Agent.ReportedAt = c.Capabilities, c.At
+	}
+	f.machines[c.MachineID] = m
 	return nil
+}
+
+func (f *fakeStore) RevokeAgent(_ context.Context, machineID string, now time.Time) (string, error) {
+	m := f.machines[machineID]
+	if !m.Agent.IsActive() {
+		return "", ErrNoAgent
+	}
+	m.Agent.RevokedAt = now
+	f.machines[machineID] = m
+	for hash, t := range f.tokens {
+		if t.MachineID == machineID && t.ConsumedAt.IsZero() {
+			delete(f.tokens, hash)
+		}
+	}
+	return m.Agent.ID, nil
 }
 
 func (f *fakeStore) InsertToken(_ context.Context, t Token) error {
@@ -101,7 +118,7 @@ func (f *fakeStore) DeleteToken(_ context.Context, id string) error {
 	return ErrTokenNotFound
 }
 
-func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, now time.Time) (Machine, error) {
+func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, agent Agent, now time.Time) (Machine, error) {
 	t, ok := f.tokens[hash]
 	if !ok {
 		return Machine{}, ErrTokenNotFound
@@ -115,6 +132,11 @@ func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, now time.T
 	if t.MachineID != "" {
 		m.ID = t.MachineID
 	}
+	agent.MachineID = m.ID
+	agent.Requested = t.Capabilities
+	t.AgentID = agent.ID
+	f.tokens[hash] = t
+	m.Agent = agent
 	f.machines[m.ID] = m
 	return m, nil
 }
@@ -135,10 +157,23 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) enroll(t *testing.T, name string) (Machine, ed25519.PrivateKey) {
 	t.Helper()
-	cleartext, _, err := h.service.CreateToken(context.Background(), name)
+	cleartext, _, err := h.service.CreateToken(context.Background(), name, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return h.enrollWithKey(t, cleartext)
+}
+
+func (h *harness) enrollWith(t *testing.T, cleartext string) Machine {
+	t.Helper()
+	enrolled, _ := h.enrollWithKey(t, cleartext)
+	return enrolled
+}
+
+// enrollWithKey présente un jeton déjà émis avec une clé et un identifiant
+// tirés pour l'occasion, comme l'agent.
+func (h *harness) enrollWithKey(t *testing.T, cleartext string) (Machine, ed25519.PrivateKey) {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -170,11 +205,11 @@ func (h *harness) prove(t *testing.T, m Machine, private ed25519.PrivateKey, at 
 func TestCreateToken_RefusesABadName(t *testing.T) {
 	h := newHarness(t)
 	for _, name := range []string{"", "VPS", "vps paris", "-vps", "vps-", "a.b"} {
-		if _, _, err := h.service.CreateToken(context.Background(), name); !errors.Is(err, ErrNameInvalid) {
+		if _, _, err := h.service.CreateToken(context.Background(), name, nil); !errors.Is(err, ErrNameInvalid) {
 			t.Errorf("%q accepted: %v", name, err)
 		}
 	}
-	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1")
+	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,29 +354,6 @@ func TestAuthenticate_AWrongSignatureDoesNotBurnTheChallenge(t *testing.T) {
 	}
 }
 
-func TestLocalMachine_IsAlwaysOnlineAndNeverRemovedNorAuthenticated(t *testing.T) {
-	h := newHarness(t)
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc", OS: "Debian 12", Version: "v0.0.1"}); err != nil {
-		t.Fatal(err)
-	}
-	status, err := h.service.Get(context.Background(), LocalID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Online || !status.LastSeenAt.Equal(h.now) || status.Name != "opencloud" {
-		t.Fatalf("got %+v", status)
-	}
-	if err := h.service.Remove(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("remove: %v", err)
-	}
-	if _, _, err := h.service.CreateReenrollToken(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("reenroll: %v", err)
-	}
-	if _, err := h.service.Challenge(context.Background(), LocalID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("challenge: %v", err)
-	}
-}
-
 // L'enrôlement fige le système ; l'agent le redit à chaque connexion, et
 // une montée de version se voit sans ré-enrôler. Ce qui n'est pas un nom
 // de système n'écrase rien.
@@ -375,7 +387,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("online before any connection")
 	}
-	session, err := h.service.Connect(context.Background(), m.ID, "51.15.20.114", "v0.0.1")
+	session, err := h.service.Connect(context.Background(), m, "51.15.20.114", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +418,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 func TestRemove_ClosesTheOpenSession(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m.ID, "", "")
+	session, err := h.service.Connect(context.Background(), m, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,8 +434,8 @@ func TestRemove_ClosesTheOpenSession(t *testing.T) {
 
 func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	sessions := NewSessions()
-	first, _ := sessions.Open("m", time.Now())
-	second, _ := sessions.Open("m", time.Now())
+	first, _ := sessions.Open("m", "a1", time.Now())
+	second, _ := sessions.Open("m", "a2", time.Now())
 	select {
 	case <-first.Done():
 	default:
@@ -444,7 +456,7 @@ func TestRecentSignal_SeenTenSecondsAgo_IsOnline(t *testing.T) {
 	h := newHarness(t)
 	h.service.SetPresence(RecentSignal{})
 	m, _ := h.enroll(t, "vps-paris-1")
-	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-10*time.Second)); err != nil {
+	if err := h.store.TouchAgent(context.Background(), m.Agent.ID, h.now.Add(-10*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	status, err := h.service.Get(context.Background(), m.ID)
@@ -460,7 +472,7 @@ func TestRecentSignal_SeenFiveMinutesAgo_IsOffline(t *testing.T) {
 	h := newHarness(t)
 	h.service.SetPresence(RecentSignal{})
 	m, _ := h.enroll(t, "vps-paris-1")
-	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-5*time.Minute)); err != nil {
+	if err := h.store.TouchAgent(context.Background(), m.Agent.ID, h.now.Add(-5*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	status, err := h.service.Get(context.Background(), m.ID)
@@ -486,7 +498,7 @@ func TestRecentSignal_StopsBeingOnlineWhereTheMachineIsDeclaredLost(t *testing.T
 	h.service.SetPresence(RecentSignal{})
 	m, _ := h.enroll(t, "vps-paris-1")
 	lastSignal := h.now
-	if err := h.store.TouchMachine(context.Background(), m.ID, lastSignal); err != nil {
+	if err := h.store.TouchAgent(context.Background(), m.Agent.ID, lastSignal); err != nil {
 		t.Fatal(err)
 	}
 	h.now = lastSignal.Add(LostAfter - time.Second)
@@ -496,16 +508,5 @@ func TestRecentSignal_StopsBeingOnlineWhereTheMachineIsDeclaredLost(t *testing.T
 	h.now = lastSignal.Add(LostAfter)
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("still online at the lost delay")
-	}
-}
-
-func TestRecentSignal_LocalMachine_StaysOnline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc"}); err != nil {
-		t.Fatal(err)
-	}
-	if status, _ := h.service.Get(context.Background(), LocalID); !status.Online {
-		t.Fatal("the local machine is the host running this process")
 	}
 }

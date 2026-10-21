@@ -105,14 +105,21 @@ func TestRemove_IsHeldBackByItsPlanThenPassesOnceDetached(t *testing.T) {
 	}
 }
 
-// La machine openCloud ne se retire pas : son plan est refusé comme son
-// retrait.
-func TestDeletePlan_RefusesTheLocalMachine(t *testing.T) {
+// La machine openCloud se retire comme les autres, par son plan : elle
+// emporte son agent.
+func TestRemove_TheOpenCloudMachineGoesLikeAnyOther(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	db := storetest.Open(t)
 	machines := machine.New(db, machine.NewSessions(), logger)
 	storetest.EnsureLocalMachine(t, machines)
-	if _, err := machines.DeletePlan(context.Background(), machine.LocalID); !errors.Is(err, machine.ErrLocalMachine) {
-		t.Fatalf("attendu %v, obtenu %v", machine.ErrLocalMachine, err)
+	plan, err := machines.DeletePlan(context.Background(), machine.LocalID)
+	if err != nil || plan.IsBlocked() || len(plan.Removes) == 0 || plan.Removes[0].Kind != deletion.KindAgents {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	if err := machines.Remove(context.Background(), machine.LocalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := machines.Get(context.Background(), machine.LocalID); !errors.Is(err, machine.ErrNotFound) {
+		t.Fatalf("after remove: %v", err)
 	}
 }

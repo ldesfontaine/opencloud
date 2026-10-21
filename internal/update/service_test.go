@@ -46,10 +46,15 @@ func (m *memoryStore) ListImageChecks(_ context.Context, machineID string) ([]up
 
 func (m *memoryStore) PurgeImageChecks(context.Context, time.Time) error { return nil }
 
+// recordingRunner tient lieu du flux de l'agent : il garde chaque
+// assignation poussée.
 type recordingRunner struct{ assignments []update.Assignment }
 
-func (r *recordingRunner) Assign(assignment update.Assignment) {
-	r.assignments = append(r.assignments, assignment)
+func (r *recordingRunner) Command(_, name string, payload any) error {
+	if assignment, ok := payload.(update.Assignment); ok && name == update.CommandImages {
+		r.assignments = append(r.assignments, assignment)
+	}
+	return nil
 }
 
 func fiche(machineID, name, image string, policy container.UpdatePolicy) container.Container {
@@ -62,7 +67,7 @@ func fiche(machineID, name, image string, policy container.UpdatePolicy) contain
 func newService(store *memoryStore) (*update.Service, *recordingRunner) {
 	runner := &recordingRunner{}
 	updates := update.New(store, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	updates.SetLocalRunner("m1", runner)
+	updates.SetCommander(runner)
 	return updates, runner
 }
 

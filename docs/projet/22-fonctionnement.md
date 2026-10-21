@@ -2,17 +2,18 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> première configuration à la place du mode ouvert, puis journal d'audit,
-> 21 octobre 2026.
+> première configuration à la place du mode ouvert, journal d'audit, agents
+> séparés des machines (droits, révocation), puis la machine openCloud avec
+> un agent comme les autres, 21 octobre 2026.
 
 ## Les acteurs
 
 | Acteur | Ce que c'est | Ce qu'il fait tourner |
 | --- | --- | --- |
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
-| La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base, et le rôle d'agent pour elle-même |
+| La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier et rapportés à chaque connexion, **stockés et affichés, pas encore appliqués** (#146) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -24,8 +25,9 @@
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
 | Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : vingt lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
-Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
-comme les autres dans l'interface, sans démon à part.
+Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
+les deux : le serveur, et son agent, qui en fait une machine comme les autres
+dans l'interface.
 
 ## Le schéma
 
@@ -48,9 +50,11 @@ flowchart LR
         srv["<code>opencloud serve</code><br>127.0.0.1:8080"]
         db[("state_dir<br>opencloud.db<br>lifecycle.json")]
         cli["Client IA local<br><code>opencloud mcp</code>"]
+        oca["Son agent<br><code>opencloud agent</code>"]
         tr -- "HTTP en clair,<br>boucle locale" --> srv
         srv --- db
         cli -- "lecture seule" --- db
+        oca == "enrôlement, flux SSE, signal,<br>comme toute machine" ==> tr
     end
     op == "HTTPS" ==> tr
     ag == "HTTPS<br>enrôlement, flux SSE, signal" ==> tr
@@ -58,11 +62,9 @@ flowchart LR
     vis == "HTTPS<br>/statut, public" ==> tr
     ai == "HTTPS<br>/mcp, Bearer OAuth" ==> tr
     ag -- "sonde HTTP ou TCP,<br>chiffrée si la cible l'est" --> tgt
-    srv -- "sonde, pour ses<br>propres cibles" --> tgt
     srv -- "alerte, POST signé,<br>chiffré si l'URL l'est" --> hook
     srv == "alerte par e-mail,<br>STARTTLS ou TLS" ==> smtp
     ag == "HTTPS, lecture seule<br>tags et empreinte" ==> reg
-    srv == "idem, pour ses<br>propres images" ==> reg
     srv == "HTTPS, lecture seule<br>branches des produits, 1 fois par jour" ==> eol
     ag --- id[("identity.json<br>clé privée, 0600")]
 ```
@@ -80,7 +82,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse « suis les journaux du conteneur X », « arrête » ; l'agent ne reçoit que ce que le serveur a tiré, jamais une entrée du navigateur |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
-| Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root, `opencloud serve` doit lire la socket lui aussi (root, ou le groupe `docker`, qui vaut root). Le client ne connaît aucun verbe qui écrit |
+| Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root. `opencloud serve` ne lit plus la socket : il n'a besoin ni de root ni du groupe `docker`. Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
@@ -108,7 +110,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents`, migration `030_agents.sql` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` (migration `028_restrict.sql`) : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -129,7 +131,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
-| Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
+| Toute machine, la machine openCloud comprise, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul) | Mode 0600 ; le perdre impose un ré-enrôlement. Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart |
 
 **Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
@@ -158,9 +160,12 @@ le client qui les garde.
 
 ## Comment une machine entre
 
-1. L'opérateur nomme la machine. openCloud tire un jeton, en garde l'empreinte,
-   affiche le clair une seule fois avec la commande à coller.
-2. Sur la machine : `printf '%s\n' 'oc_…' | sudo opencloud agent -server https://…`.
+1. L'opérateur nomme la machine et coche les droits de son agent
+   (« Les droits d'un agent », plus bas). openCloud tire un jeton, en garde
+   l'empreinte et les droits demandés, affiche le clair une seule fois avec la
+   commande à coller.
+2. Sur la machine : `printf '%s\n' 'oc_…' | sudo opencloud agent -server https://… -rights observe,…`
+   (`-rights` n'y est que si un droit dépasse `observe`).
    Le jeton entre par l'entrée standard de l'agent, lue seulement quand
    il n'a pas d'identité et reçoit `-server` (invite « Jeton
    d'enrôlement : » sur un terminal ; entrée vide ou fermée : refus, code 2).
@@ -178,20 +183,30 @@ le client qui les garde.
    parce qu'une image clonée (modèle de VPS, clone Proxmox) garde le
    machine-id de son modèle : vérifié le 10 octobre 2026, deux clones
    étaient pris l'un pour l'autre et le second refusé à tort.
-3. `opencloud serve` fait la même empreinte au démarrage. Même empreinte :
-   l'agent tourne sur la machine openCloud, qui se supervise déjà (machine
-   `local`) ; un agent doublerait services et alertes. Refus 409
-   `machine_is_opencloud`, avant la base : **le jeton n'est pas consommé**,
-   il sert à une autre machine. Sans empreinte d'un côté ou de l'autre
-   (agent plus vieux, machine sans identifiant), pas de contrôle. Un agent
-   enrôlé avant ce refus présente l'empreinte à l'ouverture du flux
-   (en-tête `OpenCloud-Host-Fingerprint`) : openCloud l'accepte mais écrit
-   un avertissement au journal, qui dit de retirer la machine et
-   de désinstaller l'agent. Rien n'est stocké.
-   Sinon, openCloud consomme le jeton et crée la machine dans une seule transaction :
-   deux agents avec le même jeton, un seul passe. Le jeton ne sert plus jamais.
-4. À chaque connexion, l'agent demande un défi, le signe, ouvre un flux qui reste
-   ouvert. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,
+3. `opencloud serve` fait la même empreinte au démarrage (`SetServerHost`).
+   C'est **la seule chose qui distingue la machine openCloud** : l'agent qui
+   présente l'empreinte du serveur s'enrôle sous l'identifiant stable de la
+   machine openCloud, `local`, et reprend sa ligne et son historique si elle
+   existe (une base d'avant les agents, un agent révoqué) ; sinon il la
+   crée, au nom de son jeton. Tant qu'elle a un agent actif, un second
+   agent qui vient de la même machine par un jeton de machine neuve est
+   refusé, 409 `local_agent_active` : **le jeton n'est pas consommé**, et
+   remplacer l'agent passe par Ré-enrôler, sur sa fiche. Sans empreinte
+   d'un côté ou de l'autre (agent plus vieux, machine sans identifiant), pas
+   de rapprochement : l'agent s'enrôle sous son propre identifiant.
+   L'empreinte n'est pas un secret fort ; elle ne sert qu'à qui tient déjà un
+   jeton, donc le droit d'enrôler une machine. Rien de l'empreinte n'est
+   stocké. Les autres machines s'enrôlent sous l'identifiant que leur agent
+   a tiré.
+   Puis openCloud consomme le jeton, crée la machine (ou la retrouve) et inscrit son
+   **agent** (`agt_` et seize hexadécimaux) dans une seule transaction : deux
+   agents avec le même jeton, un seul passe. Le jeton ne sert plus jamais ; il
+   garde le nom de l'agent qui l'a consommé.
+4. À chaque connexion, l'agent demande un défi, le signe avec la clé de son
+   agent actif, ouvre un flux qui reste ouvert, et redit sa version, son
+   système et ses droits (en-tête `OpenCloud-Agent-Rights`) : la version et
+   le signe de vie se notent sur l'agent, l'adresse et le système sur la
+   machine. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,
    envoyé toutes les 30 s. **Le défi est signé par le serveur et sans état** :
    32 octets (un aléa de 8, l'expiration de 8, un MAC HMAC-SHA256 de 16 lié à
    l'identifiant de la machine), valable deux minutes. Le serveur n'en garde
@@ -208,12 +223,15 @@ le client qui les garde.
    | Réponse | Sens | L'agent |
    | --- | --- | --- |
    | `401 challenge_expired` | défi expiré, déjà utilisé, altéré, d'une autre machine, ou émis avant un redémarrage du serveur | redemande un défi et réessaie |
-   | `401 bad_proof` | la signature n'est pas celle de la clé enrôlée | s'arrête (code 2) et le dit |
-   | `404 machine_not_found` | machine retirée | s'arrête (code 2) et le dit |
+   | `401 bad_proof` | la signature n'est pas celle de la clé de l'agent | s'arrête (code 2) et le dit |
+   | `401 revoked` | la signature est la bonne, mais l'opérateur a révoqué l'agent | s'arrête (code 2) et dit de ré-enrôler |
+   | `404 machine_not_found` | machine retirée, ou sans agent | s'arrête (code 2) et le dit |
 
-   Ré-enrôler garde l'identifiant et l'historique, seule la clé change. Les
-   agents déjà installés traitent tout `401` autre que `bad_proof` comme
-   passager : `challenge_expired` leur suffit sans mise à jour.
+   Ré-enrôler garde l'identifiant de la machine et son historique : un
+   **nouvel agent** est inscrit, l'ancien révoqué dans la même transaction.
+   Les agents déjà installés traitent tout `401` autre que `bad_proof` comme
+   passager : `challenge_expired` leur suffit sans mise à jour ; `revoked`,
+   ils le réessaient avec leur délai croissant, sans jamais être admis.
 6. Serveur redémarré avant que l'agent ait vu la coupure : son signal arrive
    avec une session que le serveur ne connaît plus (`no_session`), l'agent
    relève aussitôt un nouveau défi. Horloge de la machine à plus de 5 min de
@@ -222,6 +240,88 @@ le client qui les garde.
    de régler l'heure par NTP, et réessaie avec le même délai croissant. Tout
    autre refus (un 404 d'un proxy en plein redéploiement, un 5xx) se réessaie
    aussi ; seul un refus d'enrôlement arrête l'agent au premier lancement.
+
+### Les droits d'un agent
+
+Liste de départ prise par Lucas le 21 octobre 2026 (décision 9). **Stockés et
+affichés ; aucun n'est encore appliqué** : l'agent fait aujourd'hui ce qu'il
+faisait, observer. Les appliquer est #146.
+
+| Droit | Portée | Ce qu'il permettra |
+| --- | --- | --- |
+| `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes. Toujours là, la case est cochée et grisée |
+| `agent.update` | — | Mettre à jour l'agent depuis le serveur |
+| `docker.deploy` | — | Déployer un service Compose |
+| `docker.update` | — | Mettre à jour l'image d'un service |
+| `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
+| `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
+
+- **Forme texte**, la même dans la ligne d'installation, le fichier de
+  l'agent, l'en-tête et la base : droits séparés par `,`, un droit borné
+  suivi de `=` et de ses chemins séparés par `:`
+  (`observe,docker.update,files.write=/opt/site:/srv/workspace`). Un chemin
+  est absolu, propre (`path.Clean`), fait de lettres, chiffres, `.`, `-`,
+  `_`, `/`, jamais `/` seul : la ligne se colle sans guillemets. `observe`
+  s'ajoute toujours ; les droits se rangent dans l'ordre du tableau, les
+  chemins triés, sans doublon (`machine.NormalizeCapabilities`).
+- **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
+  capabilities: [{name, paths}]}` ; un droit inconnu, un chemin faux ou une
+  portée fausse se refusent en 422 (`machine.capability_unknown`,
+  `machine.capability_path`, `machine.capability_scope`). Le jeton garde la
+  forme texte (`requested_capabilities`). Un jeton de ré-enrôlement reprend
+  ce que le jeton de l'agent courant demandait, `observe` seul s'il ne
+  demandait rien.
+- **À l'installation** : `-rights` se juge avant l'enrôlement (refus, code 2,
+  `agent.rights_invalid` : le jeton n'est pas consommé), puis s'écrit dans
+  `identity.json` (`rights`). Un agent déjà enrôlé ignore `-rights`.
+- **À chaque connexion** : l'agent redit ce que dit son fichier ; le serveur
+  le stocke dans `agent_capabilities`, en remplaçant le rapport précédent.
+  Un en-tête illisible ne remplace rien, le flux s'ouvre quand même ; un
+  agent d'avant les droits n'envoie rien, rien n'est stocké.
+- **L'écart** : la fiche de la machine montre les droits rapportés et ceux
+  que le jeton demandait, et le dit quand ils diffèrent
+  (`capabilities_differ` : le fichier a été modifié sur la machine, ou la
+  ligne avant d'être jouée). Rien à comparer tant que l'un des deux manque.
+
+### Révoquer un agent
+
+`POST /api/machines/{id}/actions/revoke`, bouton « Révoquer l'agent » de la
+fiche, après confirmation. Pour une machine compromise : l'agent est refusé
+**sans supprimer la machine** (revue RSSI, C09).
+
+| Ce qui se passe | Ce qui reste |
+| --- | --- |
+| `agents.revoked_at` posé sur l'agent actif ; son flux est coupé (`session_closed`) ; les jetons de ré-enrôlement en attente pour la machine sont annulés, dans la même transaction | La machine, son historique, ses services déclarés, ses sondes et tâches ; l'agent révoqué reste visible sur la fiche, avec sa date de révocation |
+| À sa preuve suivante, l'agent lit `401 revoked` et s'arrête | La machine passe hors ligne et n'est jamais déclarée **perdue** : sans agent actif, il n'y a rien à perdre |
+
+Refus : `409 machine.no_agent` sans agent actif (déjà révoqué, ou jamais
+enrôlé), `404` pour une machine inconnue. La machine openCloud se révoque
+comme les autres. **Ré-enrôler lève la révocation** : un nouveau jeton, un
+nouvel agent, une nouvelle clé ; l'ancien reste révoqué. Ce que l'agent
+détenait, il le détient encore (sa clé, désormais refusée ; les `.env` des
+services de la machine) : après une compromission, tourner les secrets des
+services de cette machine reste à faire à la main.
+
+### La machine openCloud
+
+Une machine comme les autres, avec un agent comme les autres : `serve`
+n'observe rien de sa propre machine, ni ses mesures, ni son Docker, ni ses
+sondes, ni ses images. Son identifiant reste `local`, la ligne qu'elle a
+toujours eue : c'est par lui qu'elle garde son historique.
+
+| Étape | Ce qui se passe |
+| --- | --- |
+| Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` seul, nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
+| Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec le rappel d'activer `opencloud-agent.service`. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
+| Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
+| À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
+| Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
+| Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
+
+Une base d'avant (migration `030_agents.sql`) garde la ligne `local`, sans
+agent : la machine openCloud **ne se voit plus** tant que son agent n'est
+pas installé, et ses mesures d'avant restent. `opencloud mcp` lit la
+machine openCloud comme les autres, par le dernier signal de son agent.
 
 ## Comment une tâche est surveillée
 
@@ -338,8 +438,8 @@ parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
    serveur borne le débit des signaux de chaque machine (« Limitation de
    débit sur `/agent/signal` ») ; sur un `429`, l'agent garde son flux et son
    tampon, et réessaie au signal suivant.
-4. La machine openCloud se mesure elle-même dans `opencloud serve`, à la même
-   cadence, sans passer par le réseau : c'est son rôle d'agent.
+4. La machine openCloud est mesurée par son agent, comme les autres :
+   `opencloud serve` ne mesure rien.
 5. openCloud refuse en bloc un lot dont une lecture est hors de mesure
    (pourcentage hors de 0 à 100, nombre négatif, date à plus de cinq minutes
    dans le futur ou plus vieille que le brut gardé, volume sans point de
@@ -490,7 +590,7 @@ leurs récepteurs). Le genre d'objet d'une alerte de conteneur est
    ancien ; celui des autres machines n'est jamais touché. Les durées de
    rétention ne changent pas. Les plafonds s'appliquent dans la transaction
    qui écrit le rapport (`internal/store`).
-   La machine openCloud fait tout cela dans `opencloud serve`, sans réseau.
+   La machine openCloud passe par son agent, comme les autres.
 7. Le serveur rend des faits : l'état Docker brut, le code de sortie, la
    santé, `oom_killed` et `killed`. Le navigateur en fait les pastilles :
    Actif, Démarre, Défaillant, Manque de mémoire, Tué, Redémarre, En pause,
@@ -1204,8 +1304,8 @@ les CVE, le changelog, le score de risque, n'a pas été repris.
 
 1. **L'agent de chaque machine interroge lui-même** les registres de ses
    images : il a le trousseau Docker de la machine, et un registre privé
-   joignable seulement depuis elle. La machine openCloud le fait dans
-   `opencloud serve`, sans réseau vers elle-même. Le premier passage
+   joignable seulement depuis elle. La machine openCloud le fait par son
+   agent, comme les autres. Le premier passage
    attend 2 min après le démarrage ; ensuite, toutes les 5 min, l'agent
    liste ses conteneurs (arrêtés compris, jetables exclus) et vérifie les
    images jamais vues ; chaque image se revérifie **toutes les 24 h**.
@@ -1373,10 +1473,11 @@ corrigée ; une branche morte en porte sûrement qu'on ne corrigera plus.
 
 Une sonde vérifie qu'une URL ou qu'un port répond, à intervalle régulier.
 Elle ne naît que de l'interface : aucun label, aucune découverte. C'est
-**la machine qui la porte** qui l'exécute, et la machine openCloud par
-défaut, qui voit la cible depuis l'extérieur ; confiée à l'agent de la
-machine du service, la même sonde la voit depuis l'intérieur, ce qui
-marche derrière un NAT.
+**l'agent de la machine qui la porte** qui l'exécute ; la machine openCloud
+voit la cible depuis l'extérieur (c'est aussi celle d'une sonde sans
+`runner` dans le fichier de l'annuaire), l'agent de la machine du service
+la voit depuis l'intérieur, ce qui marche derrière un NAT. Le formulaire
+propose la première machine de la liste.
 
 1. L'opérateur crée la sonde : un nom, un type (HTTP ou TCP), une cible,
    une machine, un service de l'annuaire facultatif, un intervalle, un délai et deux
@@ -1546,15 +1647,15 @@ port chiffré qui ne parle pas HTTP, SMTP ou IMAP.
    renouvellement se reconnaît au changement d'empreinte, l'âge se lit sur
    la date de début. Un essai qui ne voit rien n'efface pas ce qu'on
    savait : une coupure ne fait pas disparaître ce que la cible sert.
-6. **Une autorité interne** se déclare par `ca_file` dans la configuration,
-   ou `-ca-file` sur l'agent : le paquet PEM s'**ajoute** au magasin du
+6. **Une autorité interne** se déclare par `-ca-file` sur l'agent de la
+   machine qui sonde (la clé `ca_file` de `config.toml` n'existe plus :
+   `serve` ne sonde rien) : le paquet PEM s'**ajoute** au magasin du
    système, il ne le remplace pas, donc les autorités publiques continuent
    de marcher. Un chemin faux, un fichier illisible ou un PEM sans
    certificat **arrêtent le démarrage** — sans quoi `crypto/x509` rendrait
    un magasin vide sans une ligne de journal, et toutes les chaînes
    deviendraient « autorité inconnue ». À poser sur **chaque machine qui
-   sonde** : la régler sur la machine openCloud ne change rien pour une
-   sonde portée par un agent.
+   sonde**, la machine openCloud comprise.
 
 **L'échéance et la confiance sont deux faits, jamais fusionnés.** Un
 certificat d'autorité interne, ou qui couvre le mauvais nom, garde une date
@@ -1887,7 +1988,7 @@ liste vit dans `internal/alert`.
 
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
-| Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min** ; jamais la machine openCloud | l'agent rouvre son flux | danger |
+| Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min**, la machine openCloud comprise ; jamais une machine sans agent actif (révoqué, ou en attente de son agent) | l'agent rouvre son flux | danger |
 | Service arrêté sans qu'on l'ait demandé | `container`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137) et le 143 (SIGTERM) restent des arrêts demandés | il tourne de nouveau depuis **2 min**, ou devient « redémarrage non demandé » s'il a été relancé (la même alerte) ; fiche archivée | danger |
 | Service défaillant | `container` | `running` avec santé `unhealthy` | santé revenue depuis **2 min**, ou arrêt ; un échec qui revient avant reprend la même alerte | attention |
 | Redémarrage non demandé | `container` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage ; un nouvel arrêt la repasse en « arrêté » sans en ouvrir une autre | attention |
@@ -2279,8 +2380,8 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    refuse de démarrer sans elle ; il ne la crée jamais. Ses composants
    sont ceux de `serve`, construits et branchés entre eux par le même
    câblage (`buildComponents`, `cmd/opencloud/components.go`) ; `serve` y
-   ajoute le direct, les boucles de fond, les commandes aux agents et la
-   machine openCloud, `mcp` seulement la présence par le dernier signal
+   ajoute le direct, les boucles de fond, les commandes aux agents et
+   l'offre de l'agent de sa machine, `mcp` seulement la présence par le dernier signal
    (ci-dessous).
 
 ### Ce que le mode local voit
@@ -2292,7 +2393,7 @@ dernier signal en base, que serve y écrit toutes les 30 s.
 | Question | Réponse en mode local |
 | --- | --- |
 | Une machine est-elle en ligne ? | Oui si son dernier signal date de moins de 2 minutes (`machine.OnlineWindow`, la règle qui la déclare perdue), non sinon ou si elle n'a jamais signalé |
-| La machine openCloud ? | Toujours en ligne : c'est l'hôte qui fait tourner le processus |
+| La machine openCloud ? | Comme les autres : par le dernier signal de son agent |
 | `machine_online` des sondes, état de `get_status_page` | Dérivés de la même règle, pas d'une panne fantôme |
 | `get_container_logs` | `container.logs_unavailable_locally` : les journaux passent par l'agent, que ce processus ne tient pas ; utiliser le MCP HTTP |
 
@@ -2393,7 +2494,7 @@ faits identiques à l'API par construction.
    | --- | --- | --- |
    | `machines` | `machine` | jeton émis ou annulé, enrôlement, connexion (passage en ligne ; système et version d'agent sont notés à ce moment), déconnexion (hors ligne), retrait. **Pas le signal des 30 s** : il ne bouge que le dernier signal |
    | `jobs` | `heartbeat` | création, ping, échéance dépassée, pause, reprise, suppression |
-   | `resources` | `resource` | lot de mesures écrit (toutes les 30 s par agent, toutes les 10 s pour la machine openCloud), **au plus une fois par 30 s pour tout le bus** (`live.ResourcesEvery`) : le lot suivant attend la fin de la fenêtre, il n'est jamais perdu |
+   | `resources` | `resource` | lot de mesures écrit (toutes les 30 s par agent), **au plus une fois par 30 s pour tout le bus** (`live.ResourcesEvery`) : le lot suivant attend la fin de la fenêtre, il n'est jamais perdu |
    | `containers` | `container`, `update`, `lifecycle` | rapport de conteneurs ou de réseaux écrit ; constat d'image, politique changée ; lecture de la fin de support |
    | `probes` | `probe` | essais écrits ; sonde créée, modifiée, mise en pause ou reprise, supprimée |
    | `status` | `status` | instantané public changé (empreinte de ce que le visiteur voit) |
@@ -2562,7 +2663,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences (les siens et ceux de ses conteneurs) ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur) | rapprochement refait ; rien ne touche la machine |
 | Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes | jeu de sondes renvoyé à sa machine |
@@ -2577,7 +2678,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
   `/api/status/pages/{id}/delete-plan` :
   `{blocked, blockers: [{kind, objects: [{id, name}]}], removes: [{kind,
   count}], detaches: [{kind, count}]}`, un genre vide n'y figure pas. 404 pour
-  un objet inconnu, 403 `machine.local_kept` pour la machine openCloud. Le
+  un objet inconnu ; la machine openCloud a son plan comme les autres. Le
   composant le rend par `DeletePlan` (`DeleteServicePlan`, `DeleteProjectPlan`,
   `DeleteComponentPlan`), le store le compte (`internal/store/deletion.go`),
   le paquet `internal/deletion` en porte la forme.
@@ -2621,7 +2722,7 @@ Basic, et vérifie que chacun porte l'opérateur et aucun secret.
 | `mcp` | L'identifiant du jeton d'API, ou la famille d'une autorisation OAuth (le jeton d'accès change toutes les heures) | `guarded`, devant chaque écriture MCP. Aucune n'est offerte sur `/mcp` pendant la refonte : le chemin reste testé pour leur retour |
 | `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
 | `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |
-| `agent` | L'identifiant de la machine | `agentapi` : l'enrôlement, et les sections du signal, qui n'écrivent aujourd'hui que des observations |
+| `agent` | L'identifiant de la machine que l'agent présente | `agentapi` : l'enrôlement, et les sections du signal, qui n'écrivent aujourd'hui que des observations |
 | `unknown` | Vide | Personne : un oubli de câblage, montré au lieu d'être tu |
 
 ### Ce qui est journalisé
@@ -2633,9 +2734,10 @@ l'acteur de l'apply et avec son `apply_id`.
 
 | Geste | `action` | Objet | Détails |
 | --- | --- | --- | --- |
-| Émettre un jeton d'enrôlement, l'annuler | `enrollment_token.create`, `.cancel` | Le jeton, au nom de la future machine | `expires_at` |
-| Ré-enrôler une machine | `machine.reenroll` | La machine | `token_id`, `expires_at` |
-| Enrôlement par l'agent | `machine.enroll` | La machine | `hostname`, `address` |
+| Émettre un jeton d'enrôlement, l'annuler | `enrollment_token.create`, `.cancel` | Le jeton, au nom de la future machine | `expires_at`, `capabilities` (les droits demandés) |
+| Ré-enrôler une machine | `machine.reenroll` | La machine | `token_id`, `expires_at`, `capabilities` |
+| Enrôlement par l'agent | `agent.enroll` (avant la table `agents` : `machine.enroll`, que les lignes déjà écrites gardent) | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
+| Révoquer l'agent | `agent.revoke` | L'agent, nommé par sa machine | `machine_id`, `hostname`, `address`, `capabilities` |
 | Retirer une machine | `machine.delete` | La machine | `hostname`, `address` |
 | Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
 | Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
@@ -2665,7 +2767,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Les observations : signal d'un agent (mesures, conteneurs, essais de sondes, constats d'images), pings d'une tâche, échéances, alertes ouvertes, aggravées ou résolues par le moteur, livraisons, purges | Elles ne changent rien de déclaré ; leur histoire a déjà sa table |
 | L'échange et le rafraîchissement d'un jeton OAuth | La suite d'une autorisation, qui, elle, est journalisée ; un rafraîchissement par heure noierait le reste |
 | Tester un canal ou le relais, « vérifier maintenant » une image | Un envoi ou une lecture, aucune écriture |
-| La reprise de l'existant dans l'annuaire au démarrage (migration) et la machine openCloud elle-même | Une seule fois, par la base ; la machine locale est le chantier C5 |
+| La reprise de l'existant dans l'annuaire au démarrage (migration) | Une seule fois, par la base |
 | **Un secret** | Ni mot de passe, ni jeton, ni secret, ni URL de webhook, ni empreinte. Chaque composant ne passe que des champs choisis ; le Recorder ajoute un filet : un détail nommé `password`, `token`, `secret` ou `url`, ou qui finit par `_password`, `_token`, `_secret`, `_url`, est retiré et dit en erreur (`audit detail dropped`). Un détail vide est retiré aussi |
 
 ### Écriture, lecture, rétention
@@ -2713,7 +2815,7 @@ cas gardent `s.apiRefuse` :
 | Cas | Refus |
 | --- | --- |
 | Le handler juge lui-même (paramètre, en-tête, limite du serveur) | `manifest.request_invalid` (corps illisible, `limit` du journal), `auth.mode_invalid`, `auth.forward_secret_required`, `auth.forward_header_missing`, `auth.state_changed` (le middleware), `service.logs_busy` (les places de suivi), `400 error.unknown_language`, `settings.mail_to_invalid` (l'adresse d'essai) |
-| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 update.machine_offline`, `403 machine.local_kept` |
+| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 update.machine_offline` |
 
 Les refus d'application du fichier (`manifest.plan_changed`,
 `manifest.not_applicable`) gardent leur réponse : la clé et le statut viennent
@@ -2735,7 +2837,7 @@ trois étages qui ne dérivent pas l'un de l'autre.
 | --- | --- | --- |
 | Nom affiché (`ProductName`) | titre des pages, User-Agent (sauf vers endoflife.date, qui porte `ID`), expéditeur des e-mails, domaine de l'authentification Basic | Rien d'installé : seuls les textes changent |
 | Identifiant technique (`ID`) | `/etc/opencloud`, `/var/lib/opencloud`, `opencloud.db`, nom de la machine locale, clé du serveur MCP, préfixe des transactions Matrix | Les chemins bougent : une installation existante doit migrer |
-| Empreinte du protocole | en-têtes `OpenCloud-…`, préfixes de jetons (`oc_`, `ocs_`…), empreinte `opencloud-host:`, client OAuth, code `machine_is_opencloud` | Casse les agents installés, les récepteurs de webhooks et les jetons émis : il faudrait d'abord une transition qui accepte les deux formes |
+| Empreinte du protocole | en-têtes `OpenCloud-…`, préfixes de jetons (`oc_`, `ocs_`…), empreinte `opencloud-host:`, client OAuth | Casse les agents installés, les récepteurs de webhooks et les jetons émis : il faudrait d'abord une transition qui accepte les deux formes |
 
 Le préfixe des labels que l'agent lit (`LabelPrefix`, `opencloud` suivi d'un point) dérive de
 `ID` et sort du bloc des valeurs réservées. Renommer le produit coûte donc un
@@ -2802,6 +2904,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Manque | Conséquence aujourd'hui | Quand |
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
+| Les droits d'un agent ne sont pas appliqués | Cochés, écrits dans le fichier de l'agent, rapportés et affichés ; l'agent fait ce qu'il faisait, observer. Les changer après l'installation passe par le fichier de l'agent, à la main ; l'interface montre l'écart | #146 (décisions 2 et 10) |
 | Le journal d'audit reste dans la base | Il n'est envoyé à aucun canal : qui efface la base efface la trace. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | La PR suivante : `audit_deliveries` et les canaux `receives_audit` |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_container_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
@@ -2817,7 +2920,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
-| `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
+| La machine openCloud ne se voit pas sans son agent | Après la montée qui retire le chemin intégré (`030`), ou tant que la ligne de la première configuration n'a pas été jouée : ni mesures, ni conteneurs, ni sondes, ni images pour elle ; ses sondes attendent | Installer l'agent : première configuration, ou fiche › Ré-enrôler |
 | Alerte sur le processeur ou la mémoire | Seul le disque alerte ; une machine saturée se voit en jauge, personne n'est prévenu | À décider |
 | Seuils fixes, hors disque | 2 min, 3 redémarrages en 10 min, 30 et 7 jours : constantes du produit, sans réglage ; seuls ceux du disque se règlent sous Paramètres | À décider |
 | Pas de Telegram | Un canal est un webhook ou un e-mail ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |

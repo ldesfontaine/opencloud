@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testNow = time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
@@ -69,12 +70,7 @@ func newFixture(t *testing.T) *fixture {
 
 func (f *fixture) addLocalMachine(t *testing.T) {
 	t.Helper()
-	err := f.db.SaveLocalMachine(context.Background(), machine.Machine{
-		ID: machine.LocalID, Name: "hote", Kind: machine.KindLocal, EnrolledAt: testNow, CreatedAt: testNow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	storetest.SaveLocalMachine(t, f.db, testNow)
 }
 
 func (f *fixture) advance(d time.Duration) {

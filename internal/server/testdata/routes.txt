@@ -6,10 +6,12 @@ GET /api/events
 GET /api/machines
 POST /api/machines/tokens
 DELETE /api/machines/tokens/{id}
+POST /api/machines/local-enrollment
 GET /api/machines/{id}
 DELETE /api/machines/{id}
 GET /api/machines/{id}/delete-plan
 POST /api/machines/{id}/actions/reenroll
+POST /api/machines/{id}/actions/revoke
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history

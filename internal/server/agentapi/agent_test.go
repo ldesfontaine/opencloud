@@ -33,31 +33,45 @@ func reading(at time.Time, cpu float64) sampler.Reading {
 	}
 }
 
-// Un agent sur la machine openCloud présente la même empreinte qu'elle :
-// refusé, et le jeton sert encore à une autre machine.
-func TestAgentEnroll_OnTheOpenCloudMachine_IsRefusedAndKeepsTheToken(t *testing.T) {
+// L'agent qui présente l'empreinte de la machine du serveur s'enrôle comme
+// la machine openCloud : l'identifiant rendu est LocalID, que l'agent garde.
+// Un second, tant que le premier est actif, est refusé sans consommer son
+// jeton.
+func TestAgentEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 	server := newBench(t)
-	server.machines.SetLocalFingerprint("f00d")
-	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1")
-	if err != nil {
+	// Le banc a déjà l'agent de la machine openCloud : révoqué, le suivant
+	// reprend sa ligne.
+	if err := server.machines.Revoke(context.Background(), machine.LocalID); err != nil {
 		t.Fatal(err)
 	}
-	public, _, _ := ed25519.GenerateKey(nil)
-	request := agentwire.EnrollRequest{MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "opencloud", HostFingerprint: "f00d"}
-
-	refused := server.postJSON("/agent/enroll", request)
-	if refused.Code != http.StatusConflict || !strings.Contains(refused.Body.String(), "machine_is_opencloud") {
+	server.machines.SetServerHost("f00d", "oc-host")
+	enroll := func(name, fingerprint string) *httptest.ResponseRecorder {
+		cleartext, _, err := server.machines.CreateToken(context.Background(), name, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		public, _, _ := ed25519.GenerateKey(nil)
+		return server.postJSON("/agent/enroll", agentwire.EnrollRequest{
+			MachineID: remoteID, PublicKey: base64.StdEncoding.EncodeToString(public), Token: cleartext, Hostname: "oc-host", HostFingerprint: fingerprint,
+		})
+	}
+	accepted := enroll("oc-host", "f00d")
+	var response agentwire.EnrollResponse
+	if accepted.Code != http.StatusCreated || json.Unmarshal(accepted.Body.Bytes(), &response) != nil || response.MachineID != machine.LocalID {
+		t.Fatalf("status %d: %s", accepted.Code, accepted.Body.String())
+	}
+	refused := enroll("twin", "f00d")
+	if refused.Code != http.StatusConflict || !strings.Contains(refused.Body.String(), agentwire.CodeLocalAgentActive) {
 		t.Fatalf("status %d: %s", refused.Code, refused.Body.String())
 	}
-	request.HostFingerprint = "beef"
-	if accepted := server.postJSON("/agent/enroll", request); accepted.Code != http.StatusCreated {
-		t.Fatalf("the token stays valid: %d %s", accepted.Code, accepted.Body.String())
+	if pending, _ := server.machines.PendingTokens(context.Background()); len(pending) != 1 {
+		t.Fatalf("the refused token must stay pending: %+v", pending)
 	}
 }
 
 func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 	server := newBench(t)
-	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1")
+	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,8 +124,8 @@ func TestAgentStream_RefusesABadProof(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d %s", recorder.Code, recorder.Body.String())
 	}
-	if got := server.postJSON("/agent/challenge", agentwire.ChallengeRequest{MachineID: "local"}); got.Code != http.StatusNotFound {
-		t.Fatalf("challenge for the local machine: %d", got.Code)
+	if got := server.postJSON("/agent/challenge", agentwire.ChallengeRequest{MachineID: "nobody"}); got.Code != http.StatusNotFound {
+		t.Fatalf("challenge for an unknown machine: %d", got.Code)
 	}
 }
 
@@ -314,4 +328,52 @@ func TestAgentStream_ARestartBetweenChallengeAndStreamIsRecoverable(t *testing.T
 	resp, _, _, cancel := server.openStream(t, enrolled.ID, private)
 	defer resp.Body.Close()
 	defer cancel()
+}
+
+// L'agent redit ses droits à l'ouverture du flux : le serveur les stocke et
+// montre l'écart avec ce que son jeton demandait. Révoqué, il prouve encore
+// sa clé mais lit « revoked » et s'arrête.
+func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testing.T) {
+	server := newBench(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	live := httptest.NewServer(server)
+	defer live.Close()
+
+	request := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, server.requestChallenge(t, enrolled.ID, ""))
+	request.Header.Set(agentwire.HeaderAgentRights, "observe,agent.update")
+	ctx, cancel := context.WithCancel(context.Background())
+	resp, err := live.Client().Do(request.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %d", resp.StatusCode)
+	}
+	status, err := server.machines.Get(context.Background(), enrolled.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if machine.FormatCapabilities(status.Agent.Capabilities) != "observe,agent.update" || !status.Agent.CapabilitiesDiffer() {
+		t.Fatalf("reported rights %+v", status.Agent)
+	}
+
+	if err := server.machines.Revoke(context.Background(), enrolled.ID); err != nil {
+		t.Fatal(err)
+	}
+	rest, _ := readAll(resp, 2*time.Second)
+	cancel()
+	resp.Body.Close()
+	if !strings.Contains(rest, "event: closed") {
+		t.Fatalf("the revoked agent's stream must close: %q", rest)
+	}
+	again := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, server.requestChallenge(t, enrolled.ID, ""))
+	refused, err := live.Client().Do(again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer refused.Body.Close()
+	body, _ := io.ReadAll(refused.Body)
+	if refused.StatusCode != http.StatusUnauthorized || !strings.Contains(string(body), `"`+agentwire.CodeRevoked+`"`) {
+		t.Fatalf("revoked agent: %d %s", refused.StatusCode, body)
+	}
 }

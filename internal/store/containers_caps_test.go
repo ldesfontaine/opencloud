@@ -11,8 +11,8 @@ import (
 
 func seedRemoteMachines(t *testing.T, db *DB) {
 	t.Helper()
-	exec(t, db, `INSERT INTO machines (id, name, kind, public_key, enrolled_at, created_at) VALUES (?, 'vps-1', 'remote', zeroblob(32), 1, 1)`, m1)
-	exec(t, db, `INSERT INTO machines (id, name, kind, public_key, enrolled_at, created_at) VALUES (?, 'vps-2', 'remote', zeroblob(32), 1, 1)`, m2)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES (?, 'vps-1', 1)`, m1)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES (?, 'vps-2', 1)`, m2)
 }
 
 func capTestContainer(machineID, name string, now time.Time, archivedAt time.Time) container.Container {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
-import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, useMachines, type Machine } from "../api/machines";
+import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { Button } from "../components/Button";
@@ -24,7 +24,8 @@ import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
-import { machineSeen } from "../lib/machines";
+import { describeCapability, machineSeen } from "../lib/machines";
+import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
@@ -58,7 +59,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
   const resources = useMachineResources(tab === "" ? current.id : null);
   return (
     <>
-      <PageHead title={current.name} actions={!current.local && <Actions machine={current} />} />
+      <PageHead title={current.name} actions={<Actions machine={current} />} />
       <Card>
         <CardBody gap={16}>
           <MachineHead current={current} all={all} />
@@ -72,14 +73,13 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           <Card>
             <CardHeader title={t("tab.summary")} />
             <CardBody gap={10}>
-              <KeyValue label={t("machine.field_kind")} value={t(current.local ? "machine.kind_local" : "machine.kind_remote")} />
               <KeyValue label={t("machine.field_address")} value={current.address} mono />
               <KeyValue label={t("machine.field_os")} value={current.os} />
-              <KeyValue label={t("machine.field_agent")} value={current.agent_version} mono />
               <KeyValue label={t("machine.field_seen")} value={machineSeen(t, current, now)} />
               {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
             </CardBody>
           </Card>
+          <AgentCard agent={current.agent} now={now} />
         </>
       ) : tab === "services" ? (
         <MachineContainers machineID={current.id} />
@@ -91,6 +91,42 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <MachineProbes machineID={current.id} />
       )}
     </>
+  );
+}
+
+// L'agent de la machine : sa version, depuis quand, s'il est révoqué, et ses
+// droits, tels qu'il les rapporte et tels que sa commande d'installation les
+// demandait. Aucun n'est encore appliqué : la carte le dit.
+function AgentCard({ agent, now }: { agent: Agent | null; now: number }) {
+  const t = useT();
+  if (agent === null) {
+    return (
+      <Card>
+        <CardHeader title={t("machine.agent_title")} />
+        <CardBody>
+          <Note tone="warn">{t("machine.agent_none")}</Note>
+        </CardBody>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader title={t("machine.agent_title")} />
+      <CardBody gap={10}>
+        {agent.revoked_at !== null && <Note tone="danger">{t("machine.agent_revoked", formatWhen(agent.revoked_at, now))}</Note>}
+        <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
+        <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
+        <KeyValue
+          label={t("machine.agent_rights")}
+          value={agent.reported_at === null ? t("machine.agent_rights_unreported") : agent.capabilities.map((capability) => describeCapability(t, capability)).join(" · ")}
+        />
+        {agent.requested.length > 0 && (
+          <KeyValue label={t("machine.agent_rights_requested")} value={agent.requested.map((capability) => describeCapability(t, capability)).join(" · ")} />
+        )}
+        {agent.capabilities_differ && <Note tone="warn">{t("machine.agent_rights_differ")}</Note>}
+        <p className="secondary">{t("machine.agent_rights_note")}</p>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -204,9 +240,10 @@ function MachineLogs({ machineID }: { machineID: string }) {
   );
 }
 
-// Ré-enrôler donne un nouveau jeton pour le même id ; retirer coupe l'agent
-// et efface l'historique, après confirmation sur le plan : ce qui le retient
-// (services, sondes, tâches, page de statut), ce qui part avec la machine.
+// Ré-enrôler donne un nouveau jeton pour le même id ; révoquer refuse l'agent
+// et garde tout le reste ; retirer coupe l'agent et efface l'historique,
+// après confirmation sur le plan : ce qui le retient (services, sondes,
+// tâches, page de statut), ce qui part avec la machine.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
   const navigate = useNavigate();
@@ -220,12 +257,21 @@ function Actions({ machine }: { machine: Machine }) {
     });
   };
 
+  const revoke = () => {
+    action.run(() => revokeAgent(machine.id), { confirm: t("machine.revoke_confirm", machine.name), topic: "all" });
+  };
+
   return (
     <>
       <Failure error={action.error} />
       <Button icon="refresh" onClick={reenroll}>
         {t("machine.reenroll")}
       </Button>
+      {machine.agent !== null && machine.agent.revoked_at === null && (
+        <Button variant="danger" icon="x" onClick={revoke}>
+          {t("machine.revoke")}
+        </Button>
+      )}
       <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("machine.remove")}
       </Button>

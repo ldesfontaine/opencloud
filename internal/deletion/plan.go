@@ -15,6 +15,7 @@ const (
 	KindStatusPages      Kind = "status_pages"
 
 	// Ce qui part avec l'objet, ou s'en détache : des lignes comptées.
+	KindAgents           Kind = "agents"
 	KindEnrollmentTokens Kind = "enrollment_tokens"
 	KindMachineSamples   Kind = "machine_samples"
 	KindMachineNetworks  Kind = "machine_networks"
@@ -38,7 +39,7 @@ const (
 func Kinds() []Kind {
 	return []Kind{
 		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages,
-		KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
+		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
 		KindContainerEvents, KindImageChecks, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
 		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks,
