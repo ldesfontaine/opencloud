@@ -7,7 +7,8 @@ import { useAction } from "../../hooks/useAction";
 import { useT } from "../../i18n/context";
 import { ago, formatClock } from "../../lib/time";
 
-// Les sessions ouvertes par le client OAuth, à révoquer une à une.
+// Les sessions ouvertes par le client OAuth, chacune après un consentement :
+// leur portée, quand elles ont été autorisées, à révoquer une à une.
 export function MCPSessionsSection({ sessions, reload, now }: { sessions: MCPSession[]; reload: () => void; now: number }) {
   const t = useT();
   const action = useAction();
@@ -28,6 +29,7 @@ export function MCPSessionsSection({ sessions, reload, now }: { sessions: MCPSes
           <thead>
             <tr>
               <th>{t("mcp.col_session")}</th>
+              <th>{t("mcp.col_scope")}</th>
               <th>{t("mcp.col_started")}</th>
               <th>{t("mcp.col_last_used")}</th>
               <th>{t("mcp.col_expires")}</th>
@@ -38,6 +40,7 @@ export function MCPSessionsSection({ sessions, reload, now }: { sessions: MCPSes
             {sessions.map((session) => (
               <tr key={session.id}>
                 <td className="mono">{session.id}</td>
+                <td>{session.scope === "write" ? t("mcp.scope_write") : t("mcp.scope_read")}</td>
                 <td className="secondary">{formatClock(session.started_at)}</td>
                 <td className="secondary">{session.last_used_at === null ? t("mcp.never_used") : ago(t, session.last_used_at, now)}</td>
                 <td className="secondary">{formatClock(session.expires_at)}</td>

@@ -31,6 +31,16 @@ func apiTokenEvent(created Token) audit.Event {
 	}
 }
 
+// consentEvent dit la réponse de l'opérateur : le client, où il revient,
+// et la portée accordée (ou demandée, pour un refus). Pas encore de famille :
+// elle naît à l'échange du code.
+func consentEvent(action audit.Action, consent Consent, scope Scope) audit.Event {
+	return audit.Event{
+		Action: action, ObjectName: consent.ClientID,
+		Details: audit.Details{"client_id": consent.ClientID, "redirect_uri": consent.RedirectURI, "scope": string(scope)},
+	}
+}
+
 func revokeAllEvent(revoked Revoked) audit.Event {
 	return audit.Event{
 		Action: audit.MCPTokenRevoke,

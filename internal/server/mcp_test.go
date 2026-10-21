@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -870,16 +871,16 @@ func TestOAuth_DiscoveryAuthorizeExchangeRefreshAndReplay(t *testing.T) {
 	if got.Code != http.StatusFound || !strings.Contains(got.Header().Get("Location"), "error=unauthorized_client") || !strings.Contains(got.Header().Get("Location"), "state=xyz") {
 		t.Fatalf("bad client: %d %q", got.Code, got.Header().Get("Location"))
 	}
+	// Une demande valide ne rend pas de code : elle attend l'opérateur.
 	got = get(server.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&state=xyz&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
-	if got.Code != http.StatusFound {
-		t.Fatalf("authorize: %d %s", got.Code, got.Body.String())
+	if strings.Contains(got.Header().Get("Location"), "code=") {
+		t.Fatalf("a code before the consent: %q", got.Header().Get("Location"))
 	}
-	location := got.Header().Get("Location")
-	if !strings.HasPrefix(location, localCallback+"?") || !strings.Contains(location, "state=xyz") || !strings.Contains(location, "code=occ_") {
+	location := consent(t, server.Server, consentIDOf(t, got), "allow", false)
+	if location.Scheme+"://"+location.Host+location.Path != localCallback || location.Query().Get("state") != "xyz" || !strings.HasPrefix(location.Query().Get("code"), "occ_") {
 		t.Fatalf("location %q", location)
 	}
-	code := location[strings.Index(location, "code=")+5:]
-	code, _, _ = strings.Cut(code, "&")
+	code := location.Query().Get("code")
 
 	// L'échange : mauvais secret, puis le bon.
 	got = postForm(server.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": "ocs_wrong", "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{})
@@ -953,13 +954,53 @@ func TestOAuth_TokenEndpointIsRateLimitedBySource(t *testing.T) {
 	}
 }
 
-// Les sessions se coupent depuis Paramètres.
-// oauthGrant joue l'autorisation et l'échange, et rend la paire de jetons.
+// consentIDOf lit, dans la réponse de /oauth/authorize, la page de
+// consentement où part le navigateur, et rend l'identifiant de la demande.
+func consentIDOf(t *testing.T, got *httptest.ResponseRecorder) string {
+	t.Helper()
+	if got.Code != http.StatusFound {
+		t.Fatalf("authorize: %d %s", got.Code, got.Body.String())
+	}
+	location, err := url.Parse(got.Header().Get("Location"))
+	if err != nil || location.Path != mcpConsentPage || len(location.Query()) != 1 || location.Query().Get(mcpConsentParam) == "" {
+		t.Fatalf("not the consent page: %q %v", got.Header().Get("Location"), err)
+	}
+	return location.Query().Get(mcpConsentParam)
+}
+
+// consent joue la réponse de l'opérateur sur la page (allow ou deny), comme
+// le front, et rend l'adresse où le navigateur repart.
+func consent(t *testing.T, server *Server, id, decision string, write bool) *url.URL {
+	t.Helper()
+	got := callAPI(server, http.MethodPost, "/api/mcp/consents/"+id+"/actions/"+decision, mcpConsentDecision{Write: write})
+	if got.Code != http.StatusOK {
+		t.Fatalf("%s: %d %s", decision, got.Code, got.Body.String())
+	}
+	var answer mcpConsentAnswer
+	decodeAPI(t, got, &answer)
+	location, err := url.Parse(answer.Redirect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return location
+}
+
+// authorizeQuery est la demande d'un client local, avec la portée donnée.
+func authorizeQuery(scope string) string {
+	return "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri=" + localCallback + "&state=xyz&code_challenge=" + pkceChallenge + "&code_challenge_method=S256&scope=" + url.QueryEscape(scope)
+}
+
+// consentedCode joue l'autorisation et le oui de l'opérateur, et rend le code.
+func (ts *testServer) consentedCode(t *testing.T, scope string, write bool) string {
+	t.Helper()
+	return consent(t, ts.Server, consentIDOf(t, get(ts.Server, authorizeQuery(scope))), "allow", write).Query().Get("code")
+}
+
+// oauthGrant joue l'autorisation, le consentement et l'échange, et rend la
+// paire de jetons.
 func (ts *testServer) oauthGrant(t *testing.T, secret string) grantResponse {
 	t.Helper()
-	got := get(ts.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
-	location := got.Header().Get("Location")
-	code := location[strings.Index(location, "code=")+5:]
+	code := ts.consentedCode(t, "", false)
 	var grant grantResponse
 	decodeAPI(t, postForm(ts.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": secret, "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{}), &grant)
 	return grant

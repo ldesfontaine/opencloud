@@ -98,6 +98,9 @@ PUT /api/mcp/redirect-uris
 POST /api/mcp/tokens
 DELETE /api/mcp/tokens/{id}
 DELETE /api/mcp/sessions/{id}
+GET /api/mcp/consents/{id}
+POST /api/mcp/consents/{id}/actions/allow
+POST /api/mcp/consents/{id}/actions/deny
 GET /api/settings/disk
 PUT /api/settings/disk
 GET /api/settings/lifecycle
