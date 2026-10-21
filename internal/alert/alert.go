@@ -80,19 +80,21 @@ const (
 
 // ObjectKind est le genre de l'objet qu'une alerte concerne. Un volume est
 // un point de montage d'une machine ; le certificat n'est pas un objet, il
-// est un fait de sa sonde.
+// est un fait de sa sonde. Le service déclaré n'est pas l'objet d'une
+// alerte de conteneur : chaque conteneur a son état, l'alerte dit à quel
+// service il appartient (Fact.ServiceID).
 type ObjectKind string
 
 const (
 	ObjectMachine   ObjectKind = "machine"
-	ObjectService   ObjectKind = "service"
+	ObjectContainer ObjectKind = "container"
 	ObjectHeartbeat ObjectKind = "heartbeat"
 	ObjectProbe     ObjectKind = "probe"
 	ObjectVolume    ObjectKind = "volume"
 )
 
 func ObjectKinds() []ObjectKind {
-	return []ObjectKind{ObjectMachine, ObjectService, ObjectHeartbeat, ObjectProbe, ObjectVolume}
+	return []ObjectKind{ObjectMachine, ObjectContainer, ObjectHeartbeat, ObjectProbe, ObjectVolume}
 }
 
 func isObjectKind(kind ObjectKind) bool {
@@ -155,6 +157,9 @@ type Fact struct {
 	Severity  Severity
 	Object    Object
 	MachineID string
+	// ServiceID : le service déclaré auquel l'objet appartient, l'unité d'un
+	// conteneur ou le service qu'une sonde surveille ; vide sinon.
+	ServiceID string
 	Details   Details
 	// ClearSince : depuis quand l'état est redevenu bon ; zéro tant que le
 	// problème dure. Seuls les services s'en servent.
@@ -181,16 +186,15 @@ type Alert struct {
 	Kind     Kind
 	Severity Severity
 	Status   Status
-	// Silenced : ouverte sous un silence ou une maintenance, montrée mais
-	// jamais livrée, même quand le silence tombe.
-	Silenced bool
 	Object   Object
 	// La machine concernée, celle de l'objet ; vide pour une tâche sans
 	// machine. Le nom se lit à la lecture, la machine retirée n'en a plus.
 	MachineID   string
 	MachineName string
-	Details     Details
-	OpenedAt    time.Time
+	// Le service déclaré de l'objet ; vide pour un conteneur non déclaré.
+	ServiceID string
+	Details   Details
+	OpenedAt  time.Time
 	// UpdatedAt bouge à chaque aggravation ou détail nouveau.
 	UpdatedAt      time.Time
 	ResolvedAt     time.Time
@@ -198,6 +202,9 @@ type Alert struct {
 	// ClearSince : depuis quand l'état d'un service est redevenu bon. Zéro
 	// tant que le problème dure ; l'alerte se résout passé ServiceClearDelay.
 	ClearSince time.Time
+	// Muted : une fenêtre pour taire la couvre en ce moment. Jamais en base :
+	// le moteur le calcule à la lecture.
+	Muted bool
 }
 
 func (a Alert) IsOpen() bool {

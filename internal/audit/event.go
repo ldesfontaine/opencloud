@@ -42,7 +42,7 @@ const (
 	ObjectIncident        ObjectKind = "incident"
 	ObjectStatusPage      ObjectKind = "status_page"
 	ObjectChannel         ObjectKind = "channel"
-	ObjectSilence         ObjectKind = "silence"
+	ObjectMute            ObjectKind = "mute"
 	ObjectAlert           ObjectKind = "alert"
 	ObjectSettings        ObjectKind = "settings"
 	ObjectAuth            ObjectKind = "auth"
@@ -56,7 +56,7 @@ func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
 		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
-		ObjectChannel, ObjectSilence, ObjectAlert, ObjectSettings, ObjectAuth,
+		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets,
 	}
 }
@@ -120,8 +120,8 @@ const (
 	ChannelUpdate Action = "channel.update"
 	ChannelDelete Action = "channel.delete"
 
-	SilenceCreate Action = "silence.create"
-	SilenceDelete Action = "silence.delete"
+	MuteCreate Action = "mute.create"
+	MuteDelete Action = "mute.delete"
 
 	AlertAcknowledge Action = "alert.acknowledge"
 
@@ -140,6 +140,7 @@ const (
 	MCPTokenRevoke Action = "mcp_token.revoke" // #nosec G101 -- un nom, pas un secret.
 
 	MCPSessionAuthorize Action = "mcp_session.authorize"
+	MCPSessionDeny      Action = "mcp_session.deny"
 	MCPSessionRevoke    Action = "mcp_session.revoke"
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
@@ -160,13 +161,13 @@ func Actions() []Action {
 		IncidentOpen, IncidentUpdate, IncidentPost, IncidentDelete,
 		StatusPageUpdate,
 		ChannelCreate, ChannelUpdate, ChannelDelete,
-		SilenceCreate, SilenceDelete,
+		MuteCreate, MuteDelete,
 		AlertAcknowledge,
 		SettingsUpdate,
 		AuthEnable, AuthDisable, AuthChangePassword,
 		MCPEnable, MCPDisable, MCPRegenerateSecret, MCPSetRedirectURIs,
 		MCPTokenCreate, MCPTokenRevoke,
-		MCPSessionAuthorize, MCPSessionRevoke,
+		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
 		SecretsForget,
 	}
 }

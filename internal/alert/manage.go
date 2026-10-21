@@ -2,6 +2,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -101,34 +102,49 @@ func (e *Engine) DeleteChannel(ctx context.Context, id int64) error {
 	return nil
 }
 
-// --- Silences ---
+// --- Fenêtres pour taire ---
 
-func (e *Engine) CreateSilence(ctx context.Context, definition SilenceDefinition) (Silence, error) {
-	if err := definition.Validate(); err != nil {
-		return Silence{}, err
-	}
+// CreateMute ouvre une fenêtre, tout de suite ou à l'heure dite. La cible
+// doit exister : la clé étrangère refuserait en erreur brute.
+func (e *Engine) CreateMute(ctx context.Context, definition MuteDefinition) (Mute, error) {
 	now := e.now()
-	silence := Silence{
-		Kind: definition.Kind, Object: definition.Object, Reason: strings.TrimSpace(definition.Reason),
-		StartsAt: now, EndsAt: now.Add(definition.Duration), CreatedAt: now,
+	if err := definition.Validate(now); err != nil {
+		return Mute{}, err
 	}
-	id, err := e.store.InsertSilence(ctx, silence)
+	target := Target{Kind: definition.Target.Kind, ID: definition.Target.ID}
+	if target.Kind != TargetAll {
+		name, err := e.store.MuteTargetName(ctx, target)
+		if errors.Is(err, ErrNotFound) {
+			return Mute{}, ErrMuteTargetUnknown
+		}
+		if err != nil {
+			return Mute{}, err
+		}
+		target.Name = name
+	}
+	startsAt, endsAt := definition.Window(now)
+	mute := Mute{
+		Kind: definition.Kind, Target: target, Reason: strings.TrimSpace(definition.Reason),
+		StartsAt: startsAt, EndsAt: endsAt, CreatedBy: audit.ActorFrom(ctx), CreatedAt: now,
+	}
+	id, err := e.store.InsertMute(ctx, mute)
 	if err != nil {
-		return Silence{}, err
+		return Mute{}, err
 	}
-	silence.ID = id
-	e.logger.Info("alert silence created", "silence_id", id, "kind", string(silence.Kind), "object_kind", string(silence.Object.Kind), "object_id", silence.Object.ID, "until", silence.EndsAt)
-	e.auditor.Record(ctx, silenceEvent(audit.SilenceCreate, silence))
+	mute.ID = id
+	e.logger.Info("alert mute created", "mute_id", id, "kind", string(mute.Kind), "target_kind", string(target.Kind), "target_id", target.ID,
+		"from", mute.StartsAt, "until", mute.EndsAt)
+	e.auditor.Record(ctx, muteEvent(audit.MuteCreate, mute))
 	e.changed()
-	return silence, nil
+	return mute, nil
 }
 
-func (e *Engine) DeleteSilence(ctx context.Context, id int64) error {
-	if err := e.store.DeleteSilence(ctx, id); err != nil {
+func (e *Engine) DeleteMute(ctx context.Context, id int64) error {
+	if err := e.store.DeleteMute(ctx, id); err != nil {
 		return err
 	}
-	e.logger.Info("alert silence deleted", "silence_id", id)
-	e.auditor.Record(ctx, audit.Event{Action: audit.SilenceDelete, ObjectID: strconv.FormatInt(id, 10)})
+	e.logger.Info("alert mute deleted", "mute_id", id)
+	e.auditor.Record(ctx, audit.Event{Action: audit.MuteDelete, ObjectID: strconv.FormatInt(id, 10)})
 	e.changed()
 	return nil
 }

@@ -26,11 +26,12 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 6. [Traefik](#traefik)
 7. [Authentification](#authentification)
 8. [Envoi d'e-mails](#envoi-de-mails)
-9. [Ajouter une machine](#ajouter-une-machine)
-10. [Mettre à jour](#mettre-à-jour)
-11. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
-12. [Désinstaller](#désinstaller)
-13. [Dépannage](#dépannage)
+9. [Brancher un agent IA (MCP)](#brancher-un-agent-ia-mcp)
+10. [Ajouter une machine](#ajouter-une-machine)
+11. [Mettre à jour](#mettre-à-jour)
+12. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
+13. [Désinstaller](#désinstaller)
+14. [Dépannage](#dépannage)
 
 Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 
@@ -543,6 +544,35 @@ autres secrets saisis dans l'interface (voir
 [Sauvegarder et restaurer](#sauvegarder-et-restaurer)) : `opencloud.db` est
 sous `state_dir`, en `0700` ; l'interface et l'API ne le réaffichent jamais.
 
+## Brancher un agent IA (MCP)
+
+**Paramètres → Agent IA (MCP) → Activer.** L'agent lit openCloud (machines,
+services, tâches, sondes, alertes, page de statut, journaux de conteneurs) ;
+il n'écrit rien pendant la refonte et n'agit jamais sur une machine. Trois
+façons de le brancher, selon le client :
+
+| Client | Comment | Ce qu'il lui faut |
+| --- | --- | --- |
+| Un client en ligne de commande ou un script (Claude Code distant, Codex, Cursor, Hermes, `mcp-remote`, l'inspecteur MCP) | Un **jeton d'API** en `Authorization: Bearer` | L'adresse `https://…/mcp` et un jeton créé sous **Jetons d'API** (montré une fois, échéance 30, 90 ou 365 jours, ou sans) |
+| Un connecteur web (claude.ai et les applications qui l'exigent) | **OAuth**, avec votre consentement | L'adresse `https://…/mcp`, l'identifiant `opencloud` et le **secret du client** ; l'adresse de retour du connecteur déclarée sous **Adresses de retour** (pour Claude : `https://claude.ai/api/mcp/auth_callback`) |
+| Un client sur la machine openCloud (Claude Code, Claude Desktop) | `opencloud mcp` sur stdin/stdout, sans réseau | La commande affichée sous **Client local**, lancée sous le compte du service |
+
+Avec OAuth, le connecteur ouvre votre navigateur sur openCloud. Après vos
+identifiants, une **page de consentement** montre le client, l'adresse de
+retour exacte, ce que l'autorisation donne et sa durée (un accès d'une heure,
+renouvelé seul jusqu'à trente jours sans usage) ; **Autoriser** renvoie le
+connecteur avec son code, **Refuser** avec `access_denied`. N'autorisez que
+la connexion que vous venez de lancer, et refusez si l'adresse de retour ne
+vous dit rien. La demande vaut dix minutes ; un redémarrage d'openCloud
+l'oublie, il suffit de relancer la connexion depuis le client. L'accès est
+en lecture : un client qui demande l'écriture reçoit la lecture tant
+qu'elle est désactivée.
+
+Les sessions OAuth se lisent et se coupent sous **Sessions OAuth** (portée,
+date d'autorisation, dernier usage) ; les jetons d'API se révoquent sous
+**Jetons d'API**. Le consentement, le refus et chaque révocation s'inscrivent
+au journal (**Administration → Journal**).
+
 ## Ajouter une machine
 
 ### 1. Le jeton
@@ -747,6 +777,19 @@ devient `containers`, `service_transitions` `container_events`, et de même
 les mesures et les réseaux) : un binaire d'avant elle ne les retrouve plus.
 Pour revenir en arrière, remettez l'ancien binaire **et** la copie
 `avant-maj.db` faite avant la mise à jour. La sauvegarde ne change pas.
+
+**La version qui pose les alertes sur l'annuaire** (migration
+`032_alerts_directory.sql`) change deux choses que vous voyez. **Une
+maintenance de la page de statut ne tait plus les alertes** : c'est ce que
+vous dites au public ; pour taire, posez un silence (Alertes → Silences),
+qui peut maintenant commencer à une heure dite. À la montée, chaque
+maintenance pas encore terminée devient un silence par objet de ses
+composants, sur la même fenêtre : rien ne change pour celles en cours. Les
+silences existants sont repris (celui d'un volume tait désormais le disque de
+toute sa machine). Et **une livraison en échec n'est plus perdue** : elle est
+rejouée, les essais s'espaçant jusqu'à une heure, pendant 24 h. Le journal d'audit écrit
+`mute.create` et `mute.delete` là où il écrivait `silence.*`. Un binaire
+d'avant ne retrouve plus `alert_silences` : même retour arrière que plus haut.
 
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 

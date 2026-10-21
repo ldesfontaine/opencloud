@@ -46,10 +46,12 @@ type Service struct {
 	// creatingToken tient compter-puis-insérer d'un seul tenant : deux
 	// créations simultanées ne passent pas toutes deux sur la dernière place.
 	creatingToken sync.Mutex
+	// Les demandes d'autorisation qui attendent l'opérateur.
+	consents *pendingConsents
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, now: time.Now}
+	return &Service{store: store, logger: logger, now: time.Now, consents: newPendingConsents()}
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -98,6 +100,7 @@ func (s *Service) Disable(ctx context.Context) error {
 	if err := s.store.DeleteAllMCPTokens(ctx); err != nil {
 		return err
 	}
+	s.consents.clear()
 	s.logger.Info("mcp disabled")
 	s.auditor.Record(ctx, clientEvent(audit.MCPDisable, nil))
 	return nil
@@ -120,6 +123,7 @@ func (s *Service) RegenerateSecret(ctx context.Context) (string, error) {
 	if err := s.store.RevokeMCPOAuthTokens(ctx, s.now()); err != nil {
 		return "", err
 	}
+	s.consents.clear()
 	s.logger.Info("mcp client secret regenerated")
 	s.auditor.Record(ctx, clientEvent(audit.MCPRegenerateSecret, audit.Details{"oauth_revoked": "true"}))
 	return secret.cleartext, nil
@@ -211,8 +215,8 @@ func (s *Service) APITokens(ctx context.Context) ([]Token, error) {
 	return slices.DeleteFunc(tokens, func(token Token) bool { return token.IsExpired(now) }), nil
 }
 
-// RevokeAll coupe tous les jetons vivants, d'API et OAuth, et les codes
-// OAuth en attente, et dit combien de jetons. Le client et son secret
+// RevokeAll coupe tous les jetons vivants, d'API et OAuth, les codes OAuth
+// et les demandes qui attendent le consentement, et dit combien de jetons. Le client et son secret
 // restent : une nouvelle autorisation passe par /oauth/authorize, que
 // l'authentification de l'interface garde désormais.
 func (s *Service) RevokeAll(ctx context.Context) (Revoked, error) {
@@ -220,6 +224,7 @@ func (s *Service) RevokeAll(ctx context.Context) (Revoked, error) {
 	if err != nil {
 		return Revoked{}, err
 	}
+	s.consents.clear()
 	s.logger.Warn("mcp tokens revoked", "api_tokens", revoked.APITokens, "sessions", revoked.Sessions)
 	s.auditor.Record(ctx, revokeAllEvent(revoked))
 	return revoked, nil

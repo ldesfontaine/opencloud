@@ -17,8 +17,8 @@ import (
 )
 
 // Ce que le serveur attend du composant mcp : l'activation et les jetons
-// pour l'API des réglages, l'autorisation OAuth et la vérification d'un
-// Bearer pour /mcp.
+// pour l'API des réglages, l'autorisation OAuth et son consentement, et la
+// vérification d'un Bearer pour /mcp.
 type MCPService interface {
 	Client(ctx context.Context) (mcp.Client, bool, error)
 	Enable(ctx context.Context) (string, mcp.Client, error)
@@ -32,7 +32,10 @@ type MCPService interface {
 	Sessions(ctx context.Context) ([]mcp.Session, error)
 	RevokeSession(ctx context.Context, familyID string) error
 	RedirectAllowed(ctx context.Context, uri string) (bool, error)
-	Authorize(ctx context.Context, request mcp.AuthorizeRequest) (string, error)
+	RequestConsent(ctx context.Context, request mcp.AuthorizeRequest) (mcp.Consent, error)
+	PendingConsent(ctx context.Context, id string) (mcp.Consent, error)
+	ApproveConsent(ctx context.Context, id string, allowWrite bool) (mcp.Consent, string, error)
+	DenyConsent(ctx context.Context, id string) (mcp.Consent, error)
 	Exchange(ctx context.Context, request mcp.ExchangeRequest) (mcp.Grant, error)
 	Refresh(ctx context.Context, request mcp.RefreshRequest) (mcp.Grant, error)
 	Verify(ctx context.Context, bearer string) (mcp.Token, error)
@@ -50,6 +53,14 @@ const (
 	mcpResourcePath  = "/.well-known/oauth-protected-resource"
 	mcpAuthorizePath = "/oauth/authorize"
 	mcpTokenPath     = "/oauth/token" // #nosec G101 -- un chemin, pas un secret.
+	// La page du front où l'opérateur consent, et le paramètre qui porte
+	// l'identifiant opaque de la demande.
+	mcpConsentPage  = "/oauth/consentir"
+	mcpConsentParam = "demande"
+	// Lecture seule pendant la refonte : les écritures reviendront avec les
+	// actions typées (docs/projet/23-direction.md). La page de consentement
+	// ne propose pas l'écriture tant qu'elle n'est pas servie.
+	mcpHTTPReadOnly = true
 	// Un client MCP n'a pas d'interface devant lui : les listes sont
 	// bornées ici, dans le handler.
 	mcpDefaultLimit = 100

@@ -218,7 +218,18 @@ func (d *Directory) MatchUnits(ctx context.Context, machineID string, containers
 	if err != nil {
 		return nil, err
 	}
-	return Match(declared, containers), nil
+	owners := map[string]string{}
+	for _, service := range declared {
+		for _, unit := range service.Units {
+			owners[unit.ID] = service.ID
+		}
+	}
+	matches := Match(declared, containers)
+	for id, match := range matches {
+		match.ServiceID = owners[match.UnitID]
+		matches[id] = match
+	}
+	return matches, nil
 }
 
 func serviceOf(id string, definition ServiceDefinition, units []Unit) Service {

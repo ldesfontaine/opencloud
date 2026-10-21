@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -251,8 +252,8 @@ func (ts *testServer) seedAudit(t *testing.T) {
 		Details: audit.Details{"kind": "http", "machine_id": remoteID},
 	})
 	ts.journal.Record(audit.WithActor(ctx, audit.MCP("tok0000000000001")), audit.Event{
-		Action: audit.SilenceCreate, ObjectID: "1", ObjectName: "vps-paris-1",
-		Details: audit.Details{"object_kind": "machine", "reason": "maintenance"},
+		Action: audit.MuteCreate, ObjectID: "1", ObjectName: "vps-paris-1",
+		Details: audit.Details{"target_kind": "machine", "reason": "maintenance"},
 	})
 }
 
@@ -443,8 +444,9 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if isError || !strings.Contains(text, `"kind":"job_late"`) {
 		t.Fatalf("silence: %s", text)
 	}
-	// Une sorte seule viserait tous les objets : refusée par MCP, y compris
-	// à la durée maximale ; un objet seul, ou une sorte sur un objet, passe.
+	// Sans objet, la fenêtre viserait tous les objets : refusée par MCP, y
+	// compris à la durée maximale ; un objet seul, ou une sorte sur un objet,
+	// passe.
 	if text, isError = callTool(t, session, "create_silence", map[string]any{"kind": "service_down", "duration_minutes": 60}); !isError || toolErrorCode(t, text) != codeSilenceNeedsObject {
 		t.Fatalf("silence a kind everywhere: %s", text)
 	}
@@ -454,12 +456,15 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if text, isError = callTool(t, session, "create_silence", map[string]any{"object_kind": "heartbeat", "object_id": jobID, "duration_minutes": 60}); isError {
 		t.Fatalf("silence an object: %s", text)
 	}
-	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != "silence.invalid" {
+	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != codeSilenceNeedsObject {
 		t.Fatalf("silence everything: %s", text)
 	}
-	silences, err := server.db.ListSilences(ctx)
-	if err != nil || len(silences) != 3 {
-		t.Fatalf("silences %d %v", len(silences), err)
+	if text, _ = callTool(t, session, "create_silence", map[string]any{"object_kind": "probe", "object_id": "inconnue", "duration_minutes": 60}); toolErrorCode(t, text) != "silence.target_unknown" {
+		t.Fatalf("silence an unknown object: %s", text)
+	}
+	mutes, err := server.db.ListMutes(ctx)
+	if err != nil || len(mutes) != 3 {
+		t.Fatalf("mutes %d %v", len(mutes), err)
 	}
 
 	unitID := server.unitIDOf(t, cloudID, "nextcloud")
@@ -867,16 +872,16 @@ func TestOAuth_DiscoveryAuthorizeExchangeRefreshAndReplay(t *testing.T) {
 	if got.Code != http.StatusFound || !strings.Contains(got.Header().Get("Location"), "error=unauthorized_client") || !strings.Contains(got.Header().Get("Location"), "state=xyz") {
 		t.Fatalf("bad client: %d %q", got.Code, got.Header().Get("Location"))
 	}
+	// Une demande valide ne rend pas de code : elle attend l'opérateur.
 	got = get(server.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&state=xyz&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
-	if got.Code != http.StatusFound {
-		t.Fatalf("authorize: %d %s", got.Code, got.Body.String())
+	if strings.Contains(got.Header().Get("Location"), "code=") {
+		t.Fatalf("a code before the consent: %q", got.Header().Get("Location"))
 	}
-	location := got.Header().Get("Location")
-	if !strings.HasPrefix(location, localCallback+"?") || !strings.Contains(location, "state=xyz") || !strings.Contains(location, "code=occ_") {
+	location := consent(t, server.Server, consentIDOf(t, got), "allow", false)
+	if location.Scheme+"://"+location.Host+location.Path != localCallback || location.Query().Get("state") != "xyz" || !strings.HasPrefix(location.Query().Get("code"), "occ_") {
 		t.Fatalf("location %q", location)
 	}
-	code := location[strings.Index(location, "code=")+5:]
-	code, _, _ = strings.Cut(code, "&")
+	code := location.Query().Get("code")
 
 	// L'échange : mauvais secret, puis le bon.
 	got = postForm(server.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": "ocs_wrong", "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{})
@@ -950,13 +955,53 @@ func TestOAuth_TokenEndpointIsRateLimitedBySource(t *testing.T) {
 	}
 }
 
-// Les sessions se coupent depuis Paramètres.
-// oauthGrant joue l'autorisation et l'échange, et rend la paire de jetons.
+// consentIDOf lit, dans la réponse de /oauth/authorize, la page de
+// consentement où part le navigateur, et rend l'identifiant de la demande.
+func consentIDOf(t *testing.T, got *httptest.ResponseRecorder) string {
+	t.Helper()
+	if got.Code != http.StatusFound {
+		t.Fatalf("authorize: %d %s", got.Code, got.Body.String())
+	}
+	location, err := url.Parse(got.Header().Get("Location"))
+	if err != nil || location.Path != mcpConsentPage || len(location.Query()) != 1 || location.Query().Get(mcpConsentParam) == "" {
+		t.Fatalf("not the consent page: %q %v", got.Header().Get("Location"), err)
+	}
+	return location.Query().Get(mcpConsentParam)
+}
+
+// consent joue la réponse de l'opérateur sur la page (allow ou deny), comme
+// le front, et rend l'adresse où le navigateur repart.
+func consent(t *testing.T, server *Server, id, decision string, write bool) *url.URL {
+	t.Helper()
+	got := callAPI(server, http.MethodPost, "/api/mcp/consents/"+id+"/actions/"+decision, mcpConsentDecision{Write: write})
+	if got.Code != http.StatusOK {
+		t.Fatalf("%s: %d %s", decision, got.Code, got.Body.String())
+	}
+	var answer mcpConsentAnswer
+	decodeAPI(t, got, &answer)
+	location, err := url.Parse(answer.Redirect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return location
+}
+
+// authorizeQuery est la demande d'un client local, avec la portée donnée.
+func authorizeQuery(scope string) string {
+	return "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri=" + localCallback + "&state=xyz&code_challenge=" + pkceChallenge + "&code_challenge_method=S256&scope=" + url.QueryEscape(scope)
+}
+
+// consentedCode joue l'autorisation et le oui de l'opérateur, et rend le code.
+func (ts *testServer) consentedCode(t *testing.T, scope string, write bool) string {
+	t.Helper()
+	return consent(t, ts.Server, consentIDOf(t, get(ts.Server, authorizeQuery(scope))), "allow", write).Query().Get("code")
+}
+
+// oauthGrant joue l'autorisation, le consentement et l'échange, et rend la
+// paire de jetons.
 func (ts *testServer) oauthGrant(t *testing.T, secret string) grantResponse {
 	t.Helper()
-	got := get(ts.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
-	location := got.Header().Get("Location")
-	code := location[strings.Index(location, "code=")+5:]
+	code := ts.consentedCode(t, "", false)
 	var grant grantResponse
 	decodeAPI(t, postForm(ts.Server, "/oauth/token", map[string]string{"grant_type": "authorization_code", "client_id": "opencloud", "client_secret": secret, "code": code, "redirect_uri": localCallback, "code_verifier": pkceVerifier}, [2]string{}), &grant)
 	return grant
@@ -988,15 +1033,20 @@ func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
 // Un silence créé par MCP se lit ensuite par l'API, comme tout le reste.
 func TestMCP_ChangesAreVisibleToTheAPI(t *testing.T) {
 	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
-	if _, isError := callTool(t, session, "create_silence", map[string]any{
-		"kind": string(alert.KindJobLate), "object_kind": string(alert.ObjectHeartbeat), "object_id": "job-1", "duration_minutes": 30,
-	}); isError {
-		t.Fatal("silence refused")
+	server.seedAll(t)
+	jobs, err := server.db.ListHeartbeats(context.Background())
+	if err != nil || len(jobs) == 0 {
+		t.Fatalf("jobs %d %v", len(jobs), err)
 	}
-	var silences silencesResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/silences", nil), &silences)
-	if len(silences.Silences) != 1 || silences.Silences[0].Kind != string(alert.KindJobLate) {
-		t.Fatalf("silences %+v", silences.Silences)
+	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
+	if text, isError := callTool(t, session, "create_silence", map[string]any{
+		"kind": string(alert.KindJobLate), "object_kind": string(alert.TargetHeartbeat), "object_id": jobs[0].ID, "duration_minutes": 30,
+	}); isError {
+		t.Fatalf("silence refused: %s", text)
+	}
+	var mutes mutesResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/mutes", nil), &mutes)
+	if len(mutes.Mutes) != 1 || mutes.Mutes[0].Kind != string(alert.KindJobLate) || mutes.Mutes[0].CreatedByKind != "mcp" {
+		t.Fatalf("mutes %+v", mutes.Mutes)
 	}
 }

@@ -55,17 +55,37 @@ func challengeOf(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// authorize joue une autorisation valide et rend le code.
-func (f *fixture) authorize(t *testing.T) string {
+func validAuthorize(scope string) mcp.AuthorizeRequest {
+	return mcp.AuthorizeRequest{
+		ResponseType: "code", ClientID: mcp.ClientID, RedirectURI: callback, State: "xyz",
+		Challenge: challengeOf(verifier), ChallengeMethod: "S256", Scope: scope,
+	}
+}
+
+// requestConsent met une demande valide en attente de l'opérateur.
+func (f *fixture) requestConsent(t *testing.T, scope string) mcp.Consent {
 	t.Helper()
-	code, err := f.Authorize(context.Background(), mcp.AuthorizeRequest{
-		ResponseType: "code", ClientID: mcp.ClientID, RedirectURI: callback,
-		Challenge: challengeOf(verifier), ChallengeMethod: "S256",
-	})
+	consent, err := f.RequestConsent(context.Background(), validAuthorize(scope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return consent
+}
+
+// consent joue le oui de l'opérateur et rend le code.
+func (f *fixture) consent(t *testing.T, id string, allowWrite bool) string {
+	t.Helper()
+	_, code, err := f.ApproveConsent(context.Background(), id, allowWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return code
+}
+
+// authorize joue une autorisation consentie en lecture et rend le code.
+func (f *fixture) authorize(t *testing.T) string {
+	t.Helper()
+	return f.consent(t, f.requestConsent(t, "").ID, false)
 }
 
 func (f *fixture) exchange(t *testing.T, secret, code string) mcp.Grant {
@@ -186,11 +206,11 @@ func TestAPIToken_CreateVerifyRevoke(t *testing.T) {
 	}
 }
 
-func TestAuthorize_RefusesEverythingButAValidRequest(t *testing.T) {
+func TestRequestConsent_RefusesEverythingButAValidRequest(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	valid := mcp.AuthorizeRequest{ResponseType: "code", ClientID: mcp.ClientID, RedirectURI: callback, Challenge: challengeOf(verifier), ChallengeMethod: "S256"}
-	if _, err := f.Authorize(ctx, valid); !errors.Is(err, mcp.ErrDisabled) {
+	valid := validAuthorize("")
+	if _, err := f.RequestConsent(ctx, valid); !errors.Is(err, mcp.ErrDisabled) {
 		t.Fatalf("disabled: %v", err)
 	}
 	f.enable(t)
@@ -208,13 +228,17 @@ func TestAuthorize_RefusesEverythingButAValidRequest(t *testing.T) {
 	for name, tc := range cases {
 		request := valid
 		tc.change(&request)
-		if _, err := f.Authorize(ctx, request); !errors.Is(err, tc.want) {
+		if _, err := f.RequestConsent(ctx, request); !errors.Is(err, tc.want) {
 			t.Errorf("%s: %v, want %v", name, err, tc.want)
 		}
 	}
-	code, err := f.Authorize(ctx, valid)
-	if err != nil || !strings.HasPrefix(code, "occ_") {
-		t.Fatalf("valid: %q %v", code, err)
+	// Une demande valide attend : aucun code tant que l'opérateur n'a rien dit.
+	consent, err := f.RequestConsent(ctx, valid)
+	if err != nil || len(consent.ID) != 32 || consent.State != "xyz" || consent.WriteRequested || !consent.ExpiresAt.Equal(testNow.Add(mcp.ConsentTTL)) {
+		t.Fatalf("valid: %+v %v", consent, err)
+	}
+	if pending, err := f.PendingConsent(ctx, consent.ID); err != nil || pending != consent {
+		t.Fatalf("pending: %+v %v", pending, err)
 	}
 	// Une URI déclarée ouvre le redirect distant.
 	if _, err := f.SetRedirectURIs(ctx, []string{"https://claude.ai/api/mcp/auth_callback"}); err != nil {
@@ -222,11 +246,158 @@ func TestAuthorize_RefusesEverythingButAValidRequest(t *testing.T) {
 	}
 	remote := valid
 	remote.RedirectURI = "https://claude.ai/api/mcp/auth_callback"
-	if _, err := f.Authorize(ctx, remote); err != nil {
+	if _, err := f.RequestConsent(ctx, remote); err != nil {
 		t.Fatalf("declared redirect: %v", err)
 	}
 	if ok, _ := f.RedirectAllowed(ctx, "https://claude.ai/api/mcp/auth_callback?x=1"); ok {
 		t.Fatal("a declared uri is matched exactly, never by prefix")
+	}
+}
+
+// La portée : la lecture par défaut, l'écriture seulement demandée par le
+// client et cochée par l'opérateur ; une portée inconnue est ignorée. La
+// famille garde la sienne au rafraîchissement.
+func TestApproveConsent_GrantsWriteOnlyWhenRequestedAndChecked(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	secret := f.enable(t)
+	cases := []struct {
+		scope      string
+		allowWrite bool
+		want       mcp.Scope
+	}{
+		{"", false, mcp.ScopeRead},
+		{"", true, mcp.ScopeRead},
+		{"read", true, mcp.ScopeRead},
+		{"mcp openid", true, mcp.ScopeRead},
+		{"read write", false, mcp.ScopeRead},
+		{"read write", true, mcp.ScopeWrite},
+		{"write", true, mcp.ScopeWrite},
+	}
+	for _, c := range cases {
+		consent := f.requestConsent(t, c.scope)
+		if consent.WriteRequested != strings.Contains(c.scope, "write") {
+			t.Errorf("%q: write requested %v", c.scope, consent.WriteRequested)
+		}
+		grant := f.exchange(t, secret, f.consent(t, consent.ID, c.allowWrite))
+		verified, err := f.Verify(ctx, grant.AccessToken)
+		if err != nil || verified.Scope != c.want {
+			t.Errorf("%q checked %v: %+v %v, want %s", c.scope, c.allowWrite, verified, err, c.want)
+		}
+		refreshed, err := f.Refresh(ctx, mcp.RefreshRequest{ClientID: mcp.ClientID, ClientSecret: secret, RefreshToken: grant.RefreshToken})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again, _ := f.Verify(ctx, refreshed.AccessToken); again.Scope != c.want {
+			t.Errorf("%q: the family lost its scope: %s", c.scope, again.Scope)
+		}
+	}
+	sessions, err := f.Sessions(ctx)
+	if err != nil || len(sessions) != len(cases) {
+		t.Fatalf("sessions %+v %v", sessions, err)
+	}
+	writers := 0
+	for _, session := range sessions {
+		if session.Scope == mcp.ScopeWrite {
+			writers++
+		}
+	}
+	if writers != 2 {
+		t.Fatalf("sessions %+v", sessions)
+	}
+}
+
+// Une demande reçoit une réponse, une seule, dans ses dix minutes ; un refus
+// ne tire aucun code.
+func TestConsent_IsAnsweredOnceWithinItsLifetime(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enable(t)
+	if _, _, err := f.ApproveConsent(ctx, "inconnu", false); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("unknown: %v", err)
+	}
+	if _, err := f.PendingConsent(ctx, "inconnu"); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("unknown read: %v", err)
+	}
+	approved := f.requestConsent(t, "")
+	f.consent(t, approved.ID, false)
+	if _, _, err := f.ApproveConsent(ctx, approved.ID, false); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("approved twice: %v", err)
+	}
+	if _, err := f.DenyConsent(ctx, approved.ID); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("denied after approval: %v", err)
+	}
+	denied := f.requestConsent(t, "write")
+	answered, err := f.DenyConsent(ctx, denied.ID)
+	if err != nil || answered.State != "xyz" || answered.RedirectURI != callback {
+		t.Fatalf("deny: %+v %v", answered, err)
+	}
+	if _, _, err := f.ApproveConsent(ctx, denied.ID, true); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("approved after a denial: %v", err)
+	}
+	stale := f.requestConsent(t, "")
+	f.clock = f.clock.Add(mcp.ConsentTTL)
+	if _, err := f.PendingConsent(ctx, stale.ID); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("expired read: %v", err)
+	}
+	if _, _, err := f.ApproveConsent(ctx, stale.ID, false); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("expired: %v", err)
+	}
+}
+
+// Ce qui coupe les autorisations coupe aussi les demandes en attente ; une
+// URI retirée entre-temps n'en reçoit plus la réponse.
+func TestConsent_FallsWithTheAuthorizations(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enable(t)
+	cuts := map[string]func(){
+		"revoke all": func() { _, _ = f.RevokeAll(ctx) },
+		"regenerate": func() { _, _ = f.RegenerateSecret(ctx) },
+	}
+	for name, cut := range cuts {
+		consent := f.requestConsent(t, "")
+		cut()
+		if _, _, err := f.ApproveConsent(ctx, consent.ID, false); !errors.Is(err, mcp.ErrConsentUnknown) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	remote := validAuthorize("")
+	remote.RedirectURI = "https://claude.ai/api/mcp/auth_callback"
+	if _, err := f.SetRedirectURIs(ctx, []string{remote.RedirectURI}); err != nil {
+		t.Fatal(err)
+	}
+	consent, err := f.RequestConsent(ctx, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.SetRedirectURIs(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.ApproveConsent(ctx, consent.ID, false); !errors.Is(err, mcp.ErrRedirectURIInvalid) {
+		t.Fatalf("withdrawn redirect: %v", err)
+	}
+	consent = f.requestConsent(t, "")
+	if err := f.Disable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.ApproveConsent(ctx, consent.ID, false); !errors.Is(err, mcp.ErrDisabled) {
+		t.Fatalf("disabled: %v", err)
+	}
+}
+
+// Au-delà de la borne, la plus ancienne demande cède sa place.
+func TestRequestConsent_KeepsTheNewestWithinTheBound(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.enable(t)
+	first := f.requestConsent(t, "")
+	for range mcp.MaxPendingConsents {
+		f.clock = f.clock.Add(time.Second)
+		f.requestConsent(t, "")
+	}
+	if _, err := f.PendingConsent(ctx, first.ID); !errors.Is(err, mcp.ErrConsentUnknown) {
+		t.Fatalf("the oldest stayed: %v", err)
 	}
 }
 
@@ -566,13 +737,12 @@ func TestAPIToken_ExpiredIsRefusedHiddenAndPurged(t *testing.T) {
 	}
 }
 
-// Un jeton OAuth a toujours la portée write : l'opérateur l'a obtenu
-// derrière /oauth/authorize.
-func TestExchange_OAuthTokensCanWrite(t *testing.T) {
+// Un jeton OAuth consenti sans rien cocher lit seulement.
+func TestExchange_OAuthTokensReadByDefault(t *testing.T) {
 	f := newFixture(t)
 	grant := f.exchange(t, f.enable(t), f.authorize(t))
 	verified, err := f.Verify(context.Background(), grant.AccessToken)
-	if err != nil || !verified.CanWrite() {
+	if err != nil || verified.CanWrite() || verified.Scope != mcp.ScopeRead {
 		t.Fatalf("%+v %v", verified, err)
 	}
 }

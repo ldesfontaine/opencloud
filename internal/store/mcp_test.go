@@ -82,7 +82,7 @@ func TestMCPToken_ScopeRoundTripsAndRevokeAllCounts(t *testing.T) {
 // efface ceux de l'ancien client.
 func TestMCPCodes_RevokeAllAndRevokeOAuthDropThePendingOnes(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	pending := mcp.Code{Hash: "h-code", ClientID: mcp.ClientID, RedirectURI: "http://localhost:1/cb", Challenge: "c", ExpiresAt: now.Add(mcp.CodeTTL), CreatedAt: now}
+	pending := mcp.Code{Hash: "h-code", ClientID: mcp.ClientID, RedirectURI: "http://localhost:1/cb", Challenge: "c", Scope: mcp.ScopeRead, ExpiresAt: now.Add(mcp.CodeTTL), CreatedAt: now}
 	cases := map[string]func(*DB, context.Context) error{
 		"revoke all": func(db *DB, ctx context.Context) error {
 			_, err := db.RevokeAllMCPTokens(ctx, now)

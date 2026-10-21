@@ -83,6 +83,8 @@ func (t *Tracker) match(ctx context.Context, machineID string, changes *Changes)
 		match := matches[changes.Containers[index].ID]
 		changes.Containers[index].UnitID = match.UnitID
 		changes.Containers[index].MatchLevel = match.Level
+		// L'alerte du conteneur porte son service : la fiche le sait dès ce rapport.
+		changes.Containers[index].DeclaredServiceID = match.ServiceID
 	}
 }
 
