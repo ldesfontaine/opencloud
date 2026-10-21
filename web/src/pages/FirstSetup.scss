@@ -1,0 +1,25 @@
+// L'écran de première configuration : pas de barre latérale, la marque puis
+// une seule carte, à la largeur d'un formulaire.
+.first-setup {
+  min-height: 100vh;
+  padding: 28px 32px;
+}
+
+.first-setup-column {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+
+  > .brand {
+    padding: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .first-setup {
+    padding: 20px 16px;
+  }
+}

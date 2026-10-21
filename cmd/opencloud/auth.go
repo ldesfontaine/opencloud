@@ -21,8 +21,9 @@ const authUsage = `Usage : {command} auth <status|disable> [-config chemin]
 
   status    dit si l'interface est protégée, par quel identifiant ou
             derrière quel en-tête d'identité du mandataire
-  disable   coupe l'authentification de l'interface (mot de passe oublié) ;
-            serve la suit à la requête suivante, sans redémarrer
+  disable   coupe l'authentification de l'interface (mot de passe oublié) :
+            elle revient à sa première configuration ; serve la suit à la
+            requête suivante, sans redémarrer
 `
 
 // opencloud auth : la porte de secours quand le mot de passe est perdu. Elle
@@ -92,7 +93,7 @@ func disableAuth(ctx context.Context, access *auth.Service, out io.Writer) error
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(out, "Authentification de l'interface désactivée : l'interface est ouverte à qui atteint le port. Réactivez-la sous Paramètres.")
+	_, err = fmt.Fprintln(out, "Authentification de l'interface désactivée : l'interface revient à sa première configuration. Ouvrez-la et créez le compte : le premier qui atteint le port le crée.")
 	return err
 }
 
@@ -104,7 +105,7 @@ func printAuthStatus(ctx context.Context, access *auth.Service, out io.Writer) e
 	enabledAt := state.EnabledAt.UTC().Format(time.RFC3339)
 	switch state.Mode {
 	case auth.ModeNone:
-		_, err = fmt.Fprintln(out, "mode : none — interface ouverte, sans authentification")
+		_, err = fmt.Fprintln(out, "mode : none — aucun compte, l'interface attend sa première configuration")
 		return err
 	case auth.ModeForward:
 		_, err = fmt.Fprintf(out, "mode : forward — derrière un mandataire d'authentification\nen-tête d'identité : %s\nactivée le : %s\n",

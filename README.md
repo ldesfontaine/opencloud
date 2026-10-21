@@ -12,8 +12,9 @@ les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 
 > **Maturité.** Version `v0.0.1`, pré-version. Les binaires Linux amd64 et
 > arm64 sont dans la [release v0.0.1](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
-> ou se compilent. L'interface est **ouverte par défaut** : activez
-> l'authentification avant de l'exposer hors de la machine.
+> ou se compilent. Une installation neuve n'a **pas de compte** : elle ne sert
+> que l'écran de première configuration, et le premier qui l'ouvre crée le
+> compte. Créez-le avant d'exposer le port hors de la machine.
 
 ![Vue d'ensemble d'openCloud, avec des machines d'exemple](docs/images/vue-ensemble.png)
 
@@ -72,8 +73,9 @@ EOF
 `make run` fait ces deux étapes à votre place. Ouvrez
 <http://127.0.0.1:8080>.
 
-**Activez l'authentification** : Paramètres → Accès à l'interface. Ou par
-l'API, tant qu'elle est ouverte :
+**Créez le compte** : l'écran de première configuration le demande avant
+tout (identifiant, mot de passe de 12 caractères ou plus), puis l'interface
+s'ouvre. Ou par l'API, tant qu'aucun compte n'existe :
 
 ```sh
 curl -X POST -H 'Content-Type: application/json' \
@@ -95,7 +97,8 @@ l'agent exige HTTPS vers openCloud, sauf `-allow-plain` sur un réseau déjà
 chiffré (WireGuard). La suite (proxy, service, `-pin`) est dans
 [docs/installation.md](docs/installation.md#ajouter-une-machine).
 
-Mot de passe perdu : `opencloud auth disable -config dev/config.toml`.
+Mot de passe perdu : `opencloud auth disable -config dev/config.toml` ramène
+à l'écran de première configuration.
 
 ## Documentation
 

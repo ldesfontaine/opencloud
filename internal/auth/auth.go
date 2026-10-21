@@ -13,7 +13,8 @@ import (
 type Mode string
 
 const (
-	// Personne n'est vérifié : qui atteint le port est l'opérateur.
+	// Aucun compte : l'installation attend sa première configuration, et
+	// le serveur ne sert à l'opérateur que de quoi créer le compte.
 	ModeNone Mode = "none"
 	// HTTP Basic, identifiant et mot de passe choisis à l'activation.
 	ModeBasic Mode = "basic"

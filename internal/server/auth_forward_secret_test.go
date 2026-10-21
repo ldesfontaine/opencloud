@@ -53,7 +53,7 @@ func callProxied(server *Server, method, path, peer, identity string, secrets ..
 
 func TestAuthForwardSecret_ALoopbackPeerMustProveItWentThroughTheProxy(t *testing.T) {
 	servertest.RequireFront(t)
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForwardOnLoopback(t, proxySecret)
 
 	cases := []struct {
@@ -96,7 +96,7 @@ func TestAuthForwardSecret_ALoopbackPeerMustProveItWentThroughTheProxy(t *testin
 }
 
 func TestAuthForwardSecret_ARefusalNeverLogsTheValueReceived(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForwardOnLoopback(t, proxySecret)
 	var logs bytes.Buffer
 	server.logger = slog.New(slog.NewTextHandler(&logs, nil))
@@ -117,7 +117,7 @@ func TestAuthForwardSecret_ARefusalNeverLogsTheValueReceived(t *testing.T) {
 // Le secret a servi à la porte : aucun gestionnaire ne le voit, pas plus que
 // la réponse.
 func TestAuthForwardSecret_IsRemovedFromTheRequestBeforeTheHandlers(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForwardOnLoopback(t, proxySecret)
 
 	var seen []string
@@ -125,7 +125,7 @@ func TestAuthForwardSecret_IsRemovedFromTheRequestBeforeTheHandlers(t *testing.T
 	handler := server.requireOperator(func(_ http.ResponseWriter, r *http.Request) {
 		reached = true
 		seen = r.Header.Values(brand.ProxySecretHeader)
-	})
+	}, false)
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/counts", nil)
 	request.RemoteAddr = net.JoinHostPort(loopbackPeer, "4000")
 	request.Header.Set(auth.DefaultForwardHeader, testUsername)
@@ -145,7 +145,7 @@ func TestAuthForwardSecret_IsRemovedFromTheRequestBeforeTheHandlers(t *testing.T
 }
 
 func TestAuthForwardSecret_WithoutASecretANonLoopbackProxyKeepsItsBehavior(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t) // 192.0.2.0/24, aucun secret
 	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", got.Code)
@@ -157,7 +157,7 @@ func TestAuthForwardSecret_WithoutASecretANonLoopbackProxyKeepsItsBehavior(t *te
 }
 
 func TestAuthForwardSecret_AConfiguredSecretIsRequiredFromAnyTrustedProxy(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	server.forwardSecret = proxySecret
 	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusUnauthorized {
@@ -178,7 +178,7 @@ func TestAuthAPI_EnableForwardRefusedOnALoopbackProxyWithoutASecret(t *testing.T
 		{"0.0.0.0/0"},
 		{"::/0"},
 	} {
-		server := newTestServer(t)
+		server := newFirstSetupServer(t)
 		server.trustedProxies = parsePrefixes(t, trusted...)
 		got := callForwardedJSON(server.Server, http.MethodPost, enable, `{"mode":"forward"}`, loopbackPeer, auth.DefaultForwardHeader, testUsername)
 		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "auth.forward_secret_required" {
@@ -192,7 +192,7 @@ func TestAuthAPI_EnableForwardRefusedOnALoopbackProxyWithoutASecret(t *testing.T
 }
 
 func TestAuthAPI_EnableForwardOnALoopbackProxyWorksWithTheSecret(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.trustedProxies = parsePrefixes(t, "127.0.0.1/32", "::1/128")
 	server.forwardSecret = proxySecret
 	const enable = "/api/auth/actions/enable"
@@ -224,7 +224,7 @@ func TestAuthAPI_EnableForwardOnALoopbackProxyWorksWithTheSecret(t *testing.T) {
 // Une installation qui tourne déjà en forward sur la boucle locale, sans
 // secret : l'accès est gardé, la page des réglages le dit.
 func TestAuthAPI_ForwardAlreadyActiveWithoutASecretKeepsAccessAndSaysItIsInsecure(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForwardOnLoopback(t, "")
 
 	if got := callProxied(server.Server, http.MethodGet, "/api/counts", loopbackPeer, testUsername); got.Code != http.StatusOK {
@@ -245,11 +245,11 @@ func TestAuthAPI_ForwardAlreadyActiveWithoutASecretKeepsAccessAndSaysItIsInsecur
 }
 
 func TestAuthAPI_ForwardInsecureIsAbsentWhenSomethingProvesTheProxy(t *testing.T) {
-	withSecret := newTestServer(t)
+	withSecret := newFirstSetupServer(t)
 	withSecret.enableForwardOnLoopback(t, proxySecret)
-	container := newTestServer(t)
+	container := newFirstSetupServer(t)
 	container.enableForward(t)
-	basic := newTestServer(t)
+	basic := newFirstSetupServer(t)
 	basic.enableBasic(t)
 
 	for name, read := range map[string]*httptest.ResponseRecorder{

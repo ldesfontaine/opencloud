@@ -154,7 +154,7 @@ func runServe(args []string) error {
 	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: parts.updates, logger: logger}, logger)
 	parts.updates.SetLocalRunner(machine.LocalID, updater)
 
-	warnIfOpen(ctx, logger, parts.operator, cfg.Listen)
+	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
 	// Quinze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la mesure de cette machine, qui est son propre agent, la
@@ -228,9 +228,11 @@ func runServe(args []string) error {
 	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), listener, control, cfg)
 }
 
-// warnIfOpen dit au journal que l'interface n'est pas protégée, plus fort
-// quand elle écoute ailleurs que sur la boucle locale.
-func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service, listen string) {
+// logInterfaceAccess dit au journal comment l'interface est gardée. Sans
+// compte, elle attend sa première configuration : sur la boucle locale, c'est
+// une information ; au-delà, un avertissement, car le premier qui atteint
+// l'adresse crée le compte.
+func logInterfaceAccess(ctx context.Context, logger *slog.Logger, operator *auth.Service, listen string) {
 	state, err := operator.State(ctx)
 	if err != nil {
 		logger.Warn("read interface authentication", "error", err)
@@ -241,10 +243,10 @@ func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service
 		return
 	}
 	if isLoopbackListen(listen) {
-		logger.Warn("interface authentication disabled: anyone reaching the port is the operator; enable it under Settings", "listen", listen)
+		logger.Info("interface awaiting first setup: open it in a browser and create the operator account", "listen", listen)
 		return
 	}
-	logger.Warn("INTERFACE OPEN TO THE NETWORK WITHOUT AUTHENTICATION: anyone reaching this address can enroll machines, read logs and enable MCP; enable it under Settings now",
+	logger.Warn("interface awaiting first setup and listening beyond loopback: whoever reaches this address first creates the operator account; open it and create it now",
 		"listen", listen)
 }
 

@@ -104,7 +104,7 @@ Les sous-commandes :
 | --- | --- |
 | `opencloud serve -config <chemin>` | Le serveur web. `-config` vaut `/etc/opencloud/config.toml` par défaut |
 | `opencloud agent [options]` | L'agent d'une machine, voir [Ajouter une machine](#ajouter-une-machine) |
-| `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) |
+| `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) : l'interface revient à sa première configuration |
 | `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
 | `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
 | `opencloud export [-config <chemin>] [-o <fichier>] [-propose]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), avec `-propose` y ajoute ce que les conteneurs non déclarés laissent deviner, voir [Exporter l'annuaire](#exporter-lannuaire) |
@@ -145,9 +145,10 @@ Sans Docker sur la machine, retirez cette ligne : l'unité échouerait sur un
 groupe inconnu.
 
 Au démarrage, le journal dit `listening` avec l'adresse, le répertoire
-d'état et la version. Tant que l'authentification n'est pas activée, une
-ligne `WARN` le rappelle, en majuscules si `listen` n'est pas sur la boucle
-locale.
+d'état et la version. Tant qu'aucun compte n'existe, une ligne le rappelle
+(`interface awaiting first setup`) : `INFO` si `listen` est sur la boucle
+locale, `WARN` sinon, car le premier qui atteint l'adresse crée le compte.
+Créez-le tout de suite : [Authentification](#authentification).
 
 **Root plutôt qu'un compte dédié ?** Possible : retirez `User=`, `Group=` et
 `SupplementaryGroups=`. Le compte dédié limite ce que le processus touche
@@ -291,10 +292,11 @@ Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml
 - `docker0` doit exister quand `serve` démarre : l'unité démarre après
   `docker.service` et redémarre en cas d'échec.
 - Écouter sur `172.17.0.1` rend openCloud joignable par **tous** les
-  conteneurs de la machine, pas seulement Traefik. Activez
-  l'authentification. Le port n'est pas publié sur l'interface publique du
-  VPS, mais un pare-feu qui n'accepte que 22, 80 et 443 en entrée reste une
-  bonne idée.
+  conteneurs de la machine, pas seulement Traefik : l'un d'eux pourrait
+  créer le compte avant vous. Faites la [première
+  configuration](#authentification) dès le démarrage. Le port n'est pas
+  publié sur l'interface publique du VPS, mais un pare-feu qui n'accepte que
+  22, 80 et 443 en entrée reste une bonne idée.
 
 ### Les flux en direct
 
@@ -328,20 +330,29 @@ porte les deux.
 
 ## Authentification
 
-L'interface est **ouverte par défaut** : qui atteint le port enrôle des
-machines, lit les journaux de conteneurs et active MCP. Activez
-l'authentification avant d'exposer openCloud. Deux modes : identifiant et
-mot de passe (HTTP Basic, ci-dessous), ou
-[un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie)
-(Authelia).
+**Premier démarrage : ouvrez l'adresse, créez le compte.** Une installation
+neuve n'a pas de compte, et ne sert rien d'autre que l'écran de première
+configuration : l'interface, l'API, le direct, les journaux et
+`/oauth/authorize` répondent `401` (`auth.setup_required`) tant que le compte
+n'existe pas. La page de statut, les pings, les agents et MCP gardent leur
+propre accès. Deux modes : identifiant et mot de passe (HTTP Basic,
+ci-dessous), ou [un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie)
+(Authelia). Le compte créé, le navigateur est connecté et l'interface s'ouvre.
 
-**Dans l'interface** : Paramètres → Accès à l'interface. **Ou par l'API**,
-tant qu'elle est ouverte :
+**Le premier qui ouvre l'adresse crée le compte.** Créez-le avant de publier
+le routeur Traefik, par un tunnel SSH vers l'adresse de `listen` :
+
+```sh
+ssh -L 8080:127.0.0.1:8080 root@vps.example.org
+# puis, sur votre poste : http://127.0.0.1:8080
+```
+
+**Ou par l'API**, depuis la machine, tant qu'aucun compte n'existe :
 
 ```sh
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"une phrase de 12 caractères ou plus"}' \
-  https://opencloud.example.org/api/auth/actions/enable
+  http://127.0.0.1:8080/api/auth/actions/enable
 ```
 
 | Règle | Valeur |
@@ -350,7 +361,7 @@ curl -X POST -H 'Content-Type: application/json' \
 | Identifiant | 1 à 64 caractères, sans `:` |
 | Mot de passe | 12 caractères au moins, 72 octets au plus ; haché en bcrypt |
 | Échecs | 10 d'un coup, puis un toutes les 6 s par adresse (en IPv6, par /64), `429` au-delà. La vérification lente fait la queue derrière neuf autres au plus : file pleine, `429` aussitôt |
-| Effet | Immédiat, sans redémarrage. Activer révoque tous les jetons MCP (jetons d'API et sessions OAuth) : recréez ceux qui servent |
+| Effet | Immédiat, sans redémarrage. Créer le compte révoque tous les jetons MCP (jetons d'API et sessions OAuth) : il n'y en a qu'après un `auth disable`, recréez ceux qui servent |
 
 Ce qui reste ouvert : la liste du [tableau ci-dessus](#une-authentification-basic-au-niveau-de-traefik).
 Le reste — l'interface, `/api/…`, le direct, les journaux,
@@ -366,11 +377,14 @@ jusqu'à sa fermeture. HTTP Basic renvoie le mot de passe à chaque requête :
 ```sh
 runuser -u opencloud -- opencloud auth disable -config /etc/opencloud/config.toml
 runuser -u opencloud -- opencloud auth status  -config /etc/opencloud/config.toml
-# mode : none — interface ouverte, sans authentification
+# mode : none — aucun compte, l'interface attend sa première configuration
 ```
 
-`serve` suit à la requête suivante, sans redémarrer. Réactivez ensuite sous
-Paramètres.
+`serve` suit à la requête suivante, sans redémarrer, et l'interface **revient
+à sa première configuration** : c'est voulu, la commande locale est la porte
+de secours. Rouvrez l'adresse (par le tunnel SSH, pour la même raison qu'au
+premier démarrage) et recréez le compte. Désactiver depuis Paramètres fait
+de même.
 
 ### Derrière un mandataire qui authentifie
 
@@ -394,7 +408,7 @@ Le secret partagé ferme ce cas, et il est recommandé dans tous les autres.
 | `trusted_proxies` = l'adresse du mandataire **seul**, en `/32` (par exemple `["172.30.0.2/32"]`), pas le sous-réseau | Tout pair de cette liste est cru sur parole : avec un `/24`, un voisin du réseau écrirait l'en-tête lui-même |
 | Le mandataire **écrase** l'en-tête envoyé par le client | Sinon un visiteur envoie `Remote-User: admin`. Traefik `forwardAuth` avec `authResponseHeaders: ["Remote-User"]` remplace la valeur du client par celle d'Authelia |
 | Deux Traefik en chaîne : `trusted_proxies` vise celui qui joint openCloud, l'en-tête est nettoyé par celui qui appelle Authelia | Le second ne doit être joignable que par le premier : sinon on le contourne, en-tête forgé compris |
-| Activer depuis une session **déjà authentifiée** par le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête, et le secret s'il est configuré, depuis un pair de confiance. On ne peut pas s'enfermer dehors |
+| Choisir « Mandataire » sur l'écran de première configuration, ouvert **à travers** le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête, et le secret s'il est configuré, depuis un pair de confiance. On ne peut pas s'enfermer dehors. Derrière Authelia, l'écran lui-même est déjà gardé : pas de course au premier venu |
 
 **Le secret** : créez-le avant d'activer, lisible par le compte du service
 et pas par les autres, puis déclarez-le.
@@ -446,8 +460,10 @@ http:
 ```
 
 **Activer** : ouvrez openCloud par son nom public, connectez-vous à
-Authelia, puis Paramètres → Accès à l'interface → Mode « Mandataire
-d'authentification ». Le corps de l'API est
+Authelia, puis, sur l'écran de première configuration, Mode « Mandataire
+d'authentification ». Une installation qui a déjà un compte Basic y revient
+par Paramètres → Accès à l'interface → Désactiver (ou `opencloud auth
+disable`). Le corps de l'API est
 `{"mode":"forward","header":"Remote-User"}` sur
 `POST /api/auth/actions/enable`. Comme en Basic, activer révoque tous les
 jetons MCP.
