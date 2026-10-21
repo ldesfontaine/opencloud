@@ -64,6 +64,28 @@ func (db *DB) GetContainer(ctx context.Context, id string) (container.Container,
 	return containers[0], nil
 }
 
+// containerNeedsAttention est container.NeedsAttention écrit en SQL, pour
+// compter sans charger les fiches ; un test de parité tient les deux
+// ensemble. Un conteneur sorti va mal sauf sur un arrêt propre :
+// container.IsCleanStop.
+const containerNeedsAttention = `CASE state
+	WHEN 'running' THEN health = 'unhealthy'
+	WHEN 'restarting' THEN 1
+	WHEN 'dead' THEN 1
+	WHEN 'exited' THEN NOT (oom_killed = 0 AND killed = 0 AND exit_code IN (0, 137, 143))
+	ELSE 0 END`
+
+// CountContainers compte les conteneurs vivants et ceux qui demandent
+// attention, en une requête.
+func (db *DB) CountContainers(ctx context.Context) (total, attention int, err error) {
+	err = db.sql.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(`+containerNeedsAttention+`), 0) FROM containers WHERE archived_at IS NULL`).Scan(&total, &attention)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count containers: %w", err)
+	}
+	return total, attention, nil
+}
+
 // attachNetworks lit en une requête les appartenances des fiches que la
 // clause désigne et les pose sur chacune, par nom de réseau.
 func (db *DB) attachNetworks(ctx context.Context, where string, args []any, containers []container.Container) error {

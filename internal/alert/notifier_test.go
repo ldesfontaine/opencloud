@@ -82,7 +82,7 @@ func (f *fixture) waitDelivery(t *testing.T, alertID int64) alert.Delivery {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		deliveries, err := f.Deliveries(context.Background(), alertID)
+		deliveries, err := f.db.ListDeliveries(context.Background(), alertID)
 		if err != nil {
 			t.Fatal(err)
 		}

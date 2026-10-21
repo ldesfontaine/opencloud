@@ -46,7 +46,7 @@ type grantResponse struct {
 }
 
 func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpLimits.allow(s.clientAddress(r)) {
+	if !s.mcpLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
 		return
 	}
@@ -66,7 +66,7 @@ func (s *Server) oauthServerMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpLimits.allow(s.clientAddress(r)) {
+	if !s.mcpLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
 		return
 	}
@@ -85,7 +85,7 @@ func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 // oauthAuthorize : le redirect_uri est jugé avant tout redirect, y compris
 // pour dire une erreur ; refusé, la réponse est un 400 sans redirect.
 func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpLimits.allow(s.clientAddress(r)) {
+	if !s.mcpLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
 		return
 	}
@@ -156,7 +156,7 @@ func (s *Server) redirectWith(w http.ResponseWriter, r *http.Request, redirectUR
 // oauthToken : les identifiants du client viennent du corps ou de
 // l'en-tête Basic, les deux façons que les clients pratiquent.
 func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
-	if !s.mcpLimits.allowToken(s.clientAddress(r)) {
+	if !s.mcpTokenLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
 		return
 	}

@@ -41,7 +41,7 @@ func (ts *testServer) seedManifest(t *testing.T) (jobToken string) {
 	ts.enroll(t, "vps-paris-1", remoteID)
 	ts.seedDirectory(t)
 	jobID := ts.seedJobs(t)
-	services, err := ts.directory.ListServices(context.Background(), directory.Filter{})
+	services, err := ts.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func (ts *testServer) seedManifest(t *testing.T) (jobToken string) {
 	if err := ts.directory.Ignore(context.Background(), directory.IgnoredKey{MachineID: remoteID, Kind: directory.IgnoreComposeProject, Value: "scratch"}); err != nil {
 		t.Fatal(err)
 	}
-	job, err := ts.heartbeats.Get(context.Background(), jobID)
+	job, err := ts.db.GetHeartbeat(context.Background(), jobID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestManifest_ProblemKeysExistInEveryCatalogWithTheirArguments(t *testing.T)
 // l'interface, le direct prévenu.
 func newTestManifest(declared *directory.Directory, probes *probe.Service, heartbeats *heartbeat.Service, db *store.DB, bus *live.Bus, logger *slog.Logger) *manifest.Manifest {
 	component := manifest.New(manifest.Dependencies{
-		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
+		Directory: declared, Probes: probes, Heartbeats: heartbeats, Reader: db, Journal: db,
 	}, logger)
 	component.SetWatcher(bus)
 	component.SetClock(func() time.Time { return testNow })

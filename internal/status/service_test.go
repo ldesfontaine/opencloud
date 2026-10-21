@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func newFixture(t *testing.T) *fixture {
 	f.services.SetUnits(f.directory)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
-	f.status = status.New(db, f.machines, settings.New(db, logger), logger)
+	f.status = status.New(db, db, f.machines, settings.New(db, logger), logger)
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)
@@ -465,6 +466,47 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 		t.Fatal("the subscription must close with the context")
 	}
 }
+
+// Une machine passe en ligne sans que le service le sache : un lot de
+// mesures ou d'alertes ne fait pas relire l'instantané, le sujet des
+// machines, si.
+func TestWatch_IgnoresTopicsOutsideTheMembers(t *testing.T) {
+	f := newFixture(t)
+	remote := f.enroll(t, "vps-paris-1")
+	f.component(t, "VPS", status.MemberRef{Kind: status.KindMachine, ID: remote})
+	published := &atomicCounter{}
+	f.status.AddWatcher(published)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go f.status.Watch(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for f.bus.Count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := f.machines.Connect(ctx, remote, "192.0.2.1", "v0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	f.bus.Publish(live.TopicResources)
+	f.bus.Publish(live.TopicAlerts)
+	f.bus.Publish(live.TopicStatus)
+	time.Sleep(100 * time.Millisecond)
+	if got := published.count.Load(); got != 0 {
+		t.Fatalf("resources, alerts or status refreshed the snapshot: published %d", got)
+	}
+	f.bus.Publish(live.TopicMachines)
+	deadline = time.Now().Add(2 * time.Second)
+	for published.count.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := published.count.Load(); got != 1 {
+		t.Fatalf("machines must refresh the snapshot: published %d, want 1", got)
+	}
+}
+
+// atomicCounter compte les publications faites depuis la boucle de Watch.
+type atomicCounter struct{ count atomic.Int32 }
+
+func (c *atomicCounter) StatusChanged() { c.count.Add(1) }
 
 // Des créations simultanées ne dépassent jamais le plafond de composants :
 // 64 passent, les suivantes sont refusées.

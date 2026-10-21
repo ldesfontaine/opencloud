@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
+	"github.com/ldesfontaine/opencloud/internal/wait"
 )
 
 const (
@@ -97,7 +98,7 @@ func (w *Watcher) Run(ctx context.Context) {
 				return
 			}
 			w.reportEngine(engineReport(engine, err))
-			if !sleep(ctx, w.opts.ProbeInterval) {
+			if !wait.For(ctx, w.opts.ProbeInterval) {
 				return
 			}
 			continue
@@ -107,7 +108,7 @@ func (w *Watcher) Run(ctx context.Context) {
 		if err := w.follow(ctx); err != nil && ctx.Err() == nil {
 			w.logger.Warn("docker event stream lost", "error", err)
 		}
-		if !sleep(ctx, reconnectDelay) {
+		if !wait.For(ctx, reconnectDelay) {
 			return
 		}
 	}
@@ -166,13 +167,4 @@ func (w *Watcher) reportEngine(report container.EngineReport) {
 		return
 	}
 	w.sink.Deliver(container.Report{Engine: &report})
-}
-
-func sleep(ctx context.Context, delay time.Duration) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(delay):
-		return true
-	}
 }

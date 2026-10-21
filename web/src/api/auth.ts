@@ -1,11 +1,11 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api } from "./client";
 
-// L'accès de l'opérateur à l'interface. Chemin hors de toute ressource :
-// topicsOf le relit sur tous les sujets sauf les mesures.
+// L'accès de l'opérateur à l'interface. Chemin sans sujet du direct : relu
+// à la reconnexion, quand tout se relit, jamais à chaque sujet.
 
 // « forward » est le mode derrière un mandataire (Authelia).
-export type AuthMode = "none" | "basic" | "forward";
+type AuthMode = "none" | "basic" | "forward";
 
 // En forward, username est l'identité que le mandataire a transmise avec
 // la requête, et header le nom de l'en-tête qui la porte.

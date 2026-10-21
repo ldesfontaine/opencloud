@@ -46,14 +46,14 @@ func Parse(data []byte) (File, []Problem) {
 	if problem != nil {
 		return File{}, []Problem{*problem}
 	}
-	reader := &reader{}
-	reader.refuseAliases(root)
-	if len(reader.problems) > 0 {
-		return File{}, reader.problems
+	read := &fileReader{}
+	read.refuseAliases(root)
+	if len(read.problems) > 0 {
+		return File{}, read.problems
 	}
-	file := reader.readRoot(root)
-	if len(reader.problems) > 0 {
-		return File{}, reader.problems
+	file := read.readRoot(root)
+	if len(read.problems) > 0 {
+		return File{}, read.problems
 	}
 	return file, nil
 }
@@ -117,11 +117,11 @@ func yamlProblem(err error, data []byte) *Problem {
 	return &Problem{Key: KeyYAMLInvalid, Line: line, Value: message}
 }
 
-type reader struct {
+type fileReader struct {
 	problems []Problem
 }
 
-func (r *reader) add(key string, node *yaml.Node, value string) {
+func (r *fileReader) add(key string, node *yaml.Node, value string) {
 	if len(r.problems) >= maxProblems {
 		return
 	}
@@ -130,7 +130,7 @@ func (r *reader) add(key string, node *yaml.Node, value string) {
 
 // refuseAliases refuse les ancres et les alias : ils feraient lire autre
 // chose que ce qui est écrit, et un alias récursif gonfle sans fin.
-func (r *reader) refuseAliases(node *yaml.Node) {
+func (r *fileReader) refuseAliases(node *yaml.Node) {
 	if node.Kind == yaml.AliasNode || node.Anchor != "" {
 		r.add(KeyAliasNotAllowed, node, "")
 		return
@@ -145,7 +145,7 @@ func (r *reader) refuseAliases(node *yaml.Node) {
 // fields lit un bloc de clés. Une clé inconnue, en double ou réservée à une
 // section pas encore prise en charge est refusée avec sa ligne ; les autres
 // vont à handle avec leur valeur.
-func (r *reader) fields(node *yaml.Node, name string, known, unsupported []string, handle func(key string, value *yaml.Node)) {
+func (r *fileReader) fields(node *yaml.Node, name string, known, unsupported []string, handle func(key string, value *yaml.Node)) {
 	// Une étiquette personnalisée (!custom {…}) ferait lire autre chose que
 	// ce qui est écrit : refusée sur un bloc comme sur un scalaire.
 	if node.Kind != yaml.MappingNode || node.ShortTag() != "!!map" {
@@ -176,7 +176,7 @@ func (r *reader) fields(node *yaml.Node, name string, known, unsupported []strin
 
 // entries rend les éléments d'une liste de blocs. Une clé laissée vide
 // (« projects: ») est une liste vide.
-func (r *reader) entries(node *yaml.Node, name string) []*yaml.Node {
+func (r *fileReader) entries(node *yaml.Node, name string) []*yaml.Node {
 	if isNull(node) {
 		return nil
 	}
@@ -194,7 +194,7 @@ func isNull(node *yaml.Node) bool {
 // text lit une chaîne. Un nombre ou un booléen non guillemeté est refusé :
 // « 16.4 » et « true » ne sont pas du texte tant qu'on ne les guillemette pas,
 // et l'export les guillemette.
-func (r *reader) text(node *yaml.Node, name string) string {
+func (r *fileReader) text(node *yaml.Node, name string) string {
 	if isNull(node) {
 		return ""
 	}
@@ -205,7 +205,7 @@ func (r *reader) text(node *yaml.Node, name string) string {
 	return node.Value
 }
 
-func (r *reader) texts(node *yaml.Node, name string) []string {
+func (r *fileReader) texts(node *yaml.Node, name string) []string {
 	var values []string
 	for _, item := range r.entries(node, name) {
 		values = append(values, r.text(item, name))
@@ -213,7 +213,7 @@ func (r *reader) texts(node *yaml.Node, name string) []string {
 	return values
 }
 
-func (r *reader) integer(node *yaml.Node, name string) int {
+func (r *fileReader) integer(node *yaml.Node, name string) int {
 	if isNull(node) {
 		return 0
 	}
@@ -228,7 +228,7 @@ func (r *reader) integer(node *yaml.Node, name string) int {
 	return number
 }
 
-func (r *reader) boolean(node *yaml.Node, name string) bool {
+func (r *fileReader) boolean(node *yaml.Node, name string) bool {
 	if isNull(node) {
 		return false
 	}
@@ -245,7 +245,7 @@ func (r *reader) boolean(node *yaml.Node, name string) bool {
 // duration lit « 90s », « 1m », « 1h30m » : une unité est obligatoire, et la
 // durée tombe juste sur le grain de l'objet (secondes d'une sonde, minutes
 // d'une tâche), comme dans l'interface.
-func (r *reader) duration(node *yaml.Node, name string, grain time.Duration) time.Duration {
+func (r *fileReader) duration(node *yaml.Node, name string, grain time.Duration) time.Duration {
 	if isNull(node) {
 		return 0
 	}
@@ -266,7 +266,7 @@ func (r *reader) duration(node *yaml.Node, name string, grain time.Duration) tim
 // poserait le défaut, là où l'opérateur a écrit autre chose. Une clé absente,
 // elle, prend le défaut sans ambiguïté. Une valeur déjà refusée (before
 // compte les refus d'avant sa lecture) ne l'est pas deux fois.
-func (r *reader) refuseZero(node *yaml.Node, name string, before int, value int64) {
+func (r *fileReader) refuseZero(node *yaml.Node, name string, before int, value int64) {
 	if len(r.problems) == before && value == 0 && !isNull(node) {
 		r.add(KeyZeroValue, node, name)
 	}
@@ -285,7 +285,7 @@ func parseDuration(text string, grain time.Duration) (time.Duration, bool) {
 
 // --- Le fichier ---
 
-func (r *reader) readRoot(root *yaml.Node) File {
+func (r *fileReader) readRoot(root *yaml.Node) File {
 	var file File
 	hasVersion := false
 	known := []string{"version", "machines", "projects", "services", "probes", "heartbeats", "ignored"}
@@ -314,7 +314,7 @@ func (r *reader) readRoot(root *yaml.Node) File {
 	return file
 }
 
-func (r *reader) readVersion(node *yaml.Node) {
+func (r *fileReader) readVersion(node *yaml.Node) {
 	if node.Kind != yaml.ScalarNode || node.ShortTag() != "!!int" {
 		r.add(KeyTypeInvalid, node, "version")
 		return
@@ -324,7 +324,7 @@ func (r *reader) readVersion(node *yaml.Node) {
 	}
 }
 
-func (r *reader) readMachines(node *yaml.Node) []Machine {
+func (r *fileReader) readMachines(node *yaml.Node) []Machine {
 	var machines []Machine
 	for _, entry := range r.entries(node, "machines") {
 		machine := Machine{Line: entry.Line}
@@ -336,7 +336,7 @@ func (r *reader) readMachines(node *yaml.Node) []Machine {
 	return machines
 }
 
-func (r *reader) readProjects(node *yaml.Node) []Project {
+func (r *fileReader) readProjects(node *yaml.Node) []Project {
 	var projects []Project
 	for _, entry := range r.entries(node, "projects") {
 		project := Project{Line: entry.Line}
@@ -355,7 +355,7 @@ func (r *reader) readProjects(node *yaml.Node) []Project {
 	return projects
 }
 
-func (r *reader) readServices(node *yaml.Node) []Service {
+func (r *fileReader) readServices(node *yaml.Node) []Service {
 	var services []Service
 	known := []string{"id", "machine", "name", "title", "nature", "origin", "compose_project", "public_url", "provides", "projects", "units"}
 	for _, entry := range r.entries(node, "services") {
@@ -393,7 +393,7 @@ func (r *reader) readServices(node *yaml.Node) []Service {
 	return services
 }
 
-func (r *reader) readUnits(node *yaml.Node) []Unit {
+func (r *fileReader) readUnits(node *yaml.Node) []Unit {
 	var units []Unit
 	known := []string{"name", "image", "version", "digest", "container_name", "systemd_unit", "ports", "updates"}
 	for _, entry := range r.entries(node, "units") {
@@ -423,7 +423,7 @@ func (r *reader) readUnits(node *yaml.Node) []Unit {
 	return units
 }
 
-func (r *reader) readProbes(node *yaml.Node) []Probe {
+func (r *fileReader) readProbes(node *yaml.Node) []Probe {
 	var probes []Probe
 	known := []string{
 		"id", "name", "runner", "service", "kind", "target", "interval", "timeout", "failure_threshold",
@@ -478,7 +478,7 @@ func (r *reader) readProbes(node *yaml.Node) []Probe {
 	return probes
 }
 
-func (r *reader) readHeartbeats(node *yaml.Node) []Heartbeat {
+func (r *fileReader) readHeartbeats(node *yaml.Node) []Heartbeat {
 	var heartbeats []Heartbeat
 	known := []string{"id", "name", "machine", "every", "grace", "token"}
 	for _, entry := range r.entries(node, "heartbeats") {
@@ -506,7 +506,7 @@ func (r *reader) readHeartbeats(node *yaml.Node) []Heartbeat {
 
 // checkSecret n'admet que « secret: kept ». Un scalaire est un jeton en
 // clair : le fichier va dans Git, c'est une erreur et non un avertissement.
-func (r *reader) checkSecret(node *yaml.Node) {
+func (r *fileReader) checkSecret(node *yaml.Node) {
 	if node.Kind == yaml.ScalarNode && !isNull(node) {
 		r.add(KeySecretInFile, node, "")
 		return
@@ -522,7 +522,7 @@ func (r *reader) checkSecret(node *yaml.Node) {
 	}
 }
 
-func (r *reader) readIgnored(node *yaml.Node) []IgnoredKey {
+func (r *fileReader) readIgnored(node *yaml.Node) []IgnoredKey {
 	var keys []IgnoredKey
 	for _, entry := range r.entries(node, "ignored") {
 		var machine, composeProject, containerName string

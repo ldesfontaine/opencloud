@@ -21,7 +21,7 @@
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
-| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-huit lectures qui rendent les faits de l'API, neuf écritures que l'interface a déjà, dont la publication d'un incident sur la page de statut publique. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
+| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-huit lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -86,9 +86,9 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
 | Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
-| Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée : `read` (défaut d'un jeton d'API) ou `write` (un jeton OAuth, toujours) ; une écriture la juge à chaque requête et refuse un `read` par `mcp.read_only`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
+| Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée, `read` (défaut d'un jeton d'API) ou `write` (un jeton OAuth, toujours), **inerte pendant la refonte** : `/mcp` n'enregistre aucune écriture, un jeton `write` ne voit pas plus d'outils qu'un `read`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
 | Agent IA | client MCP → `/oauth/authorize`, `/oauth/token` | TLS de Traefik | Le `redirect_uri` est jugé avant tout redirect, y compris pour dire une erreur : la boucle locale toujours, n'importe quel port, sinon une adresse déclarée sous Paramètres, comparée telle quelle. Pas de page de consentement : le secret du client, jamais envoyé à l'autorisation, est vérifié à l'échange en temps constant. Un code sert une fois, dix minutes ; un rafraîchissement rejoué révoque toute sa famille. Débit borné par adresse, plus serré sur `/oauth/token` |
-| Agent IA local | `opencloud mcp` ↔ le client, sur stdin/stdout | Aucun : deux processus de la même machine, rien ne passe par le réseau | Les droits Unix sur `state_dir`, en 0700 : il faut tourner sous le compte du service. Lecture seule : les écritures répondent `mcp.read_only`, ce processus ne tient ni le bus du direct ni les flux des agents. Il lit aussi `secret.key` et refuse de démarrer sans elle : il ne la crée jamais. Au démarrage, il chiffre aussi les clairs restés (une base d'avant), donc il écrit dans la base ce jour-là, une fois |
+| Agent IA local | `opencloud mcp` ↔ le client, sur stdin/stdout | Aucun : deux processus de la même machine, rien ne passe par le réseau | Les droits Unix sur `state_dir`, en 0700 : il faut tourner sous le compte du service. Lecture seule : aucune écriture n'est enregistrée, ce processus ne tient ni le bus du direct ni les flux des agents. Il lit aussi `secret.key` et refuse de démarrer sans elle : il ne la crée jamais. Au démarrage, il chiffre aussi les clairs restés (une base d'avant), donc il écrit dans la base ce jour-là, une fois |
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
@@ -107,7 +107,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -116,43 +116,38 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer, sauf si l'opérateur a mis des identifiants dans l'adresse (`https://nom:mot@…`) : ceux-là ne sont pas chiffrés |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux et silences sans purge. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write` ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine, une sonde ou une tâche retirée emporte ses silences (la table n'a pas de clé étrangère), une pause ou un archivage les garde. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. Désactiver efface identifiant, empreinte et en-tête |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. Avant la base, ces réglages vivaient dans `settings.toml` : `serve` le reprend au démarrage s'il le trouve, puis l'efface ; si la base a déjà des réglages, elle l'emporte, et le journal le dit. Un fichier illisible arrête le démarrage, rien n'est perdu ; un fichier qui ne s'efface pas est seulement signalé. `opencloud mcp` ne reprend rien : il lit la base |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Machine gérée, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant, adresse d'openCloud, empreinte, langue | Mode 0600 ; le perdre impose un ré-enrôlement |
 
-**Ce que le chiffrement couvre.** Quatre colonnes, chiffrées sur place, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
+**Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
-`heartbeats.token`. Un secret vide reste vide. Un chiffré se reconnaît à sa seule forme, `v1:<8 hexadécimaux>:<base64>` : un vrai mot de passe de cette forme serait pris pour un chiffré, et le démarrage le refuserait faute de pouvoir l'ouvrir (improbable). Les jetons d'enrôlement, les jetons
-MCP et le mot de passe de l'interface étaient déjà hachés.
+`heartbeats.token`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
+MCP et le mot de passe de l'interface sont hachés.
 
-**Ce qu'il ne couvre pas.** La cible d'une sonde (identifiants éventuels de
-l'adresse), les extraits de journaux d'un arrêt anormal et le corps des pings
+**Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
+avant leur refus (la sonde est en pause, « Comment une cible est sondée »), les extraits de journaux d'un arrêt anormal et le corps des pings
 restent en clair : ils peuvent contenir un secret que l'opérateur n'a pas saisi
 comme tel. La clé est **à côté de la base**, sous le même compte : le gain vaut
 pour une copie de la base seule (sauvegarde égarée, disque rendu), pas pour qui
-lit tout `state_dir`. Une sauvegarde faite avant ce changement garde les clairs.
+lit tout `state_dir`.
 
 **Au démarrage**, `serve` charge la clé, la crée si elle manque et si la base
-n'a aucun chiffré, puis chiffre sur place ce qui est resté en clair (une base
-d'avant, ou écrite par un ancien binaire) et vérifie en l'ouvrant ce qui l'est
-déjà. S'il a chiffré quelque chose, il réécrit le fichier de la base
-(`VACUUM` entre deux vidages du journal) pour que les clairs n'y restent pas ; un
-échec est un avertissement, pas un refus. La base n'a pas de `secure_delete` :
-les copies faites avant gardent les clairs, changez ces secrets si vous les
-craignez. **Deux refus** : une base qui contient des secrets chiffrés alors que
+n'a aucun chiffré, puis ouvre chaque chiffré de la base pour vérifier que la
+clé est la sienne, sans rien écrire. `mcp` fait de même, sans jamais créer la
+clé. **Deux refus** : une base qui contient des secrets chiffrés alors que
 `secret.key` est absente (une clé neuve chiffrerait les écritures suivantes et la
 base mêlerait deux clés), et un chiffré qui ne s'ouvre pas avec la clé (autre
-clé, valeur altérée). Journal : `secret key created`, `plaintext secrets sealed`,
-`compact after sealing`.
+clé, valeur altérée). Journal : `secret key created`.
 
 Le jeton en clair n'existe qu'à deux endroits, un instant : l'écran qui l'affiche
 une fois, et la commande qui le passe à l'agent. Le secret du client MCP et un
@@ -171,8 +166,8 @@ le client qui les garde.
    l'agent et de `sudo` se lit depuis tous les comptes de la machine, et le
    premier qui copie le jeton prend l'identité (ou remplace la clé, au
    ré-enrôlement) ; `printf` est une commande interne du shell, il ne
-   crée pas de processus. `-token` reste accepté, déconseillé, avec un avertissement au
-   journal. L'agent déjà enrôlé ne lit jamais l'entrée (systemd). L'agent
+   crée pas de processus. `-token` est refusé (code 2), avec un message qui
+   renvoie à l'entrée standard. L'agent déjà enrôlé ne lit jamais l'entrée (systemd). L'agent
    tire une clé Ed25519 et un identifiant, envoie sa clé publique et le jeton.
    Il joint l'empreinte (SHA-256, préfixée) de l'identifiant de la machine
    (`/etc/machine-id`, sinon `/var/lib/dbus/machine-id`) **et** de
@@ -519,7 +514,7 @@ la table ; ils partiront avec la revue des alertes).
    plus que la borne, et le reste fait la ligne suivante. Un lot n'est
    accepté que
    de la machine à qui la requête a été poussée, et ne compte pas comme
-   signe de vie : seul le signal publie `machines`. L'onglet fermé, le
+   signe de vie : seul le signal en est un. L'onglet fermé, le
    serveur pousse `logs_stop`. Quatre suivis par machine ; seize lectures
    en tout, suivis, tirages uniques et `get_container_logs` confondus ;
    au-delà, refusé avec la clé du catalogue. Une file de commandes pleine
@@ -878,8 +873,8 @@ est régénéré par l'export, la lecture ne le lit pas.
   télécharge `GET /api/manifest/export` (même garde que le reste de l'API) ;
   `opencloud export [-o fichier]` demande la même route à `serve` par la socket
   `state_dir/control.sock`. L'outil MCP `export_directory` rend le même texte
-  dans le champ `yaml`, mais **sans le mot de passe d'une cible de sonde**
-  (`https://user:…@hôte`) : le fichier de l'opérateur le garde tel qu'il est
+  dans le champ `yaml`, mais **sans le mot de passe qu'une cible de sonde
+  d'avant leur refus porte encore** (`https://user:…@hôte`) : le fichier de l'opérateur le garde tel qu'il est
   stocké, parce que l'apply le compare, un fichier masqué le remplacerait par
   « … ». Le texte rendu à MCP se lit, il ne se réapplique pas tel quel. Les commentaires du fichier sont dans la langue de
   l'interface.
@@ -1027,8 +1022,10 @@ changements avec leurs valeurs d'avant, leurs conséquences et ce qu'une
 suppression emporte **de structure** (unités, liens de projet) ; l'historique
 (essais, jours, pings, exécutions) n'y est pas, il grossit pendant qu'on lit.
 Toute modification faite dans l'interface entre le plan et l'application la
-change. Un mot de passe de cible qui change seul est un changement du plan : le
-champ `target` reste masqué (`user:…@hôte`) et la conséquence
+change. Un fichier qui met des identifiants dans une cible est refusé
+(`probe.target_credentials`), comme dans l'interface. Une sonde d'avant ce refus
+se relit inchangée depuis son propre export, et perd ses identifiants par le
+fichier : le champ `target` reste masqué (`user:…@hôte`) et la conséquence
 `password_changed` le dit.
 
 ### L'application
@@ -1453,6 +1450,18 @@ interne. Le lien est en `restrict` : le service ne se supprime pas tant qu'une
 sonde le vise. La sonde qui sonde de l'extérieur un service d'une autre
 machine est le cas courant.
 
+**La cible n'accepte pas d'identifiants.** `https://user:mot@hôte`, ou
+`https://user@hôte`, est refusé à la création, à l'édition et par le fichier
+de l'annuaire (`probe.target_credentials`, 422) : ce n'est pas pris en charge
+pour l'instant, faute de pouvoir les garder chiffrés ; ils finiraient en clair
+dans la base et dans l'export, qui va dans Git. Une sonde créée avant ce refus
+qui en porte passe **en pause au démarrage** de `serve`, avec une ligne `WARN`
+(identifiant, nom, machine, cible masquée `user:…@hôte`), redite à chaque
+démarrage tant que la cible n'a pas changé. La reprendre est refusé avec la
+même clé ; l'éditer demande une cible sans identifiants. Le masque
+`user:…@hôte` reste sur toutes les sorties, pour ces sondes et pour
+l'historique (alertes passées).
+
 **Une sonde s'édite sur place.** `PUT /api/probes/{id}` remplace la
 définition entière, comme la création la donne : un champ omis prend sa
 valeur par défaut, et tous les refus de la création reviennent, avec leur
@@ -1613,7 +1622,9 @@ choisit pas —, en clair ou en sombre selon son système.
    de conteneur, d'image ou de sonde, une cible, une adresse, un port.
 7. **Le direct public** est un second bus, à part des onglets de
    l'administration, qui ne porte que « status ». Le composant statut
-   écoute le bus interne : à chaque sujet, il relit son instantané public
+   écoute le bus interne : à chaque sujet qui touche un membre d'un
+   composant (`machines`, `directory`, `containers`, `jobs`, `probes` ;
+   jamais `resources`, `alerts` ni le sien), et toutes les 30 s, il relit son instantané public
    et ne publie **que si quelque chose de visible a changé** — vingt sondes
    à la minute ne font pas relire vingt fois chaque visiteur. Le même
    sujet part sur le bus interne pour l'administration. Relecture à la
@@ -2024,9 +2035,13 @@ agents, page de statut et son direct, `/mcp` et le point de jeton OAuth,
 l'adresse en IPv4 (une IPv4 mappée en IPv6 aussi), le **/64** en IPv6. Un
 abonné IPv6 reçoit au moins un /64 et choisit à l'intérieur autant d'adresses
 qu'il veut : une clé par adresse complète lui donnerait autant de seaux
-pleins. Seule la clé de limitation est agrégée (`ratelimit.SourceKey`) ;
-l'adresse notée dans les pings et le journal reste complète. Un réseau
-domestique ou un site derrière un même /64 partage donc un seul budget.
+pleins. Seule la clé de limitation est agrégée ; l'adresse notée dans les
+pings et le journal reste complète. Un réseau domestique ou un site derrière
+un même /64 partage donc un seul budget. La clé se calcule dans
+`ratelimit.BySource` et `ratelimit.SourceSlots` : l'appelant passe l'adresse
+lue, il ne peut pas oublier le /64. Les seaux oubliés depuis 10 min (30 min
+pour l'authentification) sont balayés au passage d'une requête, au plus
+toutes les 5 min, sans goroutine.
 
 L'API : `GET /api/auth` (mode, identifiant — en `forward`, l'identité de
 la requête —, en-tête en `forward`, `forward_insecure` quand le mode
@@ -2082,13 +2097,20 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    premier ou non. Les sessions se lisent et se coupent sous Paramètres.
 7. Un script ou un client sans OAuth passe par un **jeton d'API** créé sous
    Paramètres, montré une fois, révocable ; 16 au plus. L'opérateur choisit
-   sa **portée** — `read` par défaut, lectures seules ; `write`, lectures et
-   écritures — et son **échéance** : 30, 90 (défaut) ou 365 jours, ou sans
-   échéance, explicitement (`POST /api/mcp/tokens` `{name, scope, expires_in_days}`, 0 pour sans échéance ; une autre valeur : `mcp.scope_invalid`, `mcp.lifetime_invalid`). Échu, il est refusé, sort de la liste et la
-   purge l'efface. Un jeton OAuth a toujours la portée `write` : l'opérateur
-   l'a obtenu derrière `/oauth/authorize`. La portée voyage avec la requête
-   (`TokenInfo` du SDK, posé par la vérification du Bearer) et chaque
-   écriture la juge : un `read` reçoit `mcp.read_only`, comme le mode local.
+   son **échéance** : 30, 90 (défaut) ou 365 jours, ou sans
+   échéance, explicitement (`POST /api/mcp/tokens` `{name, expires_in_days}`, 0 pour sans échéance ; une autre valeur : `mcp.lifetime_invalid`). Échu, il est refusé, sort de la liste et la
+   purge l'efface. L'interface ne propose plus de portée : un jeton créé sans
+   portée est `read`. L'API accepte encore `scope` (`read` ou `write`, sinon
+   `mcp.scope_invalid`) et la base garde la colonne, mais **l'écriture est
+   désactivée en HTTP pendant la refonte** : `/mcp` n'enregistre aucun des
+   neuf outils d'écriture, ils ne sont pas listés et un appel reçoit « unknown
+   tool » du SDK, quel que soit le jeton, OAuth compris (toujours `write` :
+   l'opérateur l'a obtenu derrière `/oauth/authorize`). La portée voyage
+   encore avec la requête (`TokenInfo` du SDK, posé par la vérification du
+   Bearer) et le garde des écritures la juge, pour le jour où elles
+   reviennent avec la couche d'actions typées
+   (`docs/projet/23-direction.md`) ; ce code n'est atteint aujourd'hui que
+   par les tests.
    Régénérer le secret coupe les familles OAuth, codes en attente compris, et
    garde les jetons d'API.
    **Activer l'authentification de l'interface** (`none` → `basic` ou
@@ -2106,9 +2128,13 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    -config …` et lui parle en JSON-RPC sur stdin/stdout, les journaux sur
    stderr. Ce processus ouvre la même base, sans socket ni identifiant, et
    ne tient ni le bus du direct ni les flux des agents : il est en
-   **lecture seule**, les écritures restent listées et répondent
-   `mcp.read_only`. Il lit `secret.key` pour ouvrir les secrets de la base et
-   refuse de démarrer sans elle ; il ne la crée jamais.
+   **lecture seule**, comme `/mcp` : aucune écriture n'est enregistrée. Il lit `secret.key` pour ouvrir les secrets de la base et
+   refuse de démarrer sans elle ; il ne la crée jamais. Ses composants
+   sont ceux de `serve`, construits et branchés entre eux par le même
+   câblage (`buildComponents`, `cmd/opencloud/components.go`) ; `serve` y
+   ajoute le direct, les boucles de fond, les commandes aux agents et la
+   machine openCloud, `mcp` seulement la présence par le dernier signal
+   (ci-dessous).
 
 ### Ce que le mode local voit
 
@@ -2143,7 +2169,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `export_directory` | Le fichier YAML de l'annuaire, comme le bouton « Exporter » : un champ `yaml`, des identifiants, jamais un secret (`token: {secret: kept}`, et le mot de passe d'une cible de sonde masqué, `user:…@hôte`) | 256 Kio ; au-delà, le refus `manifest.export_too_large`. Avec `propose: true`, les propositions en plus (voir l'export) |
 | `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
-| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` et `resume_probe` la masquent de même | 50 essais |
+| `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` la masque de même ; `resume_probe` refuse une telle sonde (`probe.target_credentials`) | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
 | `list_alerts`, `get_alert`, `list_alert_channels` | Les alertes ouvertes ou résolues avec les compteurs ; une alerte et ses livraisons ; les canaux avec **l'URL réduite à son hôte**, un webhook Discord porte son jeton dans son chemin | 200 |
 
@@ -2211,24 +2237,41 @@ faits identiques à l'API par construction.
 1. La coquille React ouvre `/api/events` en `EventSource` ; le serveur
    répond `connected`, puis un commentaire toutes les 15 s pour tenir la
    connexion derrière Traefik.
-2. `machine`, `heartbeat`, `resource`, `container`, `update`,
-   `lifecycle`, `probe`, `status`, `alert`, `directory` et `manifest`
-   publient sur le bus interne (`internal/live`), par leur `Watcher`, à chaque
-   changement visible : jeton, enrôlement, connexion, signal, déconnexion,
-   retrait ; création, ping, échéance dépassée, pause, reprise,
-   suppression ; lot de mesures écrit ; rapport de conteneurs ou de réseaux
-   écrit ; constat d'image écrit, politique changée ou lecture de la fin de
-   support, sur le sujet des conteneurs ; essais de sondes écrits ;
-   instantané public changé ; alerte ouverte, aggravée, acquittée, résolue,
-   canal ou silence changé ; service ou projet déclaré créé, modifié ou
-   supprimé, fichier de l'annuaire appliqué. Le bus ne porte que huit
-   sujets, `machines`, `jobs`, `resources`, `containers`, `probes`, `status`,
-   `alerts` et `directory`.
-3. Chaque onglet reçoit le sujet, et le front relit la ressource qui va
-   avec par l'API : la liste, la fiche, les compteurs. Rien d'autre ne
-   voyage dans le flux.
-4. Un onglet lent voit ses sujets fusionnés : cent signaux non lus font un
-   seul `machines`. Rien ne se perd, rien ne s'accumule.
+2. Les composants publient sur le bus interne (`internal/live`), par leur
+   `Watcher`, **seulement ce que l'écran montre** ; huit sujets, rien
+   d'autre :
+
+   | Sujet | Publié par | Quand |
+   | --- | --- | --- |
+   | `machines` | `machine` | jeton émis ou annulé, enrôlement, connexion (passage en ligne ; système et version d'agent sont notés à ce moment), déconnexion (hors ligne), retrait. **Pas le signal des 30 s** : il ne bouge que le dernier signal |
+   | `jobs` | `heartbeat` | création, ping, échéance dépassée, pause, reprise, suppression |
+   | `resources` | `resource` | lot de mesures écrit (toutes les 30 s par agent, toutes les 10 s pour la machine openCloud), **au plus une fois par 30 s pour tout le bus** (`live.ResourcesEvery`) : le lot suivant attend la fin de la fenêtre, il n'est jamais perdu |
+   | `containers` | `container`, `update`, `lifecycle` | rapport de conteneurs ou de réseaux écrit ; constat d'image, politique changée ; lecture de la fin de support |
+   | `probes` | `probe` | essais écrits ; sonde créée, modifiée, mise en pause ou reprise, supprimée |
+   | `status` | `status` | instantané public changé (empreinte de ce que le visiteur voit) |
+   | `alerts` | `alert` | alerte ouverte, aggravée, acquittée, résolue ; canal ou silence changé |
+   | `directory` | `directory`, `manifest` | service ou projet déclaré créé, modifié, supprimé ; fichier de l'annuaire appliqué |
+
+3. Chaque onglet reçoit le sujet, et le front relit les ressources dont le
+   chemin porte ce sujet (`topicsOf`, `web/src/api/refresh.tsx`). Rien
+   d'autre ne voyage dans le flux : ni identifiant, ni version.
+
+   | Ce que l'onglet lit | Relu sur |
+   | --- | --- |
+   | `/api/counts` (barre latérale, vue d'ensemble) | `machines`, `jobs`, `containers`, `probes`, `status` (incidents ouverts), `alerts`, `directory` (politique de mise à jour des unités) ; **jamais** `resources` |
+   | `/api/resources`, `…/resources…` | `resources` |
+   | `/api/machines…` | `machines` |
+   | une liste ou une fiche d'un autre domaine | son sujet (l'écart et la fiche d'un conteneur suivent aussi `directory`) |
+   | `/api/settings/lifecycle` | `containers`, où la lecture de la fin de support publie |
+   | `/api/auth`, les autres réglages, `/api/mcp`, tout chemin inconnu | **aucun sujet** : relus à la demande de la page, ou quand tout se relit (reconnexion, action qui touche tout) |
+
+   Une machine en ligne se lit « vue à l'instant » : son flux est ouvert, et
+   la liste n'est plus republiée à chaque signal. Dix machines au repos
+   (aucun essai de sonde, aucun conteneur qui change) ne publient que
+   `resources`, deux fois par minute ; un onglet sur la vue d'ensemble relit
+   alors `/api/resources` deux fois par minute, rien d'autre.
+4. Un onglet lent voit ses sujets fusionnés : cent lots non lus font un
+   seul sujet. Rien ne se perd, rien ne s'accumule.
 5. Connexion coupée : le navigateur revient seul après 5 s avec
    `Last-Event-ID` ; le serveur répond `reconnected` et le front relit tout.
    **Rien n'est rejoué** : ce qui s'est passé pendant la coupure se voit au
@@ -2358,21 +2401,28 @@ journal, `errors.Is` reconnaît la sentinelle comme avant.
 
 | Qui | Ce qu'il en fait |
 | --- | --- |
-| Le domaine (`directory`, `probe`, `heartbeat`, `status`, `alert`, `mail`, `auth`, `settings`) | Déclare `refusal.Invalid` (la demande est fausse) ou `refusal.Conflict` (l'état présent s'y oppose) |
+| Le domaine (`directory`, `probe`, `heartbeat`, `status`, `alert`, `mail`, `auth`, `settings`, `machine`, `mcp`, `manifest`) | Déclare `refusal.Invalid` (la demande est fausse) ou `refusal.Conflict` (l'état présent s'y oppose) |
 | L'API (`server`) | `s.failed(w, r, err, notFound)` : `404 not_found` si l'erreur est la sentinelle `notFound` du composant (`probe.ErrNotFound`…, `nil` quand la route n'a pas de 404), la clé en 422 pour `Invalid`, en 409 pour `Conflict`, sinon `500 internal` et l'erreur au journal |
 | MCP | `s.toolFailed(tool, err, notFound)` : `not_found`, la même clé sans statut, ou `internal` |
 | Le fichier de l'annuaire (`manifest`) | La même clé dans le plan et le journal, lue par `refusal.KeyOf` ; il ne dépend pas du serveur |
 
-Restent écrits à la main, dans le handler, les refus dont la réponse n'est
-pas « 422 ou 409 avec la clé » : les 404 avec clé (`directory.unit_not_found`,
-`directory.container_not_found`, `directory.ignore_not_found`), les 503, 429,
-504 et 502 des journaux, `403 machine.local_kept`, la suppression refusée avec
-sa liste (`409 directory.service_linked` et `links`), et MCP qui rend
-`not_found` là où l'API rend `directory.unit_not_found`. Les refus que le
-handler traduisait déjà un par un (`probe.not_paused`,
-`alert.already_resolved`, `mcp.*`, `manifest.*`…) le restent. Un test relève
-chaque `refusal.Invalid` et `refusal.Conflict` du code et exige leur clé,
-littérale et unique, dans chaque catalogue.
+Aucun handler ne choisit la clé d'un refus de domaine par `errors.Is`. Deux
+cas gardent `s.apiRefuse` :
+
+| Cas | Refus |
+| --- | --- |
+| Le handler juge lui-même (paramètre, en-tête, limite du serveur) | `manifest.request_invalid` (corps illisible, `limit` du journal), `auth.mode_invalid`, `auth.forward_secret_required`, `auth.forward_header_missing`, `auth.state_changed` (le middleware), `service.logs_busy` (les places de suivi), `400 error.unknown_language`, `settings.mail_to_invalid` (l'adresse d'essai) |
+| Un refus de domaine dont le statut n'est ni 422 ni 409 | Les 404 avec clé (`directory.unit_not_found`, `directory.container_not_found`, `directory.ignore_not_found`), les 503, 429, 504 et 502 des journaux, `503 update.machine_offline`, `403 machine.local_kept` |
+
+Les refus d'application du fichier (`manifest.plan_changed`,
+`manifest.not_applicable`) gardent leur réponse : la clé et le statut viennent
+du refus, le handler y joint le plan d'aujourd'hui. La suppression refusée
+avec sa liste (`409 directory.service_linked` et `links`) aussi. MCP rend
+`not_found` là où l'API rend `directory.unit_not_found` : la sentinelle passe
+en `notFound` à `toolFailed`. Le ping d'une tâche répond du texte court à un
+cron, sans catalogue : `heartbeat.ErrExitCodeInvalid` reste une erreur nue.
+Un test relève chaque `refusal.Invalid` et `refusal.Conflict` du code et
+exige leur clé, littérale et unique, dans chaque catalogue.
 
 ## Le nom du produit
 
@@ -2464,7 +2514,6 @@ refusés avant d'envoyer quoi que ce soit.
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
 | Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
-| Une cible de sonde avec mot de passe | `https://user:motdepasse@hôte` est accepté à la création d'une sonde, et s'exporte donc dans le fichier, qui va dans Git. Le plan, le journal, les alertes et tous les outils MCP (dont `export_directory`) la masquent ; l'export fichier et la base, non | À corriger à la création d'une sonde, chantier à part : refuser le mot de passe dans la cible, le garder dans une colonne chiffrée |
 | Pas d'historique par service | La mesure d'un service ne vit que 48 h, sans graphe ; la fiche montre la valeur courante | À décider |
 | Pas de spool des services | Un redémarrage de l'agent perd les événements en attente ; l'inventaire suivant remet les fiches d'aplomb, sans les transitions manquées | Avec le spool des mesures |
 | `serve` sans accès à la socket | La machine openCloud dit « Docker absent » alors qu'il tourne ; l'unité d'exemple `docs/installation/opencloud.service` met le service dans le groupe `docker` | Fait par l'unité d'exemple, à vérifier sous systemd |
@@ -2519,8 +2568,8 @@ refusés avant d'envoyer quoi que ce soit.
 | Canal e-mail | Le paquet `internal/mail` (relais, message RFC 5322, dialogue SMTP par `net/smtp`, faux relais `internal/mail/smtptest`), le format `email` et la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), les motifs `mail_not_configured` et `smtp_*`, les clés `mail_*` de `settings.toml` (aujourd'hui la table `settings`), l'API `/api/settings/mail` et son essai, la carte « Envoi d'e-mails » des Paramètres |
 | Canal Matrix | Le format `matrix` (`internal/alert/matrix.go`), la colonne `destination` par la migration `015_alert_channels.sql` (qui sort aussi le format du `CHECK`), l'envoi par `PUT` avec identifiant de transaction stable, les champs serveur d'accueil, salon et jeton du formulaire de canal |
 | Fin de support | Le paquet `internal/lifecycle` (source endoflife.date, correspondance dépôt → produit et tag → branche, cache `lifecycle.json`), la quinzième boucle de fond, la clé `lifecycle_disabled` de `settings.toml` (aujourd'hui la table `settings`), l'API `/api/settings/lifecycle`, le champ `lifecycle` de la fiche d'un service et d'une machine, le bloc « Support de la version » de la carte Mise à jour et « Support du système » du résumé d'une machine, la table système → produit, l'en-tête `OpenCloud-Agent-OS` qui tient le système à jour, la carte « Fin de support » des Paramètres |
-| Réglages en base | La table `settings` (migration `019_settings.sql`) et ses requêtes dans `internal/store/settings.go`, à la place de `settings.toml` ; la reprise de l'ancien fichier au démarrage de `serve` (`internal/settings/legacy.go`) |
-| Secrets chiffrés | Le paquet `internal/seal` (AES-256-GCM, fichier de clé `secret.key`), la migration `020_sealed_secrets.sql` (`heartbeats.token_hash`), `internal/store/secrets.go` (chiffrement sur place au démarrage, `Compact`, `ForgetSecrets`) et les requêtes de `settings`, `alert_channels` et `heartbeats` qui chiffrent à l'écriture et ouvrent à la lecture, `HashToken` dans `internal/heartbeat`, `cmd/opencloud/secrets.go` (la clé au démarrage de `serve` et de `mcp`, la sous-commande `opencloud secrets forget`), les constantes `SecretKeyFile` et `SecretKeyIDDomain` de `internal/brand` |
+| Réglages en base | La table `settings` (migration `019_settings.sql`) et ses requêtes dans `internal/store/settings.go`, à la place de `settings.toml` |
+| Secrets chiffrés | Le paquet `internal/seal` (AES-256-GCM, fichier de clé `secret.key`), la migration `020_sealed_secrets.sql` (`heartbeats.token_hash`), `internal/store/secrets.go` (vérification au démarrage, `ForgetSecrets`) et les requêtes de `settings`, `alert_channels` et `heartbeats` qui chiffrent à l'écriture et ouvrent à la lecture, `HashToken` dans `internal/heartbeat`, `cmd/opencloud/secrets.go` (la clé au démarrage de `serve` et de `mcp`, la sous-commande `opencloud secrets forget`), les constantes `SecretKeyFile` et `SecretKeyIDDomain` de `internal/brand` |
 | Le nom du produit | Le paquet `internal/brand` (nom affiché, identifiant technique, empreinte du protocole), les marqueurs `{product}`, `{command}` et `{signature_header}` des catalogues et `expand` dans `internal/lang/lang.go`, le marqueur `{{product}}` des pages HTML et `expandProductName`, `web/src/lib/product.ts`, le champ `server_name` de `/api/mcp` et le golden `mcp.golden.json`, les tests `TestNameOnlyInBrand` et `TestFiles_NameOnlyThroughPlaceholders` |
 | Édition sur place | `PUT /api/probes/{id}` et `PUT /api/jobs/{id}` (la définition entière, mêmes refus que la création), `POST /api/jobs/{id}/actions/regenerate-token`, `Service.Update` des paquets `internal/probe` et `internal/heartbeat` et `RegenerateToken`, la migration `021_probe_revision.sql` (`probes.revised_at`) et sa garde dans `planChanges` et `updateProbeState`, la pause d'une tâche qui n'est plus reprise par un ping, les formulaires `ProbeForm` et `JobForm` (création et édition), les boutons Modifier et « Régénérer le jeton », les trois routes de `testdata/routes.txt` |
 | 13 · editions | Rien à intégrer : le module est le verrou commercial de Projet_M (trois éditions, licence vérifiée en ligne, télémétrie horaire), sans objet dans un openCloud gratuit où rien ne sort sans demande. Retenu de sa lecture : tester l'accord entre deux lectures d'une même table. Vérifié ici : les seuils servis par `/api/session`, les refus en clés, l'inconnu refusé au fil. Ajouté : chaque liste fermée du serveur s'expose (`probe.Reasons()`, `alert.Formats()`…) et un test exige sa clé de catalogue par valeur dans chaque langue, ce qui a fait apparaître `silence.object_kind_volume` ; un test du front rejoue ses règles « demande attention » sur les fixtures figées de l'API et les compare aux compteurs du serveur |
@@ -2528,7 +2577,8 @@ refusés avant d'envoyer quoi que ce soit.
 | Annuaire (2/5) | Le rapprochement `internal/directory/match.go` (deux niveaux) et son application par le suivi des conteneurs (`Tracker.SetUnits`, `Rematch`, `RematchAll`, verrou par machine), la migration `023_container_units.sql` (`unit_id`, `match_level` de la table des conteneurs, alors `services`, et `ignored_keys`), le calcul de l'écart `gap.go`, la proposition d'adoption `propose.go`, les quatre routes `/api/directory/gaps`, `/proposal` et `/ignored`, `directory` sur la fiche d'un conteneur, l'outil MCP `list_declared_services`, la colonne Écart, la liste des non déclarés, l'adoption dans le formulaire et la carte Annuaire |
 | Annuaire (3/6) | Les liens : la migration `024_directory_links.sql` et son étape Go `store.linkContainersToDirectory` (`internal/store/migrate_024.go`, requêtes figées sur le schéma 23, vérification de ce qui devait survivre), le runner de migrations hors clés étrangères avec `PRAGMA foreign_key_check` avant le COMMIT (`internal/store/store.go`, pour toutes les migrations), le plan pur `directory.PlanLinks`, `service_units.update_policy` (`watch`, `hold`, `ignore`) à la place de `services.update_policy`, `probes.service_id` et le membre `service` d'un composant vers `declared_services` en `restrict`, la suppression refusée avec la liste (409 `directory.service_linked`, `links` sur la fiche), les routes `POST /api/directory/services/{id}/actions/review` et `PUT /api/directory/units/{id}/update-policy`, l'outil MCP `set_update_policy` sur une unité, la règle d'état d'un service déclaré dans la page de statut, la ligne `declared services to review` au journal, la marque « à vérifier » et l'action Valider, la sonde sur n'importe quelle machine, la carte Mise à jour qui lit la politique de l'unité |
 | Annuaire (3b/6) | Le renommage du conteneur observé, sans changement de comportement : la migration `025_containers.sql` (`services`, `service_transitions`, `service_samples`, `service_networks` deviennent `containers`, `container_events`, `container_samples`, `container_networks`, les colonnes `service_id` des mesures, des événements, des réseaux et des alertes deviennent `container_id`, les index refaits sous leur nom), le paquet `internal/container` (`Container`, `Tracker`, `Transition`, et `Observed` pour le conteneur tel que le rapport le transporte), les routes `/api/containers…` et `/api/machines/{id}/containers`, les outils MCP `list_containers`, `get_container` et `get_container_logs` (leur argument s'appelle `id`, le champ `id` de `list_containers`, pas son `container_id` qui est l'identifiant Docker), le sujet direct `containers`, la clé `containers` de `/api/counts`, du réseau et de la liste, la fiche front sous `/services/conteneurs/:id` (l'ancienne adresse `/services/:id` y redirige), les clés de catalogue `container.*`, les goldens renommés. Gardés exprès : le protocole agent ↔ serveur (section `services` du signal, codes `service.logs_*`), les types d'alerte `service_*` et le genre d'objet `service` |
-| Annuaire (4a/7) | Le paquet `internal/manifest` (format YAML `version: 1`, lecture stricte par nœuds avec lignes citées, écriture déterministe, export), `GET /api/manifest/export`, la socket `state_dir/control.sock` servie par `serve` (`internal/server/control.go`, `cmd/opencloud/control_socket.go`) et la sous-commande `opencloud export` (`-config`, `-o`), le bouton « Exporter » de l'onglet Annuaire, l'outil MCP `export_directory` (dix-huit lectures), la section `manifest` des catalogues, `store.MachineNames` et `Directory.IgnoredKeys`, la dépendance `go.yaml.in/yaml/v3`, les goldens `manifest/testdata/export.golden.yaml`, `server/testdata/manifest_export.golden.yaml` et `mcp_export_directory.golden.json`. Pas de migration |
+| Annuaire (4a/7) | Le paquet `internal/manifest` (format YAML `version: 1`, lecture stricte par nœuds avec lignes citées, écriture déterministe, export), `GET /api/manifest/export`, la socket `state_dir/control.sock` servie par `serve` (`internal/server/control.go`, `cmd/opencloud/control_socket.go`) et la sous-commande `opencloud export` (`-config`, `-o`), le bouton « Exporter » de l'onglet Annuaire, l'outil MCP `export_directory` (dix-huit lectures), la section `manifest` des catalogues, `store.MachineNames` et `store.ListIgnoredKeys`, la dépendance `go.yaml.in/yaml/v3`, les goldens `manifest/testdata/export.golden.yaml`, `server/testdata/manifest_export.golden.yaml` et `mcp_export_directory.golden.json`. Pas de migration |
 | Annuaire (4b/7) | Le plan pur `manifest.BuildPlan` (reconnaissance par `id` puis par nom, références sur l'état visé, validation par les domaines, ordre des clés d'unicité, `--prune`), l'application par les gestes des domaines (`Manifest.Apply`, verrou, plan rejoué et empreinte, exécution détachée, arrêt au premier refus), le journal (`manifest.Journal`, table `applies`, migration `026_applies.sql`, `store/applies.go`, `FailInterrupted` au démarrage), `POST /api/manifest/plan`, `POST /api/manifest/apply`, `GET /api/manifest/applies` et `…/{id}`, l'acteur `cli` sur la socket et `operator` sur le port web, la traduction des refus des domaines en clés (aujourd'hui `refusal.KeyOf`), la sous-commande `opencloud apply` (`-prune`, `-yes`, `-dry-run`), la page « Journal des fichiers » et le détail d'un passage (`PlanView`), les clés `manifest.*` du plan, des refus et du journal, `Definition()` exportée par les composants directory, probe et heartbeat, `CountProbeHistory` et `CountHeartbeatHistory`, les goldens `manifest_plan`, `manifest_apply` et `manifest_applies`. Pas d'apply depuis l'interface |
 | Annuaire (7/7) | Le niveau de rattachement `label` : la migration `027_container_labels.sql` (`containers.label_service`, `containers.label_unit`), `brand.LabelPrefix` et le marqueur `{label_prefix}` des catalogues, `Observed.Labels` et la lecture bornée de l'agent (`dockerwatch.ownLabels`), `container.Labels` et `keepLabels`, l'index structuré de `directory.Match` (`labelKey`) et la priorité sans repli, `LabelProblem` (`invalid`, `incomplete`, `service_unknown`, `unit_unknown`, `unit_binary`) et `Undeclared.Adoptable`, `ErrContainerLabelled` (409 `directory.container_labelled`), `directory.ProposeAll`, `opencloud export -propose` (`?propose=1`, MCP `export_directory {propose}`), `label_*` sur la liste des non déclarés et la fiche d'un conteneur, la pastille « Label orphelin » et le lien « Exporter avec propositions », les goldens `export_propose`, `manifest_export_propose` et `mcp_export_directory_propose`, `TestLabels_NeverWriteTheDirectory` |
 | Refacto du serveur Go | Aucun comportement visible : goldens, arbre des routes, protocole agent, tables et clés inchangés. Les refus déclarés avec leur clé (`internal/refusal`, `s.failed`, `s.toolFailed`), le composant `settings.Service`, le protocole agent dans `internal/agentwire` (ex-`machine/wire.go`), les sous-paquets `server/agentapi` (ex-`agent_api.go`), `server/ping` (ex-`ping.go`), `server/public` (ex-`public_status.go`), `server/sse` et `server/servertest`, les helpers du store (`inTx`, `collect`, `notFoundIfNoRow`), `internal/store/storetest`, la machine d'une sonde ou d'une tâche vérifiée dans le composant, `Watcher` et `Alerter` à la place de `Listener`. Les règles qui en sortent : `17-conventions-code.md`, « Les composants » |
+| Refacto du store (lecteur partagé) | Aucun comportement visible : goldens, routes, outils MCP et tables inchangés. L'interface `reader.Reader` (`internal/reader`) que `*store.DB` satisfait, reçue par le serveur, la page de statut et le fichier de l'annuaire pour leurs lectures sans règle ; les relais `List`/`Get`/`Count` retirés des composants, leurs interfaces côté serveur réduites d'autant ; `ListComponents` et `ListIncidents` lisent leurs parties en bloc (`attachMembers`, `attachIncidentParts`) ; `/api/counts` et `get_overview` comptent les conteneurs et les mises à jour en SQL (`CountContainers`, `CountContainerUpdates`, test de parité avec `container.NeedsAttention`) ; `SaveAuthStateIf` et `Transact` passent par `inTx` ; `ident.New` à la place de `status.NewID`. Les règles qui en sortent : `17-conventions-code.md`, « Lire et écrire un autre domaine » et « Le store » |

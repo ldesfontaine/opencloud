@@ -79,7 +79,7 @@ func TestPublicEvents_OneSourceCannotHoldMoreThanItsShare(t *testing.T) {
 	// Une place rendue se reprend (le seau d'ouverture est rempli entre-temps).
 	cancels[0]()
 	waitFor(t, func() bool { return server.handler.tabs.Taken() == maxPublicStreamsPerSource })
-	server.handler.limits.setClock(func() time.Time { return testNow.Add(time.Minute) })
+	server.handler.streamLimit.SetClock(func() time.Time { return testNow.Add(time.Minute) })
 	if _, again, _ := server.openLive(t, holder, ""); again.StatusCode != http.StatusOK {
 		t.Fatalf("after a stream ended: status %d", again.StatusCode)
 	}

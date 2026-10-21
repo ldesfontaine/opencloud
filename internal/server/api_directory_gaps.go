@@ -169,23 +169,16 @@ func (s *Server) getDirectoryGaps(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getDirectoryProposal(w http.ResponseWriter, r *http.Request) {
 	proposal, err := s.directory.Propose(r.Context(), r.URL.Query().Get("container"))
-	switch {
-	case errors.Is(err, directory.ErrContainerNotFound):
+	// Un 404 qui garde sa clé : le front dit que le conteneur est parti, pas
+	// que la route manque. refusal ne porte que 422 et 409.
+	if errors.Is(err, directory.ErrContainerNotFound) {
 		s.apiRefuse(w, http.StatusNotFound, "directory.container_not_found")
-	case errors.Is(err, directory.ErrContainerDeclared):
-		s.apiRefuse(w, http.StatusConflict, "directory.container_declared")
-	case errors.Is(err, directory.ErrContainerLabelled):
-		// Un état du conteneur que l'opérateur corrige par le label : 409
-		// comme le conteneur déjà déclaré.
-		s.apiRefuse(w, http.StatusConflict, "directory.container_labelled")
-	case errors.Is(err, directory.ErrUnitsFull):
-		// Un état du service, pas une faute de saisie : 409 comme le conteneur déjà déclaré.
-		s.apiRefuse(w, http.StatusConflict, "directory.units_full")
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeAPI(w, http.StatusOK, proposalResponse{ServiceID: proposal.ServiceID, Definition: declaredServiceRequestOf(proposal.Definition)})
+		return
 	}
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, proposalResponse{ServiceID: proposal.ServiceID, Definition: declaredServiceRequestOf(proposal.Definition)})
 }
 
 // declaredServiceRequestOf est l'inverse de declaredServiceDefinition : la

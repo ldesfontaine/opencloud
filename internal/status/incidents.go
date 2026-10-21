@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
 // UnderMaintenance dit si un objet est rattaché à un composant sous un
@@ -67,7 +68,7 @@ func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID str
 // declaredServiceOf rend le service de l'annuaire qui porte l'unité d'un
 // conteneur ; vide si le conteneur n'existe plus ou n'est pas déclaré.
 func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (string, error) {
-	item, err := s.store.GetContainer(ctx, containerID)
+	item, err := s.reader.GetContainer(ctx, containerID)
 	if errors.Is(err, container.ErrNotFound) {
 		return "", nil
 	}
@@ -90,7 +91,7 @@ func (s *Service) OpenIncident(ctx context.Context, definition IncidentDefinitio
 	if err := s.checkComponents(ctx, definition.ComponentIDs); err != nil {
 		return Incident{}, err
 	}
-	id, err := NewID()
+	id, err := ident.New()
 	if err != nil {
 		return Incident{}, fmt.Errorf("generate id: %w", err)
 	}

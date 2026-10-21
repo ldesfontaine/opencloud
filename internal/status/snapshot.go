@@ -27,7 +27,7 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	days, err := s.store.ListProbeDays(ctx, "", startOfDay(now.Add(-UptimeSpan)))
+	days, err := s.reader.ListProbeDays(ctx, "", startOfDay(now.Add(-UptimeSpan)))
 	if err != nil {
 		return Snapshot{}, err
 	}

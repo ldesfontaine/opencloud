@@ -26,5 +26,5 @@ func (e *Engine) MachineBack(ctx context.Context, machineID string) {
 }
 
 func (e *Engine) MachineRemoved(ctx context.Context, machineID string) {
-	e.Gone(ctx, Object{Kind: ObjectMachine, ID: machineID})
+	e.removed(ctx, Object{Kind: ObjectMachine, ID: machineID})
 }

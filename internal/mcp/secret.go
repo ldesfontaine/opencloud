@@ -26,7 +26,6 @@ const (
 	// Le préfixe affiché : le schéma plus six caractères, 30 bits sur 256.
 	shownLength = 6
 	idLength    = 16
-	familyBytes = 8
 )
 
 // generated est un secret tiré : le clair, à rendre une seule fois, et ce
@@ -74,12 +73,4 @@ func verifierMatches(verifier, challenge string) bool {
 	sum := sha256.Sum256([]byte(verifier))
 	computed := base64.RawURLEncoding.EncodeToString(sum[:])
 	return subtle.ConstantTimeCompare([]byte(computed), []byte(challenge)) == 1
-}
-
-func newFamilyID() (string, error) {
-	raw := make([]byte, familyBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }

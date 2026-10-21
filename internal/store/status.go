@@ -100,10 +100,8 @@ func (db *DB) ListComponents(ctx context.Context) ([]status.Component, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i := range components {
-		if components[i].Members, err = db.listMembers(ctx, components[i].ID); err != nil {
-			return nil, err
-		}
+	if err := db.attachMembers(ctx, components, ``, nil); err != nil {
+		return nil, err
 	}
 	return components, nil
 }
@@ -113,10 +111,11 @@ func (db *DB) GetComponent(ctx context.Context, id string) (status.Component, er
 	if err != nil {
 		return status.Component{}, err
 	}
-	if component.Members, err = db.listMembers(ctx, id); err != nil {
+	components := []status.Component{component}
+	if err := db.attachMembers(ctx, components, `WHERE component_id = ?`, []any{id}); err != nil {
 		return status.Component{}, err
 	}
-	return component, nil
+	return components[0], nil
 }
 
 func scanComponent(row scanner) (status.Component, error) {
@@ -133,34 +132,57 @@ func scanComponent(row scanner) (status.Component, error) {
 	return component, nil
 }
 
-// listMembers rend les objets rattachés, genre et identifiant seulement :
+// attachMembers lit en une requête les objets rattachés aux composants que
+// la clause désigne et les pose sur chacun, genre et identifiant seulement :
 // le nom et l'état viennent des objets eux-mêmes, lus par le composant.
-func (db *DB) listMembers(ctx context.Context, componentID string) ([]status.Member, error) {
-	rows, err := db.sql.QueryContext(ctx, `
-		SELECT machine_id, service_id, heartbeat_id, probe_id FROM status_component_members
-		WHERE component_id = ? ORDER BY rowid`, componentID)
+// Sans membre, la liste est vide, jamais nil.
+func (db *DB) attachMembers(ctx context.Context, components []status.Component, where string, args []any) error {
+	if len(components) == 0 {
+		return nil
+	}
+	query := `SELECT component_id, machine_id, service_id, heartbeat_id, probe_id FROM status_component_members ` + where + ` ORDER BY rowid` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list members: %w", err)
+		return fmt.Errorf("list members: %w", err)
 	}
 	defer rows.Close()
-	members := []status.Member{}
+	byComponent := map[string][]status.Member{}
 	for rows.Next() {
+		var componentID string
 		var machineID, serviceID, heartbeatID, probeID sql.NullString
-		if err := rows.Scan(&machineID, &serviceID, &heartbeatID, &probeID); err != nil {
-			return nil, fmt.Errorf("scan member: %w", err)
+		if err := rows.Scan(&componentID, &machineID, &serviceID, &heartbeatID, &probeID); err != nil {
+			return fmt.Errorf("scan member: %w", err)
 		}
-		switch {
-		case machineID.Valid:
-			members = append(members, status.Member{Kind: status.KindMachine, ID: machineID.String})
-		case serviceID.Valid:
-			members = append(members, status.Member{Kind: status.KindService, ID: serviceID.String})
-		case heartbeatID.Valid:
-			members = append(members, status.Member{Kind: status.KindHeartbeat, ID: heartbeatID.String})
-		case probeID.Valid:
-			members = append(members, status.Member{Kind: status.KindProbe, ID: probeID.String})
+		member, ok := memberOf(machineID, serviceID, heartbeatID, probeID)
+		if ok {
+			byComponent[componentID] = append(byComponent[componentID], member)
 		}
 	}
-	return members, rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i := range components {
+		components[i].Members = byComponent[components[i].ID]
+		if components[i].Members == nil {
+			components[i].Members = []status.Member{}
+		}
+	}
+	return nil
+}
+
+// memberOf lit le genre d'un membre dans la colonne qui est remplie.
+func memberOf(machineID, serviceID, heartbeatID, probeID sql.NullString) (status.Member, bool) {
+	switch {
+	case machineID.Valid:
+		return status.Member{Kind: status.KindMachine, ID: machineID.String}, true
+	case serviceID.Valid:
+		return status.Member{Kind: status.KindService, ID: serviceID.String}, true
+	case heartbeatID.Valid:
+		return status.Member{Kind: status.KindHeartbeat, ID: heartbeatID.String}, true
+	case probeID.Valid:
+		return status.Member{Kind: status.KindProbe, ID: probeID.String}, true
+	}
+	return status.Member{}, false
 }
 
 func (db *DB) DeleteComponent(ctx context.Context, id string) error {
@@ -276,13 +298,14 @@ func (db *DB) Transition(ctx context.Context, incident status.Incident, update s
 // écrit, pour que deux incidents ouverts dans la même seconde gardent un
 // ordre ; zéro rend tout.
 func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]status.Incident, error) {
-	query := `SELECT ` + incidentColumns + ` FROM incidents`
+	var where string
 	var args []any
 	if !resolvedSince.IsZero() {
-		query += ` WHERE status != 'resolved' OR resolved_at >= ?`
+		where = ` WHERE status != 'resolved' OR resolved_at >= ?`
 		args = append(args, resolvedSince.Unix())
 	}
-	rows, err := db.sql.QueryContext(ctx, query+` ORDER BY created_at DESC, rowid DESC`, args...)
+	query := `SELECT ` + incidentColumns + ` FROM incidents` + where + ` ORDER BY created_at DESC, rowid DESC` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list incidents: %w", err)
 	}
@@ -290,10 +313,14 @@ func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]sta
 	if err != nil {
 		return nil, err
 	}
-	for i := range incidents {
-		if err := db.attachIncident(ctx, &incidents[i]); err != nil {
-			return nil, err
-		}
+	// Les parties se lisent sur le même filtre que la liste, jamais une
+	// requête par incident.
+	var scope string
+	if where != "" {
+		scope = `WHERE incident_id IN (SELECT id FROM incidents` + where + `)` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	}
+	if err := db.attachIncidentParts(ctx, incidents, scope, args); err != nil {
+		return nil, err
 	}
 	return incidents, nil
 }
@@ -303,10 +330,11 @@ func (db *DB) GetIncident(ctx context.Context, id string) (status.Incident, erro
 	if err != nil {
 		return status.Incident{}, err
 	}
-	if err := db.attachIncident(ctx, &incident); err != nil {
+	incidents := []status.Incident{incident}
+	if err := db.attachIncidentParts(ctx, incidents, `WHERE incident_id = ?`, []any{id}); err != nil {
 		return status.Incident{}, err
 	}
-	return incident, nil
+	return incidents[0], nil
 }
 
 func scanIncident(row scanner) (status.Incident, error) {
@@ -331,42 +359,77 @@ func scanIncident(row scanner) (status.Incident, error) {
 	return incident, nil
 }
 
-// attachIncident lit les composants touchés, avec leur nom, et le fil du
-// plus récent au plus ancien.
-func (db *DB) attachIncident(ctx context.Context, incident *status.Incident) error {
-	rows, err := db.sql.QueryContext(ctx, `
-		SELECT c.id, c.name FROM incident_components ic JOIN status_components c ON c.id = ic.component_id
-		WHERE ic.incident_id = ? ORDER BY c.position, c.name, c.id`, incident.ID)
+// attachIncidentParts remplit les composants touchés, avec leur nom, et le
+// fil du plus récent au plus ancien, des incidents que la clause désigne :
+// deux lectures pour la liste entière, jamais deux par incident. Sans
+// partie, les listes sont vides, jamais nil.
+func (db *DB) attachIncidentParts(ctx context.Context, incidents []status.Incident, where string, args []any) error {
+	if len(incidents) == 0 {
+		return nil
+	}
+	position := make(map[string]int, len(incidents))
+	for index, incident := range incidents {
+		position[incident.ID] = index
+		incidents[index].Components = []status.ComponentRef{}
+		incidents[index].Updates = []status.Update{}
+	}
+	componentsQuery := `SELECT ic.incident_id, c.id, c.name FROM incident_components ic JOIN status_components c ON c.id = ic.component_id ` + where + ` ORDER BY c.position, c.name, c.id` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	components, err := db.sql.QueryContext(ctx, componentsQuery, args...)
 	if err != nil {
 		return fmt.Errorf("list incident components: %w", err)
 	}
-	incident.Components, err = collect(rows, scanComponentRef)
+	refs, err := collect(components, scanIncidentComponent)
 	if err != nil {
 		return err
 	}
-	updates, err := db.sql.QueryContext(ctx, `
-		SELECT id, status, message, created_at FROM incident_updates WHERE incident_id = ? ORDER BY created_at DESC, id DESC`, incident.ID)
+	for _, ref := range refs {
+		if index, ok := position[ref.incidentID]; ok {
+			incidents[index].Components = append(incidents[index].Components, ref.ComponentRef)
+		}
+	}
+	updatesQuery := `SELECT incident_id, id, status, message, created_at FROM incident_updates ` + where + ` ORDER BY created_at DESC, id DESC` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, updatesQuery, args...)
 	if err != nil {
 		return fmt.Errorf("list incident updates: %w", err)
 	}
-	incident.Updates, err = collect(updates, scanIncidentUpdate)
-	return err
+	updates, err := collect(rows, scanIncidentUpdate)
+	if err != nil {
+		return err
+	}
+	for _, update := range updates {
+		if index, ok := position[update.incidentID]; ok {
+			incidents[index].Updates = append(incidents[index].Updates, update.Update)
+		}
+	}
+	return nil
 }
 
-func scanComponentRef(row scanner) (status.ComponentRef, error) {
-	var ref status.ComponentRef
-	if err := row.Scan(&ref.ID, &ref.Name); err != nil {
-		return status.ComponentRef{}, fmt.Errorf("scan incident component: %w", err)
+// incidentComponent et incidentUpdate portent l'incident de chaque ligne,
+// le temps de la regrouper.
+type incidentComponent struct {
+	incidentID string
+	status.ComponentRef
+}
+
+type incidentUpdate struct {
+	incidentID string
+	status.Update
+}
+
+func scanIncidentComponent(row scanner) (incidentComponent, error) {
+	var ref incidentComponent
+	if err := row.Scan(&ref.incidentID, &ref.ID, &ref.Name); err != nil {
+		return incidentComponent{}, fmt.Errorf("scan incident component: %w", err)
 	}
 	return ref, nil
 }
 
-func scanIncidentUpdate(row scanner) (status.Update, error) {
-	var update status.Update
+func scanIncidentUpdate(row scanner) (incidentUpdate, error) {
+	var update incidentUpdate
 	var state string
 	var createdAt int64
-	if err := row.Scan(&update.ID, &state, &update.Message, &createdAt); err != nil {
-		return status.Update{}, fmt.Errorf("scan incident update: %w", err)
+	if err := row.Scan(&update.incidentID, &update.ID, &state, &update.Message, &createdAt); err != nil {
+		return incidentUpdate{}, fmt.Errorf("scan incident update: %w", err)
 	}
 	update.Status = status.IncidentStatus(state)
 	update.CreatedAt = time.Unix(createdAt, 0)

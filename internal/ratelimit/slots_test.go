@@ -52,3 +52,18 @@ func TestSourceSlots_TakeUpToTheLimitThenGiveBack(t *testing.T) {
 		t.Fatalf("released sources must leave no entry: %d", places.Sources())
 	}
 }
+
+// La part se compte par source : deux adresses d'un même /64 la partagent.
+func TestSourceSlots_ShareIsPerIPv6SixtyFour(t *testing.T) {
+	places := NewSourceSlots(1)
+	if !places.Take("2001:db8:9:9::1") {
+		t.Fatal("a source must get its share")
+	}
+	if places.Take("2001:db8:9:9::2") {
+		t.Fatal("a second address of the same /64 got its own share")
+	}
+	places.Release("2001:db8:9:9::2")
+	if places.Sources() != 0 {
+		t.Fatalf("a release from the same /64 must give the place back: %d", places.Sources())
+	}
+}

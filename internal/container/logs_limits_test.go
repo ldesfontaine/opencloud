@@ -36,7 +36,7 @@ type fetchResult struct {
 func startFetch(t *testing.T, tail int) *fetching {
 	t.Helper()
 	tracker := New(containerStore{}, slog.New(slog.DiscardHandler))
-	tracker.relay.setIDs(func() string { return "req-1" })
+	tracker.relay.newID = func() string { return "req-1" }
 	commander := &fakeCommander{}
 	tracker.SetCommander(commander)
 	fetch := &fetching{relay: tracker.relay, commander: commander, result: make(chan fetchResult, 1)}

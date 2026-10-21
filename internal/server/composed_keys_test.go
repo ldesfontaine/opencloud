@@ -13,7 +13,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/status"
@@ -36,7 +35,26 @@ type composedKeys struct {
 // chaque liste doit avoir sa clé dans chaque langue.
 func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 	server := newTestServer(t)
-	lists := []composedKeys{
+	for _, list := range closedKeyLists() {
+		if len(list.values) == 0 {
+			t.Errorf("%s: empty list, the guard sees nothing", list.prefix)
+		}
+		for _, value := range list.values {
+			key := list.prefix + value + list.suffix
+			for _, code := range lang.Codes() {
+				if strings.HasPrefix(server.catalogs.For(code).Get(key), "[") {
+					t.Errorf("la clé %q manque dans %s", key, code)
+				}
+			}
+		}
+	}
+}
+
+// closedKeyLists rend les listes fermées et leur préfixe : la seule liste des
+// clés composées à partir d'une valeur du serveur, lue aussi par le test des
+// clés sans lecteur.
+func closedKeyLists() []composedKeys {
+	return []composedKeys{
 		{prefix: "probe.status_", values: names(probe.Statuses())},
 		{prefix: "probe.kind_", values: names(probe.Kinds())},
 		{prefix: "probe.outcome_", values: names(probe.Outcomes())},
@@ -84,7 +102,6 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "incident.impact_", values: names(status.Impacts())},
 		{prefix: "component.kind_", values: names(status.MemberKinds())},
 		{prefix: "language.", values: names(lang.Codes())},
-		{prefix: "mcp.scope_", values: names(mcp.Scopes())},
 		// La pastille de la carte « Accès à l'interface », par mode.
 		{prefix: "auth.state_", values: names(auth.Modes())},
 		// Le choix du mode à l'activation : tous sauf « none », qui est l'état de départ.
@@ -108,19 +125,6 @@ func TestCatalog_HasAKeyForEveryValueOfEveryClosedList(t *testing.T) {
 		{prefix: "manifest.note_", values: names(manifest.Notes())},
 		{prefix: "manifest.carries_", values: manifest.CarryKinds()},
 		{prefix: "manifest.carries_", suffix: "_one", values: manifest.CarryKinds()},
-	}
-	for _, list := range lists {
-		if len(list.values) == 0 {
-			t.Errorf("%s: empty list, the guard sees nothing", list.prefix)
-		}
-		for _, value := range list.values {
-			key := list.prefix + value + list.suffix
-			for _, code := range lang.Codes() {
-				if strings.HasPrefix(server.catalogs.For(code).Get(key), "[") {
-					t.Errorf("la clé %q manque dans %s", key, code)
-				}
-			}
-		}
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
+	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server/agentapi"
@@ -74,17 +75,16 @@ type MachineService interface {
 	Command(machineID, name string, payload any) error
 }
 
-// Ce que le serveur attend du composant conteneur : l'API lit, le signal de
-// l'agent écrit, les journaux passent dans les deux sens.
+// Ce que le serveur attend du composant conteneur : l'API lit ce qui porte
+// une règle (les vivants, une fiche vérifiée, la topologie, la fraîcheur),
+// le signal de l'agent écrit, les journaux passent dans les deux sens. Le
+// reste se lit par le Reader.
 type ContainerTracker interface {
 	Record(ctx context.Context, machineID string, report container.Report) error
 	List(ctx context.Context, machineID string) ([]container.Container, error)
-	Get(ctx context.Context, id string) (container.Container, error)
 	Transitions(ctx context.Context, id string, limit int) ([]container.Transition, error)
-	Engines(ctx context.Context) ([]container.Engine, error)
 	Topology(ctx context.Context, machineID string) (container.Topology, error)
 	CurrentAll(ctx context.Context) ([]container.Current, error)
-	Count(ctx context.Context) (total, attention int, err error)
 	FollowLogs(ctx context.Context, containerID string, tail int) (<-chan container.LogBatch, error)
 	FetchLogs(ctx context.Context, containerID string, tail int) ([]container.LogLine, error)
 	DeliverLogs(ctx context.Context, machineID, requestID string, batch container.LogBatch) error
@@ -99,13 +99,11 @@ type ResourceService interface {
 	History(ctx context.Context, machineID, window string) (resource.Window, []sampler.Reading, error)
 }
 
-// Ce que le serveur attend du composant probe : l'API lit et agit, le
-// signal de l'agent écrit, et le flux qui s'ouvre repart avec le jeu de
-// sondes de sa machine.
+// Ce que le serveur attend du composant probe : l'API agit et lit ce qui
+// porte une fenêtre, le signal de l'agent écrit, et le flux qui s'ouvre
+// repart avec le jeu de sondes de sa machine. Les listes se lisent par le
+// Reader.
 type ProbeService interface {
-	List(ctx context.Context, machineID string) ([]probe.Probe, error)
-	Get(ctx context.Context, id string) (probe.Probe, error)
-	Count(ctx context.Context) (total, attention int, err error)
 	// Certificates compte les certificats vus et ceux qui approchent de
 	// leur fin, pour la vue d'ensemble.
 	Certificates(ctx context.Context) (probe.Certificates, error)
@@ -114,28 +112,24 @@ type ProbeService interface {
 	Delete(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
-	Results(ctx context.Context, id string, limit int) ([]probe.Result, error)
 	Days(ctx context.Context, id string, span time.Duration) ([]probe.Day, error)
 	Uptimes(ctx context.Context, id string) ([]probe.Uptime, error)
 	Assign(ctx context.Context, machineID string)
 	Record(ctx context.Context, machineID string, report probe.Report) error
 }
 
-// Ce que le serveur attend de l'annuaire : l'API lit et écrit les services
-// que l'opérateur déclare, et leurs projets.
+// Ce que le serveur attend de l'annuaire : l'API écrit les services que
+// l'opérateur déclare et leurs projets, et lit ce que l'annuaire dérive
+// (l'écart, une proposition, le rattachement d'une fiche). Les listes se
+// lisent par le Reader.
 type DirectoryService interface {
-	ListServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
-	GetService(ctx context.Context, id string) (directory.Service, error)
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
 	// DeleteService refuse avec un *directory.LinkedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
-	ServiceLinks(ctx context.Context, id string) (directory.Links, error)
 	Review(ctx context.Context, id string) (directory.Service, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
-	ListProjects(ctx context.Context) ([]directory.Project, error)
-	GetProject(ctx context.Context, id string) (directory.Project, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
@@ -172,7 +166,6 @@ type ManifestService interface {
 type UpdateService interface {
 	Record(ctx context.Context, machineID string, report update.Report) error
 	Checks(ctx context.Context, machineID string) (map[string]update.Check, error)
-	Count(ctx context.Context) (int, error)
 	CheckNow(ctx context.Context, machineID string) error
 	Assign(ctx context.Context, machineID string)
 }
@@ -187,20 +180,16 @@ type LifecycleService interface {
 	Kick()
 }
 
-// Ce que le serveur attend du composant heartbeat : l'API d'un côté,
-// les pings publics de l'autre.
+// Ce que le serveur attend du composant heartbeat : les gestes de l'API
+// d'un côté, les pings publics de l'autre. Les listes se lisent par le
+// Reader.
 type HeartbeatService interface {
-	List(ctx context.Context) ([]heartbeat.Heartbeat, error)
-	Get(ctx context.Context, id string) (heartbeat.Heartbeat, error)
-	Count(ctx context.Context) (total, attention int, err error)
 	Create(ctx context.Context, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	Update(ctx context.Context, id string, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	RegenerateToken(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
-	Pings(ctx context.Context, id string, limit int) ([]heartbeat.Ping, error)
-	Runs(ctx context.Context, id string, limit int) ([]heartbeat.Run, error)
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
@@ -225,21 +214,16 @@ type StatusService interface {
 	CountOpenIncidents(ctx context.Context) (int, error)
 }
 
-// Ce que le serveur attend du moteur des alertes : la page, l'acquittement,
-// les canaux et les silences.
+// Ce que le serveur attend du moteur des alertes : la page (une liste
+// bornée), l'acquittement, l'écriture des canaux et des silences. Le reste
+// se lit par le Reader.
 type AlertService interface {
 	List(ctx context.Context, status alert.Status) ([]alert.Alert, error)
-	Get(ctx context.Context, id int64) (alert.Alert, error)
-	Deliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error)
 	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
 	AcknowledgeMany(ctx context.Context, ids []int64) (int, error)
-	Count(ctx context.Context) (alert.Counts, error)
-	Channels(ctx context.Context) ([]alert.Channel, error)
-	GetChannel(ctx context.Context, id int64) (alert.Channel, error)
 	CreateChannel(ctx context.Context, definition alert.ChannelDefinition) (alert.Channel, error)
 	UpdateChannel(ctx context.Context, id int64, definition alert.ChannelDefinition) (alert.Channel, error)
 	DeleteChannel(ctx context.Context, id int64) error
-	Silences(ctx context.Context) ([]alert.Silence, error)
 	CreateSilence(ctx context.Context, definition alert.SilenceDefinition) (alert.Silence, error)
 	DeleteSilence(ctx context.Context, id int64) error
 }
@@ -257,9 +241,12 @@ type Live interface {
 }
 
 type Server struct {
-	logger     *slog.Logger
-	version    string
-	catalogs   lang.Catalogs
+	logger   *slog.Logger
+	version  string
+	catalogs lang.Catalogs
+	// reader est la base, pour les lectures sans règle : listes, objets,
+	// comptes. Ce qui porte une règle passe par le composant.
+	reader     reader.Reader
 	settings   SettingsService
 	machines   MachineService
 	heartbeats HeartbeatService
@@ -277,8 +264,11 @@ type Server struct {
 	auth       AuthService
 	live       Live
 	logStreams atomic.Int32
-	mcpLimits  *mcpLimits
-	authLimits *authLimits
+	// Les limiteurs de la racine, par source : /mcp et l'autorisation
+	// OAuth, le point de jeton, et les essais d'identifiants Basic.
+	mcpLimit      *ratelimit.BySource
+	mcpTokenLimit *ratelimit.BySource
+	authLimit     *ratelimit.BySource
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -313,6 +303,7 @@ type Server struct {
 type Options struct {
 	Logger     *slog.Logger
 	Version    string
+	Reader     reader.Reader
 	Settings   SettingsService
 	Machines   MachineService
 	Heartbeats HeartbeatService
@@ -367,6 +358,7 @@ func New(opts Options) (*Server, error) {
 		logger:         opts.Logger,
 		version:        opts.Version,
 		catalogs:       catalogs,
+		reader:         opts.Reader,
 		settings:       opts.Settings,
 		machines:       opts.Machines,
 		heartbeats:     opts.Heartbeats,
@@ -383,8 +375,9 @@ func New(opts Options) (*Server, error) {
 		mcp:            opts.MCP,
 		auth:           opts.Auth,
 		live:           opts.Live,
-		mcpLimits:      newMCPLimits(),
-		authLimits:     newAuthLimits(),
+		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
+		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),
+		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
 		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
@@ -395,8 +388,9 @@ func New(opts Options) (*Server, error) {
 		clock:          opts.Clock,
 	}
 	if opts.Clock != nil {
-		server.mcpLimits.setClock(opts.Clock)
-		server.authLimits.setClock(opts.Clock)
+		server.mcpLimit.SetClock(opts.Clock)
+		server.mcpTokenLimit.SetClock(opts.Clock)
+		server.authLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
 		Logger:        opts.Logger,
@@ -423,7 +417,9 @@ func New(opts Options) (*Server, error) {
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
-	server.mcpServer = server.newMCPServer(false)
+	// Lecture seule pendant la refonte : les écritures reviendront avec les
+	// actions typées (docs/projet/23-direction.md).
+	server.mcpServer = server.newMCPServer(true)
 	server.mcpHandler = server.newMCPHandler()
 	server.handler = server.chain(securityHeaders(server.mux()))
 	server.controlHandler = server.chain(server.controlMux())

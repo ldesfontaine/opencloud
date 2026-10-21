@@ -3,11 +3,14 @@ package probe_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 func TestRedactTarget_HidesThePasswordOnly(t *testing.T) {
@@ -29,23 +32,30 @@ func TestRedactTarget_HidesThePasswordOnly(t *testing.T) {
 }
 
 // Aucune ligne de journal des sondes ne porte le mot de passe d'une cible :
-// création, modification, suppression, pause.
+// celle d'une sonde d'avant le refus, mise en pause au démarrage, modifiée,
+// supprimée.
 func TestServiceLogs_NeverCarryATargetPassword(t *testing.T) {
 	var logs bytes.Buffer
 	fixture := newBenchLogging(t, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	created := fixture.create(t, "feed", "https://u:secret@h.example.org/")
-	definition := definitionOf(created)
-	definition.Target = "https://u:other-secret@h.example.org/status"
-	updated := fixture.update(t, created.ID, definition)
-	if err := fixture.service.Pause(context.Background(), updated.ID); err != nil {
+	legacy := storetest.InsertProbe(t, fixture.db, "00000000000000a1", probe.Definition{
+		Name: "feed", Kind: probe.KindHTTP, Target: "https://u:secret@h.example.org/", MachineID: machine.LocalID,
+	}, testNow)
+	if err := fixture.service.PauseTargetsWithCredentials(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	definition := definitionOf(legacy)
+	definition.Target = "https://u:other-secret@h.example.org/status"
+	if _, err := fixture.service.Update(context.Background(), legacy.ID, definition); !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	definition.Target = "https://h.example.org/status"
+	updated := fixture.update(t, legacy.ID, definition)
 	if err := fixture.service.Delete(context.Background(), updated.ID); err != nil {
 		t.Fatal(err)
 	}
 	text := logs.String()
-	if !strings.Contains(text, "probe created") || !strings.Contains(text, "u:…@h.example.org") {
-		t.Fatalf("the target must still be logged, masked:\n%s", text)
+	if !strings.Contains(text, "its target carries credentials") || !strings.Contains(text, "name=feed") || !strings.Contains(text, "u:…@h.example.org") {
+		t.Fatalf("the paused probe must be logged, target masked:\n%s", text)
 	}
 	if strings.Contains(text, "secret") {
 		t.Fatalf("a log line carries the password:\n%s", text)

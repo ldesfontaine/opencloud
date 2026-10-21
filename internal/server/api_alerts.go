@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -185,7 +184,7 @@ func (s *Server) listAlerts(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	counts, err := s.alerts.Count(r.Context())
+	counts, err := s.reader.CountAlerts(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -199,11 +198,11 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	found, err := s.alerts.Get(r.Context(), id)
+	found, err := s.reader.GetAlert(r.Context(), id)
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
-	deliveries, err := s.alerts.Deliveries(r.Context(), id)
+	deliveries, err := s.reader.ListDeliveries(r.Context(), id)
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -230,10 +229,6 @@ func (s *Server) acknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found, err := s.alerts.Acknowledge(r.Context(), id)
-	if errors.Is(err, alert.ErrAlreadyClosed) {
-		s.apiRefuse(w, http.StatusConflict, "alert.already_resolved")
-		return
-	}
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
@@ -256,14 +251,6 @@ func (s *Server) acknowledgeAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acknowledged, err := s.alerts.AcknowledgeMany(r.Context(), request.IDs)
-	if errors.Is(err, alert.ErrSelectionEmpty) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_empty")
-		return
-	}
-	if errors.Is(err, alert.ErrSelectionTooLarge) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "alert.selection_too_large")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -273,7 +260,7 @@ func (s *Server) acknowledgeAlerts(w http.ResponseWriter, r *http.Request) {
 // --- Canaux ---
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
-	channels, err := s.alerts.Channels(r.Context())
+	channels, err := s.reader.ListChannels(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -287,7 +274,7 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	channel, err := s.alerts.GetChannel(r.Context(), id)
+	channel, err := s.reader.GetChannel(r.Context(), id)
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
@@ -347,7 +334,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	channel, err := s.alerts.GetChannel(r.Context(), id)
+	channel, err := s.reader.GetChannel(r.Context(), id)
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
@@ -361,7 +348,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 // --- Silences ---
 
 func (s *Server) listSilences(w http.ResponseWriter, r *http.Request) {
-	silences, err := s.alerts.Silences(r.Context())
+	silences, err := s.reader.ListSilences(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}

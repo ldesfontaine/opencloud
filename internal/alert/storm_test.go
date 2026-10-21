@@ -149,7 +149,7 @@ func TestDeliver_MachineShare_HoldsTheSurplusAndSummarizesIt(t *testing.T) {
 		t.Fatalf("sent %d, want %d", got, alert.MachineRateLimit)
 	}
 	last := f.open(t, alert.StatusOpen)[0]
-	deliveries, err := f.Deliveries(ctx, last.ID)
+	deliveries, err := f.db.ListDeliveries(ctx, last.ID)
 	if err != nil || len(deliveries) != 1 || deliveries[0].Status != alert.DeliveryHeld {
 		t.Fatalf("deliveries %+v %v", deliveries, err)
 	}
@@ -198,7 +198,7 @@ func TestDeliver_ANoisyMachine_DoesNotHoldAnotherMachinesAlert(t *testing.T) {
 	if victim.Alert.MachineID != machine.LocalID || victim.Alert.Severity != alert.SeverityDanger || victim.Delivery.Event != alert.EventOpened {
 		t.Fatalf("job %+v", victim)
 	}
-	deliveries, err := f.Deliveries(ctx, victim.Alert.ID)
+	deliveries, err := f.db.ListDeliveries(ctx, victim.Alert.ID)
 	if err != nil || len(deliveries) != 1 || deliveries[0].Status != alert.DeliveryPending {
 		t.Fatalf("deliveries %+v %v", deliveries, err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
+	"github.com/ldesfontaine/opencloud/internal/wait"
 )
 
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
@@ -214,10 +215,8 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, pendi
 		} else {
 			opts.Logger.Warn("stream lost, reconnecting", "error", err, "delay", delay.Round(time.Millisecond))
 		}
-		select {
-		case <-ctx.Done():
+		if !wait.For(ctx, jittered(delay)) {
 			return nil
-		case <-time.After(jittered(delay)):
 		}
 		delay = min(delay*2, maxBackoff)
 	}

@@ -354,6 +354,30 @@ func scanSilence(row scanner) (alert.Silence, error) {
 	return silence, nil
 }
 
+// PurgeSilences efface les silences finis avant l'instant donné.
+func (db *DB) PurgeSilences(ctx context.Context, endedBefore time.Time) error {
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE ends_at < ?`, endedBefore.Unix()); err != nil {
+		return fmt.Errorf("purge silences: %w", err)
+	}
+	return nil
+}
+
+// DeleteObjectSilences efface les silences qui visent cet objet, et dit
+// combien : la table n'a pas de clé étrangère, le composant les retire
+// quand l'objet part.
+func (db *DB) DeleteObjectSilences(ctx context.Context, object alert.Object) (int, error) {
+	result, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE object_kind = ? AND object_id = ?`,
+		string(object.Kind), object.ID)
+	if err != nil {
+		return 0, fmt.Errorf("delete object silences: %w", err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count deleted silences: %w", err)
+	}
+	return int(deleted), nil
+}
+
 func (db *DB) DeleteSilence(ctx context.Context, id int64) error {
 	result, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE id = ?`, id)
 	if err != nil {

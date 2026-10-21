@@ -2,8 +2,8 @@ import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 
 // L'accès d'un agent IA par MCP : client OAuth, jetons d'API, sessions.
-// Chemin hors de toute ressource : topicsOf le relit sur tous les sujets
-// sauf les mesures.
+// Chemin sans sujet du direct : relu à la demande de la page, ou quand tout
+// se relit.
 
 // Un secret ou un jeton n'y figure que masqué ; le clair ne sort qu'à sa
 // création.
@@ -22,12 +22,13 @@ export interface MCPState {
   limits: { tokens: number; redirect_uris: number };
   // Les échéances offertes à un jeton d'API, en jours ; 0 pour sans échéance.
   lifetimes: { access_seconds: number; refresh_seconds: number; api_token_days: number[]; api_token_default_days: number };
-  tools: { reads: number; writes: number };
+  tools: { reads: number };
   enabled_at: string | null;
 }
 
-// read : les lectures seules ; write : les lectures et les écritures.
-export type MCPScope = "read" | "write";
+// La portée reste dans la base et dans l'API, inerte : le MCP HTTP est en
+// lecture seule, quelle qu'elle soit. L'interface ne la montre plus.
+type MCPScope = "read" | "write";
 
 export interface MCPToken {
   id: string;
@@ -47,7 +48,7 @@ export interface MCPSession {
   expires_at: string;
 }
 
-export interface MCPSecretResponse {
+interface MCPSecretResponse {
   secret: string;
 }
 
@@ -59,7 +60,6 @@ export interface MCPTokenResponse {
 // 0 jour : un jeton sans échéance.
 export interface MCPTokenRequest {
   name: string;
-  scope: MCPScope;
   expires_in_days: number;
 }
 

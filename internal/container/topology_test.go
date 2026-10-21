@@ -125,14 +125,14 @@ func TestExposure_FollowsTheFourRules(t *testing.T) {
 	if got := Exposure(containers[1]); len(got) != 0 {
 		t.Fatalf("db on loopback = %+v", got)
 	}
-	if got := Exposure(containers[2]); len(got) != 1 || got[0].Kind != FindingDatabasePortPublic || got[0].Level != LevelWarn || got[0].Port != 6379 || !NeedsCaution(got) {
+	if got := Exposure(containers[2]); len(got) != 1 || got[0].Kind != FindingDatabasePortPublic || got[0].Level != LevelWarn || got[0].Port != 6379 {
 		t.Fatalf("cache = %+v", got)
 	}
 	host := Container{NetworkMode: "host", Privileged: true, Ports: []Port{{IP: "0.0.0.0", HostPort: 5432, ContainerPort: 5432, Protocol: "tcp"}}}
 	if got := Exposure(host); len(got) != 2 || got[0].Kind != FindingPrivileged || got[1].Kind != FindingHostNetwork {
 		t.Fatalf("host = %+v", got)
 	}
-	if got := Exposure(Container{}); len(got) != 0 || NeedsCaution(got) {
+	if got := Exposure(Container{}); len(got) != 0 {
 		t.Fatalf("clean = %+v", got)
 	}
 }

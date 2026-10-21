@@ -53,7 +53,7 @@ export function MCPSection({ state, reload }: { state: MCPState; reload: () => v
         />
         <CardBody>
           <p>{t("mcp.intro")}</p>
-          <p className="secondary">{t("mcp.tools", state.tools.reads, state.tools.writes)}</p>
+          <p className="secondary">{t("mcp.tools", state.tools.reads)}</p>
           <p className="secondary">{t("mcp.never")}</p>
           <Failure error={action.error} />
           {!state.enabled && (

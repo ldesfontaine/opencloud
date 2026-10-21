@@ -6,10 +6,10 @@ import { segment } from "./client";
 // de conséquence se traduisent sous manifest.*. Sujet du direct :
 // « directory », que topicsOf devine du chemin.
 
-export type ManifestAction = "create" | "update" | "delete";
-export type ManifestKind = "project" | "service" | "probe" | "heartbeat" | "ignored";
+type ManifestAction = "create" | "update" | "delete";
+type ManifestKind = "project" | "service" | "probe" | "heartbeat" | "ignored";
 export type ApplyState = "confirmed" | "applied" | "failed";
-export type ActorKind = "cli" | "operator";
+type ActorKind = "cli" | "operator";
 
 export interface ManifestFieldChange {
   field: string;
@@ -32,26 +32,6 @@ export interface ManifestChange {
   fields: ManifestFieldChange[];
   notes: string[];
   carries: ManifestCarry[];
-}
-
-export interface ManifestProblem {
-  key: string;
-  line: number;
-  column: number;
-  path: string;
-  value: string;
-}
-
-export interface ManifestPlan {
-  language: string;
-  file_hash: string;
-  prune: boolean;
-  plan_hash: string;
-  applicable: boolean;
-  summary: { create: number; update: number; delete: number; unchanged: number; unmanaged: number };
-  changes: ManifestChange[];
-  unmanaged: Array<{ kind: ManifestKind; id: string; name: string }>;
-  problems: ManifestProblem[];
 }
 
 // Un passage du journal. Les changements ne sont que dans le détail.

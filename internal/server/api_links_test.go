@@ -123,7 +123,7 @@ func TestAPI_UnitUpdatePolicy_RefusesWithTheKey(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	server.seedDirectory(t)
-	proxy, err := server.directory.ListServices(context.Background(), directory.Filter{MachineID: machine.LocalID})
+	proxy, err := server.db.ListDeclaredServices(context.Background(), directory.Filter{MachineID: machine.LocalID})
 	if err != nil || len(proxy) != 1 {
 		t.Fatalf("proxy = %+v, %v", proxy, err)
 	}

@@ -38,7 +38,7 @@ func TestPing_SourceIsTheForwardedAddressOnlyFromATrustedProxy(t *testing.T) {
 	ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", "203.0.113.9")
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
 	ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", "203.0.113.9")
-	pings, _ := server.heartbeats.Pings(context.Background(), job.ID, 10)
+	pings, _ := server.db.ListPings(context.Background(), job.ID, 10)
 	if len(pings) != 2 || pings[1].Source != "192.0.2.1" || pings[0].Source != "203.0.113.9" {
 		t.Fatalf("pings %+v", pings)
 	}

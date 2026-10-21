@@ -5,11 +5,9 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
-	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -22,69 +20,30 @@ const (
 	pingPerSourceBurst = 20
 	pingPerTokenRate   = 0.5
 	pingPerTokenBurst  = 30
-	pingSweepEvery     = 5 * time.Minute
-	pingSweepIdle      = 10 * time.Minute
+	pingIdle           = 10 * time.Minute
 	// Un vrai jeton fait 29 octets ; la marge laisse passer les jetons hérités
 	// en clair, dont le format n'a jamais été garanti. Au-delà, le jeton ne
 	// peut pas exister : il est refusé sans rien retenir.
 	maxPingTokenLength = 256
 )
 
-type pingLimits struct {
-	bySource *ratelimit.Limiter
-	byToken  *ratelimit.Limiter
-	now      func() time.Time
-
-	mu        sync.Mutex
-	lastSweep time.Time
-}
-
-func newPingLimits() *pingLimits {
-	return &pingLimits{
-		bySource: ratelimit.New(pingPerSourceRate, pingPerSourceBurst),
-		byToken:  ratelimit.New(pingPerTokenRate, pingPerTokenBurst),
-		now:      time.Now,
-	}
-}
-
-func (l *pingLimits) setClock(now func() time.Time) {
-	l.now = now
-	l.bySource.SetClock(now)
-	l.byToken.SetClock(now)
-}
-
-// allow compte la requête sur les deux seaux, l'IP d'abord : un jeton
-// inconnu essayé en rafale s'arrête là, et son seau vide part au balayage
-// suivant. Les seaux oubliés sont balayés au passage, sans goroutine.
+// allowPing compte la requête sur les deux seaux, la source d'abord : un
+// jeton inconnu essayé en rafale s'arrête là, et son seau vide part au
+// balayage suivant.
 //
 // Le seau par jeton est indexé par l'empreinte du jeton : le jeton vient de
 // l'URL, un anonyme l'invente, et sa clé reste en mémoire jusqu'au balayage.
 // Une empreinte pèse toujours la même chose, quelle que soit la requête. Un
 // jeton trop long ne crée aucun seau : il est compté sur la source seule, et
 // receivePing le refuse.
-func (l *pingLimits) allow(source, token string) bool {
-	l.sweepIfDue()
-	if !l.bySource.Allow(ratelimit.SourceKey(source)) {
+func (h *Handler) allowPing(source, token string) bool {
+	if !h.sourceLimit.Allow(source) {
 		return false
 	}
 	if len(token) > maxPingTokenLength {
 		return true
 	}
-	return l.byToken.Allow(heartbeat.HashToken(token))
-}
-
-func (l *pingLimits) sweepIfDue() {
-	now := l.now()
-	l.mu.Lock()
-	due := now.Sub(l.lastSweep) >= pingSweepEvery
-	if due {
-		l.lastSweep = now
-	}
-	l.mu.Unlock()
-	if due {
-		l.bySource.Sweep(pingSweepIdle)
-		l.byToken.Sweep(pingSweepIdle)
-	}
+	return h.tokenLimit.Allow(heartbeat.HashToken(token))
 }
 
 // GET ou POST /ping/{token} : la tâche a fini.
@@ -114,7 +73,7 @@ func (h *Handler) receivePing(w http.ResponseWriter, r *http.Request, ping heart
 	token := r.PathValue("token")
 	ping.Source = h.clientAddress(r)
 	ping.Method = r.Method
-	if !h.limits.allow(ping.Source, token) {
+	if !h.allowPing(ping.Source, token) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writePing(w, http.StatusTooManyRequests, "too many pings")
 		return

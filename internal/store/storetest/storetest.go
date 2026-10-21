@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
@@ -51,6 +52,26 @@ func SaveLocalMachine(t testing.TB, db *store.DB, at time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// InsertProbe écrit une sonde directement en base, sans les règles du
+// composant : celle qu'une base ancienne garde d'avant un refus nouveau. La
+// définition est complétée, la sonde naît « Nouvelle ».
+func InsertProbe(t testing.TB, db *store.DB, id string, definition probe.Definition, at time.Time) probe.Probe {
+	t.Helper()
+	definition = definition.Complete()
+	item := probe.Probe{
+		ID: id, Name: definition.Name, Kind: definition.Kind, Target: definition.Target,
+		MachineID: definition.MachineID, ServiceID: definition.ServiceID, Status: probe.StatusNew,
+		Interval: definition.Interval, Timeout: definition.Timeout,
+		FailureThreshold: definition.FailureThreshold, RecoveryThreshold: definition.RecoveryThreshold,
+		Method: definition.Method, ExpectedStatus: definition.ExpectedStatus, ExpectedBody: definition.ExpectedBody,
+		FollowRedirects: definition.FollowRedirects, TLS: definition.TLS, CreatedAt: at,
+	}
+	if err := db.InsertProbe(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	return item
 }
 
 // EnsureLocalMachine déclare la machine openCloud par le service des

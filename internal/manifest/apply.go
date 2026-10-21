@@ -24,16 +24,19 @@ const (
 	journalTimeout = 10 * time.Second
 )
 
+// Les clés répètent celles du journal (KeyPlanChanged…) : le test des
+// catalogues ne lit qu'un littéral, et TestRefusals_CarryTheirKeyConstant
+// veille à ce qu'elles restent égales.
 var (
 	// ErrPlanChanged : l'annuaire a changé depuis le plan que l'opérateur a
 	// confirmé. L'application n'écrit rien ; elle rend le plan d'aujourd'hui.
-	ErrPlanChanged = errors.New("the directory changed since the plan was confirmed")
+	ErrPlanChanged = refusal.Conflict("manifest.plan_changed", "the directory changed since the plan was confirmed")
 	// ErrNotApplicable : le plan a des refus, rien ne s'écrit.
-	ErrNotApplicable = errors.New("the plan has refusals")
+	ErrNotApplicable = refusal.Invalid("manifest.not_applicable", "the plan has refusals")
 	// ErrBusy : un autre apply est en cours.
-	ErrBusy = errors.New("another apply is running")
+	ErrBusy = refusal.Conflict("manifest.busy", "another apply is running")
 	// ErrNothingToApply : le fichier est conforme, il n'y a rien à écrire.
-	ErrNothingToApply = errors.New("nothing to apply")
+	ErrNothingToApply = refusal.Invalid("manifest.nothing_to_apply", "nothing to apply")
 	// errObjectMoved : un objet a changé entre le plan rejoué et son
 	// écriture (un geste de l'interface, pendant l'application). L'écriture
 	// s'arrête plutôt que d'écraser ce que l'opérateur vient de faire.
@@ -73,27 +76,27 @@ func (m *Manifest) Plan(ctx context.Context, request Request) (Plan, error) {
 // un geste de l'interface entre deux change le plan, ce que l'empreinte
 // attrape à l'application.
 func (m *Manifest) readCurrent(ctx context.Context) (Current, error) {
-	names, err := m.deps.Machines.MachineNames(ctx)
+	names, err := m.deps.Reader.MachineNames(ctx)
 	if err != nil {
 		return Current{}, fmt.Errorf("read machine names: %w", err)
 	}
-	projects, err := m.deps.Directory.ListProjects(ctx)
+	projects, err := m.deps.Reader.ListProjects(ctx)
 	if err != nil {
 		return Current{}, fmt.Errorf("read projects: %w", err)
 	}
-	services, err := m.deps.Directory.ListServices(ctx, directory.Filter{})
+	services, err := m.deps.Reader.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		return Current{}, fmt.Errorf("read services: %w", err)
 	}
-	probes, err := m.deps.Probes.List(ctx, "")
+	probes, err := m.deps.Reader.ListProbes(ctx, "")
 	if err != nil {
 		return Current{}, fmt.Errorf("read probes: %w", err)
 	}
-	heartbeats, err := m.deps.Heartbeats.List(ctx)
+	heartbeats, err := m.deps.Reader.ListHeartbeats(ctx)
 	if err != nil {
 		return Current{}, fmt.Errorf("read heartbeats: %w", err)
 	}
-	ignored, err := m.deps.Directory.IgnoredKeys(ctx)
+	ignored, err := m.deps.Reader.ListIgnoredKeys(ctx, "")
 	if err != nil {
 		return Current{}, fmt.Errorf("read ignored keys: %w", err)
 	}
@@ -115,19 +118,19 @@ func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
 		}
 		switch change.Kind {
 		case KindProbe:
-			results, days, err := m.deps.History.CountProbeHistory(ctx, change.ID)
+			results, days, err := m.deps.Reader.CountProbeHistory(ctx, change.ID)
 			if err != nil {
 				return fmt.Errorf("count probe history: %w", err)
 			}
 			change.Carries = countedCarries(Carry{What: CarryProbeResults, Count: results}, Carry{What: CarryProbeDays, Count: days})
 		case KindHeartbeat:
-			pings, runs, err := m.deps.History.CountHeartbeatHistory(ctx, change.ID)
+			pings, runs, err := m.deps.Reader.CountHeartbeatHistory(ctx, change.ID)
 			if err != nil {
 				return fmt.Errorf("count heartbeat history: %w", err)
 			}
 			change.Carries = countedCarries(Carry{What: CarryHeartbeatPings, Count: pings}, Carry{What: CarryHeartbeatRuns, Count: runs})
 		case KindService:
-			links, err := m.deps.Directory.ServiceLinks(ctx, change.ID)
+			links, err := m.deps.Reader.ListServiceLinks(ctx, change.ID)
 			if err != nil {
 				return fmt.Errorf("read service links: %w", err)
 			}
@@ -379,7 +382,7 @@ func (e *execution) writeProject(ctx context.Context, next step) error {
 // guardProject relit le projet juste avant de l'écrire : s'il n'est plus tel
 // que le plan l'a vu, rien ne s'écrit.
 func (e *execution) guardProject(ctx context.Context, next step) error {
-	projects, err := e.manifest.deps.Directory.ListProjects(ctx)
+	projects, err := e.manifest.deps.Reader.ListProjects(ctx)
 	if err != nil {
 		return err
 	}
@@ -454,7 +457,7 @@ func sameService(seen, now directory.ServiceDefinition) bool {
 // l'application (un titre, une unité renommée) l'arrête : elle ne s'écrase pas
 // sans bruit, et la relance recalcule le plan.
 func (e *execution) guardedService(ctx context.Context, next step) (directory.Service, error) {
-	existing, err := e.manifest.deps.Directory.GetService(ctx, next.change.ID)
+	existing, err := e.manifest.deps.Reader.GetDeclaredService(ctx, next.change.ID)
 	if err != nil {
 		return directory.Service{}, err
 	}
@@ -498,7 +501,7 @@ func (e *execution) projectIDs(names []string) ([]string, error) {
 func (e *execution) writeProbe(ctx context.Context, next step) error {
 	probes := e.manifest.deps.Probes
 	if next.change.Action != ActionCreate {
-		current, err := probes.Get(ctx, next.change.ID)
+		current, err := e.manifest.deps.Reader.GetProbe(ctx, next.change.ID)
 		if err != nil {
 			return err
 		}
@@ -532,7 +535,7 @@ func (e *execution) writeProbe(ctx context.Context, next step) error {
 func (e *execution) writeHeartbeat(ctx context.Context, next step) error {
 	heartbeats := e.manifest.deps.Heartbeats
 	if next.change.Action != ActionCreate {
-		current, err := heartbeats.Get(ctx, next.change.ID)
+		current, err := e.manifest.deps.Reader.GetHeartbeat(ctx, next.change.ID)
 		if err != nil {
 			return err
 		}

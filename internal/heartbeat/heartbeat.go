@@ -148,7 +148,7 @@ var (
 	ErrGraceInvalid    = refusal.Invalid("job.grace_invalid", "heartbeat grace must be between 0 and the interval")
 	ErrMachineInvalid  = refusal.Invalid("job.machine_invalid", "heartbeat machine must exist when given")
 	ErrExitCodeInvalid = errors.New("exit code must be between 0 and 255")
-	ErrNotPaused       = errors.New("heartbeat is not paused")
+	ErrNotPaused       = refusal.Conflict("job.not_paused", "heartbeat is not paused")
 )
 
 func (d Definition) Validate() error {

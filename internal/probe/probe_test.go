@@ -61,6 +61,8 @@ func TestDefinition_Validate_RefusesWhatCannotBeProbed(t *testing.T) {
 		{"sans machine", func(d Definition) Definition { d.MachineID = ""; return d }, ErrMachineInvalid},
 		{"cible sans protocole", func(d Definition) Definition { d.Target = "cloud.exemple.fr"; return d }, ErrTargetInvalid},
 		{"cible ftp", func(d Definition) Definition { d.Target = "ftp://cloud.exemple.fr/"; return d }, ErrTargetInvalid},
+		{"cible avec mot de passe", func(d Definition) Definition { d.Target = "https://u:secret@cloud.exemple.fr/"; return d }, ErrTargetCredentials},
+		{"cible avec identifiant seul", func(d Definition) Definition { d.Target = "https://u@cloud.exemple.fr/"; return d }, ErrTargetCredentials},
 		{"intervalle trop court", func(d Definition) Definition { d.Interval = 5 * time.Second; return d }, ErrIntervalInvalid},
 		{"intervalle trop long", func(d Definition) Definition { d.Interval = 48 * time.Hour; return d }, ErrIntervalInvalid},
 		{"délai plus long que l'intervalle", func(d Definition) Definition {

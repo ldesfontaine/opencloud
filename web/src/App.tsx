@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 
 import { Layout } from "./components/Layout";
@@ -29,7 +30,6 @@ import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
-import { VisualSystem } from "./pages/VisualSystem";
 
 // La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
 // /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
@@ -39,6 +39,11 @@ function ContainerRedirect() {
   const location = useLocation();
   return <Navigate replace to={{ pathname: `/services/conteneurs/${encodeURIComponent(id)}`, search: location.search, hash: location.hash }} />;
 }
+
+// La page de démonstration du système visuel ne sert qu'en développement :
+// Vite remplace import.meta.env.DEV par false au build, et l'import
+// dynamique sort la page du bundle de production.
+const VisualSystem = import.meta.env.DEV ? lazy(() => import("./pages/VisualSystem").then((page) => ({ default: page.VisualSystem }))) : null;
 
 // Les adresses restent en français, comme l'opérateur les lit ; une route
 // par écran, l'API en dessous.
@@ -91,7 +96,16 @@ export function App() {
         <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Settings />} />
-        <Route path="systeme-visuel" element={<VisualSystem />} />
+        {VisualSystem && (
+          <Route
+            path="systeme-visuel"
+            element={
+              <Suspense fallback={null}>
+                <VisualSystem />
+              </Suspense>
+            }
+          />
+        )}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

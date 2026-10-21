@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
@@ -45,10 +44,6 @@ func (s *Server) setDiskSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	thresholds := alert.DiskThresholds{Attention: request.Attention, Danger: request.Danger}
 	err := s.settings.SetDiskThresholds(r.Context(), thresholds)
-	if errors.Is(err, alert.ErrDiskThresholdsInvalid) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "settings.disk_invalid")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}

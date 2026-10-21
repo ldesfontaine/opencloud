@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 )
 
 // Ce que les pings attendent du composant heartbeat : recevoir un ping.
@@ -28,7 +29,8 @@ type Handler struct {
 	logger        *slog.Logger
 	heartbeats    HeartbeatReceiver
 	clientAddress func(r *http.Request) string
-	limits        *pingLimits
+	sourceLimit   *ratelimit.BySource
+	tokenLimit    *ratelimit.Limiter
 }
 
 func New(opts Options) *Handler {
@@ -36,10 +38,12 @@ func New(opts Options) *Handler {
 		logger:        opts.Logger,
 		heartbeats:    opts.Heartbeats,
 		clientAddress: opts.ClientAddress,
-		limits:        newPingLimits(),
+		sourceLimit:   ratelimit.NewBySource(pingPerSourceRate, pingPerSourceBurst, pingIdle),
+		tokenLimit:    ratelimit.New(pingPerTokenRate, pingPerTokenBurst, pingIdle),
 	}
 	if opts.Clock != nil {
-		handler.limits.setClock(opts.Clock)
+		handler.sourceLimit.SetClock(opts.Clock)
+		handler.tokenLimit.SetClock(opts.Clock)
 	}
 	return handler
 }

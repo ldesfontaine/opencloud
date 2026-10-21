@@ -3,13 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,39 +39,15 @@ func capturedLogger() (*slog.Logger, *bytes.Buffer) {
 	return slog.New(slog.NewJSONHandler(&journal, nil)), &journal
 }
 
-// clearSealer « chiffre » en ne changeant rien : ce que la base contenait
-// avant que les secrets ne soient chiffrés.
-type clearSealer struct{}
-
-func (clearSealer) Seal(plaintext string, _ seal.Scope) string { return plaintext }
-
-func (clearSealer) Open(sealed string, _ seal.Scope) (string, error) { return sealed, nil }
-
-// clearTokenHash remet token_hash à NULL en SQL brut, comme la migration 020
-// le laisse sur les tâches d'avant. Le pilote est celui que le paquet store
-// a enregistré, quel que soit son nom.
-func clearTokenHash(t *testing.T, stateDir string) {
+// replaceKey pose une autre clé à la place de celle du répertoire d'état,
+// comme une restauration ratée.
+func replaceKey(t *testing.T, root *os.Root, keyring *seal.Keyring) {
 	t.Helper()
-	driver := ""
-	for _, candidate := range []string{"sqlite", "sqlite3"} {
-		if slices.Contains(sql.Drivers(), candidate) {
-			driver = candidate
-		}
-	}
-	if driver == "" {
-		t.Fatalf("no SQLite driver registered among %v", sql.Drivers())
-	}
-	handle, err := sql.Open(driver, "file:"+filepath.Join(stateDir, brand.DatabaseFile))
-	if err != nil {
+	if err := root.Remove(brand.SecretKeyFile); err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
-	defer handle.Close()
-	if _, err := handle.Exec(`UPDATE heartbeats SET token_hash = NULL`); err != nil {
+	if err := seal.Create(root, keyring); err != nil {
 		t.Fatal(err)
-	}
-	var missing int
-	if err := handle.QueryRow(`SELECT COUNT(*) FROM heartbeats WHERE token_hash IS NULL`).Scan(&missing); err != nil || missing != 1 {
-		t.Fatalf("heartbeats without a hash: %d, %v", missing, err)
 	}
 }
 
@@ -174,37 +147,11 @@ func TestOpenSecrets_McpWithoutKeyOnASealedBase_KeepsTheShortMessage(t *testing.
 	}
 }
 
-func TestOpenSecrets_SealsWhatAnOlderVersionLeftInTheClear(t *testing.T) {
-	_, stateDir := writeConfig(t)
-	root, db := openState(t, stateDir)
-	logger, journal := capturedLogger()
-	ctx := context.Background()
-	// Une base d'avant le chiffrement : le jeton y est écrit tel quel.
-	db.SetSealer(clearSealer{})
-	addHeartbeat(t, db, "hb_clear_token")
-	db.SetSealer(nil)
-	// Après la migration, une tâche d'avant n'a pas encore d'empreinte.
-	clearTokenHash(t, stateDir)
-
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(journal.String(), "plaintext secrets sealed") {
-		t.Fatalf("journal: %s", journal)
-	}
-	found, err := db.GetHeartbeatByToken(ctx, "hb_clear_token")
-	if err != nil || found.ID != "job1" {
-		t.Fatalf("%+v, %v", found, err)
-	}
-}
-
 func TestOpenSecrets_RefusesAKeyOthersCanRead(t *testing.T) {
 	_, stateDir := writeConfig(t)
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
-	if err := seal.Save(root, seal.Generate()); err != nil {
-		t.Fatal(err)
-	}
+	replaceKey(t, root, seal.Generate())
 	if err := root.Chmod(brand.SecretKeyFile, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -225,9 +172,7 @@ func TestOpenSecrets_RefusesTheWrongKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_sealed")
-	if err := seal.Save(root, seal.Generate()); err != nil {
-		t.Fatal(err)
-	}
+	replaceKey(t, root, seal.Generate())
 
 	err := openSecrets(ctx, root, db, logger, true)
 	var refused *refusal
@@ -347,9 +292,7 @@ func TestSecretsForget_KeepsTheWrongKeyAsideInsteadOfOverwritingIt(t *testing.T)
 	db.Close()
 	// Une clé intacte, mais qui n'est pas celle de la base : une restauration ratée.
 	wrong := seal.Generate()
-	if err := seal.Save(root, wrong); err != nil {
-		t.Fatal(err)
-	}
+	replaceKey(t, root, wrong)
 
 	var out bytes.Buffer
 	if err := secretsCommand([]string{"forget", "-config", configPath}, &out); err != nil {

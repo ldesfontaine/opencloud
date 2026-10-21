@@ -21,10 +21,10 @@ func newRoot(t *testing.T) *os.Root {
 	return root
 }
 
-func TestSaveLoad_RoundTripsInMode0600(t *testing.T) {
+func TestCreateLoad_RoundTripsInMode0600(t *testing.T) {
 	root := newRoot(t)
 	original := Generate()
-	if err := Save(root, original); err != nil {
+	if err := Create(root, original); err != nil {
 		t.Fatal(err)
 	}
 	info, err := root.Stat(brand.SecretKeyFile)
@@ -43,25 +43,7 @@ func TestSaveLoad_RoundTripsInMode0600(t *testing.T) {
 	}
 	sealed := original.Seal("secret", passwordScope)
 	if got, err := loaded.Open(sealed, passwordScope); err != nil || got != "secret" {
-		t.Fatalf("the loaded key does not open what the saved one sealed: %q, %v", got, err)
-	}
-}
-
-func TestSave_ReplacesTheKeyAndKeepsTheMode(t *testing.T) {
-	root := newRoot(t)
-	first, second := Generate(), Generate()
-	if err := Save(root, first); err != nil {
-		t.Fatal(err)
-	}
-	if err := Save(root, second); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.ID() != second.ID() {
-		t.Fatalf("id %s, want the second key %s", loaded.ID(), second.ID())
+		t.Fatalf("the loaded key does not open what the created one sealed: %q, %v", got, err)
 	}
 }
 
@@ -73,7 +55,7 @@ func TestLoad_WithoutFileIsErrNoKey(t *testing.T) {
 
 func TestLoad_RefusesAFileOthersCanRead(t *testing.T) {
 	root := newRoot(t)
-	if err := Save(root, Generate()); err != nil {
+	if err := Create(root, Generate()); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []os.FileMode{0o644, 0o640, 0o604, 0o660} {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
@@ -42,10 +43,6 @@ func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportO
 func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
 	options := manifest.ExportOptions{Propose: r.URL.Query().Get("propose") == "1"}
 	data, err := s.exportedDirectory(r.Context(), options)
-	if errors.Is(err, manifest.ErrExportTooLarge) {
-		s.apiRefuse(w, http.StatusUnprocessableEntity, manifest.KeyExportTooLarge)
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -312,28 +309,25 @@ func (s *Server) applyManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applied, plan, err := s.manifest.Apply(r.Context(), request.toRequest(), actorOf(r, request))
-	switch {
-	case errors.Is(err, manifest.ErrBusy):
-		s.apiRefuse(w, http.StatusConflict, manifest.KeyBusy)
-	case errors.Is(err, manifest.ErrNothingToApply):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, manifest.KeyNothingToApply)
-	case errors.Is(err, manifest.ErrPlanChanged):
-		s.refuseWithPlan(w, r, http.StatusConflict, manifest.KeyPlanChanged, plan)
-	case errors.Is(err, manifest.ErrNotApplicable):
-		s.refuseWithPlan(w, r, http.StatusUnprocessableEntity, manifest.KeyNotApplicable, plan)
-	case err != nil:
-		s.apiInternalError(w, r, err)
-	default:
-		s.writeAPI(w, http.StatusCreated, applyToJSON(applied, true))
+	// Ces deux refus rendent le plan d'aujourd'hui : l'opérateur relit ce qui
+	// a changé ou ce qui refuse.
+	if errors.Is(err, manifest.ErrPlanChanged) || errors.Is(err, manifest.ErrNotApplicable) {
+		s.refuseWithPlan(w, r, err, plan)
+		return
 	}
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, applyToJSON(applied, true))
 }
 
-func (s *Server) refuseWithPlan(w http.ResponseWriter, r *http.Request, status int, key string, plan manifest.Plan) {
+func (s *Server) refuseWithPlan(w http.ResponseWriter, r *http.Request, refused error, plan manifest.Plan) {
 	response, err := s.planToJSON(r.Context(), plan)
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, status, manifestRefusalJSON{Error: key, Plan: response})
+	key, _ := refusal.KeyOf(refused)
+	s.writeAPI(w, refusalStatus(refused), manifestRefusalJSON{Error: key, Plan: response})
 }
 
 // Le journal garde les quarante derniers passages par défaut, et au plus deux

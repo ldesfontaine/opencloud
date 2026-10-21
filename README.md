@@ -29,7 +29,7 @@ les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 | Dit si la version d'un service, ou le système d'une machine, est encore maintenu, et jusqu'à quand, d'après endoflife.date | Ne cherche pas de failles (CVE). Appelle endoflife.date une à deux fois par jour ; se coupe sous Paramètres |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
 | Publie une page de statut sous `/statut` | Pas de comptes multiples ni de second facteur en propre : derrière un mandataire (Authelia), le mode `forward` les délègue à votre SSO |
-| Sert MCP : 16 outils de lecture, 9 écritures que l'interface a déjà | Aucune action sur une machine par MCP, aucun secret rendu |
+| Sert MCP : 18 outils de lecture | Aucune écriture ni action sur une machine par MCP pendant la refonte, aucun secret rendu |
 
 openCloud **observe, il n'agit jamais sur une machine**. L'interface existe
 en français et en anglais (sélecteur FR/EN en bas de la barre latérale).
@@ -50,7 +50,7 @@ compile par compilation croisée, sans test sur une vraie machine arm64 à ce jo
 Pour essayer sur votre poste. L'installation sur un serveur est dans
 [docs/installation.md](docs/installation.md).
 
-Il faut Go 1.26.9 ou plus, Node.js 20.19 ou plus, `make` et `git`.
+Il faut Go 1.26.10 ou plus, Node.js 20.19 ou plus, `make` et `git`.
 
 ```sh
 git clone https://github.com/ldesfontaine/opencloud.git
@@ -88,7 +88,7 @@ openCloud affiche une commande à coller sur la machine, en root :
 printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
 
-Le jeton sert une fois et expire en 24 h. N'enrôlez pas d'agent sur la
+Le jeton sert une fois et expire en 1 h. N'enrôlez pas d'agent sur la
 machine openCloud : elle est déjà supervisée, un agent dessus doublerait ses
 services et ses alertes. Pour essayer, prenez une autre machine ou une VM ;
 l'agent exige HTTPS vers openCloud, sauf `-allow-plain` sur un réseau déjà

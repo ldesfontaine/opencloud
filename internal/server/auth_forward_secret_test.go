@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
 const (
@@ -51,6 +52,7 @@ func callProxied(server *Server, method, path, peer, identity string, secrets ..
 }
 
 func TestAuthForwardSecret_ALoopbackPeerMustProveItWentThroughTheProxy(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.enableForwardOnLoopback(t, proxySecret)
 
