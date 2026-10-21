@@ -47,7 +47,7 @@ func OpenWithStateDir(t testing.TB) (*os.Root, *store.DB) {
 func SaveLocalMachine(t testing.TB, db *store.DB, at time.Time) {
 	t.Helper()
 	err := db.SaveLocalMachine(context.Background(), machine.Machine{
-		ID: machine.LocalID, Name: brand.LocalMachineName, Kind: machine.KindLocal, EnrolledAt: at, CreatedAt: at,
+		ID: machine.LocalID, Name: brand.LocalMachineName, CreatedAt: at,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) mac
 func EnrollMachineWithKey(t testing.TB, machines *machine.Service, id, name string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := machines.CreateToken(ctx, name)
+	cleartext, _, err := machines.CreateToken(ctx, name, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

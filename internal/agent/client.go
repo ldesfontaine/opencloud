@@ -61,7 +61,8 @@ const (
 )
 
 // Permanent dit si réessayer ne servira à rien : la machine n'existe plus,
-// sa clé n'est plus celle enrôlée, ou l'enrôlement est refusé. Un autre 401
+// sa clé n'est plus celle enrôlée, l'agent est révoqué, ou l'enrôlement est
+// refusé. Un autre 401
 // ou 404 n'arrête rien : une horloge décalée se règle, une session perdue
 // se rouvre, un défi expiré se redemande, un proxy en plein redéploiement
 // revient. Un défi se perd sans que la clé y soit pour rien (serveur
@@ -77,7 +78,7 @@ func (e *ServerError) Permanent() bool {
 		if e.Code == codeChallengeExpired {
 			return false
 		}
-		return e.Code == codeBadProof
+		return e.Code == codeBadProof || e.Code == agentwire.CodeRevoked
 	case http.StatusConflict:
 		return true
 	}
@@ -102,6 +103,14 @@ type Client struct {
 	hostFingerprint string
 	// Le système de la machine, redit à chaque ouverture du flux.
 	system string
+	// Les droits du fichier de l'agent, redits à chaque ouverture du flux.
+	rights string
+}
+
+// SetCapabilities fixe les droits que l'agent rapporte à l'ouverture du
+// flux : ceux de son fichier.
+func (c *Client) SetCapabilities(capabilities []machine.Capability) {
+	c.rights = machine.FormatCapabilities(capabilities)
 }
 
 // NewClient refuse http:// vers autre chose que la boucle locale, sauf si
@@ -235,6 +244,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	}
 	if c.hostFingerprint != "" {
 		request.Header.Set(agentwire.HeaderHostFingerprint, c.hostFingerprint)
+	}
+	if c.rights != "" {
+		request.Header.Set(agentwire.HeaderAgentRights, c.rights)
 	}
 	request.Header.Set("Accept", "text/event-stream")
 

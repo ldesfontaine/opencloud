@@ -16,8 +16,8 @@ func insertProbeOnLocalMachine(t *testing.T, db *DB) probe.Probe {
 	t.Helper()
 	ctx := context.Background()
 	err := db.SaveLocalMachine(ctx, machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, Hostname: "host",
-		EnrolledAt: probeTestNow, CreatedAt: probeTestNow,
+		ID: machine.LocalID, Name: "opencloud", Hostname: "host",
+		CreatedAt: probeTestNow,
 	})
 	if err != nil {
 		t.Fatal(err)

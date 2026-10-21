@@ -63,7 +63,7 @@ export function Machines() {
                     </td>
                     <td className="num wide-only">{machine.address}</td>
                     <td className="wide-only">{machine.os}</td>
-                    <td className="num wide-only">{machine.agent_version}</td>
+                    <td className="num wide-only">{machine.agent?.version ?? "—"}</td>
                     <td>
                       <OnlinePill online={machine.online} />
                     </td>

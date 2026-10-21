@@ -21,7 +21,7 @@ type MachineService interface {
 	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
-	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
+	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	WarnIfOpenCloudHost(machine machine.Machine, fingerprint string)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)

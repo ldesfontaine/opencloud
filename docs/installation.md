@@ -578,12 +578,25 @@ au journal (**Administration → Journal**).
 ### 1. Le jeton
 
 Dans l'interface : Machines → **Ajouter une machine**, un nom en lettres
-minuscules, chiffres et tirets. openCloud affiche une seule fois la commande
-à coller :
+minuscules, chiffres et tirets, et les **droits** de l'agent à cocher.
+openCloud affiche une seule fois la commande à coller :
 
 ```sh
 printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 ```
+
+Les droits : `observe` (toujours, la case est grisée), mettre à jour
+l'agent, déployer un service Docker, mettre à jour un service Docker,
+recevoir des sauvegardes dans un dossier, écrire des fichiers dans des
+dossiers (un à huit chemins absolus, séparés par des virgules). Au-delà de
+`observe`, la commande les porte en clair, à lire avant de coller :
+
+```sh
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org -rights observe,agent.update,files.write=/srv/workspace
+```
+
+Ils s'écrivent dans `identity.json` et la fiche de la machine les montre ;
+**aucun n'est encore appliqué** par l'agent, qui ne fait qu'observer.
 
 Le jeton passe par l'**entrée standard** de l'agent, jamais par sa ligne de
 commande : une ligne de commande se lit dans `ps` et `/proc/<pid>/cmdline`
@@ -635,6 +648,7 @@ relais.
 | `-server` | Oui | Adresse d'openCloud, premier lancement seulement |
 | `-pin` | Oui | Empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé |
 | `-lang` | Oui | Langue des messages de l'agent, `fr` ou `en` |
+| `-rights` | Oui | Droits cochés dans l'interface ; sans lui, `observe` seul. Un droit mal écrit est refusé avant l'enrôlement (code 2), le jeton reste valable |
 | `-state` | Non | Répertoire d'état, `/var/lib/opencloud/agent` par défaut |
 | `-allow-plain` | **Non** | Accepte `http://` vers un serveur distant |
 | `-docker-socket` | **Non** | Socket Docker, `/var/run/docker.sock` par défaut |
@@ -663,7 +677,8 @@ reconnecte seul, avec un délai de 1 à 60 s. Un défi perdu ou expiré
 (`challenge_expired`, par exemple si `serve` a redémarré entre le défi et
 l'ouverture du flux) ne l'arrête pas non plus : il en redemande un. Il
 s'arrête, code de sortie 2, quand openCloud refuse son identité (machine
-retirée, ou signature qui n'est plus celle de la clé enrôlée, `bad_proof`) :
+retirée, signature qui n'est plus celle de la clé enrôlée, `bad_proof`, ou
+agent révoqué, `revoked`) :
 l'unité ne le relance pas (`RestartPreventExitStatus=2`) et `systemctl
 status` la montre `failed`, code 2. C'est voulu : il faut un nouveau jeton.
 
@@ -698,7 +713,8 @@ ajoutez-le aussi à `ExecStart=` de l'unité.
 
 | Besoin | Faire |
 | --- | --- |
-| Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). L'identifiant et l'historique sont gardés |
+| Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton, avec les droits que demandait celui de l'agent en place. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). Un nouvel agent est inscrit, l'ancien révoqué ; l'identifiant de la machine et l'historique sont gardés |
+| Couper un agent sans perdre la machine (machine compromise, clé volée) | Machines → la machine → **Révoquer l'agent**. Son flux tombe, sa prochaine preuve est refusée (`revoked`) et il s'arrête, code 2 ; les jetons de ré-enrôlement en attente sont annulés. La machine, son historique, ses services restent ; elle passe hors ligne sans être déclarée perdue. Pour la rétablir : **Ré-enrôler**, sur une machine saine. Ce que l'agent détenait (les `.env` des services de la machine) reste à changer à la main |
 | Retirer une machine | Machines → la machine → **Retirer**. La confirmation montre d'abord ce que le retrait emporte (mesures, conteneurs…) et ce qui le retient : services déclarés, sondes qu'elle lance, tâches rattachées, composants de la page de statut. Tant qu'il en reste, le bouton est fermé ; supprimez-les ou détachez-les (changer la machine d'une sonde, retirer la machine d'une tâche ou d'un composant). Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
 
 Tant que `identity.json` existe, l'agent l'utilise et ne lit jamais l'entrée

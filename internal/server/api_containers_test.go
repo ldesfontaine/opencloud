@@ -355,10 +355,10 @@ func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 // 500 ; le jeu de sondes refusé repart au cycle suivant.
 func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
+	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
 	// Une session sans boucle de flux : personne ne vide la file.
-	session, err := server.machines.Connect(context.Background(), remoteID, "51.15.20.114", "v0.0.1")
+	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

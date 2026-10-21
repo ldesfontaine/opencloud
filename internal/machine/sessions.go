@@ -12,7 +12,9 @@ const sessionTokenBytes = 32
 // Session est un flux ouvert par l'agent d'une machine. Son jeton, tiré à
 // l'ouverture, authentifie les signaux qui suivent sans nouvelle signature.
 type Session struct {
-	MachineID   string
+	MachineID string
+	// L'agent qui tient le flux : son signal se note sur lui.
+	AgentID     string
 	Token       string
 	ConnectedAt time.Time
 	done        chan struct{}
@@ -21,7 +23,8 @@ type Session struct {
 }
 
 // Done se ferme quand la session est fermée par le serveur : machine retirée,
-// ré-enrôlée, ou remplacée par une nouvelle connexion du même agent.
+// ré-enrôlée, agent révoqué, ou remplacée par une nouvelle connexion du même
+// agent.
 func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
@@ -46,13 +49,14 @@ func NewSessions() *Sessions {
 
 // Open enregistre un flux ; un flux précédent de la même machine est fermé,
 // le plus récent gagne.
-func (s *Sessions) Open(machineID string, now time.Time) (*Session, error) {
+func (s *Sessions) Open(machineID, agentID string, now time.Time) (*Session, error) {
 	raw := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
 	}
 	session := &Session{
 		MachineID:   machineID,
+		AgentID:     agentID,
 		Token:       hex.EncodeToString(raw),
 		ConnectedAt: now,
 		done:        make(chan struct{}),

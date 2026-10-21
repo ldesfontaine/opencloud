@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/fsx"
@@ -31,6 +32,30 @@ type Identity struct {
 	// Langue de l'opérateur, choisie sur openCloud au moment de l'installation.
 	Language   lang.Code `json:"language,omitempty"`
 	EnrolledAt time.Time `json:"enrolled_at"`
+	// Les droits cochés par l'opérateur, écrits par la ligne d'installation
+	// (-rights), un par entrée (« observe », « files.write=/srv/a:/srv/b »).
+	// Absents chez un agent d'avant les droits : observe seul. Rapportés au
+	// serveur à chaque ouverture du flux ; pas encore appliqués (#146).
+	Rights []string `json:"rights,omitempty"`
+}
+
+// Capabilities rend les droits du fichier ; une liste illisible (fichier
+// modifié à la main) vaut observe seul, le plus étroit.
+func (id Identity) Capabilities() []machine.Capability {
+	capabilities, err := machine.ParseCapabilities(strings.Join(id.Rights, ","))
+	if err != nil {
+		return []machine.Capability{{Name: machine.CapabilityObserve}}
+	}
+	return capabilities
+}
+
+// rightsOf écrit des droits sous la forme du fichier : une entrée par droit.
+func rightsOf(capabilities []machine.Capability) []string {
+	rights := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		rights = append(rights, machine.FormatCapabilities([]machine.Capability{capability}))
+	}
+	return rights
 }
 
 var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and send the token on stdin")
@@ -40,7 +65,7 @@ var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and send t
 var ErrTokenMissing = errors.New("no enrollment token on stdin")
 
 // NewIdentity tire une clé et un id ; rien n'est écrit avant l'enrôlement.
-func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
+func NewIdentity(server, pin string, language lang.Code, capabilities []machine.Capability) (Identity, error) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate key: %w", err)
@@ -49,7 +74,10 @@ func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate id: %w", err)
 	}
-	return Identity{MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin, Language: language}, nil
+	return Identity{
+		MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin, Language: language,
+		Rights: rightsOf(capabilities),
+	}, nil
 }
 
 func LoadIdentity(stateDir *os.Root) (Identity, error) {

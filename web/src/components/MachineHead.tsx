@@ -41,7 +41,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
           <span>{current.os}</span>
           <span className="sep" />
           <span>
-            {t("machine.agent")} <span className="mono">{current.agent_version}</span>
+            {t("machine.agent")} <span className="mono">{current.agent?.version ?? "—"}</span>
           </span>
           <span className="sep" />
           <span>{machineSeen(t, current, now)}</span>

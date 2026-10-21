@@ -56,7 +56,7 @@ func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 	defer cancel()
 
 	status, _ := server.machines.Get(context.Background(), remoteID)
-	if !status.Online || status.AgentVersion != "v0.0.2" {
+	if !status.Online || status.Agent.Version != "v0.0.2" {
 		t.Fatalf("after stream: %+v", status)
 	}
 	signal := httptest.NewRequest(http.MethodPost, "/agent/signal", nil)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -85,7 +86,7 @@ func (b *bench) waitFor(t *testing.T, name string, want func(machine.Status) boo
 
 func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	b := newBench(t)
-	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1")
+	token, _, err := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +95,7 @@ func TestRun_EnrollsConnectsSignalsAndComesBackWithItsIdentity(t *testing.T) {
 	go func() { done <- Run(ctx, b.options(token)) }()
 
 	online := b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.Online })
-	if online.Address == "" || online.AgentVersion != "v0.0.1" {
+	if online.Address == "" || online.Agent.Version != "v0.0.1" {
 		t.Fatalf("connected machine %+v", online)
 	}
 	b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.LastSeenAt.After(online.LastSeenAt) })
@@ -152,7 +153,7 @@ func TestRun_BadToken_FailsClearly(t *testing.T) {
 
 func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 	b := newBench(t)
-	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2")
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -168,6 +169,52 @@ func TestRun_RemovedMachine_StopsForGood(t *testing.T) {
 		}
 	case <-time.After(benchTimeout):
 		t.Fatal("agent kept retrying after removal")
+	}
+}
+
+// La ligne d'installation donne les droits (-rights) : l'agent les écrit
+// dans son fichier, les redit à l'ouverture du flux, et s'arrête pour de bon
+// quand l'opérateur le révoque.
+func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
+	b := newBench(t)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
+	rights, err := machine.ParseCapabilities("agent.update,files.write=/srv/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := b.options(token)
+	options.Rights = rights
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, options) }()
+	reported := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool { return !s.Agent.ReportedAt.IsZero() })
+	if machine.FormatCapabilities(reported.Agent.Capabilities) != "observe,agent.update,files.write=/srv/workspace" || !reported.Agent.CapabilitiesDiffer() {
+		t.Fatalf("reported %+v", reported.Agent)
+	}
+	identity, err := LoadIdentity(b.stateDir)
+	if err != nil || strings.Join(identity.Rights, ",") != "observe,agent.update,files.write=/srv/workspace" {
+		t.Fatalf("identity rights %+v %v", identity.Rights, err)
+	}
+
+	if err := b.machines.Revoke(context.Background(), reported.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		var refused *ServerError
+		if !errors.Is(err, ErrIdentityRefused) || !errors.As(err, &refused) || refused.Code != agentwire.CodeRevoked {
+			t.Fatalf("got %v", err)
+		}
+		catalogs, loadErr := lang.Load()
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		if message, isRefusal := Explain(err, catalogs.For(lang.English)); !isRefusal || message != catalogs.For(lang.English).Get("agent.revoked") {
+			t.Fatalf("explained as %q (%v)", message, isRefusal)
+		}
+	case <-time.After(benchTimeout):
+		t.Fatal("the revoked agent kept retrying")
 	}
 }
 

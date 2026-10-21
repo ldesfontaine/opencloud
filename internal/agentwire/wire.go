@@ -28,7 +28,14 @@ const (
 	// Posé par un agent qui sait lire un refus par section ; sans lui, le
 	// serveur répond comme avant, par un 400 global.
 	HeaderSignalSections = brand.HeaderPrefix + "Signal-Sections"
+	// Les droits que l'agent lit dans son fichier, redits à chaque ouverture
+	// du flux, sous leur forme texte (machine.FormatCapabilities). Absent
+	// chez un agent plus vieux : rien n'est rapporté.
+	HeaderAgentRights = brand.HeaderPrefix + "Agent-Rights"
 )
+
+// CodeRevoked : l'agent a prouvé sa clé, mais il est révoqué. Il s'arrête.
+const CodeRevoked = "revoked"
 
 type EnrollRequest struct {
 	MachineID    string `json:"machine_id"`

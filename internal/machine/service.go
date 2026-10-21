@@ -32,15 +32,33 @@ type Store interface {
 	// suppression ne passe pas.
 	DeleteMachine(ctx context.Context, id string) error
 	MachineDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
-	TouchMachine(ctx context.Context, id string, at time.Time) error
-	RecordConnection(ctx context.Context, id, address, agentVersion string, at time.Time) error
+	TouchAgent(ctx context.Context, agentID string, at time.Time) error
+	RecordConnection(ctx context.Context, connection Connection) error
 	RecordSystem(ctx context.Context, id, system string) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
-	// Enroll consomme le jeton et crée ou ré-enrôle la machine dans une seule
-	// transaction ; il renvoie la machine telle qu'elle est en base.
-	Enroll(ctx context.Context, tokenHash string, machine Machine, now time.Time) (Machine, error)
+	// Enroll consomme le jeton, crée la machine ou la retrouve, révoque son
+	// agent actif et inscrit le nouveau, dans une seule transaction ; il
+	// renvoie la machine telle qu'elle est en base.
+	Enroll(ctx context.Context, tokenHash string, machine Machine, agent Agent, now time.Time) (Machine, error)
+	// RevokeAgent révoque l'agent actif de la machine et annule ses jetons
+	// de ré-enrôlement en attente, dans une seule transaction ; il rend
+	// l'identifiant de l'agent révoqué, ErrNoAgent s'il n'y en a pas.
+	RevokeAgent(ctx context.Context, machineID string, now time.Time) (string, error)
+}
+
+// Connection est ce que l'ouverture d'un flux note : l'adresse sur la
+// machine, la version et les droits sur l'agent.
+type Connection struct {
+	MachineID string
+	AgentID   string
+	Address   string
+	Version   string
+	// nil : l'agent n'a rien rapporté (un agent d'avant les droits), ce qui
+	// est en base reste.
+	Capabilities []Capability
+	At           time.Time
 }
 
 // Ce que le serveur sait de la machine où il tourne.
@@ -152,19 +170,14 @@ func (s *Service) changed(machineID string) {
 
 // EnsureLocal crée ou rafraîchit la machine openCloud elle-même au démarrage.
 func (s *Service) EnsureLocal(ctx context.Context, info LocalInfo) error {
-	now := s.now()
 	machine := Machine{
-		ID:           LocalID,
-		Name:         localMachineName,
-		Kind:         KindLocal,
-		Hostname:     info.Hostname,
-		Address:      info.Address,
-		OS:           info.OS,
-		Arch:         info.Arch,
-		AgentVersion: info.Version,
-		EnrolledAt:   now,
-		LastSeenAt:   now,
-		CreatedAt:    now,
+		ID:        LocalID,
+		Name:      localMachineName,
+		Hostname:  info.Hostname,
+		Address:   info.Address,
+		OS:        info.OS,
+		Arch:      info.Arch,
+		CreatedAt: s.now(),
 	}
 	if err := s.store.SaveLocalMachine(ctx, machine); err != nil {
 		return fmt.Errorf("save local machine: %w", err)
@@ -216,16 +229,23 @@ func (s *Service) Count(ctx context.Context) (total, online int, err error) {
 	return len(statuses), online, nil
 }
 
-// CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur.
-func (s *Service) CreateToken(ctx context.Context, name string) (string, Token, error) {
+// CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur,
+// avec les droits qu'il a cochés ; observe s'y ajoute toujours.
+func (s *Service) CreateToken(ctx context.Context, name string, capabilities []Capability) (string, Token, error) {
 	if err := ValidateName(name); err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, name, "")
+	normalized, err := NormalizeCapabilities(capabilities)
+	if err != nil {
+		return "", Token{}, err
+	}
+	return s.issueToken(ctx, name, "", normalized)
 }
 
-// CreateReenrollToken émet un jeton qui remplace la clé d'une machine
-// existante : elle garde son id et son historique.
+// CreateReenrollToken émet un jeton qui installe un nouvel agent sur une
+// machine existante : elle garde son id et son historique, l'agent d'avant
+// est révoqué à l'enrôlement. Le nouvel agent reçoit les droits que le jeton
+// du précédent demandait ; observe seul s'il n'en demandait aucun.
 func (s *Service) CreateReenrollToken(ctx context.Context, machineID string) (string, Token, error) {
 	machine, err := s.store.GetMachine(ctx, machineID)
 	if err != nil {
@@ -234,14 +254,19 @@ func (s *Service) CreateReenrollToken(ctx context.Context, machineID string) (st
 	if machine.IsLocal() {
 		return "", Token{}, ErrLocalMachine
 	}
-	return s.issueToken(ctx, machine.Name, machine.ID)
+	capabilities, err := NormalizeCapabilities(machine.Agent.Requested)
+	if err != nil {
+		return "", Token{}, err
+	}
+	return s.issueToken(ctx, machine.Name, machine.ID, capabilities)
 }
 
-func (s *Service) issueToken(ctx context.Context, name, machineID string) (string, Token, error) {
+func (s *Service) issueToken(ctx context.Context, name, machineID string, capabilities []Capability) (string, Token, error) {
 	cleartext, token, err := NewToken(name, machineID)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate token: %w", err)
 	}
+	token.Capabilities = capabilities
 	now := s.now()
 	token.CreatedAt = now
 	token.ExpiresAt = now.Add(TokenLifetime)
@@ -320,6 +345,11 @@ func (s *Service) CheckLost(ctx context.Context) error {
 		if status.Online || status.IsLocal() || status.LastSeenAt.After(limit) {
 			continue
 		}
+		// Sans agent actif, rien à perdre : la machine attend son agent, ou
+		// l'opérateur l'a révoqué.
+		if !status.Agent.IsActive() {
+			continue
+		}
 		s.alerter.MachineLost(ctx, status.Machine)
 	}
 	return nil
@@ -355,29 +385,55 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 		s.logger.Warn("enrollment refused: the agent runs on the "+brand.ProductName+" machine itself", "hostname", request.Hostname)
 		return Machine{}, ErrIsOpenCloud
 	}
+	agentID, err := NewAgentID()
+	if err != nil {
+		return Machine{}, fmt.Errorf("generate agent id: %w", err)
+	}
 	now := s.now()
 	candidate := Machine{
-		ID:           request.MachineID,
-		Kind:         KindRemote,
-		PublicKey:    request.PublicKey,
-		Hostname:     request.Hostname,
-		Address:      request.Address,
-		OS:           request.OS,
-		Arch:         request.Arch,
-		AgentVersion: request.AgentVersion,
-		EnrolledAt:   now,
-		CreatedAt:    now,
+		ID:        request.MachineID,
+		Hostname:  request.Hostname,
+		Address:   request.Address,
+		OS:        request.OS,
+		Arch:      request.Arch,
+		CreatedAt: now,
 	}
-	machine, err := s.store.Enroll(ctx, HashToken(request.Token), candidate, now)
+	agent := Agent{ID: agentID, PublicKey: request.PublicKey, Version: request.AgentVersion, EnrolledAt: now}
+	machine, err := s.store.Enroll(ctx, HashToken(request.Token), candidate, agent, now)
 	if err != nil {
 		return Machine{}, err
 	}
-	// Un ré-enrôlement remplace la clé : l'ancien flux ne vaut plus rien.
+	// Un ré-enrôlement révoque l'agent d'avant : son flux ne vaut plus rien.
 	s.sessions.Close(machine.ID)
-	s.logger.Info("machine enrolled", "machine_id", machine.ID, "name", machine.Name)
-	s.auditor.Record(ctx, machineEvent(audit.MachineEnroll, machine))
+	s.logger.Info("agent enrolled", "machine_id", machine.ID, "agent_id", machine.Agent.ID, "name", machine.Name)
+	s.auditor.Record(ctx, agentEvent(audit.AgentEnroll, machine))
 	s.changed(machine.ID)
 	return machine, nil
+}
+
+// Revoke révoque l'agent actif d'une machine : il est refusé à sa prochaine
+// preuve, son flux est coupé, les jetons de ré-enrôlement en attente sont
+// annulés. La machine, son historique et ses services restent ; ré-enrôler
+// installe un nouvel agent et lève la révocation.
+func (s *Service) Revoke(ctx context.Context, machineID string) error {
+	machine, err := s.store.GetMachine(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	if machine.IsLocal() {
+		return ErrLocalMachine
+	}
+	now := s.now()
+	revokedID, err := s.store.RevokeAgent(ctx, machineID, now)
+	if err != nil {
+		return err
+	}
+	s.sessions.Close(machineID)
+	machine.Agent.ID, machine.Agent.RevokedAt = revokedID, now
+	s.logger.Info("agent revoked", "machine_id", machineID, "agent_id", revokedID, "name", machine.Name)
+	s.auditor.Record(ctx, agentEvent(audit.AgentRevoke, machine))
+	s.changed(machineID)
+	return nil
 }
 
 // Challenge émet le défi qu'un agent devra signer pour ouvrir son flux.
@@ -386,7 +442,9 @@ func (s *Service) Challenge(ctx context.Context, machineID string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	if machine.IsLocal() {
+	// Un agent révoqué reçoit encore son défi : c'est sa preuve qui lui
+	// dira qu'il est révoqué.
+	if machine.IsLocal() || !machine.Agent.Exists() {
 		return nil, ErrNotFound
 	}
 	return s.challenges.issue(machineID, s.now()), nil
@@ -401,17 +459,19 @@ type Proof struct {
 }
 
 // Authenticate vérifie la preuve : défi signé par ce serveur pour cette
-// machine et pas expiré, horloge dans la tolérance, signature de la clé
-// enrôlée. Le défi n'est marqué utilisé qu'une fois la signature vérifiée :
+// machine et pas expiré, horloge dans la tolérance, signature de la clé de
+// son agent. Le défi n'est marqué utilisé qu'une fois la signature vérifiée :
 // quelqu'un qui n'a pas la clé ne peut pas brûler le défi d'un autre.
 // ErrBadNonce (défi absent, expiré, d'un autre serveur ou déjà utilisé) se
-// répare en redemandant un défi ; ErrBadSignature, non.
+// répare en redemandant un défi ; ErrBadSignature, non. Un agent révoqué
+// qui prouve sa clé apprend qu'il l'est (ErrAgentRevoked) ; sans sa clé, il
+// n'apprend rien de plus qu'un autre.
 func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error) {
 	machine, err := s.store.GetMachine(ctx, proof.MachineID)
 	if err != nil {
 		return Machine{}, err
 	}
-	if machine.IsLocal() {
+	if machine.IsLocal() || !machine.Agent.Exists() {
 		return Machine{}, ErrNotFound
 	}
 	now := s.now()
@@ -426,22 +486,39 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 	if err != nil {
 		return Machine{}, err
 	}
-	if !Verify(machine.PublicKey, payload, proof.Signature) {
+	if !Verify(machine.Agent.PublicKey, payload, proof.Signature) {
 		return Machine{}, ErrBadSignature
 	}
 	if !s.challenges.markUsed(proof.Nonce, now) {
 		return Machine{}, ErrBadNonce
 	}
+	if machine.Agent.IsRevoked() {
+		return Machine{}, ErrAgentRevoked
+	}
 	return machine, nil
 }
 
-// Connect ouvre la session d'une machine authentifiée et note sa venue.
-func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion string) (*Session, error) {
+// Connect ouvre la session d'une machine authentifiée et note sa venue :
+// l'adresse sur la machine, la version et les droits sur son agent. Des
+// droits illisibles ne sont pas gardés, le flux s'ouvre quand même.
+func (s *Service) Connect(ctx context.Context, authenticated Machine, address, agentVersion, capabilities string) (*Session, error) {
+	machineID := authenticated.ID
 	now := s.now()
-	if err := s.store.RecordConnection(ctx, machineID, address, agentVersion, now); err != nil {
+	connection := Connection{
+		MachineID: machineID, AgentID: authenticated.Agent.ID,
+		Address: address, Version: agentVersion, At: now,
+	}
+	if capabilities != "" {
+		reported, err := ParseCapabilities(capabilities)
+		if err != nil {
+			s.logger.Warn("agent capabilities unreadable", "machine_id", machineID, "error", err)
+		}
+		connection.Capabilities = reported
+	}
+	if err := s.store.RecordConnection(ctx, connection); err != nil {
 		return nil, fmt.Errorf("record connection: %w", err)
 	}
-	session, err := s.sessions.Open(machineID, now)
+	session, err := s.sessions.Open(machineID, authenticated.Agent.ID, now)
 	if err != nil {
 		return nil, fmt.Errorf("open session: %w", err)
 	}
@@ -513,7 +590,7 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) (string, erro
 	if !ok {
 		return "", ErrNotConnected
 	}
-	if err := s.store.TouchMachine(ctx, session.MachineID, s.now()); err != nil {
+	if err := s.store.TouchAgent(ctx, session.AgentID, s.now()); err != nil {
 		return "", err
 	}
 	return session.MachineID, nil

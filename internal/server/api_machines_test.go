@@ -27,7 +27,7 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 			t.Fatalf("token %q has characters that need escaping", token)
 		}
 		for _, code := range []lang.Code{lang.French, lang.English} {
-			command := installCommand("https://opencloud.example.org", token, code)
+			command := installCommand("https://opencloud.example.org", token, code, nil)
 			builtin, executed, piped := strings.Cut(command, " | ")
 			if !piped || builtin != "printf '%s\\n' '"+token+"'" {
 				t.Fatalf("the token must only follow printf: %q", command)
@@ -37,8 +37,28 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 			}
 		}
 	}
-	if command := installCommand("https://x", "oc_abc", lang.English); !strings.HasSuffix(command, " -lang en") {
+	if command := installCommand("https://x", "oc_abc", lang.English, nil); !strings.HasSuffix(command, " -lang en") {
 		t.Fatalf("language missing: %q", command)
+	}
+}
+
+// Les droits cochés passent dans la ligne, lisibles et sans guillemets ;
+// observe seul ne s'écrit pas, c'est le défaut de l'agent.
+func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
+	observeOnly := []machine.Capability{{Name: machine.CapabilityObserve}}
+	if command := installCommand("https://x", "oc_abc", lang.French, observeOnly); strings.Contains(command, "-rights") {
+		t.Fatalf("observe alone must not be written: %q", command)
+	}
+	checked, err := machine.NormalizeCapabilities([]machine.Capability{
+		{Name: machine.CapabilityFilesWrite, Paths: []string{"/srv/workspace", "/opt/site"}},
+		{Name: machine.CapabilityAgentUpdate},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := installCommand("https://x", "oc_abc", lang.French, checked)
+	if !strings.HasSuffix(command, " -rights observe,agent.update,files.write=/opt/site:/srv/workspace") {
+		t.Fatalf("rights missing or misplaced: %q", command)
 	}
 }
 
@@ -123,5 +143,61 @@ func TestAPI_Reenroll_IssuesATokenForTheSameMachine(t *testing.T) {
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nope/actions/reenroll", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("reenroll unknown: %d", got.Code)
+	}
+}
+
+// Les droits cochés passent du formulaire à la ligne d'installation ; un
+// droit inconnu ou un chemin faux se refuse avec sa clé.
+func TestAPI_CreateMachineToken_PutsTheCheckedRightsInTheCommand(t *testing.T) {
+	server := newTestServer(t)
+	request := tokenRequest{Name: "vps-paris-1", Capabilities: []capabilityJSON{
+		{Name: machine.CapabilityBackupReceive, Paths: []string{"/srv/backups"}}, {Name: machine.CapabilityDockerUpdate},
+	}}
+	recorder := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response tokenResponse
+	decodeAPI(t, recorder, &response)
+	if !strings.HasSuffix(response.Command, " -rights observe,docker.update,backup.receive=/srv/backups") {
+		t.Fatalf("command %q", response.Command)
+	}
+	for _, refused := range []struct {
+		capability capabilityJSON
+		key        string
+	}{
+		{capabilityJSON{Name: "shell.exec"}, "machine.capability_unknown"},
+		{capabilityJSON{Name: machine.CapabilityFilesWrite, Paths: []string{"relative"}}, "machine.capability_path"},
+		{capabilityJSON{Name: machine.CapabilityBackupReceive}, "machine.capability_scope"},
+	} {
+		got := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", tokenRequest{Name: "vps-lyon-2", Capabilities: []capabilityJSON{refused.capability}})
+		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != refused.key {
+			t.Errorf("%+v: %d %s", refused.capability, got.Code, got.Body.String())
+		}
+	}
+}
+
+// Révoquer garde la machine : 204, la fiche dit l'agent révoqué ; une
+// seconde fois, 409 machine.no_agent ; la machine openCloud ne se révoque
+// pas.
+func TestAPI_RevokeAgent_KeepsTheMachineAndSaysTheAgentIsRevoked(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/revoke", nil); got.Code != http.StatusNoContent {
+		t.Fatalf("revoke: %d %s", got.Code, got.Body.String())
+	}
+	var revoked machineJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines/"+remoteID, nil), &revoked)
+	if revoked.Agent == nil || revoked.Agent.RevokedAt == nil {
+		t.Fatalf("machine after revoke %+v", revoked)
+	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/revoke", nil); got.Code != http.StatusConflict || errorCode(t, got) != "machine.no_agent" {
+		t.Fatalf("revoke twice: %d %s", got.Code, got.Body.String())
+	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nobody/actions/revoke", nil); got.Code != http.StatusNotFound {
+		t.Fatalf("unknown machine: %d", got.Code)
+	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/revoke", nil); got.Code != http.StatusForbidden || errorCode(t, got) != "machine.local_kept" {
+		t.Fatalf("revoke local: %d %s", got.Code, got.Body.String())
 	}
 }

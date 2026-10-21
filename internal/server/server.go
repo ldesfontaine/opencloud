@@ -59,16 +59,17 @@ type MachineService interface {
 	List(ctx context.Context) ([]machine.Status, error)
 	Get(ctx context.Context, id string) (machine.Status, error)
 	Count(ctx context.Context) (total, online int, err error)
-	CreateToken(ctx context.Context, name string) (string, machine.Token, error)
+	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
 	CreateReenrollToken(ctx context.Context, machineID string) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
+	Revoke(ctx context.Context, id string) error
 	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
 	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
-	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
+	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
 	WarnIfOpenCloudHost(machine machine.Machine, fingerprint string)
 	Disconnect(session *machine.Session)

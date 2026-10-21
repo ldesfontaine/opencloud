@@ -232,9 +232,9 @@ var (
 	sessionID = regexp.MustCompile(`"(id|family_id)":"[0-9a-f]{16}"`)
 	// Les jours d'une sonde sont rangés sous son identifiant, en clé.
 	probeKey = regexp.MustCompile(`"[0-9a-f]{16}":\[`)
-	// Les identifiants de l'annuaire sont tirés à chaque création, préfixe
-	// en tête.
-	directoryID = regexp.MustCompile(`"(svc|unit|prj)_[0-9a-f]{16}"`)
+	// Les identifiants de l'annuaire et des agents sont tirés à chaque
+	// création, préfixe en tête.
+	directoryID = regexp.MustCompile(`"(svc|unit|prj|agt)_[0-9a-f]{16}"`)
 	// Le fichier de l'annuaire, rendu dans une chaîne JSON par l'outil MCP :
 	// ses identifiants y sont dans le texte, pas entre guillemets.
 	yamlInJSONDirectoryID = regexp.MustCompile(`\b(svc|prj)_[0-9a-f]{16}\b`)
@@ -276,7 +276,7 @@ func compareGolden(t *testing.T, golden, got string) {
 func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2"); err != nil {
+	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", nil); err != nil {
 		t.Fatal(err)
 	}
 	jobID := server.seedJobs(t)
