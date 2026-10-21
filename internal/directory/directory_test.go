@@ -135,8 +135,8 @@ func TestCreateService_WritesUnitsProvidesAndProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.DeclaredBy != directory.ByOperator || read.NeedsReview {
-		t.Fatalf("provenance %q, à vérifier %v", read.DeclaredBy, read.NeedsReview)
+	if read.DeclaredBy != directory.ByOperator {
+		t.Fatalf("provenance %q", read.DeclaredBy)
 	}
 	if read.MachineName != "vps-paris-1" || !read.CreatedAt.Equal(testNow) {
 		t.Fatalf("machine %q, créé %v", read.MachineName, read.CreatedAt)

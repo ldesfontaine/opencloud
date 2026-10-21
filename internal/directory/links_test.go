@@ -109,55 +109,6 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	}
 }
 
-// Valider un service repris de l'existant exige une définition qui passe la
-// validation ; modifier le service ne le valide pas ; valider deux fois ne
-// change rien.
-func TestReview_ClearsTheFlagOnlyForAValidDefinition(t *testing.T) {
-	b := newBench(t)
-	ctx := context.Background()
-	taken := directory.Service{
-		ID: "svc_0123456789abcdef", MachineID: remoteID, Name: "whoami", Nature: directory.NatureApplication,
-		Origin: directory.OriginContainer, DeclaredBy: directory.ByMigration, NeedsReview: true,
-		CreatedAt: testNow, UpdatedAt: testNow,
-		Units: []directory.Unit{{
-			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
-			// Une image que Docker montrait sous une forme que l'annuaire refuse.
-			Image: "NOT A VALID IMAGE", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
-		}},
-	}
-	if err := b.db.InsertDeclaredService(ctx, taken); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := b.directory.Review(ctx, taken.ID); !errors.Is(err, directory.ErrImageInvalid) {
-		t.Fatalf("attendu %v, obtenu %v", directory.ErrImageInvalid, err)
-	}
-	if still, _ := b.db.GetDeclaredService(ctx, taken.ID); !still.NeedsReview {
-		t.Fatal("un refus ne valide rien")
-	}
-
-	definition := containerDefinition(remoteID, "whoami", "whoami")
-	definition.Units[0].ID = "unit_0123456789abcdef"
-	if _, err := b.directory.UpdateService(ctx, taken.ID, definition); err != nil {
-		t.Fatal(err)
-	}
-	if edited, _ := b.db.GetDeclaredService(ctx, taken.ID); !edited.NeedsReview || edited.DeclaredBy != directory.ByMigration {
-		t.Fatalf("modifier ne valide pas, et la provenance reste: %+v", edited)
-	}
-
-	reviewed, err := b.directory.Review(ctx, taken.ID)
-	if err != nil || reviewed.NeedsReview {
-		t.Fatalf("Review = %+v, %v", reviewed, err)
-	}
-	again, err := b.directory.Review(ctx, taken.ID)
-	if err != nil || again.NeedsReview || !again.UpdatedAt.Equal(reviewed.UpdatedAt) {
-		t.Fatalf("valider deux fois ne change rien: %+v, %v", again, err)
-	}
-	if _, err := b.directory.Review(ctx, "svc_inconnu"); !errors.Is(err, directory.ErrNotFound) {
-		t.Fatalf("service inconnu: %v", err)
-	}
-}
-
 // La politique se règle sur l'unité, la machine qui porte le service est
 // prévenue, l'annuaire le dit à ceux qui regardent. Une politique inconnue,
 // une unité disparue ou un binaire qui voudrait autre chose que watch sont

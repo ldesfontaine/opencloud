@@ -19,7 +19,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
-	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -165,7 +164,6 @@ func runServe(args []string) error {
 	// suivant de chaque agent. Les exclusions se disent après : c'est
 	// l'unité rattachée qui porte la politique.
 	parts.containers.RematchAll(ctx)
-	logServicesToReview(ctx, db, logger)
 
 	// L'arrêt d'un apply suit celui du serveur : un apply en cours finit son
 	// changement puis se journalise « interrompu ».
@@ -339,26 +337,6 @@ func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *htt
 		return fmt.Errorf("shutdown: %w", mainErr)
 	}
 	return nil
-}
-
-// logServicesToReview dit au journal combien de services repris de l'existant
-// attendent la relecture de l'opérateur : la mise à jour qui relie l'annuaire
-// en crée, et rien d'autre ne le prévient.
-func logServicesToReview(ctx context.Context, db *store.DB, logger *slog.Logger) {
-	found, err := db.ListDeclaredServices(ctx, directory.Filter{})
-	if err != nil {
-		logger.Warn("list declared services to review", "error", err)
-		return
-	}
-	count := 0
-	for _, candidate := range found {
-		if candidate.NeedsReview {
-			count++
-		}
-	}
-	if count > 0 {
-		logger.Info("declared services to review", "count", count)
-	}
 }
 
 // offerLocalEnrollment émet, tant que la machine openCloud n'a jamais eu

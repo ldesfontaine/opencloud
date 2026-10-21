@@ -18,7 +18,7 @@ func withLabels(observed container.Observed, service, unit string) container.Obs
 }
 
 // directorySnapshot est tout ce que l'annuaire garde, tel que ses lectures le
-// rendent : services et unités (dates et « à vérifier » compris), projets,
+// rendent : services et unités (dates comprises), projets,
 // clés ignorées.
 type directorySnapshot struct {
 	Services []directory.Service

@@ -23,7 +23,6 @@ type declaredServiceJSON struct {
 	ComposeProject string     `json:"compose_project"`
 	PublicURL      string     `json:"public_url"`
 	DeclaredBy     string     `json:"declared_by"`
-	NeedsReview    bool       `json:"needs_review"`
 	Provides       []string   `json:"provides"`
 	Units          []unitJSON `json:"units"`
 	ProjectIDs     []string   `json:"project_ids"`
@@ -132,7 +131,6 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 		ComposeProject: found.ComposeProject,
 		PublicURL:      found.PublicURL,
 		DeclaredBy:     string(found.DeclaredBy),
-		NeedsReview:    found.NeedsReview,
 		Provides:       provides,
 		Units:          units,
 		ProjectIDs:     orEmpty(found.ProjectIDs),
@@ -261,17 +259,6 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 // encore est refusé, avec le plan : l'opérateur les détache d'abord.
 func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
-}
-
-// Valider dit que l'opérateur a relu un service repris de l'existant. Une
-// définition qui ne passe pas la validation ne se valide pas : le refus est
-// celui de la première règle violée.
-func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
-	reviewed, err := s.directory.Review(r.Context(), r.PathValue("id"))
-	if s.failed(w, r, err, directory.ErrNotFound) {
-		return
-	}
-	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(reviewed))
 }
 
 // La politique de mise à jour se règle sur l'unité : ses conteneurs, ceux

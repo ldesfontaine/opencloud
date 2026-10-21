@@ -59,7 +59,6 @@ services:
         image: redis
         version: "7.4"
         updates: watch
-  # À vérifier : repris de l'existant.
   - id: svc_00000000000000b4
     machine: opencloud
     name: legacy

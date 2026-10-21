@@ -12,7 +12,7 @@ import (
 )
 
 const declaredServiceColumns = `s.id, s.machine_id, m.name, s.name, s.title, s.nature, s.origin,
-	s.compose_project, s.public_url, s.declared_by, s.needs_review, s.created_at, s.updated_at`
+	s.compose_project, s.public_url, s.declared_by, s.created_at, s.updated_at`
 
 const declaredServiceFrom = ` FROM declared_services s JOIN machines m ON m.id = s.machine_id`
 
@@ -26,10 +26,10 @@ func (db *DB) InsertDeclaredService(ctx context.Context, service directory.Servi
 		}
 		_, err := tx.ExecContext(ctx, `
 		INSERT INTO declared_services (id, machine_id, name, title, nature, origin, compose_project,
-			public_url, declared_by, needs_review, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			public_url, declared_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			service.ID, service.MachineID, service.Name, service.Title, string(service.Nature), string(service.Origin),
-			service.ComposeProject, service.PublicURL, string(service.DeclaredBy), boolToInt(service.NeedsReview),
+			service.ComposeProject, service.PublicURL, string(service.DeclaredBy),
 			service.CreatedAt.Unix(), service.UpdatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert declared service: %w", err)
@@ -51,8 +51,8 @@ func (db *DB) InsertDeclaredService(ctx context.Context, service directory.Servi
 
 // UpdateDeclaredService réécrit la définition. Les unités dont l'identifiant
 // est gardé sont modifiées sur place, les autres supprimées ou créées ; les
-// fournitures et les liens sont remplacés, pas rapprochés. La provenance et
-// « à vérifier » ne se réécrivent pas ici.
+// fournitures et les liens sont remplacés, pas rapprochés. La provenance ne
+// se réécrit pas ici.
 func (db *DB) UpdateDeclaredService(ctx context.Context, service directory.Service) error {
 	return db.inTx(ctx, "update declared service", func(tx *sql.Tx) error {
 		var found int
@@ -165,10 +165,9 @@ func (db *DB) ListDeclaredServices(ctx context.Context, filter directory.Filter)
 func scanDeclaredService(row scanner) (directory.Service, error) {
 	var service directory.Service
 	var nature, origin, declaredBy string
-	var needsReview int
 	var createdAt, updatedAt int64
 	err := row.Scan(&service.ID, &service.MachineID, &service.MachineName, &service.Name, &service.Title,
-		&nature, &origin, &service.ComposeProject, &service.PublicURL, &declaredBy, &needsReview,
+		&nature, &origin, &service.ComposeProject, &service.PublicURL, &declaredBy,
 		&createdAt, &updatedAt)
 	if err != nil {
 		return directory.Service{}, err
@@ -176,7 +175,6 @@ func scanDeclaredService(row scanner) (directory.Service, error) {
 	service.Nature = directory.Nature(nature)
 	service.Origin = directory.Origin(origin)
 	service.DeclaredBy = directory.DeclaredBy(declaredBy)
-	service.NeedsReview = needsReview != 0
 	service.CreatedAt = time.Unix(createdAt, 0)
 	service.UpdatedAt = time.Unix(updatedAt, 0)
 	service.Provides = []directory.Capability{}
@@ -314,15 +312,4 @@ func (db *DB) DeleteDeclaredService(ctx context.Context, id string) error {
 		}
 		return nil
 	})
-}
-
-// MarkServiceReviewed baisse « à vérifier » : l'opérateur a relu ce que la
-// reprise de l'existant avait créé.
-func (db *DB) MarkServiceReviewed(ctx context.Context, id string, at time.Time) error {
-	result, err := db.sql.ExecContext(ctx,
-		`UPDATE declared_services SET needs_review = 0, updated_at = ? WHERE id = ?`, at.Unix(), id)
-	if err != nil {
-		return fmt.Errorf("mark declared service reviewed: %w", err)
-	}
-	return notFoundIfNoRow(result, directory.ErrNotFound)
 }

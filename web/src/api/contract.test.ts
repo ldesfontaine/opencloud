@@ -456,7 +456,6 @@ const declaredServiceFields = {
   compose_project: value,
   public_url: value,
   declared_by: value,
-  needs_review: value,
   provides: value,
   units: serviceUnit,
   project_ids: value,

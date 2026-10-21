@@ -846,8 +846,8 @@ le rapprochement des deux est dit dans la section suivante.
   hexadécimaux), jamais tiré de Docker : recréer un conteneur ne le change pas.
   Il porte un nom, un titre facultatif, une machine, une nature
   (`application` ou `infra`), une origine (`compose`, `container` ou `binary`),
-  une adresse publique facultative, `declared_by` (`operator` ; `migration` désignait un service repris de
-  l'existant par l'ancienne migration 024) et `needs_review`.
+  une adresse publique facultative et `declared_by` (`operator`, seule valeur :
+  la découverte automatique en ajoutera une).
 - **Le nom est unique par machine**, et le projet Compose l'est aussi
   (un service par machine et par projet Compose), de même que le nom d'un
   conteneur et celui d'une unité systemd. Un même nom peut vivre sur deux
@@ -905,9 +905,8 @@ le rapprochement des deux est dit dans la section suivante.
 l'annuaire les sondes, composants et politiques qui visaient un conteneur, et
 créait pour eux des services « à vérifier ») a disparu avec le schéma unique :
 une base neuve n'a rien à reprendre. `needs_review`, `declared_by = migration`,
-la ligne `declared services to review` au journal et l'action **Valider**
-(`POST /api/directory/services/{id}/actions/review`) restent dans le code, sans
-plus rien qui les produise.
+la ligne `declared services to review` et l'action **Valider** ont été retirés
+le 21 octobre 2026 (migration `003`).
 
 Ce que devient chaque lien quand un conteneur est recréé (nouvel identifiant
 Docker, même service) :
@@ -1089,8 +1088,8 @@ L'annuaire déclaré sort en un fichier YAML, `opencloud.yaml`, que l'opérateur
 relit, garde dans Git et rejoue avec `opencloud apply`. Le format est un
 contrat : ce qui l'écrit et ce qui le lit sont le même paquet,
 `internal/manifest`, et un test exige qu'un export relu puis réécrit redonne
-les mêmes octets, **commentaires exceptés** : celui d'un service « à vérifier »
-est régénéré par l'export, la lecture ne le lit pas.
+les mêmes octets, **commentaires exceptés** : ceux de l'export (en-tête,
+propositions) sont régénérés, la lecture ne les lit pas.
 
 - **Deux chemins, un seul code.** Le bouton « Exporter » de l'onglet Annuaire
   télécharge `GET /api/manifest/export` (même garde que le reste de l'API) ;
@@ -1152,9 +1151,7 @@ est régénéré par l'export, la lecture ne le lit pas.
 - **Jamais un secret, jamais un état.** Le jeton d'une tâche s'écrit
   `token: {secret: kept}` : à la lecture, le serveur garde le sien. Ni le jeton,
   ni son empreinte, ni l'URL de ping ne sortent. L'état (pause, essais,
-  conteneurs rattachés, historique) n'est pas dans le fichier. Un service
-  « à vérifier » (`needs_review`) est annoncé par un commentaire que la lecture
-  ignore.
+  conteneurs rattachés, historique) n'est pas dans le fichier.
 - **Les identifiants** (`svc_…`, `prj_…`, et les 16 caractères des sondes et des
   tâches) sont toujours écrits : ils rattachent l'entrée à son objet quand on la
   renomme. Les unités n'en ont pas dans le fichier, elles se reconnaissent à
@@ -3119,3 +3116,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Ordres signés (#146, 1/3) | La migration `002_actions.sql` (`action_runs`, `run_logs`, `agents.server_key_fingerprint` et `last_order_seq`), le paquet `internal/action` (clé `server.key` et sa signature, `Service.Ping`, `Record`, la boucle d'expiration et de purge), le protocole entier dans `internal/agentwire` (`Kind` et `Command` typés à la place de `machine.Command{Name, Payload any}` et des quatre noms de `container`, `probe`, `update` ; `OrderBody`, `SignedOrder`, `KeyFingerprint`, la section `actions` du signal, l'en-tête `OpenCloud-Server-Key`, `agent_id` et `server_key` à l'enrôlement), les commandeurs typés par domaine (`RequestLogs`, `AssignProbes`, `AssignImages`) servis par `server/commands.go`, le juge d'ordres de l'agent (`internal/agent/orders.go`) et `identity.json` (`agent_id`, `server_key`, `last_order_seq`), `fsx.ReadPrivate`, les routes `POST /api/machines/{id}/actions/ping`, `GET /api/actions`, `GET /api/agents/server-key`, l'outil MCP `list_actions` (vingt et une lectures), l'audit `action.order`, le sujet du direct `actions`, la carte « Ordres » de la fiche, les goldens `actions.golden.json` et `mcp_list_actions.golden.json` |
 | Droits appliqués (#146, 2/3) | `action.RightOf` (le droit de chaque genre ; `observe` pour l'observation et `agent.ping`), `machine.HasCapability`, le refus de l'agent `right_missing:<droit>` (`internal/agent/orders.go`, sans prendre le rang) et `not_implemented`, l'ordre déclaré `agent.update`, `action.Service.Send` et son refus `409 action.right_missing` quand l'agent a rapporté ses droits sans celui-là, l'audit `action.refused` sous l'agent, `CreateReenrollToken` qui reçoit les droits (corps `{capabilities}` de `POST /api/machines/{id}/actions/reenroll`), la page « Changer les droits » (`/machines/{id}/droits`, `RightsFields` partagé avec l'ajout d'une machine) |
 | Protocole v2, agent durci, rotation des clés (#146, 3/3) | La preuve de l'agent sans défi (`machine.SignedPayload` : étiquette `opencloud-agent-proof/v2`, aléa tiré par l'agent, identifiant préfixé de sa longueur, heure ; `machine.NewNonce`, l'ensemble des aléas vus dix minutes, `ErrReplayed`, `401 replayed`), `/agent/challenge` et `machine.Service.Challenge` retirés, l'en-tête `OpenCloud-Agent-Protocol: 2` et le refus `426 protocol_unsupported` (une route `/agent/` attrape le reste), le seau par source partagé par l'enrôlement et l'ouverture du flux (`agentapi/source_limits.go`), l'événement découpé en lignes `data:` de 32 Kio et borné à 1 Mio (`agentwire.EventDataLine`, `MaxEventLineBytes`, `MaxEventBytes`), l'agent qui ne suit pas les redirections et lit le flux borné (`readEvent`, `ErrEventTooLarge`), le plancher de l'intervalle des sondes côté agent, `secret.key` à plusieurs lignes (`seal.Keyring`, `WithNewKey`, `Current`, `Retired`), `store.ResealSecrets`, `server.key` à deux lignes (`action.Key.Rotated`, `Finished`, `SaveKey`, la signature par la clé épinglée), l'ordre `agent.server_key` et `action.Service.Rekey`, `previous_fingerprint` de `GET /api/agents/server-key`, les commandes `opencloud secrets rotate`, `rotate-server-key` et `finish-server-key`, les audits `secrets.rotate`, `secrets.rotate_server_key` et `secrets.finish_server_key` |
+| Annuaire, retrait de « à vérifier » | La migration `003_needs_review.sql` (`declared_services.needs_review` supprimée, `declared_by = 'migration'` réécrit en `operator`), `directory.Review`, `MarkServiceReviewed`, la route `POST /api/directory/services/{id}/actions/review`, l'action d'audit `service.review`, `manifest.Annotations.NeedsReview` (le commentaire « à vérifier » de l'export), `logServicesToReview`, la bannière et la pastille « À vérifier » de la fiche et du tableau ; `declared_by` reste, avec la seule valeur `operator` |

@@ -5,7 +5,6 @@ import { useAlerts } from "../api/alerts";
 import {
   deleteDeclaredService,
   fetchDeclaredServiceDeletePlan,
-  reviewDeclaredService,
   useDeclaredService,
   useGaps,
   useProjects,
@@ -16,16 +15,14 @@ import {
   type ServiceLinks,
 } from "../api/directory";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { NaturePill } from "../components/DeclaredServiceTable";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
-import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
-import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
 import { formatClock } from "../lib/time";
@@ -35,7 +32,7 @@ import { AlertRow } from "./alerts/AlertRow";
 // ses projets, ce qui le lie (sondes et composants de statut), ses alertes
 // ouvertes (celles de ses conteneurs et de ses sondes), et l'écart
 // avec ce que sa machine montre : un état par unité et les conteneurs
-// rattachés. Un service repris de l'existant se valide ici.
+// rattachés.
 export function DeclaredServicePage() {
   const { id = "" } = useParams();
   const service = useDeclaredService(id);
@@ -57,12 +54,10 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
   return (
     <>
       <PageHead title={service.name} subtitle={service.title} actions={<Actions service={service} />} />
-      {service.needs_review && <ReviewBanner service={service} />}
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">
             <NaturePill nature={service.nature} />
-            {service.needs_review && <Pill tone="warn">{t("directory.needs_review")}</Pill>}
             {gap && <GapPill state={gap.state} weak={gap.weak} />}
             <span className="meta">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
@@ -224,39 +219,6 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
       ) : (
         <Empty text={t("gap.containers_none")} />
       )}
-    </Card>
-  );
-}
-
-// Le service repris de l'existant à la mise à jour : l'opérateur le relit,
-// puis le valide. Un service que l'opérateur avait déclaré et auquel la mise à
-// jour a ajouté une unité garde sa provenance « à la main » : le bandeau le dit
-// autrement plutôt que d'afficher deux provenances. Le serveur refuse une définition qui ne tient plus, et
-// dit pourquoi par sa clé.
-function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
-  const t = useT();
-  const action = useAction();
-  const review = () => {
-    action.run(() => reviewDeclaredService(service.id), { topic: "directory" });
-  };
-  return (
-    <Card>
-      <CardBody gap={10}>
-        {service.declared_by === "migration" ? (
-          <Note tone="warn">
-            {t("directory.review_banner")} <span className="secondary">{t("directory.declared_by_migration")}</span>
-          </Note>
-        ) : (
-          <Note tone="warn">{t("directory.review_banner_completed")}</Note>
-        )}
-        <Failure error={action.error} />
-        <span className="cluster">
-          <Button variant="primary" icon="check" onClick={review} disabled={action.busy}>
-            {t("directory.review")}
-          </Button>
-          <Button to={`/services/annuaire/${service.id}/modifier`}>{t("directory.edit")}</Button>
-        </span>
-      </CardBody>
     </Card>
   );
 }

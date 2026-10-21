@@ -87,7 +87,6 @@ const (
 	ServiceCreate Action = "service.create"
 	ServiceUpdate Action = "service.update"
 	ServiceDelete Action = "service.delete"
-	ServiceReview Action = "service.review"
 
 	UnitUpdatePolicy Action = "unit.update_policy"
 
@@ -166,7 +165,7 @@ func Actions() []Action {
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,
-		ServiceCreate, ServiceUpdate, ServiceDelete, ServiceReview,
+		ServiceCreate, ServiceUpdate, ServiceDelete,
 		UnitUpdatePolicy,
 		IgnoredKeyCreate, IgnoredKeyDelete,
 		ProbeCreate, ProbeUpdate, ProbeDelete, ProbePause, ProbeResume,

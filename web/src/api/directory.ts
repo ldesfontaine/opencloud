@@ -11,7 +11,7 @@ import type { DeletionPlan } from "./deletion";
 export type Nature = "application" | "infra";
 export type Origin = "compose" | "container" | "binary";
 export type Capability = "sso" | "proxy" | "tls" | "backup-target";
-type DeclaredBy = "operator" | "migration";
+type DeclaredBy = "operator";
 
 // Ce que l'opérateur veut des mises à jour d'une unité : les suivre (watch),
 // les taire (hold : vérifiées, jamais montrées), ne jamais interroger le
@@ -57,7 +57,6 @@ export interface DeclaredService {
   compose_project: string;
   public_url: string;
   declared_by: DeclaredBy;
-  needs_review: boolean;
   provides: Capability[];
   units: ServiceUnit[];
   project_ids: string[];
@@ -303,11 +302,6 @@ export async function deleteDeclaredService(id: string): Promise<void> {
 
 export async function fetchDeclaredServiceDeletePlan(id: string): Promise<DeletionPlan> {
   return api.get<DeletionPlan>(`${servicePath(id)}/delete-plan`);
-}
-
-// Valide un service repris de l'existant.
-export async function reviewDeclaredService(id: string): Promise<void> {
-  return api.post(`${servicePath(id)}/actions/review`);
 }
 
 // Sans id, une création ; avec, le remplacement de ce projet.

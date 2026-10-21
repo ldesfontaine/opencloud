@@ -260,9 +260,9 @@ heartbeats:
 	}
 }
 
-// Une édition sur place ne perd ni la pause d'une sonde, ni la revue d'un
-// service, ni l'historique.
-func TestApply_UpdateKeepsPauseReviewAndHistory(t *testing.T) {
+// Une édition sur place ne perd ni la pause d'une sonde, ni la provenance
+// d'un service, ni l'historique.
+func TestApply_UpdateKeepsPauseProvenanceAndHistory(t *testing.T) {
 	b, data := seeded(t)
 	data = replaceOnce(t, data, "    interval: 90s\n", "    interval: 2m\n")
 	data = replaceOnce(t, data, "    name: legacy\n", "    name: legacy\n    title: Ancien\n")
@@ -272,7 +272,7 @@ func TestApply_UpdateKeepsPauseReviewAndHistory(t *testing.T) {
 		t.Errorf("pause lost or interval not written: %+v", p)
 	}
 	s := b.serviceByID(t, "svc_00000000000000b4")
-	if !s.NeedsReview || s.DeclaredBy != directory.ByMigration || s.Title != "Ancien" {
+	if s.DeclaredBy != directory.ByOperator || s.Title != "Ancien" {
 		t.Errorf("state lost: %+v", s)
 	}
 	kept, err := b.db.ProbeDeletionPlan(context.Background(), "00000000000000c2")

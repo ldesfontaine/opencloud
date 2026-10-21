@@ -313,7 +313,7 @@ ignored:
 
 func prunable(t *testing.T, data string) string {
 	t.Helper()
-	data = cut(t, data, "  # À vérifier : repris de l'existant.\n  - id: svc_00000000000000b4", "probes:\n")
+	data = cut(t, data, "  - id: svc_00000000000000b4\n", "probes:\n")
 	data = cut(t, data, "  - id: 00000000000000c2\n", "  - id: 00000000000000c3\n")
 	data = cut(t, data, "  - id: 00000000000000d2\n", "  - id: 00000000000000d1\n")
 	return replaceOnce(t, data, "  - machine: opencloud\n    container_name: portainer\n", "")
@@ -385,7 +385,7 @@ func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  # À vérifier")
+	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  - id: svc_00000000000000b4\n")
 	data = cut(t, data, "  - id: 00000000000000c1\n", "heartbeats:\n")
 	// Sans --prune, le service reste et rien ne bloque.
 	if plan := b.plan(t, data, false); !plan.Applicable() {
@@ -738,7 +738,7 @@ func TestOrder_AKeyHeldByAPrunedObjectCannotBeTakenInTheSamePass(t *testing.T) {
 	b, data := seeded(t)
 	// « wiki » sort du fichier (donc de l'annuaire avec --prune) et un autre
 	// service reprend son projet Compose.
-	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  # À vérifier")
+	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  - id: svc_00000000000000b4\n")
 	data = cut(t, data, "  - id: 00000000000000c1\n", "heartbeats:\n")
 	data = replaceOnce(t, data, "probes:\n", `  - machine: app-1
     name: wiki2

@@ -143,7 +143,7 @@ func (b *bench) seed(t *testing.T, reversed bool) {
 		},
 		{
 			ID: "svc_00000000000000b4", MachineID: b.localID, Name: "legacy", Nature: directory.NatureApplication,
-			Origin: directory.OriginContainer, DeclaredBy: directory.ByMigration, NeedsReview: true,
+			Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator,
 			CreatedAt: testNow, UpdatedAt: testNow, Units: []directory.Unit{legacyUnit},
 		},
 	}

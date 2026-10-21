@@ -185,7 +185,7 @@ func TestManifest_ProblemKeysExistInEveryCatalogWithTheirArguments(t *testing.T)
 			}
 		}
 	}
-	for _, key := range []string{"manifest.export", "manifest.export_header", "manifest.export_needs_review"} {
+	for _, key := range []string{"manifest.export", "manifest.export_header"} {
 		for _, code := range lang.Codes() {
 			if strings.HasPrefix(server.catalogs.For(code).Get(key), "[") {
 				t.Errorf("la clé %q manque dans %s", key, code)
