@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { useAlerts } from "../api/alerts";
 import {
   deleteDeclaredService,
   fetchDeclaredServiceDeletePlan,
@@ -23,14 +24,16 @@ import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
-import { Table } from "../components/Table";
+import { List, Table } from "../components/Table";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
 import { formatClock } from "../lib/time";
+import { AlertRow } from "./alerts/AlertRow";
 
 // La fiche d'un service déclaré : ses faits, ses unités, ce qu'il fournit,
-// ses projets, ce qui le lie (sondes et composants de statut), et l'écart
+// ses projets, ce qui le lie (sondes et composants de statut), ses alertes
+// ouvertes (celles de ses conteneurs et de ses sondes), et l'écart
 // avec ce que sa machine montre : un état par unité et les conteneurs
 // rattachés. Un service repris de l'existant se valide ici.
 export function DeclaredServicePage() {
@@ -132,6 +135,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
         </Card>
       </div>
       <LinksCard links={service.links} />
+      <AlertsCard serviceID={service.id} />
       <Card className="scroll-x">
         <CardHeader title={t("directory.units_title")} aside={t("directory.units_text")} />
         {service.units.length > 0 ? (
@@ -259,6 +263,35 @@ function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
 
 // Ce qui vise ce service : tant qu'une sonde ou un composant de statut le
 // vise, il ne se supprime pas.
+// Les alertes ouvertes qui portent ce service ; le silence se pose d'ici
+// sur le service entier.
+function AlertsCard({ serviceID }: { serviceID: string }) {
+  const t = useT();
+  const alerts = useAlerts();
+  const mine = (alerts.data?.alerts ?? []).filter((alert) => alert.service_id === serviceID);
+  const mute = (
+    <Button small variant="ghost" icon="pause" to={`/alertes/silences/nouveau?target_kind=service&target_id=${encodeURIComponent(serviceID)}`}>
+      {t("alerts.silence")}
+    </Button>
+  );
+  return (
+    <Card>
+      <CardHeader title={t("directory.alerts_title")} aside={mute} />
+      {mine.length === 0 ? (
+        <CardBody>
+          <span className="secondary">{t("directory.alerts_none")}</span>
+        </CardBody>
+      ) : (
+        <List>
+          {mine.map((alert) => (
+            <AlertRow key={alert.id} alert={alert} compact />
+          ))}
+        </List>
+      )}
+    </Card>
+  );
+}
+
 function LinksCard({ links }: { links: ServiceLinks }) {
   const t = useT();
   return (

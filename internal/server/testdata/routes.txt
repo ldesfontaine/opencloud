@@ -84,9 +84,9 @@ GET /api/alerts/channels/{id}
 PUT /api/alerts/channels/{id}
 DELETE /api/alerts/channels/{id}
 POST /api/alerts/channels/{id}/actions/test
-GET /api/alerts/silences
-POST /api/alerts/silences
-DELETE /api/alerts/silences/{id}
+GET /api/alerts/mutes
+POST /api/alerts/mutes
+DELETE /api/alerts/mutes/{id}
 POST /api/alerts/actions/acknowledge
 GET /api/alerts/{id}
 POST /api/alerts/{id}/actions/acknowledge

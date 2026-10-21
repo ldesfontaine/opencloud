@@ -18,10 +18,11 @@ type alertJSON struct {
 	Kind           string      `json:"kind"`
 	Severity       string      `json:"severity"`
 	Status         string      `json:"status"`
-	Silenced       bool        `json:"silenced"`
+	Muted          bool        `json:"muted"`
 	Object         objectJSON  `json:"object"`
 	MachineID      string      `json:"machine_id"`
 	MachineName    string      `json:"machine_name"`
+	ServiceID      string      `json:"service_id"`
 	Details        detailsJSON `json:"details"`
 	OpenedAt       time.Time   `json:"opened_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
@@ -71,6 +72,8 @@ type deliveryJSON struct {
 	Reason    string    `json:"reason"`
 	Code      int       `json:"code"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// L'essai suivant d'une livraison en échec ; null : plus d'essai.
+	NextAttemptAt *time.Time `json:"next_attempt_at"`
 }
 
 type channelJSON struct {
@@ -112,35 +115,42 @@ type channelTestResponse struct {
 	Code   int    `json:"code"`
 }
 
-type silenceJSON struct {
-	ID        int64      `json:"id"`
-	Kind      string     `json:"kind"`
-	Object    objectJSON `json:"object"`
-	Reason    string     `json:"reason"`
-	StartsAt  time.Time  `json:"starts_at"`
-	EndsAt    time.Time  `json:"ends_at"`
-	Active    bool       `json:"active"`
-	CreatedAt time.Time  `json:"created_at"`
+// Une fenêtre pour taire ; l'interface dit « silence ». La cible vide tait
+// tout.
+type muteJSON struct {
+	ID       int64      `json:"id"`
+	Kind     string     `json:"kind"`
+	Target   objectJSON `json:"target"`
+	Reason   string     `json:"reason"`
+	StartsAt time.Time  `json:"starts_at"`
+	EndsAt   time.Time  `json:"ends_at"`
+	Active   bool       `json:"active"`
+	// Qui l'a posée, comme le journal d'audit le dit ; vide pour une
+	// fenêtre recopiée d'un silence ou d'une maintenance.
+	CreatedByKind string    `json:"created_by_kind"`
+	CreatedByName string    `json:"created_by_name"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
-type silencesResponse struct {
-	Silences []silenceJSON `json:"silences"`
+type mutesResponse struct {
+	Mutes []muteJSON `json:"mutes"`
 }
 
-type silenceRequest struct {
-	Kind            string `json:"kind"`
-	ObjectKind      string `json:"object_kind"`
-	ObjectID        string `json:"object_id"`
-	ObjectName      string `json:"object_name"`
-	Reason          string `json:"reason"`
-	DurationMinutes int    `json:"duration_minutes"`
+// starts_at absent ou passé : tout de suite.
+type muteRequest struct {
+	Kind            string     `json:"kind"`
+	TargetKind      string     `json:"target_kind"`
+	TargetID        string     `json:"target_id"`
+	Reason          string     `json:"reason"`
+	StartsAt        *time.Time `json:"starts_at"`
+	DurationMinutes int        `json:"duration_minutes"`
 }
 
 func alertToJSON(found alert.Alert) alertJSON {
 	return alertJSON{
-		ID: found.ID, Kind: string(found.Kind), Severity: string(found.Severity), Status: string(found.Status), Silenced: found.Silenced,
+		ID: found.ID, Kind: string(found.Kind), Severity: string(found.Severity), Status: string(found.Status), Muted: found.Muted,
 		Object:    objectJSON{Kind: string(found.Object.Kind), ID: found.Object.ID, Name: found.Object.Name},
-		MachineID: found.MachineID, MachineName: found.MachineName,
+		MachineID: found.MachineID, MachineName: found.MachineName, ServiceID: found.ServiceID,
 		Details: detailsJSON{
 			Count: found.Details.Count, Percent: found.Details.Percent, MountPoint: found.Details.MountPoint, Threshold: found.Details.Threshold,
 			ExitCode: found.Details.ExitCode, Reason: found.Details.Reason, Target: probe.RedactTarget(found.Details.Target),
@@ -159,12 +169,12 @@ func channelToJSON(channel alert.Channel) channelJSON {
 	}
 }
 
-func silenceToJSON(silence alert.Silence, now time.Time) silenceJSON {
-	return silenceJSON{
-		ID: silence.ID, Kind: string(silence.Kind),
-		Object: objectJSON{Kind: string(silence.Object.Kind), ID: silence.Object.ID, Name: silence.Object.Name},
-		Reason: silence.Reason, StartsAt: silence.StartsAt.UTC(), EndsAt: silence.EndsAt.UTC(),
-		Active: silence.IsActive(now), CreatedAt: silence.CreatedAt.UTC(),
+func muteToJSON(mute alert.Mute, now time.Time) muteJSON {
+	return muteJSON{
+		ID: mute.ID, Kind: string(mute.Kind),
+		Target: objectJSON{Kind: string(mute.Target.Kind), ID: mute.Target.ID, Name: mute.Target.Name},
+		Reason: mute.Reason, StartsAt: mute.StartsAt.UTC(), EndsAt: mute.EndsAt.UTC(),
+		Active: mute.IsActive(now), CreatedByKind: string(mute.CreatedBy.Kind), CreatedByName: mute.CreatedBy.Name, CreatedAt: mute.CreatedAt.UTC(),
 	}
 }
 
@@ -198,7 +208,7 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 		s.apiNotFound(w)
 		return
 	}
-	found, err := s.reader.GetAlert(r.Context(), id)
+	found, err := s.alerts.Get(r.Context(), id)
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
@@ -217,6 +227,7 @@ func alertResponseOf(found alert.Alert, deliveries []alert.Delivery) alertRespon
 		response.Deliveries = append(response.Deliveries, deliveryJSON{
 			ID: delivery.ID, ChannelID: delivery.ChannelID, Event: string(delivery.Event), Status: string(delivery.Status),
 			Attempts: delivery.Attempts, Reason: string(delivery.Reason), Code: delivery.Code, UpdatedAt: delivery.UpdatedAt.UTC(),
+			NextAttemptAt: httpx.TimeOrNil(delivery.NextAttemptAt),
 		})
 	}
 	return response
@@ -345,40 +356,41 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, channelTestResponse{OK: outcome.OK(), Reason: string(outcome.Reason), Code: outcome.Code})
 }
 
-// --- Silences ---
+// --- Fenêtres pour taire ---
 
-func (s *Server) listSilences(w http.ResponseWriter, r *http.Request) {
-	silences, err := s.reader.ListSilences(r.Context())
+func (s *Server) listMutes(w http.ResponseWriter, r *http.Request) {
+	mutes, err := s.reader.ListMutes(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
 	now := s.now()
-	response := silencesResponse{Silences: httpx.ConvertAll(silences, func(silence alert.Silence) silenceJSON { return silenceToJSON(silence, now) })}
+	response := mutesResponse{Mutes: httpx.ConvertAll(mutes, func(mute alert.Mute) muteJSON { return muteToJSON(mute, now) })}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
-	var request silenceRequest
+func (s *Server) createMute(w http.ResponseWriter, r *http.Request) {
+	var request muteRequest
 	if !s.readAPI(w, r, &request) {
 		return
 	}
-	silence, err := s.alerts.CreateSilence(r.Context(), alert.SilenceDefinition{
+	mute, err := s.alerts.CreateMute(r.Context(), alert.MuteDefinition{
 		Kind:     alert.Kind(request.Kind),
-		Object:   alert.Object{Kind: alert.ObjectKind(request.ObjectKind), ID: request.ObjectID, Name: request.ObjectName},
+		Target:   alert.Target{Kind: alert.TargetKind(request.TargetKind), ID: request.TargetID},
 		Reason:   request.Reason,
+		StartsAt: timeOrZero(request.StartsAt),
 		Duration: time.Duration(request.DurationMinutes) * time.Minute,
 	})
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return
 	}
-	s.writeAPI(w, http.StatusCreated, silenceToJSON(silence, s.now()))
+	s.writeAPI(w, http.StatusCreated, muteToJSON(mute, s.now()))
 }
 
-func (s *Server) deleteSilence(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteMute(w http.ResponseWriter, r *http.Request) {
 	id, ok := alertID(r)
 	if !ok {
 		s.apiNotFound(w)
 		return
 	}
-	s.finishAPIAction(w, r, s.alerts.DeleteSilence(r.Context(), id), alert.ErrNotFound)
+	s.finishAPIAction(w, r, s.alerts.DeleteMute(r.Context(), id), alert.ErrNotFound)
 }

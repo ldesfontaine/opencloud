@@ -232,7 +232,7 @@ func TestAlertLink_NeedsAPublicURLAndARealAlert(t *testing.T) {
 	}
 }
 
-func TestNotifier_RetriesThreeTimesThenFails(t *testing.T) {
+func TestNotifier_RetriesThreeTimesThenLeavesTheNextToTheSweep(t *testing.T) {
 	f := newFixture(t)
 	f.notifier(t, lang.English)
 	target := newReceiver(http.StatusInternalServerError)
@@ -240,10 +240,13 @@ func TestNotifier_RetriesThreeTimesThenFails(t *testing.T) {
 	f.webhook(t, target.URL, alert.FormatText, "")
 	f.Open(context.Background(), volumeFact(alert.SeverityDanger, 97))
 	delivery := f.waitDelivery(t, f.only(t, alert.StatusOpen).ID)
-	if delivery.Status != alert.DeliveryFailed || delivery.Attempts != alert.MaxAttempts || delivery.Reason != alert.ReasonStatus || delivery.Code != http.StatusInternalServerError {
+	if delivery.Status != alert.DeliveryFailed || delivery.Attempts != alert.ImmediateAttempts || delivery.Reason != alert.ReasonStatus || delivery.Code != http.StatusInternalServerError {
 		t.Fatalf("delivery %+v", delivery)
 	}
-	if target.count() != alert.MaxAttempts {
+	if delivery.NextAttemptAt.IsZero() {
+		t.Fatalf("a failed delivery waits for its next attempt: %+v", delivery)
+	}
+	if target.count() != alert.ImmediateAttempts {
 		t.Fatalf("requests %d", target.count())
 	}
 	got := target.last()
@@ -327,4 +330,106 @@ func TestNotifier_RequeueAfterARestartDoesNotSendTwice(t *testing.T) {
 		t.Fatalf("a delivered line must not be sent again: %d", target.count())
 	}
 	_ = machine.LocalID
+}
+
+// waitAttempts attend que la livraison de l'alerte ait été essayée ce
+// nombre de fois et soit sortie de l'attente.
+func (f *fixture) waitAttempts(t *testing.T, alertID int64, attempts int) alert.Delivery {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		delivery := f.waitDelivery(t, alertID)
+		if delivery.Attempts >= attempts {
+			return delivery
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("delivery not tried %d times", attempts)
+	return alert.Delivery{}
+}
+
+// Un canal en panne quelques minutes reçoit encore l'alerte : le balayage
+// rejoue la livraison échue, un essai à la fois, jamais avant son heure.
+func TestSweep_ReplaysAFailedDeliveryOnceDue(t *testing.T) {
+	f := newFixture(t)
+	notifier := f.notifier(t, lang.English)
+	notifier.SetBackoffs([]time.Duration{time.Millisecond, time.Millisecond, 2 * time.Minute, 10 * time.Minute})
+	target := newReceiver(http.StatusServiceUnavailable)
+	defer target.Close()
+	f.webhook(t, target.URL, alert.FormatJSON, "")
+	ctx := context.Background()
+	f.Open(ctx, volumeFact(alert.SeverityDanger, 97))
+	opened := f.only(t, alert.StatusOpen)
+	failed := f.waitAttempts(t, opened.ID, alert.ImmediateAttempts)
+	if !failed.NextAttemptAt.Equal(f.clock.Add(2 * time.Minute)) {
+		t.Fatalf("next attempt %v", failed.NextAttemptAt)
+	}
+	f.Sweep(ctx)
+	time.Sleep(20 * time.Millisecond)
+	if target.count() != alert.ImmediateAttempts {
+		t.Fatalf("nothing is due yet: %d requests", target.count())
+	}
+	f.advance(2 * time.Minute)
+	f.Sweep(ctx)
+	again := f.waitAttempts(t, opened.ID, alert.ImmediateAttempts+1)
+	if again.Status != alert.DeliveryFailed || !again.NextAttemptAt.Equal(f.clock.Add(10*time.Minute)) || target.count() != alert.ImmediateAttempts+1 {
+		t.Fatalf("one more attempt, the next one later: %+v, %d requests", again, target.count())
+	}
+	target.mu.Lock()
+	target.status = http.StatusNoContent
+	target.mu.Unlock()
+	f.advance(10 * time.Minute)
+	f.Sweep(ctx)
+	delivered := f.waitAttempts(t, opened.ID, alert.ImmediateAttempts+2)
+	if delivered.Status != alert.DeliveryDelivered || !delivered.NextAttemptAt.IsZero() {
+		t.Fatalf("delivered %+v", delivered)
+	}
+}
+
+// Passé RetrySpan depuis sa réservation, une livraison n'a plus d'essai.
+func TestSweep_AbandonsADeliveryAfterTheRetrySpan(t *testing.T) {
+	f := newFixture(t)
+	f.notifier(t, lang.English)
+	target := newReceiver(http.StatusInternalServerError)
+	defer target.Close()
+	f.webhook(t, target.URL, alert.FormatJSON, "")
+	ctx := context.Background()
+	f.Open(ctx, volumeFact(alert.SeverityDanger, 97))
+	opened := f.only(t, alert.StatusOpen)
+	f.waitAttempts(t, opened.ID, alert.ImmediateAttempts)
+	f.advance(alert.RetrySpan)
+	f.Sweep(ctx)
+	abandoned := f.waitAttempts(t, opened.ID, alert.ImmediateAttempts+1)
+	if abandoned.Status != alert.DeliveryFailed || !abandoned.NextAttemptAt.IsZero() {
+		t.Fatalf("abandoned %+v", abandoned)
+	}
+}
+
+// Une ouverture encore en échec quand l'alerte se résout n'est plus
+// rejouée : elle arriverait après la résolution.
+func TestSweep_DropsTheOpeningOfAResolvedAlert(t *testing.T) {
+	f := newFixture(t)
+	f.notifier(t, lang.English)
+	target := newReceiver(http.StatusInternalServerError)
+	defer target.Close()
+	channel := f.webhook(t, target.URL, alert.FormatJSON, "")
+	ctx := context.Background()
+	f.Open(ctx, volumeFact(alert.SeverityDanger, 97))
+	opened := f.only(t, alert.StatusOpen)
+	f.waitAttempts(t, opened.ID, alert.ImmediateAttempts)
+	// Le canal ne veut plus des résolutions : seule l'ouverture reste en jeu.
+	if _, err := f.UpdateChannel(ctx, channel.ID, alert.ChannelDefinition{Name: channel.Name, URL: channel.URL, Format: channel.Format, MinSeverity: channel.MinSeverity, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	f.Resolve(ctx, alert.KindDiskFull, opened.Object)
+	f.advance(time.Hour)
+	f.Sweep(ctx)
+	time.Sleep(20 * time.Millisecond)
+	deliveries, err := f.db.ListDeliveries(ctx, opened.ID)
+	if err != nil || len(deliveries) != 1 || deliveries[0].Status != alert.DeliveryFailed || !deliveries[0].NextAttemptAt.IsZero() {
+		t.Fatalf("deliveries %+v, %v", deliveries, err)
+	}
+	if target.count() != alert.ImmediateAttempts {
+		t.Fatalf("requests %d", target.count())
+	}
 }

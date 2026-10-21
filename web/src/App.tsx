@@ -5,7 +5,7 @@ import { Layout } from "./components/Layout";
 import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
-import { AlertSilenceNew } from "./pages/AlertSilenceNew";
+import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
@@ -94,7 +94,7 @@ export function App() {
         <Route path="alertes/alerte/:id" element={<AlertPage />} />
         <Route path="alertes/canaux/nouveau" element={<AlertChannelForm />} />
         <Route path="alertes/canaux/:id" element={<AlertChannelForm />} />
-        <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
+        <Route path="alertes/silences/nouveau" element={<AlertMuteNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Settings />} />
         <Route path="journal" element={<Audit />} />

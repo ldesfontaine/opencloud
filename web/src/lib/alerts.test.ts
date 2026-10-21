@@ -7,12 +7,14 @@ import {
   channelRequestOf,
   deliveryReason,
   describeAlert,
+  deliveryFailure,
   emptyChannelForm,
-  emptySilenceForm,
-  hasSilenceTarget,
+  emptyMuteForm,
+  muteRequestOf,
+  mutePathOf,
+  muteStateOf,
+  muteTargets,
   objectPath,
-  silenceRequestOf,
-  silenceTargets,
   stateOf,
 } from "./alerts";
 
@@ -26,10 +28,11 @@ function alert(overrides: Partial<Alert>): Alert {
     kind: "disk_full",
     severity: "attention",
     status: "open",
-    silenced: false,
+    muted: false,
     object: { kind: "volume", id: "local:/data", name: "/data" },
     machine_id: "local",
     machine_name: "vps-lyon-2",
+    service_id: "",
     details: { mount_point: "/data", percent: 86 },
     opened_at: "2026-09-22T09:00:00Z",
     updated_at: "2026-09-22T09:00:00Z",
@@ -122,41 +125,64 @@ describe("deliveryReason", () => {
   });
 });
 
-describe("silenceTargets", () => {
-  const silence = { id: 1, kind: "" as const, object: { kind: "" as const, id: "", name: "" }, reason: "", starts_at: "", ends_at: "", active: true, created_at: "" };
-  it("nomme le type, l'objet, ou les deux", () => {
-    expect(silenceTargets(t, { ...silence, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
-    expect(silenceTargets(t, { ...silence, object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
-    expect(silenceTargets(t, { ...silence, kind: "disk_full", object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
+describe("muteTargets", () => {
+  const mute = { kind: "" as const, target: { kind: "" as const, id: "", name: "" } };
+  it("nomme le type, l'objet, les deux, ou tout", () => {
+    expect(muteTargets(t, { ...mute, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
+    expect(muteTargets(t, { ...mute, target: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
+    expect(muteTargets(t, { kind: "disk_full", target: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
+    expect(muteTargets(t, mute)).toBe("silence.targets_all");
   });
 });
 
-describe("silenceRequestOf", () => {
-  it("rend le silence tel que réglé, durée en minutes", () => {
-    const values = { kind: "disk_full" as const, objectKind: "machine" as const, objectID: "m1", objectName: "vps", minutes: 240, reason: "maintenance" };
-    expect(silenceRequestOf(values)).toEqual({
+describe("muteStateOf", () => {
+  it("dit en cours, planifié ou expiré", () => {
+    expect(muteStateOf({ active: true, starts_at: "2026-09-22T09:00:00Z" }, now)).toBe("active");
+    expect(muteStateOf({ active: false, starts_at: "2026-09-22T11:00:00Z" }, now)).toBe("planned");
+    expect(muteStateOf({ active: false, starts_at: "2026-09-22T08:00:00Z" }, now)).toBe("expired");
+  });
+});
+
+describe("muteRequestOf", () => {
+  it("rend le silence tel que réglé, durée en minutes, début en instant", () => {
+    const values = { ...emptyMuteForm, kind: "disk_full" as const, targetKind: "machine" as const, targetID: "m1", startsAt: "2026-09-26T08:00", minutes: 240, reason: "maintenance" };
+    expect(muteRequestOf(values)).toEqual({
       kind: "disk_full",
-      object_kind: "machine",
-      object_id: "m1",
-      object_name: "vps",
+      target_kind: "machine",
+      target_id: "m1",
       reason: "maintenance",
+      starts_at: new Date("2026-09-26T08:00").toISOString(),
       duration_minutes: 240,
     });
   });
-  it("n'envoie pas de genre d'objet quand aucun objet n'est choisi", () => {
-    const request = silenceRequestOf({ ...emptySilenceForm, kind: "job_late", objectKind: "probe" });
-    expect(request).toMatchObject({ kind: "job_late", object_kind: "", object_id: "" });
+  it("n'envoie pas de genre de cible quand aucun objet n'est choisi", () => {
+    const request = muteRequestOf({ ...emptyMuteForm, kind: "job_late", targetKind: "probe" });
+    expect(request).toMatchObject({ kind: "job_late", target_kind: "", target_id: "" });
   });
-  it("part d'une heure, sans type ni objet", () => {
-    expect(silenceRequestOf(emptySilenceForm)).toMatchObject({ kind: "", object_kind: "", duration_minutes: 60 });
+  it("part d'une heure, tout de suite, sans type ni objet", () => {
+    expect(muteRequestOf(emptyMuteForm)).toMatchObject({ kind: "", target_kind: "", starts_at: null, duration_minutes: 60 });
   });
 });
 
-describe("hasSilenceTarget", () => {
-  it("demande un type d'alerte, un objet, ou les deux", () => {
-    expect(hasSilenceTarget(emptySilenceForm)).toBe(false);
-    expect(hasSilenceTarget({ kind: "job_late", objectID: "" })).toBe(true);
-    expect(hasSilenceTarget({ kind: "", objectID: "m1" })).toBe(true);
+describe("mutePathOf", () => {
+  it("tait un volume par le disque de sa machine", () => {
+    expect(mutePathOf(alert({}))).toBe("/alertes/silences/nouveau?kind=disk_full&target_kind=machine&target_id=local&target_name=vps-lyon-2");
+  });
+  it("tait un conteneur par son service déclaré, ou lui seul s'il n'est pas déclaré", () => {
+    const container = { kind: "container" as const, id: "local:abc", name: "shop-app-1" };
+    expect(mutePathOf(alert({ kind: "service_down", object: container, service_id: "svc_1" }))).toBe(
+      "/alertes/silences/nouveau?kind=service_down&target_kind=service&target_id=svc_1&target_name=",
+    );
+    expect(mutePathOf(alert({ kind: "service_down", object: container }))).toBe(
+      "/alertes/silences/nouveau?kind=service_down&target_kind=container&target_id=local%3Aabc&target_name=shop-app-1",
+    );
+  });
+});
+
+describe("deliveryFailure", () => {
+  it("ajoute l'heure de l'essai suivant quand il y en a un", () => {
+    expect(deliveryFailure(t, { reason: "timeout", code: 0, next_attempt_at: null })).toBe("alert.delivery_reason_timeout");
+    expect(deliveryFailure(t, { reason: "timeout", code: 0, next_attempt_at: "2026-09-22T10:02:00Z" })).toMatch(/^alert\.delivery_reason_timeout · alert\.delivery_retry /);
   });
 });
 

@@ -17,9 +17,8 @@ type planQuerier interface {
 
 // planQuery est une ligne du plan et la requête qui la lit, dont le seul
 // paramètre est l'objet supprimé : (id, nom) pour ce qui retient, un COUNT
-// pour ce qui part ou se détache. Les silences n'ont pas de clé étrangère :
-// le moteur des alertes les retire avec leur objet (alert.Engine.removed), le
-// plan les compte quand même.
+// pour ce qui part ou se détache. Les fenêtres pour taire partent avec leur
+// objet par la clé étrangère ; l'écran les appelle « silences ».
 type planQuery struct {
 	kind  deletion.Kind
 	query string
@@ -61,7 +60,9 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 				WHERE container_id IN (SELECT id FROM containers WHERE machine_id = ?)`},
 			{deletion.KindImageChecks, `SELECT COUNT(*) FROM image_checks WHERE machine_id = ?`},
 			{deletion.KindIgnoredKeys, `SELECT COUNT(*) FROM ignored_keys WHERE machine_id = ?`},
-			{deletion.KindSilences, `SELECT COUNT(*) FROM alert_silences WHERE object_kind = 'machine' AND object_id = ?`},
+			// Celles de la machine, et celles de ses conteneurs, qui partent avec eux.
+			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes, (SELECT ? AS id) AS gone
+				WHERE mutes.machine_id = gone.id OR mutes.container_id IN (SELECT id FROM containers WHERE machine_id = gone.id)`},
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE machine_id = ?`},
@@ -83,11 +84,13 @@ func declaredServiceDeletionPlan(ctx context.Context, db planQuerier, id string)
 		},
 		[]planQuery{
 			{deletion.KindUnits, `SELECT COUNT(*) FROM service_units WHERE service_id = ?`},
+			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes WHERE service_id = ?`},
 		},
 		[]planQuery{
 			{deletion.KindProjectLinks, `SELECT COUNT(*) FROM project_services WHERE service_id = ?`},
 			{deletion.KindContainers, `SELECT COUNT(*) FROM containers
 				WHERE unit_id IN (SELECT id FROM service_units WHERE service_id = ?)`},
+			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE service_id = ?`},
 		})
 }
 
@@ -114,7 +117,7 @@ func probeDeletionPlan(ctx context.Context, db planQuerier, id string) (deletion
 		[]planQuery{
 			{deletion.KindProbeResults, `SELECT COUNT(*) FROM probe_results WHERE probe_id = ?`},
 			{deletion.KindProbeDays, `SELECT COUNT(*) FROM probe_days WHERE probe_id = ?`},
-			{deletion.KindSilences, `SELECT COUNT(*) FROM alert_silences WHERE object_kind = 'probe' AND object_id = ?`},
+			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes WHERE probe_id = ?`},
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE probe_id = ?`},
@@ -135,7 +138,7 @@ func heartbeatDeletionPlan(ctx context.Context, db planQuerier, id string) (dele
 		[]planQuery{
 			{deletion.KindHeartbeatPings, `SELECT COUNT(*) FROM heartbeat_pings WHERE heartbeat_id = ?`},
 			{deletion.KindHeartbeatRuns, `SELECT COUNT(*) FROM heartbeat_runs WHERE heartbeat_id = ?`},
-			{deletion.KindSilences, `SELECT COUNT(*) FROM alert_silences WHERE object_kind = 'heartbeat' AND object_id = ?`},
+			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes WHERE heartbeat_id = ?`},
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE heartbeat_id = ?`},

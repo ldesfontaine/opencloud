@@ -86,7 +86,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "alert.action_service_down_", values: alert.ServiceDownReasons()},
 		{prefix: "alert.severity_", values: names(alert.Severities())},
 		{prefix: "channel.receives_", values: names(alert.Severities())},
-		{prefix: "silence.object_kind_", values: names(alert.ObjectKinds())},
+		{prefix: "silence.target_kind_", values: names(alert.TargetKinds())},
 		// Un envoi d'essai n'est jamais une livraison de la fiche.
 		{prefix: "alert.event_", values: without(without(names(alert.Events()), string(alert.EventTest)), string(alert.EventSummary))},
 		{prefix: "alert.notify_", values: names(alert.Events())},

@@ -732,6 +732,19 @@ les mesures et les réseaux) : un binaire d'avant elle ne les retrouve plus.
 Pour revenir en arrière, remettez l'ancien binaire **et** la copie
 `avant-maj.db` faite avant la mise à jour. La sauvegarde ne change pas.
 
+**La version qui pose les alertes sur l'annuaire** (migration
+`032_alerts_directory.sql`) change deux choses que vous voyez. **Une
+maintenance de la page de statut ne tait plus les alertes** : c'est ce que
+vous dites au public ; pour taire, posez un silence (Alertes → Silences),
+qui peut maintenant commencer à une heure dite. À la montée, chaque
+maintenance pas encore terminée devient un silence par objet de ses
+composants, sur la même fenêtre : rien ne change pour celles en cours. Les
+silences existants sont repris (celui d'un volume tait désormais le disque de
+toute sa machine). Et **une livraison en échec n'est plus perdue** : elle est
+rejouée, les essais s'espaçant jusqu'à une heure, pendant 24 h. Le journal d'audit écrit
+`mute.create` et `mute.delete` là où il écrivait `silence.*`. Un binaire
+d'avant ne retrouve plus `alert_silences` : même retour arrière que plus haut.
+
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 
 | Situation | Effet |

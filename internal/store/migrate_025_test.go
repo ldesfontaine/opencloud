@@ -37,7 +37,8 @@ func TestMigration025_RenamesContainersAndKeepsTheirRows(t *testing.T) {
 	if got := count(t, db, `SELECT COUNT(*) FROM container_events WHERE container_id = 'c1'`); got != 2 {
 		t.Errorf("les événements de c1 ont perdu leur lien : %d", got)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE container_id = 'c1' AND object_kind = 'service'`); got != 1 {
+	// Le genre « service » de l'alerte devient « container » à la 032.
+	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE container_id = 'c1' AND object_kind = 'container'`); got != 1 {
 		t.Errorf("l'alerte de c1 a perdu son lien ou son genre d'objet : %d", got)
 	}
 	if violations := count(t, db, `SELECT COUNT(*) FROM pragma_foreign_key_check`); violations != 0 {

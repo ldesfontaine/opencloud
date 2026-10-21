@@ -250,8 +250,8 @@ func (ts *testServer) seedAudit(t *testing.T) {
 		Details: audit.Details{"kind": "http", "machine_id": remoteID},
 	})
 	ts.journal.Record(audit.WithActor(ctx, audit.MCP("tok0000000000001")), audit.Event{
-		Action: audit.SilenceCreate, ObjectID: "1", ObjectName: "vps-paris-1",
-		Details: audit.Details{"object_kind": "machine", "reason": "maintenance"},
+		Action: audit.MuteCreate, ObjectID: "1", ObjectName: "vps-paris-1",
+		Details: audit.Details{"target_kind": "machine", "reason": "maintenance"},
 	})
 }
 
@@ -442,8 +442,9 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if isError || !strings.Contains(text, `"kind":"job_late"`) {
 		t.Fatalf("silence: %s", text)
 	}
-	// Une sorte seule viserait tous les objets : refusée par MCP, y compris
-	// à la durée maximale ; un objet seul, ou une sorte sur un objet, passe.
+	// Sans objet, la fenêtre viserait tous les objets : refusée par MCP, y
+	// compris à la durée maximale ; un objet seul, ou une sorte sur un objet,
+	// passe.
 	if text, isError = callTool(t, session, "create_silence", map[string]any{"kind": "service_down", "duration_minutes": 60}); !isError || toolErrorCode(t, text) != codeSilenceNeedsObject {
 		t.Fatalf("silence a kind everywhere: %s", text)
 	}
@@ -453,12 +454,15 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if text, isError = callTool(t, session, "create_silence", map[string]any{"object_kind": "heartbeat", "object_id": jobID, "duration_minutes": 60}); isError {
 		t.Fatalf("silence an object: %s", text)
 	}
-	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != "silence.invalid" {
+	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != codeSilenceNeedsObject {
 		t.Fatalf("silence everything: %s", text)
 	}
-	silences, err := server.db.ListSilences(ctx)
-	if err != nil || len(silences) != 3 {
-		t.Fatalf("silences %d %v", len(silences), err)
+	if text, _ = callTool(t, session, "create_silence", map[string]any{"object_kind": "probe", "object_id": "inconnue", "duration_minutes": 60}); toolErrorCode(t, text) != "silence.target_unknown" {
+		t.Fatalf("silence an unknown object: %s", text)
+	}
+	mutes, err := server.db.ListMutes(ctx)
+	if err != nil || len(mutes) != 3 {
+		t.Fatalf("mutes %d %v", len(mutes), err)
 	}
 
 	unitID := server.unitIDOf(t, cloudID, "nextcloud")
@@ -987,15 +991,20 @@ func TestMCPAPI_RevokeSessionCutsTheClient(t *testing.T) {
 // Un silence créé par MCP se lit ensuite par l'API, comme tout le reste.
 func TestMCP_ChangesAreVisibleToTheAPI(t *testing.T) {
 	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
-	if _, isError := callTool(t, session, "create_silence", map[string]any{
-		"kind": string(alert.KindJobLate), "object_kind": string(alert.ObjectHeartbeat), "object_id": "job-1", "duration_minutes": 30,
-	}); isError {
-		t.Fatal("silence refused")
+	server.seedAll(t)
+	jobs, err := server.db.ListHeartbeats(context.Background())
+	if err != nil || len(jobs) == 0 {
+		t.Fatalf("jobs %d %v", len(jobs), err)
 	}
-	var silences silencesResponse
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/silences", nil), &silences)
-	if len(silences.Silences) != 1 || silences.Silences[0].Kind != string(alert.KindJobLate) {
-		t.Fatalf("silences %+v", silences.Silences)
+	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
+	if text, isError := callTool(t, session, "create_silence", map[string]any{
+		"kind": string(alert.KindJobLate), "object_kind": string(alert.TargetHeartbeat), "object_id": jobs[0].ID, "duration_minutes": 30,
+	}); isError {
+		t.Fatalf("silence refused: %s", text)
+	}
+	var mutes mutesResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/mutes", nil), &mutes)
+	if len(mutes.Mutes) != 1 || mutes.Mutes[0].Kind != string(alert.KindJobLate) || mutes.Mutes[0].CreatedByKind != "mcp" {
+		t.Fatalf("mutes %+v", mutes.Mutes)
 	}
 }

@@ -222,17 +222,18 @@ type StatusService interface {
 }
 
 // Ce que le serveur attend du moteur des alertes : la page (une liste
-// bornée), l'acquittement, l'écriture des canaux et des silences. Le reste
-// se lit par le Reader.
+// bornée) et la fiche, avec ce qui les tait ; l'acquittement, l'écriture des
+// canaux et des fenêtres pour taire. Le reste se lit par le Reader.
 type AlertService interface {
 	List(ctx context.Context, status alert.Status) ([]alert.Alert, error)
+	Get(ctx context.Context, id int64) (alert.Alert, error)
 	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
 	AcknowledgeMany(ctx context.Context, ids []int64) (int, error)
 	CreateChannel(ctx context.Context, definition alert.ChannelDefinition) (alert.Channel, error)
 	UpdateChannel(ctx context.Context, id int64, definition alert.ChannelDefinition) (alert.Channel, error)
 	DeleteChannel(ctx context.Context, id int64) error
-	CreateSilence(ctx context.Context, definition alert.SilenceDefinition) (alert.Silence, error)
-	DeleteSilence(ctx context.Context, id int64) error
+	CreateMute(ctx context.Context, definition alert.MuteDefinition) (alert.Mute, error)
+	DeleteMute(ctx context.Context, id int64) error
 }
 
 // Ce que le serveur attend du notifieur : tester un canal, ou le relais
