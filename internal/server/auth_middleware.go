@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,7 +23,9 @@ import (
 // tout ce que l'opérateur appelle : le front, l'API, le direct, les flux
 // de journaux et l'autorisation OAuth, où il consent pour un agent IA. En
 // mode forward, les mêmes routes exigent l'en-tête d'identité posé par un
-// mandataire de trusted_proxies.
+// mandataire de trusted_proxies. En mode none, l'installation attend sa
+// première configuration : seules les routes qui servent à créer le compte
+// passent.
 // Restent ouverts ceux qui ont leur propre preuve ou n'en ont pas
 // besoin : l'agent (sa clé), les pings (le jeton dans l'URL), la page de
 // statut (publique), /mcp (son Bearer), le point de jeton OAuth (le secret
@@ -54,6 +57,28 @@ type AuthService interface {
 // d'authentification qui n'est plus le bon.
 const codeAuthStateChanged = "auth.state_changed"
 
+// codeSetupRequired est le refus de toute route de l'opérateur tant que le
+// compte n'est pas créé : le front y reconnaît l'écran de première
+// configuration.
+const codeSetupRequired = "auth.setup_required"
+
+// Les routes de l'opérateur qu'une installation sans compte (mode none) sert
+// à qui atteint le port : le front, sa session et ses catalogues pour
+// s'afficher dans la langue réglée, l'état de l'accès, et la création du
+// compte. Tout le reste attend : un avertissement n'est pas un contrôle.
+var firstSetupRoutes = []string{
+	"GET /api/session",
+	"GET /api/i18n/{code}",
+	"GET /api/auth",
+	"POST /api/auth/actions/enable",
+	anyMethod + " /",
+}
+
+// isFirstSetupRoute dit si la route reste servie en mode none.
+func isFirstSetupRoute(method, pattern string) bool {
+	return slices.Contains(firstSetupRoutes, method+" "+pattern)
+}
+
 // Les préfixes qui ne passent jamais par l'authentification de
 // l'opérateur. Tout le reste, fourre-tout du front compris, y passe.
 var openRoutePrefixes = []string{"/agent/", "/ping/", "/statut", "/.well-known/"}
@@ -81,8 +106,9 @@ func isOperatorRoute(pattern string) bool {
 
 // requireOperator relit le mode à chaque requête : la commande de secours
 // `opencloud auth disable` écrit dans la base, et serve la suit sans
-// redémarrer.
-func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
+// redémarrer ; l'installation revient alors à sa première configuration.
+// firstSetup dit si la route reste servie tant qu'aucun compte n'existe.
+func (s *Server) requireOperator(next http.HandlerFunc, firstSetup bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.isCompiledAsset(r) {
 			next(w, r)
@@ -95,6 +121,10 @@ func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 		}
 		switch state.Mode {
 		case auth.ModeNone:
+			if !firstSetup {
+				s.writeSetupRequired(w, r)
+				return
+			}
 			s.admitOperator(w, r, state, next)
 		case auth.ModeBasic:
 			if s.checkBasic(w, r, state) {
@@ -287,6 +317,19 @@ func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 	// c'est là qu'il faut dire comment rouvrir l'accès.
 	catalog := s.catalogs.For(browserLanguage(r))
 	http.Error(w, catalog.Get("auth.unauthorized"), http.StatusUnauthorized)
+}
+
+// Le refus d'une installation sans compte, sans défi Basic : le navigateur
+// n'a aucun identifiant à demander, le front montre l'écran de première
+// configuration. Hors /api, le texte dit d'ouvrir l'interface.
+func (s *Server) writeSetupRequired(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		s.writeAPIError(w, http.StatusUnauthorized, codeSetupRequired)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	catalog := s.catalogs.For(browserLanguage(r))
+	http.Error(w, catalog.Get(codeSetupRequired), http.StatusUnauthorized)
 }
 
 // forwardedIdentityKey porte, dans le contexte de la requête, l'identité

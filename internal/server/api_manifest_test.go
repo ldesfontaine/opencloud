@@ -105,7 +105,6 @@ func TestManifestAPI_ExportCommentsFollowTheInterfaceLanguage(t *testing.T) {
 
 func TestManifestAPI_ExportIsAnOperatorRoute(t *testing.T) {
 	server := newTestServer(t)
-	server.enableBasic(t)
 	if got := callAs(server.Server, http.MethodGet, "/api/manifest/export", "", ""); got.Code != http.StatusUnauthorized {
 		t.Fatalf("without credentials: %d", got.Code)
 	}
@@ -121,7 +120,6 @@ func TestManifestAPI_ExportIsAnOperatorRoute(t *testing.T) {
 func TestControlSocket_ServesOnlyTheManifest(t *testing.T) {
 	server := newTestServer(t)
 	server.seedManifest(t)
-	server.enableBasic(t)
 
 	call := func(method, path string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(method, "http://control"+path, nil)

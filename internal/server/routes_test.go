@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -56,8 +57,42 @@ type testServer struct {
 }
 
 // Le serveur de test tourne sur le vrai composant machine et une vraie base
-// SQLite temporaire, avec la machine openCloud déjà en place.
+// SQLite temporaire, avec la machine openCloud déjà en place. Il est
+// configuré comme une installation qui a passé sa première configuration : un
+// compte basic, dont les identifiants sont posés sur toute requête de
+// l'opérateur qui n'en porte pas, pour que les tests qui ne parlent pas de
+// l'accès n'aient pas à les écrire. Ceux qui en parlent partent de
+// newFirstSetupServer.
 func newTestServer(t *testing.T) *testServer {
+	t.Helper()
+	server := newFirstSetupServer(t)
+	server.enableBasic(t)
+	server.handler = asOperator(server.handler)
+	return server
+}
+
+// anonymousHeader marque la requête d'un test qui joue un inconnu : le banc
+// n'y pose pas d'identifiants (voir callAs).
+const anonymousHeader = "X-Test-Anonymous"
+
+// asOperator pose les identifiants du compte de test sur une requête qui n'en
+// porte aucun. Les routes ouvertes les ignorent, sauf /mcp et le point de
+// jeton OAuth, où Authorization est la preuve d'un agent IA : une requête
+// sans rien y reste sans rien.
+func asOperator(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		anonymous := r.Header.Get(anonymousHeader) != ""
+		r.Header.Del(anonymousHeader)
+		if !anonymous && r.Header.Get("Authorization") == "" && r.URL.Path != mcpPath && r.URL.Path != mcpTokenPath {
+			r.SetBasicAuth(testUsername, testPassword)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newFirstSetupServer est une installation neuve : mode none, aucun compte,
+// rien de posé sur les requêtes.
+func newFirstSetupServer(t *testing.T) *testServer {
 	t.Helper()
 	root, db := storetest.OpenWithStateDir(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))

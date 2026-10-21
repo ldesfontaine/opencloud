@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// Un jeton MCP tiré pendant que l'interface était ouverte tombe à
-// l'activation. Un appel d'outil dont le corps a été retenu à travers elle ne
+// Un jeton MCP tiré avant la commande de secours tombe à l'activation qui
+// suit. Un appel d'outil dont le corps a été retenu à travers elle ne
 // s'applique pas non plus : le Bearer se rejuge une fois le corps arrivé.
 func TestAuthTransition_AHeldMCPCallDoesNotOutliveTheActivation(t *testing.T) {
 	server := newTestServer(t)
@@ -53,6 +53,7 @@ func TestAuthTransition_AHeldMCPCallDoesNotOutliveTheActivation(t *testing.T) {
 		t.Fatal("the server never started reading the held body")
 	}
 
+	server.rescue(t)
 	enableBasicByAPI(t, server)
 
 	if _, err := conn.Write([]byte(body)); err != nil {

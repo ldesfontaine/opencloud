@@ -163,7 +163,7 @@ func TestIsLoopbackListen_TellsLocalFromEverywhere(t *testing.T) {
 	}
 }
 
-func TestWarnIfOpen_IsLouderWhenListeningBeyondLoopback(t *testing.T) {
+func TestLogInterfaceAccess_WarnsOnlyWhenAwaitingSetupBeyondLoopback(t *testing.T) {
 	_, stateDir := writeConfig(t)
 	root, err := openStateDir(stateDir)
 	if err != nil {
@@ -182,13 +182,13 @@ func TestWarnIfOpen_IsLouderWhenListeningBeyondLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	warnIfOpen(context.Background(), logger, service, "127.0.0.1:8080")
-	if !strings.Contains(logs.String(), "level=WARN") || strings.Contains(logs.String(), "OPEN TO THE NETWORK") {
+	logInterfaceAccess(context.Background(), logger, service, "127.0.0.1:8080")
+	if !strings.Contains(logs.String(), "level=INFO") || !strings.Contains(logs.String(), "awaiting first setup") {
 		t.Fatalf("loopback: %q", logs.String())
 	}
 	logs.Reset()
-	warnIfOpen(context.Background(), logger, service, ":8080")
-	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "OPEN TO THE NETWORK") {
+	logInterfaceAccess(context.Background(), logger, service, ":8080")
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "first creates the operator account") {
 		t.Fatalf("everywhere: %q", logs.String())
 	}
 
@@ -197,7 +197,7 @@ func TestWarnIfOpen_IsLouderWhenListeningBeyondLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	logs.Reset()
-	warnIfOpen(context.Background(), logger, service, ":8080")
+	logInterfaceAccess(context.Background(), logger, service, ":8080")
 	if strings.Contains(logs.String(), "level=WARN") {
 		t.Fatalf("protected: %q", logs.String())
 	}
