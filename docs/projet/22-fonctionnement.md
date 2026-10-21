@@ -2129,7 +2129,12 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    stderr. Ce processus ouvre la même base, sans socket ni identifiant, et
    ne tient ni le bus du direct ni les flux des agents : il est en
    **lecture seule**, comme `/mcp` : aucune écriture n'est enregistrée. Il lit `secret.key` pour ouvrir les secrets de la base et
-   refuse de démarrer sans elle ; il ne la crée jamais.
+   refuse de démarrer sans elle ; il ne la crée jamais. Ses composants
+   sont ceux de `serve`, construits et branchés entre eux par le même
+   câblage (`buildComponents`, `cmd/opencloud/components.go`) ; `serve` y
+   ajoute le direct, les boucles de fond, les commandes aux agents et la
+   machine openCloud, `mcp` seulement la présence par le dernier signal
+   (ci-dessous).
 
 ### Ce que le mode local voit
 
