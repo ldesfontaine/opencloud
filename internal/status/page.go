@@ -35,6 +35,7 @@ func (s *Service) SetPage(ctx context.Context, page Page) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
+	s.auditor.Record(ctx, pageEvent(pageOf(current)))
 	s.Refresh(ctx)
 	return pageOf(current), nil
 }

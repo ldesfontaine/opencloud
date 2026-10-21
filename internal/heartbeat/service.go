@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
@@ -87,6 +88,7 @@ type Service struct {
 	store   Store
 	alerter Alerter
 	watcher Watcher
+	auditor *audit.Recorder
 	logger  *slog.Logger
 	// now est remplaçable dans les tests : les échéances se comparent à lui.
 	now func() time.Time
@@ -150,6 +152,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat created", "heartbeat_id", id, "name", heartbeat.Name)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatCreate, heartbeat))
 	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
 }
@@ -181,6 +184,7 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat updated", "heartbeat_id", id, "name", after.Name, "previous_status", string(before.Status), "status", string(after.Status))
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatUpdate, after))
 	s.notifyAfterEdit(ctx, before, after)
 	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
@@ -286,6 +290,7 @@ func (s *Service) RegenerateToken(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat token regenerated", "heartbeat_id", id, "name", found.Name)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatRegenerateToken, found))
 	s.changed(id)
 	return nil
 }
@@ -305,10 +310,16 @@ func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, err
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
+	// Relue avant : le journal garde le nom de ce qui part.
+	found, err := s.store.GetHeartbeat(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.DeleteHeartbeat(ctx, id); err != nil {
 		return err
 	}
 	s.logger.Info("heartbeat deleted", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatDelete, found))
 	if s.alerter != nil {
 		s.alerter.Removed(ctx, id)
 	}
@@ -333,6 +344,7 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat paused", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatPause, paused))
 	if s.alerter != nil {
 		s.alerter.Paused(ctx, paused)
 	}
@@ -345,6 +357,7 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 func (s *Service) Resume(ctx context.Context, id string) error {
 	now := s.now()
 	notPaused := false
+	var resumed Heartbeat
 	err := s.store.Transact(ctx, id, func(before Heartbeat) *Transition {
 		if !before.IsPaused() {
 			notPaused = true
@@ -356,6 +369,7 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 			after.Status = StatusNew
 		}
 		after.NextDeadlineAt = now.Add(before.Interval + before.Grace)
+		resumed = after
 		return &Transition{Heartbeat: after}
 	})
 	if err != nil {
@@ -365,6 +379,7 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 		return ErrNotPaused
 	}
 	s.logger.Info("heartbeat resumed", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatResume, resumed))
 	s.changed(id)
 	return nil
 }

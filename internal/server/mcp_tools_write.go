@@ -9,6 +9,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -74,15 +75,32 @@ func (s *Server) registerWriteTools(server *gomcp.Server) {
 }
 
 // guarded ferme une écriture, avec la clé que le modèle lit, quand le jeton
-// présenté pour cette requête n'a pas la portée write ; sinon elle passe
-// telle quelle.
+// présenté pour cette requête n'a pas la portée write ; sinon elle passe,
+// le client MCP posé comme acteur du journal d'audit.
 func guarded[In any](handler func(context.Context, In) (*gomcp.CallToolResult, any, error)) gomcp.ToolHandlerFor[In, any] {
 	return func(ctx context.Context, request *gomcp.CallToolRequest, input In) (*gomcp.CallToolResult, any, error) {
 		if !mayWrite(ctx, request) {
 			return toolRefuse(codeReadOnly)
 		}
+		ctx = audit.WithActor(ctx, audit.MCP(mcpActorName(tokenInfoOf(ctx, request))))
 		return handler(ctx, input)
 	}
+}
+
+// mcpActorName nomme le client par ce que l'opérateur voit sous Paramètres :
+// l'identifiant du jeton d'API, ou la famille d'une autorisation OAuth, dont
+// le jeton d'accès change toutes les heures.
+func mcpActorName(info *auth.TokenInfo) string {
+	if info == nil {
+		return ""
+	}
+	if kind, _ := info.Extra["kind"].(string); kind != string(mcp.KindAPI) {
+		if familyID, _ := info.Extra["family_id"].(string); familyID != "" {
+			return familyID
+		}
+	}
+	tokenID, _ := info.Extra["token_id"].(string)
+	return tokenID
 }
 
 // mayWrite lit la portée du jeton que verifyBearer a posé sur la requête.

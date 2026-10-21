@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { AlertResponse, AlertsResponse, ChannelsResponse, SilencesResponse } from "./alerts";
+import type { AuditResponse } from "./audit";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -662,6 +663,22 @@ const publicStatus = shape<PublicStatus>("PublicStatus", {
   history: publicIncident,
 });
 
+const audit = shape<AuditResponse>("AuditResponse", {
+  events: shape("AuditEvent", {
+    id: value,
+    at: value,
+    actor_kind: value,
+    actor_name: value,
+    action: value,
+    object_kind: value,
+    object_id: value,
+    object_name: value,
+    details: dictionaryOf(value),
+    apply_id: value,
+  }),
+  next_before: value,
+});
+
 const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
 
 const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
@@ -677,6 +694,7 @@ const contract: Record<string, Shape<unknown>> = {
   "alert_channels.golden.json": channels,
   "alert_silences.golden.json": silences,
   "alerts.golden.json": alerts,
+  "audit.golden.json": audit,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,
   "containers.golden.json": containers,

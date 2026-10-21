@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -138,7 +140,7 @@ func secretsCommand(args []string, out io.Writer) error {
 		return err
 	}
 	defer stateDir.Close()
-	ctx := context.Background()
+	ctx := audit.WithActor(context.Background(), audit.CLI(currentAccount()))
 	db, err := store.Open(ctx, stateDir)
 	if err != nil {
 		return err
@@ -171,6 +173,12 @@ func forgetSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, out io.
 	if err != nil {
 		return err
 	}
+	// Des secrets viennent d'être effacés et des URL de ping de changer : le
+	// journal d'audit le garde.
+	journal := audit.New(db, slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	journal.Record(ctx, audit.Event{Action: audit.SecretsForget, Details: audit.Details{
+		"channels_disabled": strconv.Itoa(channels), "ping_tokens_renewed": strconv.Itoa(tokens),
+	}})
 	keyPath := filepath.Join(stateDir.Name(), brand.SecretKeyFile)
 	if _, err := fmt.Fprintf(out, "Nouvelle clé écrite : %s\n", keyPath); err != nil {
 		return err

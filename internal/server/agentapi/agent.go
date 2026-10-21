@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -54,7 +55,10 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusBadRequest, "bad_key")
 		return
 	}
-	enrolled, err := h.machines.Enroll(r.Context(), machine.Enrollment{
+	// L'agent agit sous l'identifiant qu'il présente : le jeton, consommé
+	// dans la même transaction, dit s'il en avait le droit.
+	ctx := audit.WithActor(r.Context(), audit.Agent(request.MachineID))
+	enrolled, err := h.machines.Enroll(ctx, machine.Enrollment{
 		MachineID:    request.MachineID,
 		PublicKey:    publicKey,
 		Token:        request.Token,
@@ -268,7 +272,9 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 // refusées avec leur clé, et dit si une écriture a échoué pour une raison
 // qui n'est pas un refus.
 func (h *Handler) recordSignal(r *http.Request, machineID string, request agentwire.SignalRequest) (map[string]string, bool) {
-	ctx := r.Context()
+	// Rien d'un signal n'est journalisé aujourd'hui (des observations) ; ce
+	// qu'il ferait écrire un jour le serait sous sa machine.
+	ctx := audit.WithActor(r.Context(), audit.Agent(machineID))
 	rejected := map[string]string{}
 	failed := false
 	keep := func(section string, err error, refusals ...error) {

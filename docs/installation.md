@@ -754,7 +754,7 @@ machine donne le commit.
 
 | Où | Quoi | Perte |
 | --- | --- | --- |
-| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification |
+| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an). `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
 | Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping (voir [Clé perdue](#clé-perdue)) |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |

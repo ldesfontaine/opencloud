@@ -2,7 +2,10 @@ package alert
 
 import (
 	"context"
+	"strconv"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // --- Canaux ---
@@ -24,6 +27,8 @@ func (e *Engine) CreateChannel(ctx context.Context, definition ChannelDefinition
 		return Channel{}, err
 	}
 	e.logger.Info("alert channel created", "channel_id", id, "name", channel.Name, "format", string(channel.Format))
+	channel.ID = id
+	e.auditor.Record(ctx, channelEvent(audit.ChannelCreate, channel))
 	e.changed()
 	return e.store.GetChannel(ctx, id)
 }
@@ -52,6 +57,8 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 	if err != nil {
 		return Channel{}, err
 	}
+	// Ce qui a changé se dit sans la valeur : l'URL et le secret en sont.
+	urlChanged := channel.URL != definition.URL
 	channel.Name = strings.TrimSpace(definition.Name)
 	channel.URL = definition.URL
 	channel.Format = definition.Format
@@ -74,15 +81,22 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 		return Channel{}, err
 	}
 	e.logger.Info("alert channel updated", "channel_id", id, "name", channel.Name, "enabled", channel.Enabled)
+	e.auditor.Record(ctx, channelUpdateEvent(channel, urlChanged, definition.Secret != "" || definition.ClearSecret))
 	e.changed()
 	return e.store.GetChannel(ctx, id)
 }
 
 func (e *Engine) DeleteChannel(ctx context.Context, id int64) error {
+	// Relu avant : le journal garde le nom de ce qui part.
+	found, err := e.store.GetChannel(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := e.store.DeleteChannel(ctx, id); err != nil {
 		return err
 	}
 	e.logger.Info("alert channel deleted", "channel_id", id)
+	e.auditor.Record(ctx, channelEvent(audit.ChannelDelete, found))
 	e.changed()
 	return nil
 }
@@ -104,6 +118,7 @@ func (e *Engine) CreateSilence(ctx context.Context, definition SilenceDefinition
 	}
 	silence.ID = id
 	e.logger.Info("alert silence created", "silence_id", id, "kind", string(silence.Kind), "object_kind", string(silence.Object.Kind), "object_id", silence.Object.ID, "until", silence.EndsAt)
+	e.auditor.Record(ctx, silenceEvent(audit.SilenceCreate, silence))
 	e.changed()
 	return silence, nil
 }
@@ -113,6 +128,7 @@ func (e *Engine) DeleteSilence(ctx context.Context, id int64) error {
 		return err
 	}
 	e.logger.Info("alert silence deleted", "silence_id", id)
+	e.auditor.Record(ctx, audit.Event{Action: audit.SilenceDelete, ObjectID: strconv.FormatInt(id, 10)})
 	e.changed()
 	return nil
 }

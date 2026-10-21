@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -87,6 +88,7 @@ type Directory struct {
 	checks     ImageChecks
 	rematcher  Rematcher
 	assigner   Assigner
+	auditor    *audit.Recorder
 	logger     *slog.Logger
 	now        func() time.Time
 }
@@ -150,6 +152,7 @@ func (d *Directory) CreateService(ctx context.Context, definition ServiceDefinit
 		return Service{}, err
 	}
 	d.logger.Info("declared service created", "service_id", id, "name", created.Name, "machine_id", created.MachineID)
+	d.auditor.Record(ctx, serviceEvent(audit.ServiceCreate, created))
 	d.settle(ctx, created.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
@@ -180,6 +183,7 @@ func (d *Directory) UpdateService(ctx context.Context, id string, definition Ser
 		return Service{}, err
 	}
 	d.logger.Info("declared service updated", "service_id", id, "name", updated.Name, "machine_id", updated.MachineID)
+	d.auditor.Record(ctx, serviceEvent(audit.ServiceUpdate, updated))
 	d.settle(ctx, before.MachineID, updated.MachineID)
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
@@ -317,6 +321,7 @@ func (d *Directory) DeleteService(ctx context.Context, id string) error {
 		return err
 	}
 	d.logger.Info("declared service deleted", "service_id", id, "name", found.Name)
+	d.auditor.Record(ctx, serviceEvent(audit.ServiceDelete, found))
 	d.settle(ctx, found.MachineID)
 	d.changed()
 	return nil
@@ -343,6 +348,7 @@ func (d *Directory) Review(ctx context.Context, id string) (Service, error) {
 		return Service{}, err
 	}
 	d.logger.Info("declared service reviewed", "service_id", id, "name", found.Name)
+	d.auditor.Record(ctx, serviceEvent(audit.ServiceReview, found))
 	d.changed()
 	return d.store.GetDeclaredService(ctx, id)
 }
@@ -370,6 +376,7 @@ func (d *Directory) SetUnitUpdatePolicy(ctx context.Context, unitID string, poli
 		return Service{}, err
 	}
 	d.logger.Info("unit update policy set", "service_id", owner.ID, "unit_id", unitID, "policy", policy)
+	d.auditor.Record(ctx, unitPolicyEvent(unit, owner, policy))
 	if d.assigner != nil {
 		d.assigner.Assign(ctx, owner.MachineID)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
@@ -22,6 +23,7 @@ func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinit
 		return Project{}, err
 	}
 	d.logger.Info("project created", "project_id", id, "name", created.Name)
+	d.auditor.Record(ctx, projectEvent(audit.ProjectCreate, created))
 	d.changed()
 	return d.store.GetProject(ctx, id)
 }
@@ -42,6 +44,7 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 		return Project{}, err
 	}
 	d.logger.Info("project updated", "project_id", id, "name", before.Name)
+	d.auditor.Record(ctx, projectEvent(audit.ProjectUpdate, before))
 	d.changed()
 	return d.store.GetProject(ctx, id)
 }
@@ -66,6 +69,7 @@ func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 		return err
 	}
 	d.logger.Info("project deleted", "project_id", id, "name", found.Name, "services", len(found.ServiceIDs))
+	d.auditor.Record(ctx, projectEvent(audit.ProjectDelete, found))
 	d.changed()
 	return nil
 }

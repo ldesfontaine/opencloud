@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -27,6 +28,7 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 		return Component{}, err
 	}
 	s.logger.Info("status component created", "component_id", id, "name", component.Name)
+	s.auditor.Record(ctx, componentEvent(audit.StatusComponentCreate, component))
 	s.Refresh(ctx)
 	return s.GetComponent(ctx, id)
 }
@@ -58,6 +60,7 @@ func (s *Service) UpdateComponent(ctx context.Context, id string, definition Com
 	if err := s.store.UpdateComponent(ctx, current); err != nil {
 		return Component{}, err
 	}
+	s.auditor.Record(ctx, componentEvent(audit.StatusComponentUpdate, current))
 	s.Refresh(ctx)
 	return s.GetComponent(ctx, id)
 }
@@ -80,10 +83,16 @@ func (s *Service) DeleteComponentPlan(ctx context.Context, id string) (deletion.
 }
 
 func (s *Service) DeleteComponent(ctx context.Context, id string) error {
+	// Relu avant : le journal garde le nom de ce qui part.
+	found, err := s.store.GetComponent(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.DeleteComponent(ctx, id); err != nil {
 		return err
 	}
 	s.logger.Info("status component deleted", "component_id", id)
+	s.auditor.Record(ctx, componentEvent(audit.StatusComponentDelete, found))
 	s.Refresh(ctx)
 	return nil
 }

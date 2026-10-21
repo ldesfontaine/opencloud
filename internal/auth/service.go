@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // Coût bcrypt : environ 100 ms par vérification sur une machine modeste.
@@ -52,6 +54,7 @@ type remembered struct {
 
 type Service struct {
 	store    Store
+	auditor  *audit.Recorder
 	logger   *slog.Logger
 	now      func() time.Time
 	hashCost int
@@ -124,6 +127,7 @@ func (s *Service) EnableBasic(ctx context.Context, expected State, username, pas
 		return State{}, err
 	}
 	s.logger.Info("interface authentication enabled", "mode", string(ModeBasic), "username", username)
+	s.auditor.Record(ctx, authEvent(audit.AuthEnable, next))
 	return next, nil
 }
 
@@ -146,6 +150,7 @@ func (s *Service) EnableForward(ctx context.Context, expected State, header stri
 		return State{}, err
 	}
 	s.logger.Info("interface authentication enabled", "mode", string(ModeForward), "header", header)
+	s.auditor.Record(ctx, authEvent(audit.AuthEnable, next))
 	return next, nil
 }
 
@@ -174,6 +179,7 @@ func (s *Service) ChangePassword(ctx context.Context, expected State, password s
 		return State{}, err
 	}
 	s.logger.Info("interface password changed", "username", next.Username)
+	s.auditor.Record(ctx, authEvent(audit.AuthChangePassword, next))
 	return next, nil
 }
 
@@ -193,6 +199,7 @@ func (s *Service) Disable(ctx context.Context, expected State) error {
 		return err
 	}
 	s.logger.Warn("interface authentication disabled", "previous_mode", string(current.Mode))
+	s.auditor.Record(ctx, authEvent(audit.AuthDisable, current))
 	return nil
 }
 

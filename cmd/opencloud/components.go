@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -99,6 +100,18 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	if err != nil {
 		return nil, err
 	}
+	// Le journal d'audit : chaque composant y écrit ses gestes, sous l'acteur
+	// que le contexte porte. Les alertes le purgent avec leur historique.
+	journal := audit.New(db, logger)
+	preferences.SetAuditor(journal)
+	machines.SetAuditor(journal)
+	heartbeats.SetAuditor(journal)
+	probes.SetAuditor(journal)
+	declared.SetAuditor(journal)
+	statusPage.SetAuditor(journal)
+	alerts.SetAuditor(journal)
+	access.SetAuditor(journal)
+	operator.SetAuditor(journal)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. La machine openCloud lit endoflife.date une fois par jour,
 	// deux au plus, pour les produits des images présentes et les systèmes

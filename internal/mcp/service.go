@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // Ce que le service attend du store.
@@ -37,9 +39,10 @@ type Store interface {
 }
 
 type Service struct {
-	store  Store
-	logger *slog.Logger
-	now    func() time.Time
+	store   Store
+	auditor *audit.Recorder
+	logger  *slog.Logger
+	now     func() time.Time
 	// creatingToken tient compter-puis-insérer d'un seul tenant : deux
 	// créations simultanées ne passent pas toutes deux sur la dernière place.
 	creatingToken sync.Mutex
@@ -82,6 +85,7 @@ func (s *Service) Enable(ctx context.Context) (string, Client, error) {
 		return "", Client{}, err
 	}
 	s.logger.Info("mcp enabled", "client_id", ClientID)
+	s.auditor.Record(ctx, clientEvent(audit.MCPEnable, nil))
 	return secret.cleartext, client, nil
 }
 
@@ -95,6 +99,7 @@ func (s *Service) Disable(ctx context.Context) error {
 		return err
 	}
 	s.logger.Info("mcp disabled")
+	s.auditor.Record(ctx, clientEvent(audit.MCPDisable, nil))
 	return nil
 }
 
@@ -116,6 +121,7 @@ func (s *Service) RegenerateSecret(ctx context.Context) (string, error) {
 		return "", err
 	}
 	s.logger.Info("mcp client secret regenerated")
+	s.auditor.Record(ctx, clientEvent(audit.MCPRegenerateSecret, audit.Details{"oauth_revoked": "true"}))
 	return secret.cleartext, nil
 }
 
@@ -132,6 +138,7 @@ func (s *Service) SetRedirectURIs(ctx context.Context, uris []string) (Client, e
 	if err != nil {
 		return Client{}, disabledIfMissing(err)
 	}
+	s.auditor.Record(ctx, clientEvent(audit.MCPSetRedirectURIs, audit.Details{"redirect_uris": strings.Join(cleaned, " ")}))
 	return client, nil
 }
 
@@ -176,6 +183,7 @@ func (s *Service) CreateAPIToken(ctx context.Context, request APITokenRequest) (
 		return "", Token{}, err
 	}
 	s.logger.Info("mcp api token created", "token_id", token.ID, "name", token.Name, "scope", string(scope), "expires_at", expiresAt)
+	s.auditor.Record(ctx, apiTokenEvent(token))
 	return secret.cleartext, token, nil
 }
 
@@ -213,6 +221,7 @@ func (s *Service) RevokeAll(ctx context.Context) (Revoked, error) {
 		return Revoked{}, err
 	}
 	s.logger.Warn("mcp tokens revoked", "api_tokens", revoked.APITokens, "sessions", revoked.Sessions)
+	s.auditor.Record(ctx, revokeAllEvent(revoked))
 	return revoked, nil
 }
 
@@ -221,6 +230,7 @@ func (s *Service) RevokeToken(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("mcp token revoked", "token_id", id)
+	s.auditor.Record(ctx, audit.Event{Action: audit.MCPTokenRevoke, ObjectID: id})
 	return nil
 }
 
@@ -234,6 +244,7 @@ func (s *Service) RevokeSession(ctx context.Context, familyID string) error {
 		return err
 	}
 	s.logger.Info("mcp session revoked", "family_id", familyID)
+	s.auditor.Record(ctx, audit.Event{Action: audit.MCPSessionRevoke, ObjectID: familyID})
 	return nil
 }
 

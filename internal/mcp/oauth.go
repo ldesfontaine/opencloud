@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
@@ -80,6 +81,7 @@ func (s *Service) Authorize(ctx context.Context, request AuthorizeRequest) (stri
 		return "", err
 	}
 	s.logger.Info("mcp authorization code issued")
+	s.auditor.Record(ctx, audit.Event{Action: audit.MCPSessionAuthorize, Details: audit.Details{"redirect_uri": request.RedirectURI}})
 	return code.cleartext, nil
 }
 

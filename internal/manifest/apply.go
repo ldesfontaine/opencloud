@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -220,6 +221,9 @@ func (m *Manifest) Apply(ctx context.Context, request Request, actor Actor) (App
 	if err != nil {
 		return Apply{}, plan, err
 	}
+	// Chaque objet écrit va au journal d'audit par le geste de son domaine,
+	// sous l'acteur de l'apply et lié à sa ligne.
+	ctx = audit.WithApply(audit.WithActor(ctx, actor.auditActor()), record.ID)
 	return m.run(ctx, record, plan), plan, nil
 }
 

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -51,6 +52,7 @@ type testServer struct {
 	notifier   *alert.Notifier
 	access     *mcp.Service
 	operator   *auth.Service
+	journal    *audit.Recorder
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -167,6 +169,18 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	operator.SetClock(func() time.Time { return testNow })
 	// Le coût minimal de bcrypt : le coût réel ferait durer chaque test.
 	operator.SetHashCost(bcrypt.MinCost)
+	// Le journal d'audit, branché comme dans serve.
+	journal := audit.New(db, logger)
+	journal.SetClock(func() time.Time { return testNow })
+	preferences.SetAuditor(journal)
+	machines.SetAuditor(journal)
+	heartbeats.SetAuditor(journal)
+	probes.SetAuditor(journal)
+	declared.SetAuditor(journal)
+	statusPage.SetAuditor(journal)
+	alerts.SetAuditor(journal)
+	access.SetAuditor(journal)
+	operator.SetAuditor(journal)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -201,7 +215,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
