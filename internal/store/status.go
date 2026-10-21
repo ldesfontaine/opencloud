@@ -304,7 +304,8 @@ func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]sta
 		where = ` WHERE status != 'resolved' OR resolved_at >= ?`
 		args = append(args, resolvedSince.Unix())
 	}
-	rows, err := db.sql.QueryContext(ctx, `SELECT `+incidentColumns+` FROM incidents`+where+` ORDER BY created_at DESC, rowid DESC`, args...)
+	query := `SELECT ` + incidentColumns + ` FROM incidents` + where + ` ORDER BY created_at DESC, rowid DESC` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list incidents: %w", err)
 	}
@@ -316,7 +317,7 @@ func (db *DB) ListIncidents(ctx context.Context, resolvedSince time.Time) ([]sta
 	// requête par incident.
 	var scope string
 	if where != "" {
-		scope = `WHERE incident_id IN (SELECT id FROM incidents` + where + `)`
+		scope = `WHERE incident_id IN (SELECT id FROM incidents` + where + `)` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
 	}
 	if err := db.attachIncidentParts(ctx, incidents, scope, args); err != nil {
 		return nil, err
@@ -372,9 +373,8 @@ func (db *DB) attachIncidentParts(ctx context.Context, incidents []status.Incide
 		incidents[index].Components = []status.ComponentRef{}
 		incidents[index].Updates = []status.Update{}
 	}
-	components, err := db.sql.QueryContext(ctx, `
-		SELECT ic.incident_id, c.id, c.name FROM incident_components ic JOIN status_components c ON c.id = ic.component_id
-		`+where+` ORDER BY c.position, c.name, c.id`, args...) // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	componentsQuery := `SELECT ic.incident_id, c.id, c.name FROM incident_components ic JOIN status_components c ON c.id = ic.component_id ` + where + ` ORDER BY c.position, c.name, c.id` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	components, err := db.sql.QueryContext(ctx, componentsQuery, args...)
 	if err != nil {
 		return fmt.Errorf("list incident components: %w", err)
 	}
@@ -387,8 +387,8 @@ func (db *DB) attachIncidentParts(ctx context.Context, incidents []status.Incide
 			incidents[index].Components = append(incidents[index].Components, ref.ComponentRef)
 		}
 	}
-	rows, err := db.sql.QueryContext(ctx, `
-		SELECT incident_id, id, status, message, created_at FROM incident_updates `+where+` ORDER BY created_at DESC, id DESC`, args...) // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	updatesQuery := `SELECT incident_id, id, status, message, created_at FROM incident_updates ` + where + ` ORDER BY created_at DESC, id DESC` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, updatesQuery, args...)
 	if err != nil {
 		return fmt.Errorf("list incident updates: %w", err)
 	}
