@@ -50,7 +50,7 @@ compile par compilation croisée, sans test sur une vraie machine arm64 à ce jo
 Pour essayer sur votre poste. L'installation sur un serveur est dans
 [docs/installation.md](docs/installation.md).
 
-Il faut Go 1.26.9 ou plus, Node.js 20.19 ou plus, `make` et `git`.
+Il faut Go 1.26.10 ou plus, Node.js 20.19 ou plus, `make` et `git`.
 
 ```sh
 git clone https://github.com/ldesfontaine/opencloud.git
