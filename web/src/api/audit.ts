@@ -48,6 +48,18 @@ export function auditPath(before: number | null, object: AuditObject | null): st
   return query === "" ? "/api/audit" : `/api/audit?${query}`;
 }
 
+// Où en est l'envoi du journal vers les canaux : combien le reçoivent,
+// combien de livraisons sont en échec. Le sujet du direct est « alerts »
+// (cocher un canal le publie), que topicsOf devine du chemin.
+export interface AuditForwarding {
+  channels: number;
+  failing: number;
+}
+
+export function useAuditForwarding(): Resource<AuditForwarding> {
+  return useResource<AuditForwarding>("/api/audit/forwarding");
+}
+
 export function useAudit(before: number | null, object: AuditObject | null): Resource<AuditResponse> {
   return useResource<AuditResponse>(auditPath(before, object));
 }

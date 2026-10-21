@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { ActionsResponse, ActionRun, RunLine } from "./actions";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
-import type { AuditResponse } from "./audit";
+import type { AuditForwarding, AuditResponse } from "./audit";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -399,6 +399,7 @@ const channels = shape<ChannelsResponse>("ChannelsResponse", {
     has_secret: value,
     min_severity: value,
     notify_resolve: value,
+    receives_audit: value,
     enabled: value,
     plain: value,
     created_at: value,
@@ -693,6 +694,8 @@ const audit = shape<AuditResponse>("AuditResponse", {
   next_before: value,
 });
 
+const auditForwarding = shape<AuditForwarding>("AuditForwarding", { channels: value, failing: value });
+
 const actions = shape<ActionsResponse>("ActionsResponse", {
   runs: shape<ActionRun>("ActionRun", {
     id: value,
@@ -729,6 +732,7 @@ const contract: Record<string, Shape<unknown>> = {
   "alert_mutes.golden.json": mutes,
   "alerts.golden.json": alerts,
   "audit.golden.json": audit,
+  "audit_forwarding.golden.json": auditForwarding,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,
   "containers.golden.json": containers,

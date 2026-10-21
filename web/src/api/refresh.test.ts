@@ -35,6 +35,11 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/actions?machine=m1&limit=10")).toEqual(["actions"]);
   });
 
+  it("rereads the audit forwarding state when a channel changes, the journal itself on demand only", () => {
+    expect(topicsOf("/api/audit/forwarding")).toEqual(["alerts"]);
+    expect(topicsOf("/api/audit?before=40")).toEqual([]);
+  });
+
   it("keeps the observed containers on the containers topic", () => {
     expect(topicsOf("/api/machines/m1/containers")).toEqual(["containers"]);
   });

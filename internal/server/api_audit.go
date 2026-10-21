@@ -55,6 +55,21 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
+// auditForwardingJSON dit où en est l'envoi du journal : combien de canaux le
+// reçoivent, combien de ses livraisons sont en échec.
+type auditForwardingJSON struct {
+	Channels int `json:"channels"`
+	Failing  int `json:"failing"`
+}
+
+func (s *Server) auditForwarding(w http.ResponseWriter, r *http.Request) {
+	channels, failing, err := s.reader.CountAuditForwarding(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, auditForwardingJSON{Channels: channels, Failing: failing})
+}
+
 // auditQueryOf lit les paramètres ; un nombre illisible ou une sorte
 // d'objet inconnue est un refus, pas un filtre ignoré.
 func auditQueryOf(values url.Values) (audit.Query, bool) {

@@ -288,6 +288,7 @@ export interface ChannelFormValues {
   clearSecret: boolean;
   minSeverity: AlertSeverity;
   notifyResolve: boolean;
+  receivesAudit: boolean;
   enabled: boolean;
 }
 
@@ -300,6 +301,7 @@ export const emptyChannelForm: ChannelFormValues = {
   clearSecret: false,
   minSeverity: "attention",
   notifyResolve: true,
+  receivesAudit: false,
   enabled: true,
 };
 
@@ -314,6 +316,7 @@ export function channelFormOf(channel: Channel): ChannelFormValues {
     clearSecret: false,
     minSeverity: channel.min_severity,
     notifyResolve: channel.notify_resolve,
+    receivesAudit: channel.receives_audit,
     enabled: channel.enabled,
   };
 }
@@ -328,6 +331,7 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
     clear_secret: values.clearSecret,
     min_severity: values.minSeverity,
     notify_resolve: values.notifyResolve,
+    receives_audit: values.receivesAudit,
     enabled: values.enabled,
   };
 }

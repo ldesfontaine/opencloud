@@ -13,6 +13,9 @@ const (
 	// EventSummary dit combien d'envois la limite de débit a retenus ; il
 	// n'est la livraison d'aucune alerte.
 	EventSummary Event = "summary"
+	// EventAudit est la livraison d'un événement du journal d'audit ; pas
+	// dans Events() : elle n'appartient à aucune alerte.
+	EventAudit Event = "audit"
 )
 
 func Events() []Event {
@@ -42,8 +45,10 @@ func DeliveryStatuses() []DeliveryStatus {
 // deux fois. En échec, elle porte l'heure de son essai suivant, que le
 // balayage rejoue ; zéro, elle est abandonnée.
 type Delivery struct {
-	ID        int64
-	AlertID   int64
+	ID      int64
+	AlertID int64
+	// AuditID est l'événement du journal livré ; zéro pour une alerte.
+	AuditID   int64
 	ChannelID int64
 	Event     Event
 	Status    DeliveryStatus

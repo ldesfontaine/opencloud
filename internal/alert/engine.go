@@ -55,6 +55,14 @@ type Store interface {
 	// ListDueDeliveries rend les livraisons en échec dont le prochain essai
 	// est échu à cet instant.
 	ListDueDeliveries(ctx context.Context, at time.Time) ([]Delivery, error)
+
+	// Les livraisons du journal d'audit : réservées avec l'événement (voir
+	// audit.Store), jouées ici comme celles des alertes.
+	ListAuditDeliveries(ctx context.Context, auditID int64) ([]Delivery, error)
+	ListPendingAuditDeliveries(ctx context.Context) ([]Delivery, error)
+	ListDueAuditDeliveries(ctx context.Context, at time.Time) ([]Delivery, error)
+	UpdateAuditDelivery(ctx context.Context, delivery Delivery) error
+	GetAuditEvent(ctx context.Context, id int64) (audit.Event, error)
 }
 
 var ErrDeliveryExists = errors.New("alert: delivery already reserved")
@@ -90,6 +98,14 @@ type Engine struct {
 	// chaque machine sur chaque canal ; sous mu.
 	limits map[int64]*channelLimit
 	shares map[shareKey]*sendWindow
+	// Au démarrage, Requeue et ForwardAuditEvent peuvent voir la même
+	// livraison du journal en attente : celle d'un événement écrit pendant
+	// que Requeue liste. auditClaimed note qui l'a prise, l'autre la saute ;
+	// une fois Requeue passé, il ne garde que les livraisons du démarrage.
+	// Sous auditMu, jamais sous mu.
+	auditMu       sync.Mutex
+	auditRequeued bool
+	auditClaimed  map[int64]bool
 }
 
 func New(store Store, logger *slog.Logger) *Engine {

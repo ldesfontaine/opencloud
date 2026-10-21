@@ -149,6 +149,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/auth/actions/disable", s.disableAuth},
 		{"PUT", "/api/auth/password", s.changeAuthPassword},
 		{"GET", "/api/audit", s.listAudit},
+		{"GET", "/api/audit/forwarding", s.auditForwarding},
 		{"GET", "/api/actions", s.listActions},
 		{"GET", "/api/agents/server-key", s.getServerKey},
 		{anyMethod, "/api/", s.apiUnknown},

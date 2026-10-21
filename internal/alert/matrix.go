@@ -45,7 +45,14 @@ func matrixBody(title string, text Text, link, openLabel string) (Body, error) {
 // un test en tire un neuf.
 func matrixTransactionID(delivery Delivery) (string, error) {
 	if delivery.ID != 0 {
-		return brand.MatrixTransactionPrefix + strconv.FormatInt(delivery.ID, 10) + "-" + strconv.FormatInt(delivery.CreatedAt.Unix(), 10), nil
+		// Deux tables, deux suites d'identifiants : sans « audit- », une
+		// livraison du journal pourrait égaler celle d'une alerte, et le
+		// serveur d'accueil jetterait le message comme un doublon.
+		prefix := brand.MatrixTransactionPrefix
+		if delivery.Event == EventAudit {
+			prefix += "audit-"
+		}
+		return prefix + strconv.FormatInt(delivery.ID, 10) + "-" + strconv.FormatInt(delivery.CreatedAt.Unix(), 10), nil
 	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {

@@ -119,6 +119,7 @@ POST /api/auth/actions/enable
 POST /api/auth/actions/disable
 PUT /api/auth/password
 GET /api/audit
+GET /api/audit/forwarding
 GET /api/actions
 GET /api/agents/server-key
 * /api/

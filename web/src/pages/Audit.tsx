@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { useAudit, type AuditEvent, type AuditObject } from "../api/audit";
+import { useAudit, useAuditForwarding, type AuditEvent, type AuditObject } from "../api/audit";
 import { Button } from "../components/Button";
-import { Card, EmptyCard } from "../components/Card";
+import { Card, EmptyCard, Note } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
 import { Table } from "../components/Table";
@@ -22,6 +22,7 @@ export function Audit() {
   const [cursors, setCursors] = useState<number[]>([]);
   const before = cursors.at(-1) ?? null;
   const audit = useAudit(before, followed);
+  const forwarding = useAuditForwarding().data;
   const events = audit.data?.events ?? [];
   const nextBefore = audit.data?.next_before ?? null;
 
@@ -33,6 +34,8 @@ export function Audit() {
   return (
     <>
       <PageHead title={t("audit.title")} subtitle={t("audit.subtitle")} />
+      {forwarding?.channels === 0 && <Note tone="warn">{t("audit.forwarding_none")}</Note>}
+      {forwarding && forwarding.failing > 0 && <Note tone="danger">{t("audit.forwarding_failing", forwarding.failing)}</Note>}
       {followed !== null && (
         <div className="audit-filter">
           <span>{t("audit.following", t(`audit.object_${followed.kind}`), followed.name)}</span>

@@ -151,3 +151,47 @@ func TestActorFrom_EmptyContextIsUnknown(t *testing.T) {
 		t.Fatalf("actor: %+v", got)
 	}
 }
+
+// forwardedEvents garde ce que le Recorder confie à l'envoi.
+type forwardedEvents struct {
+	events []audit.Event
+}
+
+func (f *forwardedEvents) ForwardAuditEvent(_ context.Context, event audit.Event) {
+	f.events = append(f.events, event)
+}
+
+// L'envoi reçoit l'événement tel qu'il est écrit : son identifiant en base,
+// et des détails déjà nettoyés (aucun secret ne sort par là).
+func TestRecord_ForwardsTheWrittenEventWithItsID(t *testing.T) {
+	recorder, db, _ := newRecorder(t)
+	forwarded := &forwardedEvents{}
+	recorder.SetForwarder(forwarded)
+	ctx := audit.WithActor(context.Background(), audit.Operator("lucas"))
+	recorder.Record(ctx, audit.Event{Action: audit.ChannelUpdate, ObjectID: "1", ObjectName: "chat", Details: audit.Details{
+		"webhook_url": "https://hooks.example.org/x", "format": "discord", "destination": "",
+	}})
+	if len(forwarded.events) != 1 {
+		t.Fatalf("%d événements confiés, 1 attendu", len(forwarded.events))
+	}
+	got := forwarded.events[0]
+	written := listAll(t, db)[0]
+	if got.ID == 0 || got.ID != written.ID {
+		t.Errorf("identifiant : %d, la base a %d", got.ID, written.ID)
+	}
+	if len(got.Details) != 1 || got.Details["format"] != "discord" {
+		t.Errorf("détails non nettoyés : %v", got.Details)
+	}
+	if got.Actor != audit.Operator("lucas") || got.ObjectKind != audit.ObjectChannel || !got.At.Equal(testNow) {
+		t.Errorf("événement : %+v", got)
+	}
+}
+
+func TestRecord_WithoutForwarder_StillWrites(t *testing.T) {
+	recorder, db, _ := newRecorder(t)
+	ctx := audit.WithActor(context.Background(), audit.Operator("lucas"))
+	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1"})
+	if events := listAll(t, db); len(events) != 1 {
+		t.Fatalf("events: %+v", events)
+	}
+}

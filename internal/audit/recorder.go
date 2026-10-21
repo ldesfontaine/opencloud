@@ -20,16 +20,24 @@ const (
 // Store est ce que le journal attend de la base ; le paquet store le
 // fournit. Rien n'y modifie une ligne : on ajoute, on purge par l'âge.
 type Store interface {
-	InsertAuditEvent(ctx context.Context, event Event) error
+	// InsertAuditEvent écrit la ligne et rend son identifiant.
+	InsertAuditEvent(ctx context.Context, event Event) (int64, error)
 	PurgeAuditEvents(ctx context.Context, before time.Time) (int64, error)
+}
+
+// Forwarder reçoit l'événement écrit, avec son identifiant : les alertes le
+// livrent aux canaux qui reçoivent le journal. nil est toléré.
+type Forwarder interface {
+	ForwardAuditEvent(ctx context.Context, event Event)
 }
 
 // Recorder écrit le journal. Un *Recorder nil ne fait rien : un composant
 // sans journal branché (un test, une commande) continue sans lui.
 type Recorder struct {
-	store  Store
-	logger *slog.Logger
-	now    func() time.Time
+	store     Store
+	logger    *slog.Logger
+	now       func() time.Time
+	forwarder Forwarder
 }
 
 func New(store Store, logger *slog.Logger) *Recorder {
@@ -38,6 +46,11 @@ func New(store Store, logger *slog.Logger) *Recorder {
 
 func (r *Recorder) SetClock(now func() time.Time) {
 	r.now = now
+}
+
+// SetForwarder branche l'envoi du journal vers les canaux ; nil est toléré.
+func (r *Recorder) SetForwarder(forwarder Forwarder) {
+	r.forwarder = forwarder
 }
 
 // Record écrit l'événement d'un geste qui vient de réussir, avec l'acteur
@@ -57,8 +70,14 @@ func (r *Recorder) Record(ctx context.Context, event Event) {
 	}
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer cancel()
-	if err := r.store.InsertAuditEvent(writeCtx, event); err != nil {
+	id, err := r.store.InsertAuditEvent(writeCtx, event)
+	if err != nil {
 		r.logger.Error("record audit event", "action", string(event.Action), "object_id", event.ObjectID, "error", err)
+		return
+	}
+	event.ID = id
+	if r.forwarder != nil {
+		r.forwarder.ForwardAuditEvent(writeCtx, event)
 	}
 }
 

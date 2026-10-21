@@ -196,6 +196,7 @@ describe("channelFormOf et channelRequestOf", () => {
     has_secret: true,
     min_severity: "danger",
     notify_resolve: false,
+    receives_audit: true,
     enabled: true,
     plain: false,
     created_at: "2026-10-01T10:00:00Z",
@@ -211,6 +212,7 @@ describe("channelFormOf et channelRequestOf", () => {
       clear_secret: false,
       min_severity: "danger",
       notify_resolve: false,
+      receives_audit: true,
       enabled: true,
     });
   });
@@ -223,5 +225,10 @@ describe("channelFormOf et channelRequestOf", () => {
 
   it("partent d'un canal JSON actif, qui prévient du retour à la normale", () => {
     expect(channelRequestOf(emptyChannelForm)).toMatchObject({ format: "json", min_severity: "attention", notify_resolve: true, enabled: true });
+  });
+
+  it("ne donnent pas le journal à un nouveau canal : il se coche", () => {
+    expect(channelRequestOf(emptyChannelForm).receives_audit).toBe(false);
+    expect(channelRequestOf({ ...emptyChannelForm, receivesAudit: true }).receives_audit).toBe(true);
   });
 });

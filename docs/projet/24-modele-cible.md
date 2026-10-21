@@ -482,7 +482,8 @@ erDiagram
         INTEGER id PK
         INTEGER audit_id FK
         INTEGER channel_id FK
-        TEXT status
+        TEXT status "pending, delivered, failed"
+        INTEGER next_attempt_at "essais jusqu a 24 h"
     }
     machines |o--o{ alerts : "set null"
     declared_services |o--o{ alerts : "set null"
@@ -647,7 +648,7 @@ flowchart LR
 | `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles, faites (`002_actions.sql`, section 16), sans `service_id` |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
 | `audit_events` | Qui, quoi, quand, sur quoi, les champs du geste sans secret. Sans clé étrangère vers l'objet : survit à tout. Ajout seul, purgé à un an | Nouvelle, faite (migration `029_audit.sql`, sans `run_id` : voir la section 12) |
-| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, à faire après le journal (section 12) |
+| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, **faite** (`004`, section 18) |
 | `accounts`, `sessions` | Compte local créé au premier démarrage ; page de connexion avec déconnexion. Comptes multiples et rôles plus tard | Nouvelles |
 | `auth_settings` | SSO de l'interface : forward-auth (existe), OIDC (à ajouter), secret chiffré | Transformée |
 | `settings` | Tout ce que l'interface change (décision 1), une seule ligne à colonnes typées (comme `auth_settings`), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` ; **faite** (`019`) |
@@ -778,7 +779,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres. **Pas encore** : la `034` garde `incident_components` (section 15) | Gardé |
 | `incident_updates` | Gardée | — | Gardé |
 | `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi. **Fait** (032), sauf `run_id` | Gardé |
-| `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` ; `name` unique (clé du YAML) ; + `channel_projects` | — |
+| `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` (**fait**, `004`) ; `name` unique (clé du YAML) ; + `channel_projects` | — |
 | `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré. **Fait** (032) | Gardé |
 | `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables. **Fait** (032) | Gardé |
 | `mcp_clients`, `mcp_codes`, `mcp_tokens` | Gardées | Désactivation en une transaction ; `mcp_codes.client_id` en FK ; `mcp_codes.scope`, la portée consentie sur la page de consentement (migration 033). Les demandes qui attendent le consentement restent en mémoire, pas en base | — |
@@ -1114,7 +1115,7 @@ journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
 | **Acteurs : `operator`, `mcp`, `cli`, `rule`, `agent`, plus `unknown`** ; `system` n'existe pas | Ce que serve fait de lui-même (boucles, démarrage) est une `rule` ; la commande locale a son mot, comme dans `applies` ; `unknown` montre un geste appelé sans acteur au lieu de le taire |
 | **L'acteur voyage dans le contexte**, posé par qui le connaît, lu par le `Recorder` | Les quelque quarante gestes gardent leur signature ; un oubli s'écrit `unknown` et se voit |
 | **Pas encore de `run_id`** | `action_runs` n'existe pas ; la colonne viendra avec elle (`ALTER TABLE … ADD COLUMN run_id TEXT REFERENCES action_runs (id) ON DELETE SET NULL`, que SQLite accepte sans reconstruire) |
-| **Pas encore d'`audit_deliveries` ni de `receives_audit`** | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
+| **Pas encore d'`audit_deliveries` ni de `receives_audit`** *(fait depuis : `004`, section 18)* | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
 | **Ajout seul, tenu par la base** : un déclencheur refuse toute modification d'une ligne, hors la mise à nul de `apply_id` par sa clé étrangère ; la seule suppression est la purge à un an (`audit.Retention`) | Un défaut de code ne réécrit pas l'histoire ; qui a la base en main la réécrit quand même, d'où l'envoi aux canaux à venir |
 | **Écrit après le geste, hors de sa transaction** ; un échec d'écriture est journalisé en erreur et ne défait pas le geste | Ne pas toucher aux transactions de chaque domaine ; les actions typées écriront leur `action_runs` avant d'envoyer l'ordre |
 
@@ -1218,3 +1219,22 @@ déclare ». Ce que le code a tranché :
 | --- | --- |
 | `needs_review` et `declared_by = migration` sont retirés (migration `003`) ; la valeur `migration` est réécrite en `operator` avant que la colonne tombe | Plus rien ne crée un service sans l'opérateur depuis le schéma unique : le drapeau, l'action **Valider**, le commentaire d'export et la ligne du journal ne servaient plus qu'à une reprise qui n'existe plus |
 | `declared_by` est gardé, avec une seule valeur : `operator` | La découverte automatique l'étendra, sans reconstruire la table (pas de `CHECK`) ; en attendant, c'est une colonne quasi constante |
+
+## 18. Ce que l'envoi du journal a fixé
+
+La migration `004_audit_deliveries.sql` (`alert_channels.receives_audit`,
+`audit_deliveries`). Le fonctionnement est dans `22-fonctionnement.md`, « Le
+journal d'audit › Envoi aux canaux ». Ce que le code a tranché, et son écart
+au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`audit_deliveries` porte les colonnes d'essai d'`alert_deliveries`** (`attempts`, `reason`, `code`, `updated_at`, `next_attempt_at`), en plus du diagramme | Le même notifieur note l'issue de la même façon ; un `UNIQUE (audit_id, channel_id)` remplace l'index à trois colonnes (pas d'événement par livraison) |
+| **Réservée dans la transaction de l'événement** (`InsertAuditEvent`) | Rien ne se perd à une coupure ; les lignes `pending` sont rejouées au démarrage, sans doubler celles que le processus a déjà confiées |
+| **Même notifieur, même `alert.Delivery`** (un `AuditID`), `alert.EventAudit` hors de `alert.Events()` | Une file, des ouvriers, des essais ; le journal n'est la livraison d'aucune alerte, et `alert_deliveries.event` garde son CHECK |
+| **Un seul essai dans l'ouvrier**, les suivants par la base, jusqu'à 24 h | Un `apply` de 200 objets ne doit pas retarder les alertes |
+| **Ni silence, ni limite de débit, ni seuil** | « Taire » et la limite visent les alertes ; le journal part entier |
+| **Pas de rattrapage du passé** | Un canal coché reçoit ce qui s'écrit après ; renvoyer un an de journal serait un autre geste |
+| **Sans notifieur, les livraisons attendent** (`opencloud mcp`, commandes hors ligne) | Le prochain `serve` les rejoue ; aucune écriture n'est perdue |
+| **Identifiant de transaction Matrix préfixé `audit-`** | Deux tables, deux suites : sans le préfixe, deux livraisons pourraient s'appeler pareil et Matrix jetterait la seconde |
+| **L'état se lit au journal** (`GET /api/audit/forwarding`), sans fiche par livraison | Deux nombres suffisent à dire « aucun canal » et « des envois échouent » ; le détail est au journal du serveur |

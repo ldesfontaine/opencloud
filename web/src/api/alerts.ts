@@ -121,6 +121,8 @@ export interface Channel {
   has_secret: boolean;
   min_severity: AlertSeverity;
   notify_resolve: boolean;
+  // Le canal reçoit aussi le journal d'audit.
+  receives_audit: boolean;
   enabled: boolean;
   // L'URL est en http : le canal parle en clair.
   plain: boolean;
@@ -171,6 +173,7 @@ export interface ChannelRequest {
   clear_secret: boolean;
   min_severity: AlertSeverity;
   notify_resolve: boolean;
+  receives_audit: boolean;
   enabled: boolean;
 }
 

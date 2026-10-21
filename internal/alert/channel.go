@@ -68,6 +68,8 @@ type Channel struct {
 	MinSeverity Severity
 	// NotifyResolve : prévenir aussi quand l'alerte se résout.
 	NotifyResolve bool
+	// ReceivesAudit : le canal reçoit aussi le journal d'audit.
+	ReceivesAudit bool
 	Enabled       bool
 	CreatedAt     time.Time
 }
@@ -92,6 +94,7 @@ type ChannelDefinition struct {
 	ClearSecret   bool
 	MinSeverity   Severity
 	NotifyResolve bool
+	ReceivesAudit bool
 	Enabled       bool
 }
 
