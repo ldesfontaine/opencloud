@@ -77,7 +77,7 @@ func TestLoadKey_RefusesAnOpenOrDamagedFile(t *testing.T) {
 func TestSign_SignsTheBytesThatTravel(t *testing.T) {
 	key := GenerateKey()
 	order := Order{RunID: "r1", MachineID: "m1", AgentID: "a1", Kind: agentwire.KindAgentPing, NotAfter: time.Unix(1700000000, 0), Seq: 7}
-	signed, err := key.Sign(order)
+	signed, err := key.Sign(order, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +94,46 @@ func TestSign_SignsTheBytesThatTravel(t *testing.T) {
 	}
 	if ed25519.Verify(key.PublicKey(), signed.Body, signed.Signature) {
 		t.Fatal("the signature holds without its domain label")
+	}
+}
+
+// La rotation : la neuve signe, la précédente signe encore pour un agent
+// resté sur elle ; le fichier porte les deux, puis la neuve seule. Une seule
+// rotation à la fois.
+func TestKey_RotationSignsWithTheKeyTheAgentPinned(t *testing.T) {
+	root := openRoot(t)
+	old := GenerateKey()
+	rotated, err := old.Rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rotated.Rotated(); !errors.Is(err, ErrRotationPending) {
+		t.Fatalf("a second rotation: %v", err)
+	}
+	if err := SaveKey(root, rotated); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadKey(root)
+	if err != nil || loaded.Fingerprint() != rotated.Fingerprint() || loaded.PreviousFingerprint() != old.Fingerprint() {
+		t.Fatalf("loaded %q/%q %v", loaded.Fingerprint(), loaded.PreviousFingerprint(), err)
+	}
+	order := Order{RunID: "r", Kind: agentwire.KindAgentPing, NotAfter: time.Unix(1, 0)}
+	forOld, _ := loaded.Sign(order, old.Fingerprint())
+	forNew, _ := loaded.Sign(order, loaded.Fingerprint())
+	if forOld.Key != old.Fingerprint() || !ed25519.Verify(old.PublicKey(), agentwire.OrderSigningBytes(forOld.Body), forOld.Signature) {
+		t.Fatal("an agent on the previous key does not get its signature")
+	}
+	if forNew.Key != loaded.Fingerprint() || !ed25519.Verify(loaded.PublicKey(), agentwire.OrderSigningBytes(forNew.Body), forNew.Signature) {
+		t.Fatal("an agent on the new key does not get its signature")
+	}
+	finished, err := loaded.Finished()
+	if err != nil || finished.PreviousFingerprint() != "" || finished.Fingerprint() != loaded.Fingerprint() {
+		t.Fatalf("finished %v", err)
+	}
+	if _, err := finished.Finished(); !errors.Is(err, ErrNoRotation) {
+		t.Fatalf("finishing twice: %v", err)
+	}
+	if signed, _ := finished.Sign(order, old.Fingerprint()); signed.Key != finished.Fingerprint() {
+		t.Fatal("after the rotation, the previous key still signs")
 	}
 }

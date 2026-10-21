@@ -215,3 +215,14 @@ func (b *lockedBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.data.String()
 }
+
+// L'agent ne sonde jamais plus vite que MinInterval, quoi que le jeu reçu
+// dise : le serveur valide déjà, l'agent ne s'y fie pas.
+func TestTask_IntervalHasAFloorOnTheAgent(t *testing.T) {
+	cases := map[int]time.Duration{0: DefaultInterval, 1: MinInterval, 29: MinInterval, 30: 30 * time.Second, 3600: time.Hour}
+	for seconds, want := range cases {
+		if got := (Task{IntervalSeconds: seconds}).interval(); got != want {
+			t.Errorf("%d s: %v, want %v", seconds, got, want)
+		}
+	}
+}

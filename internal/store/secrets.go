@@ -164,6 +164,51 @@ func (db *DB) VerifySealedSecrets(ctx context.Context) error {
 	return nil
 }
 
+// ResealSecrets rescelle chaque secret de la base avec la clé qui scelle,
+// dans une seule transaction : le temps d'une rotation, le Sealer ouvre avec
+// l'ancienne clé et scelle avec la neuve. Un secret qui ne s'ouvre pas
+// annule tout. Rend le nombre de secrets rescellés.
+func (db *DB) ResealSecrets(ctx context.Context) (int, error) {
+	if db.sealer == nil {
+		return 0, ErrNoSealer
+	}
+	resealed := 0
+	err := db.inTx(ctx, "resealing secrets", func(tx *sql.Tx) error {
+		for _, target := range secretColumns {
+			stored, err := readSecretColumn(ctx, tx, target)
+			if err != nil {
+				return err
+			}
+			for _, entry := range stored {
+				if err := db.resealOne(ctx, tx, target, entry); err != nil {
+					return err
+				}
+				resealed++
+			}
+		}
+		return nil
+	})
+	return resealed, err
+}
+
+func (db *DB) resealOne(ctx context.Context, tx *sql.Tx, target secretColumn, entry storedSecret) error {
+	scope := seal.Scope{Table: target.table, Column: target.column, Row: entry.row}
+	plaintext, err := db.openSecret(entry.value, scope)
+	if err != nil {
+		return err
+	}
+	sealed, err := db.sealSecret(plaintext, scope)
+	if err != nil {
+		return err
+	}
+	// Table et colonne viennent de secretColumns, jamais d'une saisie.
+	query := `UPDATE ` + target.table + ` SET ` + target.column + ` = ? WHERE CAST(id AS TEXT) = ?` // #nosec G202 -- constantes du paquet.
+	if _, err := tx.ExecContext(ctx, query, sealed, entry.row); err != nil {
+		return fmt.Errorf("reseal %s.%s: %w", target.table, target.column, err)
+	}
+	return nil
+}
+
 // writeHeartbeatToken pose le jeton d'une tâche, chiffré, avec l'empreinte
 // par laquelle un ping le retrouve : les deux colonnes s'écrivent ensemble
 // ou pas du tout.

@@ -1,4 +1,4 @@
-import { pingAgent, useMachineActions, useServerKey, type ActionRun, type ActionState } from "../api/actions";
+import { pingAgent, pinnedKeyState, useMachineActions, useServerKey, type ActionRun, type ActionState } from "../api/actions";
 import type { Agent } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
@@ -81,18 +81,20 @@ export function ActionsCard({ machineID, agent, online }: { machineID: string; a
 }
 
 // La clé que l'agent dit avoir épinglée, comparée à celle de ce serveur :
-// une autre clé, ou aucune, fera refuser chaque ordre.
+// une autre clé, ou aucune, fera refuser chaque ordre. La précédente, pendant
+// une rotation, est encore bonne : l'agent reçoit la neuve à sa connexion.
 function PinnedKey({ agent }: { agent: Agent }) {
   const t = useT();
   const serverKey = useServerKey();
   if (agent.server_key_fingerprint === "") {
     return <KeyValue label={t("action.server_key")} value={t("action.server_key_none")} />;
   }
-  const differs = serverKey.data !== null && serverKey.data.fingerprint !== agent.server_key_fingerprint;
+  const pinned = pinnedKeyState(serverKey.data, agent.server_key_fingerprint);
   return (
     <>
       <KeyValue label={t("action.server_key")} value={agent.server_key_fingerprint} mono />
-      {differs && serverKey.data && <Note tone="danger">{t("action.server_key_differs", serverKey.data.fingerprint)}</Note>}
+      {pinned === "previous" && serverKey.data && <Note tone="warn">{t("action.server_key_previous", serverKey.data.fingerprint)}</Note>}
+      {pinned === "differs" && serverKey.data && <Note tone="danger">{t("action.server_key_differs", serverKey.data.fingerprint)}</Note>}
     </>
   );
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -109,18 +110,57 @@ func (r *orderRunner) keepSeq(seq int64) bool {
 }
 
 // execute fait ce que l'ordre demande. agent.ping ne change rien : il dit
-// que l'ordre est arrivé, vérifié, et quel agent l'a pris. Un geste dont
-// l'exécution n'est pas encore écrite est refusé, même avec son droit.
+// que l'ordre est arrivé, vérifié, et quel agent l'a pris. agent.server_key
+// épingle la clé neuve du serveur. Un geste dont l'exécution n'est pas encore
+// écrite est refusé, même avec son droit.
 func (r *orderRunner) execute(body agentwire.OrderBody) agentwire.ActionResult {
-	if body.Kind != agentwire.KindAgentPing {
-		r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
-		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}
+	switch body.Kind {
+	case agentwire.KindAgentPing:
+		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+		return agentwire.ActionResult{
+			RunID: body.RunID, State: agentwire.ActionSucceeded,
+			Output: []agentwire.OutputLine{{Stream: "stdout", Line: "pong " + r.version}},
+		}
+	case agentwire.KindServerKey:
+		return r.pinServerKey(body)
 	}
-	r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
+	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}
+}
+
+// pinServerKey remplace la clé du serveur épinglée par celle que l'ordre
+// livre. L'ordre a été signé par la clé épinglée jusqu'ici : c'est elle qui
+// passe la main. Les ordres suivants sont vérifiés avec la neuve.
+func (r *orderRunner) pinServerKey(body agentwire.OrderBody) agentwire.ActionResult {
+	var params agentwire.ServerKeyParams
+	if err := json.Unmarshal(body.Params, &params); err != nil {
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
+	}
+	key, err := base64.StdEncoding.DecodeString(params.PublicKey)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
+	}
+	updated := r.identity
+	updated.ServerKey = key
+	if err := SaveIdentity(r.stateDir, updated); err != nil {
+		r.logger.Error("pin server key", "run_id", body.RunID, "error", err)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonStateUnwritable}
+	}
+	r.identity = updated
+	fingerprint := agentwire.KeyFingerprint(key)
+	r.logger.Info("server key pinned", "run_id", body.RunID, "server_key", fingerprint)
 	return agentwire.ActionResult{
 		RunID: body.RunID, State: agentwire.ActionSucceeded,
-		Output: []agentwire.OutputLine{{Stream: "stdout", Line: "pong " + r.version}},
+		Output: []agentwire.OutputLine{{Stream: "stdout", Line: "pinned " + fingerprint}},
 	}
+}
+
+// serverKey rend la clé du serveur épinglée en ce moment : l'ouverture du
+// flux la redit, et une rotation l'a peut-être changée depuis le démarrage.
+func (r *orderRunner) serverKey() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.identity.ServerKey
 }
 
 func (r *orderRunner) refuse(runID, reason string) {

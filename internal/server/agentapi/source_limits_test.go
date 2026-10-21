@@ -2,11 +2,11 @@ package agentapi
 
 import "testing"
 
-// Deux adresses d'un même /64 sont une seule source pour le défi : un
-// attaquant en IPv6 ne change pas de seau en changeant d'adresse.
-func TestChallengeLimits_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
-	limits := newBench(t).handler.challengeLimit
-	for i := range challengePerSourceBurst {
+// Deux adresses d'un même /64 sont une seule source : un attaquant en IPv6
+// ne change pas de seau en changeant d'adresse.
+func TestSourceLimits_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
+	limits := newBench(t).handler.sourceLimit
+	for i := range perSourceBurst {
 		if !limits.Allow("2001:db8:9:9::1") {
 			t.Fatalf("request %d of the burst refused", i+1)
 		}

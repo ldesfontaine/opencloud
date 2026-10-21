@@ -16,6 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -32,6 +33,7 @@ type bench struct {
 	url       string
 	machines  *machine.Service
 	actions   *action.Service
+	serverKey *action.Key
 	db        *store.DB
 	resources *resource.Service
 	stateDir  *os.Root
@@ -53,7 +55,8 @@ func newBench(t *testing.T) *bench {
 	updates := update.New(db, logger)
 	// Les ordres : signés par une clé tirée pour le banc, poussés par le flux.
 	actions := action.New(db, machines, logger)
-	actions.SetKey(action.GenerateKey())
+	serverKey := action.GenerateKey()
+	actions.SetKey(serverKey)
 	actions.SetAuditor(audit.New(db, logger))
 	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions})
 	if err != nil {
@@ -67,7 +70,7 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { agentRoot.Close() })
-	return &bench{url: server.URL, machines: machines, actions: actions, db: db, resources: resources, stateDir: agentRoot, logger: logger}
+	return &bench{url: server.URL, machines: machines, actions: actions, serverKey: serverKey, db: db, resources: resources, stateDir: agentRoot, logger: logger}
 }
 
 // Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
@@ -295,6 +298,43 @@ func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 	<-done
 }
 
+// La rotation de la clé du serveur, de bout en bout : l'agent a épinglé
+// l'ancienne ; le serveur redémarre avec une neuve devant elle ; à la
+// reconnexion, l'agent reçoit la neuve sous la signature de l'ancienne,
+// l'épingle, et les ordres suivants, signés par la neuve, passent.
+func TestRun_FollowsARotationOfTheServerKey(t *testing.T) {
+	b := newBench(t)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nantes-3", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, b.options(token)) }()
+	online := b.waitFor(t, "vps-nantes-3", func(s machine.Status) bool { return s.Online && s.Agent.ServerKeyFingerprint != "" })
+	cancel()
+	<-done
+	b.waitFor(t, "vps-nantes-3", func(s machine.Status) bool { return !s.Online })
+
+	rotated, err := b.serverKey.Rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.actions.SetKey(rotated)
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	go func() { done <- Run(ctx, b.options("")) }()
+	b.waitFor(t, "vps-nantes-3", func(s machine.Status) bool { return s.Agent.ServerKeyFingerprint == rotated.Fingerprint() })
+	identity, err := LoadIdentity(b.stateDir)
+	if err != nil || identity.ServerKeyFingerprint() != rotated.Fingerprint() {
+		t.Fatalf("the agent did not pin the new key: %v", err)
+	}
+	sent, err := b.actions.Ping(audit.WithActor(context.Background(), audit.Operator("lucas")), online.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.waitForRun(t, sent.ID, action.StateSucceeded)
+	cancel()
+	<-done
+}
+
 // Les droits s'appliquent des deux côtés : le serveur ne pousse pas un ordre
 // dont l'agent n'a pas rapporté le droit (409, rien d'écrit) ; un agent qui
 // a le droit juge lui-même, et son refus revient au serveur, journalisé.
@@ -344,6 +384,63 @@ func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+// Une ligne plus longue que le tampon du lecteur, ou un événement plus long
+// que MaxEventBytes, coupe le flux ; des lignes « data: » se recollent sans
+// séparateur.
+func TestReadEvent_IsBoundedAndJoinsDataLines(t *testing.T) {
+	reader := bufio.NewReaderSize(strings.NewReader("event: probes\ndata: {\"a\":\ndata: 1}\n\n"), agentwire.MaxEventLineBytes)
+	name, data, err := readEvent(reader)
+	if err != nil || name != "probes" || data != `{"a":1}` {
+		t.Fatalf("%q %q %v", name, data, err)
+	}
+	long := "event: probes\ndata: " + strings.Repeat("a", agentwire.MaxEventLineBytes) + "\n\n"
+	if _, _, err := readEvent(bufio.NewReaderSize(strings.NewReader(long), agentwire.MaxEventLineBytes)); !errors.Is(err, ErrEventTooLarge) {
+		t.Fatalf("long line: %v", err)
+	}
+	var many strings.Builder
+	many.WriteString("event: probes\n")
+	line := "data: " + strings.Repeat("a", agentwire.EventDataLine) + "\n"
+	for written := 0; written <= agentwire.MaxEventBytes; written += agentwire.EventDataLine {
+		many.WriteString(line)
+	}
+	many.WriteString("\n")
+	if _, _, err := readEvent(bufio.NewReaderSize(strings.NewReader(many.String()), agentwire.MaxEventLineBytes)); !errors.Is(err, ErrEventTooLarge) {
+		t.Fatalf("large event: %v", err)
+	}
+}
+
+// Une redirection n'est pas suivie : ni l'enrôlement ni le flux ne partent
+// ailleurs que vers le serveur donné, et la redirection se lit comme un
+// refus.
+func TestClient_DoesNotFollowARedirect(t *testing.T) {
+	elsewhere := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { elsewhere++ }))
+	defer target.Close()
+	redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer redirecting.Close()
+	client, err := NewClient(redirecting.URL, "", "v", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := NewIdentity(redirecting.URL, "", lang.French, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, enrollErr := client.Enroll(context.Background(), identity, "oc_x", hostinfo.Info{})
+	_, streamErr := client.OpenStream(context.Background(), identity)
+	for name, err := range map[string]error{"enroll": enrollErr, "stream": streamErr} {
+		var refused *ServerError
+		if !errors.As(err, &refused) || refused.Status != http.StatusTemporaryRedirect {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if elsewhere != 0 {
+		t.Fatalf("%d requests followed the redirect", elsewhere)
+	}
 }
 
 func TestReadEvent_ParsesEventsAndSkipsComments(t *testing.T) {

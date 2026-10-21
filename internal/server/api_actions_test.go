@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
 // seedActions écrit deux runs finis sur la machine distante, à identifiants
@@ -166,7 +168,65 @@ func TestActions_ServerKeyIsServed(t *testing.T) {
 		t.Fatalf("server key: %d %s", got.Code, got.Body.String())
 	}
 	_, fingerprint, _ := server.actions.ServerKey()
-	if key.Fingerprint != fingerprint || key.PublicKey == "" {
+	if key.Fingerprint != fingerprint || key.PublicKey == "" || key.PreviousFingerprint != nil {
 		t.Fatalf("key %+v, want %s", key, fingerprint)
+	}
+	if !strings.Contains(got.Body.String(), `"previous_fingerprint":null`) {
+		t.Fatalf("outside a rotation, the previous key is null: %s", got.Body.String())
+	}
+}
+
+// La rotation de la clé du serveur, de bout en bout côté serveur : un agent
+// qui ouvre son flux sur la clé précédente reçoit la neuve, par un ordre que
+// la précédente signe ; sa réponse fait noter la neuve, qu'il redit à la
+// connexion suivante, et ses ordres sont dès lors signés par elle.
+func TestActions_ServerKeyRotationReachesAnAgentOnThePreviousKey(t *testing.T) {
+	server := newTestServer(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	old := testServerKey(t)
+	rotated, err := old.Rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.actions.SetKey(rotated)
+
+	resp, session, agentStream, cancel := servertest.OpenStreamPinned(t, server.Server, enrolled.ID, private, old.Fingerprint())
+	signed, err := agentwire.DecodeSignedOrder([]byte(readCommand(t, agentStream, agentwire.EventOrder)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signed.Key != old.Fingerprint() || !ed25519.Verify(old.PublicKey(), agentwire.OrderSigningBytes(signed.Body), signed.Signature) {
+		t.Fatal("the new key is not delivered under the previous one")
+	}
+	var body agentwire.OrderBody
+	var params agentwire.ServerKeyParams
+	if json.Unmarshal(signed.Body, &body) != nil || json.Unmarshal(body.Params, &params) != nil ||
+		body.Kind != agentwire.KindServerKey || params.PublicKey != base64.StdEncoding.EncodeToString(rotated.PublicKey()) {
+		t.Fatalf("order %s", signed.Body)
+	}
+	key := callAPI(server.Server, http.MethodGet, "/api/agents/server-key", nil)
+	if !strings.Contains(key.Body.String(), `"previous_fingerprint":"`+old.Fingerprint()+`"`) {
+		t.Fatalf("the rotation does not show: %s", key.Body.String())
+	}
+	report := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: body.RunID, State: agentwire.ActionSucceeded}}}
+	if got := server.agentPost(session, "/agent/signal", agentwire.SignalRequest{Actions: &report}); got.Code != http.StatusNoContent {
+		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
+	}
+	if status, _ := server.machines.Get(context.Background(), remoteID); status.Agent.ServerKeyFingerprint != rotated.Fingerprint() {
+		t.Fatalf("pinned %q", status.Agent.ServerKeyFingerprint)
+	}
+	cancel()
+	resp.Body.Close()
+
+	// Reconnecté sur la neuve : rien à livrer, le ping est signé par elle.
+	resp, _, agentStream, cancel = servertest.OpenStreamPinned(t, server.Server, enrolled.ID, private, rotated.Fingerprint())
+	defer resp.Body.Close()
+	defer cancel()
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/"+remoteID+"/actions/ping", map[string]any{}); got.Code != http.StatusCreated {
+		t.Fatalf("ping: %d %s", got.Code, got.Body.String())
+	}
+	signed, err = agentwire.DecodeSignedOrder([]byte(readCommand(t, agentStream, agentwire.EventOrder)))
+	if err != nil || signed.Key != rotated.Fingerprint() || !strings.Contains(string(signed.Body), `"kind":"agent.ping"`) {
+		t.Fatalf("after the rotation: %+v %v", signed, err)
 	}
 }

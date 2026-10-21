@@ -88,6 +88,9 @@ const (
 	// Précède le corps d'un ordre dans ce que la clé du serveur signe : une
 	// signature d'ordre ne vaut pour rien d'autre.
 	OrderSignatureDomain = "opencloud-order/v1\x00"
+	// Précède ce que l'agent signe pour ouvrir son flux (protocole 2) : la
+	// preuve ne vaut pour rien d'autre.
+	AgentProofDomain = "opencloud-agent-proof/v2\x00"
 )
 
 // Les préfixes de jetons : reconnaissables dans un journal ou un

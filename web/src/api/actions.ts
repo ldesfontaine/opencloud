@@ -42,6 +42,9 @@ export interface ActionsResponse {
 export interface ServerKey {
   public_key: string;
   fingerprint: string;
+  // La clé précédente, le temps d'une rotation : un agent resté dessus
+  // reçoit la neuve à l'ouverture de son flux. null hors rotation.
+  previous_fingerprint: string | null;
 }
 
 // Les derniers ordres d'une machine, ce que sa fiche montre.
@@ -53,6 +56,14 @@ export function actionsPath(machineID: string): string {
 
 export function useMachineActions(machineID: string): Resource<ActionsResponse> {
   return useResource<ActionsResponse>(() => actionsPath(machineID));
+}
+
+// Où en est la clé épinglée par rapport à celle du serveur ; « current »
+// tant que la clé du serveur n'est pas lue.
+export function pinnedKeyState(key: ServerKey | null, pinned: string): "current" | "previous" | "differs" {
+  if (key === null || key.fingerprint === pinned) return "current";
+  if (key.previous_fingerprint === pinned) return "previous";
+  return "differs";
 }
 
 export function useServerKey(): Resource<ServerKey> {

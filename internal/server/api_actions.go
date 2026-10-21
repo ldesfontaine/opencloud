@@ -57,6 +57,9 @@ type actionsResponse struct {
 type serverKeyJSON struct {
 	PublicKey   string `json:"public_key"`
 	Fingerprint string `json:"fingerprint"`
+	// La clé précédente, le temps d'une rotation : un agent qui l'a épinglée
+	// reçoit la neuve à l'ouverture de son flux. null hors rotation.
+	PreviousFingerprint *string `json:"previous_fingerprint"`
 }
 
 func actionRunToJSON(run action.Run) actionRunJSON {
@@ -141,5 +144,8 @@ func (s *Server) getServerKey(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, serverKeyJSON{PublicKey: base64.StdEncoding.EncodeToString(public), Fingerprint: fingerprint})
+	s.writeAPI(w, http.StatusOK, serverKeyJSON{
+		PublicKey: base64.StdEncoding.EncodeToString(public), Fingerprint: fingerprint,
+		PreviousFingerprint: stringOrNil(s.actions.PreviousServerKey()),
+	})
 }

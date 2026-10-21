@@ -148,6 +148,11 @@ const (
 	MCPSessionRevoke    Action = "mcp_session.revoke"
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
+	// La clé de chiffrement changée, chaque secret rescellé ; la clé qui
+	// signe les ordres changée, puis la précédente retirée.
+	SecretsRotate          Action = "secrets.rotate"            // #nosec G101 -- un nom, pas un secret.
+	SecretsRotateServerKey Action = "secrets.rotate_server_key" // #nosec G101 -- un nom, pas un secret.
+	SecretsFinishServerKey Action = "secrets.finish_server_key" // #nosec G101 -- un nom, pas un secret.
 
 	// Un ordre écrit et signé, avant de partir vers l'agent ; refusé par
 	// l'agent, avec sa raison.
@@ -177,7 +182,7 @@ func Actions() []Action {
 		MCPEnable, MCPDisable, MCPRegenerateSecret, MCPSetRedirectURIs,
 		MCPTokenCreate, MCPTokenRevoke,
 		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
-		SecretsForget,
+		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
 		ActionOrder, ActionRefused,
 	}
 }

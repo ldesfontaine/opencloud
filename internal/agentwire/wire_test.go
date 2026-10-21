@@ -24,8 +24,6 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 		{"enroll request without fingerprint", EnrollRequest{MachineID: "m"},
 			`{"machine_id":"m","public_key":"","token":"","hostname":"","os":"","arch":"","agent_version":""}`},
 		{"enroll response", EnrollResponse{MachineID: "m", Name: "n", AgentID: "a", ServerKey: "k"}, `{"machine_id":"m","name":"n","agent_id":"a","server_key":"k"}`},
-		{"challenge request", ChallengeRequest{MachineID: "m"}, `{"machine_id":"m"}`},
-		{"challenge response", ChallengeResponse{Nonce: "n"}, `{"nonce":"n"}`},
 		{"empty signal", SignalRequest{}, `{}`},
 		{"full signal", SignalRequest{
 			Readings: []sampler.Reading{{SampledAt: time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)}},
@@ -81,6 +79,7 @@ func TestWire_HeaderNamesAreFrozen(t *testing.T) {
 		HeaderAgentRights:    "OpenCloud-Agent-Rights",
 		HeaderSignalSections: "OpenCloud-Signal-Sections",
 		HeaderServerKey:      "OpenCloud-Server-Key",
+		HeaderProtocol:       "OpenCloud-Agent-Protocol",
 	}
 	for got, name := range want {
 		if got != name {

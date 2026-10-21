@@ -334,7 +334,7 @@ func mustLoad(t *testing.T, root *os.Root) *seal.Keyring {
 }
 
 func TestSecretsCommand_RefusesAMissingOrUnknownSubcommand(t *testing.T) {
-	for _, args := range [][]string{nil, {"rotate"}} {
+	for _, args := range [][]string{nil, {"renew"}} {
 		err := secretsCommand(args, &bytes.Buffer{})
 		var refused *refusal
 		if !errors.As(err, &refused) {

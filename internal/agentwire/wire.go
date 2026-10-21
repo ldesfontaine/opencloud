@@ -8,10 +8,15 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
-// Ce que l'agent et le serveur échangent en JSON pour l'enrôlement et le
-// défi ; les clés et octets voyagent en base64 standard. Les en-têtes
-// portent la preuve signée qui ouvre le flux.
+// Ce que l'agent et le serveur échangent en JSON pour l'enrôlement ; les
+// clés et octets voyagent en base64 standard. Les en-têtes portent la
+// preuve signée qui ouvre le flux : l'aléa que l'agent a tiré, l'horodatage
+// et la signature des deux (machine.SignedPayload).
 const (
+	// La version du protocole, posée par l'agent sur chaque requête. Le
+	// serveur refuse un agent qui ne la pose pas, ou une autre :
+	// 426 protocol_unsupported.
+	HeaderProtocol     = brand.HeaderPrefix + "Agent-Protocol"
 	HeaderMachine      = brand.HeaderPrefix + "Machine"
 	HeaderNonce        = brand.HeaderPrefix + "Nonce"
 	HeaderTimestamp    = brand.HeaderPrefix + "Timestamp"
@@ -34,7 +39,17 @@ const (
 	HeaderServerKey = brand.HeaderPrefix + "Server-Key"
 )
 
+// ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1
+// avait un défi émis par le serveur (/agent/challenge) ; le 2 le retire.
+const ProtocolVersion = "2"
+
 const (
+	// CodeProtocolUnsupported : l'agent ne parle pas la version du serveur.
+	// Il s'arrête : seul un binaire de la même version le ramène.
+	CodeProtocolUnsupported = "protocol_unsupported"
+	// CodeReplayed : cette preuve a déjà ouvert un flux. L'agent en signe
+	// une autre, avec un aléa neuf.
+	CodeReplayed = "replayed"
 	// CodeRevoked : l'agent a prouvé sa clé, mais il est révoqué. Il
 	// s'arrête.
 	CodeRevoked = "revoked"
@@ -69,13 +84,15 @@ type EnrollResponse struct {
 	ServerKey string `json:"server_key"`
 }
 
-type ChallengeRequest struct {
-	MachineID string `json:"machine_id"`
-}
-
-type ChallengeResponse struct {
-	Nonce string `json:"nonce"`
-}
+// Les bornes du flux serveur → agent : une ligne SSE, un événement. Un
+// contenu long part en plusieurs lignes « data: » d'au plus EventDataLine
+// octets, que l'agent recolle sans séparateur : le JSON du serveur ne porte
+// jamais de saut de ligne, la découpe ne change rien à ce qu'il dit.
+const (
+	EventDataLine     = 32 << 10
+	MaxEventLineBytes = 64 << 10
+	MaxEventBytes     = 1 << 20
+)
 
 // Ce que l'agent envoie avec son signal : les lectures de la machine faites
 // depuis le signal précédent, ce que son Docker a montré, et ce que ses

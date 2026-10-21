@@ -24,6 +24,8 @@ func Explain(err error, text lang.Catalog) (string, bool) {
 	// l'opérateur qui a révoqué l'agent.
 	case errors.As(err, &refused) && refused.Code == agentwire.CodeRevoked:
 		return text.Get("agent.revoked"), true
+	case errors.As(err, &refused) && refused.Code == agentwire.CodeProtocolUnsupported:
+		return text.Get("agent.protocol_unsupported"), true
 	case errors.Is(err, ErrIdentityRefused):
 		return text.Get("agent.identity_refused"), true
 	case errors.Is(err, ErrPlainRefused):

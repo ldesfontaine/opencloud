@@ -109,12 +109,13 @@ func (o Order) encode() ([]byte, error) {
 }
 
 // RightOf rend le droit qu'un genre exige de l'agent (décision 9) : observe
-// pour ce qui lit et pour agent.ping, qui ne change rien ; pour un geste, son
-// droit. Le serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé,
+// pour ce qui lit, pour agent.ping, qui ne change rien, et pour
+// agent.server_key, qui ne touche que la confiance de l'agent envers ce
+// serveur ; pour un geste, son droit. Le serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé,
 // l'agent pour refuser. Un genre inconnu n'en a aucun : rien ne le permet.
 func RightOf(kind agentwire.Kind) (string, bool) {
 	switch kind {
-	case agentwire.KindLogs, agentwire.KindLogsStop, agentwire.KindProbes, agentwire.KindImages, agentwire.KindAgentPing:
+	case agentwire.KindLogs, agentwire.KindLogsStop, agentwire.KindProbes, agentwire.KindImages, agentwire.KindAgentPing, agentwire.KindServerKey:
 		return machine.CapabilityObserve, true
 	case agentwire.KindAgentUpdate:
 		return machine.CapabilityAgentUpdate, true

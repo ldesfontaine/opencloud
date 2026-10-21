@@ -306,3 +306,32 @@ func TestForgetSecrets_EmptiesWhatWasLostAndRenewsPingTokens(t *testing.T) {
 		t.Fatalf("replay: %d channels, %d tokens, %v", again, tokensAgain, err)
 	}
 }
+
+// La rotation de secret.key : avec la neuve devant l'ancienne, chaque
+// secret se rescelle avec la neuve ; ensuite la neuve seule ouvre tout,
+// l'ancienne plus rien.
+func TestResealSecrets_MovesEverySecretToTheNewKey(t *testing.T) {
+	db := openSecretsDB(t)
+	ctx := context.Background()
+	old := seal.Generate()
+	db.SetSealer(old)
+	insertSealedRows(t, db)
+
+	rotating := old.WithNewKey()
+	db.SetSealer(rotating)
+	resealed, err := db.ResealSecrets(ctx)
+	if err != nil || resealed != 4 {
+		t.Fatalf("resealed %d: %v", resealed, err)
+	}
+	db.SetSealer(rotating.Current())
+	if err := db.VerifySealedSecrets(ctx); err != nil {
+		t.Fatalf("the new key alone: %v", err)
+	}
+	if settings, err := db.LoadSettings(ctx); err != nil || settings.MailPassword != plainMailPassword {
+		t.Fatalf("settings after the rotation: %+v %v", settings, err)
+	}
+	db.SetSealer(old)
+	if err := db.VerifySealedSecrets(ctx); !errors.Is(err, ErrSecretUnreadable) {
+		t.Fatalf("the old key still opens: %v", err)
+	}
+}

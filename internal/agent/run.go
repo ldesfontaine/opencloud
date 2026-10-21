@@ -261,6 +261,9 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, pendi
 func connectOnce(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// La clé du serveur que le flux redit est celle épinglée en ce moment :
+	// une rotation l'a peut-être changée depuis le démarrage.
+	identity.ServerKey = pending.orders.serverKey()
 	stream, err := client.OpenStream(streamCtx, identity)
 	if err != nil {
 		return err

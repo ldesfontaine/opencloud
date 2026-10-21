@@ -107,6 +107,9 @@ Les sous-commandes :
 | `opencloud agent [options]` | L'agent d'une machine, voir [Ajouter une machine](#ajouter-une-machine) |
 | `opencloud auth status\|disable -config <chemin>` | L'état de l'authentification, ou la couper (mot de passe perdu) : l'interface revient à sa première configuration |
 | `opencloud secrets forget -config <chemin>` | Clé de chiffrement perdue : repart d'une clé neuve et oublie les secrets qu'elle chiffrait, voir [Clé perdue](#clé-perdue) |
+| `opencloud secrets rotate -config <chemin>` | Change la clé de chiffrement et rescelle chaque secret avec la neuve, serveur arrêté, voir [Faire tourner les clés](#faire-tourner-les-clés) |
+| `opencloud secrets rotate-server-key -config <chemin>` | Tire une clé neuve pour signer les ordres ; la précédente reste valable le temps que chaque agent reçoive la neuve |
+| `opencloud secrets finish-server-key [-force] -config <chemin>` | Retire la clé précédente une fois chaque agent passé à la neuve |
 | `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
 | `opencloud export [-config <chemin>] [-o <fichier>] [-propose]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), avec `-propose` y ajoute ce que les conteneurs non déclarés laissent deviner, voir [Exporter l'annuaire](#exporter-lannuaire) |
 | `opencloud apply [-config <chemin>] [-prune] [-yes] [-dry-run] <fichier>` | Applique un fichier YAML à l'annuaire, après avoir montré le plan et demandé confirmation, voir [Appliquer un fichier](#appliquer-un-fichier) |
@@ -712,12 +715,14 @@ identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
-reconnecte seul, avec un délai de 1 à 60 s. Un défi perdu ou expiré
-(`challenge_expired`, par exemple si `serve` a redémarré entre le défi et
-l'ouverture du flux) ne l'arrête pas non plus : il en redemande un. Il
-s'arrête, code de sortie 2, quand openCloud refuse son identité (machine
+reconnecte seul, avec un délai de 1 à 60 s, et signe à chaque fois une
+preuve neuve (un aléa qu'il tire, l'heure) : il n'a rien à demander au
+serveur avant. Il ne suit aucune redirection : un proxy qui répond par une
+3xx sur `/agent/…` le laisse hors ligne, il faut que `-server` vise
+l'adresse finale. Il s'arrête, code de sortie 2, quand openCloud refuse son identité (machine
 retirée, signature qui n'est plus celle de la clé enrôlée, `bad_proof`, ou
-agent révoqué, `revoked`) :
+agent révoqué, `revoked`), ou quand il ne parle pas la version du
+protocole du serveur (`protocol_unsupported`, voir [Mettre à jour](#mettre-à-jour)) :
 l'unité ne le relance pas (`RestartPreventExitStatus=2`) et `systemctl
 status` la montre `failed`, code 2. C'est voulu : il faut un nouveau jeton.
 
@@ -807,7 +812,8 @@ au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
 
 | Situation | Effet |
 | --- | --- |
-| Agent plus ancien que le serveur | Accepté. Le serveur ignore les sections du signal que l'agent n'envoie pas, et lui répond dans l'ancien format de refus |
+| Agent plus ancien que le serveur, même protocole | Accepté. Le serveur ignore les sections du signal que l'agent n'envoie pas, et lui répond dans l'ancien format de refus |
+| Agent d'un autre protocole | Refusé, `426 protocol_unsupported` : il reste hors ligne. Un agent du protocole 2 s'arrête (code 2) et dit d'installer le même binaire que sur la machine openCloud ; un agent du protocole 1 réessaie sans fin |
 | Commande du serveur inconnue de l'agent | Ignorée, une ligne `unknown command` au journal de l'agent |
 | Champ JSON inconnu dans ce que l'agent envoie | Ignoré par le serveur |
 | Serveur redémarré | Les agents se reconnectent seuls ; l'interface et les flux aussi |
@@ -820,8 +826,15 @@ fiche le dit. Ré-enrôlez-le (fiche › **Ré-enrôler**, puis la ligne
 d'installation sur la machine, `identity.json` supprimé) pour qu'il reçoive
 la clé.
 
-Il n'y a **pas de négociation de version** : rien n'empêche un agent plus
-récent que le serveur, mais ce cas n'est pas garanti. La colonne Agent de la
+**Le protocole 2 (#146) se passe d'un coup.** Chaque requête de l'agent
+annonce sa version (`OpenCloud-Agent-Protocol: 2`) et le serveur refuse
+toute autre : il n'y a **pas de négociation**. La preuve de l'agent a changé
+(plus de défi à demander, `/agent/challenge` n'existe plus) : un agent
+d'avant ne se connecte plus à un serveur à jour, et inversement. Mettez à
+jour le serveur, puis le binaire de chaque agent, sans rien ré-enrôler :
+l'identité se garde. Entre les deux, la machine est hors ligne. Au sein
+d'un même protocole, rien n'empêche un agent plus récent que le serveur,
+mais ce cas n'est pas garanti. La colonne Agent de la
 page Machines affiche la version de chaque agent ; tant qu'elle reste
 `v0.0.1`, elle ne distingue pas deux builds. `opencloud version` sur la
 machine donne le commit.
@@ -855,7 +868,8 @@ pings.
 ### Sauvegarder
 
 **La clé, une fois, à part.** `secret.key` ne change pas tant qu'on ne la
-remplace pas : copiez-la une fois dans un gestionnaire de mots de passe ou un
+remplace pas ni ne la fait tourner (après `secrets rotate`, sauvegardez la
+neuve) : copiez-la une fois dans un gestionnaire de mots de passe ou un
 coffre, **pas à côté des sauvegardes de la base** (qui perdraient leur
 intérêt). La sauvegarde à chaud ci-dessous ne la contient pas ; la sauvegarde
 à froid (`tar` du dossier) l'inclut, protégez-la comme un secret.
@@ -865,7 +879,7 @@ cat /var/lib/opencloud/secret.key /var/lib/opencloud/server.key
 ```
 
 `server.key` se garde de même, une fois, à part : elle ne change pas non
-plus.
+plus, sauf rotation (sauvegardez-la après `finish-server-key`).
 
 La base est en mode WAL : copier `opencloud.db` seul pendant que `serve`
 tourne donne une copie incomplète. Deux façons sûres.
@@ -1077,6 +1091,55 @@ elle relit une sauvegarde plus ancienne de la base ; effacez-la sinon. Elle
 **refuse** si `secret.key` est présente, intacte et ouvre déjà tous les
 secrets (rien à oublier). Si elle échoue en route, relancez-la.
 
+### Faire tourner les clés
+
+**La clé de chiffrement, `secret.key`.** Serveur arrêté (la commande refuse
+s'il répond sur sa socket de contrôle ; lancé sans elle, elle ne le voit
+pas) :
+
+```sh
+systemctl stop opencloud
+runuser -u opencloud -- opencloud secrets rotate -config /etc/opencloud/config.toml
+systemctl start opencloud
+```
+
+Elle tire une clé neuve, la pose devant l'ancienne dans `secret.key`,
+rescelle chaque secret de la base en une transaction, puis ne garde que la
+neuve. L'ancienne est mise de côté sous `secret.key.rotated-<horodatage>` :
+elle ne rouvre plus cette base, mais elle relit une sauvegarde d'avant ;
+effacez-la quand ces sauvegardes ne servent plus. Interrompue, la commande
+se relance : un fichier à deux clés reprend où il s'était arrêté. Rien n'est
+perdu, aucune URL de ping ne change. Sauvegardez la clé neuve.
+
+**La clé qui signe les ordres, `server.key`.** En deux temps, sans arrêter
+les agents :
+
+```sh
+runuser -u opencloud -- opencloud secrets rotate-server-key -config /etc/opencloud/config.toml
+systemctl restart opencloud
+# Attendre que chaque agent se soit reconnecté, puis :
+runuser -u opencloud -- opencloud secrets finish-server-key -config /etc/opencloud/config.toml
+systemctl restart opencloud
+```
+
+La première tire une clé neuve et garde la précédente dans `server.key`.
+Après le redémarrage, les deux sont valables : à l'ouverture de son flux,
+chaque agent resté sur la précédente reçoit la neuve par l'ordre
+`agent.server_key`, signé par la précédente, et l'épingle ; la fiche de la
+machine (carte « Ordres ») le montre, le journal d'audit le garde. La
+seconde retire la précédente ; elle **refuse** tant qu'une machine dont
+l'agent est actif l'a encore épinglée, et la nomme : attendez qu'elle se
+reconnecte. `-force` passe outre, et ces machines sont à ré-enrôler. Une
+seule rotation à la fois. Sauvegardez la clé neuve.
+
+**Une clé du serveur volée** ne se remplace pas ainsi : la neuve est livrée
+sous la signature de l'ancienne, donc qui tient l'ancienne pourrait livrer
+la sienne. Arrêtez le serveur, supprimez `server.key` (il en tire une neuve
+au démarrage), puis ré-enrôlez chaque machine.
+
+**La clé d'un agent** (dans son `identity.json`) tourne en le ré-enrôlant :
+Machines → la machine → **Ré-enrôler**. La machine garde son historique.
+
 ## Désinstaller
 
 openCloud n'a rien modifié ailleurs : il n'écrit jamais dans Docker ni sur
@@ -1119,6 +1182,9 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent : « Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud. » | Service lancé avant l'enrôlement, ou `-state` différent | Faire le premier lancement avec le même `-state` |
 | Agent : « openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. » | Machine retirée, ou restauration d'une base plus ancienne | Ré-enrôler |
 | Agent : « Certificat refusé : ce n'est pas celui dont l'empreinte a été épinglée… » | Le certificat d'openCloud a changé, ou quelqu'un s'interpose | Vérifier l'empreinte, puis ré-enrôler avec la nouvelle |
+| Agent : « openCloud ne parle pas la version du protocole de cet agent… » ; la machine reste hors ligne | Agent et serveur de deux protocoles différents (un seul des deux mis à jour) | Installer sur la machine le même binaire que sur la machine openCloud, puis `systemctl restart opencloud-agent` |
+| `secrets rotate` : « un serveur tourne sur ce state_dir » | La rotation de `secret.key` demande le serveur arrêté | `systemctl stop opencloud`, relancer la commande, redémarrer |
+| `secrets finish-server-key` : « ces machines ont encore la clé précédente » | Leur agent ne s'est pas reconnecté depuis la rotation | Attendre leur connexion (redémarrer l'agent au besoin), ou `-force` et les ré-enrôler |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |
 | « L'agent n'a pas le droit de lire la socket Docker de cette machine. » | L'agent ne tourne pas en root | L'unité d'exemple le lance en root |
 | « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `-docker-socket` ne vise pas la bonne socket | Corriger le chemin dans l'unité de l'agent |

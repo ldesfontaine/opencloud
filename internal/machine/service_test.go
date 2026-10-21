@@ -200,17 +200,20 @@ func (h *harness) enrollWithKey(t *testing.T, cleartext string) (Machine, ed2551
 	return m, private
 }
 
+// prove signe une preuve neuve, comme l'agent : un aléa qu'il tire, la
+// machine, l'heure.
 func (h *harness) prove(t *testing.T, m Machine, private ed25519.PrivateKey, at time.Time) Proof {
 	t.Helper()
-	nonce, err := h.service.Challenge(context.Background(), m.ID)
+	return signedBy(t, m.ID, private, NewNonce(), at)
+}
+
+func signedBy(t *testing.T, machineID string, private ed25519.PrivateKey, nonce []byte, at time.Time) Proof {
+	t.Helper()
+	payload, err := SignedPayload(nonce, machineID, at.Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := SignedPayload(nonce, m.ID, at.Unix())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Proof{MachineID: m.ID, Nonce: nonce, Timestamp: at.Unix(), Signature: Sign(private, payload)}
+	return Proof{MachineID: machineID, Nonce: nonce, Timestamp: at.Unix(), Signature: Sign(private, payload)}
 }
 
 func TestCreateToken_RefusesABadName(t *testing.T) {
@@ -229,6 +232,13 @@ func TestCreateToken_RefusesABadName(t *testing.T) {
 	}
 }
 
+// size compte les couples retenus.
+func (n *nonces) size() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.seen)
+}
+
 func TestEnroll_RefusesBadIDAndKey(t *testing.T) {
 	h := newHarness(t)
 	public, _, _ := ed25519.GenerateKey(rand.Reader)
@@ -241,127 +251,73 @@ func TestEnroll_RefusesBadIDAndKey(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_AcceptsAFreshSignedChallengeOnce(t *testing.T) {
+// Protocole 2 : une preuve signée par l'agent ouvre un flux une fois ; la
+// même, rejouée, est refusée, et l'agent en signe une autre.
+func TestAuthenticate_AcceptsAFreshProofOnce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
 	proof := h.prove(t, m, private, h.now)
 	if _, err := h.service.Authenticate(context.Background(), proof); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.service.Authenticate(context.Background(), proof); !errors.Is(err, ErrBadNonce) {
+	if _, err := h.service.Authenticate(context.Background(), proof); !errors.Is(err, ErrReplayed) {
 		t.Fatalf("replayed proof: %v", err)
+	}
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, h.now)); err != nil {
+		t.Fatalf("a fresh nonce: %v", err)
 	}
 }
 
-func TestAuthenticate_RefusesSkewWrongKeyAndForeignNonce(t *testing.T) {
+// L'horloge, la clé, la machine et la forme de l'aléa se jugent ; une preuve
+// signée pour une machine ne vaut pas pour une autre.
+func TestAuthenticate_RefusesSkewWrongKeyForeignMachineAndBadNonce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
-
-	late := h.prove(t, m, private, h.now.Add(-10*time.Minute))
-	if _, err := h.service.Authenticate(context.Background(), late); !errors.Is(err, ErrClockSkew) {
-		t.Errorf("skew: %v", err)
+	for _, at := range []time.Time{h.now.Add(-6 * time.Minute), h.now.Add(6 * time.Minute)} {
+		if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, at)); !errors.Is(err, ErrClockSkew) {
+			t.Errorf("skew %v: %v", at.Sub(h.now), err)
+		}
 	}
 	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
-	forged := h.prove(t, m, wrong, h.now)
-	if _, err := h.service.Authenticate(context.Background(), forged); !errors.Is(err, ErrBadSignature) {
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, wrong, h.now)); !errors.Is(err, ErrBadSignature) {
 		t.Errorf("wrong key: %v", err)
 	}
 	other, _ := h.enroll(t, "vps-lyon-2")
-	stolen := h.prove(t, other, private, h.now)
-	stolen.MachineID = m.ID
-	if _, err := h.service.Authenticate(context.Background(), stolen); !errors.Is(err, ErrBadNonce) {
-		t.Errorf("foreign nonce: %v", err)
+	foreign := h.prove(t, other, private, h.now)
+	foreign.MachineID = m.ID
+	if _, err := h.service.Authenticate(context.Background(), foreign); !errors.Is(err, ErrBadSignature) {
+		t.Errorf("proof of another machine: %v", err)
 	}
-	h.now = h.now.Add(3 * time.Minute)
-	stale := Proof{MachineID: m.ID, Nonce: make([]byte, NonceSize), Timestamp: h.now.Unix()}
-	if _, err := h.service.Authenticate(context.Background(), stale); !errors.Is(err, ErrBadNonce) {
-		t.Errorf("unknown nonce: %v", err)
-	}
-}
-
-// signedBy signe un défi déjà émis, comme le fait l'agent entre le défi et
-// l'ouverture du flux.
-func signedBy(t *testing.T, m Machine, private ed25519.PrivateKey, challenge []byte, at time.Time) Proof {
-	t.Helper()
-	payload, err := SignedPayload(challenge, m.ID, at.Unix())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Proof{MachineID: m.ID, Nonce: challenge, Timestamp: at.Unix(), Signature: Sign(private, payload)}
-}
-
-// Le scénario de l'audit : des défis anonymes pour la même machine, entre
-// le défi de l'agent et son flux, ne lui prennent rien.
-func TestAuthenticate_AnonymousChallengesDoNotEvictTheAgentsOwn(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	agents, err := h.service.Challenge(context.Background(), m.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 8 {
-		if _, err := h.service.Challenge(context.Background(), m.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, agents, h.now)); err != nil {
-		t.Fatalf("the agent's challenge was displaced: %v", err)
+	short := signedBy(t, m.ID, private, NewNonce(), h.now)
+	short.Nonce = short.Nonce[:NonceSize-1]
+	if _, err := h.service.Authenticate(context.Background(), short); !errors.Is(err, ErrBadProof) {
+		t.Errorf("short nonce: %v", err)
 	}
 }
 
-func TestAuthenticate_RefusesAnExpiredChallenge(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	h.now = h.now.Add(challengeLifetime + time.Second)
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("expired challenge: %v", err)
-	}
-}
-
-func TestAuthenticate_RefusesAnAlteredChallenge(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	challenge[NonceSize-1] ^= 0x01
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("altered challenge: %v", err)
-	}
-}
-
-// Un défi émis avant le redémarrage du serveur n'est plus reconnu : l'agent
-// doit lire un défi à redemander, pas un refus d'identité.
-func TestAuthenticate_RefusesAChallengeIssuedBeforeARestart(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-
-	restarted := New(h.store, NewSessions(), slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	restarted.SetClock(func() time.Time { return h.now })
-	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("challenge from before the restart: %v", err)
-	}
-	fresh, _ := restarted.Challenge(context.Background(), m.ID)
-	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, fresh, h.now)); err != nil {
-		t.Fatalf("a fresh challenge after the restart: %v", err)
-	}
-}
-
-// Qui n'a pas la clé ne brûle pas le défi d'un autre : le défi n'est
-// marqué utilisé qu'une fois la signature vérifiée.
-func TestAuthenticate_AWrongSignatureDoesNotBurnTheChallenge(t *testing.T) {
+// Qui n'a pas la clé ne brûle pas l'aléa d'un autre : le couple n'est retenu
+// qu'une fois la signature vérifiée. Il est oublié quand son horodatage est
+// sorti de la tolérance.
+func TestAuthenticate_AWrongSignatureDoesNotBurnTheNonce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
 	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, wrong, challenge, h.now)); !errors.Is(err, ErrBadSignature) {
+	nonce := NewNonce()
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m.ID, wrong, nonce, h.now)); !errors.Is(err, ErrBadSignature) {
 		t.Fatalf("wrong key: %v", err)
 	}
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); err != nil {
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m.ID, private, nonce, h.now)); err != nil {
 		t.Fatalf("the agent's proof after a forged one: %v", err)
 	}
-	if got := h.service.challenges.size(); got != 1 {
-		t.Fatalf("%d used challenges, want only the successful one", got)
+	if got := h.service.nonces.size(); got != 1 {
+		t.Fatalf("%d nonces kept, want only the successful one", got)
+	}
+	h.now = h.now.Add(nonceMemory + nonceSweepInterval)
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, h.now)); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.service.nonces.size(); got != 1 {
+		t.Fatalf("%d nonces kept after the sweep, want only the newest", got)
 	}
 }
 

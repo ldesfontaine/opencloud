@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,9 +41,12 @@ type agentError struct {
 }
 
 func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
-	// Le même seau que le défi : un enrôlement légitime est rare, un flot
-	// d'enrôlements coûte une transaction chacun.
-	if !h.challengeLimit.Allow(h.clientAddress(r)) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	// Le même seau que l'ouverture du flux : un enrôlement légitime est rare,
+	// un flot d'enrôlements coûte une transaction chacun.
+	if !h.sourceLimit.Allow(h.clientAddress(r)) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
@@ -121,27 +125,25 @@ func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err e
 	}
 }
 
-func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
-	if !h.challengeLimit.Allow(h.clientAddress(r)) {
-		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
-		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+// speaksProtocol refuse un agent d'une autre version du protocole, en le
+// disant : 426 protocol_unsupported. Un agent du protocole 1 ne pose pas
+// l'en-tête.
+func (h *Handler) speaksProtocol(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get(agentwire.HeaderProtocol) == agentwire.ProtocolVersion {
+		return true
+	}
+	h.writeError(w, http.StatusUpgradeRequired, agentwire.CodeProtocolUnsupported)
+	return false
+}
+
+// unknown répond à un chemin d'agent que ce serveur ne sert pas : 426 pour
+// un agent d'une autre version (le défi du protocole 1 tombe ici), 404
+// sinon.
+func (h *Handler) unknown(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
 		return
 	}
-	var request agentwire.ChallengeRequest
-	if !h.readJSON(w, r, &request) {
-		return
-	}
-	nonce, err := h.machines.Challenge(r.Context(), request.MachineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		h.writeError(w, http.StatusNotFound, "machine_not_found")
-		return
-	}
-	if err != nil {
-		h.logger.Error("challenge", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	h.writeJSON(w, http.StatusOK, agentwire.ChallengeResponse{Nonce: base64.StdEncoding.EncodeToString(nonce)})
+	h.writeError(w, http.StatusNotFound, "not_found")
 }
 
 // Le flux d'une machine : la preuve est vérifiée, la session ouverte, puis
@@ -149,6 +151,14 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 // session ; ensuite un ping tient la connexion, et « closed » dit à l'agent
 // pourquoi le serveur raccroche.
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	if !h.sourceLimit.Allow(h.clientAddress(r)) {
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
+		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
 	proof, err := proofFromHeaders(r)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "bad_proof")
@@ -185,6 +195,15 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	// file que la boucle ci-dessous va lire.
 	h.probes.Assign(r.Context(), authenticated.ID)
 	h.updates.Assign(r.Context(), authenticated.ID)
+	// Pendant une rotation de la clé du serveur, un agent resté sur la
+	// précédente reçoit la neuve, par un ordre que la précédente signe. C'est
+	// serve qui le décide : une règle, au journal.
+	if h.actions != nil {
+		rekeyCtx := audit.WithActor(r.Context(), audit.Rule("server_key_rotation"))
+		if err := h.actions.Rekey(rekeyCtx, authenticated.ID); err != nil {
+			h.logger.Warn("rekey agent", "machine_id", authenticated.ID, "error", err)
+		}
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -206,11 +225,38 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case event := <-session.Events():
-			if err := httpx.WriteEvent(w, event.Name, string(event.Data)); err != nil {
+			if err := writeAgentEvent(w, event); err != nil {
 				return
 			}
 		}
 	}
+}
+
+// writeAgentEvent pousse un événement à l'agent, son contenu découpé en
+// lignes « data: » d'au plus agentwire.EventDataLine octets, que l'agent
+// recolle sans séparateur. Un contenu au-delà de MaxEventBytes ne part pas :
+// l'agent couperait le flux.
+func writeAgentEvent(w http.ResponseWriter, event machine.StreamEvent) error {
+	if len(event.Data) > agentwire.MaxEventBytes {
+		return fmt.Errorf("event %s: %d bytes, more than an agent reads", event.Name, len(event.Data))
+	}
+	var text strings.Builder
+	text.WriteString("event: " + event.Name + "\n")
+	for data := event.Data; ; {
+		line := data[:min(len(data), agentwire.EventDataLine)]
+		text.WriteString("data: ")
+		text.Write(line)
+		text.WriteString("\n")
+		data = data[len(line):]
+		if len(data) == 0 {
+			break
+		}
+	}
+	text.WriteString("\n")
+	if _, err := io.WriteString(w, text.String()); err != nil {
+		return err
+	}
+	return http.NewResponseController(w).Flush()
 }
 
 func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
@@ -219,11 +265,11 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusNotFound, "machine_not_found")
 	case errors.Is(err, machine.ErrClockSkew):
 		h.writeError(w, http.StatusUnauthorized, "clock_skew")
-	// Un défi expiré, déjà utilisé ou perdu au redémarrage n'est pas un refus
-	// d'identité : l'agent en redemande un. Seul bad_proof l'arrête.
-	case errors.Is(err, machine.ErrBadNonce):
-		h.writeError(w, http.StatusUnauthorized, "challenge_expired")
-	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
+	// Une preuve déjà servie n'est pas un refus d'identité : l'agent en signe
+	// une autre. Seul bad_proof l'arrête.
+	case errors.Is(err, machine.ErrReplayed):
+		h.writeError(w, http.StatusUnauthorized, agentwire.CodeReplayed)
+	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID), errors.Is(err, machine.ErrBadProof):
 		h.writeError(w, http.StatusUnauthorized, "bad_proof")
 	// L'agent a prouvé sa clé, mais l'opérateur l'a révoqué : il s'arrête,
 	// comme pour bad_proof. Un agent plus vieux ne connaît pas ce code et
@@ -387,8 +433,8 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {
 	nonce, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderNonce))
-	if err != nil {
-		return machine.Proof{}, fmt.Errorf("decode nonce: %w", err)
+	if err != nil || len(nonce) != machine.NonceSize {
+		return machine.Proof{}, fmt.Errorf("decode nonce: %w", machine.ErrBadProof)
 	}
 	signature, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderSignature))
 	if err != nil {
