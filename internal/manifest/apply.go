@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -106,47 +107,78 @@ func (m *Manifest) readCurrent(ctx context.Context) (Current, error) {
 	}, nil
 }
 
-// describeDeletions dit ce que chaque suppression emporte (l'historique d'une
-// sonde ou d'une tâche) et refuse celle d'un service qu'un composant de
-// statut vise : les composants ne sont pas dans le fichier, le plan ne peut
-// pas les détacher.
+// describeDeletions lit le plan de chaque suppression chez son domaine, celui
+// que l'interface montre et que le geste rejoue : ce qu'elle emporte
+// (l'historique d'une sonde ou d'une tâche) et ce qui la retient. Un
+// composant de statut n'est pas dans le fichier, qui ne peut pas l'en
+// détacher : la suppression est refusée dans le plan, avec la liste, plutôt
+// qu'arrêtée au milieu de l'écriture. Les sondes qui visent un service
+// supprimé ne comptent pas : le fichier les supprime ou les rattache ailleurs
+// avant lui.
 func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
 	for index := range plan.steps {
 		change := &plan.steps[index].change
 		if change.Action != ActionDelete {
 			continue
 		}
-		switch change.Kind {
-		case KindProbe:
-			results, days, err := m.deps.Reader.CountProbeHistory(ctx, change.ID)
-			if err != nil {
-				return fmt.Errorf("count probe history: %w", err)
-			}
-			change.Carries = countedCarries(Carry{What: CarryProbeResults, Count: results}, Carry{What: CarryProbeDays, Count: days})
-		case KindHeartbeat:
-			pings, runs, err := m.deps.Reader.CountHeartbeatHistory(ctx, change.ID)
-			if err != nil {
-				return fmt.Errorf("count heartbeat history: %w", err)
-			}
-			change.Carries = countedCarries(Carry{What: CarryHeartbeatPings, Count: pings}, Carry{What: CarryHeartbeatRuns, Count: runs})
-		case KindService:
-			links, err := m.deps.Reader.ListServiceLinks(ctx, change.ID)
-			if err != nil {
-				return fmt.Errorf("read service links: %w", err)
-			}
-			if len(links.Components) > 0 {
-				plan.Problems = append(plan.Problems, Problem{Key: KeyPruneBlocked, Path: change.Name, Value: componentNames(links.Components)})
-			}
+		found, err := m.deletionPlan(ctx, *change)
+		if err != nil {
+			return err
+		}
+		if change.Kind == KindProbe || change.Kind == KindHeartbeat {
+			change.Carries = historyCarries(found)
+		}
+		if names := blockingComponents(found); names != "" {
+			plan.Problems = append(plan.Problems, Problem{Key: KeyPruneBlocked, Path: change.Name, Value: names})
 		}
 		plan.Changes[index] = *change
 	}
 	return nil
 }
 
-func componentNames(components []directory.LinkedObject) string {
-	names := make([]string, 0, len(components))
-	for _, component := range components {
-		names = append(names, component.Name)
+// deletionPlan rend le plan de suppression d'un objet que --prune retire. Un
+// projet n'en a pas besoin : rien ne le retient, ses liens sont déjà comptés.
+func (m *Manifest) deletionPlan(ctx context.Context, change Change) (deletion.Plan, error) {
+	var found deletion.Plan
+	var err error
+	switch change.Kind {
+	case KindProbe:
+		found, err = m.deps.Probes.DeletePlan(ctx, change.ID)
+	case KindHeartbeat:
+		found, err = m.deps.Heartbeats.DeletePlan(ctx, change.ID)
+	case KindService:
+		found, err = m.deps.Directory.DeleteServicePlan(ctx, change.ID)
+	}
+	if err != nil {
+		return deletion.Plan{}, fmt.Errorf("read deletion plan of %s: %w", change.Label(), err)
+	}
+	return found, nil
+}
+
+// historyCarries dit l'historique qu'une suppression emporte, dans l'ordre du
+// plan du domaine.
+func historyCarries(found deletion.Plan) []Carry {
+	carries := []Carry{}
+	for _, removed := range found.Removes {
+		carries = append(carries, Carry{What: string(removed.Kind), Count: removed.Count})
+	}
+	return carries
+}
+
+// blockingComponents nomme les composants de statut qui retiennent la
+// suppression, vide s'il n'y en a pas.
+func blockingComponents(found deletion.Plan) string {
+	var names []string
+	for _, blocker := range found.Blockers {
+		if blocker.Kind != deletion.KindComponents {
+			continue
+		}
+		for _, object := range blocker.Objects {
+			names = append(names, object.Name)
+		}
+	}
+	if len(names) == 0 {
+		return ""
 	}
 	return joinLabels(names)
 }

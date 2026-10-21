@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { deleteJob, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
+import { deleteJob, fetchJobDeletePlan, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
@@ -235,24 +236,19 @@ function RunRow({ run, now }: { run: Run; now: number }) {
   );
 }
 
-// Modifier, mettre en pause, reprendre, supprimer après confirmation.
+// Modifier, mettre en pause, reprendre, supprimer après confirmation sur le
+// plan : la page de statut qui l'affiche la retient, ses pings partent.
 function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const action = useAction();
+  const [removing, setRemoving] = useState(false);
 
   const pause = () => {
     action.run(() => pauseJob(job.id), { topic: "all", onDone: reload });
   };
   const resume = () => {
     action.run(() => resumeJob(job.id), { topic: "all", onDone: reload });
-  };
-  const remove = () => {
-    action.run(() => deleteJob(job.id), {
-      confirm: t("job.delete_confirm", job.name),
-      topic: "all",
-      onDone: () => void navigate("/taches"),
-    });
   };
 
   return (
@@ -270,9 +266,20 @@ function Actions({ job, reload }: { job: Job; reload: () => void }) {
           {t("job.pause")}
         </Button>
       )}
-      <Button variant="danger" icon="x" onClick={remove}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("job.delete")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("job.delete_confirm", job.name)}
+          confirmLabel={t("job.delete")}
+          loadPlan={() => fetchJobDeletePlan(job.id)}
+          perform={() => deleteJob(job.id)}
+          topic="all"
+          onDone={() => void navigate("/taches")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

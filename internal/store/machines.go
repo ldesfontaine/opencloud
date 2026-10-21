@@ -63,19 +63,20 @@ func (db *DB) MachineExists(ctx context.Context, id string) (bool, error) {
 	return exists, nil
 }
 
-// DeleteMachine refuse une machine qui porte des services déclarés. Le
-// compte et la suppression sont dans la même transaction : sinon un service
-// déclaré entre les deux ferait échouer la suppression sur la clé étrangère,
-// en erreur brute.
+// DeleteMachine relit le plan de la machine et la supprime dans la même
+// transaction : tant que des services, des sondes, des tâches ou des membres
+// de la page de statut la retiennent, rien ne part et le refus porte le plan.
+// Un lien posé entre le plan affiché et la suppression ne passe pas ; la clé
+// étrangère en restrict reste le filet. Ce qu'elle a observé et mesuré part
+// avec elle (cascade), ses alertes restent, détachées.
 func (db *DB) DeleteMachine(ctx context.Context, id string) error {
 	return db.inTx(ctx, "delete machine", func(tx *sql.Tx) error {
-		var declared int
-		err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM declared_services WHERE machine_id = ?`, id).Scan(&declared)
+		plan, err := machineDeletionPlan(ctx, tx, id)
 		if err != nil {
-			return fmt.Errorf("count declared services: %w", err)
+			return err
 		}
-		if declared > 0 {
-			return machine.ErrHasDeclaredServices
+		if err := machine.RefuseDeletion(plan); err != nil {
+			return err
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND kind != 'local'`, id)
 		if err != nil {

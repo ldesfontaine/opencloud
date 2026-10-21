@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -36,7 +37,10 @@ type Store interface {
 	MachineExists(ctx context.Context, id string) (bool, error)
 	// DeclaredServiceExists dit si le service de l'annuaire existe.
 	DeclaredServiceExists(ctx context.Context, id string) (bool, error)
+	// DeleteProbe relit le plan dans sa transaction et refuse tant qu'il est
+	// bloqué (RefuseDeletion).
 	DeleteProbe(ctx context.Context, id string) error
+	ProbeDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
 	// pause, ce que la sonde valait ne vaut plus rien.
 	SetProbeStatus(ctx context.Context, id string, status Status) error
@@ -346,8 +350,18 @@ func (s *Service) Uptimes(ctx context.Context, id string) ([]Uptime, error) {
 	return uptimes, nil
 }
 
+// DeletePlan dit ce que Delete ferait : les composants de statut qui la
+// retiennent, l'historique qui part, les alertes qui s'en détachent.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetProbe(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.ProbeDeletionPlan(ctx, id)
+}
+
 // Delete efface la sonde, son histoire avec elle, et rend son jeu à la
-// machine. Rien ne la recréera : une sonde ne naît que de l'interface.
+// machine. Rien ne la recréera : une sonde ne naît que de l'interface. Un
+// composant de statut qui l'affiche la retient (RefuseDeletion).
 func (s *Service) Delete(ctx context.Context, id string) error {
 	found, err := s.store.GetProbe(ctx, id)
 	if err != nil {

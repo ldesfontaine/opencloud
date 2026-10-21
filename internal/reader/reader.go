@@ -44,7 +44,6 @@ type Reader interface {
 	// ListProbeDays rend les jours d'une sonde depuis l'instant donné, ou
 	// de toutes si probeID est vide.
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]probe.Day, error)
-	CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error)
 
 	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 	GetHeartbeat(ctx context.Context, id string) (heartbeat.Heartbeat, error)
@@ -53,7 +52,6 @@ type Reader interface {
 	CountHeartbeats(ctx context.Context) (total, attention int, err error)
 	ListPings(ctx context.Context, heartbeatID string, limit int) ([]heartbeat.Ping, error)
 	ListRuns(ctx context.Context, heartbeatID string, limit int) ([]heartbeat.Run, error)
-	CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error)
 
 	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
 	GetDeclaredService(ctx context.Context, id string) (directory.Service, error)

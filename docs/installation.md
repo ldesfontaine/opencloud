@@ -669,7 +669,7 @@ ajoutez-le aussi à `ExecStart=` de l'unité.
 | Besoin | Faire |
 | --- | --- |
 | Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). L'identifiant et l'historique sont gardés |
-| Retirer une machine | Machines → la machine → **Retirer**. Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
+| Retirer une machine | Machines → la machine → **Retirer**. La confirmation montre d'abord ce que le retrait emporte (mesures, conteneurs…) et ce qui le retient : services déclarés, sondes qu'elle lance, tâches rattachées, composants de la page de statut. Tant qu'il en reste, le bouton est fermé ; supprimez-les ou détachez-les (changer la machine d'une sonde, retirer la machine d'une tâche ou d'un composant). Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
 
 Tant que `identity.json` existe, l'agent l'utilise et ne lit jamais l'entrée
 standard : il ne bloque pas sous systemd. Le jeton ne passe jamais en
@@ -909,7 +909,7 @@ Appliquer ces changements ? [o/N]
 | --- | --- |
 | `-dry-run` | Montre le plan et s'arrête : rien n'est écrit |
 | `-yes` | Confirme sans poser la question. **Obligatoire sans terminal** (un script, un cron) : sans lui et sans terminal, la commande refuse |
-| `-prune` | Supprime aussi ce que le fichier ne nomme pas. Sans lui, ces objets sont gardés et comptés « hors fichier ». Ne supprime jamais une machine ; refuse de supprimer un service qu'un composant de la page de statut montre (détachez-le d'abord) |
+| `-prune` | Supprime aussi ce que le fichier ne nomme pas. Sans lui, ces objets sont gardés et comptés « hors fichier ». Ne supprime jamais une machine ; refuse de supprimer un service, une sonde ou une tâche qu'un composant de la page de statut montre (détachez-le d'abord) |
 
 - **Le serveur doit tourner**, comme pour `export` : sinon la commande le dit
   et sort en `1`.

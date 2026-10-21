@@ -8,6 +8,7 @@ POST /api/machines/tokens
 DELETE /api/machines/tokens/{id}
 GET /api/machines/{id}
 DELETE /api/machines/{id}
+GET /api/machines/{id}/delete-plan
 POST /api/machines/{id}/actions/reenroll
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
@@ -27,6 +28,7 @@ POST /api/directory/services
 GET /api/directory/services/{id}
 PUT /api/directory/services/{id}
 DELETE /api/directory/services/{id}
+GET /api/directory/services/{id}/delete-plan
 POST /api/directory/services/{id}/actions/review
 PUT /api/directory/units/{id}/update-policy
 GET /api/directory/projects
@@ -34,6 +36,7 @@ POST /api/directory/projects
 GET /api/directory/projects/{id}
 PUT /api/directory/projects/{id}
 DELETE /api/directory/projects/{id}
+GET /api/directory/projects/{id}/delete-plan
 GET /api/directory/gaps
 GET /api/directory/proposal
 POST /api/directory/ignored
@@ -48,6 +51,7 @@ POST /api/probes
 GET /api/probes/{id}
 PUT /api/probes/{id}
 DELETE /api/probes/{id}
+GET /api/probes/{id}/delete-plan
 POST /api/probes/{id}/actions/pause
 POST /api/probes/{id}/actions/resume
 GET /api/jobs
@@ -55,6 +59,7 @@ POST /api/jobs
 GET /api/jobs/{id}
 PUT /api/jobs/{id}
 DELETE /api/jobs/{id}
+GET /api/jobs/{id}/delete-plan
 POST /api/jobs/{id}/actions/pause
 POST /api/jobs/{id}/actions/resume
 POST /api/jobs/{id}/actions/regenerate-token
@@ -63,6 +68,7 @@ POST /api/status/components
 GET /api/status/components/{id}
 PUT /api/status/components/{id}
 DELETE /api/status/components/{id}
+GET /api/status/components/{id}/delete-plan
 GET /api/status/incidents
 POST /api/status/incidents
 GET /api/status/incidents/{id}

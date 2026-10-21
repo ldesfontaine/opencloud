@@ -59,12 +59,24 @@ func (db *DB) SetHeartbeatToken(ctx context.Context, id, token string) error {
 	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
 }
 
+// DeleteHeartbeat relit le plan de la tâche et la supprime dans la même
+// transaction : un composant de statut qui l'affiche la retient. Ses pings
+// et ses exécutions partent avec elle, ses alertes restent, détachées.
 func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM heartbeats WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete heartbeat: %w", err)
-	}
-	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
+	return db.inTx(ctx, "delete heartbeat", func(tx *sql.Tx) error {
+		plan, err := heartbeatDeletionPlan(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := heartbeat.RefuseDeletion(plan); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM heartbeats WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete heartbeat: %w", err)
+		}
+		return notFoundIfNoRow(result, heartbeat.ErrNotFound)
+	})
 }
 
 // CountHeartbeats rend le nombre de moniteurs et ceux à traiter, en retard
@@ -281,16 +293,4 @@ func (db *DB) scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
 	h.LastDuration = durationPointer(lastDurationMs)
 	h.CreatedAt = time.Unix(createdAt, 0)
 	return h, nil
-}
-
-// CountHeartbeatHistory compte ce qu'emporte la suppression d'une tâche : ses
-// pings bruts et ses exécutions.
-func (db *DB) CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error) {
-	err = db.sql.QueryRowContext(ctx, `
-		SELECT (SELECT COUNT(*) FROM heartbeat_pings WHERE heartbeat_id = ?),
-		       (SELECT COUNT(*) FROM heartbeat_runs WHERE heartbeat_id = ?)`, heartbeatID, heartbeatID).Scan(&pings, &runs)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count heartbeat history: %w", err)
-	}
-	return pings, runs, nil
 }

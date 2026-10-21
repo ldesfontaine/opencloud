@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import type { DeletionPlan } from "./deletion";
 
 // La page de statut : ses composants, ses incidents et ses réglages, côté
 // opérateur, et ce que le public lit (statut/, qui a ses propres chemins).
@@ -187,6 +188,10 @@ export async function saveStatusComponent(id: string | undefined, body: StatusCo
 
 export async function deleteStatusComponent(id: string): Promise<void> {
   return api.delete(componentPath(id));
+}
+
+export async function fetchComponentDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${componentPath(id)}/delete-plan`);
 }
 
 export async function createIncident(body: IncidentRequest): Promise<Incident> {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -93,9 +94,25 @@ var (
 	ErrIsOpenCloud   = errors.New("the agent runs on the " + brand.ProductName + " machine itself")
 )
 
-// Une machine qui porte des services déclarés ne se retire pas : ils
-// seraient orphelins, et leur suppression revient à l'opérateur.
-var ErrHasDeclaredServices = refusal.Conflict("machine.has_declared_services", "the machine carries declared services")
+// Ce qui retient le retrait d'une machine : ce qui y est déclaré ou la vise
+// serait orphelin, et le supprimer ou le détacher revient à l'opérateur
+// (restrict, migration 028_restrict.sql).
+var (
+	ErrHasDeclaredServices = refusal.Conflict("machine.has_declared_services", "the machine carries declared services")
+	ErrHasProbes           = refusal.Conflict("machine.has_probes", "the machine runs probes")
+	ErrHasHeartbeats       = refusal.Conflict("machine.has_heartbeats", "heartbeats are attached to the machine")
+	ErrShownOnStatus       = refusal.Conflict("machine.shown_on_status", "a status component shows the machine")
+)
+
+// RefuseDeletion rend le refus du retrait que le plan retient, nil sinon.
+func RefuseDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{
+		deletion.KindDeclaredServices: ErrHasDeclaredServices,
+		deletion.KindProbes:           ErrHasProbes,
+		deletion.KindHeartbeats:       ErrHasHeartbeats,
+		deletion.KindComponents:       ErrShownOnStatus,
+	})
+}
 
 // Un nom de machine se lit comme une étiquette DNS : il servira dans des
 // noms d'hôte (whoami.vps-paris-1…).

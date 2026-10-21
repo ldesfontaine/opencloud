@@ -12,9 +12,9 @@ import (
 )
 
 // Un service que des sondes ou des composants visent ne se supprime pas : 409,
-// la clé du catalogue et la liste de ce qui le lie, que la fiche donne aussi.
-// Détaché, il part.
-func TestAPI_DeleteLinkedService_Answers409WithLinks(t *testing.T) {
+// la clé du catalogue et le plan avec la liste de ce qui le lie, que la fiche
+// donne aussi. Détaché, il part.
+func TestAPI_DeleteLinkedService_Answers409WithThePlan(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	var created declaredServiceJSON
@@ -37,17 +37,19 @@ func TestAPI_DeleteLinkedService_Answers409WithLinks(t *testing.T) {
 	if got.Code != http.StatusConflict || errorCode(t, got) != "directory.service_linked" {
 		t.Fatalf("%d %s", got.Code, got.Body.String())
 	}
-	var refusal linkedRefusalJSON
+	var refusal deletionRefusalJSON
 	decodeAPI(t, got, &refusal)
-	if len(refusal.Links.Probes) != 1 || refusal.Links.Probes[0].Name != "site" || len(refusal.Links.Components) != 1 || refusal.Links.Components[0].Name != "Nuage" {
-		t.Fatalf("le refus doit porter la liste: %+v", refusal)
+	blockers := refusal.Plan.Blockers
+	if !refusal.Plan.Blocked || len(blockers) != 2 || blockers[0].Kind != "probes" || blockers[0].Objects[0].Name != "site" ||
+		blockers[1].Kind != "components" || blockers[1].Objects[0].Name != "Nuage" {
+		t.Fatalf("le refus doit porter le plan: %+v", refusal)
 	}
 	if got := callAPI(server.Server, http.MethodGet, "/api/directory/services/"+created.ID, nil); got.Code != http.StatusOK {
 		t.Fatalf("le service a disparu malgré le refus: %d", got.Code)
 	}
 
-	callAPI(server.Server, http.MethodDelete, "/api/probes/"+probeCreated.ID, nil)
 	callAPI(server.Server, http.MethodDelete, "/api/status/components/"+component.ID, nil)
+	callAPI(server.Server, http.MethodDelete, "/api/probes/"+probeCreated.ID, nil)
 	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/"+created.ID, nil); got.Code != http.StatusNoContent {
 		t.Fatalf("détaché: %d %s", got.Code, got.Body.String())
 	}

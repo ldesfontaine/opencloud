@@ -7,6 +7,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -125,6 +126,9 @@ func closedKeyLists() []composedKeys {
 		{prefix: "manifest.note_", values: names(manifest.Notes())},
 		{prefix: "manifest.carries_", values: manifest.CarryKinds()},
 		{prefix: "manifest.carries_", suffix: "_one", values: manifest.CarryKinds()},
+		// Le plan d'une suppression : ce qui retient, part ou se détache, compté.
+		{prefix: "deletion.kind_", values: names(deletion.Kinds())},
+		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},
 	}
 }
 

@@ -320,8 +320,9 @@ func TestRecordConnection_UpdatesAddressVersionAndLastSeen(t *testing.T) {
 	}
 }
 
-// Une machine retirée laisse ses moniteurs, détachés.
-func TestDeleteMachine_DetachesItsHeartbeats(t *testing.T) {
+// Une tâche rattachée retient sa machine (restrict) ; détachée, elle reste
+// quand la machine part.
+func TestDeleteMachine_IsHeldBackByItsHeartbeatsUntilDetached(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	now := time.Now()
@@ -334,6 +335,10 @@ func TestDeleteMachine_DetachesItsHeartbeats(t *testing.T) {
 	if err := db.InsertHeartbeat(ctx, monitor); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.DeleteMachine(ctx, enrolled.ID); !errors.Is(err, machine.ErrHasHeartbeats) {
+		t.Fatalf("attendu %v, obtenu %v", machine.ErrHasHeartbeats, err)
+	}
+	exec(t, db, `UPDATE heartbeats SET machine_id = NULL WHERE id = 'job1'`)
 	if err := db.DeleteMachine(ctx, enrolled.ID); err != nil {
 		t.Fatal(err)
 	}

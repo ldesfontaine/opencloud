@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 // Un faux magasin en mémoire : le vrai est testé chez lui, et le service
@@ -47,6 +49,10 @@ func (f *fakeStore) GetMachine(_ context.Context, id string) (Machine, error) {
 func (f *fakeStore) DeleteMachine(_ context.Context, id string) error {
 	delete(f.machines, id)
 	return nil
+}
+
+func (f *fakeStore) MachineDeletionPlan(context.Context, string) (deletion.Plan, error) {
+	return deletion.Plan{}, nil
 }
 
 func (f *fakeStore) TouchMachine(_ context.Context, id string, at time.Time) error {

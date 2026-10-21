@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router";
 
 import { useMachineContainers } from "../api/containers";
-import { deleteMachine, reenrollMachine, useMachines, type Machine } from "../api/machines";
+import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, useMachines, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
 import { NetworkView } from "../components/NetworkView";
@@ -204,23 +205,18 @@ function MachineLogs({ machineID }: { machineID: string }) {
 }
 
 // Ré-enrôler donne un nouveau jeton pour le même id ; retirer coupe l'agent
-// et efface l'historique, après confirmation.
+// et efface l'historique, après confirmation sur le plan : ce qui le retient
+// (services, sondes, tâches, page de statut), ce qui part avec la machine.
 function Actions({ machine }: { machine: Machine }) {
   const t = useT();
   const navigate = useNavigate();
   const action = useAction();
+  const [removing, setRemoving] = useState(false);
 
   const reenroll = () => {
     action.run(() => reenrollMachine(machine.id), {
       topic: "all",
       onDone: (token) => void navigate("/machines/jeton", { state: token }),
-    });
-  };
-  const remove = () => {
-    action.run(() => deleteMachine(machine.id), {
-      confirm: t("machine.remove_confirm", machine.name),
-      topic: "all",
-      onDone: () => void navigate("/machines"),
     });
   };
 
@@ -230,9 +226,20 @@ function Actions({ machine }: { machine: Machine }) {
       <Button icon="refresh" onClick={reenroll}>
         {t("machine.reenroll")}
       </Button>
-      <Button variant="danger" icon="x" onClick={remove}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("machine.remove")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("machine.remove_confirm", machine.name)}
+          confirmLabel={t("machine.remove")}
+          loadPlan={() => fetchMachineDeletePlan(machine.id)}
+          perform={() => deleteMachine(machine.id)}
+          topic="all"
+          onDone={() => void navigate("/machines")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -373,6 +374,10 @@ var (
 	ErrReportInvalid     = errors.New("probe report out of range")
 )
 
+// Une page publique affiche la sonde : la retirer d'abord du composant
+// (restrict, migration 028_restrict.sql).
+var ErrShownOnStatus = refusal.Conflict("probe.shown_on_status", "a status component shows the probe")
+
 // Complete pose ce que l'opérateur n'a pas dit : les valeurs par défaut,
 // et rien pour une sonde TCP, qui n'a ni méthode ni code attendu.
 func (d Definition) Complete() Definition {
@@ -475,4 +480,10 @@ func (d Definition) Validate() error {
 		return ErrBodyInvalid
 	}
 	return nil
+}
+
+// RefuseDeletion rend le refus de supprimer une sonde que le plan retient,
+// nil sinon.
+func RefuseDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindComponents: ErrShownOnStatus})
 }

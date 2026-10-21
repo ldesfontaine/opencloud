@@ -399,6 +399,43 @@ func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	}
 }
 
+// Une sonde ou une tâche que la page de statut affiche ne se supprime pas
+// par --prune : le plan le refuse en nommant le composant, comme le geste du
+// domaine le refuserait (même plan, même règle), plutôt que de s'arrêter au
+// milieu de l'écriture.
+func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.T) {
+	b, _ := seeded(t)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
+	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{
+		Name:    "Courrier",
+		Members: []status.MemberRef{{Kind: status.KindProbe, ID: "00000000000000c2"}, {Kind: status.KindHeartbeat, ID: "00000000000000d1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPruneBlocked)
+
+	var blocked []string
+	for _, problem := range plan.Problems {
+		if problem.Key == manifest.KeyPruneBlocked {
+			blocked = append(blocked, problem.Path+" "+problem.Value)
+		}
+	}
+	slices.Sort(blocked)
+	if !slices.Equal(blocked, []string{"mail-imaps Courrier", "wiki-dump Courrier"}) {
+		t.Fatalf("refus = %v", blocked)
+	}
+	if err := b.probes.Delete(ctx, "00000000000000c2"); !errors.Is(err, probe.ErrShownOnStatus) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
+	}
+	if err := b.heartbeats.Delete(ctx, "00000000000000d1"); !errors.Is(err, heartbeat.ErrShownOnStatus) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
+	}
+}
+
 func TestApply_PruneNeverTouchesMachines(t *testing.T) {
 	b, _ := seeded(t)
 	data := "version: 1\nmachines:\n  - name: opencloud\n"

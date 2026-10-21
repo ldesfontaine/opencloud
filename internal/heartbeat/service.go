@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
@@ -25,7 +26,10 @@ type Store interface {
 	MachineExists(ctx context.Context, id string) (bool, error)
 	// SetHeartbeatToken remplace le jeton et son empreinte d'un coup.
 	SetHeartbeatToken(ctx context.Context, id, token string) error
+	// DeleteHeartbeat relit le plan dans sa transaction et refuse tant qu'il
+	// est bloqué (RefuseDeletion).
 	DeleteHeartbeat(ctx context.Context, id string) error
+	HeartbeatDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	ListOverdueHeartbeats(ctx context.Context, now time.Time) ([]Heartbeat, error)
 	// Transact relit le moniteur dans une transaction qui prend le verrou
 	// d'écriture, laisse decide calculer la transition sur cet état frais,
@@ -289,6 +293,15 @@ func (s *Service) RegenerateToken(ctx context.Context, id string) error {
 // NeedsAttention dit si l'état compte parmi ce que l'opérateur doit voir.
 func NeedsAttention(status Status) bool {
 	return status == StatusLate || status == StatusFailed
+}
+
+// DeletePlan dit ce que Delete ferait : les composants de statut qui la
+// retiennent, les pings et exécutions qui partent, les alertes détachées.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetHeartbeat(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.HeartbeatDeletionPlan(ctx, id)
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
