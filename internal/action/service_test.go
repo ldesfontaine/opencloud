@@ -101,6 +101,16 @@ func (b *bench) runs(t *testing.T) []action.Run {
 	return runs
 }
 
+// states rend l'état de chaque run, par identifiant.
+func (b *bench) states(t *testing.T) map[string]action.State {
+	t.Helper()
+	states := map[string]action.State{}
+	for _, run := range b.runs(t) {
+		states[run.ID] = run.State
+	}
+	return states
+}
+
 // Le run est écrit, marqué envoyé et journalisé avant que l'ordre ne parte :
 // le flux le trouve déjà en base.
 func TestPing_WritesAndJournalsTheRunBeforeSending(t *testing.T) {
@@ -158,18 +168,16 @@ func TestExpire_EndsWhatWaitsPastItsDeadline(t *testing.T) {
 	if err := b.service.Expire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if runs := b.runs(t); runs[0].State != action.StateSucceeded {
-		t.Fatalf("not yet past the deadline: %+v", runs)
+	// Les deux runs ont le même instant : la liste ne dit pas lequel vient
+	// d'abord, on les lit par identifiant.
+	if states := b.states(t); states[waiting.ID] != action.StateSent {
+		t.Fatalf("not yet past the deadline: %+v", states)
 	}
 	b.now = benchNow.Add(action.OrderLifetime + time.Second)
 	if err := b.service.Expire(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	states := map[string]action.State{}
-	for _, run := range b.runs(t) {
-		states[run.ID] = run.State
-	}
-	if states[waiting.ID] != action.StateExpired || states[answered.ID] != action.StateSucceeded {
+	if states := b.states(t); states[waiting.ID] != action.StateExpired || states[answered.ID] != action.StateSucceeded {
 		t.Fatalf("states %+v", states)
 	}
 	// Une réponse arrivée après l'expiration ne la défait pas.
