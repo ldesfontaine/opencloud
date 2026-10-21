@@ -12,6 +12,7 @@ DELETE /api/machines/{id}
 GET /api/machines/{id}/delete-plan
 POST /api/machines/{id}/actions/reenroll
 POST /api/machines/{id}/actions/revoke
+POST /api/machines/{id}/actions/ping
 POST /api/machines/{id}/actions/check-updates
 GET /api/machines/{id}/resources
 GET /api/machines/{id}/resources/history
@@ -119,6 +120,8 @@ POST /api/auth/actions/enable
 POST /api/auth/actions/disable
 PUT /api/auth/password
 GET /api/audit
+GET /api/actions
+GET /api/agents/server-key
 * /api/
 POST /agent/enroll
 POST /agent/challenge

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -15,6 +14,8 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
@@ -72,10 +73,11 @@ type MachineService interface {
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
+	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
-	Command(machineID, name string, payload any) error
+	Push(machineID string, event machine.StreamEvent) error
 }
 
 // Ce que le serveur attend du composant conteneur : l'API lit ce qui porte
@@ -249,6 +251,15 @@ type Notifier interface {
 	TestMail(ctx context.Context, recipient string) (alert.Outcome, error)
 }
 
+// Ce que le serveur attend du composant action : envoyer un ordre, montrer
+// la clé qui les signe, et, pour l'agent, écrire ce qu'il en a fait. Les
+// runs se lisent par le Reader.
+type ActionService interface {
+	Ping(ctx context.Context, machineID string) (action.Run, error)
+	ServerKey() (public []byte, fingerprint string, err error)
+	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
+}
+
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.
 type Live interface {
 	Subscribe() *live.Subscription
@@ -276,6 +287,7 @@ type Server struct {
 	notifier   Notifier
 	mcp        MCPService
 	auth       AuthService
+	actions    ActionService
 	live       Live
 	logStreams atomic.Int32
 	// Les limiteurs de la racine, par source : /mcp et l'autorisation
@@ -334,7 +346,9 @@ type Options struct {
 	MCP        MCPService
 	// Auth garde l'interface de l'opérateur ; voir auth.go.
 	Auth AuthService
-	Live Live
+	// Actions envoie les ordres signés aux agents ; voir api_actions.go.
+	Actions ActionService
+	Live    Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
 	PublicLive Live
@@ -388,6 +402,7 @@ func New(opts Options) (*Server, error) {
 		notifier:       opts.Notifier,
 		mcp:            opts.MCP,
 		auth:           opts.Auth,
+		actions:        opts.Actions,
 		live:           opts.Live,
 		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
 		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),
@@ -413,6 +428,7 @@ func New(opts Options) (*Server, error) {
 		Containers:    opts.Containers,
 		Probes:        opts.Probes,
 		Updates:       opts.Updates,
+		Actions:       opts.Actions,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
@@ -454,18 +470,4 @@ func (s *Server) now() time.Time {
 // usage : voir settings.Service.
 func (s *Server) language(ctx context.Context) (lang.Code, error) {
 	return s.settings.Language(ctx)
-}
-
-// Command fait du serveur le commandeur des agents : c'est lui qui tient
-// leurs flux. Une machine sans flux est hors ligne pour le relais ; une
-// file pleine est un refus, pas une panne.
-func (s *Server) Command(machineID, name string, payload any) error {
-	err := s.machines.Command(machineID, name, payload)
-	if errors.Is(err, machine.ErrNotConnected) {
-		return container.ErrMachineOffline
-	}
-	if errors.Is(err, machine.ErrBusy) {
-		return fmt.Errorf("command %s: %w", name, err)
-	}
-	return err
 }

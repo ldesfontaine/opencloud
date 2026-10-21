@@ -27,6 +27,9 @@ type Agent struct {
 	// Ce que le jeton qui l'a enrôlé demandait ; vide pour un agent d'avant
 	// les droits.
 	Requested []Capability
+	// L'empreinte de la clé du serveur que l'agent dit avoir épinglée ; vide
+	// tant qu'il n'a rien dit, ou s'il n'en a pas.
+	ServerKeyFingerprint string
 }
 
 func (a Agent) Exists() bool {

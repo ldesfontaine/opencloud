@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -40,6 +41,7 @@ type bench struct {
 	containers *container.Tracker
 	probes     *probe.Service
 	updates    *update.Service
+	actions    *action.Service
 	db         *store.DB
 }
 
@@ -59,7 +61,10 @@ func newBench(t *testing.T) *bench {
 	probes.SetClock(clock)
 	updates := update.New(db, logger)
 	updates.SetClock(clock)
-	b := &bench{logger: logger, machines: machines, resources: resources, containers: containers, probes: probes, updates: updates, db: db}
+	actions := action.New(db, machines, logger)
+	actions.SetClock(clock)
+	actions.SetKey(action.GenerateKey())
+	b := &bench{logger: logger, machines: machines, resources: resources, containers: containers, probes: probes, updates: updates, actions: actions, db: db}
 	b.mount()
 	return b
 }
@@ -73,6 +78,7 @@ func (b *bench) mount() {
 		Containers:    b.containers,
 		Probes:        b.probes,
 		Updates:       b.updates,
+		Actions:       b.actions,
 		ClientAddress: httpx.PeerHost,
 		Clock:         func() time.Time { return testNow },
 	})

@@ -42,6 +42,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/delete-plan", s.getMachineDeletePlan},
 		{"POST", "/api/machines/{id}/actions/reenroll", s.grantsAuthority(s.reenrollMachine)},
 		{"POST", "/api/machines/{id}/actions/revoke", s.revokeAgent},
+		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
@@ -149,6 +150,8 @@ func (s *Server) routes() []route {
 		{"POST", "/api/auth/actions/disable", s.disableAuth},
 		{"PUT", "/api/auth/password", s.changeAuthPassword},
 		{"GET", "/api/audit", s.listAudit},
+		{"GET", "/api/actions", s.listActions},
+		{"GET", "/api/agents/server-key", s.getServerKey},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {

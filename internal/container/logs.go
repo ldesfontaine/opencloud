@@ -15,10 +15,12 @@ type LogSource interface {
 	OpenLogs(ctx context.Context, request LogRequest) (<-chan LogBatch, error)
 }
 
-// Commander pousse une commande à l'agent d'une machine par son flux ; il
-// rend ErrMachineOffline quand elle est hors ligne.
+// Commander demande à l'agent d'une machine, par son flux, d'ouvrir ou de
+// fermer un suivi de journal ; il rend ErrMachineOffline quand elle est
+// hors ligne. Le nom de l'événement est au protocole (agentwire), pas ici.
 type Commander interface {
-	Command(machineID, name string, payload any) error
+	RequestLogs(machineID string, request LogRequest) error
+	StopLogs(machineID, requestID string) error
 }
 
 // Un lot attend ici tant que le navigateur ne l'a pas lu ; au-delà l'agent
@@ -80,7 +82,7 @@ func (r *Relay) Open(ctx context.Context, machineID string, request LogRequest) 
 	commander := r.commander
 	r.mu.Unlock()
 
-	if err := commander.Command(machineID, CommandLogs, request); err != nil {
+	if err := commander.RequestLogs(machineID, request); err != nil {
 		r.forget(request.ID)
 		return nil, err
 	}
@@ -93,7 +95,7 @@ func (r *Relay) Open(ctx context.Context, machineID string, request LogRequest) 
 func (r *Relay) stopWhenDone(ctx context.Context, requestID, machineID string, pending *follow, commander Commander) {
 	select {
 	case <-ctx.Done():
-		_ = commander.Command(machineID, CommandLogsStop, LogRequest{ID: requestID})
+		_ = commander.StopLogs(machineID, requestID)
 	case <-pending.done:
 	}
 	r.forget(requestID)

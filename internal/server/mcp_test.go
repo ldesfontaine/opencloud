@@ -24,7 +24,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
-// Le catalogue, fermé : vingt lectures, neuf écritures. Un outil ajouté
+// Le catalogue, fermé : vingt et une lectures, neuf écritures. Un outil ajouté
 // ou renommé casse ce test, c'est voulu.
 var (
 	mcpReadTools = []string{
@@ -32,7 +32,7 @@ var (
 		"list_containers", "get_container", "get_container_logs", "list_declared_services", "export_directory",
 		"list_jobs", "get_job", "list_probes", "get_probe",
 		"list_status_pages", "get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
-		"list_audit",
+		"list_audit", "list_actions",
 	}
 	mcpWriteTools = []string{
 		"acknowledge_alert", "pause_probe", "resume_probe", "pause_job", "resume_job",
@@ -200,6 +200,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
 	server.seedAudit(t)
+	server.seedActions(t)
 	job, err := server.db.GetHeartbeat(context.Background(), jobID)
 	if err != nil {
 		t.Fatal(err)
@@ -225,6 +226,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"get_alert":              {"alert_id": alertID},
 		"list_alert_channels":    {},
 		"list_audit":             {"limit": 2},
+		"list_actions":           {"machine_id": remoteID},
 	}
 	secrets := []string{job.Token, "hb_", "/ping/", "s3cret", "webhooks/1/x", "oc_", "vps-lyon-2", probeTargetPassword}
 	for name, args := range cases {
@@ -502,7 +504,7 @@ func TestMCP_ReadOnlyRegistersNoWriteTool(t *testing.T) {
 	}
 }
 
-// requireOnlyReadTools vérifie que la session liste les dix-neuf lectures et
+// requireOnlyReadTools vérifie que la session liste les vingt et une lectures et
 // aucune écriture.
 func requireOnlyReadTools(t *testing.T, session *gomcp.ClientSession) {
 	t.Helper()

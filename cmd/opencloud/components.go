@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
@@ -34,6 +35,7 @@ import (
 // commandeurs, la machine openCloud) reste dans serve.go.
 type components struct {
 	db          *store.DB
+	actions     *action.Service
 	logger      *slog.Logger
 	preferences *settings.Service
 	machines    *machine.Service
@@ -110,6 +112,10 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	alerts.SetAuditor(journal)
 	access.SetAuditor(journal)
 	operator.SetAuditor(journal)
+	// Les ordres aux agents : écrits, journalisés, puis signés par la clé du
+	// serveur, que serve seul charge (sans elle, rien ne part).
+	actions := action.New(db, machines, logger)
+	actions.SetAuditor(journal)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. La machine openCloud lit endoflife.date une fois par jour,
 	// deux au plus, pour les produits des images présentes et les systèmes
@@ -126,7 +132,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, access: access, operator: operator,
-		support: support, manifests: manifests,
+		support: support, manifests: manifests, actions: actions,
 	}, nil
 }
 
@@ -152,6 +158,7 @@ func (c *components) serverOptions(cfg config.Config, configPath string) server.
 		Notifier:       c.notifier,
 		MCP:            c.access,
 		Auth:           c.operator,
+		Actions:        c.actions,
 		PublicURL:      cfg.PublicURL,
 		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),

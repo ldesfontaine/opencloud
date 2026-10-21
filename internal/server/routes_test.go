@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,9 +13,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -53,6 +56,7 @@ type testServer struct {
 	access     *mcp.Service
 	operator   *auth.Service
 	journal    *audit.Recorder
+	actions    *action.Service
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -180,6 +184,12 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	alerts.SetAuditor(journal)
 	access.SetAuditor(journal)
 	operator.SetAuditor(journal)
+	// Les ordres, signés par une clé figée : les rendus le sont aussi.
+	actions := action.New(db, machines, logger)
+	actions.SetClock(func() time.Time { return testNow })
+	actions.SetWatcher(bus)
+	actions.SetAuditor(journal)
+	actions.SetKey(testServerKey(t))
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -199,6 +209,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Notifier:   notifier,
 		MCP:        access,
 		Auth:       operator,
+		Actions:    actions,
 		Live:       bus,
 		PublicLive: publicBus,
 		ConfigPath: "/etc/opencloud/config.toml",
@@ -214,7 +225,28 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	actions.SetCommander(server)
+	return &testServer{actions: actions, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+}
+
+// testServerKey lit une clé du serveur figée, posée dans un fichier comme
+// serve la pose : son empreinte est la même d'un passage à l'autre.
+func testServerKey(t *testing.T) *action.Key {
+	t.Helper()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	seed := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", ed25519.SeedSize)))
+	if err := root.WriteFile(brand.ServerKeyFile, []byte("ed25519-v1:"+seed+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := action.LoadKey(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.

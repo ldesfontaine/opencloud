@@ -136,7 +136,7 @@ func TestAgentLogs_BatchOverTheLimit_IsRefusedWith413(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer browser.Body.Close()
-	requestID := jsonID(t, readCommand(t, agentStream, container.CommandLogs))
+	requestID := jsonID(t, readCommand(t, agentStream, string(agentwire.KindLogs)))
 
 	tooMany := container.LogBatch{Lines: make([]container.LogLine, container.MaxLinesPerBatch+1)}
 	got := server.agentPost(session, "/agent/logs/"+requestID, tooMany)

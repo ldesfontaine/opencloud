@@ -49,9 +49,6 @@ type Assignment struct {
 	Probes []Task `json:"probes"`
 }
 
-// CommandProbes est le nom de l'événement du flux serveur vers agent.
-const CommandProbes = "probes"
-
 // Report est ce que l'agent met dans son signal, à côté des lectures de la
 // machine et de ce que son Docker a montré.
 type Report struct {

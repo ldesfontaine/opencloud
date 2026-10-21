@@ -14,7 +14,15 @@ type fakeCommander struct {
 	offline  bool
 }
 
-func (c *fakeCommander) Command(machineID, name string, payload any) error {
+func (c *fakeCommander) RequestLogs(machineID string, _ LogRequest) error {
+	return c.note(machineID, "logs")
+}
+
+func (c *fakeCommander) StopLogs(machineID, _ string) error {
+	return c.note(machineID, "logs_stop")
+}
+
+func (c *fakeCommander) note(machineID, name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.offline {

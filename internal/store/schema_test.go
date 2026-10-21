@@ -12,9 +12,10 @@ import (
 )
 
 // Le schéma vit dans migrations/001_schema.sql, écrit à la main pour être
-// lu. Ces tests en sont le filet : il est le même que celui des 33
-// migrations qu'il remplace, élagage compris ; ses clés étrangères visent
-// des clés ; chaque table et chaque colonne sert au store.
+// lu, puis dans les migrations qui le suivent. Ces tests en sont le filet :
+// 001 est le même schéma que les 33 migrations qu'il remplace, élagage
+// compris (les suivantes jouées de part et d'autre) ; ses clés étrangères
+// visent des clés ; chaque table et chaque colonne sert au store.
 
 const (
 	legacyMigrationsDir = "testdata/legacy_migrations"
@@ -28,6 +29,7 @@ const legacyLinkTable = `CREATE TEMP TABLE link_migration (
 
 // replayLegacy rejoue les anciennes migrations puis l'élagage, comme le
 // runner les jouait : chacune hors clés étrangères, vérifiées avant le COMMIT.
+// Les migrations venues après 001 suivent, comme sur une base montée.
 func replayLegacy(t *testing.T) *DB {
 	t.Helper()
 	ctx := context.Background()
@@ -60,6 +62,17 @@ func replayLegacy(t *testing.T) *DB {
 	if err := db.applyContent(ctx, filepath.Base(legacyTrimFile), 1000, string(trim)); err != nil {
 		t.Fatal(err)
 	}
+	names, err := migrationFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		if version := migrationVersion(name); version > 1 {
+			if err := db.apply(ctx, name, 1000+version); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	return db
 }
 
@@ -83,11 +96,11 @@ func TestSchema_MatchesTheLegacyMigrationsAndTheTrim(t *testing.T) {
 			t.Errorf("001_schema.sql seulement : %s", line)
 		}
 	}
-	if tables := count(t, fresh, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`); tables != 45 {
-		t.Errorf("%d tables, 45 attendues (44 et schema_migrations)", tables)
+	if tables := count(t, fresh, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`); tables != 47 {
+		t.Errorf("%d tables, 47 attendues (46 et schema_migrations)", tables)
 	}
 	versions, err := fresh.AppliedVersions(context.Background())
-	if err != nil || !slices.Equal(versions, []int{1}) {
+	if err != nil || !slices.Equal(versions, []int{1, 2}) {
 		t.Fatalf("versions notées : %v %v", versions, err)
 	}
 }

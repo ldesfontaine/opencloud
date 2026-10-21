@@ -670,7 +670,11 @@ printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.
 ```
 
 L'agent tire une clé Ed25519, s'enrôle, écrit
-`/var/lib/opencloud/agent/identity.json` en `0600`, puis se connecte. Quand le
+`/var/lib/opencloud/agent/identity.json` en `0600`, puis se connecte. La
+réponse de l'enrôlement porte la **clé publique d'openCloud** : l'agent
+l'épingle dans `identity.json` et n'exécutera que les ordres qu'elle signe.
+Le journal la nomme (`"server_key":"SHA256:…"`) : c'est l'empreinte que
+`GET /api/agents/server-key` rend, et que la fiche de la machine compare. Quand le
 journal dit `"msg":"connected"`, arrêtez-le (Ctrl-C) : le service prend le
 relais.
 
@@ -802,7 +806,14 @@ au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
 | Commande du serveur inconnue de l'agent | Ignorée, une ligne `unknown command` au journal de l'agent |
 | Champ JSON inconnu dans ce que l'agent envoie | Ignoré par le serveur |
 | Serveur redémarré | Les agents se reconnectent seuls ; l'interface et les flux aussi |
-| Identité | Gardée : une mise à jour ne demande jamais de ré-enrôler |
+| Identité | Gardée : une mise à jour ne demande jamais de ré-enrôler, sauf une fois, pour les ordres (ci-dessous) |
+
+**Les ordres signés demandent un ré-enrôlement, une fois.** Un agent enrôlé
+avant eux n'a pas épinglé la clé d'openCloud : il observe comme avant, mais
+refuse chaque ordre (`server_key_missing`), et la carte « Ordres » de sa
+fiche le dit. Ré-enrôlez-le (fiche › **Ré-enrôler**, puis la ligne
+d'installation sur la machine, `identity.json` supprimé) pour qu'il reçoive
+la clé.
 
 Il n'y a **pas de négociation de version** : rien n'empêche un agent plus
 récent que le serveur, mais ce cas n'est pas garanti. La colonne Agent de la
@@ -818,6 +829,7 @@ machine donne le commit.
 | --- | --- | --- |
 | Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an). `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
 | Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping (voir [Clé perdue](#clé-perdue)) |
+| Serveur, `state_dir` | `server.key` | La clé qui signe les ordres aux agents, tirée au premier démarrage : chaque agent a épinglé sa moitié publique. Sans elle, `serve` en tire une neuve et **chaque agent refuse les ordres** (`bad_signature`) jusqu'à son ré-enrôlement ; l'observation continue. Qui l'a commande toutes les machines : même soin que `secret.key` |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |
 
@@ -844,8 +856,11 @@ intérêt). La sauvegarde à chaud ci-dessous ne la contient pas ; la sauvegarde
 à froid (`tar` du dossier) l'inclut, protégez-la comme un secret.
 
 ```sh
-cat /var/lib/opencloud/secret.key
+cat /var/lib/opencloud/secret.key /var/lib/opencloud/server.key
 ```
+
+`server.key` se garde de même, une fois, à part : elle ne change pas non
+plus.
 
 La base est en mode WAL : copier `opencloud.db` seul pendant que `serve`
 tourne donne une copie incomplète. Deux façons sûres.
@@ -1015,7 +1030,12 @@ install -m 0600 -o opencloud -g opencloud secret.key /var/lib/opencloud/secret.k
 ```
 
 La clé doit être celle de la base restaurée. Une sauvegarde à froid (`tar`)
-rend les deux ensemble.
+rend les deux ensemble. Posez `server.key` de même : avec la clé d'avant, les
+agents reprennent les ordres sans rien faire ; sans elle, ré-enrôlez-les.
+
+```sh
+install -m 0600 -o opencloud -g opencloud server.key /var/lib/opencloud/server.key
+```
 
 Retirez les `-wal` et `-shm` de l'ancienne base avant de poser la copie :
 SQLite les rejouerait sur elle. Une base plus ancienne que le binaire est

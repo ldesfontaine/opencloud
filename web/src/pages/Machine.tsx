@@ -5,6 +5,7 @@ import { useMachineContainers } from "../api/containers";
 import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
+import { ActionsCard } from "../components/ActionsCard";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { CertificateList } from "../components/Certificate";
@@ -80,6 +81,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
             </CardBody>
           </Card>
           <AgentCard agent={current.agent} now={now} />
+          <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
       ) : tab === "services" ? (
         <MachineContainers machineID={current.id} />

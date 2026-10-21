@@ -15,7 +15,7 @@ import (
 // révoqué ; et ce que le jeton qui l'a enrôlé demandait.
 const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
-		t.requested_capabilities
+		a.server_key_fingerprint, t.requested_capabilities
 	FROM machines m
 	LEFT JOIN agents a ON a.id = (
 		SELECT id FROM agents WHERE machine_id = m.id
@@ -94,6 +94,16 @@ func (db *DB) TouchAgent(ctx context.Context, agentID string, at time.Time) erro
 	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET last_seen_at = ? WHERE id = ?`, at.Unix(), agentID)
 	if err != nil {
 		return fmt.Errorf("touch agent: %w", err)
+	}
+	return notFoundIfNoRow(result, machine.ErrNotFound)
+}
+
+// RecordServerKey note l'empreinte de la clé du serveur que l'agent dit avoir
+// épinglée, à l'ouverture du flux.
+func (db *DB) RecordServerKey(ctx context.Context, agentID, fingerprint string) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET server_key_fingerprint = ? WHERE id = ?`, fingerprint, agentID)
+	if err != nil {
+		return fmt.Errorf("record server key: %w", err)
 	}
 	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
@@ -329,11 +339,11 @@ func classifyTokenFailure(ctx context.Context, tx *sql.Tx, tokenHash string, now
 func scanMachine(row scanner) (machine.Machine, error) {
 	var m machine.Machine
 	var createdAt int64
-	var agentID, version, rootDir, requested sql.NullString
+	var agentID, version, rootDir, serverKey, requested sql.NullString
 	var publicKey []byte
 	var enrolledAt, lastSeenAt, revokedAt sql.NullInt64
 	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt,
-		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &requested)
+		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &requested)
 	if err != nil {
 		return machine.Machine{}, err
 	}
@@ -343,7 +353,7 @@ func scanMachine(row scanner) (machine.Machine, error) {
 	}
 	m.Agent = machine.Agent{
 		ID: agentID.String, MachineID: m.ID, PublicKey: publicKey,
-		Version: version.String, RootDir: rootDir.String,
+		Version: version.String, RootDir: rootDir.String, ServerKeyFingerprint: serverKey.String,
 		EnrolledAt: time.Unix(enrolledAt.Int64, 0),
 		LastSeenAt: timeOrZero(lastSeenAt), RevokedAt: timeOrZero(revokedAt),
 	}

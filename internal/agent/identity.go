@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -37,6 +38,26 @@ type Identity struct {
 	// Absents chez un agent d'avant les droits : observe seul. Rapportés au
 	// serveur à chaque ouverture du flux ; pas encore appliqués (#146).
 	Rights []string `json:"rights,omitempty"`
+	// L'agent que le serveur a inscrit à l'enrôlement : un ordre pour un
+	// autre agent de la même machine (avant un ré-enrôlement) est refusé.
+	AgentID string `json:"agent_id,omitempty"`
+	// La clé publique du serveur, épinglée à l'enrôlement : seul ce qu'elle
+	// signe est exécuté. Vide chez un agent qui ne l'a jamais reçue : il
+	// refuse tout ordre, et le ré-enrôlement la pose.
+	ServerKey []byte `json:"server_key,omitempty"`
+	// Le rang du dernier ordre exécuté : un rang qui ne le dépasse pas est
+	// un rejeu. Écrit avant d'exécuter, pour qu'un redémarrage ne rouvre
+	// pas la porte.
+	LastOrderSeq int64 `json:"last_order_seq,omitempty"`
+}
+
+// ServerKeyFingerprint rend l'empreinte de la clé épinglée, vide sans clé :
+// c'est ce que l'agent redit au serveur à chaque ouverture du flux.
+func (id Identity) ServerKeyFingerprint() string {
+	if len(id.ServerKey) != ed25519.PublicKeySize {
+		return ""
+	}
+	return agentwire.KeyFingerprint(id.ServerKey)
 }
 
 // Capabilities rend les droits du fichier ; une liste illisible (fichier

@@ -71,7 +71,7 @@ const (
 	// Plusieurs pages de statut, ou aucune : l'outil demande laquelle.
 	codeStatusPageRequired = "mcp.status_page_required"
 	// Les comptes du catalogue, figés par un test qui énumère les outils.
-	mcpReadToolCount  = 20
+	mcpReadToolCount  = 21
 	mcpWriteToolCount = 9
 	// Les mêmes bornes que /ping et /statut par adresse résolue ; le point
 	// de jeton, où un secret se devine, est tenu plus serré.

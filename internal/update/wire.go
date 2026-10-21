@@ -13,9 +13,6 @@ type Assignment struct {
 	Now      bool     `json:"now,omitempty"`
 }
 
-// CommandImages est le nom de l'événement du flux serveur vers agent.
-const CommandImages = "image_checks"
-
 // Outcome dit comment la vérification d'une image s'est finie.
 type Outcome string
 

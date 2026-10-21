@@ -24,9 +24,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 const (
@@ -243,6 +240,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	if c.rights != "" {
 		request.Header.Set(agentwire.HeaderAgentRights, c.rights)
 	}
+	if fingerprint := identity.ServerKeyFingerprint(); fingerprint != "" {
+		request.Header.Set(agentwire.HeaderServerKey, fingerprint)
+	}
 	request.Header.Set("Accept", "text/event-stream")
 
 	response, err := c.http.Do(request)
@@ -282,14 +282,14 @@ func (s *Stream) Follow(handle func(name, data string)) error {
 }
 
 // Signal donne signe de vie et livre ce qui attendait : les lectures de la
-// machine, ce que Docker a montré et ce que les sondes ont donné ; sans
-// rien, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *container.Report, checked *probe.Report, images *update.Report) (map[string]string, error) {
+// machine, ce que Docker a montré, ce que les sondes ont donné, ce qu'il a
+// fait des ordres ; sans rien, le signal part sans corps.
+func (c *Client) Signal(ctx context.Context, session string, sent agentwire.SignalRequest) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
-	if len(readings) > 0 || report != nil || checked != nil || images != nil {
-		content, err := json.Marshal(agentwire.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
+	if !isEmptySignal(sent) {
+		content, err := json.Marshal(sent)
 		if err != nil {
 			return nil, err
 		}
@@ -321,6 +321,10 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 	default:
 		return nil, fmt.Errorf("signal: %w", serverError(response))
 	}
+}
+
+func isEmptySignal(sent agentwire.SignalRequest) bool {
+	return len(sent.Readings) == 0 && sent.Services == nil && sent.Probes == nil && sent.Images == nil && sent.Actions == nil
 }
 
 // PostLogs livre un lot de journal pour une requête du serveur.

@@ -31,6 +31,10 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/containers")).toEqual(["containers"]);
   });
 
+  it("rereads the orders of a machine on their own topic", () => {
+    expect(topicsOf("/api/actions?machine=m1&limit=10")).toEqual(["actions"]);
+  });
+
   it("keeps the observed containers on the containers topic", () => {
     expect(topicsOf("/api/machines/m1/containers")).toEqual(["containers"]);
   });

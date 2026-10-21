@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,6 +33,10 @@ import (
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
 // nouvel enrôlement la ramène.
 var ErrIdentityRefused = errors.New("identity refused by the server")
+
+// ErrServerKeyMissing : la réponse à l'enrôlement ne porte pas de clé du
+// serveur lisible ; l'agent n'a rien à épingler, rien n'est écrit.
+var ErrServerKeyMissing = errors.New("enrollment answer carries no server key")
 
 const (
 	DefaultSignalInterval = 30 * time.Second
@@ -115,20 +121,29 @@ func Run(ctx context.Context, opts Options) error {
 	checked := &results{}
 	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
 	go prober.Run(ctx)
-	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, images: constated, logs: watcher, probes: prober, updates: updater}, catalogs.For(identity.Language), opts)
+	// Les ordres signés : jugés et exécutés à leur arrivée, leurs résultats
+	// attendent le signal suivant, qu'ils avancent.
+	actions := newActionResults()
+	orders := newOrderRunner(opts.StateDir, identity, opts.Version, actions, opts.Logger)
+	return keepConnected(ctx, client, identity, &pending{
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions,
+		logs: watcher, probes: prober, updates: updater, orders: orders,
+	}, catalogs.For(identity.Language), opts)
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les
-// journaux, les sondes et les vérifications d'images quand le serveur
-// les demande.
+// journaux, les sondes, les vérifications d'images et les ordres quand le
+// serveur les demande.
 type pending struct {
 	readings *buffer
 	reports  *reports
 	results  *results
 	images   *images
+	actions  *actionResults
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
+	orders   *orderRunner
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -185,12 +200,19 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
+	serverKey, err := base64.StdEncoding.DecodeString(response.ServerKey)
+	if err != nil || len(serverKey) != ed25519.PublicKeySize {
+		return Identity{}, ErrServerKeyMissing
+	}
 	identity.MachineID = response.MachineID
+	identity.AgentID = response.AgentID
+	identity.ServerKey = serverKey
 	identity.EnrolledAt = time.Now().UTC()
 	if err := SaveIdentity(opts.StateDir, identity); err != nil {
 		return Identity{}, err
 	}
-	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name, "rights", strings.Join(identity.Rights, ","))
+	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name, "rights", strings.Join(identity.Rights, ","),
+		"server_key", identity.ServerKeyFingerprint())
 	return identity, nil
 }
 
@@ -249,7 +271,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.results.markReplayed()
 	pending.images.markReplayed()
 
-	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, opts.Logger)
+	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
 	go func() { lost <- stream.Follow(commands.handle) }()
 
@@ -262,6 +284,11 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 		case err := <-lost:
 			return err
 		case <-ticker.C:
+			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
+				return err
+			}
+		case <-pending.actions.ready:
+			// La réponse à un ordre part sans attendre le prochain signal.
 			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
 				return err
 			}
@@ -283,8 +310,9 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			containers: pending.reports.take(),
 			probes:     pending.results.take(),
 			images:     pending.images.take(),
+			actions:    pending.actions.take(),
 		}
-		rejected, err := client.Signal(ctx, session, sent.readings, sent.containers, sent.probes, sent.images)
+		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
 		switch {
 		case errors.As(err, &refused) && refused.Status == http.StatusTooManyRequests:
@@ -318,6 +346,11 @@ type signalBatch struct {
 	containers *container.Report
 	probes     *probe.Report
 	images     *update.Report
+	actions    *agentwire.ActionReport
+}
+
+func (b signalBatch) request() agentwire.SignalRequest {
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -348,6 +381,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.results.restore(b.probes)
 	case agentwire.SectionImages:
 		pending.images.restore(b.images)
+	case agentwire.SectionActions:
+		pending.actions.restore(b.actions)
 	}
 }
 

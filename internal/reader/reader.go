@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -78,4 +79,8 @@ type Reader interface {
 
 	// ListAuditEvents rend une page du journal, du plus récent au plus ancien.
 	ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error)
+
+	// ListActionRuns rend les ordres envoyés aux agents, d'une machine ou de
+	// toutes, du plus récent au plus ancien, avec leur sortie.
+	ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error)
 }

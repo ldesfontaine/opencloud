@@ -18,6 +18,8 @@ func Explain(err error, text lang.Catalog) (string, bool) {
 		return text.Get("agent.not_enrolled"), true
 	case errors.Is(err, ErrTokenMissing):
 		return text.Get("agent.token_missing"), true
+	case errors.Is(err, ErrServerKeyMissing):
+		return text.Get("agent.server_key_missing"), true
 	// Avant le refus d'identité qui l'enveloppe : la clé est la bonne, c'est
 	// l'opérateur qui a révoqué l'agent.
 	case errors.As(err, &refused) && refused.Code == agentwire.CodeRevoked:
@@ -51,4 +53,5 @@ var refusalKeys = map[string]string{ // #nosec G101 -- des codes de refus, pas d
 	"clock_skew":                   "agent.clock_skew",
 	"machine_not_found":            "agent.identity_refused",
 	"bad_proof":                    "agent.identity_refused",
+	"server_key_missing":           "agent.server_key_missing",
 }

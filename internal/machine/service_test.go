@@ -68,6 +68,17 @@ func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
 	return nil
 }
 
+func (f *fakeStore) RecordServerKey(_ context.Context, agentID, fingerprint string) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.ServerKeyFingerprint = fingerprint
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 func (f *fakeStore) RecordConnection(_ context.Context, c Connection) error {
 	m := f.machines[c.MachineID]
 	m.Address, m.Agent.Version, m.Agent.LastSeenAt, m.LastSeenAt = c.Address, c.Version, c.At, c.At

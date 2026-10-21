@@ -41,6 +41,10 @@ type agentJSON struct {
 	Requested    []capabilityJSON `json:"requested"`
 	// Le fichier de l'agent ne dit pas ce que le jeton demandait.
 	CapabilitiesDiffer bool `json:"capabilities_differ"`
+	// L'empreinte de la clé du serveur que l'agent dit avoir épinglée ; vide
+	// tant qu'il n'a rien dit. Différente de GET /api/agents/server-key :
+	// l'agent refuserait les ordres de ce serveur.
+	ServerKeyFingerprint string `json:"server_key_fingerprint"`
 }
 
 type capabilityJSON struct {
@@ -103,6 +107,8 @@ func agentToJSON(agent machine.Agent) *agentJSON {
 		ReportedAt:         httpx.TimeOrNil(agent.ReportedAt),
 		Requested:          httpx.ConvertAll(agent.Requested, capabilityToJSON),
 		CapabilitiesDiffer: agent.CapabilitiesDiffer(),
+
+		ServerKeyFingerprint: agent.ServerKeyFingerprint,
 	}
 }
 

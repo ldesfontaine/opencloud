@@ -28,6 +28,10 @@ const (
 	// du flux, sous leur forme texte (machine.FormatCapabilities). Absent
 	// chez un agent plus vieux : rien n'est rapporté.
 	HeaderAgentRights = brand.HeaderPrefix + "Agent-Rights"
+	// L'empreinte de la clé du serveur que l'agent a épinglée à son
+	// enrôlement (KeyFingerprint), redite à chaque ouverture du flux : le
+	// serveur la garde pour montrer qu'un agent ne vérifierait pas ses ordres.
+	HeaderServerKey = brand.HeaderPrefix + "Server-Key"
 )
 
 const (
@@ -54,9 +58,15 @@ type EnrollRequest struct {
 	HostFingerprint string `json:"host_fingerprint,omitempty"`
 }
 
+// La réponse à l'enrôlement : l'identifiant retenu pour la machine, son nom,
+// l'agent inscrit, et la clé publique du serveur (base64), que l'agent
+// épingle : le jeton, consommé par cette même requête, prouve que
+// l'opérateur voulait cet enrôlement avec ce serveur.
 type EnrollResponse struct {
 	MachineID string `json:"machine_id"`
 	Name      string `json:"name"`
+	AgentID   string `json:"agent_id"`
+	ServerKey string `json:"server_key"`
 }
 
 type ChallengeRequest struct {
@@ -69,7 +79,8 @@ type ChallengeResponse struct {
 
 // Ce que l'agent envoie avec son signal : les lectures de la machine faites
 // depuis le signal précédent, ce que son Docker a montré, et ce que ses
-// sondes ont donné, ce qu'il a constaté sur ses images. Un signal sans
+// sondes ont donné, ce qu'il a constaté sur ses images, ce qu'il a fait des
+// ordres reçus. Un signal sans
 // corps reste un signal ; un agent plus vieux n'envoie pas toutes les
 // sections, le serveur l'accepte.
 type SignalRequest struct {
@@ -78,6 +89,8 @@ type SignalRequest struct {
 	Services *container.Report `json:"services,omitempty"`
 	Probes   *probe.Report     `json:"probes,omitempty"`
 	Images   *update.Report    `json:"images,omitempty"`
+	// Ce que l'agent a fait des ordres reçus : refusés, acceptés, faits.
+	Actions *ActionReport `json:"actions,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -88,11 +101,12 @@ const (
 	SectionServices = "services"
 	SectionProbes   = "probes"
 	SectionImages   = "images"
+	SectionActions  = "actions"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.
