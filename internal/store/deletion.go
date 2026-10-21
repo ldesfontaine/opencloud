@@ -53,8 +53,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 			{deletion.KindEnrollmentTokens, `SELECT COUNT(*) FROM enrollment_tokens WHERE machine_id = ?`},
 			{deletion.KindMachineSamples, `SELECT COUNT(*) FROM (
 				SELECT machine_id FROM machine_samples
-				UNION ALL SELECT machine_id FROM machine_samples_hourly
-				UNION ALL SELECT machine_id FROM machine_samples_daily) WHERE machine_id = ?`},
+				UNION ALL SELECT machine_id FROM machine_rollups) WHERE machine_id = ?`},
 			{deletion.KindMachineNetworks, `SELECT COUNT(*) FROM machine_networks WHERE machine_id = ?`},
 			{deletion.KindContainers, `SELECT COUNT(*) FROM containers WHERE machine_id = ?`},
 			{deletion.KindContainerEvents, `SELECT COUNT(*) FROM container_events

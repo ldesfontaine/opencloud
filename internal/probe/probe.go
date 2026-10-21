@@ -375,7 +375,7 @@ var (
 )
 
 // Une page publique affiche la sonde : la retirer d'abord du composant
-// (restrict, migration 028_restrict.sql).
+// (restrict, migrations/001_schema.sql).
 var ErrShownOnStatus = refusal.Conflict("probe.shown_on_status", "a status component shows the probe")
 
 // Complete pose ce que l'opérateur n'a pas dit : les valeurs par défaut,

@@ -757,7 +757,17 @@ argument : `-token` est refusé, il serait visible de tous les comptes via `ps`.
 Il n'y a ni paquet ni dépôt : on remplace le binaire. Les migrations de la
 base s'appliquent **seules au démarrage**, dans l'ordre, chacune dans sa
 transaction, notées dans `schema_migrations`. Pas de commande à lancer, pas
-de retour arrière : **sauvegardez avant**.
+de retour arrière : **sauvegardez avant**. Un binaire qui trouve une
+migration qu'il ne connaît pas (une base venue d'un binaire plus récent)
+refuse de démarrer, sans rien toucher : pour revenir en arrière, remettez
+l'ancien binaire **et** la copie `avant-maj.db`.
+
+La v0.0.1 part d'un schéma unique (`migrations/001_schema.sql`) : une base
+créée avant lui (les migrations `002` à `034` d'avant le 21 octobre 2026) est
+refusée de même. Il n'y a pas de montée : arrêtez `serve`, déplacez
+`opencloud.db` (et ses fichiers `-wal`, `-shm`), relancez ; la base repart
+vide, et chaque machine se ré-enrôle (supprimer son `identity.json`, relancer
+la ligne d'installation).
 
 ```sh
 # Sur le poste de build
@@ -783,54 +793,6 @@ agent à jour contre un serveur plus ancien fonctionne, le serveur ignore ce
 qu'il ne connaît pas. À la mise à jour de l'agent, un conteneur étiqueté passe
 au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
 « label orphelin », sans repli.
-
-**Le premier démarrage d'une version qui relie l'annuaire** (migration
-`024_directory_links.sql`) repointe sur l'annuaire ce qui visait un
-conteneur : les sondes, les membres des composants de la page de statut et la
-politique de mise à jour (suivre, épingler, exclure). Pour chaque conteneur qui
-portait un de ces liens, `serve` crée un service dans l'annuaire, avec tout son
-projet Compose, marqué « à vérifier » : l'onglet **Annuaire** de la page
-Services les liste, et une ligne `declared services to review` au journal en
-donne le nombre. Seuls les conteneurs liés ou qui tournent y deviennent des
-unités : un conteneur arrêté que rien ne vise (l'`init` d'un projet) reste
-« non déclaré », visible dans l'écart. **Après la montée, vérifiez vos services
-à valider et vos composants de statut**, puis **Valider** chaque service. L'historique des sondes,
-leurs alertes et les membres des composants sont gardés ; la migration compte
-ce qui devait survivre et, au moindre écart, ne change rien et `serve` refuse de
-démarrer (le message dit lequel). Recréer un conteneur ne casse plus ces liens.
-**Pas de retour arrière par le binaire seul** : rien n'est détruit, mais
-l'ancien binaire ne marche pas sur cette base. Il démarre, puis ne suit plus
-les conteneurs : son inventaire écrit une colonne (`update_policy`) que la
-montée a retirée de `services`, donc chaque rapport échoue ; créer une sonde
-sur un conteneur échoue aussi, la sonde visant désormais un service de
-l'annuaire. La 025 renomme en plus les tables du conteneur observé (`services`
-devient `containers`, `service_transitions` `container_events`, et de même
-les mesures et les réseaux) : un binaire d'avant elle ne les retrouve plus.
-Pour revenir en arrière, remettez l'ancien binaire **et** la copie
-`avant-maj.db` faite avant la mise à jour. La sauvegarde ne change pas.
-
-**La version qui pose les alertes sur l'annuaire** (migration
-`032_alerts_directory.sql`) change deux choses que vous voyez. **Une
-maintenance de la page de statut ne tait plus les alertes** : c'est ce que
-vous dites au public ; pour taire, posez un silence (Alertes → Silences),
-qui peut maintenant commencer à une heure dite. À la montée, chaque
-maintenance pas encore terminée devient un silence par objet de ses
-composants, sur la même fenêtre : rien ne change pour celles en cours. Les
-silences existants sont repris (celui d'un volume tait désormais le disque de
-toute sa machine). Et **une livraison en échec n'est plus perdue** : elle est
-rejouée, les essais s'espaçant jusqu'à une heure, pendant 24 h. Le journal d'audit écrit
-`mute.create` et `mute.delete` là où il écrivait `silence.*`. Un binaire
-d'avant ne retrouve plus `alert_silences` : même retour arrière que plus haut.
-
-**La version des pages de statut multiples** (migration
-`034_status_pages.sql`) remplace la page unique par des pages, une par
-adresse. Votre page devient la page `statut`, à **`/statut/statut`**, avec ses
-composants, son titre, son annonce et sa langue ; elle n'est rangée dans aucun
-projet. `/statut` y mène tant qu'elle est la seule : un lien déjà donné
-continue de marcher, jusqu'à ce que vous créiez une deuxième page. Une page
-qui ne montrait rien (aucun composant, ni titre, ni annonce) n'est pas reprise.
-Un binaire d'avant ne lit plus les réglages (`settings` perd `status_title`,
-`status_announcement`, `status_language`) : même retour arrière que plus haut.
 
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 

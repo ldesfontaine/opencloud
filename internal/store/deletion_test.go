@@ -156,12 +156,12 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	exec(t, db, `INSERT INTO agent_capabilities (agent_id, capability, reported_at) VALUES ('agt_2', 'observe', 2)`)
 	exec(t, db, `INSERT INTO machine_samples (machine_id, sampled_at, cpu_percent, cpu_cores, load_1, mem_used, mem_total,
 		swap_used, swap_total, disk_used, disk_total, net_rx_per_second, net_tx_per_second) VALUES ('m1', 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0)`)
-	exec(t, db, `INSERT INTO machine_samples_hourly (machine_id, bucket, avg_cpu_percent, cpu_cores, avg_load_1, avg_mem_used, avg_mem_total,
+	exec(t, db, `INSERT INTO machine_rollups (machine_id, granularity, bucket, avg_cpu_percent, cpu_cores, avg_load_1, avg_mem_used, avg_mem_total,
 		avg_swap_used, avg_swap_total, avg_disk_used, avg_disk_total, avg_net_rx_per_second, avg_net_tx_per_second, sample_count)
-		VALUES ('m1', 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1)`)
+		VALUES ('m1', 'hour', 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1)`)
 	exec(t, db, `INSERT INTO machine_networks (machine_id, network_id, name, driver, seen_at) VALUES ('m1', 'n1', 'bridge', 'bridge', 1)`)
-	exec(t, db, `INSERT INTO containers (id, machine_id, kind, name, container_id, state, created_at, first_seen_at, last_seen_at)
-		VALUES ('m1:abc', 'm1', 'container', 'wiki', 'abc', 'running', 1, 1, 1)`)
+	exec(t, db, `INSERT INTO containers (id, machine_id, name, container_id, state, created_at, first_seen_at, last_seen_at)
+		VALUES ('m1:abc', 'm1', 'wiki', 'abc', 'running', 1, 1, 1)`)
 	exec(t, db, `INSERT INTO container_events (container_id, at, action) VALUES ('m1:abc', 1, 'start'), ('m1:abc', 2, 'die')`)
 	exec(t, db, `INSERT INTO image_checks (machine_id, image, checked_at, outcome) VALUES ('m1', 'nginx', 1, 'ok')`)
 	exec(t, db, `INSERT INTO ignored_keys (machine_id, kind, value, created_at) VALUES ('m1', 'container_name', 'init', 1)`)
@@ -193,7 +193,7 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	if err := db.DeleteMachine(ctx, "m1"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"agents", "enrollment_tokens", "machine_samples", "machine_samples_hourly", "machine_networks", "containers", "image_checks", "ignored_keys"} {
+	for _, table := range []string{"agents", "enrollment_tokens", "machine_samples", "machine_rollups", "machine_networks", "containers", "image_checks", "ignored_keys"} {
 		if got := count(t, db, `SELECT COUNT(*) FROM `+table+` WHERE machine_id = 'm1'`); got != 0 {
 			t.Errorf("%s : %d ligne(s) survivent à la machine", table, got)
 		}
@@ -312,8 +312,8 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 	db := deletionBench(t)
 	exec(t, db, `INSERT INTO projects (id, name, title, created_at, updated_at) VALUES ('prj_0000000000000001', 'docs', '', 1, 1)`)
 	exec(t, db, `INSERT INTO project_services (project_id, service_id) VALUES ('prj_0000000000000001', 'svc_0123456789abcdef')`)
-	exec(t, db, `INSERT INTO containers (id, machine_id, kind, name, container_id, state, created_at, first_seen_at, last_seen_at, unit_id)
-		VALUES ('local:abc', 'local', 'container', 'whoami', 'abc', 'running', 1, 1, 1, 'unit_0123456789abcdef')`)
+	exec(t, db, `INSERT INTO containers (id, machine_id, name, container_id, state, created_at, first_seen_at, last_seen_at, unit_id)
+		VALUES ('local:abc', 'local', 'whoami', 'abc', 'running', 1, 1, 1, 'unit_0123456789abcdef')`)
 	exec(t, db, `INSERT INTO mutes (service_id, starts_at, ends_at, created_at) VALUES ('svc_0123456789abcdef', 1, 2, 1)`)
 	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, machine_id, service_id, container_id, opened_at, updated_at)
 		VALUES ('service_down', 'danger', 'open', 'container', 'local:abc', 'whoami', 'local', 'svc_0123456789abcdef', 'local:abc', 1, 1)`)

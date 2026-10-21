@@ -46,7 +46,7 @@ var secretColumns = []secretColumn{
 	{table: "settings", column: "mail_password"},
 	{table: "alert_channels", column: "url"},
 	{table: "alert_channels", column: "secret"},
-	{table: "heartbeats", column: "token"},
+	{table: "heartbeats", column: "token_sealed"},
 }
 
 func settingsPasswordScope() seal.Scope {
@@ -59,7 +59,7 @@ func channelScope(column string, id int64) seal.Scope {
 }
 
 func heartbeatTokenScope(id string) seal.Scope {
-	return seal.Scope{Table: "heartbeats", Column: "token", Row: id}
+	return seal.Scope{Table: "heartbeats", Column: "token_sealed", Row: id}
 }
 
 // sealSecret chiffre un secret pour sa ligne. Un secret vide reste vide : il
@@ -172,7 +172,7 @@ func (db *DB) writeHeartbeatToken(ctx context.Context, to execer, id, token stri
 	if err != nil {
 		return nil, fmt.Errorf("seal heartbeat token: %w", err)
 	}
-	return to.ExecContext(ctx, `UPDATE heartbeats SET token = ?, token_hash = ? WHERE id = ?`,
+	return to.ExecContext(ctx, `UPDATE heartbeats SET token_sealed = ?, token_lookup = ? WHERE id = ?`,
 		sealed, heartbeat.HashToken(token), id)
 }
 

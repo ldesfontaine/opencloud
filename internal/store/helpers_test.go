@@ -4,7 +4,63 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/ldesfontaine/opencloud/internal/seal"
+)
+
+// openEmpty ouvre une base neuve sans y jouer aucune migration : le test
+// pose lui-même le schéma qu'il veut.
+func openEmpty(t *testing.T) *DB {
+	t.Helper()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	handle, err := openHandle(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := &DB{sql: handle}
+	t.Cleanup(func() { db.Close() })
+	db.SetSealer(seal.Generate())
+	if _, err := db.sql.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func exec(t *testing.T, db *DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.sql.Exec(query, args...); err != nil {
+		t.Fatalf("%s: %v", strings.Join(strings.Fields(query), " "), err)
+	}
+}
+
+func count(t *testing.T, db *DB, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := db.sql.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatalf("%s: %v", strings.Join(strings.Fields(query), " "), err)
+	}
+	return n
+}
+
+func text(t *testing.T, db *DB, query string, args ...any) string {
+	t.Helper()
+	var got sql.NullString
+	if err := db.sql.QueryRow(query, args...).Scan(&got); err != nil {
+		t.Fatalf("%s: %v", strings.Join(strings.Fields(query), " "), err)
+	}
+	return got.String
+}
+
+const (
+	m1 = "11111111-2222-4333-8444-555555555555"
+	m2 = "22222222-2222-4333-8444-555555555555"
 )
 
 type fakeResult struct {

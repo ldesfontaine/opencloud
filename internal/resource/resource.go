@@ -54,6 +54,15 @@ const (
 	SourceDaily  Source = "daily"
 )
 
+// Granularity est la taille d'un seau agrégé : l'heure ou le jour. Les deux
+// vivent dans la même table, machine_rollups.
+type Granularity string
+
+const (
+	GranularityHour Granularity = "hour"
+	GranularityDay  Granularity = "day"
+)
+
 // Window est une fenêtre d'historique : sa durée, le pas des points, la
 // table qui la sert.
 type Window struct {
