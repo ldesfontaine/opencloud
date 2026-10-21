@@ -37,12 +37,14 @@ type Store interface {
 	UpdateChannel(ctx context.Context, channel Channel) error
 	DeleteChannel(ctx context.Context, id int64) error
 
-	InsertSilence(ctx context.Context, silence Silence) (int64, error)
-	ListSilences(ctx context.Context) ([]Silence, error)
-	DeleteSilence(ctx context.Context, id int64) error
-	// DeleteObjectSilences efface les silences qui visent l'objet ; rend combien.
-	DeleteObjectSilences(ctx context.Context, object Object) (int, error)
-	PurgeSilences(ctx context.Context, endedBefore time.Time) error
+	InsertMute(ctx context.Context, mute Mute) (int64, error)
+	// MuteTargetName rend le nom de la cible d'une fenêtre, ErrNotFound
+	// quand elle n'existe pas.
+	MuteTargetName(ctx context.Context, target Target) (string, error)
+	// ListActiveMutes rend les fenêtres ouvertes à cet instant.
+	ListActiveMutes(ctx context.Context, at time.Time) ([]Mute, error)
+	DeleteMute(ctx context.Context, id int64) error
+	PurgeMutes(ctx context.Context, endedBefore time.Time) error
 
 	// InsertDelivery réserve la livraison ; ErrDeliveryExists quand la
 	// même est déjà réservée.
@@ -50,6 +52,9 @@ type Store interface {
 	UpdateDelivery(ctx context.Context, delivery Delivery) error
 	ListDeliveries(ctx context.Context, alertID int64) ([]Delivery, error)
 	ListPendingDeliveries(ctx context.Context) ([]Delivery, error)
+	// ListDueDeliveries rend les livraisons en échec dont le prochain essai
+	// est échu à cet instant.
+	ListDueDeliveries(ctx context.Context, at time.Time) ([]Delivery, error)
 }
 
 var ErrDeliveryExists = errors.New("alert: delivery already reserved")
@@ -60,13 +65,6 @@ type Watcher interface {
 	AlertsChanged()
 }
 
-// Maintenance dit si un objet est sous une maintenance en cours de la page
-// de statut : son alerte s'ouvre alors sans partir. Le certificat suit sa
-// sonde, le volume sa machine. nil est toléré.
-type Maintenance interface {
-	UnderMaintenance(ctx context.Context, objectKind, objectID string) (bool, error)
-}
-
 // Sender envoie une livraison réservée ; le Notifier le fait par webhook.
 // nil est toléré : les alertes se voient, rien ne part.
 type Sender interface {
@@ -74,11 +72,10 @@ type Sender interface {
 }
 
 type Engine struct {
-	store       Store
-	sender      Sender
-	watcher     Watcher
-	maintenance Maintenance
-	auditor     *audit.Recorder
+	store   Store
+	sender  Sender
+	watcher Watcher
+	auditor *audit.Recorder
 	// disks rend les seuils du disque réglés ; nil : ceux par défaut.
 	disks  func() DiskThresholds
 	logger *slog.Logger
@@ -109,10 +106,6 @@ func (e *Engine) SetSender(sender Sender) {
 
 func (e *Engine) SetWatcher(watcher Watcher) {
 	e.watcher = watcher
-}
-
-func (e *Engine) SetMaintenance(maintenance Maintenance) {
-	e.maintenance = maintenance
 }
 
 // SetDiskThresholds branche la lecture des seuils réglés ; elle est
@@ -161,15 +154,9 @@ func (e *Engine) open(ctx context.Context, fact Fact) {
 	now := e.now()
 	alert := Alert{
 		Kind: fact.Kind, Severity: fact.Severity, Status: StatusOpen,
-		Object: fact.Object, MachineID: fact.MachineID, Details: fact.Details,
+		Object: fact.Object, MachineID: fact.MachineID, ServiceID: fact.ServiceID, Details: fact.Details,
 		OpenedAt: now, UpdatedAt: now, ClearSince: fact.ClearSince,
 	}
-	silenced, err := e.silenced(ctx, fact, now)
-	if err != nil {
-		// Une panne du silence ne retient jamais une alerte.
-		e.fail(ctx, "check silences", err)
-	}
-	alert.Silenced = silenced
 	id, err := e.store.InsertAlert(ctx, alert)
 	if err != nil {
 		e.fail(ctx, "insert alert", err)
@@ -182,11 +169,9 @@ func (e *Engine) open(ctx context.Context, fact Fact) {
 		return
 	}
 	e.logger.Warn("alert opened", "alert_id", id, "kind", string(alert.Kind), "severity", string(alert.Severity),
-		"object_kind", string(alert.Object.Kind), "object", alert.Object.Name, "silenced", silenced)
+		"object_kind", string(alert.Object.Kind), "object", alert.Object.Name)
 	e.changed()
-	if !silenced {
-		e.deliver(ctx, alert, EventOpened)
-	}
+	e.deliver(ctx, alert, EventOpened)
 }
 
 // update ne baisse jamais la gravité, sauf celle d'un plantage, qui suit
@@ -200,7 +185,9 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 		aggravated = isLoop(fact.Kind, fact.Details) && !existing.IsLoop()
 	}
 	renamed := existing.Object.Name != fact.Object.Name
-	moved := existing.MachineID != fact.MachineID
+	// Une tâche ou une sonde éditée a pu changer de machine ; un conteneur,
+	// être déclaré ou rattaché à un autre service.
+	moved := existing.MachineID != fact.MachineID || existing.ServiceID != fact.ServiceID
 	if !aggravated && !renamed && !moved && existing.Kind == fact.Kind && existing.Details.Equal(fact.Details) && existing.ClearSince.Equal(fact.ClearSince) {
 		return
 	}
@@ -209,8 +196,8 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 	}
 	existing.Kind = fact.Kind
 	existing.Object.Name = fact.Object.Name
-	// Une tâche ou une sonde éditée a pu changer de machine.
 	existing.MachineID = fact.MachineID
+	existing.ServiceID = fact.ServiceID
 	existing.Details = fact.Details
 	existing.ClearSince = fact.ClearSince
 	existing.UpdatedAt = e.now()
@@ -228,9 +215,7 @@ func (e *Engine) update(ctx context.Context, existing Alert, fact Fact) {
 	e.changed()
 	if aggravated {
 		e.logger.Warn("alert aggravated", "alert_id", existing.ID, "kind", string(existing.Kind), "object", existing.Object.Name)
-		if !existing.Silenced {
-			e.deliver(ctx, existing, EventAggravated)
-		}
+		e.deliver(ctx, existing, EventAggravated)
 	}
 }
 
@@ -261,9 +246,7 @@ func (e *Engine) resolve(ctx context.Context, alert Alert) {
 	}
 	e.logger.Info("alert resolved", "alert_id", alert.ID, "kind", string(alert.Kind), "object", alert.Object.Name)
 	e.changed()
-	if !alert.Silenced {
-		e.deliver(ctx, alert, EventResolved)
-	}
+	e.deliver(ctx, alert, EventResolved)
 }
 
 // Gone résout tout ce qui est ouvert sur un objet qui n'existe plus, ou
@@ -282,19 +265,11 @@ func (e *Engine) Gone(ctx context.Context, object Object) {
 }
 
 // removed : l'objet est retiré de la base. Ce qui était ouvert sur lui se
-// résout, et ses silences partent avec lui : sans clé étrangère, ils
-// viseraient un objet disparu. Une pause ou un archivage passe par Gone
-// seul et garde les silences.
+// résout ; ses fenêtres pour taire sont parties avec lui, par la clé
+// étrangère, et la page des silences se relit.
 func (e *Engine) removed(ctx context.Context, object Object) {
 	e.Gone(ctx, object)
-	deleted, err := e.store.DeleteObjectSilences(ctx, object)
-	if err != nil {
-		e.fail(ctx, "delete object silences", err)
-		return
-	}
-	if deleted > 0 {
-		e.changed()
-	}
+	e.changed()
 }
 
 func (e *Engine) resolveOrphans(ctx context.Context) {
@@ -320,37 +295,54 @@ func (e *Engine) resolveAll(ctx context.Context, filter Filter) {
 }
 
 // List rend les alertes d'un statut, les plus graves puis les plus
-// récentes d'abord.
+// récentes d'abord, chacune avec ce qui la tait en ce moment.
 func (e *Engine) List(ctx context.Context, status Status) ([]Alert, error) {
-	return e.store.ListAlerts(ctx, Filter{Status: status, Limit: MaxListed})
+	alerts, err := e.store.ListAlerts(ctx, Filter{Status: status, Limit: MaxListed})
+	if err != nil {
+		return nil, err
+	}
+	now := e.now()
+	mutes, err := e.store.ListActiveMutes(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	for index := range alerts {
+		alerts[index].Muted = mutedBy(mutes, alerts[index], now)
+	}
+	return alerts, nil
 }
 
-// silenced dit si le fait tombe sous un silence actif ou sous une
-// maintenance en cours ; un volume suit sa machine.
-func (e *Engine) silenced(ctx context.Context, fact Fact, now time.Time) (bool, error) {
-	silences, err := e.store.ListSilences(ctx)
+// Get rend une alerte avec ce qui la tait en ce moment.
+func (e *Engine) Get(ctx context.Context, id int64) (Alert, error) {
+	found, err := e.store.GetAlert(ctx, id)
 	if err != nil {
-		return false, err
+		return Alert{}, err
 	}
-	for _, silence := range silences {
-		if silence.Matches(fact, now) {
-			return true, nil
-		}
+	now := e.now()
+	mutes, err := e.store.ListActiveMutes(ctx, now)
+	if err != nil {
+		return Alert{}, err
 	}
-	if e.maintenance == nil {
-		return false, nil
+	found.Muted = mutedBy(mutes, found, now)
+	return found, nil
+}
+
+// activeMutes rend les fenêtres ouvertes. Une panne de lecture ne retient
+// jamais une alerte : sans fenêtre lue, tout part.
+func (e *Engine) activeMutes(ctx context.Context, now time.Time) []Mute {
+	mutes, err := e.store.ListActiveMutes(ctx, now)
+	if err != nil {
+		e.fail(ctx, "list active mutes", err)
+		return nil
 	}
-	object := fact.Object
-	if object.Kind == ObjectVolume {
-		object = Object{Kind: ObjectMachine, ID: fact.MachineID}
-	}
-	return e.maintenance.UnderMaintenance(ctx, string(object.Kind), object.ID)
+	return mutes
 }
 
 // Sweep fait ce que le temps seul change : les alertes d'un objet disparu
 // se résolvent ; celles d'un service redevenu bon aussi, passé leur délai
 // de calme : RestartWindow après un redémarrage, ServiceClearDelay pour un
-// arrêt ou une santé qui échouait. Puis les résumés des envois retenus.
+// arrêt ou une santé qui échouait. Puis les livraisons en échec dont
+// l'essai suivant est échu, et les résumés des envois retenus.
 func (e *Engine) Sweep(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -359,18 +351,19 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceRestart, ClearBefore: now.Add(-RestartWindow)})
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceDown, ClearBefore: now.Add(-ServiceClearDelay)})
 	e.resolveAll(ctx, Filter{Status: StatusOpen, Kind: KindServiceUnhealthy, ClearBefore: now.Add(-ServiceClearDelay)})
+	e.retryDue(ctx, now)
 	e.flushSummaries(ctx)
 	e.forgetIdleShares(now)
 }
 
-// Purge efface les alertes résolues et les silences finis au-delà de leur
+// Purge efface les alertes résolues et les fenêtres finies au-delà de leur
 // rétention.
 func (e *Engine) Purge(ctx context.Context) error {
 	now := e.now()
 	if err := e.store.PurgeAlerts(ctx, now.Add(-ResolvedRetention)); err != nil {
 		return err
 	}
-	if err := e.store.PurgeSilences(ctx, now.Add(-SilenceRetention)); err != nil {
+	if err := e.store.PurgeMutes(ctx, now.Add(-MuteRetention)); err != nil {
 		return err
 	}
 	// Le journal d'audit n'a pas de boucle à lui : il se purge ici, au même
@@ -379,7 +372,8 @@ func (e *Engine) Purge(ctx context.Context) error {
 }
 
 // Watch est la boucle de fond : le rattrapage des livraisons au départ, le
-// balayage toutes les 30 s, la purge au départ puis une fois par jour.
+// balayage toutes les 30 s (essais suivants compris), la purge au départ
+// puis une fois par jour.
 func (e *Engine) Watch(ctx context.Context) {
 	if err := e.Requeue(ctx); err != nil {
 		e.logger.Error("requeue alert deliveries", "error", err)

@@ -162,7 +162,10 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	exec(t, db, `INSERT INTO container_events (container_id, at, action) VALUES ('m1:abc', 1, 'start'), ('m1:abc', 2, 'die')`)
 	exec(t, db, `INSERT INTO image_checks (machine_id, image, checked_at, outcome) VALUES ('m1', 'nginx', 1, 'ok')`)
 	exec(t, db, `INSERT INTO ignored_keys (machine_id, kind, value, created_at) VALUES ('m1', 'container_name', 'init', 1)`)
-	exec(t, db, `INSERT INTO alert_silences (object_kind, object_id, starts_at, ends_at, created_at) VALUES ('machine', 'm1', 1, 2, 1)`)
+	// Une fenêtre sur la machine, une sur son conteneur : les deux partent.
+	exec(t, db, `INSERT INTO mutes (machine_id, starts_at, ends_at, created_at) VALUES ('m1', 1, 2, 1)`)
+	exec(t, db, `INSERT INTO mutes (container_id, starts_at, ends_at, created_at) VALUES ('m1:abc', 1, 2, 1)`)
+	exec(t, db, `INSERT INTO mutes (alert_kind, starts_at, ends_at, created_at) VALUES ('disk_full', 1, 2, 1)`)
 	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, machine_id, opened_at, updated_at)
 		VALUES ('machine_lost', 'danger', 'resolved', 'machine', 'm1', 'vps-paris-1', 'm1', 1, 1)`)
 
@@ -175,7 +178,7 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 			{Kind: deletion.KindEnrollmentTokens, Count: 1}, {Kind: deletion.KindMachineSamples, Count: 2},
 			{Kind: deletion.KindMachineNetworks, Count: 1}, {Kind: deletion.KindContainers, Count: 1},
 			{Kind: deletion.KindContainerEvents, Count: 2}, {Kind: deletion.KindImageChecks, Count: 1},
-			{Kind: deletion.KindIgnoredKeys, Count: 1}, {Kind: deletion.KindSilences, Count: 1},
+			{Kind: deletion.KindIgnoredKeys, Count: 1}, {Kind: deletion.KindSilences, Count: 2},
 		},
 		Detaches: []deletion.Count{{Kind: deletion.KindAlerts, Count: 1}},
 	}
@@ -193,6 +196,9 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM container_events`); got != 0 {
 		t.Errorf("container_events : %d ligne(s) survivent", got)
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM mutes`); got != 1 {
+		t.Errorf("mutes : %d, seule la fenêtre sans cible doit rester", got)
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE machine_id IS NULL AND object_name = 'vps-paris-1'`); got != 1 {
 		t.Fatalf("l'alerte doit rester, détachée et nommée : %d", got)
@@ -290,9 +296,10 @@ func TestDeleteHeartbeat_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 	}
 }
 
-// Un service emporte ses unités et ses liens de projet, ses conteneurs
-// redeviennent non déclarés ; un projet ne retire que ses liens ; un
-// composant emporte ses membres, l'incident qui le citait reste.
+// Un service emporte ses unités, ses fenêtres pour taire et ses liens de
+// projet, ses conteneurs redeviennent non déclarés et ses alertes restent,
+// détachées ; un projet ne retire que ses liens ; un composant emporte ses
+// membres, l'incident qui le citait reste.
 func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *testing.T) {
 	ctx := context.Background()
 	db := deletionBench(t)
@@ -300,14 +307,19 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 	exec(t, db, `INSERT INTO project_services (project_id, service_id) VALUES ('prj_0000000000000001', 'svc_0123456789abcdef')`)
 	exec(t, db, `INSERT INTO containers (id, machine_id, kind, name, container_id, state, created_at, first_seen_at, last_seen_at, unit_id)
 		VALUES ('local:abc', 'local', 'container', 'whoami', 'abc', 'running', 1, 1, 1, 'unit_0123456789abcdef')`)
+	exec(t, db, `INSERT INTO mutes (service_id, starts_at, ends_at, created_at) VALUES ('svc_0123456789abcdef', 1, 2, 1)`)
+	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, machine_id, service_id, container_id, opened_at, updated_at)
+		VALUES ('service_down', 'danger', 'open', 'container', 'local:abc', 'whoami', 'local', 'svc_0123456789abcdef', 'local:abc', 1, 1)`)
 	insertTestComponent(t, db, "c1", status.Member{Kind: status.KindMachine, ID: "m1"})
 	exec(t, db, `INSERT INTO incidents (id, title, impact, status, created_at, updated_at) VALUES ('i1', 'Panne', 'down', 'investigating', 1, 1)`)
 	exec(t, db, `INSERT INTO incident_components (incident_id, component_id) VALUES ('i1', 'c1')`)
 
 	service, err := db.DeclaredServiceDeletionPlan(ctx, "svc_0123456789abcdef")
 	wantService := deletion.Plan{
-		Removes:  []deletion.Count{{Kind: deletion.KindUnits, Count: 1}},
-		Detaches: []deletion.Count{{Kind: deletion.KindProjectLinks, Count: 1}, {Kind: deletion.KindContainers, Count: 1}},
+		Removes: []deletion.Count{{Kind: deletion.KindUnits, Count: 1}, {Kind: deletion.KindSilences, Count: 1}},
+		Detaches: []deletion.Count{
+			{Kind: deletion.KindProjectLinks, Count: 1}, {Kind: deletion.KindContainers, Count: 1}, {Kind: deletion.KindAlerts, Count: 1},
+		},
 	}
 	if err != nil || !reflect.DeepEqual(service, wantService) {
 		t.Fatalf("service = %+v %v", service, err)
@@ -330,6 +342,12 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM containers WHERE id = 'local:abc' AND unit_id IS NULL`); got != 1 {
 		t.Fatal("le conteneur doit rester, non déclaré")
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE service_id IS NULL AND container_id = 'local:abc' AND status = 'open'`); got != 1 {
+		t.Fatal("l'alerte du conteneur doit rester ouverte, détachée du service")
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM mutes`); got != 0 {
+		t.Fatal("la fenêtre pour taire doit partir avec le service")
 	}
 	if _, err := db.GetProject(ctx, "prj_0000000000000001"); err != nil {
 		t.Fatalf("le projet doit rester: %v", err)

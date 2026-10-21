@@ -74,15 +74,13 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	declared.SetAssigner(updates)
 	containers.SetUnits(declared)
 	statusPage := status.New(db, db, machines, preferences, logger)
-	// Les alertes : chaque composant lui donne ses faits, la page de statut
-	// lui dit ce qui est sous maintenance, le notifieur livre aux canaux
-	// dans la langue de l'interface.
+	// Les alertes : chaque composant lui donne ses faits, le notifieur livre
+	// aux canaux dans la langue de l'interface.
 	catalogs, err := lang.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load languages: %w", err)
 	}
 	alerts := alert.New(db, logger)
-	alerts.SetMaintenance(statusPage)
 	alerts.SetDiskThresholds(preferences.CurrentDiskThresholds)
 	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
 	notifier.SetPublicURL(cfg.PublicURL)

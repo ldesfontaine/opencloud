@@ -366,6 +366,7 @@ erDiagram
         TEXT project_id FK "un objet au plus"
         TEXT service_id FK
         TEXT machine_id FK
+        TEXT container_id FK "conteneur non declare"
         TEXT probe_id FK
         TEXT heartbeat_id FK
         INTEGER announce "maintenance publique, 0 par defaut"
@@ -375,6 +376,7 @@ erDiagram
     projects |o--o{ mutes : "cascade"
     declared_services |o--o{ mutes : "cascade"
     machines |o--o{ mutes : "cascade"
+    containers |o--o{ mutes : "cascade"
     probes |o--o{ mutes : "cascade"
     heartbeats |o--o{ mutes : "cascade"
 
@@ -628,7 +630,7 @@ flowchart LR
 | `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle |
 | `status_components` | Composé à la main, nommé librement, pré-rempli depuis les services du projet ; un outil d'infra y paraît sous un nom générique | Transformée |
 | `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) |
-| `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) |
+| `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) ; **faite** (migration `032_alerts_directory.sql`), sans `project_id`, `announce` ni `public_title` (section 13) |
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
 | `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
@@ -760,13 +762,13 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `image_checks` | Gardée | Reste un cache (machine, image) ; les montées trouvées deviennent des `update_proposals` | Cache |
 | `status_components` | Transformée | + `page_id`. La page unique actuelle devient un projet (titre repris de `settings.toml`) qui contient les services de ses composants, et sa page ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle existe | Gardé |
 | `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK passent en restrict avec les plans de suppression (**fait**, `028_restrict.sql`) | Gardé |
-| `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture | Gardé |
+| `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture. **Fait en partie** (032) : une maintenance ne tait plus rien, celles pas encore résolues ont donné leurs lignes `mutes` ; l'impact `maintenance` reste, c'est l'annonce publique tant que `announce` n'existe pas | Gardé |
 | `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres | Gardé |
 | `incident_updates` | Gardée | — | Gardé |
-| `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi | Gardé |
+| `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi. **Fait** (032), sauf `run_id` | Gardé |
 | `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` ; `name` unique (clé du YAML) ; + `channel_projects` | — |
-| `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré | Gardé |
-| `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables | Gardé |
+| `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré. **Fait** (032) | Gardé |
+| `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables. **Fait** (032) | Gardé |
 | `mcp_clients`, `mcp_codes`, `mcp_tokens` | Gardées | Désactivation en une transaction ; `mcp_codes.client_id` en FK ; `mcp_codes.scope`, la portée consentie sur la page de consentement (migration 033). Les demandes qui attendent le consentement restent en mémoire, pas en base | — |
 | `auth_settings` | Transformée | Mode `none` retiré : un compte local (`accounts`) est créé au premier démarrage, avant tout ; Basic remplacé par une page de connexion (`sessions`) ; + OIDC | Compte Basic repris dans `accounts` |
 | `schema_migrations` | Gardée | — | — |
@@ -1004,7 +1006,7 @@ vers l'annuaire. Ce que le code a tranché en l'écrivant :
 | Les membres d'un même composant qui visent deux conteneurs d'un même projet **sont réunis en un seul** (le premier dans l'ordre), sans `OR IGNORE` | Un seul service déclaré ; l'index unique `(component, service)` l'exige. `OR IGNORE` taisait aussi un `CHECK` violé, donc un lien perdu : on déduplique explicitement et le compte le dit |
 | **La règle d'état** d'un service déclaré dans un composant : le pire de ses unités conteneur ; une unité sans conteneur vivant est en panne ; un binaire ne compte pas | L'état ne dépend plus d'un identifiant Docker. Le prix : une unité qui n'a jamais eu de conteneur compte comme en panne |
 | `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression (passées en restrict depuis, section 11) |
-| `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée |
+| `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée. **Réglé par la 032** (section 13) |
 | Une sonde peut viser un service de **n'importe quelle machine** | Sonder depuis l'extérieur un service d'une autre machine est le cas courant ; le service existe, c'est tout ce que la création vérifie |
 | Pas de retour arrière par le binaire seul | Rien n'est détruit, mais l'ancien binaire ne marche pas sur cette base : son inventaire écrit `services.update_policy`, colonne supprimée, donc tout rapport de conteneurs échoue ; créer une sonde sur un identifiant de conteneur échoue contre la clé vers `declared_services`. Revenir, c'est remettre l'ancien binaire **et** la copie faite avant la montée (`installation.md`) |
 
@@ -1081,7 +1083,7 @@ le code a tranché :
 | **La clé du 409 est celle du premier genre qui retient**, dans un ordre fixe (services, sondes, tâches, composants) ; le plan entier suit dans le corps | Une clé par réponse, comme tout refus ; la liste complète est dans le plan |
 | **Un service garde sa clé** `directory.service_linked` pour ses sondes comme pour ses composants ; le corps du 409 porte désormais `plan` à la place de `links` | Une seule forme de refus pour toutes les suppressions ; la fiche du service garde `links` |
 | **Projet et composant ne sont retenus par rien** aujourd'hui : leur plan informe, leur `DELETE` ne change pas | `status_pages` et `channel_projects`, qui retiendront un projet, ne sont pas encore là |
-| **Le plan compte les silences**, qui n'ont pas de clé étrangère | Le moteur des alertes les retire avec leur objet : c'est une perte, elle se dit |
+| **Le plan compte les silences**, qui n'ont pas de clé étrangère | Le moteur des alertes les retire avec leur objet : c'est une perte, elle se dit. Depuis la 032, ils en ont une (`mutes`, `cascade`) ; le plan les compte toujours, ceux des conteneurs d'une machine compris |
 | **Pas compté** : le moteur Docker d'une machine, les mesures et réseaux d'un conteneur (partent avec lui), les fournitures d'un service (partie de sa définition) | Le plan dit ce qui compte pour l'opérateur ; le reste suit une ligne déjà comptée |
 | **Le plan d'`apply` lit celui du domaine**, et refuse dans le plan (`prune_blocked`) la suppression d'une sonde ou d'une tâche qu'un composant montre, comme celle d'un service | Le fichier ne porte pas les composants : sans ce refus, l'application s'arrêterait au milieu, sur le refus du geste |
 | **Pas de « tout supprimer »** : le bouton de la boîte de confirmation reste fermé tant que le plan retient | Décision 17/10 : aucune perte silencieuse, même d'un clic |
@@ -1102,3 +1104,24 @@ journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
 | **Pas encore d'`audit_deliveries` ni de `receives_audit`** | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
 | **Ajout seul, tenu par la base** : un déclencheur refuse toute modification d'une ligne, hors la mise à nul de `apply_id` par sa clé étrangère ; la seule suppression est la purge à un an (`audit.Retention`) | Un défaut de code ne réécrit pas l'histoire ; qui a la base en main la réécrit quand même, d'où l'envoi aux canaux à venir |
 | **Écrit après le geste, hors de sa transaction** ; un échec d'écriture est journalisé en erreur et ne défait pas le geste | Ne pas toucher aux transactions de chaque domaine ; les actions typées écriront leur `action_runs` avant d'envoyer l'ordre |
+
+## 13. Ce que l'alerte sur l'annuaire a fixé
+
+Migration `032_alerts_directory.sql` (`alerts` reconstruite, `mutes`,
+`alert_deliveries.next_attempt_at`). Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment une alerte naît ». Ce que le code a tranché,
+et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **L'objet d'une alerte de conteneur reste le conteneur** (`object_kind 'container'`, `container_id`) ; `service_id` dit le service déclaré de son unité, ou celui que surveille une sonde, sans faire l'objet | La clé de dédup est (type, genre, identifiant). Un service à plusieurs unités a un conteneur par unité, chacun avec son état de plantage : une clé par service mêlerait les deux, et le calme de l'un résoudrait l'alerte de l'autre. Écart au diagramme, qui ne met `container_id` que pour « présent non déclaré » |
+| **`object_kind 'service'` devient `'container'`** pour toutes les alertes de conteneur, rattachées ou non | « service » ne désigne plus jamais une fiche ; le genre `service` reste libre pour une alerte qui viserait le service lui-même |
+| **`mutes.container_id`** (cascade), en plus du diagramme | Un conteneur présent non déclaré a ses alertes ; le faire taire sans taire toute sa machine demande une cible. Un silence d'avant sur un conteneur est recopié tel quel, rattaché ou non : même effet qu'avant |
+| **Un silence sur un volume** devient un silence `disk_full` sur sa machine | La fenêtre vise un objet de l'annuaire, pas un point de montage ; c'est plus large (tous les volumes de la machine), jamais plus étroit |
+| **Une machine tait ce qui vit dessus** (`alerts.machine_id`), **un service déclaré ses conteneurs et ses sondes** (`alerts.service_id`) | La règle des silences d'avant pour la machine ; pour le service, ce que la direction prévoit pour un projet, un cran plus bas |
+| **Une maintenance pas encore résolue** donne un silence par membre de ses composants, sur sa fenêtre, à son titre ; l'incident reste | Ce qu'elle taisait la veille de la montée, elle le tait le lendemain. Un membre machine tait désormais tout ce qui vit dessus, plus que la maintenance (qui ne taisait que la machine et ses volumes) |
+| **Pas encore de `project_id`, `announce` ni `public_title`** sur `mutes` | Pas de page par projet ni d'incidents par cible : la maintenance publique reste un incident d'impact `maintenance`, qui ne tait plus rien ; `ApplyWindows` garde son rôle de fil public (planifiée, en cours, résolue) |
+| **Taire se juge à chaque envoi** ; une livraison tue s'écrit `muted`, sans prendre à la limite du canal ni compter comme annoncée | La fiche dit pourquoi rien n'est parti ; la part (canal, machine) reste aux alertes qui partent |
+| **Essais** : trois tout de suite (0, 5 s, 30 s) dans l'ouvrier, puis 2 min, 10 min, 30 min et toutes les heures, **jusqu'à 24 h** après la réservation, rejoués par le balayage de 30 s, un essai à la fois | Une heure d'écart au plus entre deux essais (direction) ; au-delà d'un jour, l'alerte a été résolue ou lue sur la page, la rejouer ne dit plus rien |
+| **Une ouverture ou une aggravation encore en échec n'est plus rejouée une fois l'alerte résolue** | Elle arriverait après la résolution |
+| **Les refus gardent le mot de l'écran** : `silence.invalid`, `silence.duration_invalid`, `silence.start_invalid`, `silence.target_unknown` ; l'audit dit `mute.create`, `mute.delete` | « Silence » reste le mot de l'interface ; les lignes `silence.*` d'avant restent dans le journal, qui ne se réécrit pas |

@@ -250,8 +250,9 @@ export function unignorePath(key: IgnoreKey): string {
   return `${ignoredPath}?${query.toString()}`;
 }
 
-export function useDeclaredServices(): Resource<DeclaredServicesResponse> {
-  return useResource<DeclaredServicesResponse>(servicesPath);
+// wanted faux : rien à lire (le sélecteur d'un silence, tant qu'un autre genre est choisi).
+export function useDeclaredServices(wanted = true): Resource<DeclaredServicesResponse> {
+  return useResource<DeclaredServicesResponse>(wanted ? servicesPath : null);
 }
 
 // Les services qu'un projet regroupe ; projectID nul : rien à lire.

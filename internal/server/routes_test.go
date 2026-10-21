@@ -151,7 +151,6 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	alerts := alert.New(db, logger)
 	alerts.SetClock(func() time.Time { return testNow })
 	alerts.SetWatcher(bus)
-	alerts.SetMaintenance(statusPage)
 	notifier := alert.NewNotifier(db, catalogs, func() lang.Code { return lang.French }, logger)
 	notifier.SetClock(func() time.Time { return testNow })
 	alerts.SetSender(notifier)

@@ -125,44 +125,6 @@ func TestComponent_SurvivesContainerRecreation(t *testing.T) {
 	}
 }
 
-// L'alerte d'un conteneur vise la fiche de ce conteneur ; le composant, lui,
-// vise le service déclaré. Une maintenance sur le composant couvre donc
-// l'alerte de n'importe lequel des conteneurs du service, jamais celle d'un
-// conteneur qu'aucune unité ne porte.
-func TestUnderMaintenance_ContainerAlertFindsItsDeclaredService(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-	declared := f.shop(t)
-	app := strings.Repeat("a", 64)
-	stranger := strings.Repeat("f", 64)
-	f.inventory(t, f.shopContainer(app, "app", container.StateRunning), container.Observed{
-		ContainerID: stranger, Name: "stranger", Image: "stranger:1", State: container.StateRunning, CreatedAt: f.now.Add(-time.Hour),
-	})
-	component := f.component(t, "Boutique", status.MemberRef{Kind: status.KindService, ID: declared.ID})
-	appFiche, strangerFiche := container.ID(machine.LocalID, app), container.ID(machine.LocalID, stranger)
-
-	if under, err := f.status.UnderMaintenance(ctx, "service", appFiche); err != nil || under {
-		t.Fatalf("sans maintenance : %v, %v", under, err)
-	}
-	_, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
-		Title: "Migration", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, Message: "Lecture seule.",
-		ComponentIDs: []string{component.ID}, StartsAt: f.now.Add(-time.Minute), EndsAt: f.now.Add(time.Hour),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if under, err := f.status.UnderMaintenance(ctx, "service", appFiche); err != nil || !under {
-		t.Fatalf("l'alerte du conteneur du service doit être couverte : %v, %v", under, err)
-	}
-	if under, err := f.status.UnderMaintenance(ctx, "service", strangerFiche); err != nil || under {
-		t.Fatalf("un conteneur non déclaré n'est dans aucun composant : %v, %v", under, err)
-	}
-	if under, err := f.status.UnderMaintenance(ctx, "service", "m:inconnu"); err != nil || under {
-		t.Fatalf("une fiche inconnue : %v, %v", under, err)
-	}
-}
-
 // Le conteneur d'initialisation d'un projet, arrêté en 0, que la reprise de
 // l'existant n'a pas fait unité : il reste non déclaré et ne change rien à
 // l'état du composant, qui reste vert.

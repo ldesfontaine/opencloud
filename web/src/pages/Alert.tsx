@@ -9,7 +9,7 @@ import { Pill } from "../components/Pill";
 import { List } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useDiskThresholds, useT } from "../i18n/context";
-import { deliveryReason, deliveryTones, describeAlert } from "../lib/alerts";
+import { deliveryFailure, deliveryTones, describeAlert } from "../lib/alerts";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./alerts/AlertRow";
 
@@ -45,7 +45,7 @@ function AlertView({ detail, channels }: { detail: AlertResponse; channels: Chan
             {alert.acknowledged_at !== null && <KeyValue label={t("alert.status_acknowledged")} value={formatClock(alert.acknowledged_at)} mono />}
             {alert.resolved_at !== null && <KeyValue label={t("alert.status_resolved")} value={formatClock(alert.resolved_at)} mono />}
             <KeyValue label={t("alert.severity_label")} value={t(`alert.severity_${alert.severity}`)} />
-            {alert.silenced && <span className="secondary">{t("alert.silenced_help")}</span>}
+            {alert.muted && <span className="secondary">{t("alert.muted_help")}</span>}
           </CardBody>
         </Card>
         <Card>
@@ -60,7 +60,7 @@ function AlertView({ detail, channels }: { detail: AlertResponse; channels: Chan
                     <b>
                       <Link to={`/alertes/canaux/${delivery.channel_id}`}>{channelName(delivery.channel_id)}</Link> · {t(`alert.event_${delivery.event}`)}
                     </b>
-                    {delivery.status === "failed" && <span>{deliveryReason(t, delivery)}</span>}
+                    {delivery.status === "failed" && <span>{deliveryFailure(t, delivery)}</span>}
                   </span>
                   <Pill tone={deliveryTones[delivery.status]}>{t(`alert.delivery_${delivery.status}`)}</Pill>
                   <span className="when">{formatClock(delivery.updated_at)}</span>

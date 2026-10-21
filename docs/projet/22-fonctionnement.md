@@ -120,9 +120,9 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` depuis la migration `028_restrict.sql` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine, une sonde ou une tâche retirée emporte ses silences (la table n'a pas de clé étrangère), une pause ou un archivage les garde. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur ; migration `032_alerts_directory.sql`) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois, avec la portée consentie, migration 033), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017, comme les jetons OAuth d'avant le consentement : leur famille garde `write` jusqu'à sa fin. Les demandes qui attendent le consentement ne sont **pas** en base : en mémoire de `serve`, dix minutes, 32 au plus (voir « Comment un agent IA lit openCloud ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
@@ -397,9 +397,9 @@ les colonnes `container_id`, le paquet `internal/container`, les routes
 `containers` et la clé `containers` de `/api/counts` portaient « service »
 avant. Ce qui reste sous l'ancien mot l'est exprès : la section `services` du
 signal et les codes `service.logs_*` que les agents installés envoient (clés
-figées), et les types d'alerte `service_*` avec le genre d'objet `service` des
-alertes et des silences (le `CHECK` persisté ne change pas sans reconstruire
-la table ; ils partiront avec la revue des alertes).
+figées), et les types d'alerte `service_*` (des noms que lisent les canaux et
+leurs récepteurs). Le genre d'objet d'une alerte de conteneur est
+`container` depuis la migration `032_alerts_directory.sql`.
 
 1. L'agent sonde la socket Docker au départ puis toutes les 60 s tant
    qu'elle ne répond pas, en lecture seule, API Engine épinglée à `1.41`
@@ -698,7 +698,8 @@ Docker, même service) :
 | Sonde | Restait sur l'ancienne fiche, archivée ; à la purge (30 jours), `service_id` passait à NULL : la sonde survivait, sans service | Garde son service déclaré |
 | Membre d'un composant | Restait sur l'ancienne fiche : le composant la voyait « disparue » (panne), puis perdait le membre à la purge | Garde son service déclaré ; l'état se lit sur les conteneurs vivants de ses unités |
 | Politique de mise à jour | Restait sur l'ancienne fiche ; la nouvelle repartait à « suivre » | Sur l'unité : le nouveau conteneur la suit |
-| Alerte et silence | Sur la fiche | Toujours sur le conteneur (voir « Comment une alerte naît ») |
+| Alerte | Sur la fiche | Sur le conteneur, qui a son état ; elle porte le service déclaré de son unité (`service_id`, migration `032`) et se tait avec lui (voir « Comment une alerte naît ») |
+| Silence | Sur la fiche | Sur le service déclaré, ou sur le conteneur s'il n'est pas déclaré (table `mutes`) |
 
 Chaque écriture de l'annuaire demande ensuite à la machine concernée de
 rapprocher ses conteneurs (section suivante).
@@ -1016,7 +1017,8 @@ que la base garde sans que le fichier le nomme.
   que le geste rejoue : `apply` supprime par le même `Delete`, qui refuserait
   de la même façon. Ce qu'une suppression emporte est affiché avant : les
   essais, les jours et les silences d'une sonde, les pings, les exécutions et
-  les silences d'une tâche, les unités et les liens d'un service. Ces comptes sont lus au moment du plan et **ne
+  les silences d'une tâche, les unités et les liens d'un service (le plan du
+  domaine compte aussi ses silences). Ces comptes sont lus au moment du plan et **ne
   comptent pas dans l'empreinte** : l'historique grossit pendant qu'on lit.
 - **Aucun secret dans un plan.** Un jeton existant n'est jamais régénéré
   (`token: {secret: kept}` ne fait rien) ; une tâche créée reçoit le jeton que le
@@ -1619,7 +1621,10 @@ choisit pas —, en clair ou en sombre selon son système.
    en écrivant chaque passage dans le fil. Une fenêtre déjà ouverte à la
    création commence tout de suite ; une fenêtre déjà finie est refusée.
    Une entrée du fil sans message, qui ne change pas le statut, est
-   refusée aussi : elle ne dirait rien au public.
+   refusée aussi : elle ne dirait rien au public. **Une maintenance ne tait
+   pas les alertes** : elle dit au public ; l'opérateur pose un silence sur la
+   même fenêtre (« Comment une alerte naît »). Le composant statut ne lit
+   ni n'écrit aucune alerte, et le moteur des alertes ne lit pas la page.
 6. **Le public voit** : le titre, l'annonce, l'état global, les composants
    visibles avec leur état et, pour ceux qui ont une sonde, la somme des
    jours de leurs sondes sur 90 jours ; les incidents ouverts, les
@@ -1702,6 +1707,18 @@ qu'on peut faire, dans la langue de l'interface, à l'écran comme dans le
 canal. Rien n'est recalculé par un moteur qui relirait la base : c'est le
 composant qui sait, lui qui parle.
 
+**L'objet d'une alerte** est une machine, un conteneur (`container`), une
+sonde, une tâche ou un volume (une machine et son point de montage) : un genre
+et un identifiant, le nom recopié, et la clé étrangère de l'objet, mise à NULL
+quand il disparaît (`set null`). Une alerte dit aussi **à quel service déclaré
+elle appartient** (`service_id`, `set null`) : celui de l'unité du conteneur,
+ou celui que la sonde surveille ; vide pour un conteneur présent non déclaré.
+Le service n'est pas l'objet : un service à plusieurs unités a un conteneur
+par unité, chacun avec son état de plantage, et garde une alerte par
+conteneur. La fiche d'un service déclaré montre ses alertes ouvertes (par
+`service_id`) et propose de le faire taire. Pas de `CHECK` sur le genre : la
+liste vit dans `internal/alert`.
+
 1. **Chaque composant donne ses faits** au moteur, par une interface
    déclarée chez lui (`machine.Alerter`, `container.Alerter`,
    `probe.Alerter`, `heartbeat.Alerter`, `resource.Alerter`) : après
@@ -1720,15 +1737,25 @@ composant qui sait, lui qui parle.
    pause **emporte ses alertes** ; une machine retirée, tout ce qui vivait
    sur elle. Les clés étrangères passent à NULL et le balayage, toutes les
    30 s et au démarrage, résout ce qui n'a plus d'objet.
-4. **Un silence** vise un type, un objet, ou un type sur un objet, pendant
-   une fenêtre de sept jours au plus ; une règle sans filtre est refusée.
-   Une alerte ouverte sous un silence, ou sur un objet rattaché à un
-   composant sous **maintenance en cours** de la page de statut, est
-   **silencieuse** : montrée, jamais envoyée, même quand le silence tombe.
-   Les alertes et les silences restent sur le **conteneur** (`object_kind
-   service` désigne toujours une fiche) ; la maintenance se lit par l'unité :
-   le conteneur rattaché à une unité est sous maintenance quand le service
-   déclaré de cette unité est membre d'un composant en maintenance.
+4. **Un silence** (`mutes` en base, « silence » à l'écran) est le seul objet
+   qui fait taire : une fenêtre début-fin de sept jours au plus, **tout de
+   suite ou planifiée** (un an à l'avance au plus), sur une machine (et ce
+   qui vit dessus), un service déclaré (ses conteneurs et ses sondes), un
+   conteneur non déclaré, une sonde, une tâche, ou **tout** ; un type
+   d'alerte en plus, ou tous. La cible est une clé étrangère en `cascade` :
+   le silence part avec son objet, et le plan de suppression le compte ; une
+   cible qui n'existe pas est refusée (`silence.target_unknown`). Le silence
+   est **jugé à chaque envoi** : une alerte ouverte avant la fenêtre se tait
+   aussi, et la fenêtre finie, l'envoi suivant repart. Une livraison tue est
+   notée « Tu (silence) » sur la fiche de l'alerte, ne prend rien à la limite
+   du canal, et ne compte pas comme annoncée pour la résolution. Une alerte
+   que couvre un silence en ce moment est **silencieuse** dans la page (le
+   champ `muted` de l'API, calculé à la lecture, jamais stocké). Une
+   **maintenance de la page de statut ne tait rien** : c'est ce que
+   l'opérateur dit au public ; le moteur des alertes ne lit plus la page. Un
+   silence venu d'un volume tait le disque de sa machine. Chaque silence
+   garde son auteur, celui du journal d'audit (`mute.create`,
+   `mute.delete`).
 5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
    ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
    Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
@@ -1749,9 +1776,18 @@ composant qui sait, lui qui parle.
    coupure entre les deux laisse une ligne en attente que le démarrage
    rejoue, et l'index unique (alerte, canal, événement) empêche d'envoyer
    deux fois. Une alerte fait donc au plus **une ouverture, une
-   aggravation, une résolution** par canal. Trois essais, après 5 s puis
-   30 s, 10 s par requête ; au-delà, la livraison est en échec et la fiche
-   de l'alerte le montre. Un canal qui a reçu l'ouverture reçoit aussi la
+   aggravation, une résolution** par canal. Trois essais tout de suite,
+   après 5 s puis 30 s, 10 s par requête ; en échec, la livraison note
+   l'heure de l'essai suivant (`next_attempt_at`) : 2 min, 10 min, 30 min,
+   puis toutes les heures, **jusqu'à 24 h** après sa réservation
+   (`RetrySpan`), où elle est abandonnée. Le balayage de 30 s rejoue ce qui
+   est échu, un essai à la fois, avec l'alerte et le canal tels qu'ils sont ;
+   la ligne repasse « en attente » avant de partir, le balayage suivant ne la
+   reprend pas. Un canal en panne une heure reçoit donc encore l'alerte. Une
+   ouverture ou une aggravation encore en échec quand l'alerte est résolue
+   n'est plus rejouée : elle arriverait après la résolution. La fiche de
+   l'alerte montre le motif et l'heure de l'essai suivant. Les échecs
+   d'avant la migration `032` restent abandonnés. Un canal qui a reçu l'ouverture reçoit aussi la
    résolution s'il la veut, même quand la gravité est redescendue sous son
    seuil entre-temps. L'URL et le secret du canal sont chiffrés en base, le
    notifieur les rouvre à chaque envoi.
@@ -1876,7 +1912,7 @@ couleur sur les mêmes chiffres que l'alerte.
 
 | Ce qui part vers un canal | Ce qui n'en part jamais |
 | --- | --- |
-| L'ouverture, l'aggravation, et la résolution si le canal la veut ; le test | Une alerte silencieuse, sous silence ou sous maintenance |
+| L'ouverture, l'aggravation, et la résolution si le canal la veut ; le test | Un envoi qu'un silence couvre au moment de partir ; une maintenance de la page de statut ne tait rien |
 | Le fait, la cause et le geste rendus dans la langue de l'interface au moment de l'envoi | Un détail qui change sans aggravation : le disque qui passe de 86 à 88 % |
 | Les faits de l'alerte : type, gravité, objet et son identifiant, machine, chiffres, dates | Le secret du canal, ni dans l'API ni dans le journal : `has_secret` dit seulement qu'il y en a un |
 | L'en-tête `Title` et `Priority` pour le format texte, ce que ntfy lit | Une alerte sous la gravité minimale du canal, ou vers un canal désactivé |
@@ -1893,7 +1929,11 @@ couleur sur les mêmes chiffres que l'alerte.
 | `matrix` | Un `m.room.message` : `msgtype: m.text`, `body` en texte brut (titre, cause, geste, lien), `format: org.matrix.custom.html` et `formatted_body` (titre en gras, lien « Ouvrir dans openCloud ») | Un salon Matrix, Element ou tout client, par un bot |
 
 La page Alertes vit sous `/alertes` : ouvertes, acquittées, résolues,
-puis Canaux et Silences. Le compteur de la barre latérale compte les
+puis Canaux et Silences (`GET`, `POST /api/alerts/mutes`,
+`DELETE /api/alerts/mutes/{id}` ; l'onglet dit l'état, en cours, planifié ou
+expiré, et l'auteur). « Faire taire » depuis une alerte pré-remplit le
+silence : son type, et ce qui porte son objet (le service déclaré d'un
+conteneur, la machine d'un volume). Le compteur de la barre latérale compte les
 ouvertes, en rouge tant qu'une n'est pas acquittée ; la carte de la vue
 d'ensemble montre les trois premières. Le sujet `alerts` du direct relit
 tout. 200 alertes par liste, 32 canaux au plus.
@@ -2256,7 +2296,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `pause_probe`, `pause_job` | `true` : l'objet n'est plus surveillé, ses alertes se ferment (et la pause d'une tâche clôt l'exécution ouverte en échéance dépassée) | Mettre en pause | |
 | `resume_probe`, `resume_job` | `false` : on rétablit la surveillance | Reprendre | `probe.not_paused`, `job.not_paused` |
 | `open_incident`, `add_incident_update` | `true` : le texte est public aussitôt | Ouvrir un incident public, ajouter au fil, résoudre | les clés de l'API : `incident.impact_invalid`, `incident.already_resolved`… |
-| `create_silence` | `true` : les alertes visées ne partent plus | Faire taire un objet, ou un type sur un objet, pendant une durée. **Par MCP, un type seul (donc sur tous les objets) est refusé** : `mcp.silence_object_required`. L'interface garde ce geste | `silence.invalid`, `silence.duration_invalid`, `mcp.silence_object_required` |
+| `create_silence` | `true` : les alertes visées ne partent plus | Faire taire un objet (`object_kind` : `machine`, `service` déclaré, `container` non déclaré, `heartbeat`, `probe`), ou un type sur un objet, tout de suite, pendant une durée ; écrit une ligne de `mutes`. **Par MCP, une fenêtre sans objet (donc sur tous les objets) est refusée** : `mcp.silence_object_required`. L'interface garde ce geste | `silence.invalid`, `silence.duration_invalid`, `silence.target_unknown`, `mcp.silence_object_required` |
 | `set_update_policy` | `false` : se défait d'un geste, rien de public | Régler la politique d'une unité de l'annuaire : `watch`, `hold` ou `ignore` (`unit_id`, `policy`) | `directory.update_policy_invalid`, `not_found` |
 
 **Ce que MCP ne peut jamais faire** : agir sur une machine (aucune
@@ -2491,8 +2531,8 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
-| Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées) | liens de projet, conteneurs (redeviennent non déclarés) | rapprochement refait ; rien ne touche la machine |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences (les siens et ceux de ses conteneurs) ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur) | rapprochement refait ; rien ne touche la machine |
 | Projet | — | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes | jeu de sondes renvoyé à sa machine |
 | Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes | l'URL de ping ne répond plus |
@@ -2575,7 +2615,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
 | Page de statut | `status_page.update` | Le titre | `announcement`, `language` |
 | Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
-| Silence | `silence.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `object_kind`, `object_id`, `reason`, `ends_at` |
+| Silence (`mutes`) | `mute.create`, `.delete` (avant la migration `032` : `silence.create`, `.delete`, gardés tels quels, le journal ne se réécrit pas) | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at` |
 | Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
@@ -2788,7 +2828,7 @@ refusés avant d'envoyer quoi que ce soit.
 | 7 · réseau | Les réseaux et l'exposition lus par l'agent, la liste `networks` et les événements réseau dans la section `services` du signal, les colonnes `network_mode`, `privileged`, `depends_on` et les tables `machine_networks`, `container_networks` (ex-`service_networks`), les constats calculés à la lecture, la route `/api/machines/{id}/network`, l'onglet Réseau |
 | 8 · sondes | Le paquet `internal/probe`, le moteur de sondes de l'agent et de `serve`, la commande `probes` sur `/agent/stream`, la section `probes` du signal, les tables `probes`, `probe_results`, `probe_days`, le rollup journalier et la purge, les routes `/api/probes…` et `/api/machines/{id}/probes`, le sujet `probes`, l'entrée Domaines et l'onglet Domaines et certificats |
 | 9 · certificats | Le paquet `internal/trust` et la clé `ca_file` / `-ca-file`, le jugement de la chaîne et du nom à chaque essai, la lecture de l'agrafe OCSP, la poignée de main TLS d'une sonde TCP, les colonnes `tls`, `cert_chain_valid`, `cert_hostname_match`, `cert_ocsp` de `probes`, les seuils servis par `/api/session`, le compte des certificats dans `/api/counts`, la carte Domaines de la vue d'ensemble, le bloc Certificats de l'onglet machine et la ligne Certificat de l'inspecteur |
-| 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `alert_silences`, les crochets `Alerter` des composants et le `Alerter` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
+| 11 · alertes | Les paquets `internal/alert` et `internal/egress`, les tables `alerts`, `alert_channels`, `alert_deliveries`, `mutes` (qui remplace `alert_silences`, migration `032`), les crochets `Alerter` des composants et le `Alerter` des tâches, la boucle des machines perdues, le balayage et la purge des alertes, le notifieur et ses ouvriers, les routes `/api/alerts…`, les seuils du disque dans `/api/session`, le sujet `alerts`, l'entrée Alertes, la fiche d'une alerte, les pages Canaux et Silences, la carte de la vue d'ensemble |
 | 12 · mises à jour | Les paquets `internal/registry` et `internal/update`, la lecture des labels Compose et de `RepoDigests` par l'agent, la commande `image_checks` sur `/agent/stream`, la section `images` du signal, la table `image_checks` et les colonnes `compose_*` et `update_policy` de `containers` (ex-`services`), la purge, la route `POST /api/machines/{id}/actions/check-updates` (`PUT /api/services/{id}/update-policy` a été remplacée par `PUT /api/directory/units/{id}/update-policy`), le champ `image_check` des conteneurs et `containers.updates` de `/api/counts`, la pastille de la colonne Image, la carte de la fiche, la ligne de la vue d'ensemble |
 | 10 · page de statut | Le paquet `internal/status`, les tables `status_components`, `status_component_members`, `incidents`, `incident_components`, `incident_updates`, les réglages `status_title`, `status_announcement`, `status_language`, les routes publiques `/statut…` limitées en débit, le second bus du direct et le sujet `status`, la boucle des fenêtres de maintenance et la purge, les routes `/api/status…`, l'entrée Statut et la seconde entrée Vite `statut.html`, le relâchement de `frame-ancestors` sur la seule page publique |
 | 14 · MCP | Le paquet `internal/mcp` et la migration `011_mcp.sql` (`mcp_clients`, `mcp_codes`, `mcp_tokens`), le serveur MCP et ses 25 outils dans `internal/server` (`mcp.go`, `mcp_tools_read.go`, `mcp_tools_write.go`), les routes `/mcp`, `/oauth/authorize`, `/oauth/token`, les deux `/.well-known/oauth-*`, l'API `/api/mcp…`, la purge toutes les 15 minutes, la sous-commande `opencloud mcp`, la page Paramètres (activer, secret montré une fois, adresses de retour, jetons d'API, sessions, commande du client local), la dépendance `github.com/modelcontextprotocol/go-sdk`, les goldens `mcp_*.golden.json` |

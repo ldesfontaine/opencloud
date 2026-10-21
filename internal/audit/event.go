@@ -41,7 +41,7 @@ const (
 	ObjectIncident        ObjectKind = "incident"
 	ObjectStatusPage      ObjectKind = "status_page"
 	ObjectChannel         ObjectKind = "channel"
-	ObjectSilence         ObjectKind = "silence"
+	ObjectMute            ObjectKind = "mute"
 	ObjectAlert           ObjectKind = "alert"
 	ObjectSettings        ObjectKind = "settings"
 	ObjectAuth            ObjectKind = "auth"
@@ -55,7 +55,7 @@ func ObjectKinds() []ObjectKind {
 	return []ObjectKind{
 		ObjectMachine, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
-		ObjectChannel, ObjectSilence, ObjectAlert, ObjectSettings, ObjectAuth,
+		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets,
 	}
 }
@@ -114,8 +114,8 @@ const (
 	ChannelUpdate Action = "channel.update"
 	ChannelDelete Action = "channel.delete"
 
-	SilenceCreate Action = "silence.create"
-	SilenceDelete Action = "silence.delete"
+	MuteCreate Action = "mute.create"
+	MuteDelete Action = "mute.delete"
 
 	AlertAcknowledge Action = "alert.acknowledge"
 
@@ -154,7 +154,7 @@ func Actions() []Action {
 		IncidentOpen, IncidentUpdate, IncidentPost, IncidentDelete,
 		StatusPageUpdate,
 		ChannelCreate, ChannelUpdate, ChannelDelete,
-		SilenceCreate, SilenceDelete,
+		MuteCreate, MuteDelete,
 		AlertAcknowledge,
 		SettingsUpdate,
 		AuthEnable, AuthDisable, AuthChangePassword,

@@ -2,84 +2,13 @@ package status
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
-	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
-
-// UnderMaintenance dit si un objet est rattaché à un composant sous un
-// incident de maintenance qui s'applique : le moteur des alertes ouvre
-// alors l'alerte sans la livrer. Un objet rattaché nulle part ne l'est
-// jamais.
-//
-// Le genre « service » d'une alerte désigne un conteneur observé, alors que
-// celui d'un membre désigne un service de l'annuaire : le conteneur est
-// retrouvé par son unité. Un conteneur non déclaré n'est dans aucun composant.
-func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID string) (bool, error) {
-	ref := MemberRef{Kind: MemberKind(objectKind), ID: objectID}
-	if !isKind(ref.Kind) || ref.ID == "" {
-		return false, nil
-	}
-	if ref.Kind == KindService {
-		declaredID, err := s.declaredServiceOf(ctx, ref.ID)
-		if err != nil || declaredID == "" {
-			return false, err
-		}
-		ref.ID = declaredID
-	}
-	components, err := s.store.ListComponents(ctx)
-	if err != nil {
-		return false, err
-	}
-	var touched []string
-	for _, component := range components {
-		for _, member := range component.Members {
-			if member.Kind == ref.Kind && member.ID == ref.ID {
-				touched = append(touched, component.ID)
-			}
-		}
-	}
-	if len(touched) == 0 {
-		return false, nil
-	}
-	incidents, err := s.store.ListIncidents(ctx, s.now())
-	if err != nil {
-		return false, err
-	}
-	for _, incident := range incidents {
-		if !incident.IsMaintenance() || !incident.Applies() {
-			continue
-		}
-		for _, component := range incident.Components {
-			for _, id := range touched {
-				if component.ID == id {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
-}
-
-// declaredServiceOf rend le service de l'annuaire qui porte l'unité d'un
-// conteneur ; vide si le conteneur n'existe plus ou n'est pas déclaré.
-func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (string, error) {
-	item, err := s.reader.GetContainer(ctx, containerID)
-	if errors.Is(err, container.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	// La fiche porte déjà le service de son unité : pas besoin de relire
-	// l'annuaire à chaque alerte.
-	return item.DeclaredServiceID, nil
-}
 
 // OpenIncident écrit l'incident, ses composants et la première entrée de
 // son fil. Une maintenance dont la fenêtre est déjà ouverte commence tout
@@ -251,7 +180,9 @@ func (s *Service) checkComponents(ctx context.Context, ids []string) error {
 }
 
 // ApplyWindows ouvre les maintenances dont l'heure est venue et résout
-// celles dont la fenêtre est passée.
+// celles dont la fenêtre est passée : le fil public, rien d'autre. Une
+// maintenance ne tait pas les alertes ; c'est une fenêtre de mutes qui le
+// fait.
 func (s *Service) ApplyWindows(ctx context.Context) {
 	now := s.now()
 	incidents, err := s.store.ListIncidents(ctx, now)
