@@ -32,7 +32,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	if err != nil {
 		t.Fatal(err)
 	}
-	probes, err := ts.probes.List(ctx, machine.LocalID)
+	probes, err := ts.db.ListProbes(ctx, machine.LocalID)
 	if err != nil {
 		t.Fatal(err)
 	}

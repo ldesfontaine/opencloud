@@ -82,7 +82,7 @@ func (s *Server) networkOf(ctx context.Context, machineStatus machine.Status) (n
 	if err != nil {
 		return networkResponse{}, err
 	}
-	engines, err := s.containers.Engines(ctx)
+	engines, err := s.reader.ListEngines(ctx)
 	if err != nil {
 		return networkResponse{}, err
 	}

@@ -1,8 +1,6 @@
 package status
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"slices"
 	"strings"
@@ -265,7 +263,6 @@ const (
 	// longue qu'une semaine : au-delà, c'est une erreur de saisie.
 	MaxScheduleAhead = 365 * 24 * time.Hour
 	MaxWindow        = 7 * 24 * time.Hour
-	idBytes          = 8
 )
 
 var (
@@ -373,16 +370,6 @@ func validText(value string, max int) bool {
 
 func validMessage(message string) bool {
 	return utf8.ValidString(message) && utf8.RuneCountInString(message) <= MaxMessageLength
-}
-
-// NewID tire l'identifiant d'un composant ou d'un incident : il sort en
-// public, il ne doit rien dire.
-func NewID() (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }
 
 // Day est l'uptime d'un composant pour un jour UTC : la somme des jours de

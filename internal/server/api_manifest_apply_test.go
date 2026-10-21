@@ -144,11 +144,11 @@ func TestManifestAPI_ApplyThenJournalMatchGolden(t *testing.T) {
 		t.Fatalf("journal: %s", relisted.Body.String())
 	}
 	// Et la base a bien bougé, par les gestes de l'interface.
-	services, err := server.directory.ListServices(context.Background(), directory.Filter{})
+	services, err := server.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil || len(services) != 3 {
 		t.Fatalf("services: %v %v", len(services), err)
 	}
-	projects, _ := server.directory.ListProjects(context.Background())
+	projects, _ := server.db.ListProjects(context.Background())
 	if len(projects) != 2 {
 		t.Fatalf("projects: %+v", projects)
 	}

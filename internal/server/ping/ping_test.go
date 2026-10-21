@@ -31,12 +31,12 @@ func TestPing_ThreeFormsInGetAndPost_MoveTheJob(t *testing.T) {
 		if len(recorder.Result().Cookies()) != 0 {
 			t.Fatalf("%s: a ping must not set a cookie", tc.path)
 		}
-		got, _ := server.heartbeats.Get(context.Background(), job.ID)
+		got, _ := server.db.GetHeartbeat(context.Background(), job.ID)
 		if got.Status != tc.status {
 			t.Fatalf("%s %s: status %s, want %s", tc.method, tc.path, got.Status, tc.status)
 		}
 	}
-	pings, _ := server.heartbeats.Pings(context.Background(), job.ID, 10)
+	pings, _ := server.db.ListPings(context.Background(), job.ID, 10)
 	if len(pings) != 5 || pings[0].Method != "GET" || pings[0].Source != "192.0.2.1" {
 		t.Fatalf("pings %+v", pings)
 	}
@@ -62,7 +62,7 @@ func TestPing_PostBody_IsKeptAndTruncated(t *testing.T) {
 	if got := server.send(http.MethodPost, "/ping/"+job.Token+"/0", body, ""); got.Code != http.StatusOK {
 		t.Fatalf("status %d", got.Code)
 	}
-	runs, _ := server.heartbeats.Runs(context.Background(), job.ID, 1)
+	runs, _ := server.db.ListRuns(context.Background(), job.ID, 1)
 	if len(runs[0].Payload) != heartbeat.MaxPayloadBytes {
 		t.Fatalf("payload kept %d bytes", len(runs[0].Payload))
 	}
@@ -103,7 +103,7 @@ func TestPing_IsRateLimitedPerSourceAndPerToken(t *testing.T) {
 func TestPing_ByTheTokenTheDatabaseGivesBack(t *testing.T) {
 	server := newBench(t)
 	job := server.createJob(t, "job")
-	stored, err := server.heartbeats.Get(context.Background(), job.ID)
+	stored, err := server.db.GetHeartbeat(context.Background(), job.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestPing_WhilePaused_Answers200AndChangesNothing(t *testing.T) {
 	if err := server.heartbeats.Pause(ctx, job.ID); err != nil {
 		t.Fatal(err)
 	}
-	paused, _ := server.heartbeats.Get(ctx, job.ID)
+	paused, _ := server.db.GetHeartbeat(ctx, job.ID)
 
 	for _, path := range []string{"/ping/" + job.Token, "/ping/" + job.Token + "/start", "/ping/" + job.Token + "/3"} {
 		recorder := server.send(http.MethodGet, path, "", "")
@@ -136,11 +136,11 @@ func TestPing_WhilePaused_Answers200AndChangesNothing(t *testing.T) {
 			t.Fatalf("%s: %d %q", path, recorder.Code, recorder.Body.String())
 		}
 	}
-	after, _ := server.heartbeats.Get(ctx, job.ID)
+	after, _ := server.db.GetHeartbeat(ctx, job.ID)
 	if after.Status != heartbeat.StatusPaused || !after.LastPingAt.Equal(paused.LastPingAt) || !after.NextDeadlineAt.IsZero() || !after.RunStartedAt.IsZero() {
 		t.Fatalf("a paused job moved: %+v", after)
 	}
-	if pings, _ := server.heartbeats.Pings(ctx, job.ID, 10); len(pings) != 4 {
+	if pings, _ := server.db.ListPings(ctx, job.ID, 10); len(pings) != 4 {
 		t.Fatalf("the pings must be kept: %d", len(pings))
 	}
 }
@@ -228,7 +228,7 @@ func TestPing_RecordedSource_StaysTheFullAddress(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/ping/"+job.Token, nil)
 	request.RemoteAddr = "[2001:db8:1:2::7]:4000"
 	server.ServeHTTP(httptest.NewRecorder(), request)
-	pings, _ := server.heartbeats.Pings(context.Background(), job.ID, 10)
+	pings, _ := server.db.ListPings(context.Background(), job.ID, 10)
 	if len(pings) != 1 || pings[0].Source != "2001:db8:1:2::7" {
 		t.Fatalf("pings %+v", pings)
 	}

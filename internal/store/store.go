@@ -19,8 +19,13 @@ import (
 	_ "modernc.org/sqlite" // pilote SQLite pur Go, enregistré sous le nom "sqlite"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/migrations"
 )
+
+// La base est le Reader que le serveur, la page de statut et le fichier de
+// l'annuaire reçoivent : une méthode qui lui manque se voit à la compilation.
+var _ reader.Reader = (*DB)(nil)
 
 const (
 	fileName      = brand.DatabaseFile

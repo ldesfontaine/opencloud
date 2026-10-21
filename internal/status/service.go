@@ -6,19 +6,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
-// Ce que le service attend de la base ; le package store le fournit. Les
-// objets sont lus tels que leurs composants les écrivent : le statut n'a
-// pas de table à lui pour ce qu'il dérive.
+// Ce que le service attend de la base pour ses propres objets, composants
+// et incidents ; le package store le fournit. Ce qu'il dérive des autres
+// domaines (services, conteneurs, moniteurs, sondes, réglages) se lit par
+// le reader.Reader, tel que leurs composants l'écrivent.
 type Store interface {
 	InsertComponent(ctx context.Context, component Component) error
 	UpdateComponent(ctx context.Context, component Component) error
@@ -39,16 +37,6 @@ type Store interface {
 	DeleteIncident(ctx context.Context, id string) error
 	CountOpenIncidents(ctx context.Context) (int, error)
 	PurgeIncidents(ctx context.Context, resolvedBefore time.Time) error
-
-	ListContainers(ctx context.Context, machineID string) ([]container.Container, error)
-	GetContainer(ctx context.Context, id string) (container.Container, error)
-	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
-	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
-	ListProbes(ctx context.Context, machineID string) ([]probe.Probe, error)
-	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]probe.Day, error)
-	// LoadSettings : le titre, l'annonce et la langue de la page vivent dans
-	// les réglages, à côté de la langue de l'interface.
-	LoadSettings(ctx context.Context) (settings.Settings, error)
 }
 
 // Ce que le service attend du composant machine : qui est en ligne.
@@ -76,6 +64,7 @@ type Feed interface {
 
 type Service struct {
 	store    Store
+	reader   reader.Reader
 	machines Machines
 	settings Settings
 	watchers []Watcher
@@ -92,8 +81,8 @@ type Service struct {
 	creating sync.Mutex
 }
 
-func New(store Store, machines Machines, settings Settings, logger *slog.Logger) *Service {
-	return &Service{store: store, machines: machines, settings: settings, logger: logger, now: time.Now}
+func New(store Store, reader reader.Reader, machines Machines, settings Settings, logger *slog.Logger) *Service {
+	return &Service{store: store, reader: reader, machines: machines, settings: settings, logger: logger, now: time.Now}
 }
 
 func (s *Service) SetClock(now func() time.Time) {

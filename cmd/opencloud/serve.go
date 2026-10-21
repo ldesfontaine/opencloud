@@ -167,7 +167,7 @@ func runServe(args []string) error {
 	// La page de statut publique : elle écoute le bus interne pour relire,
 	// et publie sur les deux bus quand quelque chose de visible change.
 	publicBus := live.New()
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, preferences, logger)
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
 	statusPage.SetFeed(bus)
@@ -244,14 +244,14 @@ func runServe(args []string) error {
 	// l'unité rattachée qui porte la politique.
 	containers.RematchAll(ctx)
 	updates.Assign(ctx, machine.LocalID)
-	logServicesToReview(ctx, declared, logger)
+	logServicesToReview(ctx, db, logger)
 
 	// Le fichier de l'annuaire lit et écrit par les mêmes composants que
 	// l'interface : les agents reçoivent leurs sondes, le rapprochement se
 	// refait, les alertes suivent. Son arrêt suit celui du serveur : un apply
 	// en cours finit son changement puis se journalise « interrompu ».
 	manifests := manifest.New(manifest.Dependencies{
-		Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db, History: db, Journal: db,
+		Directory: declared, Probes: probes, Heartbeats: heartbeats, Reader: db, Journal: db,
 	}, logger)
 	manifests.SetWatcher(bus)
 	manifests.SetLifetime(ctx)
@@ -264,6 +264,7 @@ func runServe(args []string) error {
 	server, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
+		Reader:         db,
 		Settings:       preferences,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
@@ -486,8 +487,8 @@ func (p localProbes) Deliver(report probe.Report) {
 // logServicesToReview dit au journal combien de services repris de l'existant
 // attendent la relecture de l'opérateur : la mise à jour qui relie l'annuaire
 // en crée, et rien d'autre ne le prévient.
-func logServicesToReview(ctx context.Context, declared *directory.Directory, logger *slog.Logger) {
-	found, err := declared.ListServices(ctx, directory.Filter{})
+func logServicesToReview(ctx context.Context, db *store.DB, logger *slog.Logger) {
+	found, err := db.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		logger.Warn("list declared services to review", "error", err)
 		return

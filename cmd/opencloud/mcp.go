@@ -88,7 +88,7 @@ func runMCP(args []string) error {
 	// a rattachés, il n'écrit et ne rattache rien.
 	declared.SetObserved(containers, updates)
 	preferences := settings.New(db, logger)
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, preferences, logger)
 	catalogs, err := lang.Load()
 	if err != nil {
 		return fmt.Errorf("load languages: %w", err)
@@ -110,6 +110,7 @@ func runMCP(args []string) error {
 	srv, err := server.New(server.Options{
 		Logger:         logger,
 		Version:        version.Number(),
+		Reader:         db,
 		Settings:       preferences,
 		Machines:       machines,
 		Heartbeats:     heartbeats,
@@ -117,7 +118,7 @@ func runMCP(args []string) error {
 		Containers:     containers,
 		Probes:         probes,
 		Directory:      declared,
-		Manifest:       manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db}, logger),
+		Manifest:       manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Reader: db}, logger),
 		Updates:        updates,
 		Lifecycle:      support,
 		Status:         statusPage,

@@ -21,7 +21,7 @@ func TestAPI_CreateJob_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testing.
 	if created.Status != string(heartbeat.StatusNew) || created.IntervalSeconds != 3600 || created.GraceSeconds != 600 || created.MachineName != "vps-paris-1" {
 		t.Fatalf("created %+v", created)
 	}
-	if got, err := server.heartbeats.Get(context.Background(), created.ID); err != nil || got.Name != "sauvegarde" {
+	if got, err := server.db.GetHeartbeat(context.Background(), created.ID); err != nil || got.Name != "sauvegarde" {
 		t.Fatalf("stored %+v %v", got, err)
 	}
 
@@ -51,7 +51,7 @@ func TestAPI_JobActions_PauseResumeDelete(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPost, "/api/jobs/"+job.ID+"/actions/pause", nil); got.Code != http.StatusNoContent {
 		t.Fatalf("pause: %d %s", got.Code, got.Body.String())
 	}
-	if found, _ := server.heartbeats.Get(context.Background(), job.ID); !found.IsPaused() {
+	if found, _ := server.db.GetHeartbeat(context.Background(), job.ID); !found.IsPaused() {
 		t.Fatalf("not paused: %+v", found)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/jobs/"+job.ID+"/actions/resume", nil); got.Code != http.StatusNoContent {
@@ -103,7 +103,7 @@ func TestAPI_UpdateJob_KeepsItsTokenAndRefusesWithTheKey(t *testing.T) {
 	if updated.ID != job.ID || updated.Name != "sauvegarde" || updated.IntervalSeconds != 3600 || updated.GraceSeconds != 600 || updated.MachineName != "vps-paris-1" {
 		t.Fatalf("updated %+v", updated)
 	}
-	if got, _ := server.heartbeats.Get(context.Background(), job.ID); got.Token != job.Token {
+	if got, _ := server.db.GetHeartbeat(context.Background(), job.ID); got.Token != job.Token {
 		t.Fatal("an edit must not change the token")
 	}
 	if got := ping(server.Server, http.MethodGet, "/ping/"+job.Token, "", ""); got.Code != http.StatusOK {

@@ -111,7 +111,7 @@ func TestRecord_InventoryCreatesTheContainersAndTheirFirstTransition(t *testing.
 	if len(transitions) != 1 || transitions[0].Action != "inventory" || transitions[0].PreviousState != "" || transitions[0].NewState != container.StateRunning {
 		t.Fatalf("transitions = %+v", transitions)
 	}
-	engines, _ := b.tracker.Engines(context.Background())
+	engines, _ := b.db.ListEngines(context.Background())
 	if len(engines) != 1 || !engines[0].Present || engines[0].Version != "29.8.0" {
 		t.Fatalf("engines = %+v", engines)
 	}
@@ -415,7 +415,7 @@ func TestRecord_RefusesAnOutOfRangeReport(t *testing.T) {
 func TestRecord_EngineAbsent_IsAFactNotAnError(t *testing.T) {
 	b := newBench(t)
 	b.record(t, container.Report{Engine: &container.EngineReport{Present: false, Reason: container.ReasonNoSocket}})
-	engines, _ := b.tracker.Engines(context.Background())
+	engines, _ := b.db.ListEngines(context.Background())
 	if len(engines) != 1 || engines[0].Present || engines[0].Reason != container.ReasonNoSocket {
 		t.Fatalf("engines = %+v", engines)
 	}
@@ -428,7 +428,7 @@ func TestCount_CountsLiveContainersAndThoseNeedingAttention(t *testing.T) {
 	stopped := running("2222222222222222222222222222222222222222222222222222222222222222", "old", "")
 	stopped.State, stopped.ExitCode = container.StateExited, 143
 	b.record(t, inventory(running(webID, "web", ""), crashed, stopped))
-	total, attention, err := b.tracker.Count(context.Background())
+	total, attention, err := b.db.CountContainers(context.Background())
 	if err != nil || total != 3 || attention != 1 {
 		t.Fatalf("total = %d attention = %d err = %v", total, attention, err)
 	}
@@ -477,7 +477,7 @@ func TestDeleteMachine_TakesItsContainersAlong(t *testing.T) {
 	if live, _ := b.tracker.List(context.Background(), ""); len(live) != 0 {
 		t.Fatalf("live = %+v", live)
 	}
-	if engines, _ := b.tracker.Engines(context.Background()); len(engines) != 0 {
+	if engines, _ := b.db.ListEngines(context.Background()); len(engines) != 0 {
 		t.Fatalf("engines = %+v", engines)
 	}
 }

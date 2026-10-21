@@ -93,27 +93,17 @@ func (db *DB) ListOverdueHeartbeats(ctx context.Context, now time.Time) ([]heart
 // transaction : un ping est tout ou rien, et jamais calculé sur un état
 // qu'un autre ping vient de changer.
 func (db *DB) Transact(ctx context.Context, id string, decide heartbeat.Decision) error {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin transition: %w", err)
-	}
-	defer tx.Rollback()
-
-	current, err := db.scanHeartbeat(tx.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.id = ?`, id))
-	if err != nil {
-		return err
-	}
-	transition := decide(current)
-	if transition == nil {
-		return nil
-	}
-	if err := applyTransition(ctx, tx, *transition); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transition: %w", err)
-	}
-	return nil
+	return db.inTx(ctx, "transition", func(tx *sql.Tx) error {
+		current, err := db.scanHeartbeat(tx.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.id = ?`, id))
+		if err != nil {
+			return err
+		}
+		transition := decide(current)
+		if transition == nil {
+			return nil
+		}
+		return applyTransition(ctx, tx, *transition)
+	})
 }
 
 func applyTransition(ctx context.Context, tx *sql.Tx, t heartbeat.Transition) error {

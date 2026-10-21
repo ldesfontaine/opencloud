@@ -87,14 +87,6 @@ func (e *Engine) DeleteChannel(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (e *Engine) Channels(ctx context.Context) ([]Channel, error) {
-	return e.store.ListChannels(ctx)
-}
-
-func (e *Engine) GetChannel(ctx context.Context, id int64) (Channel, error) {
-	return e.store.GetChannel(ctx, id)
-}
-
 // --- Silences ---
 
 func (e *Engine) CreateSilence(ctx context.Context, definition SilenceDefinition) (Silence, error) {
@@ -123,9 +115,4 @@ func (e *Engine) DeleteSilence(ctx context.Context, id int64) error {
 	e.logger.Info("alert silence deleted", "silence_id", id)
 	e.changed()
 	return nil
-}
-
-// Silences rend les silences, les actifs d'abord.
-func (e *Engine) Silences(ctx context.Context) ([]Silence, error) {
-	return e.store.ListSilences(ctx)
 }
