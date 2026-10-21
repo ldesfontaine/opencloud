@@ -169,7 +169,7 @@ binaire par plateforme.
 | Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
 | Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
-| Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation | Importer un composant |
+| Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config`, `audit` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation; `audit` : l'acteur dans le contexte et le `Recorder` du journal d'audit, que tous les composants, `server`, `store` et `reader` importent : un outil, sinon un composant qui l'importe et qu'il nommerait ferait un cycle | Importer un composant |
 | Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
 
 Qui peut importer qui :
@@ -181,8 +181,8 @@ Qui peut importer qui :
 | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire`, `server/httpx` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
 | `server/httpx` | la bibliothèque standard | `server`, un autre sous-paquet, un composant, `store` |
 | Un composant | d'autres composants (types et gestes), les outils ; `status` et `manifest` importent `reader` | `server`, `store`, `cmd` |
-| `reader` | les composants dont il rend les types : `machine`, `container`, `probe`, `heartbeat`, `directory`, `alert`, `settings` | `server`, `store`, un composant qui l'importe (`status`, `manifest`) : Go refuserait le cycle |
-| `store` | les composants, pour leurs types ; `reader`, pour l'assertion ; `seal` ; `migrations` | `server` |
+| `reader` | les composants dont il rend les types : `machine`, `container`, `probe`, `heartbeat`, `directory`, `alert`, `settings` ; l'outil `audit` | `server`, `store`, un composant qui l'importe (`status`, `manifest`) : Go refuserait le cycle |
+| `store` | les composants, pour leurs types ; `reader`, pour l'assertion ; `seal` ; `audit`, pour ses types et son `Store` ; `migrations` | `server` |
 | `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
 | Un outil | d'autres outils, la bibliothèque standard | un composant, `server`, `store` |
 | `agent`, `dockerwatch` | les composants (leurs types), les outils, `agentwire` | `server`, `store` |
@@ -221,14 +221,18 @@ nouveau suit le même ordre, de haut en bas du fichier :
 | Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus : les écritures et les lectures de sa règle dans `Store` ; ce qu'il lit d'un autre domaine par le `reader.Reader` | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` ; `status.New(store, reader, …)` |
 | Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetLocalRunner`, `SetClock` |
 | Définition | Fonction pure, testable sans base : `Definition.Complete()` pose les valeurs par défaut, puis `Validate()` rend le premier refus | `internal/probe/probe.go` ; `heartbeat` n'a que `Validate()`, faute de valeur par défaut |
-| Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise, appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
+| Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise (`slog`, puis `auditor.Record` pour un objet déclaré ou une autorité, sans secret), appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
 | `changed()` | Prévient le `Watcher` ; jamais depuis un handler | `ProbesChanged(machineID)` |
 | Lectures | Seules celles qui ajoutent une règle : une fenêtre, un filtre, une vérification, une conversion. Une liste, un objet ou un compte tels qu'en base se lisent par le `Reader` ; le composant ne les relaie pas | `Days`, `Uptimes`, `Certificates` ; pas de `List` ni de `Get` |
 | Boucle | `Watch(ctx)` : rollup, purge, relances, jusqu'à l'annulation du contexte | `Watch` |
 
 - **Nommage** : `Watcher` est le direct (`internal/live`), `Alerter` le
   moteur des alertes ; `nil` est toléré pour les deux. `Listener` ne
-  s'emploie plus.
+  s'emploie plus. Le journal d'audit est un outil : il se reçoit tel quel,
+  `SetAuditor(*audit.Recorder)`, sans interface déclarée, et un `*Recorder`
+  nil ne fait rien. L'acteur ne passe pas en argument : il est dans le
+  contexte (`audit.WithActor`), posé par qui le connaît (`server`, MCP, la
+  commande, `serve`, `agentapi`).
 - **L'existence se vérifie dans le composant**, avant toute écriture : la
   machine et le service d'une sonde, la machine d'une tâche quand elle en a
   une. Sans cela la clé étrangère refuse en erreur brute, et MCP ou

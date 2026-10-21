@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
@@ -71,6 +72,7 @@ type Service struct {
 	settings Settings
 	watchers []Watcher
 	feed     Feed
+	auditor  *audit.Recorder
 	logger   *slog.Logger
 	now      func() time.Time
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -74,4 +75,7 @@ type Reader interface {
 
 	// LoadSettings rend des réglages vides tant que rien n'est réglé.
 	LoadSettings(ctx context.Context) (settings.Settings, error)
+
+	// ListAuditEvents rend une page du journal, du plus récent au plus ancien.
+	ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error)
 }

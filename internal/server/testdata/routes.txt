@@ -109,6 +109,7 @@ GET /api/auth
 POST /api/auth/actions/enable
 POST /api/auth/actions/disable
 PUT /api/auth/password
+GET /api/audit
 * /api/
 POST /agent/enroll
 POST /agent/challenge

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 const (
@@ -76,6 +78,7 @@ type Engine struct {
 	sender      Sender
 	watcher     Watcher
 	maintenance Maintenance
+	auditor     *audit.Recorder
 	// disks rend les seuils du disque réglés ; nil : ceux par défaut.
 	disks  func() DiskThresholds
 	logger *slog.Logger
@@ -367,7 +370,12 @@ func (e *Engine) Purge(ctx context.Context) error {
 	if err := e.store.PurgeAlerts(ctx, now.Add(-ResolvedRetention)); err != nil {
 		return err
 	}
-	return e.store.PurgeSilences(ctx, now.Add(-SilenceRetention))
+	if err := e.store.PurgeSilences(ctx, now.Add(-SilenceRetention)); err != nil {
+		return err
+	}
+	// Le journal d'audit n'a pas de boucle à lui : il se purge ici, au même
+	// rythme, à l'âge d'audit.Retention.
+	return e.auditor.Purge(ctx)
 }
 
 // Watch est la boucle de fond : le rattrapage des livraisons au départ, le

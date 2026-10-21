@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
@@ -81,6 +82,7 @@ type Service struct {
 	challenges *challenges
 	watcher    Watcher
 	alerter    Alerter
+	auditor    *audit.Recorder
 	logger     *slog.Logger
 	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
 	// présente la même tourne sur elle. Vide, pas de contrôle.
@@ -246,6 +248,7 @@ func (s *Service) issueToken(ctx context.Context, name, machineID string) (strin
 	if err := s.store.InsertToken(ctx, token); err != nil {
 		return "", Token{}, fmt.Errorf("insert token: %w", err)
 	}
+	s.auditor.Record(ctx, tokenEvent(token))
 	s.changed(machineID)
 	return cleartext, token, nil
 }
@@ -258,6 +261,7 @@ func (s *Service) CancelToken(ctx context.Context, id string) error {
 	if err := s.store.DeleteToken(ctx, id); err != nil {
 		return err
 	}
+	s.auditor.Record(ctx, audit.Event{Action: audit.EnrollmentTokenCancel, ObjectID: id})
 	s.changed("")
 	return nil
 }
@@ -291,6 +295,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	}
 	s.sessions.Close(id)
 	s.logger.Info("machine removed", "machine_id", id, "name", machine.Name)
+	s.auditor.Record(ctx, machineEvent(audit.MachineDelete, machine))
 	if s.alerter != nil {
 		s.alerter.MachineRemoved(ctx, id)
 	}
@@ -370,6 +375,7 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	// Un ré-enrôlement remplace la clé : l'ancien flux ne vaut plus rien.
 	s.sessions.Close(machine.ID)
 	s.logger.Info("machine enrolled", "machine_id", machine.ID, "name", machine.Name)
+	s.auditor.Record(ctx, machineEvent(audit.MachineEnroll, machine))
 	s.changed(machine.ID)
 	return machine, nil
 }

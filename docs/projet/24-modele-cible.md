@@ -413,13 +413,13 @@ erDiagram
     audit_events {
         INTEGER id PK
         INTEGER at
-        TEXT actor_kind "operator, mcp, rule, agent, system"
+        TEXT actor_kind "operator, mcp, cli, rule, agent, unknown"
         TEXT actor_name
         TEXT action
         TEXT object_kind "sans FK"
         TEXT object_id "sans FK"
         TEXT object_name
-        TEXT changes "JSON sans secret"
+        TEXT details "JSON sans secret"
         TEXT run_id FK
         TEXT apply_id FK
     }
@@ -632,8 +632,8 @@ flowchart LR
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
 | `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
-| `audit_events` | Qui, quoi, quand, sur quoi, diff sans secret. Sans clé étrangère vers l'objet : survit à tout | Nouvelle |
-| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle |
+| `audit_events` | Qui, quoi, quand, sur quoi, les champs du geste sans secret. Sans clé étrangère vers l'objet : survit à tout. Ajout seul, purgé à un an | Nouvelle, faite (migration `029_audit.sql`, sans `run_id` : voir la section 12) |
+| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, à faire après le journal (section 12) |
 | `accounts`, `sessions` | Compte local créé au premier démarrage ; page de connexion avec déconnexion. Comptes multiples et rôles plus tard | Nouvelles |
 | `auth_settings` | SSO de l'interface : forward-auth (existe), OIDC (à ajouter), secret chiffré | Transformée |
 | `settings` | Tout ce que l'interface change (décision 1), une seule ligne à colonnes typées (comme `auth_settings`), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` |
@@ -786,8 +786,8 @@ fixé ») n'en portent que `machines`, `projects`, `services`,
 `open_paths`, `eol_product` et le genre d'une tâche, attendent les
 fonctionnalités qui les créent, et la lecture les refuse d'ici là. Deux écarts
 à la table des règles ci-dessous, tranchés par la 4b : l'application **n'est pas
-une transaction unique** (voir la section 9), et le journal n'écrit pas encore
-d'`audit_events`.
+une transaction unique** (voir la section 9) ; chaque objet écrit va au
+journal d'audit par le geste de son domaine (section 12).
 
 ```yaml
 version: 1
@@ -907,7 +907,7 @@ settings:
 | Règle d'apply | Détail |
 | --- | --- |
 | Reconnaissance | Par `id` s'il est là, sinon par `name` (unique par type ; pour un service, machine + nom). Deux fois le même `id` (copier-coller) : refus du fichier |
-| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit objet par objet par le geste de son domaine (pas de transaction unique, voir la section 9) ; une ligne `applies` par passage (un `audit_events` par objet viendra avec l'audit) |
+| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit objet par objet par le geste de son domaine (pas de transaction unique, voir la section 9) ; une ligne `applies` par passage, un `audit_events` par objet écrit, lié à elle par `apply_id` |
 | Jamais | Recréer un objet ; toucher un jeton, un id, un historique ; créer ou enrôler une machine ; agir sur une machine (apply écrit l'annuaire, les runs viennent après) |
 | `--prune` | Seul chemin de suppression de ce qui n'est pas déclaré ; le plan dit ce que chaque suppression emporte |
 | Fichier invalide | Refusé en entier ; rien n'est écrit |
@@ -1086,3 +1086,19 @@ le code a tranché :
 | **Le plan d'`apply` lit celui du domaine**, et refuse dans le plan (`prune_blocked`) la suppression d'une sonde ou d'une tâche qu'un composant montre, comme celle d'un service | Le fichier ne porte pas les composants : sans ce refus, l'application s'arrêterait au milieu, sur le refus du geste |
 | **Pas de « tout supprimer »** : le bouton de la boîte de confirmation reste fermé tant que le plan retient | Décision 17/10 : aucune perte silencieuse, même d'un clic |
 
+
+## 12. Ce que le journal d'audit a fixé
+
+La table `audit_events` et le paquet `internal/audit` (migration
+`029_audit.sql`). Le fonctionnement est dans `22-fonctionnement.md`, « Le
+journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`details`, pas `changes`** : les champs utiles du geste, à plat, en texte | Un avant/après demanderait de relire chaque objet avant chaque geste ; le plan d'un apply porte déjà le sien dans `applies.plan` |
+| **Acteurs : `operator`, `mcp`, `cli`, `rule`, `agent`, plus `unknown`** ; `system` n'existe pas | Ce que serve fait de lui-même (boucles, démarrage) est une `rule` ; la commande locale a son mot, comme dans `applies` ; `unknown` montre un geste appelé sans acteur au lieu de le taire |
+| **L'acteur voyage dans le contexte**, posé par qui le connaît, lu par le `Recorder` | Les quelque quarante gestes gardent leur signature ; un oubli s'écrit `unknown` et se voit |
+| **Pas encore de `run_id`** | `action_runs` n'existe pas ; la colonne viendra avec elle (`ALTER TABLE … ADD COLUMN run_id TEXT REFERENCES action_runs (id) ON DELETE SET NULL`, que SQLite accepte sans reconstruire) |
+| **Pas encore d'`audit_deliveries` ni de `receives_audit`** | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
+| **Ajout seul, tenu par la base** : un déclencheur refuse toute modification d'une ligne, hors la mise à nul de `apply_id` par sa clé étrangère ; la seule suppression est la purge à un an (`audit.Retention`) | Un défaut de code ne réécrit pas l'histoire ; qui a la base en main la réécrit quand même, d'où l'envoi aux canaux à venir |
+| **Écrit après le geste, hors de sa transaction** ; un échec d'écriture est journalisé en erreur et ne défait pas le geste | Ne pas toucher aux transactions de chaque domaine ; les actions typées écriront leur `action_runs` avant d'envoyer l'ordre |

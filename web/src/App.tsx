@@ -8,6 +8,7 @@ import { Alerts } from "./pages/Alerts";
 import { AlertSilenceNew } from "./pages/AlertSilenceNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
+import { Audit } from "./pages/Audit";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
@@ -96,6 +97,7 @@ export function App() {
         <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Settings />} />
+        <Route path="journal" element={<Audit />} />
         {VisualSystem && (
           <Route
             path="systeme-visuel"

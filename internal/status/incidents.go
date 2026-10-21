@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
@@ -117,6 +118,7 @@ func (s *Service) OpenIncident(ctx context.Context, definition IncidentDefinitio
 		return Incident{}, err
 	}
 	s.logger.Info("incident opened", "incident_id", id, "impact", incident.Impact, "title", incident.Title)
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentOpen, incident))
 	s.Refresh(ctx)
 	return s.store.GetIncident(ctx, id)
 }
@@ -160,6 +162,7 @@ func (s *Service) transition(ctx context.Context, incident Incident, status Inci
 		return err
 	}
 	s.logger.Info("incident updated", "incident_id", incident.ID, "status", status)
+	s.auditor.Record(ctx, postEvent(incident, message))
 	return nil
 }
 
@@ -193,15 +196,22 @@ func (s *Service) ChangeIncident(ctx context.Context, id string, change Incident
 	if err := s.store.UpdateIncident(ctx, incident); err != nil {
 		return Incident{}, err
 	}
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentUpdate, incident))
 	s.Refresh(ctx)
 	return s.store.GetIncident(ctx, id)
 }
 
 func (s *Service) DeleteIncident(ctx context.Context, id string) error {
+	// Relu avant : le journal garde le titre de ce qui part.
+	found, err := s.store.GetIncident(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.DeleteIncident(ctx, id); err != nil {
 		return err
 	}
 	s.logger.Info("incident deleted", "incident_id", id)
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentDelete, found))
 	s.Refresh(ctx)
 	return nil
 }

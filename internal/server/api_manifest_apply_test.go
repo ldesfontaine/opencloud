@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
@@ -324,6 +325,21 @@ func TestControlSocket_ActorIsCLI(t *testing.T) {
 	decodeAPI(t, applied, &result)
 	if result.ActorKind != "cli" || !strings.HasPrefix(result.ActorName, "root") || strings.ContainsRune(result.ActorName, 0) || len([]rune(result.ActorName)) != maxActorNameRunes {
 		t.Fatalf("actor: %q %q", result.ActorKind, result.ActorName)
+	}
+	// Le journal d'audit a un événement par objet écrit, sous la commande et
+	// lié à la ligne du passage.
+	linked := 0
+	for _, event := range server.auditSince(t, 0) {
+		if event.ApplyID != result.ID {
+			continue
+		}
+		linked++
+		if event.Actor != audit.CLI(result.ActorName) {
+			t.Errorf("%s: actor %+v", event.Action, event.Actor)
+		}
+	}
+	if linked != len(result.Changes) {
+		t.Fatalf("%d audit events linked to the apply, want %d", linked, len(result.Changes))
 	}
 	// Le journal se lit aussi par la socket.
 	if list := onSocket(http.MethodGet, "/api/manifest/applies", nil); list.Code != http.StatusOK || !strings.Contains(list.Body.String(), result.ID) {

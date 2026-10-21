@@ -58,7 +58,7 @@ const (
 	// Un silence MCP vise un objet : une sorte seule les viserait tous.
 	codeSilenceNeedsObject = "mcp.silence_object_required"
 	// Les comptes du catalogue, figés par un test qui énumère les outils.
-	mcpReadToolCount  = 18
+	mcpReadToolCount  = 19
 	mcpWriteToolCount = 9
 	// Les mêmes bornes que /ping et /statut par adresse résolue ; le point
 	// de jeton, où un secret se devine, est tenu plus serré.
@@ -169,7 +169,7 @@ func (s *Server) verifyBearer(ctx context.Context, bearer string, _ *http.Reques
 	// quand elles seront de retour.
 	return &auth.TokenInfo{
 		Scopes: []string{string(token.Scope)},
-		Extra:  map[string]any{"token_id": token.ID, "kind": string(token.Kind)},
+		Extra:  map[string]any{"token_id": token.ID, "family_id": token.FamilyID, "kind": string(token.Kind)},
 	}, nil
 }
 

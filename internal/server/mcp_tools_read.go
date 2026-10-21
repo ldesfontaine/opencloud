@@ -7,6 +7,7 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -18,7 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Les dix-huit lectures : chacune rend les faits de l'API, sous le même JSON.
+// Les dix-neuf lectures : chacune rend les faits de l'API, sous le même JSON.
 // Aucun secret d'openCloud n'en sort : ni l'URL de ping d'une tâche, ni les
 // jetons en attente d'une machine, ni l'URL complète d'un canal. Les
 // journaux d'un conteneur, eux, sont bruts et peuvent en contenir un.
@@ -113,11 +114,23 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 		Description: "List notification channels (webhooks): name, format (json, text, discord, slack, email, matrix), minimum severity, whether resolutions are sent, enabled, whether the URL is plain http, whether a signing secret is set. The url is reduced to its scheme and host: a webhook URL can itself be a secret.",
 		Annotations: readOnlyHints(),
 	}, s.listAlertChannelsTool)
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_audit",
+		Description: "The audit journal, most recent first (up to 200 per page, default 50; pass next_before as before for the next page), optionally for one object (object_kind, object_id). Each event says who acted (actor_kind: operator, mcp, cli, rule for a background loop, agent, or unknown when a gesture ran without an actor; actor_name: the operator identity, the API token id or OAuth family id, the system account, the machine id), the action (object_kind.verb), the object (kind, id, name copied at the time), details without any secret, and apply_id when an apply wrote it. Observations (signals, measures, probe results) and reads are not journaled. Events are kept one year.",
+		Annotations: readOnlyHints(),
+	}, s.listAuditTool)
 }
 
 // --- Entrées ---
 
 type emptyInput struct{}
+
+type listAuditInput struct {
+	Limit      int    `json:"limit,omitempty" jsonschema:"Page size, default 50, max 200"`
+	Before     int64  `json:"before,omitempty" jsonschema:"Event id to continue below: the next_before of the previous page"`
+	ObjectKind string `json:"object_kind,omitempty" jsonschema:"Only the events on this kind of object, such as probe, service, channel or mcp_token"`
+	ObjectID   string `json:"object_id,omitempty" jsonschema:"Only the events on this object id"`
+}
 
 type machineInput struct {
 	MachineID string `json:"machine_id" jsonschema:"Machine id, or 'local' for the openCloud host itself"`
@@ -568,4 +581,16 @@ func originOf(raw string) string {
 		return ""
 	}
 	return parsed.Scheme + "://" + parsed.Host
+}
+
+func (s *Server) listAuditTool(ctx context.Context, _ *gomcp.CallToolRequest, input listAuditInput) (*gomcp.CallToolResult, any, error) {
+	query := audit.Query{Limit: input.Limit, Before: input.Before, ObjectKind: audit.ObjectKind(input.ObjectKind), ObjectID: input.ObjectID}
+	if !isKnownObjectKind(query.ObjectKind) {
+		return toolRefuse(codeBadQuery)
+	}
+	response, err := s.auditPage(ctx, query)
+	if err != nil {
+		return s.toolInternal("list_audit", err)
+	}
+	return toolJSON(response)
 }

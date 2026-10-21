@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -91,6 +92,7 @@ type Service struct {
 	store   Store
 	watcher Watcher
 	alerter Alerter
+	auditor *audit.Recorder
 	logger  *slog.Logger
 	now     func() time.Time
 
@@ -183,6 +185,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 		return Probe{}, err
 	}
 	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", RedactTarget(created.Target))
+	s.auditor.Record(ctx, probeEvent(audit.ProbeCreate, created))
 	s.Assign(ctx, created.MachineID)
 	s.changed(created.MachineID)
 	return s.store.GetProbe(ctx, id)
@@ -260,6 +263,7 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 	}
 	s.logger.Info("probe updated", "probe_id", id, "name", revision.Probe.Name, "machine_id", revision.Probe.MachineID,
 		"target", RedactTarget(revision.Probe.Target), "state_reset", revision.ResetsState)
+	s.auditor.Record(ctx, probeEvent(audit.ProbeUpdate, revision.Probe))
 	updated, err := s.store.GetProbe(ctx, id)
 	if err != nil {
 		return Probe{}, err
@@ -371,6 +375,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("probe deleted", "probe_id", id, "name", found.Name)
+	s.auditor.Record(ctx, probeEvent(audit.ProbeDelete, found))
 	if s.alerter != nil {
 		s.alerter.ProbeRemoved(ctx, id)
 	}
@@ -408,6 +413,7 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 		return err
 	}
 	s.logger.Info("probe status set", "probe_id", id, "status", string(status))
+	s.auditor.Record(ctx, probeEvent(pauseAction(wasPaused), found))
 	if s.alerter != nil {
 		found.Status = status
 		s.alerter.ProbeChanged(ctx, found)

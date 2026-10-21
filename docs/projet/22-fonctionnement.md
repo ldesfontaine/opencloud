@@ -2,7 +2,8 @@
 
 > Ce document suit l'application. Chaque fonctionnalité intégrée y ajoute ce
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
-> première configuration à la place du mode ouvert, 21 octobre 2026.
+> première configuration à la place du mode ouvert, puis journal d'audit,
+> 21 octobre 2026.
 
 ## Les acteurs
 
@@ -21,7 +22,7 @@
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
-| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-huit lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
+| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-neuf lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud est une Machine
 comme les autres dans l'interface, sans démon à part.
@@ -113,6 +114,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit (migration `026_applies.sql`) | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Le journal d'audit : la table `audit_events` (migration `029_audit.sql`), une ligne par geste réussi qui écrit un objet déclaré ou une autorité : `at`, `actor_kind` et `actor_name`, `action`, `object_kind`, `object_id`, `object_name` recopié, `details` (JSON plat de textes) et `apply_id` quand un apply l'a écrit. **Aucun secret** : ni mot de passe, ni jeton, ni secret, ni URL de webhook (« Le journal d'audit ») | Ajout seul : un déclencheur refuse toute modification d'une ligne, hors la mise à nul du lien `apply_id` (`ON DELETE SET NULL`). Pas de clé étrangère vers l'objet : la ligne lui survit. Purgé après **un an** (`audit.Retention`), avec les alertes, au démarrage puis une fois par jour |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
@@ -2207,6 +2209,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` la masque de même ; `resume_probe` refuse une telle sonde (`probe.target_credentials`) | 50 essais |
 | `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
 | `list_alerts`, `get_alert`, `list_alert_channels` | Les alertes ouvertes ou résolues avec les compteurs ; une alerte et ses livraisons ; les canaux avec **l'URL réduite à son hôte**, un webhook Discord porte son jeton dans son chemin | 200 |
+| `list_audit` | Le journal d'audit, du plus récent au plus ancien, filtré par objet au besoin, sous la forme de `GET /api/audit` (« Le journal d'audit ») | 50 par page, 200 au plus ; la page suivante par `before` |
 
 | Écritures | `DestructiveHint` | Ce que fait aussi l'interface | Refus |
 | --- | --- | --- | --- |
@@ -2483,6 +2486,100 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 - Les silences n'ont pas de clé étrangère : le moteur des alertes les retire
   avec leur objet ; le plan les compte quand même.
 
+## Le journal d'audit
+
+Qui a fait quoi, quand, sur quel objet. Chaque geste qui **écrit un objet
+déclaré ou une autorité** ajoute, une fois réussi, une ligne à `audit_events`
+par `internal/audit` (« Ce qui est stocké, et où »). C'est le journal que la
+direction (thème 7) veut avant la première action : la première commande
+signée d'un agent y sera la première ligne d'un run.
+
+**L'acteur voyage dans le contexte.** Celui qui le connaît le pose
+(`audit.WithActor`), le composant écrit son événement sans le nommer
+(`Recorder.Record`), le Recorder le lit (`audit.ActorFrom`). Les quelque
+quarante gestes gardent leur signature. La contrepartie : un geste appelé sans
+acteur dans son contexte n'est pas refusé, il s'écrit sous `unknown`, avec un
+`WARN audit event without actor` au journal du processus, et l'onglet le montre
+en rouge. Un test le prouve ; un autre joue les gestes par l'API, sous
+Basic, et vérifie que chacun porte l'opérateur et aucun secret.
+
+| `actor_kind` | `actor_name` | Posé par |
+| --- | --- | --- |
+| `operator` | L'identifiant Basic, ou l'identité transmise par le mandataire en mode `forward` ; vide à la première configuration, seul geste admis sans compte (un en-tête Basic qu'aucun mode ne vérifie ne nomme personne ; le compte créé se lit dans les détails). Borné, sans caractère de contrôle | `server`, sur toute route de l'opérateur, juste après `requireOperator` (`withOperatorActor`) |
+| `mcp` | L'identifiant du jeton d'API, ou la famille d'une autorisation OAuth (le jeton d'accès change toutes les heures) | `guarded`, devant chaque écriture MCP. Aucune n'est offerte sur `/mcp` pendant la refonte : le chemin reste testé pour leur retour |
+| `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
+| `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |
+| `agent` | L'identifiant de la machine | `agentapi` : l'enrôlement, et les sections du signal, qui n'écrivent aujourd'hui que des observations |
+| `unknown` | Vide | Personne : un oubli de câblage, montré au lieu d'être tu |
+
+### Ce qui est journalisé
+
+`action` est `<object_kind>.<verbe>` ; l'objet porte son identifiant et son
+nom **recopié** au moment du geste. Un apply n'a pas d'événement à lui : chaque
+objet qu'il écrit passe par le geste de son domaine, donc s'y inscrit, sous
+l'acteur de l'apply et avec son `apply_id`.
+
+| Geste | `action` | Objet | Détails |
+| --- | --- | --- | --- |
+| Émettre un jeton d'enrôlement, l'annuler | `enrollment_token.create`, `.cancel` | Le jeton, au nom de la future machine | `expires_at` |
+| Ré-enrôler une machine | `machine.reenroll` | La machine | `token_id`, `expires_at` |
+| Enrôlement par l'agent | `machine.enroll` | La machine | `hostname`, `address` |
+| Retirer une machine | `machine.delete` | La machine | `hostname`, `address` |
+| Projet | `project.create`, `.update`, `.delete` | Le projet | `title` |
+| Service déclaré | `service.create`, `.update`, `.delete`, `.review` | Le service | `machine_id`, `nature`, `origin`, `units` |
+| Politique d'une unité | `unit.update_policy` | L'unité, nommée `service/unité` | `service_id`, `policy` |
+| Clé ignorée, puis plus | `ignored_key.create`, `.delete` | `machine/sorte/valeur` | `machine_id`, `kind` |
+| Sonde | `probe.create`, `.update`, `.delete`, `.pause`, `.resume` | La sonde | `kind`, `target` **masquée**, `machine_id`, `service_id` |
+| Tâche | `heartbeat.create`, `.update`, `.delete`, `.pause`, `.resume`, `.regenerate_token` | La tâche | `machine_id`, `interval_seconds`, `grace_seconds` ; jamais le jeton |
+| Composant de la page de statut | `status_component.create`, `.update`, `.delete` | Le composant | `members` |
+| Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `components` |
+| Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
+| Page de statut | `status_page.update` | Le titre | `announcement`, `language` |
+| Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
+| Silence | `silence.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `object_kind`, `object_id`, `reason`, `ends_at` |
+| Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
+| Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
+| Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
+| MCP | `mcp.enable`, `.disable`, `.regenerate_secret`, `.set_redirect_uris` | Le client OAuth | `oauth_revoked`, `redirect_uris` ; jamais le secret |
+| Jeton d'API, tous les jetons | `mcp_token.create`, `.revoke` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `expires_at` ; pour tous `all`, `api_tokens`, `sessions` ; jamais le jeton ni son préfixe |
+| Autorisation OAuth accordée, session coupée | `mcp_session.authorize`, `.revoke` | La famille coupée ; un code accordé n'a pas encore d'objet | `redirect_uri` |
+| Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
+
+### Ce qui ne l'est jamais
+
+| Quoi | Pourquoi |
+| --- | --- |
+| Les lectures | Le journal dit ce qui change, pas qui regarde |
+| Les observations : signal d'un agent (mesures, conteneurs, essais de sondes, constats d'images), pings d'une tâche, échéances, alertes ouvertes, aggravées ou résolues par le moteur, livraisons, purges | Elles ne changent rien de déclaré ; leur histoire a déjà sa table |
+| L'échange et le rafraîchissement d'un jeton OAuth | La suite d'une autorisation, qui, elle, est journalisée ; un rafraîchissement par heure noierait le reste |
+| Tester un canal ou le relais, « vérifier maintenant » une image | Un envoi ou une lecture, aucune écriture |
+| La reprise de l'existant dans l'annuaire au démarrage (migration) et la machine openCloud elle-même | Une seule fois, par la base ; la machine locale est le chantier C5 |
+| **Un secret** | Ni mot de passe, ni jeton, ni secret, ni URL de webhook, ni empreinte. Chaque composant ne passe que des champs choisis ; le Recorder ajoute un filet : un détail nommé `password`, `token`, `secret` ou `url`, ou qui finit par `_password`, `_token`, `_secret`, `_url`, est retiré et dit en erreur (`audit detail dropped`). Un détail vide est retiré aussi |
+
+### Écriture, lecture, rétention
+
+- **Après le geste, à part.** La ligne s'écrit une fois le geste réussi, par
+  sa propre instruction, bornée à 5 s et détachée du client qui raccroche ;
+  elle n'est pas dans la transaction du geste. Un échec d'écriture ne défait
+  pas le geste : il est journalisé en erreur (`record audit event`). C'est le
+  prix de ne pas toucher aux quarante transactions ; les actions typées (#146)
+  écriront leur `action_runs` avant d'envoyer l'ordre.
+- **Ajout seul.** Un déclencheur refuse toute modification d'une ligne ; seule
+  la mise à nul de `apply_id`, par la clé étrangère, passe. La seule
+  suppression est la purge à l'âge.
+- **Un an** (`audit.Retention`), purgé par la boucle des alertes, au
+  démarrage puis une fois par jour.
+- **Lire** : `GET /api/audit?limit=&before=&object_kind=&object_id=`, route de
+  l'opérateur, 50 par page, 200 au plus, du plus récent au plus ancien ;
+  `next_before` donne la page suivante, `null` à la fin. Un nombre illisible
+  ou une sorte d'objet inconnue : `400 bad_query`. La même page par l'outil
+  MCP `list_audit`. Dans l'interface, l'onglet **Journal** (`/journal`, sous
+  Administration) : date, acteur, action, objet, détail replié ; cliquer un
+  objet ne montre que son histoire.
+- **Pas encore envoyé à un canal.** Le modèle cible prévoit `audit_deliveries`
+  et les canaux `receives_audit` (« une base effacée n'efface pas la trace ») :
+  c'est la PR suivante. D'ici là, qui efface la base efface le journal.
+
 ## Les refus
 
 Un refus dit à l'opérateur que sa demande est impossible en l'état ; ce
@@ -2593,6 +2690,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Manque | Conséquence aujourd'hui | Quand |
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
+| Le journal d'audit reste dans la base | Il n'est envoyé à aucun canal : qui efface la base efface la trace. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | La PR suivante : `audit_deliveries` et les canaux `receives_audit` |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
 | Pas de page de consentement OAuth | Qui a le secret du client obtient un jeton sans écran de consentement ; `/oauth/authorize` exige au moins les identifiants de l'opérateur, ou l'identité transmise par le mandataire | À décider |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_container_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
@@ -2675,3 +2773,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Refacto du serveur Go | Aucun comportement visible : goldens, arbre des routes, protocole agent, tables et clés inchangés. Les refus déclarés avec leur clé (`internal/refusal`, `s.failed`, `s.toolFailed`), le composant `settings.Service`, le protocole agent dans `internal/agentwire` (ex-`machine/wire.go`), les sous-paquets `server/agentapi` (ex-`agent_api.go`), `server/ping` (ex-`ping.go`), `server/public` (ex-`public_status.go`), `server/sse` et `server/servertest`, les helpers du store (`inTx`, `collect`, `notFoundIfNoRow`), `internal/store/storetest`, la machine d'une sonde ou d'une tâche vérifiée dans le composant, `Watcher` et `Alerter` à la place de `Listener`. Les règles qui en sortent : `17-conventions-code.md`, « Les composants » |
 | Refacto du store (lecteur partagé) | Aucun comportement visible : goldens, routes, outils MCP et tables inchangés. L'interface `reader.Reader` (`internal/reader`) que `*store.DB` satisfait, reçue par le serveur, la page de statut et le fichier de l'annuaire pour leurs lectures sans règle ; les relais `List`/`Get`/`Count` retirés des composants, leurs interfaces côté serveur réduites d'autant ; `ListComponents` et `ListIncidents` lisent leurs parties en bloc (`attachMembers`, `attachIncidentParts`) ; `/api/counts` et `get_overview` comptent les conteneurs et les mises à jour en SQL (`CountContainers`, `CountContainerUpdates`, test de parité avec `container.NeedsAttention`) ; `SaveAuthStateIf` et `Transact` passent par `inTx` ; `ident.New` à la place de `status.NewID`. Les règles qui en sortent : `17-conventions-code.md`, « Lire et écrire un autre domaine » et « Le store » |
 | Plans de suppression | La migration `028_restrict.sql` (`restrict` sur `probes.machine_id`, `heartbeats.machine_id` et trois clés de `status_component_members`), le paquet `internal/deletion` (forme du plan, refus qui le porte), `internal/store/deletion.go` (un plan par objet déclaré, relu dans la transaction de chaque `DELETE`), les gestes `DeletePlan` des composants, les six routes `GET …/{id}/delete-plan`, le 409 qui porte le plan (`s.failed`), les clés `machine.has_probes`, `machine.has_heartbeats`, `machine.shown_on_status`, `probe.shown_on_status`, `job.shown_on_status`, le plan d'`apply` qui lit celui du domaine, la boîte `DeletePlanDialog` du front. Ce qu'une suppression emporte : « Comment une suppression se décide » |
+| Journal d'audit | La table `audit_events` (migration `029_audit.sql`, ajout seul par déclencheur, `apply_id` en `set null`), le paquet `internal/audit` (acteur dans le contexte, `Recorder`, rétention d'un an purgée par la boucle des alertes), `store/audit.go` et `ListAuditEvents` sur le `reader.Reader`, un événement par geste dans `machine`, `directory`, `probe`, `heartbeat`, `status`, `alert`, `settings`, `auth`, `mcp` (`SetAuditor`), l'acteur posé par `server` (`withOperatorActor`), la socket de commande, `guarded`, `agentapi`, `serve` (`rule`), `opencloud auth disable` et `opencloud secrets forget`, `GET /api/audit`, l'outil MCP `list_audit` (dix-neuf lectures), l'onglet « Journal » (`/journal`), la section `audit` des catalogues, les goldens `audit.golden.json` et `mcp_list_audit.golden.json`. L'envoi aux canaux `receives_audit` viendra ensuite |

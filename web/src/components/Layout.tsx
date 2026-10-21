@@ -155,7 +155,10 @@ const viewEntries: NavEntry[] = [
   { key: "alerts", label: "nav.alerts", href: "/alertes", icon: "bell" },
 ];
 
-const settingsEntries: NavEntry[] = [{ key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" }];
+const settingsEntries: NavEntry[] = [
+  { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" },
+  { key: "audit", label: "nav.audit", href: "/journal", icon: "file" },
+];
 
 // Barre latérale : marque, sections Vue et Administration avec leurs compteurs en
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.

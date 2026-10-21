@@ -139,6 +139,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/auth/actions/enable", s.enableAuth},
 		{"POST", "/api/auth/actions/disable", s.disableAuth},
 		{"PUT", "/api/auth/password", s.changeAuthPassword},
+		{"GET", "/api/audit", s.listAudit},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {
@@ -172,7 +173,7 @@ func (s *Server) mux() *http.ServeMux {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(handler, isFirstSetupRoute(route.method, route.pattern))
+			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern))
 		}
 		if isAPI || route.pattern == mcpAuthorizePath {
 			handler = s.requireKnownHost(handler)

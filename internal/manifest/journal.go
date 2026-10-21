@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // ApplyState est où en est un passage d'apply. « planned » (un plan mis de
@@ -42,6 +44,12 @@ func ActorKinds() []ActorKind {
 type Actor struct {
 	Kind ActorKind
 	Name string
+}
+
+// auditActor est le même acteur, pour le journal d'audit : ses deux sortes
+// y existent sous le même mot.
+func (a Actor) auditActor() audit.Actor {
+	return audit.Actor{Kind: audit.ActorKind(a.Kind), Name: a.Name}
 }
 
 // ApplyPrefix commence l'identifiant d'un passage.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
@@ -59,7 +60,7 @@ func authCommand(args []string, out io.Writer) error {
 		return err
 	}
 	defer stateDir.Close()
-	ctx := context.Background()
+	ctx := audit.WithActor(context.Background(), audit.CLI(currentAccount()))
 	db, err := store.Open(ctx, stateDir)
 	if err != nil {
 		return err
@@ -69,6 +70,7 @@ func authCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	access.SetAuditor(audit.New(db, logger))
 	if command == "disable" {
 		return disableAuth(ctx, access, out)
 	}

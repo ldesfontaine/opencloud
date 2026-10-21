@@ -1,0 +1,63 @@
+// Le journal d'audit : le filtre sur un objet, les pages, le détail replié.
+
+.audit-filter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--ink-2);
+}
+
+.audit-pages {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+// Un objet se suit d'un clic : il a l'air d'un lien, sans quitter la page.
+.audit-object {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+
+  &:hover {
+    color: var(--ink);
+  }
+}
+
+// Un geste sans acteur est un oubli de câblage : il ne passe pas inaperçu.
+.audit-unknown {
+  color: var(--danger);
+}
+
+.audit-details {
+  summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+
+  dl {
+    margin: 6px 0 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  dl > div {
+    display: flex;
+    gap: 8px;
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    word-break: break-all;
+  }
+}

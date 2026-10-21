@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
@@ -88,6 +89,9 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Ce que serve fait de lui-même, au démarrage et dans ses boucles, va au
+	// journal d'audit sous « rule » ; une requête a son propre contexte.
+	ctx = audit.WithActor(ctx, audit.Rule(""))
 
 	db, err := store.Open(ctx, stateDir)
 	if err != nil {

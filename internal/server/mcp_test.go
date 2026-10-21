@@ -15,13 +15,14 @@ import (
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
-// Le catalogue, fermé : dix-huit lectures, neuf écritures. Un outil ajouté
+// Le catalogue, fermé : dix-neuf lectures, neuf écritures. Un outil ajouté
 // ou renommé casse ce test, c'est voulu.
 var (
 	mcpReadTools = []string{
@@ -29,6 +30,7 @@ var (
 		"list_containers", "get_container", "get_container_logs", "list_declared_services", "export_directory",
 		"list_jobs", "get_job", "list_probes", "get_probe",
 		"get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
+		"list_audit",
 	}
 	mcpWriteTools = []string{
 		"acknowledge_alert", "pause_probe", "resume_probe", "pause_job", "resume_job",
@@ -195,6 +197,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	server.seedSecuredProbe(t)
 	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
+	server.seedAudit(t)
 	job, err := server.db.GetHeartbeat(context.Background(), jobID)
 	if err != nil {
 		t.Fatal(err)
@@ -218,6 +221,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"list_alerts":            {},
 		"get_alert":              {"alert_id": alertID},
 		"list_alert_channels":    {},
+		"list_audit":             {"limit": 2},
 	}
 	secrets := []string{job.Token, "hb_", "/ping/", "s3cret", "webhooks/1/x", "oc_", "vps-lyon-2", probeTargetPassword}
 	for name, args := range cases {
@@ -234,6 +238,21 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 			compareGolden(t, filepath.Join("testdata", "mcp_"+name+".golden.json"), normalize(text)+"\n")
 		})
 	}
+}
+
+// seedAudit pose les deux derniers événements du journal, à identifiants
+// fixes : la lecture rendue par list_audit est figée sur eux.
+func (ts *testServer) seedAudit(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	ts.journal.Record(audit.WithActor(ctx, audit.Operator("lucas")), audit.Event{
+		Action: audit.ProbePause, ObjectID: "5ec0be5ec0be5ec0", ObjectName: "api interne",
+		Details: audit.Details{"kind": "http", "machine_id": remoteID},
+	})
+	ts.journal.Record(audit.WithActor(ctx, audit.MCP("tok0000000000001")), audit.Event{
+		Action: audit.SilenceCreate, ObjectID: "1", ObjectName: "vps-paris-1",
+		Details: audit.Details{"object_kind": "machine", "reason": "maintenance"},
+	})
 }
 
 // seedSecuredProbe écrit en base une sonde dont la cible porte un identifiant
@@ -476,7 +495,7 @@ func TestMCP_ReadOnlyRegistersNoWriteTool(t *testing.T) {
 	}
 }
 
-// requireOnlyReadTools vérifie que la session liste les dix-huit lectures et
+// requireOnlyReadTools vérifie que la session liste les dix-neuf lectures et
 // aucune écriture.
 func requireOnlyReadTools(t *testing.T, session *gomcp.ClientSession) {
 	t.Helper()
