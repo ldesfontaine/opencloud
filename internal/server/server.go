@@ -17,6 +17,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -63,6 +64,7 @@ type MachineService interface {
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
 	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
@@ -110,6 +112,7 @@ type ProbeService interface {
 	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
 	Update(ctx context.Context, id string, definition probe.Definition) (probe.Probe, error)
 	Delete(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
 	Days(ctx context.Context, id string, span time.Duration) ([]probe.Day, error)
@@ -125,14 +128,16 @@ type ProbeService interface {
 type DirectoryService interface {
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
-	// DeleteService refuse avec un *directory.LinkedError tant que des
+	// DeleteService refuse avec un *deletion.RefusedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
+	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Review(ctx context.Context, id string) (directory.Service, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// L'écart entre ce qui est déclaré et ce que les machines montrent, et
 	// ce qui en découle : adopter un conteneur, ignorer une clé, dire à quoi
 	// se rattache une fiche.
@@ -188,6 +193,7 @@ type HeartbeatService interface {
 	Update(ctx context.Context, id string, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	RegenerateToken(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
@@ -205,6 +211,7 @@ type StatusService interface {
 	CreateComponent(ctx context.Context, definition status.ComponentDefinition) (status.Component, error)
 	UpdateComponent(ctx context.Context, id string, definition status.ComponentDefinition) (status.Component, error)
 	DeleteComponent(ctx context.Context, id string) error
+	DeleteComponentPlan(ctx context.Context, id string) (deletion.Plan, error)
 	Incidents(ctx context.Context) ([]status.Incident, error)
 	GetIncident(ctx context.Context, id string) (status.Incident, error)
 	OpenIncident(ctx context.Context, definition status.IncidentDefinition) (status.Incident, error)

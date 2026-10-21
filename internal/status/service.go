@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -23,6 +24,7 @@ type Store interface {
 	ListComponents(ctx context.Context) ([]Component, error)
 	GetComponent(ctx context.Context, id string) (Component, error)
 	DeleteComponent(ctx context.Context, id string) error
+	ComponentDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	CountComponents(ctx context.Context) (int, error)
 
 	InsertIncident(ctx context.Context, incident Incident) error

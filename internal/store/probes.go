@@ -159,12 +159,24 @@ func (db *DB) CountProbesOnMachine(ctx context.Context, machineID string) (int, 
 	return carried, nil
 }
 
+// DeleteProbe relit le plan de la sonde et la supprime dans la même
+// transaction : un composant de statut qui l'affiche la retient. Son
+// historique part avec elle, ses alertes restent, détachées.
 func (db *DB) DeleteProbe(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM probes WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete probe: %w", err)
-	}
-	return notFoundIfNoRow(result, probe.ErrNotFound)
+	return db.inTx(ctx, "delete probe", func(tx *sql.Tx) error {
+		plan, err := probeDeletionPlan(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := probe.RefuseDeletion(plan); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM probes WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete probe: %w", err)
+		}
+		return notFoundIfNoRow(result, probe.ErrNotFound)
+	})
 }
 
 // SetProbeStatus met l'état et remet les compteurs à zéro : après une
@@ -423,16 +435,4 @@ func timeOfMillis(value sql.NullInt64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(value.Int64)
-}
-
-// CountProbeHistory compte ce qu'emporte la suppression d'une sonde : ses
-// essais bruts et ses jours agrégés.
-func (db *DB) CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error) {
-	err = db.sql.QueryRowContext(ctx, `
-		SELECT (SELECT COUNT(*) FROM probe_results WHERE probe_id = ?),
-		       (SELECT COUNT(*) FROM probe_days WHERE probe_id = ?)`, probeID, probeID).Scan(&results, &days)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count probe history: %w", err)
-	}
-	return results, days, nil
 }

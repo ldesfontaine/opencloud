@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import {
   deleteDeclaredService,
-  linksOfRefusal,
+  fetchDeclaredServiceDeletePlan,
   reviewDeclaredService,
   useDeclaredService,
   useGaps,
@@ -16,6 +17,7 @@ import {
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { NaturePill } from "../components/DeclaredServiceTable";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
@@ -296,38 +298,33 @@ function LinkList({ label, objects, to }: { label: string; objects: LinkedObject
   );
 }
 
-// Modifier, ou supprimer après confirmation : les projets restent, seul le
-// lien s'efface. Un service que des sondes ou des composants visent ne se
-// supprime pas : le bouton le dit, et un 409 reçu quand même (le lien est
-// apparu entre-temps) montre la liste que le serveur donne.
+// Modifier, ou supprimer après confirmation sur le plan : les projets
+// restent, seul le lien s'efface. Un service que des sondes ou des
+// composants visent ne se supprime pas : le plan les nomme, et un 409 reçu
+// quand même (le lien est apparu entre-temps) montre le plan du serveur.
 function Actions({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const navigate = useNavigate();
-  const linked = hasLinks(service.links);
-  const action = useAction();
-  const remove = () => {
-    action.run(() => deleteDeclaredService(service.id), {
-      confirm: t("directory.delete_confirm", service.name),
-      topic: "directory",
-      onDone: () => void navigate("/services"),
-    });
-  };
-  // Le 409 porte la liste de ce qui vise le service : elle remplace le message.
-  const refused = linksOfRefusal(action.error);
+  const [removing, setRemoving] = useState(false);
   return (
     <>
-      {refused === null && <Failure error={action.error} />}
-      {refused !== null && (
-        <Note tone="danger">
-          {t("directory.service_linked")} {[...refused.probes, ...refused.components].map((object) => object.name).join(", ")}
-        </Note>
-      )}
       <Button icon="settings" to={`/services/annuaire/${service.id}/modifier`}>
         {t("directory.edit")}
       </Button>
-      <Button variant="danger" icon="x" onClick={remove} disabled={linked} title={linked ? t("directory.delete_linked") : undefined}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("directory.delete")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("directory.delete_confirm", service.name)}
+          confirmLabel={t("directory.delete")}
+          loadPlan={() => fetchDeclaredServiceDeletePlan(service.id)}
+          perform={() => deleteDeclaredService(service.id)}
+          topic="directory"
+          onDone={() => void navigate("/services")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

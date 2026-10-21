@@ -1,6 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
-import { api, ApiError, segment } from "./client";
+import { api, segment } from "./client";
 import type { ContainerState } from "./containers";
+import type { DeletionPlan } from "./deletion";
 
 // L'annuaire : ce que l'opérateur déclare (services, projets), l'écart avec
 // ce que Docker montre, et ce qu'il choisit d'ignorer. Sujet du direct :
@@ -294,9 +295,13 @@ export async function saveDeclaredService(id: string | undefined, body: ServiceR
 }
 
 // Les projets restent, seul le lien s'efface. Un service lié est refusé
-// en 409 : linksOfRefusal lit ce qui le lie.
+// en 409, avec le plan qui dit ce qui le lie.
 export async function deleteDeclaredService(id: string): Promise<void> {
   return api.delete(servicePath(id));
+}
+
+export async function fetchDeclaredServiceDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${servicePath(id)}/delete-plan`);
 }
 
 // Valide un service repris de l'existant.
@@ -314,6 +319,10 @@ export async function deleteProject(id: string): Promise<void> {
   return api.delete(projectPath(id));
 }
 
+export async function fetchProjectDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${projectPath(id)}/delete-plan`);
+}
+
 export async function ignoreObservation(key: IgnoreKey): Promise<void> {
   return api.post(ignoredPath, key);
 }
@@ -326,13 +335,4 @@ export async function unignoreObservation(key: IgnoreKey): Promise<void> {
 // survit à sa recréation.
 export async function saveUpdatePolicy(unitID: string, policy: UpdatePolicy): Promise<void> {
   return api.put(`${directoryPath}/units/${segment(unitID)}/update-policy`, { policy });
-}
-
-// Ce que le serveur dit lier un service qu'on voulait supprimer : la liste
-// vient du corps du refus 409, pas d'une clé du catalogue.
-export function linksOfRefusal(error: unknown): ServiceLinks | null {
-  if (!(error instanceof ApiError) || error.status !== 409 || typeof error.payload !== "object" || error.payload === null || !("links" in error.payload)) {
-    return null;
-  }
-  return error.payload.links as ServiceLinks;
 }

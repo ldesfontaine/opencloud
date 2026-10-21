@@ -4,6 +4,7 @@ import type { AlertResponse, AlertsResponse, ChannelsResponse, SilencesResponse 
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
+import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
 import type { Machine, MachinesResponse } from "./machines";
@@ -661,6 +662,15 @@ const publicStatus = shape<PublicStatus>("PublicStatus", {
   history: publicIncident,
 });
 
+const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
+
+const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
+  blocked: value,
+  blockers: shape("DeletionBlocker", { kind: value, objects: shape("DeletionObject", { id: value, name: value }) }),
+  removes: deletionCount,
+  detaches: deletionCount,
+});
+
 // Chaque golden JSON de l'API, et le type du front qui le lit.
 const contract: Record<string, Shape<unknown>> = {
   "alert.golden.json": alertResponse,
@@ -684,6 +694,7 @@ const contract: Record<string, Shape<unknown>> = {
   "local_network.golden.json": network,
   "local_resources.golden.json": current,
   "machine.golden.json": machine,
+  "machine_delete_plan.golden.json": deletionPlan,
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,
   "machine_probes.golden.json": probes,

@@ -3,6 +3,8 @@ package directory
 import (
 	"context"
 	"fmt"
+
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinition) (Project, error) {
@@ -42,6 +44,15 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 	d.logger.Info("project updated", "project_id", id, "name", before.Name)
 	d.changed()
 	return d.store.GetProject(ctx, id)
+}
+
+// DeleteProjectPlan dit ce que DeleteProject ferait : rien ne le retient,
+// seuls les liens vers ses services partent.
+func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := d.store.GetProject(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return d.store.ProjectDeletionPlan(ctx, id)
 }
 
 // DeleteProject défait le groupe et rien d'autre : les services qu'il

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -21,10 +22,11 @@ type Store interface {
 	UpdateDeclaredService(ctx context.Context, service Service) error
 	GetDeclaredService(ctx context.Context, id string) (Service, error)
 	ListDeclaredServices(ctx context.Context, filter Filter) ([]Service, error)
-	// DeleteDeclaredService compte ce qui vise le service et le supprime dans
-	// la même transaction : si des sondes ou des composants le visent encore,
-	// rien n'est supprimé et l'erreur est un *LinkedError.
+	// DeleteDeclaredService relit le plan du service et le supprime dans la
+	// même transaction : si des sondes ou des composants le visent encore,
+	// rien n'est supprimé et l'erreur est un *deletion.RefusedError.
 	DeleteDeclaredService(ctx context.Context, id string) error
+	DeclaredServiceDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// MarkServiceReviewed baisse « à vérifier » et date la validation.
 	MarkServiceReviewed(ctx context.Context, id string, at time.Time) error
 	// GetUnit rend une unité, ErrUnitNotFound si elle n'existe plus.
@@ -36,6 +38,7 @@ type Store interface {
 	UpdateProject(ctx context.Context, project Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	ProjectDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// ListIgnoredKeys rend les clés ignorées d'une machine, de toutes si
 	// machineID est vide, par machine, genre et valeur.
 	ListIgnoredKeys(ctx context.Context, machineID string) ([]IgnoredKey, error)
@@ -288,8 +291,18 @@ func unitOf(id, serviceID string, definition UnitDefinition) Unit {
 	}
 }
 
+// DeleteServicePlan dit ce que DeleteService ferait : les sondes et les
+// composants qui le retiennent, les unités qui partent, les liens de projet
+// et les conteneurs qui se détachent. Rien n'est écrit.
+func (d *Directory) DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := d.store.GetDeclaredService(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return d.store.DeclaredServiceDeletionPlan(ctx, id)
+}
+
 // DeleteService retire le service. Des sondes ou des composants de statut
-// qui le visent encore le retiennent : l'erreur dit lesquels, et rien n'est
+// qui le visent encore le retiennent : le refus porte le plan, et rien n'est
 // supprimé en silence.
 func (d *Directory) DeleteService(ctx context.Context, id string) error {
 	found, err := d.store.GetDeclaredService(ctx, id)
@@ -297,10 +310,9 @@ func (d *Directory) DeleteService(ctx context.Context, id string) error {
 		return err
 	}
 	if err := d.store.DeleteDeclaredService(ctx, id); err != nil {
-		var linked *LinkedError
-		if errors.As(err, &linked) {
-			d.logger.Info("declared service deletion refused", "service_id", id,
-				"probes", len(linked.Links.Probes), "components", len(linked.Links.Components))
+		var refused *deletion.RefusedError
+		if errors.As(err, &refused) {
+			d.logger.Info("declared service deletion refused", "service_id", id, "blockers", len(refused.Plan.Blockers))
 		}
 		return err
 	}

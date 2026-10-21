@@ -5,8 +5,9 @@ import { useDeclaredServices } from "../api/directory";
 import { useJobs } from "../api/jobs";
 import { useMachines } from "../api/machines";
 import { useProbes } from "../api/probes";
-import { deleteStatusComponent, saveStatusComponent, useStatusComponent, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
+import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
 import { Button } from "../components/Button";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { EnumSelect, Field, Input, Select } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
@@ -49,6 +50,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
   const action = useAction();
   const [pickKind, setPickKind] = useState<MemberKind>("probe");
   const [pickID, setPickID] = useState("");
+  const [removing, setRemoving] = useState(false);
 
   const candidates: Record<MemberKind, Candidate[]> = {
     machine: machines.data?.machines ?? [],
@@ -80,17 +82,6 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
     });
   };
 
-  const remove = () => {
-    if (!existing) {
-      return;
-    }
-    action.run(() => deleteStatusComponent(existing.id), {
-      confirm: t("component.delete_confirm", existing.name),
-      topic: "status",
-      onDone: () => void navigate("/page-statut"),
-    });
-  };
-
   return (
     <>
       <PageHead
@@ -98,12 +89,23 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
         subtitle={t("component.new_subtitle")}
         actions={
           existing && (
-            <Button variant="danger" icon="x" onClick={remove}>
+            <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
               {t("component.delete")}
             </Button>
           )
         }
       />
+      {removing && existing && (
+        <DeletePlanDialog
+          question={t("component.delete_confirm", existing.name)}
+          confirmLabel={t("component.delete")}
+          loadPlan={() => fetchComponentDeletePlan(existing.id)}
+          perform={() => deleteStatusComponent(existing.id)}
+          topic="status"
+          onDone={() => void navigate("/page-statut")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
       <FormCard
         onSubmit={save}
         error={action.error}

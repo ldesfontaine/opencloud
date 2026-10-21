@@ -5,11 +5,13 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -60,7 +62,7 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 }
 
 // Un service que des sondes ou des composants visent ne se supprime pas : le
-// refus porte la liste, et rien n'a bougé. Détaché, il part.
+// refus porte le plan, avec la liste, et rien n'a bougé. Détaché, il part.
 func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
@@ -72,21 +74,26 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if !errors.Is(err, directory.ErrServiceLinked) {
 		t.Fatalf("attendu %v, obtenu %v", directory.ErrServiceLinked, err)
 	}
-	var linked *directory.LinkedError
-	if !errors.As(err, &linked) {
-		t.Fatalf("le refus doit porter la liste: %T", err)
+	var refused *deletion.RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("le refus doit porter le plan: %T", err)
 	}
-	if len(linked.Links.Probes) != 1 || linked.Links.Probes[0].ID != watched.ID || linked.Links.Probes[0].Name != "site" {
-		t.Fatalf("sondes = %+v", linked.Links.Probes)
+	wantBlockers := []deletion.Blocker{
+		{Kind: deletion.KindProbes, Objects: []deletion.Object{{ID: watched.ID, Name: "site"}}},
+		{Kind: deletion.KindComponents, Objects: []deletion.Object{{ID: component.ID, Name: "Nuage"}}},
 	}
-	if len(linked.Links.Components) != 1 || linked.Links.Components[0].ID != component.ID || linked.Links.Components[0].Name != "Nuage" {
-		t.Fatalf("composants = %+v", linked.Links.Components)
+	if !reflect.DeepEqual(refused.Plan.Blockers, wantBlockers) {
+		t.Fatalf("bloqueurs = %+v", refused.Plan.Blockers)
+	}
+	plan, err := b.directory.DeleteServicePlan(ctx, created.ID)
+	if err != nil || !reflect.DeepEqual(plan, refused.Plan) {
+		t.Fatalf("le plan lu doit être celui du refus: %+v %v", plan, err)
 	}
 	if _, err := b.db.GetDeclaredService(ctx, created.ID); err != nil {
 		t.Fatalf("le service a disparu malgré le refus: %v", err)
 	}
 	links, err := b.db.ListServiceLinks(ctx, created.ID)
-	if err != nil || links.IsEmpty() {
+	if err != nil || len(links.Probes) != 1 || len(links.Components) != 1 {
 		t.Fatalf("ServiceLinks = %+v, %v", links, err)
 	}
 

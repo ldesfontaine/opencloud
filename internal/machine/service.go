@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 const (
@@ -25,7 +26,11 @@ type Store interface {
 	SaveLocalMachine(ctx context.Context, machine Machine) error
 	ListMachines(ctx context.Context) ([]Machine, error)
 	GetMachine(ctx context.Context, id string) (Machine, error)
+	// DeleteMachine relit le plan dans sa transaction et refuse tant qu'il
+	// est bloqué (RefuseDeletion) : un lien posé entre le plan et la
+	// suppression ne passe pas.
 	DeleteMachine(ctx context.Context, id string) error
+	MachineDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	TouchMachine(ctx context.Context, id string, at time.Time) error
 	RecordConnection(ctx context.Context, id, address, agentVersion string, at time.Time) error
 	RecordSystem(ctx context.Context, id, system string) error
@@ -257,7 +262,22 @@ func (s *Service) CancelToken(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeletePlan dit ce que Remove ferait : ce qui le retient (services, sondes,
+// tâches, membres de la page de statut), ce qui part avec la machine et ce
+// qui s'en détache. Rien n'est écrit.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	machine, err := s.store.GetMachine(ctx, id)
+	if err != nil {
+		return deletion.Plan{}, err
+	}
+	if machine.IsLocal() {
+		return deletion.Plan{}, ErrLocalMachine
+	}
+	return s.store.MachineDeletionPlan(ctx, id)
+}
+
 // Remove retire une machine et coupe son flux ; la machine openCloud reste.
+// Tant que son plan est bloqué, le refus porte ce plan.
 func (s *Service) Remove(ctx context.Context, id string) error {
 	machine, err := s.store.GetMachine(ctx, id)
 	if err != nil {

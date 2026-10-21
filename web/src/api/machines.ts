@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
 
 // Les machines et leurs jetons d'enrôlement, sur le modèle d'api/probes.
@@ -74,6 +75,11 @@ export async function reenrollMachine(id: string): Promise<TokenResponse> {
 
 export async function deleteMachine(id: string): Promise<void> {
   return api.delete(machinePath(id));
+}
+
+// Ce que le retrait ferait, lu avant de le confirmer.
+export async function fetchMachineDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${machinePath(id)}/delete-plan`);
 }
 
 // La machine vérifie ses images à son rythme ; la réponse dit seulement que

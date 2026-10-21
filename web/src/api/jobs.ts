@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import type { DeletionPlan } from "./deletion";
 
 // Les tâches planifiées, sur le modèle d'api/probes. Sujet du direct :
 // « jobs », que topicsOf devine du chemin.
@@ -92,6 +93,10 @@ export async function saveJob(id: string | undefined, body: JobRequest): Promise
 
 export async function deleteJob(id: string): Promise<void> {
   return api.delete(jobPath(id));
+}
+
+export async function fetchJobDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${jobPath(id)}/delete-plan`);
 }
 
 export async function pauseJob(id: string): Promise<void> {

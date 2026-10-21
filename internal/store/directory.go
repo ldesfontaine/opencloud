@@ -288,10 +288,11 @@ func scanServiceLink(row scanner) (serviceLink, error) {
 }
 
 // DeleteDeclaredService efface le service ; ses unités, ses fournitures et
-// ses liens de projet partent avec lui, les projets restent. Des sondes ou
-// des composants de statut qui le visent le retiennent : les compter et
-// supprimer se font dans la même transaction, pour qu'un lien posé entre les
-// deux ne passe pas. La clé étrangère en restrict reste le filet.
+// ses liens de projet partent avec lui, les projets restent, ses conteneurs
+// redeviennent non déclarés. Des sondes ou des composants de statut qui le
+// visent le retiennent : le plan est relu et la suppression faite dans la
+// même transaction, pour qu'un lien posé entre les deux ne passe pas. La clé
+// étrangère en restrict reste le filet.
 func (db *DB) DeleteDeclaredService(ctx context.Context, id string) error {
 	return db.inTx(ctx, "delete declared service", func(tx *sql.Tx) error {
 		var found int
@@ -301,12 +302,12 @@ func (db *DB) DeleteDeclaredService(ctx context.Context, id string) error {
 		if found == 0 {
 			return directory.ErrNotFound
 		}
-		links, err := listServiceLinks(ctx, tx, id)
+		plan, err := declaredServiceDeletionPlan(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if !links.IsEmpty() {
-			return &directory.LinkedError{Links: links}
+		if err := directory.RefuseServiceDeletion(plan); err != nil {
+			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM declared_services WHERE id = ?`, id); err != nil {
 			return fmt.Errorf("delete declared service: %w", err)

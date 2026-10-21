@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/ident"
@@ -67,6 +68,15 @@ func membersOf(refs []MemberRef) []Member {
 		members = append(members, Member{Kind: ref.Kind, ID: ref.ID})
 	}
 	return members
+}
+
+// DeleteComponentPlan dit ce que DeleteComponent ferait : rien ne le retient,
+// ses membres partent, les incidents qui le citaient restent.
+func (s *Service) DeleteComponentPlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetComponent(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.ComponentDeletionPlan(ctx, id)
 }
 
 func (s *Service) DeleteComponent(ctx context.Context, id string) error {

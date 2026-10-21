@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -84,6 +85,12 @@ func (s *Server) failed(w http.ResponseWriter, r *http.Request, err, notFound er
 		return true
 	}
 	if key, ok := refusal.KeyOf(err); ok {
+		// Une suppression retenue rend aussi son plan : ce qui la retient.
+		var refused *deletion.RefusedError
+		if errors.As(err, &refused) {
+			s.writeAPI(w, refusalStatus(err), deletionRefusalJSON{Error: key, Plan: deletionPlanToJSON(refused.Plan)})
+			return true
+		}
 		s.writeAPIError(w, refusalStatus(err), key)
 		return true
 	}

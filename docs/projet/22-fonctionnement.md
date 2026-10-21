@@ -108,7 +108,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines, les jetons d'enrôlement | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_hash` garde son SHA-256 (migration `020_sealed_secrets.sql`) | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` (migration `028_restrict.sql`) : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes horaires dans `machine_samples_hourly`, les journalières dans `machine_samples_daily` | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services` (migration `022_directory.sql`), et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`, migration `024_directory_links.sql`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
@@ -116,9 +116,9 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus (migration `023_container_units.sql`). Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés) — migration `027_container_labels.sql` — pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La machine retirée emporte ses sondes et leur histoire ; `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec la liste), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` depuis la migration `028_restrict.sql` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | L'objet supprimé retire le lien tout seul, sauf un service déclaré, qui refuse d'être supprimé tant qu'un composant l'affiche ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine, une sonde ou une tâche retirée emporte ses silences (la table n'a pas de clé étrangère), une pause ou un archivage les garde. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
@@ -618,23 +618,24 @@ le rapprochement des deux est dit dans la section suivante.
   Éditer le service redit celle de chaque unité. Le détail est dans « Comment
   une image est comparée à son registre ».
 - **Un service que des sondes ou des composants visent ne se supprime pas** :
-  `DELETE` répond 409 `directory.service_linked`, avec la liste de ce qui le lie
-  (`links.probes` et `links.components`, identifiant et nom). La fiche du
-  service donne la même liste. Détachez la sonde ou le composant, puis
-  supprimez.
+  `DELETE` répond 409 `directory.service_linked`, avec le plan de la
+  suppression (« Comment une suppression se décide »). La fiche du service
+  donne la même liste (`links.probes` et `links.components`). Détachez la
+  sonde ou le composant, puis supprimez.
 - **Une machine qui porte un service déclaré ne se retire pas** (`restrict`) :
   l'API répond 409 `machine.has_declared_services`. La machine locale reste
   protégée comme avant (403). Cela vaut aussi pour les services que la montée
   de version a créés : pour retirer une machine, on retire dans l'ordre les
   sondes et les composants qui visent ses services, puis ses services, puis la
-  machine (`restrict` à chaque étape, chacun avec sa liste).
+  machine (`restrict` à chaque étape, chacun avec son plan).
 - **Les écritures** passent par `internal/directory`, une transaction par
   opération dans `internal/store/directory.go`. Chacune publie le sujet
   `directory` sur le bus.
 - **L'API** : `GET/POST /api/directory/services`, `GET/PUT/DELETE
   /api/directory/services/{id}` (la liste accepte `?machine=` et `?project=`),
   `GET/POST /api/directory/projects`, `GET/PUT/DELETE
-  /api/directory/projects/{id}`. Les refus sont des clés de catalogue
+  /api/directory/projects/{id}`, et le plan de chaque suppression en `GET
+  …/{id}/delete-plan`. Les refus sont des clés de catalogue
   (`directory.*`, `project.*`) en 422, 404 si l'objet n'existe pas.
 - **L'interface** : l'onglet Annuaire et l'onglet Projets de la page Services,
   la fiche d'un service et le formulaire (déclaration et édition).
@@ -1005,12 +1006,15 @@ que la base garde sans que le fichier le nomme.
   se prennent la clé l'un de l'autre n'ont pas d'ordre : `swap_refused`, « en
   deux fois ». Une clé qu'un objet supprimé par `--prune` tient encore ne se
   reprend pas dans le même passage (`key_from_pruned`).
-- **`--prune` ne touche jamais une machine**, et supprimer un service que des
-  composants de statut visent est refusé dans le plan, avec leur liste
-  (`prune_blocked`) : le fichier ne porte pas les composants, il ne peut pas
-  les détacher. Ce qu'une suppression emporte est affiché avant : les essais et
-  les jours d'une sonde, les pings et les exécutions d'une tâche, les unités et
-  les liens d'un service. Ces comptes sont lus au moment du plan et **ne
+- **`--prune` ne touche jamais une machine**, et supprimer un service, une
+  sonde ou une tâche que des composants de statut visent est refusé dans le
+  plan, avec leur liste (`prune_blocked`) : le fichier ne porte pas les
+  composants, il ne peut pas les détacher. Le plan d'`apply` lit pour cela le
+  plan de suppression du domaine (`DeletePlan`, `DeleteServicePlan`), celui
+  que le geste rejoue : `apply` supprime par le même `Delete`, qui refuserait
+  de la même façon. Ce qu'une suppression emporte est affiché avant : les
+  essais, les jours et les silences d'une sonde, les pings, les exécutions et
+  les silences d'une tâche, les unités et les liens d'un service. Ces comptes sont lus au moment du plan et **ne
   comptent pas dans l'empreinte** : l'historique grossit pendant qu'on lit.
 - **Aucun secret dans un plan.** Un jeton existant n'est jamais régénéré
   (`token: {secret: kept}` ne fait rien) ; une tâche créée reçoit le jeton que le
@@ -2391,6 +2395,63 @@ entrées expirées (deux minutes) sont balayées toutes les trente secondes au
 plus. Derrière Traefik sans `trusted_proxies`, tous les agents partagent un
 seul seau.
 
+## Comment une suppression se décide
+
+**Entre objets déclarés, `restrict`** (migration `028_restrict.sql`, après
+`022` et `024`) : une suppression ne retire jamais en silence un autre objet
+déclaré. Ce que l'objet possède (son historique, ce qu'il a observé) part avec
+lui (`cascade`) ; ses alertes restent, détachées, avec le nom recopié (`set
+null`). Chaque suppression a son **plan** : ce qui la retient, ce qu'elle
+emporte, ce qu'elle détache, compté.
+
+| Clé étrangère | Avant `028` | Depuis |
+| --- | --- | --- |
+| `probes.machine_id` (la machine qui lance la sonde) | cascade | restrict |
+| `heartbeats.machine_id` | set null | restrict |
+| `status_component_members.machine_id` | cascade | restrict |
+| `status_component_members.heartbeat_id` | cascade | restrict |
+| `status_component_members.probe_id` | cascade | restrict |
+| `declared_services.machine_id`, `probes.service_id`, `status_component_members.service_id` | restrict | inchangé |
+
+**Ce qu'une suppression emporte**, tel que le code le fait (le modèle cible,
+avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
+
+| Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
+| --- | --- | --- | --- | --- |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées) | liens de projet, conteneurs (redeviennent non déclarés) | rapprochement refait ; rien ne touche la machine |
+| Projet | — | — | liens de projet (les services restent) | — |
+| Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes | jeu de sondes renvoyé à sa machine |
+| Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes | l'URL de ping ne répond plus |
+| Composant de statut | — | membres | liens d'incident (l'incident reste) | page publique relue |
+
+- **Le plan se lit avant** : `GET /api/machines/{id}/delete-plan`,
+  `/api/directory/services/{id}/delete-plan`,
+  `/api/directory/projects/{id}/delete-plan`, `/api/probes/{id}/delete-plan`,
+  `/api/jobs/{id}/delete-plan`, `/api/status/components/{id}/delete-plan` :
+  `{blocked, blockers: [{kind, objects: [{id, name}]}], removes: [{kind,
+  count}], detaches: [{kind, count}]}`, un genre vide n'y figure pas. 404 pour
+  un objet inconnu, 403 `machine.local_kept` pour la machine openCloud. Le
+  composant le rend par `DeletePlan` (`DeleteServicePlan`, `DeleteProjectPlan`,
+  `DeleteComponentPlan`), le store le compte (`internal/store/deletion.go`),
+  le paquet `internal/deletion` en porte la forme.
+- **Le `DELETE` relit le plan dans sa transaction** et refuse tant qu'il est
+  bloqué : 409 avec la clé du premier genre qui retient, dans l'ordre du
+  tableau, et le plan entier dans le corps (`{"error": "machine.has_probes",
+  "plan": {…}}`). Un lien posé entre la lecture du plan et le `DELETE` ne passe
+  donc pas ; la clé étrangère en `restrict` reste le filet. Il n'y a pas de
+  « tout supprimer en cascade » : l'opérateur supprime ou détache chaque objet
+  qui retient (changer la machine d'une sonde, retirer la machine d'une tâche
+  ou d'un composant), puis supprime.
+- **L'interface** montre le plan dans la boîte de confirmation de chaque
+  bouton Supprimer ou Retirer (machine, service, projet, sonde, tâche,
+  composant) : ce qui retient, nommé, et le bouton fermé ; ce qui part ; ce qui
+  reste détaché. Un 409 reçu quand même remplace le plan par celui du serveur.
+- **MCP** ne supprime rien : aucun de ses outils ne supprime, aucun ne rend le
+  plan. **`apply -prune`** passe par les mêmes gestes (« Le plan »).
+- Les silences n'ont pas de clé étrangère : le moteur des alertes les retire
+  avec leur objet ; le plan les compte quand même.
+
 ## Les refus
 
 Un refus dit à l'opérateur que sa demande est impossible en l'état ; ce
@@ -2417,7 +2478,7 @@ cas gardent `s.apiRefuse` :
 Les refus d'application du fichier (`manifest.plan_changed`,
 `manifest.not_applicable`) gardent leur réponse : la clé et le statut viennent
 du refus, le handler y joint le plan d'aujourd'hui. La suppression refusée
-avec sa liste (`409 directory.service_linked` et `links`) aussi. MCP rend
+avec son plan (`409` et `plan`, « Comment une suppression se décide ») aussi. MCP rend
 `not_found` là où l'API rend `directory.unit_not_found` : la sentinelle passe
 en `notFound` à `toolFailed`. Le ping d'une tâche répond du texte court à un
 cron, sans catalogue : `heartbeat.ErrExitCodeInvalid` reste une erreur nue.
@@ -2582,3 +2643,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Annuaire (7/7) | Le niveau de rattachement `label` : la migration `027_container_labels.sql` (`containers.label_service`, `containers.label_unit`), `brand.LabelPrefix` et le marqueur `{label_prefix}` des catalogues, `Observed.Labels` et la lecture bornée de l'agent (`dockerwatch.ownLabels`), `container.Labels` et `keepLabels`, l'index structuré de `directory.Match` (`labelKey`) et la priorité sans repli, `LabelProblem` (`invalid`, `incomplete`, `service_unknown`, `unit_unknown`, `unit_binary`) et `Undeclared.Adoptable`, `ErrContainerLabelled` (409 `directory.container_labelled`), `directory.ProposeAll`, `opencloud export -propose` (`?propose=1`, MCP `export_directory {propose}`), `label_*` sur la liste des non déclarés et la fiche d'un conteneur, la pastille « Label orphelin » et le lien « Exporter avec propositions », les goldens `export_propose`, `manifest_export_propose` et `mcp_export_directory_propose`, `TestLabels_NeverWriteTheDirectory` |
 | Refacto du serveur Go | Aucun comportement visible : goldens, arbre des routes, protocole agent, tables et clés inchangés. Les refus déclarés avec leur clé (`internal/refusal`, `s.failed`, `s.toolFailed`), le composant `settings.Service`, le protocole agent dans `internal/agentwire` (ex-`machine/wire.go`), les sous-paquets `server/agentapi` (ex-`agent_api.go`), `server/ping` (ex-`ping.go`), `server/public` (ex-`public_status.go`), `server/sse` et `server/servertest`, les helpers du store (`inTx`, `collect`, `notFoundIfNoRow`), `internal/store/storetest`, la machine d'une sonde ou d'une tâche vérifiée dans le composant, `Watcher` et `Alerter` à la place de `Listener`. Les règles qui en sortent : `17-conventions-code.md`, « Les composants » |
 | Refacto du store (lecteur partagé) | Aucun comportement visible : goldens, routes, outils MCP et tables inchangés. L'interface `reader.Reader` (`internal/reader`) que `*store.DB` satisfait, reçue par le serveur, la page de statut et le fichier de l'annuaire pour leurs lectures sans règle ; les relais `List`/`Get`/`Count` retirés des composants, leurs interfaces côté serveur réduites d'autant ; `ListComponents` et `ListIncidents` lisent leurs parties en bloc (`attachMembers`, `attachIncidentParts`) ; `/api/counts` et `get_overview` comptent les conteneurs et les mises à jour en SQL (`CountContainers`, `CountContainerUpdates`, test de parité avec `container.NeedsAttention`) ; `SaveAuthStateIf` et `Transact` passent par `inTx` ; `ident.New` à la place de `status.NewID`. Les règles qui en sortent : `17-conventions-code.md`, « Lire et écrire un autre domaine » et « Le store » |
+| Plans de suppression | La migration `028_restrict.sql` (`restrict` sur `probes.machine_id`, `heartbeats.machine_id` et trois clés de `status_component_members`), le paquet `internal/deletion` (forme du plan, refus qui le porte), `internal/store/deletion.go` (un plan par objet déclaré, relu dans la transaction de chaque `DELETE`), les gestes `DeletePlan` des composants, les six routes `GET …/{id}/delete-plan`, le 409 qui porte le plan (`s.failed`), les clés `machine.has_probes`, `machine.has_heartbeats`, `machine.shown_on_status`, `probe.shown_on_status`, `job.shown_on_status`, le plan d'`apply` qui lit celui du domaine, la boîte `DeletePlanDialog` du front. Ce qu'une suppression emporte : « Comment une suppression se décide » |

@@ -63,13 +63,6 @@ type linkedObjectJSON struct {
 	Name string `json:"name"`
 }
 
-// Le refus de supprimer un service lié : la clé du catalogue, et la liste de
-// ce qui le lie, seule réponse d'erreur qui porte plus qu'une clé.
-type linkedRefusalJSON struct {
-	Error string    `json:"error"`
-	Links linksJSON `json:"links"`
-}
-
 type projectJSON struct {
 	ID         string    `json:"id"`
 	Name       string    `json:"name"`
@@ -265,15 +258,9 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 }
 
 // Supprimer un service que des sondes ou des composants de statut visent
-// encore est refusé, avec la liste : l'opérateur les détache d'abord.
+// encore est refusé, avec le plan : l'opérateur les détache d'abord.
 func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
-	err := s.directory.DeleteService(r.Context(), r.PathValue("id"))
-	var linked *directory.LinkedError
-	if errors.As(err, &linked) {
-		s.writeAPI(w, http.StatusConflict, linkedRefusalJSON{Error: "directory.service_linked", Links: linksToJSON(linked.Links)})
-		return
-	}
-	s.finishAPIAction(w, r, err, directory.ErrNotFound)
+	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
 }
 
 // Valider dit que l'opérateur a relu un service repris de l'existant. Une

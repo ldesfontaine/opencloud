@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -274,9 +275,9 @@ func TestApply_UpdateKeepsPauseReviewAndHistory(t *testing.T) {
 	if !s.NeedsReview || s.DeclaredBy != directory.ByMigration || s.Title != "Ancien" {
 		t.Errorf("state lost: %+v", s)
 	}
-	results, _, err := b.db.CountProbeHistory(context.Background(), "00000000000000c2")
-	if err != nil || results != 1 {
-		t.Errorf("history lost: %d %v", results, err)
+	kept, err := b.db.ProbeDeletionPlan(context.Background(), "00000000000000c2")
+	if want := []deletion.Count{{Kind: deletion.KindProbeResults, Count: 1}}; err != nil || !slices.Equal(kept.Removes, want) {
+		t.Errorf("history lost: %+v %v", kept.Removes, err)
 	}
 }
 

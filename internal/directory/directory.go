@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
@@ -133,7 +134,7 @@ var (
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
 	// ErrServiceLinked : des sondes ou des composants de statut visent le
-	// service. LinkedError porte la liste et enveloppe ce refus.
+	// service. Le refus porte le plan (deletion.RefusedError), avec la liste.
 	ErrServiceLinked = refusal.Conflict("directory.service_linked", "declared service is still watched or shown")
 )
 
@@ -245,24 +246,13 @@ type Links struct {
 	Components []LinkedObject
 }
 
-func (l Links) IsEmpty() bool {
-	return len(l.Probes) == 0 && len(l.Components) == 0
-}
-
-// LinkedError est le refus de supprimer un service que des sondes ou des
-// composants visent encore, avec la liste de ce qui le lie.
-type LinkedError struct {
-	Links Links
-}
-
-func (e *LinkedError) Error() string {
-	return ErrServiceLinked.Error()
-}
-
-// Unwrap rend le refus : errors.Is le reconnaît, et refusal.KeyOf y lit la
-// clé, pour le fichier de l'annuaire qui n'a pas besoin de la liste.
-func (e *LinkedError) Unwrap() error {
-	return ErrServiceLinked
+// RefuseServiceDeletion rend le refus de supprimer un service que le plan
+// retient, nil sinon : sondes et composants donnent le même refus.
+func RefuseServiceDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{
+		deletion.KindProbes:     ErrServiceLinked,
+		deletion.KindComponents: ErrServiceLinked,
+	})
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

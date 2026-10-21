@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -149,6 +150,9 @@ var (
 	ErrMachineInvalid  = refusal.Invalid("job.machine_invalid", "heartbeat machine must exist when given")
 	ErrExitCodeInvalid = errors.New("exit code must be between 0 and 255")
 	ErrNotPaused       = refusal.Conflict("job.not_paused", "heartbeat is not paused")
+	// Une page publique affiche la tâche : la retirer d'abord du composant
+	// (restrict, migration 028_restrict.sql).
+	ErrShownOnStatus = refusal.Conflict("job.shown_on_status", "a status component shows the heartbeat")
 )
 
 func (d Definition) Validate() error {
@@ -163,4 +167,10 @@ func (d Definition) Validate() error {
 		return ErrGraceInvalid
 	}
 	return nil
+}
+
+// RefuseDeletion rend le refus de supprimer une tâche que le plan retient,
+// nil sinon.
+func RefuseDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindComponents: ErrShownOnStatus})
 }

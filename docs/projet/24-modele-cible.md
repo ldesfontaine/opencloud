@@ -702,7 +702,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `backup_plans` → `declared_services` | 0..n | cascade | Réglage du service ; les fichiers déjà envoyés restent |
 | `backup_plans` → `backup_destinations` | 0..n | **restrict** | On ne retire pas une destination qui reçoit encore |
 | `backup_destinations` → `machines` | 0..n | **restrict** | Retirer la machine qui garde les sauvegardes : plan obligatoire |
-| `probes` → `machines` (qui sonde) | 1 | **restrict** | Aujourd'hui cascade : 90 jours partent sans prévenir. Le plan propose de changer de machine |
+| `probes` → `machines` (qui sonde) | 1 | **restrict** | Était cascade : 90 jours partaient sans prévenir (**fait**, `028_restrict.sql`). Le plan propose de changer de machine |
 | `probes` → `declared_services` | 0..1 | **restrict** | Le plan demande : supprimer la sonde ou la détacher |
 | `probe_results`, `probe_days` → `probes` | 0..n | cascade | Historique propre ; le plan dit combien de jours |
 | `heartbeats` → `declared_services`, `machines` | 0..1 chacun | **restrict** | Une tâche porte un jeton utilisé par un cron ou un émetteur distant |
@@ -710,7 +710,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `status_pages` → `projects` | 0..1 page par projet | **restrict** | Une page publique ne disparaît pas avec son projet sans le dire |
 | `status_components` → `status_pages` | 0..n | cascade | Un composant n'existe que sur sa page |
 | `status_component_members` → `status_components` | 0..n | cascade | Lien de présentation |
-| `status_component_members` → service, sonde, tâche, machine | 0..n | **restrict** | Aujourd'hui cascade : un objet disparaît d'une page publique sans prévenir |
+| `status_component_members` → service, sonde, tâche, machine | 0..n | **restrict** | Était cascade : un objet disparaissait d'une page publique sans prévenir (**fait**, `024` pour le service, `028_restrict.sql` pour les trois autres) |
 | `incident_targets` → `incidents` | 0..n | cascade | Partie de l'incident |
 | `incident_targets` → service, sonde, tâche, machine | 0..n | cascade (lien seul) | L'incident et son texte restent ; le plan dit « retiré de N incidents » |
 | `incident_updates` → `incidents` | 0..n | cascade | Fil de l'incident |
@@ -753,13 +753,13 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `service_transitions` | Transformée | Renommée `container_events` (**fait, annuaire 3b**), + `unit_id` ; FK en set null ; purge à l'âge (90 j proposé) | Gardé, rattaché à l'unité quand elle existe |
 | `service_samples` | Gardée | Renommée `container_samples` (**fait, annuaire 3b**) ; alimente `service_samples_hourly` | Gardé (48 h) |
 | `service_networks` | Gardée | Renommée `container_networks` (**fait, annuaire 3b**) | — |
-| `heartbeats` | Transformée | + `service_id`, + `kind` (`cron` pour l'existant, `webhook`) ; `token` → `token_sealed` + `token_lookup` (les URL de ping ne changent pas) ; `machine_id` passe de set null à restrict ; édition sur place, régénération, pause qui tient | Gardé |
+| `heartbeats` | Transformée | + `service_id`, + `kind` (`cron` pour l'existant, `webhook`) ; `token` → `token_sealed` + `token_lookup` (les URL de ping ne changent pas) ; `machine_id` passe de set null à restrict (**fait**, `028_restrict.sql`) ; édition sur place, régénération, pause qui tient | Gardé |
 | `heartbeat_pings`, `heartbeat_runs` | Gardées | — | Gardé |
-| `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
+| `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict (restrict **fait**, `028_restrict.sql` ; le renommage reste à faire) ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
 | `probe_results`, `probe_days` | Gardées | Issue `warning` ajoutée | Gardé |
 | `image_checks` | Gardée | Reste un cache (machine, image) ; les montées trouvées deviennent des `update_proposals` | Cache |
 | `status_components` | Transformée | + `page_id`. La page unique actuelle devient un projet (titre repris de `settings.toml`) qui contient les services de ses composants, et sa page ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle existe | Gardé |
-| `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK restent en cascade jusqu'aux plans de suppression, puis passent en restrict | Gardé |
+| `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK passent en restrict avec les plans de suppression (**fait**, `028_restrict.sql`) | Gardé |
 | `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture | Gardé |
 | `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres | Gardé |
 | `incident_updates` | Gardée | — | Gardé |
@@ -1003,7 +1003,7 @@ vers l'annuaire. Ce que le code a tranché en l'écrivant :
 | `declared_by` vaut `migration` et `needs_review` est levé sur ce qu'elle a créé ; **Valider** est la seule façon de le lever | La migration devine (noms, images lues sur Docker) : l'opérateur relit. Modifier le service ne le valide pas |
 | Les membres d'un même composant qui visent deux conteneurs d'un même projet **sont réunis en un seul** (le premier dans l'ordre), sans `OR IGNORE` | Un seul service déclaré ; l'index unique `(component, service)` l'exige. `OR IGNORE` taisait aussi un `CHECK` violé, donc un lien perdu : on déduplique explicitement et le compte le dit |
 | **La règle d'état** d'un service déclaré dans un composant : le pire de ses unités conteneur ; une unité sans conteneur vivant est en panne ; un binaire ne compte pas | L'état ne dépend plus d'un identifiant Docker. Le prix : une unité qui n'a jamais eu de conteneur compte comme en panne |
-| `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression |
+| `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression (passées en restrict depuis, section 11) |
 | `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée |
 | Une sonde peut viser un service de **n'importe quelle machine** | Sonder depuis l'extérieur un service d'une autre machine est le cas courant ; le service existe, c'est tout ce que la création vérifie |
 | Pas de retour arrière par le binaire seul | Rien n'est détruit, mais l'ancien binaire ne marche pas sur cette base : son inventaire écrit `services.update_policy`, colonne supprimée, donc tout rapport de conteneurs échoue ; créer une sonde sur un identifiant de conteneur échoue contre la clé vers `declared_services`. Revenir, c'est remettre l'ancien binaire **et** la copie faite avant la montée (`installation.md`) |
@@ -1068,3 +1068,21 @@ code a tranché :
 | **`export -propose` est un fichier à relire, jamais une écriture** : les entrées nouvelles sont sans `id`, commentées, triées ; sans `-propose`, les octets sont ceux d'avant | `TestExport_ProposedFileGivesAnApplicablePlan` : le fichier proposé donne un plan applicable avec le vrai `BuildPlan` |
 | **Le préfixe des labels dérive de `ID`** ; le catalogue le dit par `{label_prefix}`, jamais en littéral | `TestNameOnlyInBrand` interdit le nom hors de `internal/brand` ; un renommage coûte un changement dans chaque Compose étiqueté |
 | **Trois colonnes, pas une table** : `containers.label_service`, `label_unit` et `label_invalid`, vides par défaut (migration `027_container_labels.sql`) | Seuls ces deux labels servent au rapprochement ; garder tous les labels stockerait ce que l'opérateur n'a pas demandé |
+
+## 11. Ce que les plans de suppression ont fixé
+
+La migration `028_restrict.sql` et le plan de chaque suppression (le détail
+est dans `22-fonctionnement.md`, « Comment une suppression se décide »). Ce que
+le code a tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Le `DELETE` relit le plan dans sa transaction** ; il ne reçoit pas le plan que l'opérateur a lu. Le geste garde sa forme `Delete(ctx, id)` | Un plan reçu serait périmé (l'historique grossit pendant qu'on lit) ou redondant ; relu sous la transaction, un lien posé entre la lecture et l'écriture ne passe pas. La clé étrangère reste le filet |
+| **La clé du 409 est celle du premier genre qui retient**, dans un ordre fixe (services, sondes, tâches, composants) ; le plan entier suit dans le corps | Une clé par réponse, comme tout refus ; la liste complète est dans le plan |
+| **Un service garde sa clé** `directory.service_linked` pour ses sondes comme pour ses composants ; le corps du 409 porte désormais `plan` à la place de `links` | Une seule forme de refus pour toutes les suppressions ; la fiche du service garde `links` |
+| **Projet et composant ne sont retenus par rien** aujourd'hui : leur plan informe, leur `DELETE` ne change pas | `status_pages` et `channel_projects`, qui retiendront un projet, ne sont pas encore là |
+| **Le plan compte les silences**, qui n'ont pas de clé étrangère | Le moteur des alertes les retire avec leur objet : c'est une perte, elle se dit |
+| **Pas compté** : le moteur Docker d'une machine, les mesures et réseaux d'un conteneur (partent avec lui), les fournitures d'un service (partie de sa définition) | Le plan dit ce qui compte pour l'opérateur ; le reste suit une ligne déjà comptée |
+| **Le plan d'`apply` lit celui du domaine**, et refuse dans le plan (`prune_blocked`) la suppression d'une sonde ou d'une tâche qu'un composant montre, comme celle d'un service | Le fichier ne porte pas les composants : sans ce refus, l'application s'arrêterait au milieu, sur le refus du geste |
+| **Pas de « tout supprimer »** : le bouton de la boîte de confirmation reste fermé tant que le plan retient | Décision 17/10 : aucune perte silencieuse, même d'un clic |
+
