@@ -27,11 +27,12 @@ type Store interface {
 	SetContainerUnits(ctx context.Context, assignments []UnitAssignment) error
 }
 
-// UnitMatch est l'unité à laquelle l'annuaire rattache un conteneur, et par
-// quel niveau.
+// UnitMatch est l'unité à laquelle l'annuaire rattache un conteneur, par
+// quel niveau, et le service déclaré qui porte l'unité.
 type UnitMatch struct {
-	UnitID string
-	Level  MatchLevel
+	UnitID    string
+	Level     MatchLevel
+	ServiceID string
 }
 
 // UnitAssignment est le rattachement à écrire sur une fiche ; une unité

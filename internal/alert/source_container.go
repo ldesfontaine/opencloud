@@ -9,9 +9,10 @@ import (
 
 // Ce que le composant conteneur constate après chaque rapport écrit : la
 // fiche telle qu'elle est, et les transitions que ce rapport a notées.
-// Un conteneur archivé ne compte plus.
+// Un conteneur archivé ne compte plus. L'alerte reste sur le conteneur,
+// qui a son propre état ; elle porte le service déclaré de son unité.
 func (e *Engine) ContainerChanged(ctx context.Context, found container.Container, transitions []container.Transition) {
-	object := Object{Kind: ObjectService, ID: found.ID, Name: found.Name}
+	object := Object{Kind: ObjectContainer, ID: found.ID, Name: found.Name}
 	if found.IsArchived() {
 		e.Gone(ctx, object)
 		return
@@ -25,7 +26,7 @@ func (e *Engine) ContainerChanged(ctx context.Context, found container.Container
 // ServiceClearDelay, et un échec qui revient avant reprend la même alerte.
 func (e *Engine) judgeHealth(ctx context.Context, found container.Container, object Object) {
 	if found.State == container.StateRunning && found.Health == container.HealthUnhealthy {
-		e.Open(ctx, Fact{Kind: KindServiceUnhealthy, Severity: SeverityAttention, Object: object, MachineID: found.MachineID})
+		e.Open(ctx, Fact{Kind: KindServiceUnhealthy, Severity: SeverityAttention, Object: object, MachineID: found.MachineID, ServiceID: found.DeclaredServiceID})
 		return
 	}
 	e.calm(ctx, KindServiceUnhealthy, object)
@@ -46,7 +47,7 @@ func (e *Engine) calm(ctx context.Context, kind Kind, object Object) {
 	if !existing.ClearSince.IsZero() {
 		return
 	}
-	fact := Fact{Kind: kind, Severity: existing.Severity, Object: object, MachineID: existing.MachineID, Details: existing.Details, ClearSince: e.now()}
+	fact := Fact{Kind: kind, Severity: existing.Severity, Object: object, MachineID: existing.MachineID, ServiceID: existing.ServiceID, Details: existing.Details, ClearSince: e.now()}
 	e.update(ctx, existing, fact)
 }
 
@@ -108,7 +109,7 @@ func (e *Engine) judgeCrash(ctx context.Context, found container.Container, obje
 		details.Count = 0
 	}
 	details.Count += restarts
-	fact := Fact{Kind: KindServiceRestart, Severity: SeverityAttention, Object: object, MachineID: found.MachineID, Details: details}
+	fact := Fact{Kind: KindServiceRestart, Severity: SeverityAttention, Object: object, MachineID: found.MachineID, ServiceID: found.DeclaredServiceID, Details: details}
 	switch {
 	case down:
 		fact.Kind = KindServiceDown

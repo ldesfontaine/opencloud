@@ -310,6 +310,12 @@ func TestAuthTransition_WritesThatGrantLastingAuthorityAreRefusedUnderAChangedSt
 		authorize := mcpAuthorizePath + "?response_type=code&client_id=opencloud&redirect_uri=" + localCallback + "&code_challenge=" + pkceChallenge + "&code_challenge_method=S256"
 		requireStateChanged(t, staleWrite(t, server, server.grantsAuthority(server.oauthAuthorize), http.MethodGet, authorize, ``, "", func() { server.resetAccount(t) }))
 	})
+	t.Run("oauth consent", func(t *testing.T) {
+		server := newTestServer(t)
+		server.enableMCP(t)
+		id := consentIDOf(t, get(server.Server, authorizeQuery("")))
+		requireStateChanged(t, staleWrite(t, server, server.grantsAuthority(server.allowMCPConsent), http.MethodPost, "/api/mcp/consents/{id}/actions/allow", `{}`, id, func() { server.resetAccount(t) }))
+	})
 	t.Run("reenroll", func(t *testing.T) {
 		server := newTestServer(t)
 		server.enroll(t, "web", remoteID)
@@ -458,16 +464,10 @@ func TestAuthTransition_TheActivationWaitsForAnAuthorityBeingGranted(t *testing.
 
 // --- OAuth : les codes en attente tombent avec les jetons ---
 
-// pendingCode tire un code d'autorisation comme un client MCP, sans l'échanger.
+// pendingCode tire un code d'autorisation consenti, sans l'échanger.
 func pendingCode(t *testing.T, server *testServer) string {
 	t.Helper()
-	got := get(server.Server, "/oauth/authorize?response_type=code&client_id=opencloud&redirect_uri="+localCallback+"&code_challenge="+pkceChallenge+"&code_challenge_method=S256")
-	if got.Code != http.StatusFound {
-		t.Fatalf("authorize: %d %s", got.Code, got.Body.String())
-	}
-	location := got.Header().Get("Location")
-	code, _, _ := strings.Cut(location[strings.Index(location, "code=")+5:], "&")
-	return code
+	return server.consentedCode(t, "", false)
 }
 
 func exchangeCode(server *testServer, secret, code string) *httptest.ResponseRecorder {

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { AlertResponse, AlertsResponse, ChannelsResponse, SilencesResponse } from "./alerts";
+import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditResponse } from "./audit";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
@@ -348,10 +348,11 @@ const alert = shape<AlertJSON>("Alert", {
   kind: value,
   severity: value,
   status: value,
-  silenced: value,
+  muted: value,
   object: shape("AlertObject", { kind: value, id: value, name: value }),
   machine_id: value,
   machine_name: value,
+  service_id: value,
   details: shape("AlertDetails", {
     count: optional(value),
     percent: optional(value),
@@ -382,6 +383,7 @@ const alertResponse = shape<AlertResponse>("AlertResponse", {
     reason: value,
     code: value,
     updated_at: value,
+    next_attempt_at: value,
   }),
 });
 
@@ -401,15 +403,17 @@ const channels = shape<ChannelsResponse>("ChannelsResponse", {
   }),
 });
 
-const silences = shape<SilencesResponse>("SilencesResponse", {
-  silences: shape("Silence", {
+const mutes = shape<MutesResponse>("MutesResponse", {
+  mutes: shape("Mute", {
     id: value,
     kind: value,
-    object: shape("Silence.object", { kind: value, id: value, name: value }),
+    target: shape("Mute.target", { kind: value, id: value, name: value }),
     reason: value,
     starts_at: value,
     ends_at: value,
     active: value,
+    created_by_kind: value,
+    created_by_name: value,
     created_at: value,
   }),
 });
@@ -587,7 +591,7 @@ const mcp = shape<MCPState>("MCPState", {
   stdio_command: value,
   server_name: value,
   tokens: shape("MCPToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
-  sessions: shape("MCPSession", { id: value, started_at: value, last_used_at: value, expires_at: value }),
+  sessions: shape("MCPSession", { id: value, scope: value, started_at: value, last_used_at: value, expires_at: value }),
   limits: shape("MCPState.limits", { tokens: value, redirect_uris: value }),
   lifetimes: shape("MCPState.lifetimes", { access_seconds: value, refresh_seconds: value, api_token_days: value, api_token_default_days: value }),
   tools: shape("MCPState.tools", { reads: value }),
@@ -700,7 +704,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 const contract: Record<string, Shape<unknown>> = {
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
-  "alert_silences.golden.json": silences,
+  "alert_mutes.golden.json": mutes,
   "alerts.golden.json": alerts,
   "audit.golden.json": audit,
   "auth.golden.json": auth,

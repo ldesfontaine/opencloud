@@ -107,8 +107,6 @@ var (
 	ErrChannelRoomInvalid     = refusal.Invalid("channel.matrix_room_invalid", "alert: matrix room id invalid")
 	ErrChannelTokenMissing    = refusal.Invalid("channel.matrix_token_missing", "alert: matrix access token missing")
 	ErrTooManyChannels        = refusal.Invalid("channel.too_many", "alert: too many channels")
-	ErrSilenceInvalid         = refusal.Invalid("silence.invalid", "alert: silence needs a kind or an object")
-	ErrSilenceDurationInvalid = refusal.Invalid("silence.duration_invalid", "alert: silence duration invalid")
 )
 
 // Validate vérifie ce qu'on peut vérifier sans réseau : ce que le nom

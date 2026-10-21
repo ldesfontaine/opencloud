@@ -29,7 +29,7 @@ func (e *Engine) ProbeChanged(ctx context.Context, found probe.Probe) {
 	}
 	if found.Status == probe.StatusDown {
 		e.Open(ctx, Fact{
-			Kind: KindProbeDown, Severity: SeverityDanger, Object: object, MachineID: found.MachineID,
+			Kind: KindProbeDown, Severity: SeverityDanger, Object: object, MachineID: found.MachineID, ServiceID: found.ServiceID,
 			Details: Details{Target: probe.RedactTarget(found.Target), Reason: string(found.LastReason)},
 		})
 	} else {
@@ -56,14 +56,14 @@ func (e *Engine) judgeCertificate(ctx context.Context, found probe.Probe, object
 	expired := certificate.Expired(now)
 	switch {
 	case expired:
-		e.Open(ctx, Fact{Kind: KindCertExpired, Severity: SeverityDanger, Object: object, MachineID: found.MachineID, Details: details})
+		e.Open(ctx, Fact{Kind: KindCertExpired, Severity: SeverityDanger, Object: object, MachineID: found.MachineID, ServiceID: found.ServiceID, Details: details})
 		e.Resolve(ctx, KindCertExpiring, object)
 	case certificate.NotAfter.Before(now.Add(probe.CertificateWarning * 24 * time.Hour)):
 		severity := SeverityAttention
 		if certificate.NotAfter.Before(now.Add(probe.CertificateDanger * 24 * time.Hour)) {
 			severity = SeverityDanger
 		}
-		e.Open(ctx, Fact{Kind: KindCertExpiring, Severity: severity, Object: object, MachineID: found.MachineID, Details: details})
+		e.Open(ctx, Fact{Kind: KindCertExpiring, Severity: severity, Object: object, MachineID: found.MachineID, ServiceID: found.ServiceID, Details: details})
 		e.Resolve(ctx, KindCertExpired, object)
 	default:
 		e.Resolve(ctx, KindCertExpiring, object)
@@ -75,7 +75,7 @@ func (e *Engine) judgeCertificate(ctx context.Context, found probe.Probe, object
 		return
 	}
 	details.Reason = reason
-	e.Open(ctx, Fact{Kind: KindCertUntrusted, Severity: SeverityAttention, Object: object, MachineID: found.MachineID, Details: details})
+	e.Open(ctx, Fact{Kind: KindCertUntrusted, Severity: SeverityAttention, Object: object, MachineID: found.MachineID, ServiceID: found.ServiceID, Details: details})
 }
 
 func untrustReason(certificate *probe.Certificate, expired bool) string {

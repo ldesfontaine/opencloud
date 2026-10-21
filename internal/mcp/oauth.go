@@ -6,17 +6,19 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
-// AuthorizeRequest est ce qu'un client apporte à /oauth/authorize.
+// AuthorizeRequest est ce qu'un client apporte à /oauth/authorize. Scope
+// est la liste brute, séparée par des espaces (RFC 6749 §3.3).
 type AuthorizeRequest struct {
 	ResponseType    string
 	ClientID        string
 	RedirectURI     string
+	State           string
 	Challenge       string
 	ChallengeMethod string
+	Scope           string
 }
 
 // ExchangeRequest est l'échange d'un code contre une paire de jetons.
@@ -45,43 +47,46 @@ func (s *Service) RedirectAllowed(ctx context.Context, uri string) (bool, error)
 	return redirectAllowed(uri, client.RedirectURIs), nil
 }
 
-// Authorize valide la demande et rend un code, à porter dans le redirect.
-// Aucune page de consentement : le secret du client est la seule preuve,
-// vérifiée à l'échange.
-func (s *Service) Authorize(ctx context.Context, request AuthorizeRequest) (string, error) {
+// validateAuthorize juge une demande d'autorisation, dans l'ordre que le
+// serveur répète : l'URI de retour d'abord, puisque c'est par elle que
+// partent les autres erreurs.
+func (s *Service) validateAuthorize(ctx context.Context, request AuthorizeRequest) error {
 	client, enabled, err := s.Client(ctx)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if !enabled {
-		return "", ErrDisabled
+		return ErrDisabled
 	}
 	if !redirectAllowed(request.RedirectURI, client.RedirectURIs) {
-		return "", ErrRedirectURIInvalid
+		return ErrRedirectURIInvalid
 	}
 	if request.ResponseType != "code" {
-		return "", ErrResponseTypeInvalid
+		return ErrResponseTypeInvalid
 	}
 	if request.ClientID != client.ID {
-		return "", ErrClientUnknown
+		return ErrClientUnknown
 	}
 	if request.Challenge == "" || request.ChallengeMethod != ChallengeMethod {
-		return "", ErrChallengeInvalid
+		return ErrChallengeInvalid
 	}
+	return nil
+}
+
+// issueCode tire le code d'une demande consentie, à la portée accordée.
+func (s *Service) issueCode(ctx context.Context, consent Consent, scope Scope) (string, error) {
 	code, err := newSecret(codeScheme)
 	if err != nil {
 		return "", fmt.Errorf("generate authorization code: %w", err)
 	}
 	now := s.now()
 	err = s.store.InsertMCPCode(ctx, Code{
-		Hash: code.hash, ClientID: client.ID, RedirectURI: request.RedirectURI, Challenge: request.Challenge,
-		ExpiresAt: now.Add(CodeTTL), CreatedAt: now,
+		Hash: code.hash, ClientID: consent.ClientID, RedirectURI: consent.RedirectURI, Challenge: consent.Challenge,
+		Scope: scope, ExpiresAt: now.Add(CodeTTL), CreatedAt: now,
 	})
 	if err != nil {
 		return "", err
 	}
-	s.logger.Info("mcp authorization code issued")
-	s.auditor.Record(ctx, audit.Event{Action: audit.MCPSessionAuthorize, Details: audit.Details{"redirect_uri": request.RedirectURI}})
 	return code.cleartext, nil
 }
 
@@ -104,8 +109,8 @@ func (s *Service) Exchange(ctx context.Context, request ExchangeRequest) (Grant,
 	if err != nil {
 		return Grant{}, fmt.Errorf("generate family id: %w", err)
 	}
-	s.logger.Info("mcp session opened", "family_id", familyID)
-	return s.issue(ctx, familyID)
+	s.logger.Info("mcp session opened", "family_id", familyID, "scope", string(code.Scope))
+	return s.issue(ctx, familyID, code.Scope)
 }
 
 // Refresh consomme le jeton de rafraîchissement et en rend une nouvelle
@@ -129,7 +134,8 @@ func (s *Service) Refresh(ctx context.Context, request RefreshRequest) (Grant, e
 		return Grant{}, err
 	}
 	s.logger.Info("mcp session refreshed", "family_id", token.FamilyID)
-	return s.issue(ctx, token.FamilyID)
+	// La famille garde la portée consentie à son ouverture.
+	return s.issue(ctx, token.FamilyID, token.Scope)
 }
 
 // Verify accepte un jeton d'accès ou d'API vivant, et note son usage.
@@ -171,25 +177,25 @@ func (s *Service) checkClient(ctx context.Context, clientID, secret string) erro
 	return nil
 }
 
-func (s *Service) issue(ctx context.Context, familyID string) (Grant, error) {
+func (s *Service) issue(ctx context.Context, familyID string, scope Scope) (Grant, error) {
 	now := s.now()
-	access, err := s.insertToken(ctx, accessScheme, KindAccess, familyID, now, now.Add(AccessTTL))
+	access, err := s.insertToken(ctx, accessScheme, KindAccess, familyID, scope, now, now.Add(AccessTTL))
 	if err != nil {
 		return Grant{}, err
 	}
-	refresh, err := s.insertToken(ctx, refreshScheme, KindRefresh, familyID, now, now.Add(RefreshTTL))
+	refresh, err := s.insertToken(ctx, refreshScheme, KindRefresh, familyID, scope, now, now.Add(RefreshTTL))
 	if err != nil {
 		return Grant{}, err
 	}
 	return Grant{AccessToken: access, RefreshToken: refresh, ExpiresIn: int(AccessTTL.Seconds())}, nil
 }
 
-func (s *Service) insertToken(ctx context.Context, scheme string, kind Kind, familyID string, now, expiresAt time.Time) (string, error) {
+func (s *Service) insertToken(ctx context.Context, scheme string, kind Kind, familyID string, scope Scope, now, expiresAt time.Time) (string, error) {
 	secret, err := newSecret(scheme)
 	if err != nil {
 		return "", fmt.Errorf("generate %s token: %w", kind, err)
 	}
-	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: kind, Scope: ScopeWrite, FamilyID: familyID, CreatedAt: now, ExpiresAt: expiresAt}
+	token := Token{ID: secret.id, Hash: secret.hash, Prefix: secret.prefix, Kind: kind, Scope: scope, FamilyID: familyID, CreatedAt: now, ExpiresAt: expiresAt}
 	if err := s.store.InsertMCPToken(ctx, token); err != nil {
 		return "", err
 	}

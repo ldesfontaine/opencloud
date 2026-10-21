@@ -71,7 +71,7 @@ type Reader interface {
 	ListDeliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error)
 	ListChannels(ctx context.Context) ([]alert.Channel, error)
 	GetChannel(ctx context.Context, id int64) (alert.Channel, error)
-	ListSilences(ctx context.Context) ([]alert.Silence, error)
+	ListMutes(ctx context.Context) ([]alert.Mute, error)
 
 	// LoadSettings rend des réglages vides tant que rien n'est réglé.
 	LoadSettings(ctx context.Context) (settings.Settings, error)

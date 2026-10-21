@@ -101,7 +101,7 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 	}, s.listIncidentsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_alerts",
-		Description: "List alerts, open by default or resolved with status=resolved (up to 200, most severe then most recent first), with the counters: kind, severity (attention, danger), the object (machine, service, heartbeat, probe, volume; a service object is a container), details such as percent, mount point, exit code or reason, and whether it is acknowledged or silenced.",
+		Description: "List alerts, open by default or resolved with status=resolved (up to 200, most severe then most recent first), with the counters: kind, severity (attention, danger), the object (machine, container, heartbeat, probe, volume), the declared service it belongs to (service_id: a container's unit, or the service a probe watches; empty for a container not declared), details such as percent, mount point, exit code or reason, and whether it is acknowledged or silenced right now (muted).",
 		Annotations: readOnlyHints(),
 	}, s.listAlertsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -546,7 +546,7 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 }
 
 func (s *Server) getAlertTool(ctx context.Context, _ *gomcp.CallToolRequest, input alertInput) (*gomcp.CallToolResult, any, error) {
-	found, err := s.reader.GetAlert(ctx, input.AlertID)
+	found, err := s.alerts.Get(ctx, input.AlertID)
 	if result, done := s.toolFailed("get_alert", err, alert.ErrNotFound); done {
 		return result, nil, nil
 	}

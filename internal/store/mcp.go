@@ -69,9 +69,9 @@ func (db *DB) DeleteMCPClient(ctx context.Context) error {
 
 func (db *DB) InsertMCPCode(ctx context.Context, code mcp.Code) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO mcp_codes (code_hash, client_id, redirect_uri, challenge, expires_at, used, created_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?)`,
-		code.Hash, code.ClientID, code.RedirectURI, code.Challenge, code.ExpiresAt.Unix(), code.CreatedAt.Unix())
+		INSERT INTO mcp_codes (code_hash, client_id, redirect_uri, challenge, scope, expires_at, used, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+		code.Hash, code.ClientID, code.RedirectURI, code.Challenge, string(code.Scope), code.ExpiresAt.Unix(), code.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert mcp code: %w", err)
 	}
@@ -96,14 +96,16 @@ func (db *DB) ConsumeMCPCode(ctx context.Context, hash string, now time.Time) (m
 		return mcp.Code{}, mcp.ErrCodeInvalid
 	}
 	var code mcp.Code
+	var scope string
 	var expiresAt, createdAt int64
 	var used int
 	err = db.sql.QueryRowContext(ctx,
-		`SELECT code_hash, client_id, redirect_uri, challenge, expires_at, used, created_at FROM mcp_codes WHERE code_hash = ?`, hash,
-	).Scan(&code.Hash, &code.ClientID, &code.RedirectURI, &code.Challenge, &expiresAt, &used, &createdAt)
+		`SELECT code_hash, client_id, redirect_uri, challenge, scope, expires_at, used, created_at FROM mcp_codes WHERE code_hash = ?`, hash,
+	).Scan(&code.Hash, &code.ClientID, &code.RedirectURI, &code.Challenge, &scope, &expiresAt, &used, &createdAt)
 	if err != nil {
 		return mcp.Code{}, fmt.Errorf("read mcp code: %w", err)
 	}
+	code.Scope = mcp.Scope(scope)
 	code.ExpiresAt = time.Unix(expiresAt, 0)
 	code.CreatedAt = time.Unix(createdAt, 0)
 	code.Used = used != 0
@@ -264,11 +266,12 @@ func (db *DB) ListMCPTokens(ctx context.Context, kind mcp.Kind) ([]mcp.Token, er
 }
 
 // ListMCPSessions rend les familles dont un jeton de rafraîchissement est
-// encore vivant : quand elle a commencé, quand un accès a servi pour la
-// dernière fois, quand elle expire sans rafraîchissement.
+// encore vivant : sa portée, quand elle a commencé, quand un accès a servi
+// pour la dernière fois, quand elle expire sans rafraîchissement. Tous les
+// jetons d'une famille ont la même portée.
 func (db *DB) ListMCPSessions(ctx context.Context, now time.Time) ([]mcp.Session, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT family_id, MIN(created_at), MAX(COALESCE(last_used_at, 0)), MAX(expires_at)
+		SELECT family_id, MAX(scope), MIN(created_at), MAX(COALESCE(last_used_at, 0)), MAX(expires_at)
 		FROM mcp_tokens
 		WHERE family_id != '' AND family_id IN (
 			SELECT family_id FROM mcp_tokens WHERE kind = ? AND revoked_at IS NULL AND expires_at > ?
@@ -282,10 +285,12 @@ func (db *DB) ListMCPSessions(ctx context.Context, now time.Time) ([]mcp.Session
 
 func scanMCPSession(row scanner) (mcp.Session, error) {
 	var session mcp.Session
+	var scope string
 	var startedAt, lastUsedAt, expiresAt int64
-	if err := row.Scan(&session.FamilyID, &startedAt, &lastUsedAt, &expiresAt); err != nil {
+	if err := row.Scan(&session.FamilyID, &scope, &startedAt, &lastUsedAt, &expiresAt); err != nil {
 		return mcp.Session{}, err
 	}
+	session.Scope = mcp.Scope(scope)
 	session.StartedAt = time.Unix(startedAt, 0)
 	session.ExpiresAt = time.Unix(expiresAt, 0)
 	if lastUsedAt != 0 {

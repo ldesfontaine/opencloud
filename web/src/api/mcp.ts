@@ -41,8 +41,11 @@ export interface MCPToken {
   last_used_at: string | null;
 }
 
+// La portée qu'une session a reçue au consentement ; started_at est
+// l'échange du code, qui le suit de quelques secondes.
 export interface MCPSession {
   id: string;
+  scope: MCPScope;
   started_at: string;
   last_used_at: string | null;
   expires_at: string;
@@ -97,4 +100,37 @@ export async function deleteMCPToken(id: string): Promise<void> {
 
 export async function deleteMCPSession(id: string): Promise<void> {
   return api.delete(`${mcpPath}/sessions/${segment(id)}`);
+}
+
+// Une demande d'autorisation qui attend l'opérateur, telle que le serveur
+// la garde : la page ne lit rien d'autre de l'adresse que son identifiant.
+// write_available est faux tant que le MCP HTTP est en lecture seule.
+export interface MCPConsent {
+  id: string;
+  client_id: string;
+  redirect_uri: string;
+  write_requested: boolean;
+  write_available: boolean;
+  read_tools: number;
+  access_seconds: number;
+  refresh_seconds: number;
+  expires_at: string;
+}
+
+// Où le navigateur part après la réponse : l'adresse de retour du client,
+// avec le code ou access_denied.
+interface MCPConsentAnswer {
+  redirect: string;
+}
+
+export function useMCPConsent(id: string): Resource<MCPConsent> {
+  return useResource<MCPConsent>(() => `${mcpPath}/consents/${segment(id)}`);
+}
+
+export async function allowMCPConsent(id: string, write: boolean): Promise<MCPConsentAnswer> {
+  return api.post<MCPConsentAnswer>(`${mcpPath}/consents/${segment(id)}/actions/allow`, { write });
+}
+
+export async function denyMCPConsent(id: string): Promise<MCPConsentAnswer> {
+  return api.post<MCPConsentAnswer>(`${mcpPath}/consents/${segment(id)}/actions/deny`);
 }

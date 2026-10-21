@@ -64,7 +64,7 @@ func (s *Server) registerWriteTools(server *gomcp.Server) {
 	}, guarded(s.addIncidentUpdateTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "create_silence",
-		Description: "Silence alerts for a while: an object (object_kind and object_id), or a kind of alert (from list_alerts) on an object; never everything. A kind without an object is refused here with mcp.silence_object_required: the operator does that in the web interface. Silenced alerts still open and show, they are not delivered to channels. " + mcpOnRequestOnly,
+		Description: "Silence alerts for a while, starting now: an object (object_kind and object_id), or a kind of alert (from list_alerts) on an object. A machine silences what runs on it, a declared service its containers and probes. Without an object it is refused here with mcp.silence_object_required: the operator does that in the web interface. Silenced alerts still open and show, they are not delivered to channels. " + mcpOnRequestOnly,
 		Annotations: destructiveWriteHints(false),
 	}, guarded(s.createSilenceTool))
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -139,9 +139,8 @@ type incidentUpdateInput struct {
 
 type silenceInput struct {
 	Kind            string `json:"kind,omitempty" jsonschema:"Alert kind to silence, or empty for every kind on the object"`
-	ObjectKind      string `json:"object_kind,omitempty" jsonschema:"machine, service (a container), heartbeat, probe or volume"`
+	ObjectKind      string `json:"object_kind,omitempty" jsonschema:"machine, service (a declared service), container (one not declared), heartbeat or probe"`
 	ObjectID        string `json:"object_id,omitempty" jsonschema:"The object's id; required over MCP"`
-	ObjectName      string `json:"object_name,omitempty" jsonschema:"The object's name, kept for display"`
 	Reason          string `json:"reason,omitempty" jsonschema:"Why, for the operator"`
 	DurationMinutes int    `json:"duration_minutes" jsonschema:"How long, in minutes"`
 }
@@ -241,22 +240,22 @@ func (s *Server) addIncidentUpdateTool(ctx context.Context, input incidentUpdate
 }
 
 func (s *Server) createSilenceTool(ctx context.Context, input silenceInput) (*gomcp.CallToolResult, any, error) {
-	// Une sorte seule tait tous les objets, jusqu'à sept jours : un client
-	// qui a lu du texte de tiers ne doit pas pouvoir aveugler l'astreinte
-	// d'un coup. L'interface garde ce geste, derrière l'opérateur.
-	if input.Kind != "" && input.ObjectID == "" {
+	// Sans objet, une fenêtre tait tous les objets, jusqu'à sept jours : un
+	// client qui a lu du texte de tiers ne doit pas pouvoir aveugler
+	// l'astreinte d'un coup. L'interface garde ce geste, derrière l'opérateur.
+	if input.ObjectID == "" {
 		return toolRefuse(codeSilenceNeedsObject)
 	}
-	silence, err := s.alerts.CreateSilence(ctx, alert.SilenceDefinition{
+	mute, err := s.alerts.CreateMute(ctx, alert.MuteDefinition{
 		Kind:     alert.Kind(input.Kind),
-		Object:   alert.Object{Kind: alert.ObjectKind(input.ObjectKind), ID: input.ObjectID, Name: input.ObjectName},
+		Target:   alert.Target{Kind: alert.TargetKind(input.ObjectKind), ID: input.ObjectID},
 		Reason:   input.Reason,
 		Duration: time.Duration(input.DurationMinutes) * time.Minute,
 	})
 	if result, done := s.toolFailed("create_silence", err, nil); done {
 		return result, nil, nil
 	}
-	return toolJSON(silenceToJSON(silence, s.now()))
+	return toolJSON(muteToJSON(mute, s.now()))
 }
 
 func (s *Server) setUpdatePolicyTool(ctx context.Context, input updatePolicyInput) (*gomcp.CallToolResult, any, error) {

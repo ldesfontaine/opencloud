@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { claudeCodeCommand, emptyTokenForm, expiryLabel, lifetimeLabel, lifetimesOf, redirectFormOf, redirectLines, redirectRequestOf, tokenRequestOf } from "./mcp";
+import { claudeCodeCommand, emptyTokenForm, expiryLabel, lifetimeLabel, lifetimesOf, redirectFormOf, redirectLines, redirectRequestOf, tokenRequestOf, writeOfferOf } from "./mcp";
 
 const french: Record<string, string> = {
   "time.hours": "%d h",
@@ -26,6 +26,13 @@ test("redirectLines garde une adresse par ligne, sans les vides", () => {
     "https://b.example/cb",
   ]);
   expect(redirectLines("")).toEqual([]);
+});
+
+test("writeOfferOf ne propose l'écriture que demandée et disponible", () => {
+  expect(writeOfferOf({ write_requested: false, write_available: true })).toBe("none");
+  expect(writeOfferOf({ write_requested: false, write_available: false })).toBe("none");
+  expect(writeOfferOf({ write_requested: true, write_available: true })).toBe("checkbox");
+  expect(writeOfferOf({ write_requested: true, write_available: false })).toBe("unavailable");
 });
 
 test("lifetimesOf dit les durées du serveur en mots", () => {
