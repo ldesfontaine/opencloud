@@ -72,12 +72,14 @@ type Client struct {
 	CreatedAt    time.Time
 }
 
-// Code est un code d'autorisation, stocké haché, consommé une fois.
+// Code est un code d'autorisation, stocké haché, consommé une fois. Il
+// porte la portée que l'opérateur a consentie : la famille la garde.
 type Code struct {
 	Hash        string
 	ClientID    string
 	RedirectURI string
 	Challenge   string
+	Scope       Scope
 	ExpiresAt   time.Time
 	Used        bool
 	CreatedAt   time.Time
@@ -85,8 +87,8 @@ type Code struct {
 
 // Token est un jeton stocké haché. FamilyID lie les rotations d'une même
 // autorisation OAuth ; vide pour un jeton d'API. ExpiresAt est zéro pour
-// un jeton d'API créé sans échéance. Un jeton OAuth a toujours la portée
-// write : l'opérateur l'a obtenu derrière /oauth/authorize.
+// un jeton d'API créé sans échéance. Un jeton OAuth a la portée que
+// l'opérateur a consentie sur la page de consentement, read par défaut.
 type Token struct {
 	ID         string
 	Hash       string
@@ -120,8 +122,11 @@ func (t Token) Masked() string {
 
 // Session est une autorisation OAuth vivante : la famille de jetons d'un
 // client connecté, du premier échange au dernier rafraîchissement.
+// StartedAt est l'échange du code, qui suit le consentement de moins de dix
+// minutes.
 type Session struct {
 	FamilyID   string
+	Scope      Scope
 	StartedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
@@ -170,6 +175,7 @@ var (
 	ErrTooManyRedirectURIs = refusal.Invalid("mcp.too_many_redirect_uris", "mcp: too many redirect uris")
 	ErrScopeInvalid        = refusal.Invalid("mcp.scope_invalid", "mcp: token scope invalid")
 	ErrLifetimeInvalid     = refusal.Invalid("mcp.lifetime_invalid", "mcp: token lifetime invalid")
+	ErrConsentUnknown      = refusal.Conflict("mcp.consent_unknown", "mcp: consent request unknown or expired")
 )
 
 // scopeOf lit la portée demandée : vide vaut lecture seule.

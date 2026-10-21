@@ -1,4 +1,4 @@
-import type { MCPState, MCPTokenRequest } from "../api/mcp";
+import type { MCPConsent, MCPState, MCPTokenRequest } from "../api/mcp";
 import type { Translate } from "../i18n/context";
 import { formatDuration } from "./time";
 
@@ -29,6 +29,18 @@ export function redirectRequestOf(values: RedirectFormValues): string[] {
 // serveur en secondes, la phrase se fait ici.
 export function lifetimesOf(t: Translate, accessSeconds: number, refreshSeconds: number): string {
   return t("mcp.lifetimes", formatDuration(t, accessSeconds * 1000), formatDuration(t, refreshSeconds * 1000));
+}
+
+// Ce que la page de consentement dit de l'écriture : rien si le client ne
+// la demande pas ; la case, décochée, si le serveur peut l'accorder ; sinon
+// une note qui dit que seule la lecture sera accordée.
+export type WriteOffer = "none" | "checkbox" | "unavailable";
+
+export function writeOfferOf(consent: Pick<MCPConsent, "write_requested" | "write_available">): WriteOffer {
+  if (!consent.write_requested) {
+    return "none";
+  }
+  return consent.write_available ? "checkbox" : "unavailable";
 }
 
 // La commande qui déclare le serveur à Claude Code, sous le nom que le

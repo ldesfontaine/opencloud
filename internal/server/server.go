@@ -424,9 +424,7 @@ func New(opts Options) (*Server, error) {
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
-	// Lecture seule pendant la refonte : les écritures reviendront avec les
-	// actions typées (docs/projet/23-direction.md).
-	server.mcpServer = server.newMCPServer(true)
+	server.mcpServer = server.newMCPServer(mcpHTTPReadOnly)
 	server.mcpHandler = server.newMCPHandler()
 	server.handler = server.chain(securityHeaders(server.mux()))
 	server.controlHandler = server.chain(server.controlMux())

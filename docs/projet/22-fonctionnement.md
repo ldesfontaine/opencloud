@@ -87,8 +87,8 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
 | Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
-| Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée, `read` (défaut d'un jeton d'API) ou `write` (un jeton OAuth, toujours), **inerte pendant la refonte** : `/mcp` n'enregistre aucune écriture, un jeton `write` ne voit pas plus d'outils qu'un `read`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
-| Agent IA | client MCP → `/oauth/authorize`, `/oauth/token` | TLS de Traefik | Le `redirect_uri` est jugé avant tout redirect, y compris pour dire une erreur : la boucle locale toujours, n'importe quel port, sinon une adresse déclarée sous Paramètres, comparée telle quelle. Pas de page de consentement : le secret du client, jamais envoyé à l'autorisation, est vérifié à l'échange en temps constant. Un code sert une fois, dix minutes ; un rafraîchissement rejoué révoque toute sa famille. Débit borné par adresse, plus serré sur `/oauth/token` |
+| Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée, `read` (défaut d'un jeton d'API comme d'un jeton OAuth) ou `write` (demandée et cochée), **inerte pendant la refonte** : `/mcp` n'enregistre aucune écriture, un jeton `write` ne voit pas plus d'outils qu'un `read`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
+| Agent IA | client MCP → `/oauth/authorize`, page de consentement, `/oauth/token` | TLS de Traefik | Le `redirect_uri` est jugé avant tout redirect, y compris pour dire une erreur : la boucle locale toujours, n'importe quel port, sinon une adresse déclarée sous Paramètres, comparée telle quelle. Puis **l'opérateur consent** : une page de l'interface, derrière ses identifiants, montre le client, l'adresse de retour exacte, ce que l'autorisation donne et sa durée ; le code n'existe qu'après « Autoriser ». Le secret du client, jamais envoyé à l'autorisation, est vérifié à l'échange en temps constant. Un code sert une fois, dix minutes ; un rafraîchissement rejoué révoque toute sa famille. Débit borné par adresse, plus serré sur `/oauth/token` |
 | Agent IA local | `opencloud mcp` ↔ le client, sur stdin/stdout | Aucun : deux processus de la même machine, rien ne passe par le réseau | Les droits Unix sur `state_dir`, en 0700 : il faut tourner sous le compte du service. Lecture seule : aucune écriture n'est enregistrée, ce processus ne tient ni le bus du direct ni les flux des agents. Il lit aussi `secret.key` et refuse de démarrer sans elle : il ne la crée jamais. Au démarrage, il chiffre aussi les clairs restés (une base d'avant), donc il écrit dans la base ce jour-là, une fois |
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
@@ -123,7 +123,7 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates` | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom, machine, détails en JSON, dates dont le début du calme, acquittement, silencieuse), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, ou retenue par la limite du canal), les silences dans `alert_silences` | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine, une sonde ou une tâche retirée emporte ses silences (la table n'a pas de clé étrangère), une pause ou un archivage les garde. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017 |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois, avec la portée consentie, migration 033), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017, comme les jetons OAuth d'avant le consentement : leur famille garde `write` jusqu'à sa fin. Les demandes qui attendent le consentement ne sont **pas** en base : en mémoire de `serve`, dix minutes, 32 au plus (voir « Comment un agent IA lit openCloud ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
@@ -1990,7 +1990,8 @@ requête : `none` (par défaut), `basic` et `forward`.
   configuration de Traefik.
 
 Gardé : le front, tout `/api/…`, `/api/events`, les flux de journaux et
-`/oauth/authorize`, où l'opérateur consent pour un agent IA (en mode `none`,
+`/oauth/authorize`, qui mène à la page où l'opérateur consent pour un agent
+IA (`/oauth/consentir`, une page du front, et `/api/mcp/consents/…`) (en mode `none`,
 tout cela sauf les routes de la première configuration). Ouverts,
 chacun avec sa propre preuve ou par conception : `/agent/…` (la clé de
 l'agent), `/ping/…` (le jeton), `/statut…` (public), `/mcp` (Bearer),
@@ -2011,7 +2012,8 @@ face à une interface gardée est refusé avant toute lecture du corps. L'état
 qui a admis la requête voyage dans son contexte. Changer le mot de passe,
 désactiver et activer le comparent à l'état stocké **dans la même transaction
 que l'écriture** : de deux activations simultanées, une seule gagne. Les
-écritures qui accordent une autorité durable (jeton d'API MCP, code OAuth,
+écritures qui accordent une autorité durable (jeton d'API MCP, code OAuth
+au « Autoriser » de la page de consentement,
 secret du client, adresses de retour, activation de MCP, jeton d'enrôlement,
 réenrôlement) le comparent aussi juste avant d'agir, sous un verrou que
 l'activation prend du changement d'état jusqu'à la révocation MCP ; l'échange
@@ -2112,26 +2114,64 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    l'adresse de `/.well-known/oauth-protected-resource`, qui le mène à
    `/.well-known/oauth-authorization-server` : les points d'autorisation et
    de jeton, `S256` seul, `client_secret_post` ou `client_secret_basic`.
-3. `GET /oauth/authorize` : le `redirect_uri` est jugé d'abord ; refusé,
-   c'est un `400` sans redirect. Puis `response_type=code`, le client, un
-   `code_challenge` en S256. Aucune page de consentement : le code part
-   tout de suite dans le redirect, avec le `state` du client. Il vit dix
-   minutes, haché en base.
-4. `POST /oauth/token` avec `grant_type=authorization_code` : le secret du
+3. `GET /oauth/authorize`, dans le navigateur de l'opérateur, derrière ses
+   identifiants : le `redirect_uri` est jugé d'abord ; refusé, c'est un
+   `400` sans redirect. Puis `response_type=code`, le client, un
+   `code_challenge` en S256 ; une erreur part dans le redirect, avec le
+   `state`. Une demande valide **ne rend pas de code** : elle est gardée en
+   mémoire de `serve` (client, `redirect_uri`, `state`, défi, écriture
+   demandée ou non), dix minutes, sous un identifiant opaque de 128 bits ;
+   32 au plus, la plus ancienne cède sa place. Le navigateur part vers
+   `/oauth/consentir?demande=<identifiant>`, seul paramètre.
+4. **La page de consentement**, servie par le front hors de l'interface
+   (comme la première configuration), lit la demande par
+   `GET /api/mcp/consents/{id}` : le client, l'adresse de retour exacte, ce
+   que l'autorisation donne (les dix-neuf lectures, aucune action sur une
+   machine, aucun secret d'openCloud), la durée (un accès d'une heure,
+   renouvelé jusqu'à trente jours sans usage), et deux boutons.
+   « Autoriser » : `POST /api/mcp/consents/{id}/actions/allow` `{write}` ;
+   « Refuser » : `…/actions/deny`. Ce sont des écritures de l'opérateur
+   comme les autres : `Host` connu, même origine, JSON, un corps qui ne
+   porte que la décision (un champ de plus : `400 bad_json`), et
+   l'« Autoriser » sous `grantsAuthority`, puisqu'il pose un code. La
+   demande est consommée par la réponse, puis rejugée (MCP activé,
+   `redirect_uri` toujours acceptée). Oui : le code, haché en base, dix
+   minutes, avec la portée accordée ; non : rien. La réponse JSON rend
+   l'adresse de retour avec `code` et `state`, ou `error=access_denied` et
+   `state` (RFC 6749 §4.1.2.1), et le navigateur y part. Une demande
+   inconnue, échue ou déjà répondue : `409 mcp.consent_unknown`, aucun
+   redirect. Un redémarrage oublie les demandes en attente : le client
+   relance sa connexion ; rien n'est accordé avant le oui. Désactiver MCP,
+   régénérer le secret et activer l'authentification les effacent.
+   **Portée** : `scope` est lu (liste séparée par des espaces) ; seul
+   `write` compte, une valeur inconnue est ignorée, rien vaut `read`.
+   L'écriture n'est accordée que demandée par le client **et** cochée par
+   l'opérateur, case décochée par défaut. Tant que `/mcp` est en lecture
+   seule (`mcpHTTPReadOnly`), la case n'est pas proposée : la page dit que
+   seule la lecture sera accordée, et le serveur ignore une décision qui la
+   porterait, pour qu'aucun jeton `write` ne dorme en attendant le retour
+   des écritures. Le oui et le non vont au journal d'audit sous l'opérateur.
+5. `POST /oauth/token` avec `grant_type=authorization_code` : le secret du
    client, comparé en temps constant à son empreinte ; le code, consommé
    par un `UPDATE … WHERE used = 0`, un seul échange concurrent gagne ; le
    `redirect_uri` rejoué ; le `code_verifier` contre le défi. En retour un
-   accès d'une heure et un rafraîchissement de trente jours, une **famille**.
-5. Chaque appel d'outil porte `Authorization: Bearer …`. Le serveur hache,
+   accès d'une heure et un rafraîchissement de trente jours, une **famille**,
+   à la portée du code. `/oauth/token` n'a pas changé avec le consentement.
+6. Chaque appel d'outil porte `Authorization: Bearer …`. Le serveur hache,
    cherche, refuse un jeton révoqué, échu ou de rafraîchissement, note le
    dernier usage. Le SDK tient la session MCP ; elle se ferme après
    trente minutes sans requête.
-6. `grant_type=refresh_token` consomme le rafraîchissement, même `UPDATE`
-   conditionnel, et rend une nouvelle paire de la même famille. Le même
+7. `grant_type=refresh_token` consomme le rafraîchissement, même `UPDATE`
+   conditionnel, et rend une nouvelle paire de la même famille, à la même
+   portée. Le même
    rafraîchissement présenté deux fois révoque **toute la famille**,
    accès compris : celui qui l'a volé est coupé, qu'il ait rafraîchi le
-   premier ou non. Les sessions se lisent et se coupent sous Paramètres.
-7. Un script ou un client sans OAuth passe par un **jeton d'API** créé sous
+   premier ou non. Les sessions se lisent et se coupent sous Paramètres,
+   avec leur portée et le moment de l'autorisation (l'échange du code, qui
+   suit le consentement de quelques secondes) ; couper une session
+   s'inscrit au journal (`mcp_session.revoke`), révoquer un jeton d'API
+   aussi (`mcp_token.revoke`).
+8. Un script ou un client sans OAuth passe par un **jeton d'API** créé sous
    Paramètres, montré une fois, révocable ; 16 au plus. L'opérateur choisit
    son **échéance** : 30, 90 (défaut) ou 365 jours, ou sans
    échéance, explicitement (`POST /api/mcp/tokens` `{name, expires_in_days}`, 0 pour sans échéance ; une autre valeur : `mcp.lifetime_invalid`). Échu, il est refusé, sort de la liste et la
@@ -2140,8 +2180,7 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    `mcp.scope_invalid`) et la base garde la colonne, mais **l'écriture est
    désactivée en HTTP pendant la refonte** : `/mcp` n'enregistre aucun des
    neuf outils d'écriture, ils ne sont pas listés et un appel reçoit « unknown
-   tool » du SDK, quel que soit le jeton, OAuth compris (toujours `write` :
-   l'opérateur l'a obtenu derrière `/oauth/authorize`). La portée voyage
+   tool » du SDK, quel que soit le jeton, OAuth compris. La portée voyage
    encore avec la requête (`TokenInfo` du SDK, posé par la vérification du
    Bearer) et le garde des écritures la juge, pour le jour où elles
    reviennent avec la couche d'actions typées
@@ -2161,7 +2200,7 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
    restent : une nouvelle autorisation passe désormais par les
    identifiants. Changer le mot de passe ou désactiver ne révoque rien, la
    commande `opencloud auth disable` non plus.
-8. Un client local (Claude Code, Claude Desktop) lance `opencloud mcp
+9. Un client local (Claude Code, Claude Desktop) lance `opencloud mcp
    -config …` et lui parle en JSON-RPC sur stdin/stdout, les journaux sur
    stderr. Ce processus ouvre la même base, sans socket ni identifiant, et
    ne tient ni le bus du direct ni les flux des agents : il est en
@@ -2542,7 +2581,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
 | MCP | `mcp.enable`, `.disable`, `.regenerate_secret`, `.set_redirect_uris` | Le client OAuth | `oauth_revoked`, `redirect_uris` ; jamais le secret |
 | Jeton d'API, tous les jetons | `mcp_token.create`, `.revoke` | Le jeton ; tous (à l'activation de l'authentification) sans objet | `scope`, `expires_at` ; pour tous `all`, `api_tokens`, `sessions` ; jamais le jeton ni son préfixe |
-| Autorisation OAuth accordée, session coupée | `mcp_session.authorize`, `.revoke` | La famille coupée ; un code accordé n'a pas encore d'objet | `redirect_uri` |
+| Consentement OAuth donné ou refusé, session coupée | `mcp_session.authorize`, `.deny`, `.revoke` | La famille coupée ; un consentement n'a pas encore de famille, il est nommé par le client | `client_id`, `redirect_uri`, `scope` (accordée, ou demandée pour un refus) ; jamais le code ni le `state` |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
 
 ### Ce qui ne l'est jamais
@@ -2692,7 +2731,6 @@ refusés avant d'envoyer quoi que ce soit.
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | Le journal d'audit reste dans la base | Il n'est envoyé à aucun canal : qui efface la base efface la trace. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | La PR suivante : `audit_deliveries` et les canaux `receives_audit` |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
-| Pas de page de consentement OAuth | Qui a le secret du client obtient un jeton sans écran de consentement ; `/oauth/authorize` exige au moins les identifiants de l'opérateur, ou l'identité transmise par le mandataire | À décider |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_container_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
 | Une écriture par stdio n'est pas relayée | Le client local est en lecture seule : mettre en pause, acquitter, ouvrir un incident demandent le transport HTTP | Par conception, tant que `serve` seul tient les flux |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |

@@ -134,6 +134,7 @@ const (
 	MCPTokenRevoke Action = "mcp_token.revoke" // #nosec G101 -- un nom, pas un secret.
 
 	MCPSessionAuthorize Action = "mcp_session.authorize"
+	MCPSessionDeny      Action = "mcp_session.deny"
 	MCPSessionRevoke    Action = "mcp_session.revoke"
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
@@ -159,7 +160,7 @@ func Actions() []Action {
 		AuthEnable, AuthDisable, AuthChangePassword,
 		MCPEnable, MCPDisable, MCPRegenerateSecret, MCPSetRedirectURIs,
 		MCPTokenCreate, MCPTokenRevoke,
-		MCPSessionAuthorize, MCPSessionRevoke,
+		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
 		SecretsForget,
 	}
 }
