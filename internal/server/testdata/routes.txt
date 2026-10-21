@@ -124,10 +124,10 @@ GET /api/actions
 GET /api/agents/server-key
 * /api/
 POST /agent/enroll
-POST /agent/challenge
 GET /agent/stream
 POST /agent/signal
 POST /agent/logs/{request}
+* /agent/
 GET /ping/{token}
 POST /ping/{token}
 GET /ping/{token}/start

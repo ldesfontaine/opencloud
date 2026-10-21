@@ -29,8 +29,8 @@ import (
 const (
 	requestTimeout = 15 * time.Second
 	maxErrorBody   = 4 << 10
-	// Une réponse d'enrôlement ou de défi tient en quelques centaines
-	// d'octets : au-delà, ce n'est pas openCloud qui parle.
+	// Une réponse d'enrôlement tient en quelques centaines d'octets : au-delà,
+	// ce n'est pas openCloud qui parle.
 	maxAnswerBody = 64 << 10
 )
 
@@ -48,35 +48,24 @@ func (e *ServerError) Error() string {
 const (
 	codeMachineNotFound = "machine_not_found"
 	codeBadProof        = "bad_proof"
-	// Le défi signé est expiré, déjà utilisé ou perdu au redémarrage du
-	// serveur : l'agent en redemande un. Les agents installés ne
-	// connaissent pas ce code et le traitent comme tout 401 autre que
-	// bad_proof, c'est-à-dire en passager.
-	codeChallengeExpired = "challenge_expired"
-	codeNoSession        = "no_session"
-	codeClockSkew        = "clock_skew"
+	codeNoSession       = "no_session"
+	codeClockSkew       = "clock_skew"
 )
 
 // Permanent dit si réessayer ne servira à rien : la machine n'existe plus,
-// sa clé n'est plus celle enrôlée, l'agent est révoqué, ou l'enrôlement est
-// refusé. Un autre 401
-// ou 404 n'arrête rien : une horloge décalée se règle, une session perdue
-// se rouvre, un défi expiré se redemande, un proxy en plein redéploiement
-// revient. Un défi se perd sans que la clé y soit pour rien (serveur
-// redémarré, délai dépassé) ; seule une signature fausse dit que la clé
-// n'est plus la bonne.
+// sa clé n'est plus celle enrôlée, l'agent est révoqué, l'enrôlement est
+// refusé, ou le serveur ne parle pas ce protocole. Un autre 401 ou 404
+// n'arrête rien : une horloge décalée se règle, une session perdue se
+// rouvre, une preuve déjà vue se refait avec un aléa neuf, un proxy en plein
+// redéploiement revient. Seule une signature fausse dit que la clé n'est
+// plus la bonne.
 func (e *ServerError) Permanent() bool {
 	switch e.Status {
 	case http.StatusNotFound:
 		return e.Code == codeMachineNotFound
 	case http.StatusUnauthorized:
-		// Nommé plutôt que laissé au cas général : changer ce dernier ne
-		// doit pas arrêter l'agent sur un simple défi à redemander.
-		if e.Code == codeChallengeExpired {
-			return false
-		}
 		return e.Code == codeBadProof || e.Code == agentwire.CodeRevoked
-	case http.StatusConflict:
+	case http.StatusConflict, http.StatusUpgradeRequired:
 		return true
 	}
 	return false
@@ -127,7 +116,25 @@ func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
-	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, system: hostinfo.OSName()}, nil
+	// Une redirection n'est pas suivie : elle se lit comme une réponse, donc
+	// un refus. Le serveur n'en fait jamais vers l'agent ; un mandataire qui
+	// en fait enverrait le jeton ou la preuve ailleurs.
+	httpClient := &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return &Client{server: server, http: httpClient, version: version, system: hostinfo.OSName()}, nil
+}
+
+// newRequest prépare une requête vers le serveur, avec la version du
+// protocole que l'agent parle.
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, method, c.server+path, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
+	return request, nil
 }
 
 func isLoopback(server string) bool {
@@ -189,18 +196,6 @@ func (c *Client) Enroll(ctx context.Context, identity Identity, token string, in
 	return response, nil
 }
 
-func (c *Client) challenge(ctx context.Context, machineID string) ([]byte, error) {
-	var response agentwire.ChallengeResponse
-	if err := c.postJSON(ctx, "/agent/challenge", agentwire.ChallengeRequest{MachineID: machineID}, &response); err != nil {
-		return nil, fmt.Errorf("challenge: %w", err)
-	}
-	nonce, err := base64.StdEncoding.DecodeString(response.Nonce)
-	if err != nil {
-		return nil, fmt.Errorf("decode nonce: %w", err)
-	}
-	return nonce, nil
-}
-
 // Stream est le flux ouvert : le jeton de session et ce que le serveur dit.
 type Stream struct {
 	Session string
@@ -212,18 +207,16 @@ func (s *Stream) Close() error {
 	return s.body.Close()
 }
 
-// OpenStream relève le défi, ouvre le flux et attend le jeton de session.
+// OpenStream signe une preuve neuve (protocole 2 : un aléa tiré ici, la
+// machine, l'heure), ouvre le flux et attend le jeton de session.
 func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, error) {
-	nonce, err := c.challenge(ctx, identity.MachineID)
-	if err != nil {
-		return nil, err
-	}
+	nonce := machine.NewNonce()
 	timestamp := time.Now().Unix()
 	payload, err := machine.SignedPayload(nonce, identity.MachineID, timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("build proof: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.server+"/agent/stream", nil)
+	request, err := c.newRequest(ctx, http.MethodGet, "/agent/stream", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +246,7 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 		defer response.Body.Close()
 		return nil, serverError(response)
 	}
-	reader := bufio.NewReader(response.Body)
+	reader := bufio.NewReaderSize(response.Body, agentwire.MaxEventLineBytes)
 	name, data, err := readEvent(reader)
 	if err != nil || name != "session" || data == "" {
 		_ = response.Body.Close()
@@ -295,7 +288,7 @@ func (c *Client) Signal(ctx context.Context, session string, sent agentwire.Sign
 		}
 		body = bytes.NewReader(content)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/signal", body)
+	request, err := c.newRequest(ctx, http.MethodPost, "/agent/signal", body)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +328,7 @@ func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch 
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/logs/"+url.PathEscape(requestID), bytes.NewReader(content))
+	request, err := c.newRequest(ctx, http.MethodPost, "/agent/logs/"+url.PathEscape(requestID), bytes.NewReader(content))
 	if err != nil {
 		return err
 	}
@@ -359,7 +352,7 @@ func (c *Client) postJSON(ctx context.Context, path string, payload, into any) e
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+path, bytes.NewReader(body))
+	request, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -369,7 +362,8 @@ func (c *Client) postJSON(ctx context.Context, path string, payload, into any) e
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusBadRequest {
+	// Une redirection, non suivie, est un refus comme un autre.
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return serverError(response)
 	}
 	return json.NewDecoder(io.LimitReader(response.Body, maxAnswerBody)).Decode(into)

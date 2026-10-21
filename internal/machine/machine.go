@@ -80,11 +80,14 @@ var (
 	ErrTokenExpired  = errors.New("enrollment token expired")
 	ErrBadKey        = errors.New("public key must be 32 bytes")
 	ErrBadID         = errors.New("machine id must be a uuid")
-	ErrBadNonce      = errors.New("challenge unknown, expired or already used")
-	ErrClockSkew     = errors.New("clock skew exceeds the tolerance")
-	ErrBadSignature  = errors.New("invalid signature")
-	ErrNotConnected  = errors.New("machine not connected")
-	ErrBusy          = errors.New("machine command queue full")
+	// ErrBadProof : la preuve n'a pas sa forme (aléa de la mauvaise taille).
+	ErrBadProof = errors.New("proof malformed")
+	// ErrReplayed : cette preuve a déjà ouvert un flux.
+	ErrReplayed     = errors.New("proof already used")
+	ErrClockSkew    = errors.New("clock skew exceeds the tolerance")
+	ErrBadSignature = errors.New("invalid signature")
+	ErrNotConnected = errors.New("machine not connected")
+	ErrBusy         = errors.New("machine command queue full")
 	// L'agent de la machine est révoqué : il est refusé jusqu'au
 	// ré-enrôlement, qui en installe un nouveau.
 	ErrAgentRevoked = errors.New("agent revoked")

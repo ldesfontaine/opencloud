@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,23 +18,21 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
-// fakeServer joue le serveur openCloud du point de vue de l'agent : défi,
-// flux, signal. Chaque route répond ce que le test lui dit.
+// fakeServer joue le serveur openCloud du point de vue de l'agent : flux,
+// signal. Chaque route répond ce que le test lui dit.
 type fakeServer struct {
-	mu             sync.Mutex
-	streamRefusal  string
-	signalRefusals []string
-	streams        []time.Time
-	refusedSignals []time.Time
-	acceptedSignal int
+	mu sync.Mutex
+	// Les requêtes reçues sans la version du protocole.
+	withoutProtocol int
+	streamRefusal   string
+	signalRefusals  []string
+	streams         []time.Time
+	refusedSignals  []time.Time
+	acceptedSignal  int
 }
 
 func (f *fakeServer) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /agent/challenge", func(w http.ResponseWriter, r *http.Request) {
-		nonce := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
-		_ = json.NewEncoder(w).Encode(agentwire.ChallengeResponse{Nonce: nonce})
-	})
 	mux.HandleFunc("GET /agent/stream", f.stream)
 	mux.HandleFunc("POST /agent/signal", f.signal)
 	return mux
@@ -43,6 +40,9 @@ func (f *fakeServer) handler() http.Handler {
 
 func (f *fakeServer) stream(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
+	if r.Header.Get(agentwire.HeaderProtocol) != agentwire.ProtocolVersion {
+		f.withoutProtocol++
+	}
 	f.streams = append(f.streams, time.Now())
 	count := len(f.streams)
 	refusal := f.streamRefusal
@@ -60,6 +60,9 @@ func (f *fakeServer) stream(w http.ResponseWriter, r *http.Request) {
 func (f *fakeServer) signal(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if r.Header.Get(agentwire.HeaderProtocol) != agentwire.ProtocolVersion {
+		f.withoutProtocol++
+	}
 	if len(f.signalRefusals) > 0 {
 		refusal := f.signalRefusals[0]
 		f.signalRefusals = f.signalRefusals[1:]
@@ -78,6 +81,8 @@ func writeRefusal(w http.ResponseWriter, code string) {
 		status = http.StatusNotFound
 	case "too_many_requests":
 		status = http.StatusTooManyRequests
+	case agentwire.CodeProtocolUnsupported:
+		status = http.StatusUpgradeRequired
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -109,7 +114,10 @@ func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *byt
 		t.Fatal(err)
 	}
 	opts := Options{SignalInterval: 30 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(logs, nil))}
-	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults()}
+	actions := newActionResults()
+	// Le juge des ordres sans dossier d'état : ces tests n'en envoient aucun.
+	orders := newOrderRunner(nil, identity, "v0.0.1", actions, opts.Logger)
+	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: actions, orders: orders}
 	done := make(chan error, 1)
 	go func() { done <- keepConnected(ctx, client, identity, waiting, catalogs.For(lang.French), opts) }()
 	return done
@@ -141,6 +149,12 @@ func TestKeepConnected_ExpiredSession_ReconnectsAtOnce(t *testing.T) {
 	streams, refused, _ := server.snapshot()
 	if gap := streams[1].Sub(refused[0]); gap >= minBackoff/2 {
 		t.Fatalf("reconnected %v after the refusal, not at once", gap)
+	}
+	server.mu.Lock()
+	unversioned := server.withoutProtocol
+	server.mu.Unlock()
+	if unversioned != 0 {
+		t.Fatalf("%d requests without the protocol version", unversioned)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -208,10 +222,11 @@ func TestKeepConnected_ClockSkew_KeepsRetryingAndSaysToFixTheClock(t *testing.T)
 	}
 }
 
-// Un défi expiré, évincé ou perdu au redémarrage du serveur : l'agent n'a
-// rien à se reprocher, il en redemande un et réessaie, sans s'arrêter.
-func TestKeepConnected_ChallengeExpired_KeepsRetrying(t *testing.T) {
-	server := &fakeServer{streamRefusal: codeChallengeExpired}
+// Une preuve déjà vue (un aléa tiré deux fois, ou une preuve rejouée par un
+// tiers) : l'agent n'a rien à se reprocher, il en signe une autre et
+// réessaie, sans s'arrêter.
+func TestKeepConnected_ReplayedProof_KeepsRetrying(t *testing.T) {
+	server := &fakeServer{streamRefusal: agentwire.CodeReplayed}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := startAgent(t, ctx, server, &bytes.Buffer{})
@@ -222,7 +237,7 @@ func TestKeepConnected_ChallengeExpired_KeepsRetrying(t *testing.T) {
 	})
 	select {
 	case err := <-done:
-		t.Fatalf("agent stopped on an expired challenge: %v", err)
+		t.Fatalf("agent stopped on a replayed proof: %v", err)
 	default:
 	}
 	cancel()
@@ -243,6 +258,21 @@ func TestKeepConnected_BadProof_Stops(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("agent kept retrying a refused identity")
+	}
+}
+
+// Un serveur d'une autre version du protocole : l'agent s'arrête et le dit.
+func TestKeepConnected_AnotherProtocol_Stops(t *testing.T) {
+	server := &fakeServer{streamRefusal: agentwire.CodeProtocolUnsupported}
+	done := startAgent(t, context.Background(), server, &bytes.Buffer{})
+	select {
+	case err := <-done:
+		var refused *ServerError
+		if !errors.As(err, &refused) || refused.Status != http.StatusUpgradeRequired {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("agent kept retrying a server of another protocol")
 	}
 }
 
@@ -270,7 +300,8 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		{http.StatusUnauthorized, "bad_proof", true},
 		{http.StatusConflict, "token_consumed", true},
 		{http.StatusConflict, "name_taken", true},
-		{http.StatusUnauthorized, "challenge_expired", false},
+		{http.StatusUpgradeRequired, "protocol_unsupported", true},
+		{http.StatusUnauthorized, "replayed", false},
 		{http.StatusUnauthorized, "no_session", false},
 		{http.StatusUnauthorized, "clock_skew", false},
 		{http.StatusUnauthorized, "", false},

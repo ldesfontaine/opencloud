@@ -30,7 +30,17 @@ const (
 	// dès aujourd'hui ; son exécution vient avec #153 étape 5 : aucune route
 	// ne l'envoie, et un agent qui a le droit le refuse (not_implemented).
 	KindAgentUpdate Kind = "agent.update"
+	// La rotation de la clé du serveur : signé par la clé que l'agent a
+	// épinglée, il lui livre la neuve (ServerKeyParams). Le serveur l'envoie
+	// de lui-même, à l'ouverture du flux d'un agent resté sur la précédente.
+	KindServerKey Kind = "agent.server_key"
 )
+
+// ServerKeyParams sont les paramètres de agent.server_key : la clé publique
+// neuve, en base64. Ce n'est pas un secret.
+type ServerKeyParams struct {
+	PublicKey string `json:"public_key"`
+}
 
 // ObservationKinds rend les genres qui ne font que lire.
 func ObservationKinds() []Kind {
@@ -39,7 +49,7 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate}
+	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey}
 }
 
 func (k Kind) IsOrder() bool {

@@ -2,6 +2,7 @@ package action
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -37,9 +38,11 @@ type Store interface {
 }
 
 // Machines est ce que le composant lit des machines : l'agent courant et
-// s'il tient son flux.
+// s'il tient son flux ; et ce qu'il note quand un agent a pris la clé neuve
+// du serveur.
 type Machines interface {
 	Get(ctx context.Context, id string) (machine.Status, error)
+	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 }
 
 // Commander pousse une commande à l'agent d'une machine par son flux : le
@@ -113,6 +116,39 @@ func (s *Service) ServerKey() (public []byte, fingerprint string, err error) {
 	return s.key.PublicKey(), s.key.Fingerprint(), nil
 }
 
+// PreviousServerKey rend l'empreinte de la clé précédente, vide hors
+// rotation.
+func (s *Service) PreviousServerKey() string {
+	if s.key == nil {
+		return ""
+	}
+	return s.key.PreviousFingerprint()
+}
+
+// Rekey livre la clé courante à l'agent d'une machine resté sur la
+// précédente, pendant une rotation : un ordre agent.server_key, signé par
+// la précédente, qu'il vérifie avec ce qu'il a épinglé. Sans rotation, ou
+// pour un agent déjà à jour, rien ne part. serve l'appelle à l'ouverture de
+// chaque flux.
+func (s *Service) Rekey(ctx context.Context, machineID string) error {
+	if s.key == nil || s.key.PreviousFingerprint() == "" {
+		return nil
+	}
+	target, err := s.machines.Get(ctx, machineID)
+	if err != nil {
+		return err
+	}
+	if target.Agent.ServerKeyFingerprint != s.key.PreviousFingerprint() {
+		return nil
+	}
+	params, err := json.Marshal(agentwire.ServerKeyParams{PublicKey: base64.StdEncoding.EncodeToString(s.key.PublicKey())})
+	if err != nil {
+		return err
+	}
+	_, err = s.Send(ctx, machineID, agentwire.KindServerKey, params)
+	return err
+}
+
 // Ping envoie l'ordre agent.ping : il ne change rien sur la machine et
 // prouve le chemin d'un ordre de bout en bout.
 func (s *Service) Ping(ctx context.Context, machineID string) (Run, error) {
@@ -158,7 +194,7 @@ func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kin
 		return Run{}, fmt.Errorf("insert run: %w", err)
 	}
 	s.auditor.Record(ctx, orderEvent(run))
-	run, err = s.deliver(ctx, run)
+	run, err = s.deliver(ctx, run, target.Agent.ServerKeyFingerprint)
 	s.changed(machineID)
 	return run, err
 }
@@ -177,10 +213,11 @@ func (s *Service) newRun(ctx context.Context, target machine.Status, kind agentw
 	}, nil
 }
 
-// deliver signe le run écrit, le marque envoyé, puis le pousse. Marqué
-// avant de partir : la réponse de l'agent trouve toujours un run envoyé.
-func (s *Service) deliver(ctx context.Context, run Run) (Run, error) {
-	signed, err := s.key.Sign(run.order())
+// deliver signe le run écrit avec la clé que l'agent a épinglée, le marque
+// envoyé, puis le pousse. Marqué avant de partir : la réponse de l'agent
+// trouve toujours un run envoyé.
+func (s *Service) deliver(ctx context.Context, run Run, pinned string) (Run, error) {
+	signed, err := s.key.Sign(run.order(), pinned)
 	if err != nil {
 		return s.failUndelivered(ctx, run, err)
 	}

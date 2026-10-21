@@ -47,8 +47,14 @@ type Scope struct {
 	Row    string
 }
 
-// Keyring tient la clé du serveur. Il est sûr pour plusieurs goroutines.
+// Keyring tient les clés du serveur : la première scelle, chacune ouvre ce
+// qu'elle a scellé, reconnue par son identifiant. Plusieurs clés ne vivent
+// ensemble que le temps d'une rotation. Il est sûr pour plusieurs goroutines.
 type Keyring struct {
+	keys []*sealingKey
+}
+
+type sealingKey struct {
 	key  [keyBytes]byte
 	id   string
 	aead cipher.AEAD
@@ -57,17 +63,21 @@ type Keyring struct {
 // Generate tire une clé neuve. crypto/rand.Read ne rend plus d'erreur depuis
 // Go 1.24 : si le système n'a plus d'aléa, le programme s'arrête.
 func Generate() *Keyring {
+	return &Keyring{keys: []*sealingKey{generateKey()}}
+}
+
+func generateKey() *sealingKey {
 	var key [keyBytes]byte
 	_, _ = rand.Read(key[:])
-	keyring, err := newKeyring(key)
+	sealing, err := newSealingKey(key)
 	if err != nil {
 		// AES accepte toute clé de 32 octets : ce n'est pas atteignable.
 		panic("seal: build cipher: " + err.Error())
 	}
-	return keyring
+	return sealing
 }
 
-func newKeyring(key [keyBytes]byte) (*Keyring, error) {
+func newSealingKey(key [keyBytes]byte) (*sealingKey, error) {
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil, err
@@ -76,7 +86,30 @@ func newKeyring(key [keyBytes]byte) (*Keyring, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Keyring{key: key, id: keyIDOf(key), aead: aead}, nil
+	return &sealingKey{key: key, id: keyIDOf(key), aead: aead}, nil
+}
+
+// WithNewKey rend un trousseau qui scelle avec une clé neuve et ouvre
+// encore avec les précédentes : le premier temps d'une rotation.
+func (k *Keyring) WithNewKey() *Keyring {
+	return &Keyring{keys: append([]*sealingKey{generateKey()}, k.keys...)}
+}
+
+// Current rend le trousseau de la seule clé qui scelle : le dernier temps
+// d'une rotation, une fois chaque secret rescellé.
+func (k *Keyring) Current() *Keyring {
+	return &Keyring{keys: k.keys[:1]}
+}
+
+// Retired rend le trousseau des clés qui ne scellent plus, vide hors
+// rotation : ce qui relit une sauvegarde plus ancienne.
+func (k *Keyring) Retired() *Keyring {
+	return &Keyring{keys: k.keys[1:]}
+}
+
+// Len rend le nombre de clés.
+func (k *Keyring) Len() int {
+	return len(k.keys)
 }
 
 // keyIDOf est l'empreinte courte inscrite dans chaque chiffré et dans le
@@ -86,35 +119,48 @@ func keyIDOf(key [keyBytes]byte) string {
 	return hex.EncodeToString(sum[:keyIDBytes])
 }
 
-// ID est l'identifiant court de la clé, sans rien qui la révèle.
+// ID est l'identifiant court de la clé qui scelle, sans rien qui la révèle.
 func (k *Keyring) ID() string {
-	return k.id
+	return k.keys[0].id
 }
 
-// Seal chiffre plaintext pour la ligne que dit scope. Le nonce est tiré à
-// chaque appel : le même clair ne donne jamais deux fois le même chiffré.
+// Seal chiffre plaintext pour la ligne que dit scope, avec la première clé.
+// Le nonce est tiré à chaque appel : le même clair ne donne jamais deux fois
+// le même chiffré.
 func (k *Keyring) Seal(plaintext string, scope Scope) string {
+	sealing := k.keys[0]
 	nonce := make([]byte, nonceBytes)
 	_, _ = rand.Read(nonce)
-	body := k.aead.Seal(nonce, nonce, []byte(plaintext), k.associatedData(scope))
-	return sealedVersion + ":" + k.id + ":" + base64.RawURLEncoding.EncodeToString(body)
+	body := sealing.aead.Seal(nonce, nonce, []byte(plaintext), sealing.associatedData(scope))
+	return sealedVersion + ":" + sealing.id + ":" + base64.RawURLEncoding.EncodeToString(body)
 }
 
-// Open déchiffre sealed pour la ligne que dit scope.
+// Open déchiffre sealed pour la ligne que dit scope, avec la clé dont il
+// porte l'identifiant.
 func (k *Keyring) Open(sealed string, scope Scope) (string, error) {
 	id, body, err := parse(sealed)
 	if err != nil {
 		return "", err
 	}
-	if id != k.id {
+	sealing := k.keyOf(id)
+	if sealing == nil {
 		return "", ErrUnknownKey
 	}
 	nonce, encrypted := body[:nonceBytes], body[nonceBytes:]
-	plaintext, err := k.aead.Open(nil, nonce, encrypted, k.associatedData(scope))
+	plaintext, err := sealing.aead.Open(nil, nonce, encrypted, sealing.associatedData(scope))
 	if err != nil {
 		return "", ErrTampered
 	}
 	return string(plaintext), nil
+}
+
+func (k *Keyring) keyOf(id string) *sealingKey {
+	for _, sealing := range k.keys {
+		if sealing.id == id {
+			return sealing
+		}
+	}
+	return nil
 }
 
 // IsSealed dit si value a la forme d'un chiffré, sans clé : c'est ce qui
@@ -126,7 +172,7 @@ func IsSealed(value string) bool {
 
 // associatedData lie le chiffré à la clé et à sa ligne. Le séparateur NUL
 // ne peut figurer dans un nom de table ni de colonne.
-func (k *Keyring) associatedData(scope Scope) []byte {
+func (k *sealingKey) associatedData(scope Scope) []byte {
 	return []byte(sealedVersion + ":" + k.id + "\x00" + scope.Table + "\x00" + scope.Column + "\x00" + scope.Row)
 }
 

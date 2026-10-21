@@ -20,11 +20,14 @@ type Task struct {
 	TLS bool `json:"tls,omitempty"`
 }
 
+// interval rend la cadence d'une sonde, jamais sous MinInterval : le
+// serveur la valide déjà, l'agent ne fait pas confiance à ce qu'il reçoit
+// pour sonder une cible toutes les secondes.
 func (t Task) interval() time.Duration {
 	if t.IntervalSeconds <= 0 {
 		return DefaultInterval
 	}
-	return time.Duration(t.IntervalSeconds) * time.Second
+	return max(time.Duration(t.IntervalSeconds)*time.Second, MinInterval)
 }
 
 func (t Task) timeout() time.Duration {

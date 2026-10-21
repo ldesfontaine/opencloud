@@ -69,7 +69,6 @@ type MachineService interface {
 	Revoke(ctx context.Context, id string) error
 	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
-	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
@@ -257,7 +256,9 @@ type Notifier interface {
 type ActionService interface {
 	Ping(ctx context.Context, machineID string) (action.Run, error)
 	ServerKey() (public []byte, fingerprint string, err error)
+	PreviousServerKey() string
 	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
+	Rekey(ctx context.Context, machineID string) error
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

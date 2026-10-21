@@ -79,7 +79,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut) que d'un pair de `trusted_proxies` qui porte aussi le secret partagé (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` et sur `/oauth/authorize` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
-| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un défi, openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
+| Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse des **commandes d'observation** (« suis les journaux du conteneur X », « arrête », le jeu de sondes, les images à ne pas interroger) : des lectures, **non signées**, que l'agent ne reçoit que du serveur qui tient son flux, jamais une entrée du navigateur. Les **ordres** voyagent dans une enveloppe **signée Ed25519 par la clé du serveur** (`server.key`), que l'agent vérifie avec la clé épinglée à l'enrôlement avant d'en lire un champ : qui tient le flux sans la clé (un mandataire, un faux serveur) peut couper ou retarder un ordre, pas en fabriquer ; un ordre périmé ou rejoué est refusé (« Comment un ordre part et revient ») |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, tirages et outil MCP compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
@@ -135,11 +135,11 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois, avec la portée consentie), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les demandes qui attendent le consentement ne sont **pas** en base : en mémoire de `serve`, dix minutes, 32 au plus (voir « Comment un agent IA lit openCloud ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
-| Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
-| Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base. Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement. À sauvegarder avec `secret.key`. `opencloud mcp` ne la lit pas |
+| Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
+| Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key`. `opencloud mcp` ne la lit pas |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
-| Toute machine, la machine openCloud comprise, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart |
+| Toute machine, la machine openCloud comprise, `/var/lib/opencloud/agent` | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart |
 
 **Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
@@ -210,44 +210,59 @@ le client qui les garde.
    **agent** (`agt_` et seize hexadécimaux) dans une seule transaction : deux
    agents avec le même jeton, un seul passe. Le jeton ne sert plus jamais ; il
    garde le nom de l'agent qui l'a consommé.
-4. À chaque connexion, l'agent demande un défi, le signe avec la clé de son
-   agent actif, ouvre un flux qui reste ouvert, et redit sa version, son
-   système et ses droits (en-tête `OpenCloud-Agent-Rights`) : la version et
-   le signe de vie se notent sur l'agent, l'adresse et le système sur la
-   machine. En ligne, c'est ce flux. « Vu il y a », c'est le dernier signal,
-   envoyé toutes les 30 s. **Le défi est signé par le serveur et sans état** :
-   32 octets (un aléa de 8, l'expiration de 8, un MAC HMAC-SHA256 de 16 lié à
-   l'identifiant de la machine), valable deux minutes. Le serveur n'en garde
-   aucun à l'émission ; il retient seulement ceux qui ont **déjà servi**, et
-   seulement après une signature vérifiée, jusqu'à leur expiration. La clé du
-   MAC est tirée au démarrage et n'existe qu'en mémoire. Conséquence : qui
-   connaît l'identifiant d'une machine peut demander des défis en boucle
-   (`/agent/challenge` est ouvert) sans rien évincer chez l'agent, et ne peut
-   rien inscrire dans l'ensemble des défis utilisés. Un défi n'est valable
-   qu'une fois : le même rejoué après succès est refusé.
-5. Flux coupé : l'agent revient avec un délai croissant, 1 s à 60 s. Trois
+4. À chaque connexion, l'agent tire un aléa de 32 octets et signe, avec la
+   clé de son agent actif, l'étiquette `opencloud-agent-proof/v2`, l'aléa,
+   l'identifiant de la machine (précédé de sa longueur) et l'heure. Il ouvre
+   un flux qui reste ouvert, et redit sa version, son système et ses droits
+   (en-tête `OpenCloud-Agent-Rights`) : la version et le signe de vie se
+   notent sur l'agent, l'adresse et le système sur la machine. En ligne,
+   c'est ce flux. « Vu il y a », c'est le dernier signal, envoyé toutes les
+   30 s. **La preuve ne demande rien au serveur avant elle** (protocole 2,
+   #146) : il n'y a plus de défi à demander. Le serveur accepte une heure à
+   5 min au plus de la sienne et retient le couple (machine, aléa) dix
+   minutes, seulement après une signature vérifiée : le même aléa rejoué est
+   refusé, et au-delà de dix minutes c'est l'heure qui le refuse. Un
+   anonyme ne peut rien inscrire dans cet ensemble. Un redémarrage du
+   serveur l'oublie : une preuve captée moins de 5 min avant peut alors
+   resservir une fois, ce qui suppose de lire le trafic en clair, donc de
+   tenir le proxy qui termine TLS (il tient déjà le flux).
+   Chaque requête de l'agent porte `OpenCloud-Agent-Protocol: 2`. Un agent
+   d'une autre version reçoit `426 protocol_unsupported`, sur chaque chemin
+   `/agent/…`, `/agent/challenge` du protocole 1 compris.
+   **L'agent ne suit aucune redirection** : une réponse 3xx est un refus, un
+   proxy mal réglé ou un faux serveur ne l'envoie pas ailleurs avec ses
+   en-têtes. Il lit le flux par lignes de 64 Kio au plus et par événements
+   de 1 Mio au plus ; au-delà, il coupe et se reconnecte. Le serveur découpe
+   un long événement en lignes `data:` de 32 Kio au plus, que l'agent
+   recolle sans séparateur, et refuse d'en pousser un de plus de 1 Mio.
+   L'intervalle d'une sonde reçue ne descend jamais sous le plancher
+   (`probe.MinInterval`, 30 s), même si le serveur le demande.
+5. Flux coupé : l'agent revient avec un délai croissant, 1 s à 60 s. Ces
    refus se lisent à part :
 
    | Réponse | Sens | L'agent |
    | --- | --- | --- |
-   | `401 challenge_expired` | défi expiré, déjà utilisé, altéré, d'une autre machine, ou émis avant un redémarrage du serveur | redemande un défi et réessaie |
+   | `401 replayed` | cet aléa a déjà servi pour cette machine | tire un nouvel aléa et réessaie |
    | `401 bad_proof` | la signature n'est pas celle de la clé de l'agent | s'arrête (code 2) et le dit |
    | `401 revoked` | la signature est la bonne, mais l'opérateur a révoqué l'agent | s'arrête (code 2) et dit de ré-enrôler |
    | `404 machine_not_found` | machine retirée, ou sans agent | s'arrête (code 2) et le dit |
+   | `426 protocol_unsupported` | l'agent et le serveur ne parlent pas la même version du protocole | s'arrête (code 2) et dit d'installer le même binaire que sur la machine openCloud |
 
    Ré-enrôler garde l'identifiant de la machine et son historique : un
    **nouvel agent** est inscrit, l'ancien révoqué dans la même transaction.
-   Les agents déjà installés traitent tout `401` autre que `bad_proof` comme
-   passager : `challenge_expired` leur suffit sans mise à jour ; `revoked`,
-   ils le réessaient avec leur délai croissant, sans jamais être admis.
+   Une preuve mal formée (`400 bad_proof`) se réessaie comme tout refus
+   passager. Un agent du protocole 1 lit le `426` comme un refus passager : il
+   réessaie sans fin, hors ligne, jusqu'à ce qu'on remplace son binaire
+   (`installation.md`).
 6. Serveur redémarré avant que l'agent ait vu la coupure : son signal arrive
    avec une session que le serveur ne connaît plus (`no_session`), l'agent
-   relève aussitôt un nouveau défi. Horloge de la machine à plus de 5 min de
-   celle d'openCloud (`clock_skew`) : la preuve est refusée, la machine reste
-   hors ligne, l'agent écrit dans son journal, dans la langue de l'opérateur,
-   de régler l'heure par NTP, et réessaie avec le même délai croissant. Tout
-   autre refus (un 404 d'un proxy en plein redéploiement, un 5xx) se réessaie
-   aussi ; seul un refus d'enrôlement arrête l'agent au premier lancement.
+   rouvre aussitôt son flux avec une preuve neuve. Horloge de la machine à
+   plus de 5 min de celle d'openCloud (`clock_skew`) : la preuve est
+   refusée, la machine reste hors ligne, l'agent écrit dans son journal,
+   dans la langue de l'opérateur, de régler l'heure par NTP, et réessaie
+   avec le même délai croissant. Tout autre refus (un 404 d'un proxy en
+   plein redéploiement, un 5xx) se réessaie aussi ; seul un refus
+   d'enrôlement arrête l'agent au premier lancement.
 
 ### Les droits d'un agent
 
@@ -358,7 +373,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 
 | | Commandes d'observation | Ordres |
 | --- | --- | --- |
-| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping`, le seul aujourd'hui : il ne change rien et prouve le chemin. Les gestes (`agent.update`, `docker.deploy`…) viendront avec #153 étape 5 |
+| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé. Les gestes (`agent.update`, `docker.deploy`…) viendront avec #153 étape 5 |
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
@@ -396,6 +411,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
    refusé après un redémarrage. Un refus se rapporte au run que le corps
    nomme ; une enveloppe illisible ne se rapporte pas, elle se journalise.
 6. **Il exécute** : `agent.ping` finit `succeeded`, sortie `pong <version>`.
+   `agent.server_key` épingle la clé qu'il livre, sortie `pinned <empreinte>`.
    `agent.update`, déclaré pour son droit, est refusé `not_implemented`.
 7. **Il répond par le signal**, section `actions`, sans attendre les 30 s :
    un résultat réveille la boucle du flux. Un signal raté remet les résultats
@@ -434,6 +450,23 @@ l'empreinte épinglée à chaque ouverture du flux (en-tête
 (`server_key_fingerprint`, vide si la forme n'est pas une empreinte), et la
 carte Ordres la compare à `GET /api/agents/server-key` : un agent qui a
 épinglé une autre clé, ou aucune, refusera chaque ordre, et la carte le dit.
+
+**La rotation de la clé du serveur.** `opencloud secrets rotate-server-key`
+tire une clé neuve et garde l'ancienne en seconde ligne de `server.key`. Au
+redémarrage, le serveur signe chaque ordre avec la clé que son agent a
+épinglée (`server_key_fingerprint`) : les deux sont valables. À l'ouverture
+du flux, un agent resté sur la précédente reçoit l'ordre `agent.server_key`
+(la clé publique neuve), signé par la précédente, demandé par la règle
+`rule:server_key_rotation` et journalisé comme tout ordre ; il l'épingle
+dans `identity.json`, répond, et le serveur note la neuve sur l'agent.
+`GET /api/agents/server-key` rend aussi `previous_fingerprint`, et la carte
+Ordres dit d'un agent resté dessus qu'il recevra la neuve à sa prochaine
+connexion. `opencloud secrets finish-server-key` retire la précédente ; il
+refuse tant qu'un agent actif l'a encore épinglée, en le nommant, sauf
+`-force` (l'agent sera à ré-enrôler). Une seule rotation à la fois. La
+rotation passe la main d'une clé saine à une autre : la neuve est livrée
+sous la signature de l'ancienne, donc qui a volé l'ancienne peut livrer la
+sienne. Une clé volée se remplace en ré-enrôlant chaque agent.
 
 **Ce que la signature prouve, et ce qu'elle ne prouve pas.** Un ordre exécuté
 a été écrit par le serveur qui détient `server.key`, pour cette machine et cet
@@ -2314,8 +2347,8 @@ l'identifiant essayé est le bon, et il s'en servirait pour occuper la place.
 
 ### Limiteurs par adresse
 
-Tous les limiteurs que l'anonyme atteint (pings, enrôlement et défis des
-agents, page de statut et son direct, `/mcp` et le point de jeton OAuth,
+Tous les limiteurs que l'anonyme atteint (pings, enrôlement et ouverture du flux
+des agents, page de statut et son direct, `/mcp` et le point de jeton OAuth,
 échecs d'authentification de l'interface) comptent par **clé de source** :
 l'adresse en IPv4 (une IPv4 mappée en IPv6 aussi), le **/64** en IPv6. Un
 abonné IPv6 reçoit au moins un /64 et choisit à l'intérieur autant d'adresses
@@ -2705,24 +2738,25 @@ normal : un agent sain n'est jamais refusé. L'agent n'envoie rien sur
 
 Au-delà : `429 too_many_requests` avec `Retry-After`. L'agent le traite
 comme passager : il remet son lot dans son tampon, garde son flux (le
-fermer ferait redemander un défi) et réessaie au signal suivant. Les seaux
+fermer ferait signer une preuve neuve) et réessaie au signal suivant. Les seaux
 des machines silencieuses sont balayés au passage. Ce débit ne suffit pas
 seul : un signal accepté écrit jusqu'à un mégaoctet, d'où les plafonds par
 machine des conteneurs.
 
-### Limitation de débit sur `/agent/challenge`
+### Limitation de débit sur l'enrôlement et l'ouverture du flux
 
 | Clé | Débit continu | Rafale | Sert à |
 | --- | --- | --- | --- |
-| Adresse source résolue | 1 par seconde | 10 | Qu'on ne devine pas les identifiants de machine à la chaîne |
+| Adresse source résolue | 1 par seconde | 10 | Qu'on n'essaie pas jetons, identifiants de machine ou preuves à la chaîne |
 
-Au-delà : `429 too_many_requests` avec `Retry-After`. Émettre un défi ne
-coûte rien au serveur : il n'est pas gardé (voir « Comment une machine
-entre »). L'ensemble des défis déjà utilisés ne reçoit que
-des authentifications réussies, donc il suit l'activité légitime ; ses
-entrées expirées (deux minutes) sont balayées toutes les trente secondes au
-plus. Derrière Traefik sans `trusted_proxies`, tous les agents partagent un
-seul seau.
+Un seul seau par source pour les deux routes ouvertes, `POST /agent/enroll`
+et `GET /agent/stream`. Au-delà : `429 too_many_requests` avec
+`Retry-After`. Chaque essai coûte une lecture de la base et une
+vérification de signature, le seau le borne. L'ensemble des aléas déjà vus
+ne reçoit que des authentifications réussies, donc il suit l'activité
+légitime ; ses entrées de plus de dix minutes sont balayées au passage.
+Derrière Traefik sans `trusted_proxies`, tous les agents partagent un seul
+seau.
 
 ## Comment une suppression se décide
 
@@ -2991,7 +3025,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | L'agent reste root | Ses droits bornent ce qu'un ordre demande, pas ce que le processus peut faire : un agent compromis sur sa machine a la machine | Décision 2 : un observateur non privilégié et un exécuteur root étroit, à décider |
 | Un seul ordre exécuté | `agent.ping` prouve le chemin (signature, journal, réponse, droits) ; `agent.update` est déclaré pour son droit et refusé ; déployer, mettre à jour une image viendront avec leurs gestes. Les droits bornés ne se jugent pas encore par chemin : aucun ordre n'en nomme | #153 étape 5 |
-| Pas de rotation de `server.key` | Une clé compromise ou perdue se remplace par un ré-enrôlement de chaque agent | #146, protocole v2 |
+| Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit reste dans la base | Il n'est envoyé à aucun canal : qui efface la base efface la trace. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | La PR suivante : `audit_deliveries` et les canaux `receives_audit` |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par `get_container_logs` quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui active MCP et donne un jeton | Par conception |
@@ -3013,7 +3047,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Pas de Telegram | Un canal est un webhook ou un e-mail ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
 | L'e-mail dépend d'un relais | openCloud ne signe rien (DKIM, SPF) et ne gère aucune réputation : la délivrabilité est celle du relais choisi, ses quotas aussi | Voulu |
 | Une livraison échouée trois fois est perdue | Le récepteur en panne plus d'une minute ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
-| La clé des secrets est à côté de la base | `secret.key` vit sous `state_dir`, lisible par le compte du service : le chiffrement protège une copie de la base seule, pas qui lit tout le dossier. Pas de rotation de la clé (le format du fichier la prévoit). Une clé perdue fait perdre les secrets, `opencloud secrets forget` repart à neuf | À décider : la sauvegarde chiffrée par paire de clés, puis la rotation |
+| La clé des secrets est à côté de la base | `secret.key` vit sous `state_dir`, lisible par le compte du service : le chiffrement protège une copie de la base seule, pas qui lit tout le dossier. `opencloud secrets rotate` la change, serveur arrêté. Une clé perdue fait perdre les secrets, `opencloud secrets forget` repart à neuf | À décider : la sauvegarde chiffrée par paire de clés |
 | Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
 | Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée ; l'historique des alertes résolues le dit sur 90 jours | À décider |
 | Pas de spool des sondes | Un redémarrage de l'agent perd les essais en attente : un trou dans l'historique, et l'agrégat de ce jour le dit | Avec le spool des mesures |
@@ -3084,3 +3118,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Schéma unique | Les 33 migrations écrasées en `migrations/001_schema.sql`, écrit à la main et groupé par domaine ; le test d'équivalence (`internal/store/schema_test.go`) le compare, colonne par colonne et index par index, aux anciennes migrations rejouées suivies de l'élagage (`testdata/legacy_trim.sql`) ; deux garde-fous : chaque clé étrangère vise une clé, chaque table et chaque colonne sert au store. Élagage : `probe_certificates` (les huit `cert_*` de `probes`), `machine_rollups` (`machine_samples_hourly` et `_daily`), `heartbeats.token_sealed` et `token_lookup` (`token` et `token_hash`), `containers.kind` et trois colonnes mortes d'`agents` retirés. Une base qui note une migration que le binaire n'embarque pas est refusée au démarrage (`store.ErrUnknownSchema`). Retirés : l'étape Go de la 024 (`store/migrate_024.go`, `directory/migrate.go`) et les tests de montée |
 | Ordres signés (#146, 1/3) | La migration `002_actions.sql` (`action_runs`, `run_logs`, `agents.server_key_fingerprint` et `last_order_seq`), le paquet `internal/action` (clé `server.key` et sa signature, `Service.Ping`, `Record`, la boucle d'expiration et de purge), le protocole entier dans `internal/agentwire` (`Kind` et `Command` typés à la place de `machine.Command{Name, Payload any}` et des quatre noms de `container`, `probe`, `update` ; `OrderBody`, `SignedOrder`, `KeyFingerprint`, la section `actions` du signal, l'en-tête `OpenCloud-Server-Key`, `agent_id` et `server_key` à l'enrôlement), les commandeurs typés par domaine (`RequestLogs`, `AssignProbes`, `AssignImages`) servis par `server/commands.go`, le juge d'ordres de l'agent (`internal/agent/orders.go`) et `identity.json` (`agent_id`, `server_key`, `last_order_seq`), `fsx.ReadPrivate`, les routes `POST /api/machines/{id}/actions/ping`, `GET /api/actions`, `GET /api/agents/server-key`, l'outil MCP `list_actions` (vingt et une lectures), l'audit `action.order`, le sujet du direct `actions`, la carte « Ordres » de la fiche, les goldens `actions.golden.json` et `mcp_list_actions.golden.json` |
 | Droits appliqués (#146, 2/3) | `action.RightOf` (le droit de chaque genre ; `observe` pour l'observation et `agent.ping`), `machine.HasCapability`, le refus de l'agent `right_missing:<droit>` (`internal/agent/orders.go`, sans prendre le rang) et `not_implemented`, l'ordre déclaré `agent.update`, `action.Service.Send` et son refus `409 action.right_missing` quand l'agent a rapporté ses droits sans celui-là, l'audit `action.refused` sous l'agent, `CreateReenrollToken` qui reçoit les droits (corps `{capabilities}` de `POST /api/machines/{id}/actions/reenroll`), la page « Changer les droits » (`/machines/{id}/droits`, `RightsFields` partagé avec l'ajout d'une machine) |
+| Protocole v2, agent durci, rotation des clés (#146, 3/3) | La preuve de l'agent sans défi (`machine.SignedPayload` : étiquette `opencloud-agent-proof/v2`, aléa tiré par l'agent, identifiant préfixé de sa longueur, heure ; `machine.NewNonce`, l'ensemble des aléas vus dix minutes, `ErrReplayed`, `401 replayed`), `/agent/challenge` et `machine.Service.Challenge` retirés, l'en-tête `OpenCloud-Agent-Protocol: 2` et le refus `426 protocol_unsupported` (une route `/agent/` attrape le reste), le seau par source partagé par l'enrôlement et l'ouverture du flux (`agentapi/source_limits.go`), l'événement découpé en lignes `data:` de 32 Kio et borné à 1 Mio (`agentwire.EventDataLine`, `MaxEventLineBytes`, `MaxEventBytes`), l'agent qui ne suit pas les redirections et lit le flux borné (`readEvent`, `ErrEventTooLarge`), le plancher de l'intervalle des sondes côté agent, `secret.key` à plusieurs lignes (`seal.Keyring`, `WithNewKey`, `Current`, `Retired`), `store.ResealSecrets`, `server.key` à deux lignes (`action.Key.Rotated`, `Finished`, `SaveKey`, la signature par la clé épinglée), l'ordre `agent.server_key` et `action.Service.Rekey`, `previous_fingerprint` de `GET /api/agents/server-key`, les commandes `opencloud secrets rotate`, `rotate-server-key` et `finish-server-key`, les audits `secrets.rotate`, `secrets.rotate_server_key` et `secrets.finish_server_key` |

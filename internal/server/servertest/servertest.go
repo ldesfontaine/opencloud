@@ -5,11 +5,9 @@ package servertest
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"encoding/json"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -56,59 +54,53 @@ func RequireFront(t testing.TB) {
 // rendus figés.
 const RemoteID = "11111111-2222-4333-8444-555555555555"
 
-// RequestChallenge demande un défi comme n'importe quel appelant de
-// /agent/challenge et rend son contenu en base64 ; source vide, l'adresse
-// par défaut des requêtes de test.
-func RequestChallenge(t *testing.T, handler http.Handler, machineID, source string) string {
+// NewNonce tire l'aléa d'une preuve, comme l'agent, en base64.
+func NewNonce(t *testing.T) string {
 	t.Helper()
-	body, _ := json.Marshal(agentwire.ChallengeRequest{MachineID: machineID})
-	request := httptest.NewRequest(http.MethodPost, "/agent/challenge", bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	if source != "" {
-		request.RemoteAddr = source
-	}
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("challenge: %d %s", recorder.Code, recorder.Body.String())
-	}
-	var response agentwire.ChallengeResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatal(err)
-	}
-	return response.Nonce
+	return base64.StdEncoding.EncodeToString(machine.NewNonce())
 }
 
 // SignedStreamRequest construit la requête du flux avec la preuve que
-// l'agent signe pour ce défi.
-func SignedStreamRequest(t *testing.T, url, machineID string, private ed25519.PrivateKey, challenge string) *http.Request {
+// l'agent signe pour cet aléa, à l'heure figée des tests, en protocole 2.
+func SignedStreamRequest(t *testing.T, url, machineID string, private ed25519.PrivateKey, nonce string) *http.Request {
 	t.Helper()
-	nonce, err := base64.StdEncoding.DecodeString(challenge)
+	raw, err := base64.StdEncoding.DecodeString(nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := machine.SignedPayload(nonce, machineID, Now().Unix())
+	payload, err := machine.SignedPayload(raw, machineID, Now().Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
 	request, _ := http.NewRequest(http.MethodGet, url+"/agent/stream", nil)
+	request.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
 	request.Header.Set(agentwire.HeaderMachine, machineID)
-	request.Header.Set(agentwire.HeaderNonce, challenge)
+	request.Header.Set(agentwire.HeaderNonce, nonce)
 	request.Header.Set(agentwire.HeaderTimestamp, strconv.FormatInt(Now().Unix(), 10))
 	request.Header.Set(agentwire.HeaderSignature, base64.StdEncoding.EncodeToString(machine.Sign(private, payload)))
 	request.Header.Set(agentwire.HeaderAgentVersion, "v0.0.2")
 	return request
 }
 
-// OpenStream ouvre le flux d'un agent avec un défi déjà demandé, et rend le
+// OpenStream ouvre le flux d'un agent avec une preuve neuve, et rend le
 // tampon qui l'a lu : ce que le serveur pousse juste après la session arrive
 // souvent dans le même paquet, et un second tampon le perdrait.
-func OpenStream(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, challenge string) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
+func OpenStream(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
+	t.Helper()
+	return OpenStreamPinned(t, handler, machineID, private, "")
+}
+
+// OpenStreamPinned fait de même pour un agent qui dit avoir épinglé cette
+// clé du serveur (son empreinte).
+func OpenStreamPinned(t *testing.T, handler http.Handler, machineID string, private ed25519.PrivateKey, serverKey string) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
 	live := httptest.NewServer(handler)
 	t.Cleanup(live.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	request := SignedStreamRequest(t, live.URL, machineID, private, challenge).WithContext(ctx)
+	request := SignedStreamRequest(t, live.URL, machineID, private, NewNonce(t)).WithContext(ctx)
+	if serverKey != "" {
+		request.Header.Set(agentwire.HeaderServerKey, serverKey)
+	}
 	resp, err := live.Client().Do(request)
 	if err != nil {
 		cancel()

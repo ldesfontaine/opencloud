@@ -1,25 +1,38 @@
 package machine
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
+	"strings"
 	"testing"
 )
 
+// Le protocole 2 signe l'étiquette, l'aléa, l'identifiant précédé de sa
+// longueur et l'horodatage : octet pour octet, figé. La machine openCloud
+// (« local ») signe comme les autres.
 func TestSignedPayload_IsByteExact(t *testing.T) {
-	nonce := make([]byte, NonceSize)
-	payload, err := SignedPayload(nonce, "01234567-89ab-cdef-0123-456789abcdef", 1)
+	nonce := bytes.Repeat([]byte{7}, NonceSize)
+	payload, err := SignedPayload(nonce, "local", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(payload) != signedPayloadSize || payload[signedPayloadSize-1] != 1 || payload[NonceSize] != 0x01 {
-		t.Fatalf("payload %x", payload)
+	want := append([]byte("opencloud-agent-proof/v2\x00"), nonce...)
+	want = append(want, 0, 0, 0, 5)
+	want = append(want, "local"...)
+	want = append(want, 0, 0, 0, 0, 0, 0, 0, 1)
+	if !bytes.Equal(payload, want) {
+		t.Fatalf("payload %x\nwant    %x", payload, want)
 	}
-	if _, err := SignedPayload(nonce[:5], "01234567-89ab-cdef-0123-456789abcdef", 1); err == nil {
-		t.Error("short nonce accepted")
+	if _, err := SignedPayload(nonce[:5], "local", 1); !errors.Is(err, ErrBadProof) {
+		t.Errorf("short nonce: %v", err)
 	}
-	if _, err := SignedPayload(nonce, "local", 1); err == nil {
-		t.Error("non-uuid accepted")
+	if _, err := SignedPayload(nonce, "", 1); !errors.Is(err, ErrBadID) {
+		t.Errorf("empty id: %v", err)
+	}
+	if _, err := SignedPayload(nonce, strings.Repeat("a", 65), 1); !errors.Is(err, ErrBadID) {
+		t.Errorf("long id: %v", err)
 	}
 }
 

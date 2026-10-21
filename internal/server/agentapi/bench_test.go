@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -84,6 +85,10 @@ func (b *bench) mount() {
 	})
 	mux := http.NewServeMux()
 	b.handler.Routes(func(method, pattern string, handler http.HandlerFunc) {
+		if method == "*" {
+			mux.HandleFunc(pattern, handler)
+			return
+		}
 		mux.HandleFunc(method+" "+pattern, handler)
 	})
 	b.Handler = mux
@@ -94,20 +99,17 @@ func (b *bench) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.
 	return storetest.EnrollMachineWithKey(t, b.machines, id, name)
 }
 
-func (b *bench) requestChallenge(t *testing.T, machineID, source string) string {
-	t.Helper()
-	return servertest.RequestChallenge(t, b, machineID, source)
-}
-
 func (b *bench) openStream(t *testing.T, machineID string, private ed25519.PrivateKey) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
-	return servertest.OpenStream(t, b, machineID, private, b.requestChallenge(t, machineID, ""))
+	return servertest.OpenStream(t, b, machineID, private)
 }
 
+// postJSON poste comme un agent du protocole 2.
 func (b *bench) postJSON(path string, payload any) *httptest.ResponseRecorder {
 	body, _ := json.Marshal(payload)
 	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
 	recorder := httptest.NewRecorder()
 	b.ServeHTTP(recorder, request)
 	return recorder

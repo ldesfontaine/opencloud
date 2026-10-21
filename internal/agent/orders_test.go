@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -205,5 +206,38 @@ func TestOrderRunner_AppliesTheRightsOfItsFile(t *testing.T) {
 	unreadable := newOrderBenchWithRights(t, []string{"agent.update=/nope"})
 	if result := unreadable.send(t, update, unreadable.private); result.Reason != "right_missing:agent.update" {
 		t.Fatalf("unreadable rights: %+v", result)
+	}
+}
+
+// agent.server_key, signé par la clé épinglée, la remplace par la neuve : sur
+// disque comme en mémoire. Les ordres suivants ne se vérifient qu'avec la
+// neuve ; une clé mal formée ne remplace rien.
+func TestOrderRunner_PinsTheNewServerKey(t *testing.T) {
+	b := newOrderBench(t)
+	newPublic, newPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rekey := func(seq int64, key []byte) agentwire.OrderBody {
+		body := order(seq)
+		body.Kind = agentwire.KindServerKey
+		body.Params, _ = json.Marshal(agentwire.ServerKeyParams{PublicKey: base64.StdEncoding.EncodeToString(key)})
+		return body
+	}
+	if result := b.send(t, rekey(1, []byte("short")), b.private); result.State != agentwire.ActionFailed || result.Reason != agentwire.ReasonBadOrder {
+		t.Fatalf("a malformed key: %+v", result)
+	}
+	if result := b.send(t, rekey(2, newPublic), b.private); result.State != agentwire.ActionSucceeded {
+		t.Fatalf("rekey %+v", result)
+	}
+	saved, err := LoadIdentity(b.stateDir)
+	if err != nil || !newPublic.Equal(ed25519.PublicKey(saved.ServerKey)) || !newPublic.Equal(ed25519.PublicKey(b.runner.serverKey())) {
+		t.Fatalf("the new key was not pinned: %v", err)
+	}
+	if result := b.send(t, order(3), b.private); result.Reason != agentwire.ReasonBadSignature {
+		t.Fatalf("the previous key still signs: %+v", result)
+	}
+	if result := b.send(t, order(4), newPrivate); result.State != agentwire.ActionSucceeded {
+		t.Fatalf("the new key does not sign: %+v", result)
 	}
 }

@@ -38,8 +38,11 @@ func TestExplain_SpeaksTheOperatorLanguageAndTellsRefusalsApart(t *testing.T) {
 	if refused || message == "" || message == "dial tcp: connection refused" {
 		t.Fatalf("plain error: %q %v", message, refused)
 	}
-	if _, refused := Explain(&ServerError{Status: 401, Code: codeChallengeExpired}, french); refused {
-		t.Fatal("an expired challenge is asked again, not a refusal")
+	if _, refused := Explain(&ServerError{Status: 401, Code: agentwire.CodeReplayed}, french); refused {
+		t.Fatal("a replayed proof is signed again, not a refusal")
+	}
+	if message, refused := Explain(&ServerError{Status: 426, Code: agentwire.CodeProtocolUnsupported}, french); !refused || message != french.Get("agent.protocol_unsupported") {
+		t.Fatalf("another protocol: %q %v", message, refused)
 	}
 	if _, refused := Explain(&ServerError{Status: 401, Code: codeBadProof}, french); !refused {
 		t.Fatal("a bad proof is a refusal")

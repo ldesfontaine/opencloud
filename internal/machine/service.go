@@ -86,14 +86,14 @@ type Alerter interface {
 }
 
 type Service struct {
-	store      Store
-	sessions   *Sessions
-	presence   Presence
-	challenges *challenges
-	watcher    Watcher
-	alerter    Alerter
-	auditor    *audit.Recorder
-	logger     *slog.Logger
+	store    Store
+	sessions *Sessions
+	presence Presence
+	nonces   *nonces
+	watcher  Watcher
+	alerter  Alerter
+	auditor  *audit.Recorder
+	logger   *slog.Logger
 	// La machine où tourne serve, et la ligne d'installation de son agent :
 	// voir local.go.
 	server    serverHost
@@ -105,12 +105,12 @@ type Service struct {
 
 func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 	return &Service{
-		store:      store,
-		sessions:   sessions,
-		presence:   openStreams{sessions: sessions},
-		challenges: newChallenges(),
-		logger:     logger,
-		now:        time.Now,
+		store:    store,
+		sessions: sessions,
+		presence: openStreams{sessions: sessions},
+		nonces:   newNonces(),
+		logger:   logger,
+		now:      time.Now,
 	}
 }
 
@@ -373,21 +373,8 @@ func (s *Service) Revoke(ctx context.Context, machineID string) error {
 	return nil
 }
 
-// Challenge émet le défi qu'un agent devra signer pour ouvrir son flux.
-func (s *Service) Challenge(ctx context.Context, machineID string) ([]byte, error) {
-	machine, err := s.store.GetMachine(ctx, machineID)
-	if err != nil {
-		return nil, err
-	}
-	// Un agent révoqué reçoit encore son défi : c'est sa preuve qui lui
-	// dira qu'il est révoqué.
-	if !machine.Agent.Exists() {
-		return nil, ErrNotFound
-	}
-	return s.challenges.issue(machineID, s.now()), nil
-}
-
-// Ce que l'agent présente pour ouvrir son flux.
+// Ce que l'agent présente pour ouvrir son flux : l'aléa qu'il a tiré,
+// l'horodatage et sa signature des deux, liés à la machine.
 type Proof struct {
 	MachineID string
 	Nonce     []byte
@@ -395,26 +382,14 @@ type Proof struct {
 	Signature []byte
 }
 
-// Authenticate vérifie la preuve : défi signé par ce serveur pour cette
-// machine et pas expiré, horloge dans la tolérance, signature de la clé de
-// son agent. Le défi n'est marqué utilisé qu'une fois la signature vérifiée :
-// quelqu'un qui n'a pas la clé ne peut pas brûler le défi d'un autre.
-// ErrBadNonce (défi absent, expiré, d'un autre serveur ou déjà utilisé) se
-// répare en redemandant un défi ; ErrBadSignature, non. Un agent révoqué
+// Authenticate vérifie la preuve (protocole 2) : horloge dans la tolérance,
+// signature de la clé de l'agent sur (aléa, machine, horodatage), couple
+// (machine, aléa) jamais servi. Le couple n'est retenu qu'une fois la
+// signature vérifiée : qui n'a pas la clé ne remplit rien. Un agent révoqué
 // qui prouve sa clé apprend qu'il l'est (ErrAgentRevoked) ; sans sa clé, il
 // n'apprend rien de plus qu'un autre.
 func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error) {
-	machine, err := s.store.GetMachine(ctx, proof.MachineID)
-	if err != nil {
-		return Machine{}, err
-	}
-	if !machine.Agent.Exists() {
-		return Machine{}, ErrNotFound
-	}
 	now := s.now()
-	if !s.challenges.valid(proof.Nonce, proof.MachineID, now) {
-		return Machine{}, ErrBadNonce
-	}
 	skew := now.Sub(time.Unix(proof.Timestamp, 0))
 	if skew > maxClockSkew || skew < -maxClockSkew {
 		return Machine{}, ErrClockSkew
@@ -423,11 +398,18 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 	if err != nil {
 		return Machine{}, err
 	}
+	machine, err := s.store.GetMachine(ctx, proof.MachineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if !machine.Agent.Exists() {
+		return Machine{}, ErrNotFound
+	}
 	if !Verify(machine.Agent.PublicKey, payload, proof.Signature) {
 		return Machine{}, ErrBadSignature
 	}
-	if !s.challenges.markUsed(proof.Nonce, now) {
-		return Machine{}, ErrBadNonce
+	if !s.nonces.remember(proof.MachineID, proof.Nonce, now) {
+		return Machine{}, ErrReplayed
 	}
 	if machine.Agent.IsRevoked() {
 		return Machine{}, ErrAgentRevoked

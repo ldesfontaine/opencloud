@@ -19,7 +19,6 @@ import (
 // session et son flux.
 type MachineService interface {
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
-	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
@@ -57,10 +56,12 @@ type UpdateService interface {
 }
 
 // Ce que l'agent attend du composant action : la clé publique du serveur,
-// livrée à l'enrôlement, et l'écriture de ce que l'agent a fait des ordres.
+// livrée à l'enrôlement, l'écriture de ce que l'agent a fait des ordres, et
+// la clé neuve livrée à l'ouverture du flux pendant une rotation.
 type ActionService interface {
 	ServerKey() (public []byte, fingerprint string, err error)
 	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
+	Rekey(ctx context.Context, machineID string) error
 }
 
 type Options struct {
@@ -79,33 +80,33 @@ type Options struct {
 }
 
 type Handler struct {
-	logger         *slog.Logger
-	machines       MachineService
-	resources      ResourceRecorder
-	containers     ContainerService
-	probes         ProbeService
-	updates        UpdateService
-	actions        ActionService
-	clientAddress  func(r *http.Request) string
-	challengeLimit *ratelimit.BySource
-	signalLimit    *ratelimit.Limiter
+	logger        *slog.Logger
+	machines      MachineService
+	resources     ResourceRecorder
+	containers    ContainerService
+	probes        ProbeService
+	updates       UpdateService
+	actions       ActionService
+	clientAddress func(r *http.Request) string
+	sourceLimit   *ratelimit.BySource
+	signalLimit   *ratelimit.Limiter
 }
 
 func New(opts Options) *Handler {
 	handler := &Handler{
-		logger:         opts.Logger,
-		machines:       opts.Machines,
-		resources:      opts.Resources,
-		containers:     opts.Containers,
-		probes:         opts.Probes,
-		updates:        opts.Updates,
-		actions:        opts.Actions,
-		clientAddress:  opts.ClientAddress,
-		challengeLimit: ratelimit.NewBySource(challengePerSourceRate, challengePerSourceBurst, challengeIdle),
-		signalLimit:    ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),
+		logger:        opts.Logger,
+		machines:      opts.Machines,
+		resources:     opts.Resources,
+		containers:    opts.Containers,
+		probes:        opts.Probes,
+		updates:       opts.Updates,
+		actions:       opts.Actions,
+		clientAddress: opts.ClientAddress,
+		sourceLimit:   ratelimit.NewBySource(perSourceRate, perSourceBurst, sourceIdle),
+		signalLimit:   ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),
 	}
 	if opts.Clock != nil {
-		handler.challengeLimit.SetClock(opts.Clock)
+		handler.sourceLimit.SetClock(opts.Clock)
 		handler.signalLimit.SetClock(opts.Clock)
 	}
 	return handler
@@ -115,8 +116,10 @@ func New(opts Options) *Handler {
 // dans son arbre, que server/routes_test.go fige.
 func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFunc)) {
 	add("POST", "/agent/enroll", h.enroll)
-	add("POST", "/agent/challenge", h.challenge)
 	add("GET", "/agent/stream", h.stream)
 	add("POST", "/agent/signal", h.signal)
 	add("POST", "/agent/logs/{request}", h.logs)
+	// Tout le reste, dont /agent/challenge du protocole 1 : un agent d'une
+	// autre version lit pourquoi il n'est pas servi.
+	add("*", "/agent/", h.unknown)
 }

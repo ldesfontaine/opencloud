@@ -35,6 +35,7 @@ func TestValues_AreFrozen(t *testing.T) {
 		"WebhookSignatureHeader":  {WebhookSignatureHeader, "OpenCloud-Signature"},
 		"ProxySecretHeader":       {ProxySecretHeader, "X-OpenCloud-Proxy-Secret"},
 		"OrderSignatureDomain":    {OrderSignatureDomain, "opencloud-order/v1\x00"},
+		"AgentProofDomain":        {AgentProofDomain, "opencloud-agent-proof/v2\x00"},
 		"TokenPrefix":             {TokenPrefix, "oc"},
 		"EnrollmentTokenScheme":   {EnrollmentTokenScheme, "oc_"},
 		"MCPSecretScheme":         {MCPSecretScheme, "ocs_"},

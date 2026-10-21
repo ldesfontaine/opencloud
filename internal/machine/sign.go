@@ -7,15 +7,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
 const (
-	// La taille du défi : celle que les agents installés signent et exigent.
-	// Le défi tient dedans (challenges.go) ; l'agrandir casserait ces agents.
+	// La taille de l'aléa que l'agent tire pour chaque preuve.
 	NonceSize = 32
 	idSize    = 16
-	// nonce(32) || id(16) || horodatage big-endian(8).
-	signedPayloadSize = NonceSize + idSize + 8
+	// Un identifiant de machine tient en un UUID ou « local » : au-delà, ce
+	// n'est pas un agent qui parle.
+	maxProofIDBytes = 64
 )
 
 // NewID tire un UUID v4 ; c'est l'agent qui le fait, l'id est à lui.
@@ -29,19 +31,32 @@ func NewID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:]), nil
 }
 
-// SignedPayload est l'octet-à-octet que l'agent signe et que le serveur
-// vérifie. Les deux côtés passent par cette fonction, jamais par une copie.
+// NewNonce tire l'aléa d'une preuve. crypto/rand ne rend plus d'erreur
+// depuis Go 1.24.
+func NewNonce() []byte {
+	nonce := make([]byte, NonceSize)
+	_, _ = rand.Read(nonce)
+	return nonce
+}
+
+// SignedPayload est l'octet-à-octet que l'agent signe pour ouvrir son flux
+// (protocole 2) et que le serveur vérifie : l'étiquette de domaine, l'aléa
+// tiré par l'agent, l'identifiant de la machine précédé de sa longueur,
+// l'horodatage big-endian. Les deux côtés passent par cette fonction, jamais
+// par une copie. L'identifiant est pris tel quel : la machine openCloud
+// (« local ») signe comme les autres.
 func SignedPayload(nonce []byte, machineID string, timestamp int64) ([]byte, error) {
 	if len(nonce) != NonceSize {
-		return nil, ErrBadNonce
+		return nil, ErrBadProof
 	}
-	id, err := idBytes(machineID)
-	if err != nil {
-		return nil, err
+	if machineID == "" || len(machineID) > maxProofIDBytes {
+		return nil, ErrBadID
 	}
-	payload := make([]byte, 0, signedPayloadSize)
+	payload := make([]byte, 0, len(brand.AgentProofDomain)+NonceSize+4+len(machineID)+8)
+	payload = append(payload, brand.AgentProofDomain...)
 	payload = append(payload, nonce...)
-	payload = append(payload, id...)
+	payload = binary.BigEndian.AppendUint32(payload, uint32(len(machineID))) // #nosec G115 -- borné juste au-dessus.
+	payload = append(payload, machineID...)
 	payload = binary.BigEndian.AppendUint64(payload, uint64(timestamp)) // #nosec G115 -- un horodatage Unix ne dépasse pas int64.
 	return payload, nil
 }
