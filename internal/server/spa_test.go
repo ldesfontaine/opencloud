@@ -9,6 +9,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 func get(server *Server, path string) *httptest.ResponseRecorder {
@@ -50,7 +51,8 @@ func TestSPA_ServesIndexForEveryClientRoute(t *testing.T) {
 func TestSPA_PagesCarryTheProductName(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
-	for _, path := range []string{"/", "/statut"} {
+	storetest.StatusPage(t, server.db, "statut")
+	for _, path := range []string{"/", "/statut/statut"} {
 		body := get(server.Server, path).Body.String()
 		for _, want := range []string{"<title>" + brand.ProductName + "</title>", `content="` + brand.ProductName + `"`} {
 			if !strings.Contains(body, want) {

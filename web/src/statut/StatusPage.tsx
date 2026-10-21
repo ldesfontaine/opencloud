@@ -6,15 +6,15 @@ import { useNow } from "../hooks/useNow";
 import { format } from "../i18n/format";
 import { dayKeys, dayTone, uptimeOfDays } from "../lib/probes";
 import { followPublicLive } from "../lib/publicLive";
-import { formatPercent, incidentTones, isMaintenance, statusStateTones } from "../lib/status";
+import { formatPercent, incidentTones, isMaintenance, publicStatusPaths, statusStateTones } from "../lib/status";
 
 type Catalog = Record<string, string>;
 type Translate = (key: string, ...args: (string | number)[]) => string;
 
-const statusURL = "/statut/api/status";
-const catalogURL = "/statut/api/i18n";
-const eventsURL = "/statut/api/events";
 const uptimeSpan = 90;
+
+// Les chemins de cette page, lus une fois dans son adresse /statut/<slug>.
+const paths = publicStatusPaths(window.location.pathname);
 
 // La page de statut telle qu'un visiteur la lit : le serveur rend des
 // faits et les chaînes de la langue réglée ; tout le reste se fait ici.
@@ -25,7 +25,10 @@ export function StatusPage() {
   const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
-    const response = await fetch(statusURL, { credentials: "same-origin" });
+    if (paths === null) {
+      throw new Error("not a status page address");
+    }
+    const response = await fetch(paths.status, { credentials: "same-origin" });
     if (!response.ok) {
       throw new Error(String(response.status));
     }
@@ -34,23 +37,29 @@ export function StatusPage() {
   }, []);
 
   useEffect(() => {
-    fetch(catalogURL, { credentials: "same-origin" })
+    if (paths === null) {
+      setFailed(true);
+      return;
+    }
+    fetch(paths.catalog, { credentials: "same-origin" })
       .then((response) => (response.ok ? (response.json() as Promise<Catalog>) : Promise.reject(new Error(String(response.status)))))
       .then(setCatalog)
       .catch(() => setFailed(true));
     load().catch(() => setFailed(true));
   }, [load]);
 
-  useEffect(
-    () =>
-      followPublicLive(
-        () => new EventSource(eventsURL),
-        () => {
-          load().catch(() => setFailed(true));
-        },
-      ),
-    [load],
-  );
+  useEffect(() => {
+    if (paths === null) {
+      return;
+    }
+    const events = paths.events;
+    return followPublicLive(
+      () => new EventSource(events),
+      () => {
+        load().catch(() => setFailed(true));
+      },
+    );
+  }, [load]);
 
   const t = useMemo<Translate>(
     () => (key, ...args) => {

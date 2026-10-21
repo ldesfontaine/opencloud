@@ -130,10 +130,21 @@ func (db *DB) attachProjectServices(ctx context.Context, projects []directory.Pr
 }
 
 // DeleteProject défait le groupe : ses liens partent, ses services restent.
+// Sa page de statut le retient : le plan est relu et la suppression faite
+// dans la même transaction ; la clé étrangère en restrict reste le filet.
 func (db *DB) DeleteProject(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete project: %w", err)
-	}
-	return notFoundIfNoRow(result, directory.ErrProjectNotFound)
+	return db.inTx(ctx, "delete project", func(tx *sql.Tx) error {
+		plan, err := projectDeletionPlan(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := directory.RefuseProjectDeletion(plan); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete project: %w", err)
+		}
+		return notFoundIfNoRow(result, directory.ErrProjectNotFound)
+	})
 }

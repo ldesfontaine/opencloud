@@ -15,7 +15,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
+// CreateComponent pose le composant sur sa page, qui doit exister.
 func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefinition) (Component, error) {
+	if definition.PageID == "" {
+		return Component{}, ErrPageInvalid
+	}
 	if err := definition.Validate(); err != nil {
 		return Component{}, err
 	}
@@ -23,7 +27,10 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 	if err != nil {
 		return Component{}, fmt.Errorf("generate id: %w", err)
 	}
-	component := Component{ID: id, Name: strings.TrimSpace(definition.Name), Position: definition.Position, Members: membersOf(definition.Members), CreatedAt: s.now()}
+	component := Component{
+		ID: id, PageID: definition.PageID, Name: strings.TrimSpace(definition.Name), Position: definition.Position,
+		Members: membersOf(definition.Members), CreatedAt: s.now(),
+	}
 	if err := s.insertComponentUnderCeiling(ctx, component); err != nil {
 		return Component{}, err
 	}
@@ -36,7 +43,7 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 func (s *Service) insertComponentUnderCeiling(ctx context.Context, component Component) error {
 	s.creating.Lock()
 	defer s.creating.Unlock()
-	count, err := s.store.CountComponents(ctx)
+	count, err := s.store.CountComponents(ctx, component.PageID)
 	if err != nil {
 		return err
 	}
@@ -54,6 +61,7 @@ func (s *Service) UpdateComponent(ctx context.Context, id string, definition Com
 	if err != nil {
 		return Component{}, err
 	}
+	// La page ne change pas : un composant n'existe que sur la sienne.
 	current.Name = strings.TrimSpace(definition.Name)
 	current.Position = definition.Position
 	current.Members = membersOf(definition.Members)
@@ -97,10 +105,11 @@ func (s *Service) DeleteComponent(ctx context.Context, id string) error {
 	return nil
 }
 
-// Components rend les composants tels que l'opérateur les voit : chaque
-// objet nommé avec ce qu'il apporte, l'état dérivé et l'état effectif.
-func (s *Service) Components(ctx context.Context) ([]Component, error) {
-	components, err := s.store.ListComponents(ctx)
+// Components rend les composants d'une page tels que l'opérateur les voit :
+// chaque objet nommé avec ce qu'il apporte, l'état dérivé et l'état
+// effectif. Une page vide les rend tous, toutes pages confondues.
+func (s *Service) Components(ctx context.Context, pageID string) ([]Component, error) {
+	components, err := s.store.ListComponents(ctx, pageID)
 	if err != nil {
 		return nil, err
 	}

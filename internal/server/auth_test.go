@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 const (
@@ -130,7 +131,8 @@ func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) 
 var wantOpenRoutes = []string{
 	"/agent/enroll", "/agent/challenge", "/agent/stream", "/agent/signal", "/agent/logs/{request}",
 	"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
-	"/statut", "/statut/{$}", "/statut/api/status", "/statut/api/i18n", "/statut/api/events", "/statut/",
+	"/statut", "/statut/{$}", "/statut/{slug}", "/statut/{slug}/{$}",
+	"/statut/{slug}/api/status", "/statut/{slug}/api/i18n", "/statut/{slug}/api/events", "/statut/",
 	"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
 	"/oauth/token", "/mcp",
 }
@@ -173,11 +175,12 @@ func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newFirstSetupServer(t)
 	server.enableBasic(t)
-	if got := callAs(server.Server, http.MethodGet, "/statut", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut: status %d", got.Code)
+	storetest.StatusPage(t, server.db, "statut")
+	if got := callAs(server.Server, http.MethodGet, "/statut/statut", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut: status %d", got.Code)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/statut/api/status", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut/api/status: status %d", got.Code)
+	if got := callAs(server.Server, http.MethodGet, "/statut/statut/api/status", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut/api/status: status %d", got.Code)
 	}
 	if got := callAs(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)
@@ -567,8 +570,9 @@ func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusUnauthorized {
 		t.Fatalf("basic credentials in forward mode: status %d", got.Code)
 	}
-	if got := callForwarded(server.Server, http.MethodGet, "/statut", untrustedPeer, ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut stays public: %d", got.Code)
+	storetest.StatusPage(t, server.db, "statut")
+	if got := callForwarded(server.Server, http.MethodGet, "/statut/statut", untrustedPeer, ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut stays public: %d", got.Code)
 	}
 	if got := callForwarded(server.Server, http.MethodGet, "/ping/hb_unknown", untrustedPeer, ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)

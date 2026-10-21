@@ -52,7 +52,7 @@ func TestDeleteDeclaredService_LinkedIsRefusedWithItsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	component := status.Component{
-		ID: "cmp1", Name: "Whoami", CreatedAt: linksNow,
+		ID: "cmp1", PageID: insertTestPage(t, db, "statut"), Name: "Whoami", CreatedAt: linksNow,
 		Members: []status.Member{{Kind: status.KindService, ID: declared.ID}},
 	}
 	if err := db.InsertComponent(ctx, component); err != nil {

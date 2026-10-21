@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Sans compte, chaque route est jugée : celles de la première configuration
@@ -95,8 +96,9 @@ func TestFirstSetup_TheFrontLoadsWithoutAnAccount(t *testing.T) {
 // page de statut et les pings répondent comme d'habitude.
 func TestFirstSetup_PublicRoutesStayPublic(t *testing.T) {
 	server := newFirstSetupServer(t)
-	if got := callAs(server.Server, http.MethodGet, "/statut/api/status", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut/api/status: %d", got.Code)
+	storetest.StatusPage(t, server.db, "statut")
+	if got := callAs(server.Server, http.MethodGet, "/statut/statut/api/status", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut/api/status: %d", got.Code)
 	}
 	if got := callAs(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: %d, want the ping's own 404", got.Code)

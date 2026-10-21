@@ -32,6 +32,7 @@ import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
+import { StatusPageForm } from "./pages/StatusPageForm";
 
 // La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
 // /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
@@ -88,6 +89,8 @@ export function App() {
         <Route path="taches/:id/modifier" element={<JobForm />} />
         <Route path="taches/:id" element={<JobPage />} />
         <Route path="page-statut" element={<StatusAdmin />} />
+        <Route path="page-statut/pages/nouvelle" element={<StatusPageForm />} />
+        <Route path="page-statut/pages/:id" element={<StatusPageForm />} />
         <Route path="page-statut/composants/nouveau" element={<StatusComponentForm />} />
         <Route path="page-statut/composants/:id" element={<StatusComponentForm />} />
         <Route path="page-statut/incidents/nouveau" element={<StatusIncidentNew />} />

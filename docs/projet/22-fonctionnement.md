@@ -18,12 +18,12 @@
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
 | Une cible | Une URL ou un port qu'une sonde vérifie, dedans comme dehors | Rien : elle reçoit une requête et répond, c'est tout ce qu'on lui demande |
-| Un visiteur | N'importe qui, dans un navigateur, sans compte | La page de statut publique sous `/statut` : un petit bundle à part, qui lit un instantané et un direct publics |
+| Un visiteur | N'importe qui, dans un navigateur, sans compte | Une page de statut publique, à son adresse `/statut/<slug>` : un petit bundle à part, qui lit l'instantané et le direct publics de cette page, et d'elle seule |
 | Un canal | Une URL entrante : Discord, Slack, Mattermost, ntfy, un récepteur à soi ; un salon Matrix ; ou des adresses e-mail | Rien : il reçoit un POST signé, un message du bot dans le salon, ou un e-mail, quand une alerte s'ouvre, s'aggrave ou se résout |
 | Un relais SMTP | Celui de l'opérateur : Gmail, Brevo, l'hébergeur, un Postfix local | Rien : il reçoit d'openCloud les e-mails des canaux e-mail, avec l'identifiant réglé sous Paramètres, et les livre |
 | Un registre | Docker Hub, ghcr.io, un registre privé : là d'où les images ont été tirées | Rien : il répond en lecture à l'agent de chaque machine, qui lui demande les tags d'un dépôt et l'empreinte d'un tag, jamais une image |
 | endoflife.date | Un service public et gratuit qui tient, produit par produit, les branches maintenues et leur date de fin | Rien : il répond en lecture à la machine openCloud, une fois par jour, deux au plus, **tant que l'opérateur n'a pas coupé la fin de support** sous Paramètres. Les agents ne l'appellent jamais |
-| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : dix-neuf lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
+| Un agent IA | Claude, Cursor, l'inspecteur MCP, un script : un client MCP, distant en HTTPS ou local sur stdin/stdout | Des appels d'outils sous `/mcp`, derrière un jeton : vingt lectures qui rendent les faits de l'API. Aucune écriture pendant la refonte : elles reviendront avec la couche d'actions typées. Jamais une action sur une machine, jamais un secret d'openCloud ; en revanche les journaux bruts d'un conteneur, qui peuvent en contenir un |
 
 Un seul binaire, `opencloud`, deux rôles. La machine openCloud fait tourner
 les deux : le serveur, et son agent, qui en fait une machine comme les autres
@@ -87,7 +87,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
 | Ping | tâche → Traefik → `/ping/{jeton}` | TLS de Traefik | Personne : le jeton dans l'URL est le secret. Qui l'a peut faire passer une tâche pour faite |
-| Statut | visiteur → Traefik → `/statut`, `/statut/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom des composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port. Un test le prouve sur la réponse réelle |
+| Statut | visiteur → Traefik → `/statut/<slug>`, `/statut/<slug>/api/…` | TLS de Traefik | Personne, par conception : la page est publique. Elle ne dit que le nom de ses composants et ce que l'opérateur a écrit ; jamais un identifiant d'objet, un nom de machine, de conteneur ou de sonde, une cible, un port, ni rien d'une autre page. Des tests le prouvent sur la réponse réelle |
 | Registre | agent → le registre de l'image | TLS, sauf vers la boucle locale (un registre sur `localhost:5000`, comme Docker le fait) | L'agent s'authentifie par un jeton anonyme, ou signé des identifiants en clair du `config.json` de Docker de la machine ; le registre ne prouve rien de plus que son certificat. Rien ne sort qu'un nom de dépôt et un tag ; l'agent ne tire jamais une image. Aucune redirection suivie |
 | Agent IA | client MCP → Traefik → `/mcp` | TLS de Traefik | Un Bearer, indépendant de l'authentification de l'interface : jeton d'accès OAuth d'une heure, obtenu par code et PKCE S256 puis le secret du client, ou jeton d'API créé sous Paramètres, à échéance de 30, 90 (défaut) ou 365 jours, ou sans échéance si l'opérateur le choisit. Le jeton porte une portée, `read` (défaut d'un jeton d'API comme d'un jeton OAuth) ou `write` (demandée et cochée), **inerte pendant la refonte** : `/mcp` n'enregistre aucune écriture, un jeton `write` ne voit pas plus d'outils qu'un `read`. Activer l'authentification de l'interface révoque tous les jetons. Sans en-tête, `401` avec l'adresse des métadonnées, c'est ainsi qu'un client découvre OAuth ; MCP désactivé, `404` partout. Le jeton est haché avant d'être cherché, et son dernier usage noté |
 | Agent IA | client MCP → `/oauth/authorize`, page de consentement, `/oauth/token` | TLS de Traefik | Le `redirect_uri` est jugé avant tout redirect, y compris pour dire une erreur : la boucle locale toujours, n'importe quel port, sinon une adresse déclarée sous Paramètres, comparée telle quelle. Puis **l'opérateur consent** : une page de l'interface, derrière ses identifiants, montre le client, l'adresse de retour exacte, ce que l'autorisation donne et sa durée ; le code n'existe qu'après « Autoriser ». Le secret du client, jamais envoyé à l'autorisation, est vérifié à l'échange en temps constant. Un code sert une fois, dix minutes ; un rafraîchissement rejoué révoque toute sa famille. Débit borné par adresse, plus serré sur `/oauth/token` |
@@ -122,12 +122,12 @@ porte aucun : voir « Comment l'annuaire s'exporte et s'applique ».
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro, migration `021_probe_revision.sql`), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` depuis la migration `028_restrict.sql` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans les colonnes `cert_*` de `probes` : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | La page de statut : les composants dans `status_components` (nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste. Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (migration `034_status_pages.sql` : adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` (migration `028_restrict.sql`) : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste ; la page supprimée emporte ses composants de même. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`, migration `024_directory_links.sql`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur ; migration `032_alerts_directory.sql`) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois, avec la portée consentie, migration 033), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les jetons d'API d'avant la portée sont passés en `write` par la migration 017, comme les jetons OAuth d'avant le consentement : leur famille garde `write` jusqu'à sa fin. Les demandes qui attendent le consentement ne sont **pas** en base : en mémoire de `serve`, dix minutes, 32 au plus (voir « Comment un agent IA lit openCloud ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne, migration `012_auth.sql`) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`, migration `018_auth_forward.sql`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql`) : la langue de l'interface ; le titre, l'annonce en texte brut et la langue de la page de statut ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et la page de statut changées en même temps survivent toutes deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne (migration `019_settings.sql` ; le titre, l'annonce et la langue de la page de statut en sont partis pour `status_pages` avec la `034`) : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le format laisse la place à plusieurs clés pour une rotation, qui n'existe pas encore | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. Seul `opencloud secrets forget` remplace une clé, en gardant l'ancienne sous `secret.key.forgotten-<horodatage>`. `opencloud mcp` la lit et ne la crée jamais. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
@@ -1112,8 +1112,9 @@ que la base garde sans que le fichier le nomme.
 - **`--prune` ne touche jamais une machine**, et supprimer un service, une
   sonde ou une tâche que des composants de statut visent est refusé dans le
   plan, avec leur liste (`prune_blocked`) : le fichier ne porte pas les
-  composants, il ne peut pas les détacher. Le plan d'`apply` lit pour cela le
-  plan de suppression du domaine (`DeletePlan`, `DeleteServicePlan`), celui
+  composants, il ne peut pas les détacher. De même, supprimer un projet qui a
+  sa page de statut est refusé dans le plan (`prune_status_page`). Le plan d'`apply` lit pour cela le
+  plan de suppression du domaine (`DeletePlan`, `DeleteServicePlan`, `DeleteProjectPlan`), celui
   que le geste rejoue : `apply` supprime par le même `Delete`, qui refuserait
   de la même façon. Ce qu'une suppression emporte est affiché avant : les
   essais, les jours et les silences d'une sonde, les pings, les exécutions et
@@ -1690,16 +1691,24 @@ refusée **parce que** le certificat est expiré ne se compte pas deux fois :
 Une sonde en pause ne compte pas : elle ne regarde plus, et ce qu'elle a vu
 ne dit plus rien de la cible.
 
-## Comment la page de statut est publiée
+## Comment une page de statut est publiée
 
-Un visiteur ne connaît pas openCloud. La page sous `/statut` est servie par
-le même binaire, sur le même port, derrière Traefik, sans compte : un
-bundle à part, sans une ligne de l'administration. Elle porte les jetons,
+Un visiteur ne connaît pas openCloud. **Il y a autant de pages que
+l'opérateur en crée**, chacune à son adresse `/statut/<slug>` (minuscules,
+chiffres et tirets ; « api » est réservé), avec son titre, son annonce, sa
+langue et ses composants ; une page peut être rangée dans un projet, une par
+projet au plus. Chaque page est servie par le même binaire, sur le même
+port, derrière Traefik, sans compte : un bundle à part, sans une ligne de
+l'administration, qui lit son slug dans l'adresse. Elle porte les jetons,
 la typographie et les pastilles de la direction artistique, sans la barre
-latérale, dans la langue que l'opérateur a réglée — un visiteur ne
-choisit pas —, en clair ou en sombre selon son système.
+latérale, dans la langue que l'opérateur a réglée pour elle (vide : celle de
+l'interface) — un visiteur ne choisit pas —, en clair ou en sombre selon son
+système. **Une page ne révèle pas les autres** : `/statut` seul mène à la
+page s'il n'y en a qu'une (`302`), sinon répond `404`, jamais une liste ; une
+adresse inconnue répond `404` comme tout chemin inconnu.
 
-1. **Un composant** a un nom public et regroupe des objets qu'openCloud
+1. **Un composant** appartient à une page, choisie à sa création et qui ne
+   change plus, a un nom public et regroupe des objets qu'openCloud
    surveille déjà : une machine, un service, une tâche, une sonde. Le
    certificat n'est pas un objet, c'est un fait de la sonde : rattacher
    une sonde rattache son certificat. Le nom est le seul mot d'openCloud
@@ -1708,14 +1717,18 @@ choisit pas —, en clair ou en sombre selon son système.
    pire l'emporte. Un objet qui ne dit rien de la cible ne compte pas ;
    un composant dont aucun objet ne compte est **caché du public** et
    signalé à l'opérateur.
-3. **L'état global** est le pire des composants visibles. Sans composant,
+3. **L'état global** d'une page est le pire de ses composants visibles. Sans composant,
    la page dit « rien à afficher », jamais « tout fonctionne » à vide.
 4. **Un incident** est ce que l'opérateur dit au public : un titre, un
    impact, un fil d'entrées datées qui portent chacune le statut qu'elles
    donnent, et les composants touchés. **Tant qu'il est ouvert, son impact
    remplace l'état dérivé de ses composants** : l'opérateur en sait plus
    que la sonde, et dire « maintenance » quand la sonde dit « hors ligne »
-   est tout l'intérêt. Résolu, l'état dérivé reprend.
+   est tout l'intérêt. Résolu, l'état dérivé reprend. Un incident peut
+   toucher des composants de plusieurs pages : **chaque page le montre
+   réduit à ses propres composants**, jamais le nom de ceux d'une autre. Un
+   incident qui ne touche plus aucun composant (le sien supprimé) ne paraît
+   plus sur aucune page, et reste dans l'administration.
 5. **Une maintenance** est un incident d'impact « maintenance » avec une
    fenêtre. Planifiée, elle s'affiche sans rien changer ; la boucle la
    passe « en cours » à l'heure du début et la résout à l'heure de la fin,
@@ -1726,7 +1739,7 @@ choisit pas —, en clair ou en sombre selon son système.
    pas les alertes** : elle dit au public ; l'opérateur pose un silence sur la
    même fenêtre (« Comment une alerte naît »). Le composant statut ne lit
    ni n'écrit aucune alerte, et le moteur des alertes ne lit pas la page.
-6. **Le public voit** : le titre, l'annonce, l'état global, les composants
+6. **Le public voit**, page par page : le titre, l'annonce, l'état global, les composants
    visibles avec leur état et, pour ceux qui ont une sonde, la somme des
    jours de leurs sondes sur 90 jours ; les incidents ouverts, les
    maintenances planifiées, et ce qui a été résolu dans les 14 derniers
@@ -1736,13 +1749,17 @@ choisit pas —, en clair ou en sombre selon son système.
    l'administration, qui ne porte que « status ». Le composant statut
    écoute le bus interne : à chaque sujet qui touche un membre d'un
    composant (`machines`, `directory`, `containers`, `jobs`, `probes` ;
-   jamais `resources`, `alerts` ni le sien), et toutes les 30 s, il relit son instantané public
-   et ne publie **que si quelque chose de visible a changé** — vingt sondes
+   jamais `resources`, `alerts` ni le sien), et toutes les 30 s, il relit l'instantané de
+   chaque page (les objets une seule fois pour toutes) et ne publie **que si quelque chose de
+   visible a changé sur l'une d'elles** — vingt sondes
    à la minute ne font pas relire vingt fois chaque visiteur. Le même
    sujet part sur le bus interne pour l'administration. Relecture à la
    reconnexion, pas de rejeu. Cet abonnement interne occupe une des 64
-   places du bus.
-8. **La page se met dans un cadre** : seule la page HTML publique sert
+   places du bus. Le bus public est **un seul pour toutes les pages** : un
+   « status » dit qu'une page a changé sans dire laquelle, et chaque
+   visiteur relit la sienne ; il apprend au plus qu'il s'est passé quelque
+   chose ailleurs, jamais quoi.
+8. **Une page se met dans un cadre** : seules les pages HTML publiques (`/statut`, `/statut/<slug>`) servent
    `frame-ancestors *` sans `X-Frame-Options`, par une fonction testée ;
    elle ne porte aucun bouton, il n'y a rien à y détourner. Son API et
    tout le reste gardent la politique stricte.
@@ -1771,10 +1788,16 @@ jamais devant une panne.
 
 | Route publique | Sert à | Limite |
 | --- | --- | --- |
-| `GET /statut` | La page | 10 par seconde, rafale 20, par adresse résolue |
-| `GET /statut/api/status` | L'instantané public, en faits | la même |
-| `GET /statut/api/i18n` | Les seules clés `status.*` du catalogue, dans la langue de la page | la même |
-| `GET /statut/api/events` | Le direct public | 1 ouverture par seconde, rafale 5, par adresse ; 4 flux à la fois au plus par source ; 256 visiteurs en direct au plus, comptés à part |
+| `GET /statut` | La seule page (`302` vers `/statut/<slug>`), ou `404` s'il y en a zéro ou plusieurs | 10 par seconde, rafale 20, par adresse résolue |
+| `GET /statut/<slug>` | La page ; `404` pour une adresse inconnue | la même |
+| `GET /statut/<slug>/api/status` | L'instantané public de cette page, en faits | la même |
+| `GET /statut/<slug>/api/i18n` | Les seules clés `status.*` du catalogue, dans la langue de la page | la même |
+| `GET /statut/<slug>/api/events` | Le direct public (une adresse inconnue répond `404` sans prendre de place) | 1 ouverture par seconde, rafale 5, par adresse ; 4 flux à la fois au plus par source ; 256 visiteurs en direct au plus, comptés à part |
+
+**Les limites valent toutes pages confondues** : les seaux, les 4 flux d'une
+source et le pool de 256 sont ceux du serveur, pas d'une page. Ouvrir dix
+pages ne donne pas dix parts ; en échange, une page très lue peut prendre les
+places d'une autre.
 
 Au-delà : `429` avec `Retry-After`. Les seaux sont balayés au passage,
 comme ceux de `/ping`, et l'adresse est celle que `trusted_proxies`
@@ -1789,16 +1812,24 @@ Le plafond par source se vérifie **avant** de toucher au pool global (refus :
 public a aussi une durée de vie de 10 minutes : il se termine proprement et
 `EventSource` se reconnecte seul au bout de cinq secondes, ce qui recycle les
 places que personne ne lit. Si le direct est refusé ou coupé, la page se
-relit seule toutes les minutes (`/statut/api/status`) et retente le direct
+relit seule toutes les minutes (`/statut/<slug>/api/status`) et retente le direct
 toutes les cinq ; elle ne reste plus figée sur un état périmé.
 
-L'administration vit dans la coquille, sous l'entrée « Page de statut », à
-l'adresse `/page-statut` : composants, incidents, réglages. Le compteur
+L'administration vit dans la coquille, sous l'entrée « Pages de statut », à
+l'adresse `/page-statut`, en trois onglets : les pages (liste, création,
+modification, suppression par son plan : la page emporte ses composants et
+leurs membres, les incidents s'en détachent), les composants d'une page
+choisie (`?page=<id>`, avec le lien vers sa page publique), les incidents de
+toutes les pages. L'API : `GET`/`POST /api/status/pages`,
+`GET`/`PUT`/`DELETE /api/status/pages/{id}`,
+`GET /api/status/pages/{id}/delete-plan`, `GET /api/status/components?page=<id>`
+(sans le paramètre : tous), `GET /api/status/incidents?page=<id>` (ceux qui
+touchent un composant de la page). Le compteur
 rouge de la barre latérale est le nombre d'incidents ouverts. Elle est
 protégée par l'authentification de l'interface quand elle est activée,
 comme le reste ; la page publique, elle, est publique par conception. Un titre fait 120 caractères
 au plus, une annonce 500, un message 2 000, en texte brut échappé par le
-navigateur ; 64 composants au plus, 64 objets par composant.
+navigateur ; 64 pages au plus, 64 composants par page, 64 objets par composant.
 
 ## Comment une alerte naît, se tait et part
 
@@ -2267,7 +2298,7 @@ outils. openCloud en sert un, sur le SDK officiel épinglé
 4. **La page de consentement**, servie par le front hors de l'interface
    (comme la première configuration), lit la demande par
    `GET /api/mcp/consents/{id}` : le client, l'adresse de retour exacte, ce
-   que l'autorisation donne (les dix-neuf lectures, aucune action sur une
+   que l'autorisation donne (les vingt lectures, aucune action sur une
    machine, aucun secret d'openCloud), la durée (un accès d'une heure,
    renouvelé jusqu'à trente jours sans usage), et deux boutons.
    « Autoriser » : `POST /api/mcp/consents/{id}/actions/allow` `{write}` ;
@@ -2387,7 +2418,7 @@ lecture dans `testdata/mcp_*.golden.json` sur les données des tests de l'API.
 | `list_containers`, `get_container`, `get_container_logs` | Les conteneurs, filtrés par machine ou projet, paginés ; la fiche avec ses transitions ; les journaux bruts tirés de l'agent, mêmes bornes que l'interface, **sans filtre : ils partent chez le fournisseur du modèle** | 100 par page, 500 au plus ; 50 transitions ; 100 lignes, 500 au plus |
 | `list_jobs`, `get_job` | Les tâches et une tâche avec ses exécutions et ses pings, **jamais l'URL de ping** | 20 et 20 |
 | `list_probes`, `get_probe` | Les sondes avec leurs jours sur 30 jours et le certificat vu ; une sonde avec ses fenêtres, 90 jours, ses essais. **La cible perd son mot de passe** (`https://user:…@hôte`), comme dans le plan d'apply, les alertes et le journal ; `pause_probe` la masque de même ; `resume_probe` refuse une telle sonde (`probe.target_credentials`) | 50 essais |
-| `get_status_page`, `list_incidents` | Les composants avec leurs objets et l'état effectif, les incidents ouverts ; les incidents avec leur fil, ouverts ou résolus | |
+| `list_status_pages`, `get_status_page`, `list_incidents` | Les pages (slug, titre, annonce, langue, projet) ; une page avec ses composants, leurs objets et l'état effectif, et les incidents ouverts qui la touchent — `page` (le slug) est facultatif s'il n'y a qu'une page, sinon le refus `mcp.status_page_required` ; les incidents avec leur fil, ouverts ou résolus, tous ou ceux d'une page (`page`) | |
 | `list_alerts`, `get_alert`, `list_alert_channels` | Les alertes ouvertes ou résolues avec les compteurs ; une alerte et ses livraisons ; les canaux avec **l'URL réduite à son hôte**, un webhook Discord porte son jeton dans son chemin | 200 |
 | `list_audit` | Le journal d'audit, du plus récent au plus ancien, filtré par objet au besoin, sous la forme de `GET /api/audit` (« Le journal d'audit ») | 50 par page, 200 au plus ; la page suivante par `before` |
 
@@ -2634,15 +2665,17 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 | --- | --- | --- | --- | --- |
 | Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur) | rapprochement refait ; rien ne touche la machine |
-| Projet | — | — | liens de projet (les services restent) | — |
+| Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes | jeu de sondes renvoyé à sa machine |
 | Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes | l'URL de ping ne répond plus |
 | Composant de statut | — | membres | liens d'incident (l'incident reste) | page publique relue |
+| Page de statut | — | composants, membres | liens d'incident (l'incident reste) | son adresse répond `404` |
 
 - **Le plan se lit avant** : `GET /api/machines/{id}/delete-plan`,
   `/api/directory/services/{id}/delete-plan`,
   `/api/directory/projects/{id}/delete-plan`, `/api/probes/{id}/delete-plan`,
-  `/api/jobs/{id}/delete-plan`, `/api/status/components/{id}/delete-plan` :
+  `/api/jobs/{id}/delete-plan`, `/api/status/components/{id}/delete-plan`,
+  `/api/status/pages/{id}/delete-plan` :
   `{blocked, blockers: [{kind, objects: [{id, name}]}], removes: [{kind,
   count}], detaches: [{kind, count}]}`, un genre vide n'y figure pas. 404 pour
   un objet inconnu ; la machine openCloud a son plan comme les autres. Le
@@ -2712,10 +2745,10 @@ l'acteur de l'apply et avec son `apply_id`.
 | Clé ignorée, puis plus | `ignored_key.create`, `.delete` | `machine/sorte/valeur` | `machine_id`, `kind` |
 | Sonde | `probe.create`, `.update`, `.delete`, `.pause`, `.resume` | La sonde | `kind`, `target` **masquée**, `machine_id`, `service_id` |
 | Tâche | `heartbeat.create`, `.update`, `.delete`, `.pause`, `.resume`, `.regenerate_token` | La tâche | `machine_id`, `interval_seconds`, `grace_seconds` ; jamais le jeton |
-| Composant de la page de statut | `status_component.create`, `.update`, `.delete` | Le composant | `members` |
+| Composant de la page de statut | `status_component.create`, `.update`, `.delete` | Le composant | `page_id`, `members` |
 | Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `components` |
 | Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
-| Page de statut | `status_page.update` | Le titre | `announcement`, `language` |
+| Page de statut | `status_page.create`, `.update`, `.delete` (avant la `034`, `status_page.update` nommait la page unique par son titre) | La page, par son slug | `title`, `announcement`, `language`, `project_id` |
 | Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
 | Silence (`mutes`) | `mute.create`, `.delete` (avant la migration `032` : `silence.create`, `.delete`, gardés tels quels, le journal ne se réécrit pas) | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at` |
 | Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
@@ -2955,3 +2988,4 @@ refusés avant d'envoyer quoi que ce soit.
 | Refacto du store (lecteur partagé) | Aucun comportement visible : goldens, routes, outils MCP et tables inchangés. L'interface `reader.Reader` (`internal/reader`) que `*store.DB` satisfait, reçue par le serveur, la page de statut et le fichier de l'annuaire pour leurs lectures sans règle ; les relais `List`/`Get`/`Count` retirés des composants, leurs interfaces côté serveur réduites d'autant ; `ListComponents` et `ListIncidents` lisent leurs parties en bloc (`attachMembers`, `attachIncidentParts`) ; `/api/counts` et `get_overview` comptent les conteneurs et les mises à jour en SQL (`CountContainers`, `CountContainerUpdates`, test de parité avec `container.NeedsAttention`) ; `SaveAuthStateIf` et `Transact` passent par `inTx` ; `ident.New` à la place de `status.NewID`. Les règles qui en sortent : `17-conventions-code.md`, « Lire et écrire un autre domaine » et « Le store » |
 | Plans de suppression | La migration `028_restrict.sql` (`restrict` sur `probes.machine_id`, `heartbeats.machine_id` et trois clés de `status_component_members`), le paquet `internal/deletion` (forme du plan, refus qui le porte), `internal/store/deletion.go` (un plan par objet déclaré, relu dans la transaction de chaque `DELETE`), les gestes `DeletePlan` des composants, les six routes `GET …/{id}/delete-plan`, le 409 qui porte le plan (`s.failed`), les clés `machine.has_probes`, `machine.has_heartbeats`, `machine.shown_on_status`, `probe.shown_on_status`, `job.shown_on_status`, le plan d'`apply` qui lit celui du domaine, la boîte `DeletePlanDialog` du front. Ce qu'une suppression emporte : « Comment une suppression se décide » |
 | Journal d'audit | La table `audit_events` (migration `029_audit.sql`, ajout seul par déclencheur, `apply_id` en `set null`), le paquet `internal/audit` (acteur dans le contexte, `Recorder`, rétention d'un an purgée par la boucle des alertes), `store/audit.go` et `ListAuditEvents` sur le `reader.Reader`, un événement par geste dans `machine`, `directory`, `probe`, `heartbeat`, `status`, `alert`, `settings`, `auth`, `mcp` (`SetAuditor`), l'acteur posé par `server` (`withOperatorActor`), la socket de commande, `guarded`, `agentapi`, `serve` (`rule`), `opencloud auth disable` et `opencloud secrets forget`, `GET /api/audit`, l'outil MCP `list_audit` (dix-neuf lectures), l'onglet « Journal » (`/journal`), la section `audit` des catalogues, les goldens `audit.golden.json` et `mcp_list_audit.golden.json`. L'envoi aux canaux `receives_audit` viendra ensuite |
+| Pages de statut multiples | La migration `034_status_pages.sql` (`status_pages` : `slug` unique, titre, annonce, langue, `project_id` unique facultatif en `restrict` ; `status_components.page_id` en `cascade` ; la page unique reprise en page `statut` sans projet si elle montrait quelque chose ; `settings` reconstruite sans `status_*`), `status.Service` (`CreatePage`, `UpdatePage`, `DeletePage` et son plan, `ListPages`, `PageBySlug`, `Snapshot(pageID)`, `Components(pageID)`, `Incidents(pageID)` ; `status.Settings` et `settings.SetStatusPage` retirés), le refus `project.has_status_page` et `deletion.KindStatusPages`, le refus d'`apply --prune` `manifest.prune_status_page`, les routes `/api/status/pages…` et `/statut/<slug>…` (`/statut` redirige vers la seule page), l'outil MCP `list_status_pages` et le paramètre `page` de `get_status_page` et `list_incidents` (vingt lectures), l'audit `status_page.create` et `.delete`, l'onglet « Pages » de l'administration (`StatusPageForm`, sélecteur de page des composants) et le slug lu dans l'adresse par `statut.html` |

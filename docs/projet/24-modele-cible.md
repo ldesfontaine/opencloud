@@ -627,7 +627,7 @@ flowchart LR
 | `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | Nouvelle |
 | `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée |
 | `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée |
-| `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle |
+| `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle ; **faite** (migration `034_status_pages.sql`), `project_id` facultatif, sans `published` (section 15) |
 | `status_components` | Composé à la main, nommé librement, pré-rempli depuis les services du projet ; un outil d'infra y paraît sous un nom générique | Transformée |
 | `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) |
 | `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) ; **faite** (migration `032_alerts_directory.sql`), sans `project_id`, `announce` ni `public_title` (section 13) |
@@ -760,10 +760,10 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict (restrict **fait**, `028_restrict.sql` ; le renommage reste à faire) ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
 | `probe_results`, `probe_days` | Gardées | Issue `warning` ajoutée | Gardé |
 | `image_checks` | Gardée | Reste un cache (machine, image) ; les montées trouvées deviennent des `update_proposals` | Cache |
-| `status_components` | Transformée | + `page_id`. La page unique actuelle devient un projet (titre repris de `settings.toml`) qui contient les services de ses composants, et sa page ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle existe | Gardé |
+| `status_components` | Transformée | + `page_id`. La page unique actuelle devient une page (titre repris de `settings`) ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle est la seule. **Fait** (`034`) : la page reprise n'est rangée dans aucun projet (section 15) | Gardé |
 | `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK passent en restrict avec les plans de suppression (**fait**, `028_restrict.sql`) | Gardé |
 | `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture. **Fait en partie** (032) : une maintenance ne tait plus rien, celles pas encore résolues ont donné leurs lignes `mutes` ; l'impact `maintenance` reste, c'est l'annonce publique tant que `announce` n'existe pas | Gardé |
-| `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres | Gardé |
+| `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres. **Pas encore** : la `034` garde `incident_components` (section 15) | Gardé |
 | `incident_updates` | Gardée | — | Gardé |
 | `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi. **Fait** (032), sauf `run_id` | Gardé |
 | `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` ; `name` unique (clé du YAML) ; + `channel_projects` | — |
@@ -1082,7 +1082,7 @@ le code a tranché :
 | **Le `DELETE` relit le plan dans sa transaction** ; il ne reçoit pas le plan que l'opérateur a lu. Le geste garde sa forme `Delete(ctx, id)` | Un plan reçu serait périmé (l'historique grossit pendant qu'on lit) ou redondant ; relu sous la transaction, un lien posé entre la lecture et l'écriture ne passe pas. La clé étrangère reste le filet |
 | **La clé du 409 est celle du premier genre qui retient**, dans un ordre fixe (services, sondes, tâches, composants) ; le plan entier suit dans le corps | Une clé par réponse, comme tout refus ; la liste complète est dans le plan |
 | **Un service garde sa clé** `directory.service_linked` pour ses sondes comme pour ses composants ; le corps du 409 porte désormais `plan` à la place de `links` | Une seule forme de refus pour toutes les suppressions ; la fiche du service garde `links` |
-| **Projet et composant ne sont retenus par rien** aujourd'hui : leur plan informe, leur `DELETE` ne change pas | `status_pages` et `channel_projects`, qui retiendront un projet, ne sont pas encore là |
+| **Projet et composant ne sont retenus par rien** aujourd'hui : leur plan informe, leur `DELETE` ne change pas | `status_pages` et `channel_projects`, qui retiendront un projet, ne sont pas encore là. Depuis la `034`, la page de statut d'un projet le retient (section 15) |
 | **Le plan compte les silences**, qui n'ont pas de clé étrangère | Le moteur des alertes les retire avec leur objet : c'est une perte, elle se dit. Depuis la 032, ils en ont une (`mutes`, `cascade`) ; le plan les compte toujours, ceux des conteneurs d'une machine compris |
 | **Pas compté** : le moteur Docker d'une machine, les mesures et réseaux d'un conteneur (partent avec lui), les fournitures d'un service (partie de sa définition) | Le plan dit ce qui compte pour l'opérateur ; le reste suit une ligne déjà comptée |
 | **Le plan d'`apply` lit celui du domaine**, et refuse dans le plan (`prune_blocked`) la suppression d'une sonde ou d'une tâche qu'un composant montre, comme celle d'un service | Le fichier ne porte pas les composants : sans ce refus, l'application s'arrêterait au milieu, sur le refus du geste |
@@ -1150,4 +1150,24 @@ ses écarts au diagramme :
 | **Le jeton de son agent est émis au démarrage tant qu'elle n'a jamais eu d'agent**, `observe` seul, nommé d'après le nom d'hôte ; la ligne s'affiche à la première configuration (`POST /api/machines/local-enrollment`), le journal dit seulement qu'un jeton attend | Décision de Lucas : l'agent s'installe dès la première étape. Un agent révoqué ne se réinstalle pas de lui-même : la révocation est un geste voulu |
 | **`config.toml` perd `docker_socket` et `ca_file`** ; l'unité du serveur perd le groupe `docker` et `AF_NETLINK` | Le serveur ne lit plus rien de sa machine : ce sont des réglages de l'agent (`-docker-socket`, `-ca-file`). Une configuration d'avant les garde, avec l'avertissement « clé inconnue » |
 | **Les formulaires de sonde et de service proposent la première machine de la liste**, plus la machine openCloud | Elle n'a plus rien qui la distingue dans l'API ; le fichier de l'annuaire garde son défaut (une sonde sans `runner` court sur `local`) |
+
+## 15. Ce que les pages de statut multiples ont fixé
+
+Migration `034_status_pages.sql` (`status_pages`, `status_components.page_id`,
+`settings` sans `status_*`). Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment une page de statut est publiée ». Ce que le
+code a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`project_id` facultatif** (unique, `restrict`) : une page peut n'être rangée dans aucun projet | La page d'avant n'a pas de projet ; en créer un pour elle inventerait un regroupement que l'opérateur n'a pas fait. Un projet n'a qu'une page ; il refuse d'être supprimé tant qu'elle existe (`project.has_status_page`, et `manifest.prune_status_page` dans le plan d'`apply`) |
+| **La page d'avant devient la page `statut`**, sans projet, avec tous les composants, son titre, son annonce et sa langue, **seulement si elle montrait quelque chose** (un composant, un titre ou une annonce) | Une page se crée à la main ; une page vide reprise ne dirait rien. `/statut` mène à la seule page, ce qui garde les liens donnés |
+| **Pas de `published`** | Rien ne le lit encore : une page existe ou non ; une page sans composant visible dit « rien à afficher » |
+| **`incident_components` reste** ; `incident_targets` est un chantier à part | Viser les objets plutôt que les composants change ce que l'opérateur choisit dans le formulaire d'un incident et la règle « une page montre ce qui touche ses composants » ; ici, une page montre les incidents qui touchent l'un de ses composants, **réduits à ceux-là** : jamais le nom d'un composant d'une autre page |
+| **`mutes.announce` et `public_title` ne sont pas ajoutés** | Les brancher, c'est montrer une fenêtre de silence comme maintenance sur les pages dont un composant est visé ; la maintenance publique reste un incident d'impact `maintenance` jusque-là |
+| **Un composant ne change pas de page** ; le plafond de 64 composants vaut par page, 64 pages au plus | « Un composant n'existe que sur sa page » ; le recréer ailleurs est un geste clair. Chaque page se relit à chaque changement : le nombre est borné |
+| **Limites publiques et direct partagés** par toutes les pages : seaux par source, 4 flux par source, pool de 256, un seul bus public « status » | Une source ne multiplie pas sa part en ouvrant dix pages ; un événement ne dit pas quelle page a changé, chaque visiteur relit la sienne. En échange, une page très lue peut prendre les places d'une autre |
+| **`/statut` seul** : `302` vers la seule page, sinon `404` ; jamais une liste | Une page de statut ne révèle pas les autres ; un slug inconnu répond `404` comme tout chemin inconnu |
+| **Slug** : minuscules, chiffres, tirets, 63 au plus, `api` réservé | Un seul segment d'URL, rien à échapper ; `api` était le chemin de l'API publique sous `/statut` |
+| **Les composants de statut restent hors du fichier d'`apply`** | L'export ne porte encore ni pages ni composants ; la section `status_pages` reste refusée à la lecture |
 

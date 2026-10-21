@@ -8,25 +8,38 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
-	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/reader"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
-// Ce que le service attend de la base pour ses propres objets, composants
-// et incidents ; le package store le fournit. Ce qu'il dérive des autres
-// domaines (services, conteneurs, moniteurs, sondes, réglages) se lit par
-// le reader.Reader, tel que leurs composants l'écrivent.
+// Ce que le service attend de la base pour ses propres objets, pages,
+// composants et incidents ; le package store le fournit. Ce qu'il dérive
+// des autres domaines (services, conteneurs, moniteurs, sondes, réglages)
+// se lit par le reader.Reader, tel que leurs composants l'écrivent.
 type Store interface {
+	// InsertPage et UpdatePage refusent un slug pris, un projet inconnu ou
+	// qui a déjà sa page, vérifiés dans leur transaction.
+	InsertPage(ctx context.Context, page Page) error
+	UpdatePage(ctx context.Context, page Page) error
+	ListPages(ctx context.Context) ([]Page, error)
+	GetPage(ctx context.Context, id string) (Page, error)
+	GetPageBySlug(ctx context.Context, slug string) (Page, error)
+	// DeletePage emporte les composants de la page et leurs membres.
+	DeletePage(ctx context.Context, id string) error
+	PageDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
+	CountPages(ctx context.Context) (int, error)
+
+	// InsertComponent refuse une page inconnue.
 	InsertComponent(ctx context.Context, component Component) error
 	UpdateComponent(ctx context.Context, component Component) error
-	ListComponents(ctx context.Context) ([]Component, error)
+	// ListComponents rend les composants d'une page ; une page vide les
+	// rend tous.
+	ListComponents(ctx context.Context, pageID string) ([]Component, error)
 	GetComponent(ctx context.Context, id string) (Component, error)
 	DeleteComponent(ctx context.Context, id string) error
 	ComponentDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
-	CountComponents(ctx context.Context) (int, error)
+	CountComponents(ctx context.Context, pageID string) (int, error)
 
 	InsertIncident(ctx context.Context, incident Incident) error
 	UpdateIncident(ctx context.Context, incident Incident) error
@@ -47,12 +60,6 @@ type Machines interface {
 	List(ctx context.Context) ([]machine.Status, error)
 }
 
-// Ce que le service attend du composant des réglages : écrire les clés de
-// la page, et rendre les réglages écrits.
-type Settings interface {
-	SetStatusPage(ctx context.Context, title, announcement string, language lang.Code) (settings.Settings, error)
-}
-
 // Watcher reçoit « la page a changé » : le bus interne pour l'administration,
 // le bus public pour les visiteurs. nil est toléré.
 type Watcher interface {
@@ -69,15 +76,14 @@ type Service struct {
 	store    Store
 	reader   reader.Reader
 	machines Machines
-	settings Settings
 	watchers []Watcher
 	feed     Feed
 	auditor  *audit.Recorder
 	logger   *slog.Logger
 	now      func() time.Time
 
-	// digest est l'empreinte du dernier instantané publié : on ne publie
-	// que ce qui change de visible.
+	// digest est l'empreinte des derniers instantanés publiés, toutes pages
+	// confondues : on ne publie que ce qui change de visible.
 	mu     sync.Mutex
 	digest string
 	// creating tient compter-puis-insérer d'un seul tenant : deux créations
@@ -85,8 +91,8 @@ type Service struct {
 	creating sync.Mutex
 }
 
-func New(store Store, reader reader.Reader, machines Machines, settings Settings, logger *slog.Logger) *Service {
-	return &Service{store: store, reader: reader, machines: machines, settings: settings, logger: logger, now: time.Now}
+func New(store Store, reader reader.Reader, machines Machines, logger *slog.Logger) *Service {
+	return &Service{store: store, reader: reader, machines: machines, logger: logger, now: time.Now}
 }
 
 func (s *Service) SetClock(now func() time.Time) {

@@ -17,6 +17,9 @@ import {
   openingStatuses,
   saysNothing,
   statusesFor,
+  chosenPageID,
+  pageName,
+  publicStatusPaths,
   statusPageFormOf,
   toggleComponent,
   toLocalInput,
@@ -189,6 +192,7 @@ describe("formulaire de correction", () => {
 describe("componentFormOf et componentRequestOf", () => {
   const component: StatusComponent = {
     id: "cmp_1",
+    page_id: "page_1",
     name: "Cloud",
     position: 2,
     members: [
@@ -202,6 +206,7 @@ describe("componentFormOf et componentRequestOf", () => {
 
   it("renvoient au serveur le composant lu, objets réduits à leur genre et leur identifiant", () => {
     expect(componentRequestOf(componentFormOf(component))).toEqual({
+      page_id: "page_1",
       name: "Cloud",
       position: 2,
       members: [
@@ -212,13 +217,58 @@ describe("componentFormOf et componentRequestOf", () => {
   });
 
   it("partent d'un composant sans objet, en tête de page", () => {
-    expect(componentRequestOf(emptyComponentForm())).toEqual({ name: "", position: 0, members: [] });
+    expect(componentRequestOf(emptyComponentForm("page_1"))).toEqual({ page_id: "page_1", name: "", position: 0, members: [] });
   });
 });
 
 describe("statusPageFormOf", () => {
-  it("garde ce qui se règle, pas l'adresse publique", () => {
-    const settings = { title: "État", announcement: "Travaux jeudi", language: "fr", public_url: "https://statut.exemple.fr" };
-    expect(statusPageFormOf(settings)).toEqual({ title: "État", announcement: "Travaux jeudi", language: "fr" });
+  it("garde ce qui se règle, pas l'adresse publique ni les dates", () => {
+    const page = {
+      id: "page_1",
+      project_id: "prj_1",
+      slug: "client-a",
+      title: "État",
+      announcement: "Travaux jeudi",
+      language: "fr",
+      public_url: "https://exemple.fr/statut/client-a",
+      created_at: "2026-10-01T10:00:00Z",
+      updated_at: "2026-10-01T10:00:00Z",
+    };
+    expect(statusPageFormOf(page)).toEqual({ slug: "client-a", title: "État", announcement: "Travaux jeudi", language: "fr", project_id: "prj_1" });
+  });
+});
+
+describe("pageName", () => {
+  it("prend le titre, sinon l'adresse", () => {
+    expect(pageName({ title: "Client A", slug: "client-a" })).toBe("Client A");
+    expect(pageName({ title: "", slug: "client-a" })).toBe("client-a");
+  });
+});
+
+describe("chosenPageID", () => {
+  const pages = [{ id: "a" }, { id: "b" }];
+  it("garde la page demandée si elle existe", () => {
+    expect(chosenPageID(pages, "b")).toBe("b");
+  });
+  it("prend la première sinon, et aucune sans page", () => {
+    expect(chosenPageID(pages, "disparue")).toBe("a");
+    expect(chosenPageID(pages, null)).toBe("a");
+    expect(chosenPageID([], "a")).toBeNull();
+  });
+});
+
+describe("publicStatusPaths", () => {
+  it("tire les chemins de l'API publique du slug de l'adresse", () => {
+    expect(publicStatusPaths("/statut/client-a")).toEqual({
+      status: "/statut/client-a/api/status",
+      catalog: "/statut/client-a/api/i18n",
+      events: "/statut/client-a/api/events",
+    });
+    expect(publicStatusPaths("/statut/client-a/")?.status).toBe("/statut/client-a/api/status");
+  });
+  it("refuse une adresse qui n'est pas celle d'une page", () => {
+    for (const pathname of ["/statut", "/statut/", "/statut/a/b", "/statut/Client", "/statut/-a", "/", "/statutx/a"]) {
+      expect(publicStatusPaths(pathname)).toBeNull();
+    }
   });
 });

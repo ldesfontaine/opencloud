@@ -101,3 +101,8 @@ func (s *Server) getComponentDeletePlan(w http.ResponseWriter, r *http.Request) 
 	plan, err := s.status.DeleteComponentPlan(r.Context(), r.PathValue("id"))
 	s.writeDeletionPlan(w, r, plan, err, status.ErrNotFound)
 }
+
+func (s *Server) getPageDeletePlan(w http.ResponseWriter, r *http.Request) {
+	plan, err := s.status.DeletePagePlan(r.Context(), r.PathValue("id"))
+	s.writeDeletionPlan(w, r, plan, err, status.ErrNotFound)
+}

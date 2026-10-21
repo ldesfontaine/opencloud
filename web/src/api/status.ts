@@ -2,9 +2,10 @@ import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 import type { DeletionPlan } from "./deletion";
 
-// La page de statut : ses composants, ses incidents et ses réglages, côté
-// opérateur, et ce que le public lit (statut/, qui a ses propres chemins).
-// Sujet du direct : « status », que topicsOf devine du chemin.
+// Les pages de statut : chacune ses réglages et ses composants, les
+// incidents qui les touchent, côté opérateur, et ce que le public lit
+// (statut/, qui a ses propres chemins). Sujet du direct : « status », que
+// topicsOf devine du chemin.
 
 // Un état est un mot d'une liste fermée ; vide quand rien ne compte. La
 // pastille se dérive dans lib/status.
@@ -39,6 +40,7 @@ export interface StatusMember {
 
 export interface StatusComponent {
   id: string;
+  page_id: string;
   name: string;
   position: number;
   members: StatusMember[];
@@ -71,11 +73,22 @@ export interface IncidentsResponse {
   incidents: Incident[];
 }
 
-export interface StatusPageSettings {
+// Une page de statut, à son adresse /statut/<slug> ; project_id vide : la
+// page n'est rangée dans aucun projet. La langue est résolue par le serveur.
+export interface StatusPage {
+  id: string;
+  project_id: string;
+  slug: string;
   title: string;
   announcement: string;
   language: string;
   public_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StatusPagesResponse {
+  pages: StatusPage[];
 }
 
 // Ce que le public lit : les noms des composants, jamais les objets.
@@ -111,7 +124,9 @@ export interface PublicStatus {
   history: PublicIncident[];
 }
 
+// page_id ne compte qu'à la création : un composant ne change pas de page.
 export interface StatusComponentRequest {
+  page_id: string;
   name: string;
   position: number;
   members: { kind: MemberKind; id: string }[];
@@ -142,15 +157,21 @@ export interface IncidentUpdateRequest {
 }
 
 export interface StatusPageRequest {
+  slug: string;
   title: string;
   announcement: string;
   language: string;
+  project_id: string;
 }
 
 const statusPath = "/api/status";
+const pagesPath = `${statusPath}/pages`;
 const componentsPath = `${statusPath}/components`;
 const incidentsPath = `${statusPath}/incidents`;
-const pageSettingsPath = `${statusPath}/page`;
+
+function pagePath(id: string): string {
+  return `${pagesPath}/${segment(id)}`;
+}
 
 function componentPath(id: string): string {
   return `${componentsPath}/${segment(id)}`;
@@ -160,8 +181,19 @@ function incidentPath(id: string): string {
   return `${incidentsPath}/${segment(id)}`;
 }
 
-export function useStatusComponents(): Resource<StatusComponentsResponse> {
-  return useResource<StatusComponentsResponse>(componentsPath);
+export function useStatusPages(): Resource<StatusPagesResponse> {
+  return useResource<StatusPagesResponse>(pagesPath);
+}
+
+// id nul : rien à lire (un formulaire de création).
+export function useStatusPage(id: string | null): Resource<StatusPage> {
+  return useResource<StatusPage>(id === null ? null : () => pagePath(id));
+}
+
+// Les composants d'une page ; nul : ceux de toutes les pages (le choix des
+// composants d'un incident).
+export function useStatusComponents(pageID: string | null): Resource<StatusComponentsResponse> {
+  return useResource<StatusComponentsResponse>(pageID === null ? componentsPath : () => `${componentsPath}?page=${encodeURIComponent(pageID)}`);
 }
 
 // id nul : rien à lire (un formulaire de création).
@@ -175,10 +207,6 @@ export function useIncidents(): Resource<IncidentsResponse> {
 
 export function useIncident(id: string): Resource<Incident> {
   return useResource<Incident>(() => incidentPath(id));
-}
-
-export function useStatusPageSettings(): Resource<StatusPageSettings> {
-  return useResource<StatusPageSettings>(pageSettingsPath);
 }
 
 // Sans id, une création ; avec, le remplacement de ce composant.
@@ -211,6 +239,15 @@ export async function deleteIncident(id: string): Promise<void> {
   return api.delete(incidentPath(id));
 }
 
-export async function saveStatusPageSettings(body: StatusPageRequest): Promise<StatusPageSettings> {
-  return api.put<StatusPageSettings>(pageSettingsPath, body);
+// Sans id, une création ; avec, le remplacement de cette page.
+export async function saveStatusPage(id: string | undefined, body: StatusPageRequest): Promise<StatusPage> {
+  return id === undefined ? api.post<StatusPage>(pagesPath, body) : api.put<StatusPage>(pagePath(id), body);
+}
+
+export async function deleteStatusPage(id: string): Promise<void> {
+  return api.delete(pagePath(id));
+}
+
+export async function fetchStatusPageDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${pagePath(id)}/delete-plan`);
 }

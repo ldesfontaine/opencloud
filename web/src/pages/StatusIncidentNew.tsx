@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 
-import { createIncident, useStatusComponents } from "../api/status";
+import { createIncident, useStatusComponents, useStatusPages } from "../api/status";
 import { Note } from "../components/Card";
 import { Checkbox, Checks, EnumSelect, Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
@@ -8,7 +8,7 @@ import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, openingStatuses, toggleComponent } from "../lib/status";
+import { componentChoiceLabel, emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, openingStatuses, toggleComponent } from "../lib/status";
 
 // Ouvrir un incident ou planifier une maintenance : un titre, un impact,
 // un premier message, les composants touchés, et pour une maintenance sa
@@ -16,7 +16,8 @@ import { emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, o
 export function StatusIncidentNew() {
   const t = useT();
   const navigate = useNavigate();
-  const components = useStatusComponents();
+  const components = useStatusComponents(null);
+  const pages = useStatusPages().data?.pages ?? [];
   const form = useForm(emptyIncidentForm());
   const { values, change } = form;
   const action = useAction();
@@ -84,7 +85,7 @@ export function StatusIncidentNew() {
               {list.map((component) => (
                 <Checkbox
                   key={component.id}
-                  label={component.name}
+                  label={componentChoiceLabel(component, pages)}
                   checked={values.componentIDs.includes(component.id)}
                   onChange={() => change("componentIDs", toggleComponent(values.componentIDs, component.id))}
                 />

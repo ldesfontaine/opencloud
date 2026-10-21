@@ -14,11 +14,9 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
-	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
@@ -36,7 +34,9 @@ type fixture struct {
 	probes     *probe.Service
 	bus        *live.Bus
 	published  *counter
-	now        time.Time
+	// La page « statut » que le banc crée d'abord : un composant naît sur une page.
+	pageID string
+	now    time.Time
 }
 
 type counter struct{ count int }
@@ -62,16 +62,21 @@ func newFixture(t *testing.T) *fixture {
 	f.services.SetUnits(f.directory)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
-	f.status = status.New(db, db, f.machines, settings.New(db, logger), logger)
+	f.status = status.New(db, db, f.machines, logger)
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)
+	page, err := f.status.CreatePage(context.Background(), status.PageDefinition{Slug: "statut"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.pageID = page.ID
 	return f
 }
 
 func (f *fixture) component(t *testing.T, name string, members ...status.MemberRef) status.Component {
 	t.Helper()
-	created, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: name, Members: members})
+	created, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: name, Members: members})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +177,7 @@ func TestDerive_ObjectsThatSayNothingDoNotCount(t *testing.T) {
 	if empty.Derived != status.StateUnknown || empty.Effective != status.StateUnknown {
 		t.Fatalf("a component whose objects say nothing must be unknown, got %q", empty.Effective)
 	}
-	snapshot, err := f.status.Snapshot(context.Background())
+	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +354,7 @@ func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", name, err, tc.want)
 		}
 	}
-	if _, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: "x", Members: []status.MemberRef{{status.KindProbe, "nope"}}}); !errors.Is(err, status.ErrMemberInvalid) {
+	if _, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: "x", Members: []status.MemberRef{{status.KindProbe, "nope"}}}); !errors.Is(err, status.ErrMemberInvalid) {
 		t.Errorf("unknown member: %v", err)
 	}
 }
@@ -389,7 +394,7 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 	if _, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne du nuage", Impact: status.ImpactDown, Status: status.StatusInvestigating, Message: "On regarde.", ComponentIDs: []string{all.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.status.Snapshot(context.Background())
+	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,30 +406,6 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 	}
 	if len(snapshot.Components[0].Days) != 0 {
 		t.Fatalf("no rollup yet, days %+v", snapshot.Components[0].Days)
-	}
-}
-
-func TestPage_KeepsTheInterfaceLanguageAndDefaultsToIt(t *testing.T) {
-	f := newFixture(t)
-	page, err := f.status.Page(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page.Language != lang.Default || page.Title != "" {
-		t.Fatalf("page %+v", page)
-	}
-	saved, err := f.status.SetPage(context.Background(), status.Page{Title: " Statut de la maison ", Announcement: "Coupure samedi.", Language: lang.English})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saved.Title != "Statut de la maison" || saved.Language != lang.English {
-		t.Fatalf("saved %+v", saved)
-	}
-	if _, err := f.status.SetPage(context.Background(), status.Page{Language: "de"}); !errors.Is(err, status.ErrLanguageInvalid) {
-		t.Fatalf("unknown language: %v", err)
-	}
-	if _, err := f.status.SetPage(context.Background(), status.Page{Announcement: strings.Repeat("a", status.MaxAnnouncementLength+1)}); !errors.Is(err, status.ErrAnnouncementInvalid) {
-		t.Fatalf("long announcement: %v", err)
 	}
 }
 
@@ -464,7 +445,7 @@ func TestWatch_RefreshesOnAnyTopicOfTheBus(t *testing.T) {
 	if _, err := f.probes.Create(ctx, probe.Definition{Name: "site", Kind: probe.KindHTTP, Target: "https://site.exemple.fr/", MachineID: machine.LocalID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.status.CreateComponent(ctx, status.ComponentDefinition{Name: "Site web"}); err != nil {
+	if _, err := f.status.CreateComponent(ctx, status.ComponentDefinition{PageID: f.pageID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	f.bus.Publish(live.TopicProbes)
@@ -535,7 +516,7 @@ func TestCreateComponent_ConcurrentCreations_StopAtTheCeiling(t *testing.T) {
 		creators.Add(1)
 		go func() {
 			defer creators.Done()
-			_, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: "Site web"})
+			_, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: "Site web"})
 			results <- err
 		}()
 	}

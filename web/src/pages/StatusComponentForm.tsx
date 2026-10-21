@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 
 import { useDeclaredServices } from "../api/directory";
 import { useJobs } from "../api/jobs";
 import { useMachines } from "../api/machines";
 import { useProbes } from "../api/probes";
-import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
+import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
 import { Button } from "../components/Button";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
@@ -17,7 +17,7 @@ import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import { nameWithMachine } from "../lib/objects";
-import { componentFormOf, componentRequestOf, emptyComponentForm, memberKinds, type MemberChoice } from "../lib/status";
+import { chosenPageID, componentFormOf, componentRequestOf, emptyComponentForm, memberKinds, pageName, type MemberChoice } from "../lib/status";
 import { StatusPagePill } from "./status/StatusPagePill";
 import "./StatusAdmin.scss";
 
@@ -26,26 +26,32 @@ interface Candidate {
   name: string;
 }
 
-// Créer ou modifier un composant : un nom public, un ordre, et les objets
-// rattachés, choisis parmi ce qu'openCloud surveille déjà.
+// Créer ou modifier un composant : sa page (à la création), un nom public,
+// un ordre, et les objets rattachés, choisis parmi ce qu'openCloud surveille
+// déjà. Une création part de la page de ?page=.
 export function StatusComponentForm() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const component = useStatusComponent(id ?? null);
+  const pages = useStatusPages();
   if (id === undefined) {
-    return <ComponentForm existing={null} />;
+    return <Loaded resource={pages}>{(data) => <ComponentForm existing={null} pageID={chosenPageID(data.pages, params.get("page")) ?? ""} />}</Loaded>;
   }
-  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} />}</Loaded>;
+  return <Loaded resource={component}>{(data) => <ComponentForm existing={data} pageID={data.page_id} />}</Loaded>;
 }
 
-function ComponentForm({ existing }: { existing: StatusComponent | null }) {
+function ComponentForm({ existing, pageID }: { existing: StatusComponent | null; pageID: string }) {
   const t = useT();
   const navigate = useNavigate();
+  const pages = useStatusPages();
   const machines = useMachines();
   // Un membre « service » est un service déclaré : il survit à la recréation de ses conteneurs.
   const services = useDeclaredServices();
   const jobs = useJobs();
   const probes = useProbes();
-  const form = useForm(existing === null ? emptyComponentForm() : componentFormOf(existing));
+  const form = useForm(existing === null ? emptyComponentForm(pageID) : componentFormOf(existing));
+  // Le retour mène aux composants de la page du formulaire.
+  const back = `/page-statut/composants?page=${encodeURIComponent(form.values.pageID)}`;
   const { values, change } = form;
   const action = useAction();
   const [pickKind, setPickKind] = useState<MemberKind>("probe");
@@ -78,7 +84,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
     const body = componentRequestOf(values);
     action.run(() => saveStatusComponent(existing?.id, body), {
       topic: "status",
-      onDone: () => void navigate("/page-statut"),
+      onDone: () => void navigate(back),
     });
   };
 
@@ -102,7 +108,7 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
           loadPlan={() => fetchComponentDeletePlan(existing.id)}
           perform={() => deleteStatusComponent(existing.id)}
           topic="status"
-          onDone={() => void navigate("/page-statut")}
+          onDone={() => void navigate(back)}
           onClose={() => setRemoving(false)}
         />
       )}
@@ -115,10 +121,19 @@ function ComponentForm({ existing }: { existing: StatusComponent | null }) {
             submitIcon={existing ? "check" : "plus"}
             busy={action.busy}
             cancelLabel={t("component.cancel")}
-            cancelTo="/page-statut"
+            cancelTo={back}
           />
         }
       >
+        <Field label={t("component.page_label")} htmlFor="component-page" help={t("component.page_help")}>
+          <Select id="component-page" value={values.pageID} onChange={(event) => change("pageID", event.target.value)} disabled={existing !== null}>
+            {(pages.data?.pages ?? []).map((page) => (
+              <option key={page.id} value={page.id}>
+                {pageName(page)}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label={t("component.name_label")} htmlFor="component-name" help={t("component.name_help")}>
           <Input
             id="component-name"

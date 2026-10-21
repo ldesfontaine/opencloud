@@ -95,10 +95,20 @@ func declaredServiceDeletionPlan(ctx context.Context, db planQuerier, id string)
 		})
 }
 
-// ProjectDeletionPlan : un projet ne retient rien et n'emporte rien ; ses
-// services restent, seuls les liens partent.
+// ProjectDeletionPlan : un projet est retenu par sa page de statut ; il
+// n'emporte rien, ses services restent, seuls les liens partent.
 func (db *DB) ProjectDeletionPlan(ctx context.Context, id string) (deletion.Plan, error) {
-	return readPlan(ctx, db.sql, id, nil, nil,
+	return projectDeletionPlan(ctx, db.sql, id)
+}
+
+func projectDeletionPlan(ctx context.Context, db planQuerier, id string) (deletion.Plan, error) {
+	return readPlan(ctx, db, id,
+		[]planQuery{
+			// Une page sans titre se nomme par son adresse.
+			{deletion.KindStatusPages, `SELECT id, CASE WHEN title != '' THEN title ELSE slug END
+				FROM status_pages WHERE project_id = ? ORDER BY slug`},
+		},
+		nil,
 		[]planQuery{
 			{deletion.KindProjectLinks, `SELECT COUNT(*) FROM project_services WHERE project_id = ?`},
 		})

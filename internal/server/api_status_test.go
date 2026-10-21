@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Un composant « Nuage » fait de tout ce que les autres seeds ont créé :
@@ -23,7 +24,13 @@ import (
 func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	cloud, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{Name: "Nuage", Members: []status.MemberRef{
+	page, err := ts.status.CreatePage(ctx, status.PageDefinition{
+		Slug: seededSlug, Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{PageID: page.ID, Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: remoteID},
 		{Kind: status.KindService, ID: declaredServiceID},
 		{Kind: status.KindHeartbeat, ID: jobID},
@@ -36,7 +43,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{Name: "Silence", Position: 1, Members: []status.MemberRef{{Kind: status.KindProbe, ID: probes[0].ID}}}); err != nil {
+	if _, err := ts.status.CreateComponent(ctx, status.ComponentDefinition{PageID: page.ID, Name: "Silence", Position: 1, Members: []status.MemberRef{{Kind: status.KindProbe, ID: probes[0].ID}}}); err != nil {
 		t.Fatal(err)
 	}
 	opened, err := ts.status.OpenIncident(ctx, status.IncidentDefinition{
@@ -59,10 +66,19 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	if _, err := ts.status.AddUpdate(ctx, yesterday.ID, status.StatusResolved, "Renouvelé."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.status.SetPage(ctx, status.Page{Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h."}); err != nil {
+	return cloud.ID, opened.ID
+}
+
+// seededSlug est l'adresse de la page que seedStatus crée : /statut/maison.
+const seededSlug = "maison"
+
+func (ts *testServer) seededPageID(t *testing.T) string {
+	t.Helper()
+	page, err := ts.status.PageBySlug(context.Background(), seededSlug)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return cloud.ID, opened.ID
+	return page.ID
 }
 
 func (ts *testServer) seedAll(t *testing.T) (componentID, incidentID string) {
@@ -79,12 +95,12 @@ func TestStatusAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	componentID, incidentID := server.seedAll(t)
 	cases := map[string]string{
-		"status_public":     "/statut/api/status",
-		"status_components": "/api/status/components",
+		"status_public":     "/statut/" + seededSlug + "/api/status",
+		"status_components": "/api/status/components?page=" + server.seededPageID(t),
 		"status_component":  "/api/status/components/" + componentID,
 		"status_incidents":  "/api/status/incidents",
 		"status_incident":   "/api/status/incidents/" + incidentID,
-		"status_page":       "/api/status/page",
+		"status_pages":      "/api/status/pages",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -109,7 +125,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 		"nextcloud", "postgres", "cloud.exemple.fr", "5432", "sauvegarde", "certbot", "hb_",
 		strings.Repeat("a", 12), strings.Repeat("b", 12), "openCloud dev", "Silence",
 	}
-	for _, path := range []string{"/statut/api/status", "/statut/api/i18n", "/statut"} {
+	for _, path := range []string{"/statut/maison/api/status", "/statut/maison/api/i18n", "/statut/maison"} {
 		recorder := get(server.Server, path)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s: status %d", path, recorder.Code)
@@ -121,7 +137,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 			}
 		}
 	}
-	body := get(server.Server, "/statut/api/status").Body.String()
+	body := get(server.Server, "/statut/maison/api/status").Body.String()
 	for _, expected := range []string{`"Nuage"`, `"Le nuage ne répond plus"`, `"Statut de la maison"`, `"global":"down"`} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("public status lacks %s", expected)
@@ -136,9 +152,10 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 func TestStatusPublic_IsRateLimitedBySourceBehindTheRoot(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
+	storetest.StatusPage(t, server.db, "statut")
 	passed, refused := 0, 0
 	for i := range 100 {
-		request := httptest.NewRequest(http.MethodGet, "/statut/api/status", nil)
+		request := httptest.NewRequest(http.MethodGet, "/statut/statut/api/status", nil)
 		request.Header.Set("X-Forwarded-For", "203.0.113."+strconv.Itoa(i))
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)
@@ -157,11 +174,11 @@ func TestStatusPublic_IsRateLimitedBySourceBehindTheRoot(t *testing.T) {
 	}
 }
 
-// Seule la page HTML publique se laisse mettre dans un cadre : son API et
-// tout le reste gardent la politique stricte.
+// Seules les pages HTML publiques se laissent mettre dans un cadre : leur
+// API et tout le reste gardent la politique stricte.
 func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 	server := newTestServer(t)
-	for _, path := range []string{"/statut", "/statut/"} {
+	for _, path := range []string{"/statut", "/statut/", "/statut/maison", "/statut/maison/"} {
 		recorder := get(server.Server, path)
 		if got := recorder.Header().Get("Content-Security-Policy"); got != embeddablePolicy || !strings.Contains(got, "frame-ancestors *") {
 			t.Errorf("%s: CSP %q", path, got)
@@ -170,7 +187,7 @@ func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 			t.Errorf("%s: X-Frame-Options %q", path, got)
 		}
 	}
-	for _, path := range []string{"/statut/api/status", "/statut/api/i18n", "/statut/rien", "/", "/api/status/components"} {
+	for _, path := range []string{"/statut/maison/api/status", "/statut/maison/api/i18n", "/statut/maison/rien", "/statutx", "/", "/api/status/components"} {
 		recorder := get(server.Server, path)
 		if got := recorder.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
 			t.Errorf("%s: CSP %q", path, got)
@@ -179,7 +196,7 @@ func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 			t.Errorf("%s: X-Frame-Options %q", path, got)
 		}
 	}
-	if recorder := get(server.Server, "/statut/rien"); recorder.Code != http.StatusNotFound {
+	if recorder := get(server.Server, "/statut/maison/rien"); recorder.Code != http.StatusNotFound {
 		t.Errorf("unknown public path: %d", recorder.Code)
 	}
 }
@@ -187,7 +204,8 @@ func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 func TestStatusPublic_PageIsServedWithoutTheAdministration(t *testing.T) {
 	servertest.RequireFront(t)
 	server := newTestServer(t)
-	recorder := get(server.Server, "/statut")
+	storetest.StatusPage(t, server.db, "statut")
+	recorder := get(server.Server, "/statut/statut")
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK || !strings.Contains(body, `<div id="root">`) {
 		t.Fatalf("status %d: %s", recorder.Code, body)
@@ -210,7 +228,8 @@ func TestStatusPublic_PageIsServedWithoutTheAdministration(t *testing.T) {
 // sujet part sur le bus interne pour l'administration.
 func TestStatusPublic_StreamsStatusOnBothBuses(t *testing.T) {
 	server := newTestServer(t)
-	public, cancelPublic := openLive(t, server, "/statut/api/events", "")
+	pageID := storetest.StatusPage(t, server.db, "statut")
+	public, cancelPublic := openLive(t, server, "/statut/statut/api/events", "")
 	defer cancelPublic()
 	admin, cancelAdmin := openLive(t, server, "/api/events", "")
 	defer cancelAdmin()
@@ -220,7 +239,7 @@ func TestStatusPublic_StreamsStatusOnBothBuses(t *testing.T) {
 	if got := admin(); got != "connected" {
 		t.Fatalf("first admin event %q", got)
 	}
-	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: "Site web"}); err != nil {
+	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: pageID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := public(); got != "status" {
@@ -252,7 +271,7 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	if component.Name != "Nuage bleu" || component.Derived != "" || component.Effective != "down" {
 		t.Fatalf("component %+v", component)
 	}
-	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"name": "", "members": []any{}})
+	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"page_id": server.seededPageID(t), "name": "", "members": []any{}})
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "component.name_invalid" {
 		t.Fatalf("empty name: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -272,7 +291,7 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("schedule: %d %s", recorder.Code, recorder.Body.String())
 	}
-	recorder = callAPI(server.Server, http.MethodPut, "/api/status/page", map[string]any{"title": "", "announcement": "", "language": "en"})
+	recorder = callAPI(server.Server, http.MethodPut, "/api/status/pages/"+server.seededPageID(t), map[string]any{"slug": seededSlug, "title": "", "announcement": "", "language": "en"})
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("page: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -316,7 +335,7 @@ func (v publicStatusView) stateOf(name string) string {
 
 func readPublicStatus(t *testing.T, server *testServer) publicStatusView {
 	t.Helper()
-	recorder := callAPI(server.Server, http.MethodGet, "/statut/api/status", nil)
+	recorder := callAPI(server.Server, http.MethodGet, "/statut/"+seededSlug+"/api/status", nil)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("public status: %d %s", recorder.Code, recorder.Body.String())
 	}

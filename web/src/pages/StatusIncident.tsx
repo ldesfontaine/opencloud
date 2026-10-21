@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
-import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, type Incident } from "../api/status";
+import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, useStatusPages, type Incident } from "../api/status";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
 import { Failure } from "../components/Failure";
@@ -15,6 +15,7 @@ import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
 import {
+  componentChoiceLabel,
   impactTones,
   incidentEditFormOf,
   incidentEditRequestOf,
@@ -186,7 +187,8 @@ function UpdateForm({ incident, reload }: { incident: Incident; reload: () => vo
 // Corriger ce qui se corrige : le titre, les composants, la fenêtre.
 function EditForm({ incident, done, cancel }: { incident: Incident; done: () => void; cancel: () => void }) {
   const t = useT();
-  const components = useStatusComponents();
+  const components = useStatusComponents(null);
+  const pages = useStatusPages().data?.pages ?? [];
   const form = useForm(incidentEditFormOf(incident));
   const { values, change } = form;
   const action = useAction();
@@ -231,7 +233,7 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
           {(components.data?.components ?? []).map((component) => (
             <Checkbox
               key={component.id}
-              label={component.name}
+              label={componentChoiceLabel(component, pages)}
               checked={values.componentIDs.includes(component.id)}
               onChange={() => change("componentIDs", toggleComponent(values.componentIDs, component.id))}
             />

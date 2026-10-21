@@ -327,7 +327,7 @@ Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml
 ### Les flux en direct
 
 `/agent/stream`, `/api/events`, `/api/containers/{id}/logs/stream`,
-`/statut/api/events` et `/mcp` sont des flux SSE : une réponse qui dure des
+`/statut/<page>/api/events` et `/mcp` sont des flux SSE : une réponse qui dure des
 heures. Traefik les laisse passer par défaut. **N'ajoutez pas** de
 middleware `buffering` sur ce routeur ; `compress`, s'il est là, ne doit
 pas toucher `text/event-stream`. Les délais de Traefik (`readTimeout`,
@@ -344,13 +344,17 @@ préférez-la. Si vous mettez malgré tout un middleware `basicAuth` devant,
 | --- | --- | --- |
 | `/agent/…` | L'agent de chaque machine | Sa clé Ed25519 |
 | `/ping/…` | Vos tâches planifiées | Le jeton dans l'URL |
-| `/statut`, `/statut/…` | Le public | Aucune, par conception |
+| `/statut`, `/statut/…` | Le public : chaque page de statut vit sous ce préfixe, à `/statut/<adresse>` | Aucune, par conception |
 | `/mcp` | Un agent IA | Un Bearer OAuth ou un jeton d'API |
 | `/oauth/token` | Un agent IA | Le secret du client |
 | `/.well-known/…` | Un agent IA | Aucune : des métadonnées |
 
-La page de statut charge aussi `/assets/…`, `/theme.js` et `/favicon.svg` :
-ils doivent rester joignables pour qu'un visiteur la voie. Ne cumulez pas
+Routez le **préfixe** `/statut` entier vers openCloud, pas une page : chaque
+page de statut a son adresse dessous (`/statut/client-a`, `/statut/docs`…),
+créée dans l'interface sans toucher à Traefik. `/statut` seul mène à la page
+s'il n'y en a qu'une, sinon répond 404 : une page ne dit jamais qu'une autre
+existe. Une page de statut charge aussi `/assets/…`, `/theme.js` et
+`/favicon.svg` : ils doivent rester joignables pour qu'un visiteur la voie. Ne cumulez pas
 le Basic de Traefik et celui d'openCloud : un seul en-tête `Authorization`
 porte les deux.
 
@@ -817,6 +821,16 @@ toute sa machine). Et **une livraison en échec n'est plus perdue** : elle est
 rejouée, les essais s'espaçant jusqu'à une heure, pendant 24 h. Le journal d'audit écrit
 `mute.create` et `mute.delete` là où il écrivait `silence.*`. Un binaire
 d'avant ne retrouve plus `alert_silences` : même retour arrière que plus haut.
+
+**La version des pages de statut multiples** (migration
+`034_status_pages.sql`) remplace la page unique par des pages, une par
+adresse. Votre page devient la page `statut`, à **`/statut/statut`**, avec ses
+composants, son titre, son annonce et sa langue ; elle n'est rangée dans aucun
+projet. `/statut` y mène tant qu'elle est la seule : un lien déjà donné
+continue de marcher, jusqu'à ce que vous créiez une deuxième page. Une page
+qui ne montrait rien (aucun composant, ni titre, ni annonce) n'est pas reprise.
+Un binaire d'avant ne lit plus les réglages (`settings` perd `status_title`,
+`status_announcement`, `status_language`) : même retour arrière que plus haut.
 
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 

@@ -24,7 +24,7 @@ func TestUpdateSettings_ThenLoad_RoundTripsEveryKey(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	want := settings.Settings{
-		Language: lang.English, StatusTitle: "Statut", StatusAnnouncement: "Maintenance jeudi", StatusLanguage: lang.French,
+		Language:             lang.English,
 		DiskAttentionPercent: 70, DiskDangerPercent: 85,
 		MailHost: "smtp.example.org", MailPort: 465, MailTLS: "tls", MailUsername: "alerts", MailPassword: "s3cret", MailFrom: "oc@example.org",
 		LifecycleDisabled: true,
@@ -74,19 +74,19 @@ func TestUpdateSettings_LifecycleStaysOffUntilTurnedBackOn(t *testing.T) {
 func TestUpdateSettings_KeepsTheKeysItDoesNotTouch(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
-	if _, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.StatusTitle = "Statut" }); err != nil {
+	if _, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.MailFrom = "oc@example.org" }); err != nil {
 		t.Fatal(err)
 	}
 	written, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.Language = lang.English })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if written.StatusTitle != "Statut" || written.Language != lang.English {
+	if written.MailFrom != "oc@example.org" || written.Language != lang.English {
 		t.Fatalf("got %+v", written)
 	}
 }
 
-// La langue de l'interface et la page de statut changées en même temps :
+// La langue de l'interface et l'expéditeur du relais changés en même temps :
 // chacun réécrit la ligne entière, aucun ne perd la clé de l'autre.
 func TestUpdateSettings_TwoConcurrentWriters_BothValuesSurvive(t *testing.T) {
 	db := openTestDB(t)
@@ -96,8 +96,8 @@ func TestUpdateSettings_TwoConcurrentWriters_BothValuesSurvive(t *testing.T) {
 	errs := make(chan error, 2*rounds)
 	writers.Go(func() {
 		for round := range rounds {
-			title := fmt.Sprintf("titre %d", round)
-			_, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.StatusTitle = title })
+			from := fmt.Sprintf("oc%d@example.org", round)
+			_, err := db.UpdateSettings(ctx, func(current *settings.Settings) { current.MailFrom = from })
 			errs <- err
 		}
 	})
@@ -123,7 +123,7 @@ func TestUpdateSettings_TwoConcurrentWriters_BothValuesSurvive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := settings.Settings{Language: lang.English, StatusTitle: fmt.Sprintf("titre %d", rounds-1)}
+	want := settings.Settings{Language: lang.English, MailFrom: fmt.Sprintf("oc%d@example.org", rounds-1)}
 	if current != want {
 		t.Fatalf("got %+v, want %+v", current, want)
 	}

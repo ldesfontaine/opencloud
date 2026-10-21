@@ -68,8 +68,10 @@ const (
 	codeReadOnly    = "mcp.read_only"
 	// Un silence MCP vise un objet : une sorte seule les viserait tous.
 	codeSilenceNeedsObject = "mcp.silence_object_required"
+	// Plusieurs pages de statut, ou aucune : l'outil demande laquelle.
+	codeStatusPageRequired = "mcp.status_page_required"
 	// Les comptes du catalogue, figés par un test qui énumère les outils.
-	mcpReadToolCount  = 19
+	mcpReadToolCount  = 20
 	mcpWriteToolCount = 9
 	// Les mêmes bornes que /ping et /statut par adresse résolue ; le point
 	// de jeton, où un secret se devine, est tenu plus serré.

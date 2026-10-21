@@ -199,15 +199,12 @@ func TestSetDiskThresholds_Invalid_IsRefused_AndTheDefaultsStay(t *testing.T) {
 	}
 }
 
-// Chaque geste ne touche que ses clés : la langue, la page de statut, les
-// seuils et le relais écrits l'un après l'autre survivent tous.
+// Chaque geste ne touche que ses clés : la langue, les seuils, le relais et
+// la fin de support écrits l'un après l'autre survivent tous.
 func TestGestures_KeepTheOtherKeys(t *testing.T) {
 	service, db := newService(t)
 	ctx := context.Background()
 	if err := service.SetLanguage(ctx, lang.English); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := service.SetStatusPage(ctx, "Statut", "Maintenance jeudi", lang.French); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.SetDiskThresholds(ctx, alert.DiskThresholds{Attention: 70, Danger: 85}); err != nil {
@@ -220,7 +217,7 @@ func TestGestures_KeepTheOtherKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := settings.Settings{
-		Language: lang.English, StatusTitle: "Statut", StatusAnnouncement: "Maintenance jeudi", StatusLanguage: lang.French,
+		Language:             lang.English,
 		DiskAttentionPercent: 70, DiskDangerPercent: 85,
 		MailHost: "smtp.example.org", MailPort: 587, MailTLS: "starttls", MailFrom: "oc@example.org",
 		LifecycleDisabled: true,

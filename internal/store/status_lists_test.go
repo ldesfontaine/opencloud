@@ -16,12 +16,13 @@ func TestListComponents_AttachesTheMembersOfEachComponent(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	declared := declaredOnLocal(t, db)
+	pageID := insertTestPage(t, db, "statut")
 	components := []status.Component{
-		{ID: "c-site", Name: "Site", Position: 2, CreatedAt: incidentNow, Members: []status.Member{
+		{ID: "c-site", PageID: pageID, Name: "Site", Position: 2, CreatedAt: incidentNow, Members: []status.Member{
 			{Kind: status.KindService, ID: declared.ID}, {Kind: status.KindMachine, ID: machine.LocalID},
 		}},
-		{ID: "c-empty", Name: "Vide", Position: 1, CreatedAt: incidentNow},
-		{ID: "c-host", Name: "Hôte", Position: 3, CreatedAt: incidentNow, Members: []status.Member{{Kind: status.KindMachine, ID: machine.LocalID}}},
+		{ID: "c-empty", PageID: pageID, Name: "Vide", Position: 1, CreatedAt: incidentNow},
+		{ID: "c-host", PageID: pageID, Name: "Hôte", Position: 3, CreatedAt: incidentNow, Members: []status.Member{{Kind: status.KindMachine, ID: machine.LocalID}}},
 	}
 	for _, component := range components {
 		if err := db.InsertComponent(ctx, component); err != nil {
@@ -29,7 +30,7 @@ func TestListComponents_AttachesTheMembersOfEachComponent(t *testing.T) {
 		}
 	}
 
-	listed, err := db.ListComponents(ctx)
+	listed, err := db.ListComponents(ctx, pageID)
 	if err != nil {
 		t.Fatal(err)
 	}

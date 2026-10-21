@@ -140,7 +140,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
 	publicBus := live.New()
-	statusPage := status.New(db, db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)

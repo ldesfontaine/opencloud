@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Un service que des sondes ou des composants visent ne se supprime pas : 409,
@@ -20,7 +21,7 @@ func TestAPI_DeleteLinkedService_Answers409WithThePlan(t *testing.T) {
 	var created declaredServiceJSON
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/directory/services", nextcloudRequest(remoteID)), &created)
 	probeCreated := server.createProbeVia(t, probeRequest{Name: "site", Kind: "http", Target: "https://a.fr/", MachineID: machine.LocalID, ServiceID: created.ID})
-	component, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{
+	component, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: created.ID}},
 	})
 	if err != nil {

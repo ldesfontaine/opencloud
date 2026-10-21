@@ -200,20 +200,25 @@ type HeartbeatService interface {
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
-// Ce que le serveur attend du composant statut : l'instantané public d'un
-// côté, l'administration des composants, des incidents et de la page de
-// l'autre.
+// Ce que le serveur attend du composant statut : l'instantané public d'une
+// page d'un côté, l'administration des pages, des composants et des
+// incidents de l'autre.
 type StatusService interface {
-	Snapshot(ctx context.Context) (status.Snapshot, error)
-	Page(ctx context.Context) (status.Page, error)
-	SetPage(ctx context.Context, page status.Page) (status.Page, error)
-	Components(ctx context.Context) ([]status.Component, error)
+	Snapshot(ctx context.Context, pageID string) (status.Snapshot, error)
+	ListPages(ctx context.Context) ([]status.Page, error)
+	GetPage(ctx context.Context, id string) (status.Page, error)
+	PageBySlug(ctx context.Context, slug string) (status.Page, error)
+	CreatePage(ctx context.Context, definition status.PageDefinition) (status.Page, error)
+	UpdatePage(ctx context.Context, id string, definition status.PageDefinition) (status.Page, error)
+	DeletePage(ctx context.Context, id string) error
+	DeletePagePlan(ctx context.Context, id string) (deletion.Plan, error)
+	Components(ctx context.Context, pageID string) ([]status.Component, error)
 	GetComponent(ctx context.Context, id string) (status.Component, error)
 	CreateComponent(ctx context.Context, definition status.ComponentDefinition) (status.Component, error)
 	UpdateComponent(ctx context.Context, id string, definition status.ComponentDefinition) (status.Component, error)
 	DeleteComponent(ctx context.Context, id string) error
 	DeleteComponentPlan(ctx context.Context, id string) (deletion.Plan, error)
-	Incidents(ctx context.Context) ([]status.Incident, error)
+	Incidents(ctx context.Context, pageID string) ([]status.Incident, error)
 	GetIncident(ctx context.Context, id string) (status.Incident, error)
 	OpenIncident(ctx context.Context, definition status.IncidentDefinition) (status.Incident, error)
 	AddUpdate(ctx context.Context, id string, next status.IncidentStatus, message string) (status.Incident, error)
