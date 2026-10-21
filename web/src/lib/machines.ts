@@ -1,4 +1,4 @@
-import type { Machine } from "../api/machines";
+import type { Capability, Machine } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { seenAgo } from "./time";
 
@@ -13,13 +13,67 @@ export function machinesSubtitle(t: Translate, total: number, online: number): s
   return t("machines.subtitle", total, online);
 }
 
-// Le formulaire d'une machine neuve : l'opérateur la nomme, le serveur
-// répond par un jeton. Le corps de la requête est ce nom, tel quel.
+// Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
+// droits de son agent, le serveur répond par un jeton et la ligne
+// d'installation qui les porte.
 export interface MachineFormValues {
   name: string;
+  // Les droits cochés, hors observe, toujours là.
+  rights: string[];
+  // Le dossier où recevoir des sauvegardes, et ceux où écrire, séparés par
+  // des virgules.
+  backupPath: string;
+  writePaths: string;
 }
 
-export const emptyMachineForm: MachineFormValues = { name: "" };
+export const emptyMachineForm: MachineFormValues = { name: "", rights: [], backupPath: "", writePaths: "" };
+
+// La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
+export const capabilityNames = ["observe", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
+
+// observe est toujours accordé : la case se montre cochée et grisée.
+export const alwaysGranted = "observe";
+
+// La clé du libellé d'un droit : le point du nom devient « _ ».
+export function capabilityLabelKey(name: string): string {
+  return `machine.capability_${name.split(".").join("_")}`;
+}
+
+// Coche ou décoche un droit.
+export function toggleRight(rights: string[], name: string): string[] {
+  return rights.includes(name) ? rights.filter((right) => right !== name) : [...rights, name];
+}
+
+// Le corps de la requête : chaque droit coché, avec ses chemins pour un droit
+// borné. Le serveur ajoute observe et juge les chemins.
+export function capabilitiesOf(values: MachineFormValues): Capability[] {
+  return capabilityNames
+    .filter((name) => name !== alwaysGranted && values.rights.includes(name))
+    .map((name) => ({ name, paths: pathsOf(name, values) }));
+}
+
+function pathsOf(name: string, values: MachineFormValues): string[] {
+  if (name === "backup.receive") {
+    return splitPaths(values.backupPath);
+  }
+  if (name === "files.write") {
+    return splitPaths(values.writePaths);
+  }
+  return [];
+}
+
+function splitPaths(text: string): string[] {
+  return text
+    .split(",")
+    .map((path) => path.trim())
+    .filter((path) => path !== "");
+}
+
+// Un droit en une ligne : son libellé, puis ses chemins.
+export function describeCapability(t: Translate, capability: Capability): string {
+  const label = t(capabilityLabelKey(capability.name));
+  return capability.paths.length === 0 ? label : t("machine.right_with_paths", label, capability.paths.join(", "));
+}
 
 // « vu » d'une machine. En ligne, elle l'est à l'instant : son flux est
 // ouvert. Le direct ne republie pas la liste à chaque signal, le dernier

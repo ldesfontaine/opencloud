@@ -9,13 +9,14 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
-const tokenColumns = `id, token_hash, token_prefix, name, machine_id, created_at, expires_at, consumed_at, consumed_by` // #nosec G101 -- des noms de colonnes.
+const tokenColumns = `id, token_hash, token_prefix, name, machine_id, requested_capabilities, created_at, expires_at, consumed_at, agent_id` // #nosec G101 -- des noms de colonnes.
 
 func (db *DB) InsertToken(ctx context.Context, t machine.Token) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO enrollment_tokens (id, token_hash, token_prefix, name, machine_id, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Hash, t.Prefix, t.Name, nullableString(t.MachineID), t.CreatedAt.Unix(), t.ExpiresAt.Unix())
+		INSERT INTO enrollment_tokens (id, token_hash, token_prefix, name, machine_id, requested_capabilities, created_at, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Hash, t.Prefix, t.Name, nullableString(t.MachineID), machine.FormatCapabilities(t.Capabilities),
+		t.CreatedAt.Unix(), t.ExpiresAt.Unix())
 	if err != nil {
 		return fmt.Errorf("insert token: %w", err)
 	}
@@ -47,11 +48,15 @@ func (db *DB) DeleteToken(ctx context.Context, id string) error {
 }
 
 // PurgeTokens efface les jetons périmés jamais consommés, et les consommés
-// avant consumedBefore : passé ce délai, l'historique ne sert plus.
+// avant consumedBefore : passé ce délai, l'historique ne sert plus. Le jeton
+// d'un agent actif reste : il dit les droits demandés, contre lesquels se lit
+// ce que l'agent rapporte.
 func (db *DB) PurgeTokens(ctx context.Context, now, consumedBefore time.Time) error {
 	_, err := db.sql.ExecContext(ctx, `
 		DELETE FROM enrollment_tokens
-		WHERE (consumed_at IS NULL AND expires_at <= ?) OR consumed_at < ?`,
+		WHERE (consumed_at IS NULL AND expires_at <= ?)
+			OR (consumed_at < ? AND (agent_id IS NULL
+				OR agent_id NOT IN (SELECT id FROM agents WHERE revoked_at IS NULL)))`,
 		now.Unix(), consumedBefore.Unix())
 	if err != nil {
 		return fmt.Errorf("purge tokens: %w", err)
@@ -61,15 +66,19 @@ func (db *DB) PurgeTokens(ctx context.Context, now, consumedBefore time.Time) er
 
 func scanToken(row scanner) (machine.Token, error) {
 	var t machine.Token
-	var machineID, consumedBy sql.NullString
+	var machineID, agentID sql.NullString
+	var requested string
 	var createdAt, expiresAt int64
 	var consumedAt sql.NullInt64
-	err := row.Scan(&t.ID, &t.Hash, &t.Prefix, &t.Name, &machineID, &createdAt, &expiresAt, &consumedAt, &consumedBy)
+	err := row.Scan(&t.ID, &t.Hash, &t.Prefix, &t.Name, &machineID, &requested, &createdAt, &expiresAt, &consumedAt, &agentID)
 	if err != nil {
 		return machine.Token{}, err
 	}
 	t.MachineID = machineID.String
-	t.ConsumedBy = consumedBy.String
+	t.AgentID = agentID.String
+	if requested != "" {
+		t.Capabilities, _ = machine.ParseCapabilities(requested)
+	}
 	t.CreatedAt = time.Unix(createdAt, 0)
 	t.ExpiresAt = time.Unix(expiresAt, 0)
 	if consumedAt.Valid {

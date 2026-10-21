@@ -16,7 +16,7 @@ import (
 func TestAgentEnroll_IsJournaledUnderTheAgent(t *testing.T) {
 	server := newBench(t)
 	server.machines.SetAuditor(audit.New(server.db, server.logger))
-	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1")
+	cleartext, _, err := server.machines.CreateToken(context.Background(), "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestAgentEnroll_IsJournaledUnderTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Action != audit.MachineEnroll || events[0].Actor != audit.Agent(remoteID) || events[0].ObjectName != "vps-paris-1" {
+	if len(events) != 1 || events[0].Action != audit.AgentEnroll || events[0].Actor != audit.Agent(remoteID) || events[0].ObjectName != "vps-paris-1" {
 		t.Fatalf("events: %+v", events)
 	}
 }

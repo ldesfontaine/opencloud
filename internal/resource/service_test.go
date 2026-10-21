@@ -293,7 +293,8 @@ func TestRemoveMachine_TakesItsSamplesAlong(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = cleartext
-	enrolled, err := b.db.Enroll(ctx, token.Hash, machine.Machine{ID: id, Kind: machine.KindRemote, PublicKey: make([]byte, 32), EnrolledAt: testNow, CreatedAt: testNow}, testNow)
+	enrolled, err := b.db.Enroll(ctx, token.Hash, machine.Machine{ID: id, CreatedAt: testNow},
+		machine.Agent{ID: "agt_0123456789abcdef", PublicKey: make([]byte, 32), EnrolledAt: testNow}, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}

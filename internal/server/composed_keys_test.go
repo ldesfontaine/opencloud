@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -134,7 +135,17 @@ func closedKeyLists() []composedKeys {
 		// Le plan d'une suppression : ce qui retient, part ou se détache, compté.
 		{prefix: "deletion.kind_", values: names(deletion.Kinds())},
 		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},
+		// Les droits d'un agent : le front remplace le point par « _ ».
+		{prefix: "machine.capability_", values: capabilityKeys()},
 	}
+}
+
+func capabilityKeys() []string {
+	out := make([]string, 0, len(machine.CapabilityNames()))
+	for _, name := range machine.CapabilityNames() {
+		out = append(out, strings.ReplaceAll(name, ".", "_"))
+	}
+	return out
 }
 
 func names[T ~string](values []T) []string {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -186,7 +187,7 @@ func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
 func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
-	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2"); err != nil {
+	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", nil); err != nil {
 		t.Fatal(err)
 	}
 	jobID := server.seedJobs(t)
@@ -329,7 +330,7 @@ func TestMCP_ContainerLogsRefuseLikeTheAPI(t *testing.T) {
 // dernier signal en base, et les journaux disent qu'ils passent par HTTP.
 func TestMCPStdio_OnlineComesFromTheLastSignal(t *testing.T) {
 	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
+	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	server.machines.SetPresence(machine.RecentSignal{})
 	session := connectMCP(t, server.newMCPServer(true))
 	ctx := context.Background()
@@ -338,7 +339,7 @@ func TestMCPStdio_OnlineComesFromTheLastSignal(t *testing.T) {
 		ago    time.Duration
 		online bool
 	}{{10 * time.Second, true}, {5 * time.Minute, false}} {
-		if err := server.db.TouchMachine(ctx, remoteID, testNow.Add(-seen.ago)); err != nil {
+		if err := server.db.TouchAgent(ctx, enrolled.Agent.ID, testNow.Add(-seen.ago)); err != nil {
 			t.Fatal(err)
 		}
 		text, isError := callTool(t, session, "list_machines", nil)
@@ -744,7 +745,7 @@ func TestMCP_HTTPToolCallReturnsTheSameFactsAsTheAPI(t *testing.T) {
 	}
 	var fromAPI machinesResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/machines", nil), &fromAPI)
-	if len(listed.Machines) != 2 || listed.Machines[1] != fromAPI.Machines[1] || listed.Machines[1].ID != remoteID {
+	if len(listed.Machines) != 2 || !reflect.DeepEqual(listed.Machines[1], fromAPI.Machines[1]) || listed.Machines[1].ID != remoteID {
 		t.Fatalf("mcp %+v\napi %+v", listed.Machines, fromAPI.Machines)
 	}
 }

@@ -41,7 +41,7 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	f.channel(t, "ops", alert.SeverityAttention, true)
 	ctx := context.Background()
 	enrolled := f.enrollRemote(t)
-	session, err := f.machines.Connect(ctx, enrolled.ID, "51.15.20.114", "v0.0.1")
+	session, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	if err := f.machines.CheckLost(ctx); err != nil || len(f.open(t, alert.StatusOpen)) != 1 {
 		t.Fatal("dedup")
 	}
-	if _, err := f.machines.Connect(ctx, enrolled.ID, "51.15.20.114", "v0.0.1"); err != nil {
+	if _, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", ""); err != nil {
 		t.Fatal(err)
 	}
 	if f.kinds(t) != "" || f.sender.events() != "opened:ops,resolved:ops" {

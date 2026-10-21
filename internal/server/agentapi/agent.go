@@ -140,7 +140,10 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(agentwire.HeaderAgentOS)); err != nil {
 		h.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
 	}
-	session, err := h.machines.Connect(r.Context(), authenticated.ID, h.clientAddress(r), r.Header.Get(agentwire.HeaderAgentVersion))
+	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
+	// dit, comparés à ce que son jeton demandait, pas encore appliqués.
+	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
+		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights))
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
@@ -203,6 +206,11 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusUnauthorized, "challenge_expired")
 	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
 		h.writeError(w, http.StatusUnauthorized, "bad_proof")
+	// L'agent a prouvé sa clé, mais l'opérateur l'a révoqué : il s'arrête,
+	// comme pour bad_proof. Un agent plus vieux ne connaît pas ce code et
+	// réessaie, avec son délai croissant, sans jamais être admis.
+	case errors.Is(err, machine.ErrAgentRevoked):
+		h.writeError(w, http.StatusUnauthorized, agentwire.CodeRevoked)
 	default:
 		h.logger.Error("authenticate", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")

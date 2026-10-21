@@ -82,7 +82,7 @@ func TestEnrollmentTokenFor_RefusesAnEmptyOrClosedInput(t *testing.T) {
 
 func TestEnrollmentTokenFor_NeverReadsInputOfAnEnrolledAgent(t *testing.T) {
 	root := emptyStateDir(t)
-	identity, err := agent.NewIdentity("https://opencloud.example.org", "", lang.French)
+	identity, err := agent.NewIdentity("https://opencloud.example.org", "", lang.French, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

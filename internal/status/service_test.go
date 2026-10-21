@@ -483,7 +483,11 @@ func TestWatch_IgnoresTopicsOutsideTheMembers(t *testing.T) {
 	for f.bus.Count() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if _, err := f.machines.Connect(ctx, remote, "192.0.2.1", "v0.0.1"); err != nil {
+	enrolled, err := f.machines.Get(ctx, remote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.machines.Connect(ctx, enrolled.Machine, "192.0.2.1", "v0.0.1", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.bus.Publish(live.TopicResources)

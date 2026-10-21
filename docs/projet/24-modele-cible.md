@@ -54,7 +54,7 @@ erDiagram
     }
     agent_capabilities {
         TEXT agent_id PK, FK
-        TEXT capability PK "liste reportee, decision 9"
+        TEXT capability PK "decision 9, prise le 21/10"
         TEXT scope "chemins, comptes"
         INTEGER reported_at "lu dans le fichier de l agent"
     }
@@ -63,7 +63,7 @@ erDiagram
         TEXT machine_id FK "re-enrolement"
         TEXT agent_id FK "consomme par"
         TEXT token_hash UK
-        TEXT requested_capabilities "JSON, coche a l installation"
+        TEXT requested_capabilities "forme texte, cochee a l installation"
         TEXT root_dir
         INTEGER expires_at
         INTEGER consumed_at
@@ -607,8 +607,8 @@ flowchart LR
 | Entité | Rôle | État |
 | --- | --- | --- |
 | `machines` | L'hôte : nom, système. Survit à un ré-enrôlement. Plus de genre `local` : la machine openCloud a un agent comme les autres | Transformée : clé et `last_seen_at` passent à l'agent, `kind` disparaît |
-| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle |
-| `agent_capabilities` | Droits **lus dans le fichier de l'agent** et rapportés à la connexion. Le demandé reste dans le jeton : l'écart se voit | Nouvelle (liste : décision 9 reportée) |
+| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle, faite (migration `030_agents.sql`, section 13) |
+| `agent_capabilities` | Droits **lus dans le fichier de l'agent** et rapportés à la connexion. Le demandé reste dans le jeton : l'écart se voit | Nouvelle, faite (`030`) ; liste : décision 9, prise le 21 octobre 2026 |
 | `projects` | Regroupe des services. Sert à la page de statut, au routage des canaux, au filtre de l'interface, plus tard aux droits | Nouvelle |
 | `project_services` | Appartenance d'un service à un projet ; un service peut être dans plusieurs | Nouvelle |
 | `declared_services` | L'annuaire. Une ligne = un dossier `<racine>/<service>/`, ou un projet Compose observé, ou un conteneur seul, ou un binaire supervisé. Porte la nature, l'adresse, « protégé » | Nouvelle |
@@ -745,7 +745,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | Table actuelle | Verdict | Ce qui change | Historique |
 | --- | --- | --- | --- |
 | `machines` | Transformée | `public_key`, `last_seen_at` vers `agents` ; `kind` disparaît. La machine `local` garde son id et son historique ; elle attend un agent, installé par une ligne de ré-enrôlement. Le chemin intégré à `serve` est retiré | Gardé |
-| `enrollment_tokens` | Transformée | `consumed_by` (texte) → `agent_id` (FK set null) ; ajout des droits demandés et de la racine | Gardé |
+| `enrollment_tokens` | Transformée | `consumed_by` (texte) → `agent_id` (FK set null) ; ajout des droits demandés (**fait**, `030`) et de la racine (à faire, avec le premier déploiement) | Gardé |
 | `machine_samples`, `machine_disks`, `machine_samples_hourly`, `machine_samples_daily` | Gardées | Interfaces virtuelles (veth, ponts) écartées du trafic ; agrégat horaire par volume | Gardé |
 | `machine_engines` | Gardée | — | — |
 | `machine_networks` | Gardée | — | — |
@@ -945,7 +945,7 @@ Le texte de chaque décision est dans [`23-direction.md`](23-direction.md).
 | `id` + `name` dans le YAML ; id dupliqué refusé | Règle « Reconnaissance » | Points techniques, « Identité dans le YAML » |
 | Machine et agent séparés | `machines` + `agents` | Points techniques, « Machine et agent » |
 | Machine openCloud = agent comme les autres | `kind` retiré | Points techniques, « Machine openCloud » |
-| Racine `/srv/workspace`, droits cochés à l'installation | `agents.root_dir`, `enrollment_tokens.requested_capabilities`, `agent_capabilities` | Actées « Racine », « Droits », « Installation » ; liste des droits : décision 9, reportée |
+| Racine `/srv/workspace`, droits cochés à l'installation | `agents.root_dir`, `enrollment_tokens.requested_capabilities`, `agent_capabilities` | Actées « Racine », « Droits », « Installation » ; liste des droits : décision 9, prise le 21 octobre 2026 |
 | Mesures : historique long par service, veth écartées, agrégat par volume | `service_samples_hourly` | Points techniques, « Mesures » |
 | Migration : service créé d'office seulement pour un conteneur déjà lié | Tableau « De l'existant à la cible », ligne `services` | Points techniques, « Migration de l'existant » |
 | Unités binaires déclarables, écart « non observé » | `service_units.kind` = `binary` | Points techniques, « Unités binaires » |
@@ -1102,3 +1102,24 @@ journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
 | **Pas encore d'`audit_deliveries` ni de `receives_audit`** | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
 | **Ajout seul, tenu par la base** : un déclencheur refuse toute modification d'une ligne, hors la mise à nul de `apply_id` par sa clé étrangère ; la seule suppression est la purge à un an (`audit.Retention`) | Un défaut de code ne réécrit pas l'histoire ; qui a la base en main la réécrit quand même, d'où l'envoi aux canaux à venir |
 | **Écrit après le geste, hors de sa transaction** ; un échec d'écriture est journalisé en erreur et ne défait pas le geste | Ne pas toucher aux transactions de chaque domaine ; les actions typées écriront leur `action_runs` avant d'envoyer l'ordre |
+
+## 13. Ce que les agents ont fixé
+
+La migration `030_agents.sql` sépare la machine de son agent ; le
+fonctionnement est dans `22-fonctionnement.md`, « Comment une machine entre »,
+« Les droits d'un agent », « Révoquer un agent ». Ce que le code a tranché, et
+ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`agents.machine_id` en cascade**, comme le tableau des liens ; le plan de retrait d'une machine compte ses agents (`deletion.KindAgents`) | Un agent n'a pas de sens sans sa machine ; le retrait passe déjà par le plan, qui le dit. Un `restrict` forcerait à supprimer les agents à la main avant la machine, sans rien protéger |
+| **Un seul agent actif par machine, tenu par la base** (`agents_one_active`, index unique partiel sur `revoked_at IS NULL`) ; l'**agent courant** est l'actif, sinon le dernier révoqué | Ré-enrôler révoque l'ancien et inscrit le nouveau dans la même transaction ; la fiche montre un agent révoqué au lieu de faire comme s'il n'y en avait jamais eu |
+| **La preuve reste celle de la machine** (`OpenCloud-Machine`, défi lié à l'identifiant de la machine), vérifiée avec la clé de l'agent courant | Aucun agent installé ne change : le protocole de l'enrôlement et du flux est le même. Un agent révoqué reçoit encore son défi ; c'est sa preuve, vérifiée, qui lui répond `401 revoked`. Sans sa clé, on n'apprend rien de plus qu'avant |
+| **Une machine sans agent actif n'est jamais « perdue »** | Révoquée ou en attente de son agent, il n'y a rien à perdre ; une alerte serait du bruit |
+| **Les droits demandés restent sur le jeton**, sous leur forme texte (`observe,files.write=/a:/b`), pas en JSON ; **le jeton d'un agent actif n'est plus purgé** à 90 jours | Une seule forme pour la ligne, le fichier de l'agent, l'en-tête et la base ; sans le jeton, l'écart ne se lirait plus après trois mois |
+| **`agent_capabilities` est le dernier rapport**, remplacé à chaque connexion, `scope` porte les chemins séparés par `:` | Le reflet du fichier, pas un historique ; une ligne par droit garde la clé (agent, droit) du diagramme |
+| **Ré-enrôler reprend les droits que le jeton de l'agent courant demandait** ; `observe` seul s'il n'en demandait aucun | **Décision prise, à valider par Lucas** : le plus simple qui ne fait pas perdre ses droits à un agent qu'on réinstalle ; qui les change ensuite reste la décision 10 |
+| **`agent.enroll` et `agent.revoke` au journal d'audit** ; l'objet est l'agent, nommé par sa machine. `machine.reenroll` (l'émission du jeton) et `machine.delete` restent sur la machine | Les lignes déjà écrites sous `machine.enroll` le gardent : le journal ne se réécrit pas |
+| **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146) |
+| **`machines` perd `kind`, `public_key`, `agent_version`, `enrolled_at`, `last_seen_at`** ; la machine openCloud se reconnaît à son identifiant stable, `local` | La clé, la version, l'enrôlement et le signe de vie sont ceux de l'agent ; un genre de machine n'a plus de raison d'être |
+

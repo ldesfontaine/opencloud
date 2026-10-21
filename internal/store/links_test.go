@@ -23,7 +23,7 @@ func declaredOnLocal(t *testing.T, db *DB) directory.Service {
 	t.Helper()
 	ctx := context.Background()
 	err := db.SaveLocalMachine(ctx, machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, Hostname: "host", EnrolledAt: linksNow, CreatedAt: linksNow,
+		ID: machine.LocalID, Name: "opencloud", Hostname: "host", CreatedAt: linksNow,
 	})
 	if err != nil {
 		t.Fatal(err)

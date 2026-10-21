@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -44,6 +45,7 @@ func runAgent(args []string) error {
 	flags.String("token", "", "refusé : le jeton se lit sur l'entrée standard")
 	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'"+brand.ProductName+", s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
+	rights := flags.String("rights", "", "droits cochés à l'installation, premier lancement seulement (observe par défaut)")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
@@ -70,6 +72,12 @@ func runAgent(args []string) error {
 	if flagIsSet(flags, "token") {
 		return &refusal{message: catalogs.For(code).Get("agent.token_flag_refused")}
 	}
+	// Les droits se jugent avant l'enrôlement : un droit mal écrit ne doit
+	// pas consommer le jeton.
+	capabilities, err := machine.ParseCapabilities(*rights)
+	if err != nil {
+		return &refusal{message: catalogs.For(code).Get("agent.rights_invalid")}
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
 	if err != nil {
@@ -92,6 +100,7 @@ func runAgent(args []string) error {
 		Pin:          *pin,
 		AllowPlain:   *allowPlain,
 		Language:     code,
+		Rights:       capabilities,
 		Version:      version.Number(),
 		DockerSocket: *dockerSocket,
 		Roots:        roots,

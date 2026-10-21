@@ -70,7 +70,7 @@ func newFixture(t *testing.T) *fixture {
 func (f *fixture) addLocalMachine(t *testing.T) {
 	t.Helper()
 	err := f.db.SaveLocalMachine(context.Background(), machine.Machine{
-		ID: machine.LocalID, Name: "hote", Kind: machine.KindLocal, EnrolledAt: testNow, CreatedAt: testNow,
+		ID: machine.LocalID, Name: "hote", CreatedAt: testNow,
 	})
 	if err != nil {
 		t.Fatal(err)

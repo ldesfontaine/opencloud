@@ -17,6 +17,12 @@ var (
 	catalogTable = regexp.MustCompile(`(?m)^\[([a-z0-9_]+)\]\s*$`)
 )
 
+// Les littéraux qui ont la forme d'une clé d'une section du catalogue sans
+// en être une, chacun avec sa raison.
+var literalsNotKeys = map[string]string{
+	"agent.update": "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+}
+
 // frontKeys rend les clés que le texte d'un fichier du front demande en
 // dur : celles de t("…"), et tout littéral « section.clé » d'une section du
 // catalogue, où qu'il soit (une branche de ternaire, un champ `key:`). Un
@@ -32,7 +38,8 @@ func frontKeys(content string, sections []string) []string {
 		keys = append(keys, match[1])
 	}
 	return slices.DeleteFunc(keys, func(key string) bool {
-		return strings.HasSuffix(key, "_") || strings.HasSuffix(key, ".")
+		_, notKey := literalsNotKeys[key]
+		return notKey || strings.HasSuffix(key, "_") || strings.HasSuffix(key, ".")
 	})
 }
 
