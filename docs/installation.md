@@ -47,7 +47,7 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | Quoi | Version | Pour |
 | --- | --- | --- |
 | Linux | Visé : Debian 13, amd64 ou arm64. Vérifié : Ubuntu 24.04 amd64 | Le serveur et l'agent lisent `/proc` : Linux seulement |
-| Go | 1.26.9 ou plus (ligne `toolchain` de `go.mod`) | Compiler, sur le poste de build seulement |
+| Go | 1.26.10 ou plus (ligne `toolchain` de `go.mod`) | Compiler, sur le poste de build seulement |
 | Node.js | 20.19 ou plus (`web/package.json`) | Compiler l'interface, poste de build seulement |
 | `make`, `git` | — | Compiler |
 | Docker | API 1.41 ou plus (Docker 20.10+) | Facultatif : suivre les conteneurs d'une machine |
@@ -560,7 +560,7 @@ Connecté en root sans `sudo` (Debian minimal) : collez la commande sans
 seul demande le jeton (« Jeton d'enrôlement : ») et le lit sur la ligne
 suivante ; il s'affiche à la saisie.
 
-Le jeton sert **une fois** et expire en **24 h**. L'adresse vient de
+Le jeton sert **une fois** et expire en **1 h**. L'adresse vient de
 `public_url` : vérifiez-la avant de coller. `-lang en` s'ajoute si
 l'interface est en anglais.
 
@@ -587,7 +587,6 @@ relais.
 | Option | Retenue dans l'identité | Rôle |
 | --- | --- | --- |
 | `-server` | Oui | Adresse d'openCloud, premier lancement seulement |
-| `-token` | — | **Déconseillé** : jeton d'enrôlement en argument, visible de tous les comptes via `ps` (l'agent l'écrit au journal en avertissement). Préférez l'entrée standard |
 | `-pin` | Oui | Empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé |
 | `-lang` | Oui | Langue des messages de l'agent, `fr` ou `en` |
 | `-state` | Non | Répertoire d'état, `/var/lib/opencloud/agent` par défaut |
@@ -656,8 +655,9 @@ ajoutez-le aussi à `ExecStart=` de l'unité.
 | Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). L'identifiant et l'historique sont gardés |
 | Retirer une machine | Machines → la machine → **Retirer**. Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
 
-Tant que `identity.json` existe, l'agent l'utilise, **ignore** `-token` et ne lit jamais
-l'entrée standard : il ne bloque pas sous systemd.
+Tant que `identity.json` existe, l'agent l'utilise et ne lit jamais l'entrée
+standard : il ne bloque pas sous systemd. Le jeton ne passe jamais en
+argument : `-token` est refusé, il serait visible de tous les comptes via `ps`.
 
 ## Mettre à jour
 
@@ -690,17 +690,6 @@ agent à jour contre un serveur plus ancien fonctionne, le serveur ignore ce
 qu'il ne connaît pas. À la mise à jour de l'agent, un conteneur étiqueté passe
 au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
 « label orphelin », sans repli.
-
-**Le premier démarrage d'une version qui chiffre les secrets** crée
-`secret.key` dans `state_dir`, chiffre sur place le mot de passe du relais,
-l'URL et le secret des canaux et les jetons de ping, puis réécrit le fichier
-de la base (une ligne `plaintext secrets sealed` au journal). Les URL de ping
-ne changent pas. **Sauvegardez `secret.key` tout de suite** (voir
-[Sauvegarder](#sauvegarder)). La copie `avant-maj.db` faite plus haut garde ces
-secrets en clair : gardez-la le temps de vérifier la montée, puis effacez-la.
-**Pas de retour arrière par le binaire** : un ancien binaire ne lit pas une
-base chiffrée (il prendrait les chiffrés pour des secrets). Pour revenir en
-arrière, remettez l'ancien binaire **et** la copie faite avant la mise à jour.
 
 **Le premier démarrage d'une version qui relie l'annuaire** (migration
 `024_directory_links.sql`) repointe sur l'annuaire ce qui visait un
@@ -766,9 +755,7 @@ base prise seule, pas quelqu'un qui lit tout `state_dir` : gardez-la `0600`,
 au compte du service (le serveur refuse une clé que d'autres comptes peuvent
 lire). Ce qui reste en clair : la cible d'une sonde (des identifiants mis
 dans l'adresse), les extraits de journaux d'un arrêt anormal, le corps des
-pings. **Une sauvegarde faite avant le chiffrement garde les clairs** : si
-vous les craignez, changez ces secrets (mot de passe du relais, URL des
-canaux, tâches à recréer) et effacez les anciennes copies.
+pings.
 
 ### Sauvegarder
 
@@ -949,13 +936,8 @@ serveur refuse de démarrer (la base contient des secrets chiffrés).
 install -m 0600 -o opencloud -g opencloud secret.key /var/lib/opencloud/secret.key
 ```
 
-La clé doit être celle de la base restaurée. Une sauvegarde d'avant le
-chiffrement n'en a pas : le premier démarrage en crée une et chiffre ce qu'il
-trouve. Une sauvegarde à froid (`tar`) rend les deux ensemble.
-
-Une sauvegarde d'avant les réglages en base a aussi son `settings.toml` :
-posez-le dans `/var/lib/opencloud/` avec la base, en `0600` pour
-`opencloud`. Au démarrage, il est repris dans la base puis effacé.
+La clé doit être celle de la base restaurée. Une sauvegarde à froid (`tar`)
+rend les deux ensemble.
 
 Retirez les `-wal` et `-shm` de l'ancienne base avant de poser la copie :
 SQLite les rejouerait sur elle. Une base plus ancienne que le binaire est
@@ -1028,7 +1010,7 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent : « Adresse refusée : openCloud est en http:// et n'est pas sur cette machine, le jeton passerait en clair. Utilisez https://, ou -allow-plain si le réseau est déjà chiffré (WireGuard). » | `-server http://…` vers une autre machine | `https://`, ou `-allow-plain` sur un réseau chiffré, au premier lancement **et** dans l'unité |
 | Agent, en boucle : `clock skew, reconnecting` avec « L'horloge de cette machine et celle d'openCloud diffèrent de plus de 5 minutes… » ; la machine reste hors ligne | Horloges décalées | `timedatectl set-ntp true` sur les deux machines ; l'agent réessaie seul |
 | Agent : « Jeton refusé : il a déjà servi. Un jeton n'enrôle qu'une machine, créez-en un nouveau. » | Jeton déjà consommé | Un nouveau jeton (Ajouter une machine, ou Ré-enrôler) |
-| Agent : « Jeton refusé : il a expiré. » / « openCloud ne le connaît pas. » | Plus de 24 h, ou jeton annulé, ou mauvais serveur | Un nouveau jeton ; vérifier `-server` |
+| Agent : « Jeton refusé : il a expiré. » / « openCloud ne le connaît pas. » | Plus d'1 h, ou jeton annulé, ou mauvais serveur | Un nouveau jeton ; vérifier `-server` |
 | Agent : « Jeton d'enrôlement absent : envoyez-le sur l'entrée standard… » | Premier lancement avec `-server` mais sans jeton sur l'entrée (lancé par systemd, ou `printf` oublié) | Coller la commande d'installation telle qu'openCloud l'affiche |
 | Agent : « Cette machine n'est pas enrôlée. Lancez la commande d'installation donnée par openCloud. » | Service lancé avant l'enrôlement, ou `-state` différent | Faire le premier lancement avec le même `-state` |
 | Agent : « openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. » | Machine retirée, ou restauration d'une base plus ancienne | Ré-enrôler |

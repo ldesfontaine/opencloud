@@ -10,7 +10,7 @@ import type { ContainerState } from "./containers";
 export type Nature = "application" | "infra";
 export type Origin = "compose" | "container" | "binary";
 export type Capability = "sso" | "proxy" | "tls" | "backup-target";
-export type DeclaredBy = "operator" | "migration";
+type DeclaredBy = "operator" | "migration";
 
 // Ce que l'opérateur veut des mises à jour d'une unité : les suivre (watch),
 // les taire (hold : vérifiées, jamais montrées), ne jamais interroger le
@@ -89,14 +89,14 @@ export interface ProjectsResponse {
 // L'écart entre l'annuaire et ce que les machines montrent. Les états sont
 // des faits : le front en fait une pastille et un libellé.
 export type GapState = "conform" | "absent" | "diverged" | "unverifiable" | "unobserved";
-export type GapReason = "image_differs" | "digest_differs" | "tag_latest" | "version_unpinned" | "tag_differs" | "digest_unknown" | "image_unreadable";
-export type MatchLevel = "label" | "compose" | "name";
+type GapReason = "image_differs" | "digest_differs" | "tag_latest" | "version_unpinned" | "tag_differs" | "digest_unknown" | "image_unreadable";
+type MatchLevel = "label" | "compose" | "name";
 // Pourquoi les labels d'un conteneur ne le rattachent à rien ; le serveur
 // dit vide quand il n'y a pas de label orphelin.
 export type LabelProblem = "invalid" | "incomplete" | "service_unknown" | "unit_unknown" | "unit_binary";
-export type IgnoreKind = "compose_project" | "container_name";
+type IgnoreKind = "compose_project" | "container_name";
 
-export interface ContainerVerdict {
+interface ContainerVerdict {
   // L'identifiant de la fiche du conteneur, pas celui d'un service déclaré.
   id: string;
   name: string;
@@ -107,7 +107,7 @@ export interface ContainerVerdict {
   reason: GapReason | "";
 }
 
-export interface UnitGap {
+interface UnitGap {
   unit_id: string;
   name: string;
   kind: "container" | "binary";
@@ -178,7 +178,7 @@ export interface ContainerDirectory {
 // Le corps de la création comme de l'édition d'un service ; lib/directory
 // le construit depuis le formulaire. Une unité y est celle que le serveur
 // rend, sans son genre, que le corps ne porte pas.
-export type ServiceUnitRequest = Omit<ServiceUnit, "kind">;
+type ServiceUnitRequest = Omit<ServiceUnit, "kind">;
 
 export interface ServiceRequest {
   machine_id: string;
@@ -203,7 +203,7 @@ export interface ProposalResponse {
   definition: Omit<ServiceRequest, "units"> & { units: ProposedUnit[] };
 }
 
-export interface ProjectRequest {
+interface ProjectRequest {
   name: string;
   title: string;
 }
@@ -279,7 +279,7 @@ export function useProposal(containerID: string | null): Resource<ProposalRespon
 
 // L'écart pour une machine et un projet, vides pour tous ; filtre nul :
 // rien à lire (la machine du service n'est pas encore connue).
-export interface GapsFilter {
+interface GapsFilter {
   machineID: string;
   projectID: string;
 }

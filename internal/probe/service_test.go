@@ -101,7 +101,7 @@ func (b *bench) recordResult(t *testing.T, result probe.Result) {
 
 func (b *bench) get(t *testing.T, id string) probe.Probe {
 	t.Helper()
-	found, err := b.service.Get(context.Background(), id)
+	found, err := b.db.GetProbe(context.Background(), id)
 	if err != nil {
 		t.Fatalf("relire la sonde: %v", err)
 	}
@@ -133,6 +133,63 @@ func TestCreate_RefusesMoreProbesThanAMachineCarries(t *testing.T) {
 	})
 	if !errors.Is(err, probe.ErrTooMany) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrTooMany, err)
+	}
+}
+
+// Des identifiants dans la cible finiraient en clair en base et dans le
+// fichier de l'annuaire : la création les refuse, rien n'est écrit.
+func TestCreate_RefusesATargetWithCredentials(t *testing.T) {
+	fixture := newBench(t)
+	_, err := fixture.service.Create(context.Background(), probe.Definition{
+		Name: "api", Kind: probe.KindHTTP, Target: "https://svc:secret@api.exemple.fr/health", MachineID: machine.LocalID,
+	})
+	if !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	if probes, err := fixture.db.ListProbes(context.Background(), ""); err != nil || len(probes) != 0 {
+		t.Fatalf("rien ne devait être écrit: %+v %v", probes, err)
+	}
+}
+
+// Une sonde d'avant le refus, qui porte des identifiants, passe en pause au
+// démarrage et n'en sort qu'avec une cible changée ; les autres ne bougent pas.
+func TestPauseTargetsWithCredentials_HoldsOldProbesUntilTheTargetChanges(t *testing.T) {
+	fixture := newBench(t)
+	ctx := context.Background()
+	clean := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	legacy := storetest.InsertProbe(t, fixture.db, "00000000000000a1", probe.Definition{
+		Name: "api", Kind: probe.KindHTTP, Target: "https://svc:secret@api.exemple.fr/health", MachineID: machine.LocalID,
+	}, testNow)
+	if err := fixture.service.PauseTargetsWithCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.get(t, legacy.ID); !got.IsPaused() {
+		t.Fatalf("la sonde à identifiants devait être en pause: %q", got.Status)
+	}
+	if got := fixture.get(t, clean.ID); got.IsPaused() {
+		t.Fatal("la sonde sans identifiants ne devait pas bouger")
+	}
+	if assignment := fixture.runner.last(); len(assignment.Probes) != 1 || assignment.Probes[0].ID != clean.ID {
+		t.Fatalf("le jeu ne devait plus porter que la sonde propre: %+v", assignment)
+	}
+	if err := fixture.service.Resume(ctx, legacy.ID); !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("reprendre: attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	definition := definitionOf(legacy)
+	definition.Name = "api renommée"
+	if _, err := fixture.service.Update(ctx, legacy.ID, definition); !errors.Is(err, probe.ErrTargetCredentials) {
+		t.Fatalf("modifier sans changer la cible: attendu %v, obtenu %v", probe.ErrTargetCredentials, err)
+	}
+	definition.Target = "https://api.exemple.fr/health"
+	fixture.update(t, legacy.ID, definition)
+	if err := fixture.service.Resume(ctx, legacy.ID); err != nil {
+		t.Fatalf("la cible changée, la sonde reprend: %v", err)
+	}
+	if err := fixture.service.PauseTargetsWithCredentials(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := fixture.get(t, legacy.ID); got.IsPaused() {
+		t.Fatal("une cible changée ne se remet pas en pause au démarrage suivant")
 	}
 }
 
@@ -186,7 +243,7 @@ func TestCreate_UnknownDeclaredServiceRefused(t *testing.T) {
 	if !errors.Is(err, probe.ErrServiceInvalid) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrServiceInvalid, err)
 	}
-	if probes, _ := fixture.service.List(context.Background(), ""); len(probes) != 0 {
+	if probes, _ := fixture.db.ListProbes(context.Background(), ""); len(probes) != 0 {
 		t.Fatalf("une sonde refusée a été écrite: %+v", probes)
 	}
 }
@@ -200,7 +257,7 @@ func TestCreate_UnknownMachineRefused(t *testing.T) {
 	if !errors.Is(err, probe.ErrMachineInvalid) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrMachineInvalid, err)
 	}
-	if probes, _ := fixture.service.List(context.Background(), ""); len(probes) != 0 {
+	if probes, _ := fixture.db.ListProbes(context.Background(), ""); len(probes) != 0 {
 		t.Fatalf("une sonde refusée a été écrite: %+v", probes)
 	}
 }
@@ -249,7 +306,7 @@ func TestRecord_WritesTheResultAndTheState(t *testing.T) {
 	if after.Status != probe.StatusUp || after.ConsecutiveSuccesses != 1 || after.LastDurationMs != 42 {
 		t.Fatalf("l'état n'a pas suivi l'essai: %+v", after)
 	}
-	results, err := fixture.service.Results(context.Background(), created.ID, 10)
+	results, err := fixture.db.ListProbeResults(context.Background(), created.ID, 10)
 	if err != nil || len(results) != 1 || results[0].Outcome != probe.OutcomeUp {
 		t.Fatalf("l'essai n'est pas dans l'histoire: %+v (%v)", results, err)
 	}
@@ -266,7 +323,7 @@ func TestRecord_ReplayedResultWritesHistoryOnly(t *testing.T) {
 	if after.Status != probe.StatusUp || after.ConsecutiveFailures != 0 {
 		t.Fatalf("l'essai rejoué a bougé l'état: %+v", after)
 	}
-	results, _ := fixture.service.Results(context.Background(), created.ID, 10)
+	results, _ := fixture.db.ListProbeResults(context.Background(), created.ID, 10)
 	if len(results) != 2 {
 		t.Fatalf("l'essai rejoué devait s'écrire: %d lignes", len(results))
 	}
@@ -279,7 +336,7 @@ func TestRecord_TheSameResultTwiceCountsOnce(t *testing.T) {
 	fixture.record(t, created.ID, testNow, probe.OutcomeUp)
 	fixture.record(t, created.ID, testNow, probe.OutcomeUp)
 
-	results, _ := fixture.service.Results(context.Background(), created.ID, 10)
+	results, _ := fixture.db.ListProbeResults(context.Background(), created.ID, 10)
 	if len(results) != 1 {
 		t.Fatalf("attendu un essai, obtenu %d", len(results))
 	}
@@ -338,10 +395,10 @@ func TestDelete_TakesTheProbeAndItsHistoryAway(t *testing.T) {
 	if err := fixture.service.Delete(context.Background(), created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.service.Get(context.Background(), created.ID); !errors.Is(err, probe.ErrNotFound) {
+	if _, err := fixture.db.GetProbe(context.Background(), created.ID); !errors.Is(err, probe.ErrNotFound) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrNotFound, err)
 	}
-	results, _ := fixture.service.Results(context.Background(), created.ID, 10)
+	results, _ := fixture.db.ListProbeResults(context.Background(), created.ID, 10)
 	if len(results) != 0 {
 		t.Fatalf("l'histoire a survécu à la suppression: %d lignes", len(results))
 	}
@@ -437,7 +494,7 @@ func TestPurge_ClearsRawResultsAndKeepsTheAggregate(t *testing.T) {
 	if err := fixture.service.Purge(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if results, _ := fixture.service.Results(context.Background(), created.ID, 10); len(results) != 0 {
+	if results, _ := fixture.db.ListProbeResults(context.Background(), created.ID, 10); len(results) != 0 {
 		t.Fatalf("le brut devait être purgé: %d lignes", len(results))
 	}
 	days, _ := fixture.service.Days(context.Background(), created.ID, 90*24*time.Hour)
@@ -453,7 +510,7 @@ func TestCount_CountsWhatTheSidebarShows(t *testing.T) {
 	fixture.record(t, online.ID, testNow, probe.OutcomeUp)
 	fixture.record(t, offline.ID, testNow, probe.OutcomeDown)
 
-	total, attention, err := fixture.service.Count(context.Background())
+	total, attention, err := fixture.db.CountProbes(context.Background())
 	if err != nil || total != 2 || attention != 1 {
 		t.Fatalf("attendu 2 sondes dont 1 à traiter, obtenu %d/%d (%v)", total, attention, err)
 	}
@@ -677,7 +734,7 @@ func (b *bench) update(t *testing.T, id string, definition probe.Definition) pro
 
 func (b *bench) countResults(t *testing.T, id string) int {
 	t.Helper()
-	results, err := b.service.Results(context.Background(), id, 100)
+	results, err := b.db.ListProbeResults(context.Background(), id, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -886,7 +943,7 @@ func TestUpdate_MovingToAFullMachine_IsRefused(t *testing.T) {
 	}
 
 	// Une sonde qui reste sur la machine pleine n'y prend pas une place de plus.
-	carried, err := fixture.service.List(context.Background(), remoteMachineID)
+	carried, err := fixture.db.ListProbes(context.Background(), remoteMachineID)
 	if err != nil || len(carried) == 0 {
 		t.Fatalf("lire les sondes de la machine pleine: %v", err)
 	}

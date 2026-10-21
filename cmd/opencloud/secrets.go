@@ -28,16 +28,17 @@ const secretsUsage = `Usage : {command} secrets forget [-config chemin]
             serveur avant
 `
 
-// openSecrets donne à la base la clé du serveur, puis chiffre ce qui est
-// resté en clair. serve peut créer la clé ; mcp ne la crée jamais : il lit la
-// base d'un serveur qui existe déjà.
+// openSecrets donne à la base la clé du serveur, puis vérifie qu'elle ouvre
+// chaque secret : une base qui ne s'ouvre pas avec elle est refusée dès le
+// démarrage, pas à la première alerte. serve peut créer la clé ; mcp ne la
+// crée jamais : il lit la base d'un serveur qui existe déjà.
 func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) error {
 	keyring, err := loadOrCreateKey(ctx, stateDir, db, logger, mayCreate)
 	if err != nil {
 		return err
 	}
 	db.SetSealer(keyring)
-	return sealPlaintextSecrets(ctx, db, logger)
+	return verifySecrets(ctx, db)
 }
 
 func loadOrCreateKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) (*seal.Keyring, error) {
@@ -93,24 +94,14 @@ func createKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slo
 	return keyring, nil
 }
 
-func sealPlaintextSecrets(ctx context.Context, db *store.DB, logger *slog.Logger) error {
-	sealed, err := db.SealPlaintextSecrets(ctx)
+func verifySecrets(ctx context.Context, db *store.DB) error {
+	err := db.VerifySealedSecrets(ctx)
 	if errors.Is(err, store.ErrSecretUnreadable) {
 		return &refusal{message: fmt.Sprintf("un secret de la base ne s'ouvre pas avec %s (%v) : ce n'est pas la clé de cette base. Restaurez celle sauvegardée avec elle, ou lancez `%s secrets forget` (ce qui est perdu : voir installation.md)",
 			brand.SecretKeyFile, err, brand.Command)}
 	}
 	if err != nil {
-		return fmt.Errorf("seal plaintext secrets: %w", err)
-	}
-	if sealed == 0 {
-		return nil
-	}
-	logger.Info("plaintext secrets sealed", "count", sealed)
-	// Les clairs restent dans les pages libérées et dans le journal de la base
-	// tant qu'on ne les réécrit pas ; un échec ici laisse la base chiffrée et
-	// utilisable, il est seulement signalé.
-	if err := db.Compact(ctx); err != nil {
-		logger.Warn("compact after sealing", "error", err)
+		return fmt.Errorf("verify sealed secrets: %w", err)
 	}
 	return nil
 }

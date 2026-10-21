@@ -90,15 +90,6 @@ func parseKeyFile(content []byte) (*Keyring, error) {
 	return keyring, nil
 }
 
-// Save écrit la clé sous root, en 0600, remplaçant celle qui y était. Seul
-// `secrets forget` remplace une clé ; tout le reste passe par Create.
-func Save(root *os.Root, keyring *Keyring) error {
-	if err := fsx.WriteAtomic(root, brand.SecretKeyFile, keyring.fileContent(), keyFileMode); err != nil {
-		return fmt.Errorf("write key file: %w", err)
-	}
-	return nil
-}
-
 // Create écrit la clé sous root en 0600 seulement si le fichier n'existe pas,
 // sinon ErrKeyExists : deux serveurs lancés ensemble sur une base neuve
 // tirent chacun une clé, une seule est gardée, et l'autre doit relire celle-là

@@ -128,23 +128,3 @@ func TestUpdateSettings_TwoConcurrentWriters_BothValuesSurvive(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", current, want)
 	}
 }
-
-func TestImportSettings_WritesOnlyIntoAnEmptyDatabase(t *testing.T) {
-	db := openTestDB(t)
-	ctx := context.Background()
-	first, err := db.ImportSettings(ctx, settings.Settings{Language: lang.English, MailHost: "smtp.example.org"})
-	if err != nil || !first {
-		t.Fatalf("first import: %v, %v", first, err)
-	}
-	second, err := db.ImportSettings(ctx, settings.Settings{Language: lang.French})
-	if err != nil || second {
-		t.Fatalf("second import: %v, %v", second, err)
-	}
-	current, err := db.LoadSettings(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Language != lang.English || current.MailHost != "smtp.example.org" {
-		t.Fatalf("got %+v", current)
-	}
-}

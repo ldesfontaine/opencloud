@@ -14,6 +14,13 @@ const (
 	machineB = "76543210-89ab-cdef-0123-456789abcdef"
 )
 
+// size compte les défis utilisés encore retenus.
+func (c *challenges) size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.used)
+}
+
 func TestChallenge_FitsTheSizeInstalledAgentsSign(t *testing.T) {
 	challenge := newChallenges().issue(machineA, challengesNow)
 	if len(challenge) != NonceSize {

@@ -59,7 +59,7 @@ func TestRelay_LocalMachineGoesToTheInProcessSource(t *testing.T) {
 
 func TestRelay_RemoteCommandsTheAgentAndRelaysItsBatches(t *testing.T) {
 	relay := NewRelay()
-	relay.setIDs(func() string { return "req-1" })
+	relay.newID = func() string { return "req-1" }
 	commander := &fakeCommander{}
 	relay.SetCommander(commander)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -143,7 +143,7 @@ func TestRelay_WithoutCommander_SaysLogsAreUnavailableHere(t *testing.T) {
 
 func TestRelay_BatchForAnotherMachine_IsRefused(t *testing.T) {
 	relay := NewRelay()
-	relay.setIDs(func() string { return "req-1" })
+	relay.newID = func() string { return "req-1" }
 	relay.SetCommander(&fakeCommander{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -165,7 +165,7 @@ func TestRelay_DeliveriesWhileTheReaderLeaves_NeverSendOnAClosedChannel(t *testi
 		relay := NewRelay()
 		relay.SetCommander(&fakeCommander{})
 		var requestID string
-		relay.setIDs(func() string { requestID = newRequestID(); return requestID })
+		relay.newID = func() string { requestID = newRequestID(); return requestID }
 		ctx, cancel := context.WithCancel(context.Background())
 		batches, err := relay.Open(ctx, "vps", LogRequest{Follow: true})
 		if err != nil {

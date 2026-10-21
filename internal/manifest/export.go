@@ -66,7 +66,7 @@ func (m *Manifest) addProposals(ctx context.Context, file File) (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("read proposals: %w", err)
 	}
-	names, err := m.deps.Machines.MachineNames(ctx)
+	names, err := m.deps.Reader.MachineNames(ctx)
 	if err != nil {
 		return File{}, fmt.Errorf("read machine names: %w", err)
 	}
@@ -144,27 +144,27 @@ func proposedUnit(definition directory.UnitDefinition) Unit {
 // Read lit l'annuaire courant dans le vocabulaire du fichier, trié : deux
 // lectures de la même base rendent la même chose, dans le même ordre.
 func (m *Manifest) Read(ctx context.Context) (File, error) {
-	names, err := m.deps.Machines.MachineNames(ctx)
+	names, err := m.deps.Reader.MachineNames(ctx)
 	if err != nil {
 		return File{}, fmt.Errorf("read machine names: %w", err)
 	}
-	projects, err := m.deps.Directory.ListProjects(ctx)
+	projects, err := m.deps.Reader.ListProjects(ctx)
 	if err != nil {
 		return File{}, fmt.Errorf("read projects: %w", err)
 	}
-	services, err := m.deps.Directory.ListServices(ctx, directory.Filter{})
+	services, err := m.deps.Reader.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		return File{}, fmt.Errorf("read services: %w", err)
 	}
-	probes, err := m.deps.Probes.List(ctx, "")
+	probes, err := m.deps.Reader.ListProbes(ctx, "")
 	if err != nil {
 		return File{}, fmt.Errorf("read probes: %w", err)
 	}
-	heartbeats, err := m.deps.Heartbeats.List(ctx)
+	heartbeats, err := m.deps.Reader.ListHeartbeats(ctx)
 	if err != nil {
 		return File{}, fmt.Errorf("read heartbeats: %w", err)
 	}
-	ignored, err := m.deps.Directory.IgnoredKeys(ctx)
+	ignored, err := m.deps.Reader.ListIgnoredKeys(ctx, "")
 	if err != nil {
 		return File{}, fmt.Errorf("read ignored keys: %w", err)
 	}

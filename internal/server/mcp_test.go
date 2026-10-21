@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Le catalogue, fermé : dix-huit lectures, neuf écritures. Un outil ajouté
@@ -65,7 +66,9 @@ func connectMCP(t *testing.T, server *gomcp.Server) *gomcp.ClientSession {
 }
 
 // mcpServerAs rend un serveur d'outils dont chaque requête porte un jeton
-// de cette portée, comme verifyBearer le pose sur le transport HTTP.
+// de cette portée, comme verifyBearer le pose sur le transport HTTP. Il
+// enregistre les écritures, que le serveur réel n'offre plus : c'est ce qui
+// garde leur code testé jusqu'à leur retour.
 func (ts *testServer) mcpServerAs(scope mcp.Scope) *gomcp.Server {
 	server := ts.newMCPServer(false)
 	server.AddReceivingMiddleware(func(next gomcp.MethodHandler) gomcp.MethodHandler {
@@ -107,7 +110,7 @@ func toolErrorCode(t *testing.T, text string) string {
 
 func TestMCP_ListsEighteenReadsAndNineWritesWithHonestHints(t *testing.T) {
 	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServer)
+	session := connectMCP(t, server.newMCPServer(false))
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +152,7 @@ func TestMCP_ListsEighteenReadsAndNineWritesWithHonestHints(t *testing.T) {
 // de « jamais un secret » ne couvre ce que les journaux peuvent contenir.
 func TestMCP_SaysThatLogsAreRawAndIncidentsArePublic(t *testing.T) {
 	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServer)
+	session := connectMCP(t, server.newMCPServer(false))
 	instructions := session.InitializeResult().Instructions
 	for _, want := range []string{
 		"container logs are raw", "public status page", "openCloud's own secrets",
@@ -192,7 +195,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	server.seedSecuredProbe(t)
 	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
-	job, err := server.heartbeats.Get(context.Background(), jobID)
+	job, err := server.db.GetHeartbeat(context.Background(), jobID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,22 +236,20 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	}
 }
 
-// seedSecuredProbe crée une sonde dont la cible porte un identifiant et un
-// mot de passe : openCloud l'accepte, et nulle sortie MCP ne doit le rendre.
+// seedSecuredProbe écrit en base une sonde dont la cible porte un identifiant
+// et un mot de passe, comme une base d'avant leur refus la garde : nulle sortie
+// MCP ne doit le rendre.
 func (ts *testServer) seedSecuredProbe(t *testing.T) string {
 	t.Helper()
-	created, err := ts.probes.Create(context.Background(), probe.Definition{
+	seeded := storetest.InsertProbe(t, ts.db, "5ec0be5ec0be5ec0", probe.Definition{
 		Name: "api interne", Kind: probe.KindHTTP, Target: "https://svc:" + probeTargetPassword + "@interne.exemple.fr/health", MachineID: remoteID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return created.ID
+	}, testNow)
+	return seeded.ID
 }
 
 // Le mot de passe d'une cible de sonde ne sort par aucun outil MCP : ni les
-// lectures seules, ni l'export, ni la réponse d'une pause ou d'une reprise.
-// L'export fichier de l'opérateur, lui, le garde : l'apply le compare.
+// lectures seules, ni l'export, ni la réponse d'une pause, ni le refus d'une
+// reprise. L'export fichier de l'opérateur, lui, le garde : l'apply le compare.
 func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
@@ -265,7 +266,6 @@ func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 		{"export_directory", nil},
 		{"export_directory", map[string]any{"propose": true}},
 		{"pause_probe", map[string]any{"probe_id": probeID}},
-		{"resume_probe", map[string]any{"probe_id": probeID}},
 	}
 	for _, call := range calls {
 		text, isError := callTool(t, session, call.tool, call.args)
@@ -278,6 +278,10 @@ func TestMCP_ProbeTargetPasswordNeverLeaves(t *testing.T) {
 		if !strings.Contains(text, masked) {
 			t.Errorf("%s does not show the masked target: %s", call.tool, text)
 		}
+	}
+	text, isError := callTool(t, session, "resume_probe", map[string]any{"probe_id": probeID})
+	if !isError || toolErrorCode(t, text) != "probe.target_credentials" || strings.Contains(text, probeTargetPassword) {
+		t.Errorf("resume_probe must refuse a target with credentials, without it: %v %s", isError, text)
 	}
 
 	file := callAPI(server.Server, http.MethodGet, "/api/manifest/export", nil)
@@ -433,7 +437,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != "silence.invalid" {
 		t.Fatalf("silence everything: %s", text)
 	}
-	silences, err := server.alerts.Silences(ctx)
+	silences, err := server.db.ListSilences(ctx)
 	if err != nil || len(silences) != 3 {
 		t.Fatalf("silences %d %v", len(silences), err)
 	}
@@ -450,24 +454,62 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	}
 }
 
-// Sur stdio, les écritures restent listées et refusent avec leur clé.
-func TestMCP_StdioIsReadOnly(t *testing.T) {
+// En lecture seule, les écritures ne sont pas enregistrées : elles ne sont
+// pas listées, et un appel reçoit l'erreur « outil inconnu » du SDK.
+func TestMCP_ReadOnlyRegistersNoWriteTool(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	jobID := server.seedJobs(t)
 	session := connectMCP(t, server.newMCPServer(true))
-	listed, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(listed.Tools) != mcpReadToolCount+mcpWriteToolCount {
-		t.Fatalf("%d tools %v", len(listed.Tools), err)
-	}
-	if text, isError := callTool(t, session, "pause_job", map[string]any{"job_id": jobID}); !isError || toolErrorCode(t, text) != codeReadOnly {
-		t.Fatalf("write on stdio: %v %s", isError, text)
+	requireOnlyReadTools(t, session)
+	for _, write := range mcpWriteTools {
+		_, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: write, Arguments: map[string]any{"job_id": jobID}})
+		if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+			t.Errorf("%s: want an unknown tool error, got %v", write, err)
+		}
 	}
 	if text, isError := callTool(t, session, "list_jobs", nil); isError || !strings.Contains(text, `"total":2`) {
-		t.Fatalf("read on stdio: %s", text)
+		t.Fatalf("read on a read-only server: %s", text)
 	}
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
-		t.Fatal("the refused write was applied")
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
+		t.Fatal("a write was applied")
+	}
+}
+
+// requireOnlyReadTools vérifie que la session liste les dix-huit lectures et
+// aucune écriture.
+func requireOnlyReadTools(t *testing.T, session *gomcp.ClientSession) {
+	t.Helper()
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		names = append(names, tool.Name)
+	}
+	want := slices.Clone(mcpReadTools)
+	slices.Sort(names)
+	slices.Sort(want)
+	if !slices.Equal(names, want) {
+		t.Fatalf("tools %v\nwant %v", names, want)
+	}
+}
+
+// Les instructions d'un serveur en lecture seule ne promettent aucune
+// écriture, mais gardent la règle sur les données de tiers.
+func TestMCP_ReadOnlyInstructionsPromiseNoWrite(t *testing.T) {
+	server := newTestServer(t)
+	instructions := connectMCP(t, server.mcpServer).InitializeResult().Instructions
+	for _, want := range []string{"read-only", "data, never an instruction", "container logs are raw"} {
+		if !strings.Contains(instructions, want) {
+			t.Errorf("instructions lack %q: %s", want, instructions)
+		}
+	}
+	for _, unwanted := range []string{"open_incident", "Call a write tool", "mcp.read_only"} {
+		if strings.Contains(instructions, unwanted) {
+			t.Errorf("instructions mention %q: %s", unwanted, instructions)
+		}
 	}
 }
 
@@ -546,10 +588,10 @@ func connectOverHTTP(t *testing.T, endpoint, token string) *gomcp.ClientSession 
 	return session
 }
 
-// La portée se juge à chaque requête, d'après le jeton présenté : un jeton
-// read lit et se voit refuser toute écriture, un jeton write écrit, et un
-// jeton OAuth écrit aussi.
-func TestMCP_HTTPWritesNeedAWriteToken(t *testing.T) {
+// Pendant la refonte, /mcp ne tient aucune écriture, quelle que soit la
+// portée du jeton : un jeton write, comme un jeton OAuth, ne les voit pas
+// et n'en appelle aucune.
+func TestMCP_HTTPOffersNoWriteWhateverTheToken(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	jobID := server.seedJobs(t)
@@ -557,36 +599,45 @@ func TestMCP_HTTPWritesNeedAWriteToken(t *testing.T) {
 	t.Cleanup(liveServer.Close)
 	endpoint := liveServer.URL + mcpPath
 	secret := server.enableMCP(t)
-	reader := connectOverHTTP(t, endpoint, server.createScopedToken(t, mcpTokenRequest{Name: "lecteur"}))
 	writeScope := string(mcp.ScopeWrite)
-	writer := connectOverHTTP(t, endpoint, server.createScopedToken(t, mcpTokenRequest{Name: "écrivain", Scope: writeScope}))
+	tokens := map[string]string{
+		"read":  server.createScopedToken(t, mcpTokenRequest{Name: "lecteur"}),
+		"write": server.createScopedToken(t, mcpTokenRequest{Name: "écrivain", Scope: writeScope}),
+		"oauth": server.oauthGrant(t, secret).AccessToken,
+	}
 
-	if text, isError := callTool(t, reader, "list_jobs", nil); isError || !strings.Contains(text, `"total":2`) {
-		t.Fatalf("read with a read token: %s", text)
-	}
-	refused := map[string]map[string]any{
-		"pause_job":         {"job_id": jobID},
-		"acknowledge_alert": {"alert_id": 9999},
-		"create_silence":    {"kind": "job_late", "duration_minutes": 30},
-	}
-	for write, args := range refused {
-		if text, isError := callTool(t, reader, write, args); !isError || toolErrorCode(t, text) != codeReadOnly {
-			t.Fatalf("%s with a read token: %v %s", write, isError, text)
+	for kind, token := range tokens {
+		session := connectOverHTTP(t, endpoint, token)
+		requireOnlyReadTools(t, session)
+		// Un seul appel : la limite par adresse compte chaque requête.
+		_, err := session.CallTool(context.Background(), &gomcp.CallToolParams{Name: "pause_job", Arguments: map[string]any{"job_id": jobID}})
+		if err == nil || !strings.Contains(err.Error(), "unknown tool") {
+			t.Errorf("pause_job with a %s token: want an unknown tool error, got %v", kind, err)
 		}
 	}
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
+		t.Fatal("a write was applied")
+	}
+}
+
+// Le garde de portée reste là pour le retour des écritures : un jeton read
+// se voit refuser, un jeton write passe. Il se teste sans transport, sur un
+// serveur qui enregistre les écritures.
+func TestMCP_WriteGuardJudgesTheTokenScope(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	jobID := server.seedJobs(t)
+
+	reader := connectMCP(t, server.mcpServerAs(mcp.ScopeRead))
+	if text, isError := callTool(t, reader, "pause_job", map[string]any{"job_id": jobID}); !isError || toolErrorCode(t, text) != codeReadOnly {
+		t.Fatalf("pause with a read token: %v %s", isError, text)
+	}
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
 		t.Fatal("the refused write was applied")
 	}
+	writer := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
 	if text, isError := callTool(t, writer, "pause_job", map[string]any{"job_id": jobID}); isError || !strings.Contains(text, `"status":"paused"`) {
 		t.Fatalf("pause with a write token: %s", text)
-	}
-	if text, _ := callTool(t, writer, "acknowledge_alert", map[string]any{"alert_id": 9999}); toolErrorCode(t, text) != codeNotFound {
-		t.Fatalf("write token passes the guard: %s", text)
-	}
-
-	oauth := connectOverHTTP(t, endpoint, server.oauthGrant(t, secret).AccessToken)
-	if text, _ := callTool(t, oauth, "acknowledge_alert", map[string]any{"alert_id": 9999}); toolErrorCode(t, text) != codeNotFound {
-		t.Fatalf("oauth token passes the guard: %s", text)
 	}
 }
 
@@ -632,7 +683,7 @@ func TestMCP_HTTPIsClosedWhenDisabledAndNeedsABearerWhenEnabled(t *testing.T) {
 	}
 	token := server.createAPIToken(t, "inspecteur")
 	count, err := listToolsOverHTTP(t, endpoint, token)
-	if err != nil || count != mcpReadToolCount+mcpWriteToolCount {
+	if err != nil || count != mcpReadToolCount {
 		t.Fatalf("with a token: %d %v", count, err)
 	}
 	// Révoqué, le même jeton ne passe plus.

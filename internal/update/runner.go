@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
+	"github.com/ldesfontaine/opencloud/internal/wait"
 )
 
 const (
@@ -129,7 +130,7 @@ func (r *Runner) pass(ctx context.Context, everything bool) {
 		if !everything && !r.isDue(image) {
 			continue
 		}
-		if index > 0 && !r.rest(ctx) {
+		if index > 0 && !wait.For(ctx, r.timing.pause) {
 			return
 		}
 		result, err := r.checker.Check(ctx, image, r.now())
@@ -174,13 +175,4 @@ func (r *Runner) isDue(image string) bool {
 	defer r.mu.Unlock()
 	last, seen := r.checked[image]
 	return !seen || r.now().Sub(last) >= r.timing.interval
-}
-
-func (r *Runner) rest(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(r.timing.pause):
-		return true
-	}
 }

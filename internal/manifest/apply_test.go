@@ -18,11 +18,29 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
 var testActor = manifest.Actor{Kind: manifest.ActorCLI, Name: "opencloud"}
+
+// Un refus d'application porte la clé que le journal et les clients citent
+// par sa constante : les deux écritures du même mot ne divergent pas.
+func TestRefusals_CarryTheirKeyConstant(t *testing.T) {
+	cases := map[error]string{
+		manifest.ErrPlanChanged:    manifest.KeyPlanChanged,
+		manifest.ErrNotApplicable:  manifest.KeyNotApplicable,
+		manifest.ErrBusy:           manifest.KeyBusy,
+		manifest.ErrNothingToApply: manifest.KeyNothingToApply,
+		manifest.ErrExportTooLarge: manifest.KeyExportTooLarge,
+	}
+	for err, want := range cases {
+		if key, ok := refusal.KeyOf(err); !ok || key != want {
+			t.Errorf("%v: key %q, want %q", err, key, want)
+		}
+	}
+}
 
 func (b *bench) plan(t *testing.T, text string, prune bool) manifest.Plan {
 	t.Helper()
@@ -68,19 +86,19 @@ func (b *bench) snapshot(t *testing.T) snapshot {
 	ctx := context.Background()
 	var shot snapshot
 	var err error
-	if shot.Projects, err = b.directory.ListProjects(ctx); err != nil {
+	if shot.Projects, err = b.db.ListProjects(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Services, err = b.directory.ListServices(ctx, directory.Filter{}); err != nil {
+	if shot.Services, err = b.db.ListDeclaredServices(ctx, directory.Filter{}); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Probes, err = b.probes.List(ctx, ""); err != nil {
+	if shot.Probes, err = b.db.ListProbes(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Heartbeats, err = b.heartbeats.List(ctx); err != nil {
+	if shot.Heartbeats, err = b.db.ListHeartbeats(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Ignored, err = b.directory.IgnoredKeys(ctx); err != nil {
+	if shot.Ignored, err = b.db.ListIgnoredKeys(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	return shot
@@ -247,13 +265,6 @@ func TestApply_NewHeartbeatGetsAGeneratedTokenAndNoSecretReachesThePlanOrTheJour
     grace: 1h
 ignored:
 `)
-	// Une cible avec un mot de passe : le plan la montre masquée.
-	data = replaceOnce(t, data, "heartbeats:\n", `  - name: private-feed
-    runner: opencloud
-    kind: http
-    target: https://reader:p4ssw0rd-secret@feed.example.org/status
-heartbeats:
-`)
 	plan := b.plan(t, data, false)
 	if len(plan.Problems) > 0 {
 		t.Fatalf("problems: %+v", plan.Problems)
@@ -272,7 +283,7 @@ heartbeats:
 		t.Fatalf("apply: %+v", applied)
 	}
 	var token string
-	heartbeats, err := b.heartbeats.List(context.Background())
+	heartbeats, err := b.db.ListHeartbeats(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,13 +304,10 @@ heartbeats:
 		t.Fatal(err)
 	}
 	everything := string(encoded)
-	for _, secret := range []string{token, pingSecret, "hb_", "p4ssw0rd-secret", heartbeat.HashToken(token)} {
+	for _, secret := range []string{token, pingSecret, "hb_", heartbeat.HashToken(token)} {
 		if strings.Contains(everything, secret) {
 			t.Errorf("a secret reached the plan or the journal: %q", secret)
 		}
-	}
-	if !strings.Contains(everything, "reader:") {
-		t.Errorf("the user name stays so that the target is recognised: %s", everything)
 	}
 }
 
@@ -370,7 +378,7 @@ func TestApply_PruneDeletesAndSaysWhatItCarries(t *testing.T) {
 func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	statuses := status.New(b.db, b.machines, settings.New(b.db, logger), logger)
+	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
 	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})

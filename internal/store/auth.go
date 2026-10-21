@@ -42,26 +42,22 @@ func scanAuthState(row scanner) (auth.State, error) {
 // voir openHandle). Rend faux, sans rien écrire, quand l'état a changé
 // entre-temps.
 func (db *DB) SaveAuthStateIf(ctx context.Context, expected, next auth.State, at time.Time) (bool, error) {
-	tx, err := db.sql.BeginTx(ctx, nil)
-	if err != nil {
-		return false, fmt.Errorf("begin auth state update: %w", err)
-	}
-	defer tx.Rollback()
-
-	current, err := scanAuthState(tx.QueryRowContext(ctx, authStateSelect))
-	if err != nil {
-		return false, err
-	}
-	if !expected.Same(current) {
-		return false, nil
-	}
-	if err := writeAuthState(ctx, tx, next, at); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, fmt.Errorf("commit auth state update: %w", err)
-	}
-	return true, nil
+	written := false
+	err := db.inTx(ctx, "auth state update", func(tx *sql.Tx) error {
+		current, err := scanAuthState(tx.QueryRowContext(ctx, authStateSelect))
+		if err != nil {
+			return err
+		}
+		if !expected.Same(current) {
+			return nil
+		}
+		if err := writeAuthState(ctx, tx, next, at); err != nil {
+			return err
+		}
+		written = true
+		return nil
+	})
+	return written, err
 }
 
 func writeAuthState(ctx context.Context, to execer, state auth.State, at time.Time) error {

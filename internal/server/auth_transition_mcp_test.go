@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -12,19 +11,15 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
 // Un jeton MCP tiré pendant que l'interface était ouverte tombe à
 // l'activation. Un appel d'outil dont le corps a été retenu à travers elle ne
 // s'applique pas non plus : le Bearer se rejuge une fois le corps arrivé.
-func TestAuthTransition_AHeldMCPWriteDoesNotOutliveTheActivation(t *testing.T) {
+func TestAuthTransition_AHeldMCPCallDoesNotOutliveTheActivation(t *testing.T) {
 	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
-	jobID := server.seedJobs(t)
 	server.enableMCP(t)
-	token := server.createScopedToken(t, mcpTokenRequest{Name: "ouvert", Scope: string(mcp.ScopeWrite)})
+	token := server.createAPIToken(t, "ouvert")
 
 	reading := make(chan struct{})
 	listener := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +42,7 @@ func TestAuthTransition_AHeldMCPWriteDoesNotOutliveTheActivation(t *testing.T) {
 	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pause_job","arguments":{"job_id":%q}}}`, jobID)
+	body := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_jobs","arguments":{}}}`
 	headers := fmt.Sprintf("POST %s HTTP/1.1\r\nHost: example.com\r\nAuthorization: Bearer %s\r\nMcp-Session-Id: %s\r\nAccept: application/json, text/event-stream\r\nContent-Type: application/json\r\nX-Test-Held: 1\r\nContent-Length: %d\r\n\r\n", mcpPath, token, session, len(body))
 	if _, err := conn.Write([]byte(headers)); err != nil {
 		t.Fatal(err)
@@ -68,9 +63,6 @@ func TestAuthTransition_AHeldMCPWriteDoesNotOutliveTheActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	response.Body.Close()
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
-		t.Fatal("the held write was applied after the activation")
-	}
 	if response.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("held tool call: status %d, want 401", response.StatusCode)
 	}

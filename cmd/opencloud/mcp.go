@@ -3,32 +3,16 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/ldesfontaine/opencloud/internal/alert"
-	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/config"
-	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/heartbeat"
-	"github.com/ldesfontaine/opencloud/internal/lang"
-	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/mail"
-	"github.com/ldesfontaine/opencloud/internal/manifest"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
-	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
-	"github.com/ldesfontaine/opencloud/internal/settings"
-	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
-	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -72,66 +56,27 @@ func runMCP(args []string) error {
 		return err
 	}
 
-	// Les mêmes composants que serve, sans aucune boucle ni écouteur : ils
-	// ne servent qu'à lire. Le bus n'a pas d'abonné, les flux pas d'agent.
-	machines := machine.New(db, machine.NewSessions(), logger)
-	// Les flux des agents vivent dans serve : ici, une machine est en ligne
-	// si son dernier signal est récent.
-	machines.SetPresence(machine.RecentSignal{})
-	heartbeats := heartbeat.New(db, logger)
-	resources := resource.New(db, logger)
-	containers := container.New(db, logger)
-	probes := probe.New(db, logger)
-	declared := directory.New(db, logger)
-	updates := update.New(db, logger)
-	// Ce processus ne fait que lire : l'écart voit les conteneurs que serve
-	// a rattachés, il n'écrit et ne rattache rien.
-	declared.SetObserved(containers, updates)
-	preferences := settings.New(db, logger)
-	statusPage := status.New(db, machines, preferences, logger)
-	catalogs, err := lang.Load()
-	if err != nil {
-		return fmt.Errorf("load languages: %w", err)
-	}
-	alerts := alert.New(db, logger)
-	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
-	notifier.SetPublicURL(cfg.PublicURL)
-	notifier.SetMail(preferences.CurrentMailRelay, mail.NewSender(alert.MailTimeout))
-	access, err := auth.New(db, logger)
+	// Les mêmes composants que serve, par le même câblage. Ni direct, ni
+	// boucle, ni commandeur, ni machine openCloud : ce processus ne fait que
+	// lire, le stdio n'expose aucun outil qui écrit, et serve seul tient les
+	// flux des agents.
+	parts, err := buildComponents(cfg, stateDir, db, logger)
 	if err != nil {
 		return err
 	}
+	// Les flux des agents vivent dans serve : ici, une machine est en ligne
+	// si son dernier signal est récent.
+	parts.machines.SetPresence(machine.RecentSignal{})
 	// La fin de support : ce que serve a gardé de sa dernière lecture. Ce
 	// processus ne lit jamais la source lui-même.
-	support := lifecycle.New(containers.Images, machines.Systems, lifecycle.NewFileCache(stateDir), lifecycle.NewHTTPSource(), preferences.CurrentLifecycleEnabled, logger)
-	if err := support.Load(); err != nil {
+	if err := parts.support.Load(); err != nil {
 		logger.Warn("load lifecycle snapshot", "error", err)
 	}
-	srv, err := server.New(server.Options{
-		Logger:         logger,
-		Version:        version.Number(),
-		Settings:       preferences,
-		Machines:       machines,
-		Heartbeats:     heartbeats,
-		Resources:      resources,
-		Containers:     containers,
-		Probes:         probes,
-		Directory:      declared,
-		Manifest:       manifest.New(manifest.Dependencies{Directory: declared, Probes: probes, Heartbeats: heartbeats, Machines: db}, logger),
-		Updates:        updates,
-		Lifecycle:      support,
-		Status:         statusPage,
-		Alerts:         alerts,
-		Notifier:       notifier,
-		MCP:            mcp.New(db, logger),
-		Auth:           access,
-		Live:           live.New(),
-		PublicLive:     live.New(),
-		PublicURL:      cfg.PublicURL,
-		Listen:         cfg.Listen,
-		TrustedProxies: cfg.TrustedPrefixes(),
-		ConfigPath:     *configPath,
-	})
+	// Deux bus que personne n'écoute : le direct n'a pas d'onglet ici.
+	options := parts.serverOptions(cfg, *configPath)
+	options.Live = live.New()
+	options.PublicLive = live.New()
+	srv, err := server.New(options)
 	if err != nil {
 		return err
 	}

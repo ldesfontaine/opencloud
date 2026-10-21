@@ -21,8 +21,6 @@ type Runner struct {
 	sink    Sink
 	checker Checker
 	logger  *slog.Logger
-	// now est remplaçable dans les tests : les essais sont datés par lui.
-	now func() time.Time
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -37,11 +35,7 @@ type probeLoop struct {
 }
 
 func NewRunner(sink Sink, checker Checker, logger *slog.Logger) *Runner {
-	return &Runner{sink: sink, checker: checker, logger: logger, now: time.Now, running: make(map[string]*probeLoop)}
-}
-
-func (r *Runner) SetClock(now func() time.Time) {
-	r.now = now
+	return &Runner{sink: sink, checker: checker, logger: logger, running: make(map[string]*probeLoop)}
 }
 
 // Run tient les sondes jusqu'à ce que le contexte s'arrête, puis attend
@@ -134,7 +128,7 @@ func (r *Runner) loop(ctx context.Context, task Task) {
 // once sonde et livre. Un essai interrompu par l'arrêt ne se livre pas :
 // ce n'est pas la cible qui n'a pas répondu, c'est nous qui sommes partis.
 func (r *Runner) once(ctx context.Context, task Task) {
-	result := r.checker.Check(ctx, task, r.now())
+	result := r.checker.Check(ctx, task, time.Now())
 	if ctx.Err() != nil {
 		return
 	}

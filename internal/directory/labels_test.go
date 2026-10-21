@@ -29,15 +29,15 @@ type directorySnapshot struct {
 func snapshotOf(t *testing.T, b *bench) directorySnapshot {
 	t.Helper()
 	ctx := context.Background()
-	services, err := b.directory.ListServices(ctx, directory.Filter{})
+	services, err := b.db.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	projects, err := b.directory.ListProjects(ctx)
+	projects, err := b.db.ListProjects(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ignored, err := b.directory.IgnoredKeys(ctx)
+	ignored, err := b.db.ListIgnoredKeys(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

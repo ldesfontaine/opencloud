@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
 const (
@@ -21,7 +23,6 @@ type Store interface {
 	GetHeartbeat(ctx context.Context, id string) (Heartbeat, error)
 	GetHeartbeatByToken(ctx context.Context, token string) (Heartbeat, error)
 	MachineExists(ctx context.Context, id string) (bool, error)
-	CountHeartbeats(ctx context.Context) (total, attention int, err error)
 	// SetHeartbeatToken remplace le jeton et son empreinte d'un coup.
 	SetHeartbeatToken(ctx context.Context, id, token string) error
 	DeleteHeartbeat(ctx context.Context, id string) error
@@ -31,8 +32,6 @@ type Store interface {
 	// puis écrit le ping, l'exécution et le nouvel état d'un coup. Deux pings
 	// ou un ping et l'échéance ne se voient jamais un état périmé.
 	Transact(ctx context.Context, id string, decide Decision) error
-	ListPings(ctx context.Context, heartbeatID string, limit int) ([]Ping, error)
-	ListRuns(ctx context.Context, heartbeatID string, limit int) ([]Run, error)
 	PurgeHistory(ctx context.Context, pingsBefore, runsBefore time.Time) error
 }
 
@@ -121,7 +120,9 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 	if err := definition.Validate(); err != nil {
 		return Heartbeat{}, err
 	}
-	id, err := NewID()
+	// L'identifiant des URL de l'interface n'est pas le jeton : la page ne
+	// porte pas le secret.
+	id, err := ident.New()
 	if err != nil {
 		return Heartbeat{}, fmt.Errorf("generate id: %w", err)
 	}
@@ -285,20 +286,6 @@ func (s *Service) RegenerateToken(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) List(ctx context.Context) ([]Heartbeat, error) {
-	return s.store.ListHeartbeats(ctx)
-}
-
-func (s *Service) Get(ctx context.Context, id string) (Heartbeat, error) {
-	return s.store.GetHeartbeat(ctx, id)
-}
-
-// Count renvoie le nombre de moniteurs et ceux à traiter : en retard ou en
-// échec.
-func (s *Service) Count(ctx context.Context) (total, attention int, err error) {
-	return s.store.CountHeartbeats(ctx)
-}
-
 // NeedsAttention dit si l'état compte parmi ce que l'opérateur doit voir.
 func NeedsAttention(status Status) bool {
 	return status == StatusLate || status == StatusFailed
@@ -367,14 +354,6 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 	s.logger.Info("heartbeat resumed", "heartbeat_id", id)
 	s.changed(id)
 	return nil
-}
-
-func (s *Service) Pings(ctx context.Context, id string, limit int) ([]Ping, error) {
-	return s.store.ListPings(ctx, id, limit)
-}
-
-func (s *Service) Runs(ctx context.Context, id string, limit int) ([]Run, error) {
-	return s.store.ListRuns(ctx, id, limit)
 }
 
 // Receive applique un ping au moniteur de ce jeton : il repousse l'échéance

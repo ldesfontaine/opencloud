@@ -1,8 +1,6 @@
 package probe
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"slices"
 	"strings"
@@ -356,22 +354,23 @@ type Revision struct {
 }
 
 var (
-	ErrNotFound         = errors.New("probe not found")
-	ErrNameInvalid      = refusal.Invalid("probe.name_invalid", "probe name must be 1 to 80 characters")
-	ErrKindInvalid      = refusal.Invalid("probe.kind_invalid", "probe kind must be http or tcp")
-	ErrTargetInvalid    = refusal.Invalid("probe.target_invalid", "probe target is not a valid url or host:port")
-	ErrTargetForbidden  = refusal.Invalid("probe.target_forbidden", "probe target is a link-local address")
-	ErrMachineInvalid   = refusal.Invalid("probe.machine_invalid", "probe machine must exist")
-	ErrServiceInvalid   = refusal.Invalid("probe.service_invalid", "probe service must exist in the directory")
-	ErrIntervalInvalid  = refusal.Invalid("probe.interval_invalid", "probe interval must be between 30 seconds and 24 hours")
-	ErrTimeoutInvalid   = refusal.Invalid("probe.timeout_invalid", "probe timeout must be between 1 second and the interval")
-	ErrThresholdInvalid = refusal.Invalid("probe.threshold_invalid", "probe thresholds must be between 1 and 10")
-	ErrMethodInvalid    = refusal.Invalid("probe.method_invalid", "probe method must be GET, HEAD or POST")
-	ErrStatusInvalid    = refusal.Invalid("probe.status_invalid", "probe expected status must be codes or families")
-	ErrBodyInvalid      = refusal.Invalid("probe.body_invalid", "probe expected body is too long")
-	ErrTooMany          = refusal.Invalid("probe.too_many", "this machine already carries the maximum number of probes")
-	ErrNotPaused        = errors.New("probe is not paused")
-	ErrReportInvalid    = errors.New("probe report out of range")
+	ErrNotFound          = errors.New("probe not found")
+	ErrNameInvalid       = refusal.Invalid("probe.name_invalid", "probe name must be 1 to 80 characters")
+	ErrKindInvalid       = refusal.Invalid("probe.kind_invalid", "probe kind must be http or tcp")
+	ErrTargetInvalid     = refusal.Invalid("probe.target_invalid", "probe target is not a valid url or host:port")
+	ErrTargetForbidden   = refusal.Invalid("probe.target_forbidden", "probe target is a link-local address")
+	ErrTargetCredentials = refusal.Invalid("probe.target_credentials", "probe target must not carry credentials")
+	ErrMachineInvalid    = refusal.Invalid("probe.machine_invalid", "probe machine must exist")
+	ErrServiceInvalid    = refusal.Invalid("probe.service_invalid", "probe service must exist in the directory")
+	ErrIntervalInvalid   = refusal.Invalid("probe.interval_invalid", "probe interval must be between 30 seconds and 24 hours")
+	ErrTimeoutInvalid    = refusal.Invalid("probe.timeout_invalid", "probe timeout must be between 1 second and the interval")
+	ErrThresholdInvalid  = refusal.Invalid("probe.threshold_invalid", "probe thresholds must be between 1 and 10")
+	ErrMethodInvalid     = refusal.Invalid("probe.method_invalid", "probe method must be GET, HEAD or POST")
+	ErrStatusInvalid     = refusal.Invalid("probe.status_invalid", "probe expected status must be codes or families")
+	ErrBodyInvalid       = refusal.Invalid("probe.body_invalid", "probe expected body is too long")
+	ErrTooMany           = refusal.Invalid("probe.too_many", "this machine already carries the maximum number of probes")
+	ErrNotPaused         = refusal.Conflict("probe.not_paused", "probe is not paused")
+	ErrReportInvalid     = errors.New("probe report out of range")
 )
 
 // Complete pose ce que l'opérateur n'a pas dit : les valeurs par défaut,
@@ -476,15 +475,4 @@ func (d Definition) Validate() error {
 		return ErrBodyInvalid
 	}
 	return nil
-}
-
-const idBytes = 8
-
-// NewID tire l'identifiant d'une sonde, celui des adresses de l'interface.
-func NewID() (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }

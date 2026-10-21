@@ -7,7 +7,10 @@ import (
 )
 
 const (
-	MaxSilence       = 7 * 24 * time.Hour
+	MaxSilence = 7 * 24 * time.Hour
+	// Un silence fini reste lisible ce temps-là, comme une alerte résolue,
+	// puis la purge l'efface.
+	SilenceRetention = 90 * 24 * time.Hour
 	MaxReasonLength  = 200
 	maxSilencesShown = 200
 )

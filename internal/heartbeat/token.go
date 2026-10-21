@@ -13,7 +13,6 @@ const (
 	tokenScheme = "hb_" // #nosec G101 -- un préfixe, pas un secret.
 	// 128 bits : assez pour un secret d'URL, court dans une ligne de cron.
 	tokenBytes = 16
-	idBytes    = 8
 )
 
 // NewToken tire le secret de l'URL de ping. La base le garde chiffré, car la
@@ -33,14 +32,4 @@ func NewToken() (string, error) {
 func HashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-// NewID tire l'identifiant du moniteur, celui des URL de l'interface ; il
-// n'est pas le jeton, pour que la page ne porte pas le secret.
-func NewID() (string, error) {
-	raw := make([]byte, idBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(raw), nil
 }

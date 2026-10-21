@@ -74,7 +74,7 @@ func (f *fixture) matrixChannel(t *testing.T, homeserverURL string) alert.Channe
 	if err != nil {
 		t.Fatal(err)
 	}
-	channel, err := f.GetChannel(context.Background(), id)
+	channel, err := f.db.GetChannel(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}

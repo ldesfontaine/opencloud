@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"strings"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 )
@@ -17,6 +18,9 @@ const (
 	// Le préfixe affiché : le schéma plus six caractères, 30 bits sur 256.
 	tokenPrefixLength = len(tokenScheme) + 6
 	tokenIDLength     = 16
+	// Un jeton consommé reste pour l'historique (« déjà servi » plutôt
+	// qu'« inconnu »), puis la purge du démarrage l'efface.
+	ConsumedTokenRetention = 90 * 24 * time.Hour
 )
 
 // NewToken tire un jeton et renvoie son clair, à montrer une seule fois, et

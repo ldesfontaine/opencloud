@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
@@ -127,7 +126,7 @@ func pingToJSON(ping heartbeat.Ping) pingJSON {
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
-	heartbeats, err := s.heartbeats.List(r.Context())
+	heartbeats, err := s.reader.ListHeartbeats(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -175,15 +174,15 @@ func jobDefinition(request jobRequest) heartbeat.Definition {
 // La page d'une tâche : son état, l'URL de ping et les extraits à coller,
 // puis les dernières exécutions et les derniers pings.
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
-	found, err := s.heartbeats.Get(r.Context(), r.PathValue("id"))
+	found, err := s.reader.GetHeartbeat(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, heartbeat.ErrNotFound) {
 		return
 	}
-	runs, err := s.heartbeats.Runs(r.Context(), found.ID, jobRunsShown)
+	runs, err := s.reader.ListRuns(r.Context(), found.ID, jobRunsShown)
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	pings, err := s.heartbeats.Pings(r.Context(), found.ID, jobPingsShown)
+	pings, err := s.reader.ListPings(r.Context(), found.ID, jobPingsShown)
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -231,10 +230,5 @@ func (s *Server) pauseJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resumeJob(w http.ResponseWriter, r *http.Request) {
-	err := s.heartbeats.Resume(r.Context(), r.PathValue("id"))
-	if errors.Is(err, heartbeat.ErrNotPaused) {
-		s.apiRefuse(w, http.StatusConflict, "job.not_paused")
-		return
-	}
-	s.finishAPIAction(w, r, err, heartbeat.ErrNotFound)
+	s.finishAPIAction(w, r, s.heartbeats.Resume(r.Context(), r.PathValue("id")), heartbeat.ErrNotFound)
 }

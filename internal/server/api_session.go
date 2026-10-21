@@ -161,15 +161,15 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	jobs, attention, err := s.heartbeats.Count(ctx)
+	jobs, attention, err := s.reader.CountHeartbeats(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}
-	containers, failing, err := s.containers.Count(ctx)
+	containers, failing, err := s.reader.CountContainers(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}
-	probes, down, err := s.probes.Count(ctx)
+	probes, down, err := s.reader.CountProbes(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}
@@ -177,7 +177,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	updates, err := s.updates.Count(ctx)
+	updates, err := s.reader.CountContainerUpdates(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}
@@ -185,7 +185,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	alerts, err := s.alerts.Count(ctx)
+	alerts, err := s.reader.CountAlerts(ctx)
 	if err != nil {
 		return countsResponse{}, err
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 )
 
 func get(server *Server, path string) *httptest.ResponseRecorder {
@@ -19,6 +20,7 @@ func get(server *Server, path string) *httptest.ResponseRecorder {
 // Le front est une seule page : toute adresse sans extension la reçoit,
 // jamais en cache, et son routeur décide. Un fichier absent reste un 404.
 func TestSPA_ServesIndexForEveryClientRoute(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	for _, path := range []string{"/", "/machines", "/taches/abc", "/rien-ici"} {
 		recorder := get(server.Server, path)
@@ -46,6 +48,7 @@ func TestSPA_ServesIndexForEveryClientRoute(t *testing.T) {
 // {{product}} et le serveur le pose à la livraison, dans le titre et dans la
 // balise que lit l'écran d'erreur de démarrage.
 func TestSPA_PagesCarryTheProductName(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	for _, path := range []string{"/", "/statut"} {
 		body := get(server.Server, path).Body.String()
@@ -85,6 +88,7 @@ func TestExpandProductName_ReplacesEveryMarker(t *testing.T) {
 // Les fichiers de dist portent leur empreinte dans leur nom : cache
 // immuable ; ce qui vient de public/ (favicon, theme.js) se revalide.
 func TestSPA_AssetsAreImmutableAndPublicFilesRevalidated(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	assets := listAssets(t, server.Server)
 	if len(assets) == 0 {
@@ -113,6 +117,7 @@ func TestSPA_AssetsAreImmutableAndPublicFilesRevalidated(t *testing.T) {
 // Les deux polices de la direction artistique sont embarquées et servies
 // avec leur type MIME, sans quoi certains navigateurs refusent le fichier.
 func TestSPA_FontsAreEmbeddedAndServedAsWoff2(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	fonts := 0
 	for _, name := range listAssets(t, server.Server) {

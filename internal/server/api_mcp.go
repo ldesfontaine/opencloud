@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
@@ -69,8 +68,7 @@ type mcpLifetimesJSON struct {
 }
 
 type mcpToolCountsJSON struct {
-	Reads  int `json:"reads"`
-	Writes int `json:"writes"`
+	Reads int `json:"reads"`
 }
 
 // Le secret ou le jeton en clair, une seule fois.
@@ -125,7 +123,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 			AccessSeconds: int(mcp.AccessTTL.Seconds()), RefreshSeconds: int(mcp.RefreshTTL.Seconds()),
 			APITokenDays: mcp.APITokenDays(), DefaultDays: mcp.DefaultAPITokenDays,
 		},
-		Tools: mcpToolCountsJSON{Reads: mcpReadToolCount, Writes: mcpWriteToolCount},
+		Tools: mcpToolCountsJSON{Reads: mcpReadToolCount},
 	}
 	if !enabled {
 		return response, nil
@@ -160,10 +158,6 @@ func mcpTokenToJSON(token mcp.Token) mcpTokenJSON {
 // enableMCP tire le secret et le montre une seule fois.
 func (s *Server) enableMCP(w http.ResponseWriter, r *http.Request) {
 	secret, _, err := s.mcp.Enable(r.Context())
-	if errors.Is(err, mcp.ErrAlreadyEnabled) {
-		s.apiRefuse(w, http.StatusConflict, "mcp.already_enabled")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -176,10 +170,6 @@ func (s *Server) disableMCP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) regenerateMCPSecret(w http.ResponseWriter, r *http.Request) {
 	secret, err := s.mcp.RegenerateSecret(r.Context())
-	if errors.Is(err, mcp.ErrNotFound) {
-		s.apiRefuse(w, http.StatusConflict, "mcp.disabled")
-		return
-	}
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -192,18 +182,7 @@ func (s *Server) setMCPRedirectURIs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.mcp.SetRedirectURIs(r.Context(), request.RedirectURIs)
-	switch {
-	case errors.Is(err, mcp.ErrRedirectURIInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.redirect_uri_invalid")
-		return
-	case errors.Is(err, mcp.ErrTooManyRedirectURIs):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.too_many_redirect_uris")
-		return
-	case errors.Is(err, mcp.ErrNotFound):
-		s.apiRefuse(w, http.StatusConflict, "mcp.disabled")
-		return
-	case err != nil:
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.getMCP(w, r)
@@ -218,24 +197,7 @@ func (s *Server) createMCPToken(w http.ResponseWriter, r *http.Request) {
 	cleartext, token, err := s.mcp.CreateAPIToken(r.Context(), mcp.APITokenRequest{
 		Name: request.Name, Scope: mcp.Scope(request.Scope), Days: request.ExpiresInDays,
 	})
-	switch {
-	case errors.Is(err, mcp.ErrDisabled):
-		s.apiRefuse(w, http.StatusConflict, "mcp.disabled")
-		return
-	case errors.Is(err, mcp.ErrNameInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.name_invalid")
-		return
-	case errors.Is(err, mcp.ErrScopeInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.scope_invalid")
-		return
-	case errors.Is(err, mcp.ErrLifetimeInvalid):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.lifetime_invalid")
-		return
-	case errors.Is(err, mcp.ErrTooManyTokens):
-		s.apiRefuse(w, http.StatusUnprocessableEntity, "mcp.too_many_tokens")
-		return
-	case err != nil:
-		s.apiInternalError(w, r, err)
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, mcpTokenResponse{Token: cleartext, Item: mcpTokenToJSON(token)})

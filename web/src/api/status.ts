@@ -20,7 +20,7 @@ export interface StatusDay {
   degraded: number;
 }
 
-export interface IncidentUpdate {
+interface IncidentUpdate {
   status: IncidentStatus;
   message: string;
   created_at: string;

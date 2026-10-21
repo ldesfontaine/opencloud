@@ -12,6 +12,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
@@ -31,7 +32,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	if err != nil {
 		t.Fatal(err)
 	}
-	probes, err := ts.probes.List(ctx, machine.LocalID)
+	probes, err := ts.db.ListProbes(ctx, machine.LocalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +101,7 @@ func TestStatusAPI_ReadsMatchGoldenFiles(t *testing.T) {
 // écrit : ni un nom de machine, de conteneur, d'image ou de sonde, ni une
 // cible, une adresse, un identifiant d'objet, un jeton.
 func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	server.seedAll(t)
 	secrets := []string{
@@ -132,6 +134,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 // chiffres des seaux se testent dans le paquet public ; ici, le montage et
 // l'adresse que la racine lui donne.
 func TestStatusPublic_IsRateLimitedBySourceBehindTheRoot(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	passed, refused := 0, 0
 	for i := range 100 {
@@ -182,6 +185,7 @@ func TestStatusPublic_OnlyThePageIsEmbeddable(t *testing.T) {
 }
 
 func TestStatusPublic_PageIsServedWithoutTheAdministration(t *testing.T) {
+	servertest.RequireFront(t)
 	server := newTestServer(t)
 	recorder := get(server.Server, "/statut")
 	body := recorder.Body.String()
@@ -283,5 +287,206 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	}
 	if recorder := callAPI(server.Server, http.MethodGet, "/api/status/components/"+componentID, nil); recorder.Code != http.StatusNotFound {
 		t.Fatalf("deleted component still answers: %d", recorder.Code)
+	}
+}
+
+// publicStatusView lit de la page publique ce que les tests des incidents
+// regardent : l'état de chaque composant et les incidents ouverts.
+type publicStatusView struct {
+	Global     string `json:"global"`
+	Components []struct {
+		Name  string `json:"name"`
+		State string `json:"state"`
+	} `json:"components"`
+	Open []struct {
+		Title      string   `json:"title"`
+		Impact     string   `json:"impact"`
+		Components []string `json:"components"`
+	} `json:"open"`
+}
+
+func (v publicStatusView) stateOf(name string) string {
+	for _, component := range v.Components {
+		if component.Name == name {
+			return component.State
+		}
+	}
+	return ""
+}
+
+func readPublicStatus(t *testing.T, server *testServer) publicStatusView {
+	t.Helper()
+	recorder := callAPI(server.Server, http.MethodGet, "/statut/api/status", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("public status: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var view publicStatusView
+	decodeAPI(t, recorder, &view)
+	return view
+}
+
+// componentIDByName retrouve un composant de l'administration par son nom.
+func componentIDByName(t *testing.T, server *testServer, name string) (id, derived string) {
+	t.Helper()
+	var response componentsResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/components", nil), &response)
+	for _, component := range response.Components {
+		if component.Name == name {
+			return component.ID, component.Derived
+		}
+	}
+	t.Fatalf("no component named %q in %+v", name, response.Components)
+	return "", ""
+}
+
+func TestStatusAPI_ChangeIncident_RewritesItAndThePublicPageFollows(t *testing.T) {
+	server := newTestServer(t)
+	_, incidentID := server.seedAll(t)
+	silenceID, _ := componentIDByName(t, server, "Silence")
+	_, cloudDerived := componentIDByName(t, server, "Nuage")
+	before := readPublicStatus(t, server)
+	if before.stateOf("Nuage") != "down" || before.stateOf("Silence") != "" || len(before.Open) != 1 {
+		t.Fatalf("before the change: %+v", before)
+	}
+
+	recorder := callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+incidentID, map[string]any{
+		"title": "  Disque remplacé  ", "component_ids": []string{silenceID},
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("change: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var changed incidentJSON
+	decodeAPI(t, recorder, &changed)
+	if changed.ID != incidentID || changed.Title != "Disque remplacé" || changed.Impact != "down" || changed.Status != "identified" {
+		t.Fatalf("incident %+v", changed)
+	}
+	if len(changed.Components) != 1 || changed.Components[0].ID != silenceID || len(changed.Updates) != 2 {
+		t.Fatalf("components %+v, %d updates: the timeline must stay", changed.Components, len(changed.Updates))
+	}
+	stored := callAPI(server.Server, http.MethodGet, "/api/status/incidents/"+incidentID, nil)
+	var reread incidentJSON
+	decodeAPI(t, stored, &reread)
+	if reread.Title != "Disque remplacé" || len(reread.Components) != 1 || reread.Components[0].ID != silenceID {
+		t.Fatalf("stored incident %+v", reread)
+	}
+
+	// L'incident a quitté le Nuage, qui ne montre plus que son état propre,
+	// et pèse sur Silence, que rien ne montrait.
+	after := readPublicStatus(t, server)
+	if len(after.Open) != 1 || after.Open[0].Title != "Disque remplacé" || len(after.Open[0].Components) != 1 || after.Open[0].Components[0] != "Silence" {
+		t.Fatalf("open incidents %+v", after.Open)
+	}
+	if after.stateOf("Silence") != "down" || after.stateOf("Nuage") != cloudDerived {
+		t.Fatalf("Silence %q Nuage %q (derived %q)", after.stateOf("Silence"), after.stateOf("Nuage"), cloudDerived)
+	}
+	if after.Global != "down" {
+		t.Fatalf("global %q", after.Global)
+	}
+}
+
+func TestStatusAPI_ChangeIncident_MovesAMaintenanceWindow(t *testing.T) {
+	server := newTestServer(t)
+	cloudID, _ := server.seedAll(t)
+	starts := testNow.Add(time.Hour)
+	recorder := callAPI(server.Server, http.MethodPost, "/api/status/incidents", map[string]any{
+		"title": "Migration", "impact": "maintenance", "status": "scheduled", "component_ids": []string{cloudID},
+		"starts_at": starts, "ends_at": starts.Add(30 * time.Minute),
+	})
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("schedule: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var planned incidentJSON
+	decodeAPI(t, recorder, &planned)
+
+	later := starts.Add(2 * time.Hour)
+	recorder = callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+planned.ID, map[string]any{
+		"title": planned.Title, "component_ids": []string{cloudID}, "starts_at": later, "ends_at": later.Add(time.Hour),
+	})
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("move: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var moved incidentJSON
+	decodeAPI(t, recorder, &moved)
+	if moved.StartsAt == nil || !moved.StartsAt.Equal(later) || moved.EndsAt == nil || !moved.EndsAt.Equal(later.Add(time.Hour)) || moved.Status != "scheduled" {
+		t.Fatalf("window %v → %v, status %q", moved.StartsAt, moved.EndsAt, moved.Status)
+	}
+	// Sans fenêtre, une maintenance n'a pas de sens.
+	recorder = callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+planned.ID, map[string]any{"title": planned.Title, "component_ids": []string{cloudID}})
+	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "incident.window_invalid" {
+		t.Fatalf("no window: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestStatusAPI_ChangeIncident_Refuses(t *testing.T) {
+	server := newTestServer(t)
+	cloudID, incidentID := server.seedAll(t)
+	starts := testNow.Add(time.Hour)
+	cases := []struct {
+		name string
+		path string
+		body map[string]any
+		code int
+		key  string
+	}{
+		{"inconnu", "/api/status/incidents/nope", map[string]any{"title": "x", "component_ids": []string{cloudID}}, http.StatusNotFound, "not_found"},
+		{"titre vide", "/api/status/incidents/" + incidentID, map[string]any{"title": " ", "component_ids": []string{cloudID}}, http.StatusUnprocessableEntity, "incident.title_invalid"},
+		{"sans composant", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{}}, http.StatusUnprocessableEntity, "incident.component_invalid"},
+		{"composant inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{"nope"}}, http.StatusUnprocessableEntity, "incident.component_invalid"},
+		{"fenêtre sur un incident", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{cloudID}, "starts_at": starts, "ends_at": starts.Add(time.Hour)}, http.StatusUnprocessableEntity, "incident.window_invalid"},
+		{"champ inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{cloudID}, "impact": "maintenance"}, http.StatusBadRequest, "bad_json"},
+	}
+	for _, tc := range cases {
+		recorder := callAPI(server.Server, http.MethodPut, tc.path, tc.body)
+		if recorder.Code != tc.code || errorCode(t, recorder) != tc.key {
+			t.Errorf("%s: %d %s, want %d %s", tc.name, recorder.Code, recorder.Body.String(), tc.code, tc.key)
+		}
+	}
+	var unchanged incidentJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents/"+incidentID, nil), &unchanged)
+	if unchanged.Title != "Le nuage ne répond plus" {
+		t.Fatalf("a refusal reached the base: %q", unchanged.Title)
+	}
+}
+
+func TestStatusAPI_DeleteIncident_RemovesItEverywhere(t *testing.T) {
+	server := newTestServer(t)
+	server.seedAll(t)
+	_, cloudDerived := componentIDByName(t, server, "Nuage")
+	var open incidentsResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents", nil), &open)
+	var incidentID string
+	for _, incident := range open.Incidents {
+		if incident.Status != "resolved" {
+			incidentID = incident.ID
+		}
+	}
+	if incidentID == "" || readPublicStatus(t, server).stateOf("Nuage") != "down" {
+		t.Fatal("the seed must leave one open incident on the Nuage")
+	}
+
+	recorder := callAPI(server.Server, http.MethodDelete, "/api/status/incidents/"+incidentID, nil)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := callAPI(server.Server, http.MethodGet, "/api/status/incidents/"+incidentID, nil); recorder.Code != http.StatusNotFound {
+		t.Fatalf("deleted incident still answers: %d", recorder.Code)
+	}
+	var remaining incidentsResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents", nil), &remaining)
+	if len(remaining.Incidents) != 1 || remaining.Incidents[0].Status != "resolved" {
+		t.Fatalf("incidents left %+v, want the resolved one only", remaining.Incidents)
+	}
+	view := readPublicStatus(t, server)
+	if len(view.Open) != 0 || view.stateOf("Nuage") != cloudDerived {
+		t.Fatalf("public page: open %+v, Nuage %q (derived %q)", view.Open, view.stateOf("Nuage"), cloudDerived)
+	}
+	var counts countsResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/counts", nil), &counts)
+	if counts.Status.OpenIncidents != 0 {
+		t.Fatalf("open incidents %d", counts.Status.OpenIncidents)
+	}
+	recorder = callAPI(server.Server, http.MethodDelete, "/api/status/incidents/"+incidentID, nil)
+	if recorder.Code != http.StatusNotFound || errorCode(t, recorder) != "not_found" {
+		t.Fatalf("delete twice: %d %s", recorder.Code, recorder.Body.String())
 	}
 }

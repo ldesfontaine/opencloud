@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
 // Severity : deux gravités, pas trois. Un ton de plus ne dirait rien de
@@ -271,12 +273,12 @@ const (
 
 var (
 	ErrNotFound      = errors.New("alert: not found")
-	ErrAlreadyClosed = errors.New("alert: already resolved")
+	ErrAlreadyClosed = refusal.Conflict("alert.already_resolved", "alert: already resolved")
 	ErrFactInvalid   = errors.New("alert: fact invalid")
 	// Un acquittement groupé sans alerte, ou au-delà de ce que la page
 	// affiche.
-	ErrSelectionEmpty    = errors.New("alert: selection empty")
-	ErrSelectionTooLarge = errors.New("alert: selection too large")
+	ErrSelectionEmpty    = refusal.Invalid("alert.selection_empty", "alert: selection empty")
+	ErrSelectionTooLarge = refusal.Invalid("alert.selection_too_large", "alert: selection too large")
 )
 
 // Validate refuse un fait sans objet : la clé de dédup serait vide et deux

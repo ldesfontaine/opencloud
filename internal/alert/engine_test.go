@@ -62,7 +62,7 @@ func TestResolve_ClosesAndTellsOnlyTheChannelsThatWantIt(t *testing.T) {
 	if f.sender.events() != "opened:ops,opened:pager,resolved:ops" {
 		t.Fatalf("events %q", f.sender.events())
 	}
-	deliveries, err := f.Deliveries(ctx, resolved.ID)
+	deliveries, err := f.db.ListDeliveries(ctx, resolved.ID)
 	if err != nil || len(deliveries) != 3 || deliveries[0].Status != alert.DeliveryPending {
 		t.Fatalf("deliveries %+v, %v", deliveries, err)
 	}
@@ -137,7 +137,7 @@ func TestSilence_ByMachineCoversWhatLivesOnIt_AndNeedsAFilter(t *testing.T) {
 	if err := f.DeleteSilence(ctx, silence.ID); err != nil {
 		t.Fatal(err)
 	}
-	if silences, err := f.Silences(ctx); err != nil || len(silences) != 0 {
+	if silences, err := f.db.ListSilences(ctx); err != nil || len(silences) != 0 {
 		t.Fatalf("silences %v, %v", silences, err)
 	}
 }
@@ -216,7 +216,7 @@ func TestCount_AcknowledgedLeavesTheRedCounter(t *testing.T) {
 	if _, err := f.Acknowledge(ctx, opened.ID); err != nil {
 		t.Fatal(err)
 	}
-	counts, err := f.Count(ctx)
+	counts, err := f.db.CountAlerts(ctx)
 	if err != nil || counts.Open != 1 || counts.Unacknowledged != 0 {
 		t.Fatalf("counts %+v, %v", counts, err)
 	}
@@ -251,6 +251,51 @@ func TestPurge_ForgetsOldResolvedAlertsOnly(t *testing.T) {
 	}
 	if len(f.open(t, alert.StatusResolved)) != 0 || len(f.open(t, alert.StatusOpen)) != 1 {
 		t.Fatal("purge should forget the resolved one and keep the open one")
+	}
+}
+
+// Une sonde retirée emporte ses silences ; une sonde mise en pause garde
+// les siens, elle peut revenir.
+func TestProbeRemoved_TakesItsSilencesAndAPauseKeepsThem(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	removed := alert.Object{Kind: alert.ObjectProbe, ID: "aaaaaaaaaaaaaaaa", Name: "site"}
+	paused := alert.Object{Kind: alert.ObjectProbe, ID: "bbbbbbbbbbbbbbbb", Name: "api"}
+	for _, object := range []alert.Object{removed, paused} {
+		if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Object: object, Duration: time.Hour}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.ProbeRemoved(ctx, removed.ID)
+	f.ProbeChanged(ctx, probe.Probe{ID: paused.ID, Name: paused.Name, Status: probe.StatusPaused})
+	silences, err := f.db.ListSilences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(silences) != 1 || silences[0].Object.ID != paused.ID {
+		t.Fatalf("silences %+v", silences)
+	}
+}
+
+func TestPurge_ForgetsLongEndedSilencesOnly(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindDiskFull, Duration: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(alert.SilenceRetention + 2*time.Hour)
+	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindProbeDown, Duration: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Purge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	silences, err := f.db.ListSilences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(silences) != 1 || silences[0].Kind != alert.KindProbeDown {
+		t.Fatalf("silences %+v", silences)
 	}
 }
 

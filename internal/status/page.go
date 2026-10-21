@@ -10,7 +10,7 @@ import (
 // Page rend les réglages de la page, la langue résolue : celle du réglage,
 // sinon celle de l'interface.
 func (s *Service) Page(ctx context.Context) (Page, error) {
-	current, err := s.store.LoadSettings(ctx)
+	current, err := s.reader.LoadSettings(ctx)
 	if err != nil {
 		return Page{}, err
 	}

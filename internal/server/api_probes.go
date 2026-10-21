@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"time"
 
@@ -231,7 +230,7 @@ func (s *Server) writeProbeList(w http.ResponseWriter, r *http.Request, machineI
 // machineID est vide, avec leurs jours ; l'API et l'outil MCP la rendent
 // telle quelle, l'outil la pagine et masque les cibles après.
 func (s *Server) probeListOf(ctx context.Context, machineID string) (probesResponse, error) {
-	probes, err := s.probes.List(ctx, machineID)
+	probes, err := s.reader.ListProbes(ctx, machineID)
 	if err != nil {
 		return probesResponse{}, err
 	}
@@ -260,7 +259,7 @@ func (s *Server) probeListOf(ctx context.Context, machineID string) (probesRespo
 // La page d'une sonde : ses faits, son uptime par fenêtre, ses jours et
 // ses derniers essais.
 func (s *Server) getProbe(w http.ResponseWriter, r *http.Request) {
-	found, err := s.probes.Get(r.Context(), r.PathValue("id"))
+	found, err := s.reader.GetProbe(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, probe.ErrNotFound) {
 		return
 	}
@@ -286,7 +285,7 @@ func (s *Server) probeResponseOf(ctx context.Context, found probe.Probe) (probeR
 	if err != nil {
 		return probeResponse{}, err
 	}
-	results, err := s.probes.Results(ctx, found.ID, probeResultsShown)
+	results, err := s.reader.ListProbeResults(ctx, found.ID, probeResultsShown)
 	if err != nil {
 		return probeResponse{}, err
 	}
@@ -366,10 +365,5 @@ func (s *Server) pauseProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resumeProbe(w http.ResponseWriter, r *http.Request) {
-	err := s.probes.Resume(r.Context(), r.PathValue("id"))
-	if errors.Is(err, probe.ErrNotPaused) {
-		s.apiRefuse(w, http.StatusConflict, "probe.not_paused")
-		return
-	}
-	s.finishAPIAction(w, r, err, probe.ErrNotFound)
+	s.finishAPIAction(w, r, s.probes.Resume(r.Context(), r.PathValue("id")), probe.ErrNotFound)
 }

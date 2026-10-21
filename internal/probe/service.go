@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
@@ -28,7 +29,6 @@ type Store interface {
 	// ListProbes rend les sondes d'une machine, toutes si machineID est vide.
 	ListProbes(ctx context.Context, machineID string) ([]Probe, error)
 	GetProbe(ctx context.Context, id string) (Probe, error)
-	CountProbes(ctx context.Context) (total, attention int, err error)
 	// CountProbeCertificates compte les certificats vus et ceux dont
 	// l'échéance tombe avant l'instant donné.
 	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
@@ -44,7 +44,6 @@ type Store interface {
 	// transaction ; un essai déjà en base, rejoué, est ignoré. Rend les
 	// sondes dont l'état a été écrit : une sonde révisée entre-temps n'y est pas.
 	ApplyProbeResults(ctx context.Context, changes Changes) ([]Probe, error)
-	ListProbeResults(ctx context.Context, probeID string, limit int) ([]Result, error)
 	// ListDays rend les jours d'une sonde, ou de toutes si probeID est vide.
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
 	// CountResults compte les essais et les succès d'une fenêtre, dans le brut.
@@ -150,7 +149,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 	if err := s.checkServiceExists(ctx, definition); err != nil {
 		return Probe{}, err
 	}
-	id, err := NewID()
+	id, err := ident.New()
 	if err != nil {
 		return Probe{}, fmt.Errorf("generate id: %w", err)
 	}
@@ -312,35 +311,12 @@ func (s *Service) writeRevision(ctx context.Context, before Probe, revision Revi
 	return s.writeUnderCeiling(ctx, revision.Probe.MachineID, write)
 }
 
-func (s *Service) List(ctx context.Context, machineID string) ([]Probe, error) {
-	return s.store.ListProbes(ctx, machineID)
-}
-
-func (s *Service) Get(ctx context.Context, id string) (Probe, error) {
-	return s.store.GetProbe(ctx, id)
-}
-
-// Count renvoie le nombre de sondes et celles à traiter : hors ligne.
-func (s *Service) Count(ctx context.Context) (total, attention int, err error) {
-	return s.store.CountProbes(ctx)
-}
-
-// NeedsAttention dit si l'état compte parmi ce que l'opérateur doit voir.
-// Dégradé n'en est pas : la cible répond, c'est sa chaîne qui déplaît.
-func NeedsAttention(status Status) bool {
-	return status == StatusDown
-}
-
 // Certificates compte ce que la vue d'ensemble montre. Le seuil est celui
 // du produit, publié au navigateur par la session : un seul chiffre, une
 // seule source, et la même bascule à l'écran qu'au compteur.
 func (s *Service) Certificates(ctx context.Context) (Certificates, error) {
 	now := s.now()
 	return s.store.CountProbeCertificates(ctx, now, now.Add(CertificateWarning*24*time.Hour))
-}
-
-func (s *Service) Results(ctx context.Context, id string, limit int) ([]Result, error) {
-	return s.store.ListProbeResults(ctx, id, limit)
 }
 
 // Days rend les jours d'une sonde depuis la date donnée, les plus anciens
@@ -409,6 +385,11 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 	if wasPaused && !found.IsPaused() {
 		return ErrNotPaused
 	}
+	// Une sonde mise en pause pour ses identifiants ne repart qu'avec une
+	// cible changée.
+	if wasPaused && targetHasCredentials(found.Kind, found.Target) {
+		return ErrTargetCredentials
+	}
 	if err := s.store.SetProbeStatus(ctx, id, status); err != nil {
 		return err
 	}
@@ -419,6 +400,30 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 	}
 	s.Assign(ctx, found.MachineID)
 	s.changed(found.MachineID)
+	return nil
+}
+
+// PauseTargetsWithCredentials met en pause chaque sonde dont la cible porte
+// des identifiants, acceptés avant que la création les refuse. Ils restent
+// en base, en clair, tant que l'opérateur ne change pas la cible : le journal
+// le redit à chaque démarrage, cible masquée.
+func (s *Service) PauseTargetsWithCredentials(ctx context.Context) error {
+	probes, err := s.store.ListProbes(ctx, "")
+	if err != nil {
+		return fmt.Errorf("list probes: %w", err)
+	}
+	for _, found := range probes {
+		if !targetHasCredentials(found.Kind, found.Target) {
+			continue
+		}
+		if !found.IsPaused() {
+			if err := s.Pause(ctx, found.ID); err != nil {
+				return fmt.Errorf("pause probe %s: %w", found.ID, err)
+			}
+		}
+		s.logger.Warn("probe paused, its target carries credentials: change the target to resume it",
+			"probe_id", found.ID, "name", found.Name, "machine_id", found.MachineID, "target", RedactTarget(found.Target))
+	}
 	return nil
 }
 

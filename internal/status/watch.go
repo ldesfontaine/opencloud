@@ -14,8 +14,9 @@ const (
 	purgePeriod = 24 * time.Hour
 )
 
-// Watch tient la page à jour : relit à chaque sujet du bus interne, ouvre
-// et ferme les maintenances à l'heure, purge une fois par jour.
+// Watch tient la page à jour : relit à chaque sujet du bus interne qui
+// touche ses membres, ouvre et ferme les maintenances à l'heure, purge une
+// fois par jour.
 func (s *Service) Watch(ctx context.Context) {
 	if err := s.Purge(ctx); err != nil {
 		s.logger.Warn("purge incidents", "error", err)
@@ -46,8 +47,10 @@ func (s *Service) Watch(ctx context.Context) {
 	}
 }
 
-// listen rend un canal qui se réveille à chaque lot de sujets, sauf quand
-// le lot ne porte que « status », qui est le nôtre.
+// listen rend un canal qui se réveille à chaque lot qui touche un membre
+// d'un composant. Les autres sujets ne changent rien à l'instantané :
+// « status » est le nôtre, et les écritures de l'opérateur relisent déjà ;
+// mesures et alertes n'y entrent pas.
 func (s *Service) listen(ctx context.Context) <-chan struct{} {
 	wake := make(chan struct{})
 	if s.feed == nil {
@@ -62,7 +65,7 @@ func (s *Service) listen(ctx context.Context) <-chan struct{} {
 			if err != nil {
 				return
 			}
-			if onlyStatus(batch) {
+			if !touchesMembers(batch) {
 				continue
 			}
 			select {
@@ -75,11 +78,14 @@ func (s *Service) listen(ctx context.Context) <-chan struct{} {
 	return wake
 }
 
-func onlyStatus(batch []live.Topic) bool {
+// touchesMembers dit si le lot porte un sujet que l'instantané lit :
+// machines, services déclarés, conteneurs, tâches, sondes.
+func touchesMembers(batch []live.Topic) bool {
 	for _, topic := range batch {
-		if topic != live.TopicStatus {
-			return false
+		switch topic {
+		case live.TopicMachines, live.TopicDirectory, live.TopicContainers, live.TopicJobs, live.TopicProbes:
+			return true
 		}
 	}
-	return true
+	return false
 }
