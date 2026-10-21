@@ -24,7 +24,8 @@ type route struct {
 // leur place. Sous /oauth et /mcp, et les deux métadonnées well-known, ce qu'un
 // agent IA appelle, par Bearer, fermé tant que MCP n'est pas activé. Tout
 // le reste est le front, servi par spa.go. Ce qui revient à l'opérateur
-// passe par son authentification quand elle est activée : voir auth.go.
+// passe par son authentification, ou attend la première configuration tant
+// qu'aucun compte n'existe : voir auth_middleware.go.
 func (s *Server) routes() []route {
 	routes := []route{
 		{"GET", "/api/session", s.session},
@@ -171,7 +172,7 @@ func (s *Server) mux() *http.ServeMux {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(handler)
+			handler = s.requireOperator(handler, isFirstSetupRoute(route.method, route.pattern))
 		}
 		if isAPI || route.pattern == mcpAuthorizePath {
 			handler = s.requireKnownHost(handler)

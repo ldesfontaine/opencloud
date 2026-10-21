@@ -12,8 +12,9 @@ web interface embedded.
 
 > **Maturity.** Version `v0.0.1`, pre-release. Linux amd64 and arm64
 > binaries are in the [v0.0.1 release](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
-> or you build them. The interface is **open by default**: enable authentication
-> before exposing it beyond the machine.
+> or you build them. A fresh install has **no account**: it serves only the
+> first-setup screen, and whoever opens it first creates the account. Create it
+> before exposing the port beyond the machine.
 
 ![openCloud overview with example machines](docs/images/vue-ensemble.png)
 
@@ -44,8 +45,10 @@ cd opencloud
 make run          # builds bin/opencloud, writes dev/config.toml, starts on 127.0.0.1:8080
 ```
 
-Open <http://127.0.0.1:8080>, then **Settings → Interface access** to enable
-authentication. To add a machine: **Machines → Add a machine**, then paste
+Open <http://127.0.0.1:8080> and **create the account** on the first-setup
+screen (username, password of 12 characters or more); the interface then
+opens. Lost password: `opencloud auth disable -config dev/config.toml` brings
+back the first-setup screen. To add a machine: **Machines → Add a machine**, then paste
 the displayed command on it as root
 (`printf '%s\n' 'oc_…' | sudo opencloud agent -server https://…`). Do not enroll an
 agent on the openCloud machine itself: it is already monitored, and an agent

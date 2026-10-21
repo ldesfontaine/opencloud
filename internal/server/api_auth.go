@@ -92,9 +92,9 @@ func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Tant que l'interface était ouverte, n'importe qui pouvait tirer un
-	// jeton MCP : aucun ne survit à l'activation. Après elle, et non avant,
-	// pour qu'un rafraîchissement OAuth glissé entre les deux tombe aussi.
+	// Un jeton MCP tiré sous un accès d'avant (laissé par la commande de
+	// secours) ne survit pas à l'activation. Après elle, et non avant, pour
+	// qu'un rafraîchissement OAuth glissé entre les deux tombe aussi.
 	revoked, err := s.mcp.RevokeAll(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)

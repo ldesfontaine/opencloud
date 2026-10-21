@@ -253,7 +253,6 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 	server := newTestServer(t)
 	server.seedManifest(t)
 	file := editedFile(t, server.exportedFile(t))
-	server.enableBasic(t)
 	call := func(method, path, user, password string) int {
 		body, _ := json.Marshal(manifestPayload(file, false, ""))
 		request := httptest.NewRequest(method, path, bytes.NewReader(body))
@@ -261,6 +260,8 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 		request.Header.Set("Content-Type", "application/json")
 		if user != "" {
 			request.SetBasicAuth(user, password)
+		} else {
+			request.Header.Set(anonymousHeader, "1")
 		}
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)
@@ -295,7 +296,6 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 func TestControlSocket_ActorIsCLI(t *testing.T) {
 	server := newTestServer(t)
 	server.seedManifest(t)
-	server.enableBasic(t)
 	file := editedFile(t, server.exportedFile2(t))
 
 	onSocket := func(method, path string, payload any) *httptest.ResponseRecorder {

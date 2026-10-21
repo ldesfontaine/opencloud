@@ -5,6 +5,7 @@ import { BrowserRouter } from "react-router";
 import { App } from "./App";
 import { I18nProvider } from "./i18n/context";
 import { RefreshProvider } from "./api/refresh";
+import { FirstSetupGate } from "./pages/FirstSetup";
 import "./styles/base.scss";
 
 const root = document.getElementById("root");
@@ -14,7 +15,10 @@ if (root) {
       <BrowserRouter>
         <I18nProvider>
           <RefreshProvider>
-            <App />
+            {/* Sans compte, la première configuration remplace l'interface. */}
+            <FirstSetupGate>
+              <App />
+            </FirstSetupGate>
           </RefreshProvider>
         </I18nProvider>
       </BrowserRouter>
