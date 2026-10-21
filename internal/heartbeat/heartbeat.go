@@ -151,7 +151,7 @@ var (
 	ErrExitCodeInvalid = errors.New("exit code must be between 0 and 255")
 	ErrNotPaused       = refusal.Conflict("job.not_paused", "heartbeat is not paused")
 	// Une page publique affiche la tâche : la retirer d'abord du composant
-	// (restrict, migration 028_restrict.sql).
+	// (restrict, migrations/001_schema.sql).
 	ErrShownOnStatus = refusal.Conflict("job.shown_on_status", "a status component shows the heartbeat")
 )
 

@@ -65,25 +65,3 @@ func TestUpsertContainer_RoundTripsItsLabels(t *testing.T) {
 		t.Fatalf("labels après un inventaire sans label = %+v", got.Labels)
 	}
 }
-
-// La 027 est un ajout pur : les conteneurs déjà là gardent tout, sans label.
-func TestMigration027_ExistingContainersHaveNoLabels(t *testing.T) {
-	db := openAtVersion(t, 26)
-	seedMachines(t, db)
-	exec(t, db, `
-		INSERT INTO containers (id, machine_id, kind, name, container_id, image, state, ports, created_at, first_seen_at, last_seen_at, compose_service, group_name)
-		VALUES ('c1', ?, 'container', 'web', 'c1', 'nginx:1.27', 'running', '[]', 1, 1, 1, 'web', 'blog')`, m1)
-
-	migrateToTheEnd(t, db)
-
-	if got := count(t, db, `SELECT COUNT(*) FROM containers WHERE id = 'c1' AND label_service = '' AND label_unit = '' AND label_invalid = 0 AND compose_service = 'web' AND group_name = 'blog'`); got != 1 {
-		t.Fatalf("la fiche existante a changé ou ses labels ne sont pas vides : %d", got)
-	}
-	got, err := db.GetContainer(context.Background(), "c1")
-	if err != nil || !got.Labels.IsEmpty() || got.Name != "web" {
-		t.Fatalf("fiche relue = %+v, %v", got, err)
-	}
-	if violations := count(t, db, `SELECT COUNT(*) FROM pragma_foreign_key_check`); violations != 0 {
-		t.Fatalf("%d clés étrangères pendantes", violations)
-	}
-}

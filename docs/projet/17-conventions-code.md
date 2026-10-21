@@ -21,7 +21,7 @@ internal/server/sse/         # la boucle des flux text/event-stream, partagée p
 internal/server/httpx/       # les gestes de réponse que la racine et ses sous-paquets partagent : JSON, événement SSE, 429, adresse du pair
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
-migrations/                  # SQL numéroté, embarqué
+migrations/                  # SQL numéroté, embarqué ; 001_schema.sql est le schéma lisible
 docs/projet/                 # méthode, conventions, direction artistique
 .github/                     # CI, gabarits de tickets
 ```
@@ -317,11 +317,30 @@ jamais d'état à moitié appliqué. Clé inconnue = avertissement au démarrage
 
 Le schéma de la base d'openCloud changera : une colonne ajoutée, une table
 nouvelle. Une installation existante doit **suivre sans perdre ses données**.
-Les migrations sont des fichiers SQL numérotés (`001_machines.sql`,
-`002_heartbeats.sql`…), embarqués dans le binaire, appliqués **dans l'ordre au
-démarrage**, chacun noté dans une table `schema_migrations` pour ne jamais être
-rejoué. Même principe que `php artisan migrate`, sans commande à lancer : le
-binaire se met à niveau tout seul.
+**Une migration = un fichier SQL numéroté** sous `migrations/`, embarqué dans
+le binaire, appliqué **dans l'ordre au démarrage**, noté dans une table
+`schema_migrations` pour ne jamais être rejoué. Même principe que `php artisan
+migrate`, sans commande à lancer : le binaire se met à niveau tout seul.
+
+- **Le schéma de départ est `001_schema.sql`** : tout le schéma, groupé par
+  domaine dans l'ordre des dépendances, colonnes alignées, règles de
+  suppression visibles, un commentaire court qui dit le pourquoi. On le lit
+  pour savoir ce qu'est la base. Il ne se modifie plus : un changement est
+  une migration de plus, à partir de `002`, écrite pour que la table finale
+  se lise telle quelle.
+- **Le runner** (`internal/store/store.go`) joue chaque fichier hors clés
+  étrangères, dans sa transaction, et lance `PRAGMA foreign_key_check` avant
+  le COMMIT : une reconstruction de table (le patron de SQLite : créer la
+  nouvelle, recopier, supprimer l'ancienne, renommer) n'emporte rien par
+  cascade, et une clé pendante annule tout. Une base qui note une version que
+  le binaire n'embarque pas est refusée.
+- **Du SQL, pas de Go** : une migration qui demanderait du code se discute
+  d'abord.
+- **Les garde-fous** (`internal/store/schema_test.go`) : `001_schema.sql` égale
+  les anciennes migrations rejouées (gardées dans `testdata`) suivies de
+  l'élagage ; chaque clé étrangère vise une clé ; chaque table est lue et
+  écrite par le store, chaque colonne y est nommée. Une colonne qui ne sert
+  pas encore n'entre pas dans le schéma : elle vient avec le code qui la lit.
 
 Rien à voir avec les migrations d'un **service** déployé (celles de son
 application, jouées par `make update`) : ici il s'agit de la base d'openCloud

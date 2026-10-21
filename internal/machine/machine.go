@@ -100,7 +100,7 @@ var (
 
 // Ce qui retient le retrait d'une machine : ce qui y est déclaré ou la vise
 // serait orphelin, et le supprimer ou le détacher revient à l'opérateur
-// (restrict, migration 028_restrict.sql).
+// (restrict, migrations/001_schema.sql).
 var (
 	ErrHasDeclaredServices = refusal.Conflict("machine.has_declared_services", "the machine carries declared services")
 	ErrHasProbes           = refusal.Conflict("machine.has_probes", "the machine runs probes")

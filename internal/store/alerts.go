@@ -435,7 +435,7 @@ func scanMute(row scanner) (alert.Mute, error) {
 }
 
 // actorText écrit l'acteur en une colonne, « genre:nom » ; actorOf le relit.
-// Vide : une fenêtre recopiée par la migration, sans acteur connu.
+// Vide : aucun acteur connu.
 func actorText(actor audit.Actor) string {
 	if actor.Name == "" {
 		return string(actor.Kind)

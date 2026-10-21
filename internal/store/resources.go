@@ -23,7 +23,7 @@ const aggregateRaw = `AVG(cpu_percent), MAX(cpu_cores), AVG(load_1),
 	CAST(AVG(disk_used) AS INTEGER), CAST(AVG(disk_total) AS INTEGER),
 	CAST(AVG(net_rx_per_second) AS INTEGER), CAST(AVG(net_tx_per_second) AS INTEGER)`
 
-// Les agrégats de l'horaire vers le journalier, pondérés par le nombre
+// Les agrégats des heures vers le jour, pondérés par le nombre
 // d'échantillons : une heure à 3 échantillons ne pèse pas une heure à 360.
 const aggregateHourly = `SUM(avg_cpu_percent * sample_count) / SUM(sample_count), MAX(cpu_cores),
 	SUM(avg_load_1 * sample_count) / SUM(sample_count),
@@ -32,7 +32,7 @@ const aggregateHourly = `SUM(avg_cpu_percent * sample_count) / SUM(sample_count)
 	SUM(avg_disk_used * sample_count) / SUM(sample_count), SUM(avg_disk_total * sample_count) / SUM(sample_count),
 	SUM(avg_net_rx_per_second * sample_count) / SUM(sample_count), SUM(avg_net_tx_per_second * sample_count) / SUM(sample_count)`
 
-const rollupUpdate = `ON CONFLICT (machine_id, bucket) DO UPDATE SET
+const rollupUpdate = `ON CONFLICT (machine_id, granularity, bucket) DO UPDATE SET
 	avg_cpu_percent = excluded.avg_cpu_percent, cpu_cores = excluded.cpu_cores, avg_load_1 = excluded.avg_load_1,
 	avg_mem_used = excluded.avg_mem_used, avg_mem_total = excluded.avg_mem_total,
 	avg_swap_used = excluded.avg_swap_used, avg_swap_total = excluded.avg_swap_total,
@@ -167,16 +167,10 @@ func (db *DB) ListSamples(ctx context.Context, machineID string, from, to time.T
 		stepSeconds, stepSeconds, machineID, from.Unix(), to.Unix())
 }
 
-func (db *DB) ListHourly(ctx context.Context, machineID string, from, to time.Time) ([]sampler.Reading, error) {
-	return db.queryReadings(ctx, `SELECT bucket, `+rollupColumns+` FROM machine_samples_hourly
-		WHERE machine_id = ? AND bucket >= ? AND bucket <= ? ORDER BY bucket`,
-		machineID, from.Unix(), to.Unix())
-}
-
-func (db *DB) ListDaily(ctx context.Context, machineID string, from, to time.Time) ([]sampler.Reading, error) {
-	return db.queryReadings(ctx, `SELECT bucket, `+rollupColumns+` FROM machine_samples_daily
-		WHERE machine_id = ? AND bucket >= ? AND bucket <= ? ORDER BY bucket`,
-		machineID, from.Unix(), to.Unix())
+func (db *DB) ListRollups(ctx context.Context, machineID string, granularity resource.Granularity, from, to time.Time) ([]sampler.Reading, error) {
+	return db.queryReadings(ctx, `SELECT bucket, `+rollupColumns+` FROM machine_rollups
+		WHERE machine_id = ? AND granularity = ? AND bucket >= ? AND bucket <= ? ORDER BY bucket`,
+		machineID, string(granularity), from.Unix(), to.Unix())
 }
 
 func (db *DB) queryReadings(ctx context.Context, query string, args ...any) ([]sampler.Reading, error) {
@@ -187,30 +181,31 @@ func (db *DB) queryReadings(ctx context.Context, query string, args ...any) ([]s
 	return collect(rows, scanReading)
 }
 
-// RollupHourly agrège un seau du brut en une seule instruction ; le seau
+// RollupHourly agrège une heure du brut en une seule instruction ; le seau
 // existant est réécrit, jamais dupliqué.
 func (db *DB) RollupHourly(ctx context.Context, bucketStart, bucketEnd time.Time) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO machine_samples_hourly (machine_id, bucket, `+rollupColumns+`, sample_count)
-		SELECT machine_id, ?, `+aggregateRaw+`, COUNT(*)
+		INSERT INTO machine_rollups (machine_id, granularity, bucket, `+rollupColumns+`, sample_count)
+		SELECT machine_id, ?, ?, `+aggregateRaw+`, COUNT(*)
 		FROM machine_samples WHERE sampled_at >= ? AND sampled_at < ?
 		GROUP BY machine_id `+rollupUpdate,
-		bucketStart.Unix(), bucketStart.Unix(), bucketEnd.Unix())
+		string(resource.GranularityHour), bucketStart.Unix(), bucketStart.Unix(), bucketEnd.Unix())
 	if err != nil {
 		return fmt.Errorf("rollup hourly: %w", err)
 	}
 	return nil
 }
 
-// RollupDaily agrège les seaux horaires d'un jour, pondérés par leur
-// nombre d'échantillons.
+// RollupDaily agrège les heures d'un jour, pondérées par leur nombre
+// d'échantillons.
 func (db *DB) RollupDaily(ctx context.Context, bucketStart, bucketEnd time.Time) error {
 	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO machine_samples_daily (machine_id, bucket, `+rollupColumns+`, sample_count)
-		SELECT machine_id, ?, `+aggregateHourly+`, SUM(sample_count)
-		FROM machine_samples_hourly WHERE bucket >= ? AND bucket < ?
+		INSERT INTO machine_rollups (machine_id, granularity, bucket, `+rollupColumns+`, sample_count)
+		SELECT machine_id, ?, ?, `+aggregateHourly+`, SUM(sample_count)
+		FROM machine_rollups WHERE granularity = ? AND bucket >= ? AND bucket < ?
 		GROUP BY machine_id `+rollupUpdate,
-		bucketStart.Unix(), bucketStart.Unix(), bucketEnd.Unix())
+		string(resource.GranularityDay), bucketStart.Unix(),
+		string(resource.GranularityHour), bucketStart.Unix(), bucketEnd.Unix())
 	if err != nil {
 		return fmt.Errorf("rollup daily: %w", err)
 	}
@@ -227,10 +222,11 @@ func (db *DB) PurgeSamples(ctx context.Context, rawBefore, hourlyBefore, dailyBe
 		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples WHERE sampled_at < ?`, rawBefore.Unix()); err != nil {
 			return fmt.Errorf("purge samples: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_hourly WHERE bucket < ?`, hourlyBefore.Unix()); err != nil {
+		const purgeRollups = `DELETE FROM machine_rollups WHERE granularity = ? AND bucket < ?`
+		if _, err := tx.ExecContext(ctx, purgeRollups, string(resource.GranularityHour), hourlyBefore.Unix()); err != nil {
 			return fmt.Errorf("purge hourly: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM machine_samples_daily WHERE bucket < ?`, dailyBefore.Unix()); err != nil {
+		if _, err := tx.ExecContext(ctx, purgeRollups, string(resource.GranularityDay), dailyBefore.Unix()); err != nil {
 			return fmt.Errorf("purge daily: %w", err)
 		}
 		return nil
