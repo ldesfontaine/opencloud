@@ -5,14 +5,14 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-// La machine openCloud elle-même : gérée comme les autres, jamais retirée,
-// jamais authentifiée par le réseau. Son identifiant est stable : c'est lui
-// qui la reconnaît.
+// L'identifiant stable de la machine openCloud : la ligne qu'elle a toujours
+// eue, et celle que prend l'agent qui s'enrôle depuis la même machine que le
+// serveur (local.go). C'est une machine comme les autres : rien d'autre ne la
+// distingue.
 const LocalID = "local"
 
 // Machine est l'hôte : son nom, son système, son historique. Elle survit à
@@ -30,10 +30,6 @@ type Machine struct {
 	CreatedAt  time.Time
 	// L'agent courant : l'actif, sinon le dernier révoqué ; vide sans agent.
 	Agent Agent
-}
-
-func (m Machine) IsLocal() bool {
-	return m.ID == LocalID
 }
 
 // Status est ce que l'opérateur voit : la machine et si elle est en ligne.
@@ -77,7 +73,6 @@ type Enrollment struct {
 
 var (
 	ErrNotFound      = errors.New("machine not found")
-	ErrLocalMachine  = errors.New("the local machine cannot be removed, revoked or re-enrolled by token")
 	ErrNameInvalid   = refusal.Invalid("machine.name_invalid", "machine name must be a lowercase label: letters, digits, dashes")
 	ErrNameTaken     = errors.New("machine name already used")
 	ErrTokenNotFound = errors.New("enrollment token not found")
@@ -90,11 +85,17 @@ var (
 	ErrBadSignature  = errors.New("invalid signature")
 	ErrNotConnected  = errors.New("machine not connected")
 	ErrBusy          = errors.New("machine command queue full")
-	ErrIsOpenCloud   = errors.New("the agent runs on the " + brand.ProductName + " machine itself")
 	// L'agent de la machine est révoqué : il est refusé jusqu'au
 	// ré-enrôlement, qui en installe un nouveau.
 	ErrAgentRevoked = errors.New("agent revoked")
 	ErrNoAgent      = refusal.Conflict("machine.no_agent", "the machine has no active agent")
+	// Un agent s'enrôle depuis la machine du serveur, par un jeton de
+	// machine neuve, alors que la machine openCloud a déjà un agent actif :
+	// c'est un ré-enrôlement, qui se demande sur sa fiche.
+	ErrLocalAgentActive = errors.New("the server machine already has an active agent")
+	// La machine openCloud a, ou a eu, un agent : sa ligne d'installation ne
+	// s'offre plus d'elle-même.
+	ErrLocalEnrolled = refusal.Conflict("machine.local_enrolled", "the server machine already has, or had, an agent")
 )
 
 // Ce qui retient le retrait d'une machine : ce qui y est déclaré ou la vise

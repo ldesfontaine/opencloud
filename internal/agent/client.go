@@ -99,8 +99,6 @@ type Client struct {
 	server  string
 	http    *http.Client
 	version string
-	// L'empreinte de la machine, présentée à l'ouverture du flux.
-	hostFingerprint string
 	// Le système de la machine, redit à chaque ouverture du flux.
 	system string
 	// Les droits du fichier de l'agent, redits à chaque ouverture du flux.
@@ -132,7 +130,7 @@ func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
-	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, hostFingerprint: hostinfo.HostFingerprint(), system: hostinfo.OSName()}, nil
+	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, system: hostinfo.OSName()}, nil
 }
 
 func isLoopback(server string) bool {
@@ -241,9 +239,6 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	// celui de l'enrôlement.
 	if machine.IsSystemName(c.system) {
 		request.Header.Set(agentwire.HeaderAgentOS, c.system)
-	}
-	if c.hostFingerprint != "" {
-		request.Header.Set(agentwire.HeaderHostFingerprint, c.hostFingerprint)
 	}
 	if c.rights != "" {
 		request.Header.Set(agentwire.HeaderAgentRights, c.rights)

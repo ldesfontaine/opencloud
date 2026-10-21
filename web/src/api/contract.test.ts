@@ -103,7 +103,6 @@ const machine = shape<Machine>("Machine", {
   address: value,
   os: value,
   arch: value,
-  local: value,
   online: value,
   last_seen_at: value,
   agent: shape<Agent>("Agent", {

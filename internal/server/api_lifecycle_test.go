@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // La source des tests : PostgreSQL et Debian, et le compte de ce qu'on lui
@@ -170,7 +171,7 @@ func TestAPI_Lifecycle_Enabled_TheMachineSaysItsSystemSupport(t *testing.T) {
 		if item.Lifecycle == nil {
 			t.Fatalf("%s: no support while the setting is on", item.Name)
 		}
-		if item.Local && item.Lifecycle.Status != string(lifecycle.StatusUnknownProduct) {
+		if item.ID == machine.LocalID && item.Lifecycle.Status != string(lifecycle.StatusUnknownProduct) {
 			t.Fatalf("local machine %q: %+v", item.OS, item.Lifecycle)
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"sync"
 	"testing"
@@ -104,32 +106,50 @@ func TestOpen_AppliesMigrationsOnceAndSurvivesReopen(t *testing.T) {
 	}
 }
 
-func TestSaveLocalMachine_IsIdempotentAndListedFirst(t *testing.T) {
+// Une base d'avant les agents garde la ligne de la machine openCloud, sans
+// agent : l'agent que le service reconnaît comme celui du serveur arrive
+// sous LocalID et la reprend, nom, date et historique compris. Tant qu'il
+// est actif, un second est refusé et le jeton reste valable.
+func TestEnroll_UnderLocalID_AdoptsTheRowLeftWithoutAgent(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	now := time.Unix(1_800_000_000, 0)
-	local := machine.Machine{ID: machine.LocalID, Name: "opencloud", OS: "Debian 12", CreatedAt: now}
-	if err := db.SaveLocalMachine(ctx, local); err != nil {
-		t.Fatal(err)
-	}
-	local.OS = "Debian 13"
-	local.CreatedAt = now.Add(time.Hour)
-	if err := db.SaveLocalMachine(ctx, local); err != nil {
-		t.Fatal(err)
-	}
-	token := issueToken(t, db, "aaa-first", "", now)
-	if _, err := db.Enroll(ctx, machine.HashToken(token), candidate(t), newAgent(t, now), now); err != nil {
-		t.Fatal(err)
-	}
-	machines, err := db.ListMachines(ctx)
+	exec(t, db, `INSERT INTO machines (id, name, hostname, created_at) VALUES (?, 'opencloud', 'old-host', 1)`, machine.LocalID)
+	local := candidate(t)
+	local.ID = machine.LocalID
+	token := issueToken(t, db, "oc-host", "", now)
+	adopted, err := db.Enroll(ctx, machine.HashToken(token), local, newAgent(t, now), now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(machines) != 2 || machines[0].ID != machine.LocalID || machines[0].OS != "Debian 13" {
-		t.Fatalf("got %+v", machines)
+	if adopted.ID != machine.LocalID || adopted.Name != "opencloud" || adopted.Hostname != "vps" || !adopted.CreatedAt.Equal(time.Unix(1, 0)) || !adopted.Agent.IsActive() {
+		t.Fatalf("adopted %+v", adopted)
 	}
-	if !machines[0].CreatedAt.Equal(now) {
-		t.Fatalf("created_at moved to %v", machines[0].CreatedAt)
+	twin := issueToken(t, db, "twin", "", now)
+	if _, err := db.Enroll(ctx, machine.HashToken(twin), local, newAgent(t, now), now); !errors.Is(err, machine.ErrLocalAgentActive) {
+		t.Fatalf("a second agent under LocalID: %v", err)
+	}
+	if pending, _ := db.ListPendingTokens(ctx, now); len(pending) != 1 || pending[0].Name != "twin" {
+		t.Fatalf("the refused token must stay pending: %+v", pending)
+	}
+	// Sans ligne, l'agent du serveur la crée, au nom du jeton.
+	fresh := openTestDB(t)
+	created, err := fresh.Enroll(ctx, machine.HashToken(issueToken(t, fresh, "oc-host", "", now)), local, newAgent(t, now), now)
+	if err != nil || created.ID != machine.LocalID || created.Name != "oc-host" {
+		t.Fatalf("created %+v %v", created, err)
+	}
+}
+
+// Sur une base d'avant les agents, la ligne offerte pour la machine
+// openCloud est un ré-enrôlement de sa ligne : elle garde son nom.
+func TestOfferLocalEnrollment_OnAnUpgradedBase_ReenrollsTheExistingRow(t *testing.T) {
+	db := openTestDB(t)
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES (?, 'opencloud', 1)`, machine.LocalID)
+	machines := machine.New(db, machine.NewSessions(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	machines.SetServerHost("sha256:server", "oc-host")
+	_, token, err := machines.OfferLocalEnrollment(context.Background())
+	if err != nil || token.MachineID != machine.LocalID || token.Name != "opencloud" {
+		t.Fatalf("offer %+v %v", token, err)
 	}
 }
 
@@ -260,16 +280,10 @@ func TestEnroll_WithMachineID_ReplacesTheKeyAndKeepsTheID(t *testing.T) {
 	}
 }
 
-func TestDeleteMachine_CascadesItsTokensAndSparesTheLocalOne(t *testing.T) {
+func TestDeleteMachine_CascadesItsAgentsAndTokens(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	now := time.Unix(1_800_000_000, 0)
-	if err := db.SaveLocalMachine(ctx, machine.Machine{ID: machine.LocalID, Name: "opencloud", CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.DeleteMachine(ctx, machine.LocalID); !errors.Is(err, machine.ErrNotFound) {
-		t.Fatalf("local delete: %v", err)
-	}
 	token := issueToken(t, db, "gone", "", now)
 	enrolled, err := db.Enroll(ctx, machine.HashToken(token), candidate(t), newAgent(t, now), now)
 	if err != nil {

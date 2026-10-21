@@ -85,7 +85,7 @@ func (w *Watcher) Run(ctx context.Context) {
 	// Les mesures ne dépendent pas de la vie du flux d'événements : un flux
 	// qui retombe aussitôt rouvert (une ligne que le démon rejoue, par
 	// exemple) ne doit pas les priver de leur cadence. Run attend leur fin :
-	// la machine openCloud ferme sa base après Run, une mesure ne doit pas
+	// ce que le puits écrit peut se fermer après Run, une mesure ne doit pas
 	// y écrire encore.
 	var sampling sync.WaitGroup
 	sampling.Go(func() { w.sampleStats(ctx) })

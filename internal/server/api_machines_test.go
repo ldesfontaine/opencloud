@@ -104,7 +104,7 @@ func TestAPI_CreateMachineToken_RefusesABadNameWithItsKey(t *testing.T) {
 	}
 }
 
-func TestAPI_RemoveMachine_ForgetsItAndKeepsTheLocalOne(t *testing.T) {
+func TestAPI_RemoveMachine_ForgetsItTheOpenCloudOneToo(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, nil); got.Code != http.StatusNoContent {
@@ -116,8 +116,7 @@ func TestAPI_RemoveMachine_ForgetsItAndKeepsTheLocalOne(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+remoteID, nil); got.Code != http.StatusNotFound {
 		t.Fatalf("remove again: %d", got.Code)
 	}
-	got := callAPI(server.Server, http.MethodDelete, "/api/machines/local", nil)
-	if got.Code != http.StatusForbidden || errorCode(t, got) != "machine.local_kept" {
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/local", nil); got.Code != http.StatusNoContent {
 		t.Fatalf("remove local: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -138,7 +137,7 @@ func TestAPI_Reenroll_IssuesATokenForTheSameMachine(t *testing.T) {
 	if len(pending) != 1 || pending[0].MachineID != remoteID {
 		t.Fatalf("pending %+v", pending)
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/reenroll", nil); got.Code != http.StatusForbidden {
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/reenroll", nil); got.Code != http.StatusCreated {
 		t.Fatalf("reenroll local: %d", got.Code)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nope/actions/reenroll", nil); got.Code != http.StatusNotFound {
@@ -197,7 +196,28 @@ func TestAPI_RevokeAgent_KeepsTheMachineAndSaysTheAgentIsRevoked(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nobody/actions/revoke", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("unknown machine: %d", got.Code)
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/revoke", nil); got.Code != http.StatusForbidden || errorCode(t, got) != "machine.local_kept" {
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/revoke", nil); got.Code != http.StatusNoContent {
 		t.Fatalf("revoke local: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// La ligne de l'agent de la machine openCloud s'offre tant qu'elle n'a
+// jamais eu d'agent : la même tant qu'elle attend, observe seul ; 409 une
+// fois qu'un agent l'a eue.
+func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.T) {
+	server := newTestServer(t)
+	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil); got.Code != http.StatusConflict || errorCode(t, got) != "machine.local_enrolled" {
+		t.Fatalf("with its agent: %d %s", got.Code, got.Body.String())
+	}
+	// Retirée, la machine openCloud n'a plus d'agent : la ligne s'offre de
+	// nouveau, au nom du nom d'hôte.
+	if got := callAPI(server.Server, http.MethodDelete, "/api/machines/"+machine.LocalID, nil); got.Code != http.StatusNoContent {
+		t.Fatalf("remove: %d %s", got.Code, got.Body.String())
+	}
+	var first, second tokenResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &first)
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &second)
+	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || strings.Contains(first.Command, "-rights") || first.Command != second.Command {
+		t.Fatalf("offers %+v %+v", first, second)
 	}
 }

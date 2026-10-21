@@ -25,11 +25,6 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{machines: map[string]Machine{}, tokens: map[string]Token{}}
 }
 
-func (f *fakeStore) SaveLocalMachine(_ context.Context, m Machine) error {
-	f.machines[m.ID] = m
-	return nil
-}
-
 func (f *fakeStore) ListMachines(context.Context) ([]Machine, error) {
 	var out []Machine
 	for _, m := range f.machines {
@@ -359,29 +354,6 @@ func TestAuthenticate_AWrongSignatureDoesNotBurnTheChallenge(t *testing.T) {
 	}
 }
 
-func TestLocalMachine_IsAlwaysOnlineAndNeverRemovedNorAuthenticated(t *testing.T) {
-	h := newHarness(t)
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc", OS: "Debian 12", Version: "v0.0.1"}); err != nil {
-		t.Fatal(err)
-	}
-	status, err := h.service.Get(context.Background(), LocalID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Online || !status.LastSeenAt.Equal(h.now) || status.Name != "opencloud" {
-		t.Fatalf("got %+v", status)
-	}
-	if err := h.service.Remove(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("remove: %v", err)
-	}
-	if _, _, err := h.service.CreateReenrollToken(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("reenroll: %v", err)
-	}
-	if _, err := h.service.Challenge(context.Background(), LocalID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("challenge: %v", err)
-	}
-}
-
 // L'enrôlement fige le système ; l'agent le redit à chaque connexion, et
 // une montée de version se voit sans ré-enrôler. Ce qui n'est pas un nom
 // de système n'écrase rien.
@@ -536,16 +508,5 @@ func TestRecentSignal_StopsBeingOnlineWhereTheMachineIsDeclaredLost(t *testing.T
 	h.now = lastSignal.Add(LostAfter)
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("still online at the lost delay")
-	}
-}
-
-func TestRecentSignal_LocalMachine_StaysOnline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc"}); err != nil {
-		t.Fatal(err)
-	}
-	if status, _ := h.service.Get(context.Background(), LocalID); !status.Online {
-		t.Fatal("the local machine is the host running this process")
 	}
 }

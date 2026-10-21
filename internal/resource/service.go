@@ -215,33 +215,3 @@ func (s *Service) rollupAndPurge(ctx context.Context, withPurge bool) {
 		s.logger.Warn("purge samples", "error", err)
 	}
 }
-
-// SampleLocal mesure la machine openCloud elle-même, à la même cadence que
-// l'agent, et écrit sans passer par le réseau : c'est son rôle d'agent.
-func (s *Service) SampleLocal(ctx context.Context, machineID string, probe *sampler.Sampler, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	s.sampleOnce(ctx, machineID, probe)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.sampleOnce(ctx, machineID, probe)
-		}
-	}
-}
-
-func (s *Service) sampleOnce(ctx context.Context, machineID string, probe *sampler.Sampler) {
-	reading, ok, err := probe.Sample(s.now())
-	if err != nil {
-		s.logger.Warn("sample local machine", "error", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	if err := s.Record(ctx, machineID, []sampler.Reading{reading}); err != nil && ctx.Err() == nil {
-		s.logger.Error("record local sample", "error", err)
-	}
-}

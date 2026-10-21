@@ -213,10 +213,22 @@ func TestDerive_ServicesAndMachines(t *testing.T) {
 	if got := f.component(t, "Nuage", status.MemberRef{Kind: status.KindService, ID: stopped}).Effective; got != status.StateDown {
 		t.Fatalf("a stopped service is an outage, got %q", got)
 	}
-	// La machine openCloud est son propre agent : toujours en ligne. Une
-	// machine enrôlée sans flux, elle, est hors ligne.
-	if got := f.component(t, "Serveur", status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID}).Effective; got != status.StateOperational {
-		t.Fatalf("the openCloud machine is always online, got %q", got)
+	// La machine openCloud comme les autres : en ligne par le flux de son
+	// agent, hors ligne sans lui.
+	if got := f.component(t, "Serveur", status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID}).Effective; got != status.StateDown {
+		t.Fatalf("the openCloud machine without its agent's stream is an outage, got %q", got)
+	}
+	local, err := f.machines.Get(context.Background(), machine.LocalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := f.machines.Connect(context.Background(), local.Machine, "10.8.0.1", "v0.0.1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.machines.Disconnect(session)
+	if got := f.component(t, "Serveur en ligne", status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID}).Effective; got != status.StateOperational {
+		t.Fatalf("the openCloud machine with its agent's stream, got %q", got)
 	}
 	remote := f.enroll(t, "vps-paris-1")
 	if got := f.component(t, "VPS", status.MemberRef{Kind: status.KindMachine, ID: remote}).Effective; got != status.StateDown {

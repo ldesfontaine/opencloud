@@ -15,7 +15,6 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -212,37 +211,6 @@ func TestContainerLogs_OfflineMachineAndUnknownContainer(t *testing.T) {
 		if got := callAPI(server.Server, http.MethodGet, path, nil); got.Code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, got.Code)
 		}
-	}
-}
-
-// La machine openCloud sert ses journaux en processus : le tirage unique
-// passe par la source locale, sans agent.
-type fakeLocalLogs struct{}
-
-func (fakeLocalLogs) OpenLogs(_ context.Context, request container.LogRequest) (<-chan container.LogBatch, error) {
-	batches := make(chan container.LogBatch, 1)
-	batches <- container.LogBatch{Lines: []container.LogLine{{At: testNow, Stream: "stdout", Text: "local line " + request.ContainerID[:4]}}, Done: true}
-	close(batches)
-	return batches, nil
-}
-
-func TestContainerLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
-	server := newTestServer(t)
-	server.containers.SetLocalLogSource(machine.LocalID, fakeLocalLogs{})
-	report := container.Report{Complete: true, Inventory: []container.Observed{{
-		ContainerID: strings.Repeat("d", 64), Name: "traefik", Image: "traefik:3.1", State: container.StateRunning, CreatedAt: testNow,
-	}}}
-	if err := server.containers.Record(context.Background(), machine.LocalID, report); err != nil {
-		t.Fatal(err)
-	}
-	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+container.ID(machine.LocalID, strings.Repeat("d", 64))+"/logs?tail=5", nil)
-	if got.Code != http.StatusOK {
-		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
-	}
-	var response logsResponse
-	decodeAPI(t, got, &response)
-	if len(response.Lines) != 1 || response.Lines[0].Text != "local line dddd" || response.Lines[0].At == nil {
-		t.Fatalf("lines = %+v", response.Lines)
 	}
 }
 

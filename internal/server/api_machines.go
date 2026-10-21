@@ -20,7 +20,6 @@ type machineJSON struct {
 	Address    string     `json:"address"`
 	OS         string     `json:"os"`
 	Arch       string     `json:"arch"`
-	Local      bool       `json:"local"`
 	Online     bool       `json:"online"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	// L'agent courant, null tant qu'aucun ne s'est enrôlé.
@@ -85,7 +84,6 @@ func machineToJSON(machineStatus machine.Status) machineJSON {
 		Address:    machineStatus.Address,
 		OS:         machineStatus.OS,
 		Arch:       machineStatus.Arch,
-		Local:      machineStatus.IsLocal(),
 		Online:     machineStatus.Online,
 		LastSeenAt: httpx.TimeOrNil(machineStatus.LastSeenAt),
 		Agent:      agentToJSON(machineStatus.Agent),
@@ -228,31 +226,30 @@ func (s *Server) cancelMachineToken(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) removeMachine(w http.ResponseWriter, r *http.Request) {
 	err := s.machines.Remove(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrLocalMachine) {
-		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-		return
-	}
 	s.finishAPIAction(w, r, err, machine.ErrNotFound)
 }
 
 // Révoquer : l'agent est refusé, la machine et son historique restent.
 func (s *Server) revokeAgent(w http.ResponseWriter, r *http.Request) {
 	err := s.machines.Revoke(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrLocalMachine) {
-		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
-		return
-	}
 	s.finishAPIAction(w, r, err, machine.ErrNotFound)
 }
 
 // Ré-enrôler : un nouveau jeton pour la même machine, qui garde son id.
 func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"))
-	if errors.Is(err, machine.ErrLocalMachine) {
-		s.apiRefuse(w, http.StatusForbidden, "machine.local_kept")
+	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	if s.failed(w, r, err, machine.ErrNotFound) {
+	s.writeToken(w, r, token, cleartext)
+}
+
+// La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
+// n'en a jamais eu : l'écran de première configuration la montre, une fois
+// le compte créé. 409 machine.local_enrolled ensuite.
+func (s *Server) offerLocalEnrollment(w http.ResponseWriter, r *http.Request) {
+	cleartext, token, err := s.machines.OfferLocalEnrollment(r.Context())
+	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeToken(w, r, token, cleartext)

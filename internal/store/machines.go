@@ -22,26 +22,9 @@ const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch,
 		ORDER BY revoked_at IS NOT NULL, enrolled_at DESC, id LIMIT 1)
 	LEFT JOIN enrollment_tokens t ON t.agent_id = a.id`
 
-// SaveLocalMachine crée la machine openCloud ou rafraîchit ce qu'on sait
-// d'elle ; sa date de création ne bouge pas.
-func (db *DB) SaveLocalMachine(ctx context.Context, m machine.Machine) error {
-	_, err := db.sql.ExecContext(ctx, `
-		INSERT INTO machines (id, name, hostname, address, os, arch, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (id) DO UPDATE SET
-			hostname = excluded.hostname, address = excluded.address, os = excluded.os,
-			arch = excluded.arch`,
-		m.ID, m.Name, m.Hostname, m.Address, m.OS, m.Arch, m.CreatedAt.Unix(),
-	)
-	if err != nil {
-		return fmt.Errorf("save local machine: %w", err)
-	}
-	return nil
-}
-
-// ListMachines rend la machine openCloud d'abord, puis les autres par nom.
+// ListMachines rend les machines par nom, la machine openCloud parmi elles.
 func (db *DB) ListMachines(ctx context.Context) ([]machine.Machine, error) {
-	rows, err := db.sql.QueryContext(ctx, machineSelect+` ORDER BY m.id = 'local' DESC, m.name`)
+	rows, err := db.sql.QueryContext(ctx, machineSelect+` ORDER BY m.name`)
 	if err != nil {
 		return nil, fmt.Errorf("list machines: %w", err)
 	}
@@ -98,7 +81,7 @@ func (db *DB) DeleteMachine(ctx context.Context, id string) error {
 		if err := machine.RefuseDeletion(plan); err != nil {
 			return err
 		}
-		result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND id != 'local'`, id)
+		result, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ?`, id)
 		if err != nil {
 			return fmt.Errorf("delete machine: %w", err)
 		}
@@ -172,7 +155,9 @@ func replaceCapabilities(ctx context.Context, tx *sql.Tx, agentID string, capabi
 // seule transaction : deux agents avec le même jeton ne passent jamais tous
 // les deux. Le jeton n'est consommé que par l'UPDATE conditionnel ; l'échec
 // n'est classé qu'après, pour le message. Un jeton de ré-enrôlement révoque
-// l'agent actif de sa machine avant d'inscrire le nouveau.
+// l'agent actif de sa machine avant d'inscrire le nouveau. L'agent que le
+// service a reconnu comme celui de la machine du serveur arrive sous
+// LocalID : il reprend la ligne de la machine openCloud si elle existe.
 func (db *DB) Enroll(ctx context.Context, tokenHash string, candidate machine.Machine, agent machine.Agent, now time.Time) (machine.Machine, error) {
 	err := db.inTx(ctx, "enroll", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
@@ -198,10 +183,13 @@ func (db *DB) Enroll(ctx context.Context, tokenHash string, candidate machine.Ma
 			return fmt.Errorf("read token: %w", err)
 		}
 		candidate.Name = name
-		if existingID.Valid {
+		switch {
+		case existingID.Valid:
 			candidate.ID = existingID.String
 			err = reenroll(ctx, tx, candidate, now)
-		} else {
+		case candidate.ID == machine.LocalID:
+			err = adoptServerMachine(ctx, tx, candidate, now)
+		default:
 			err = insertMachine(ctx, tx, candidate)
 		}
 		if err != nil {
@@ -237,12 +225,34 @@ func insertMachine(ctx context.Context, tx *sql.Tx, m machine.Machine) error {
 	return nil
 }
 
+// adoptServerMachine inscrit la machine openCloud sous LocalID : sa ligne
+// est créée si elle manque, reprise si elle est restée sans agent (une base
+// d'avant les agents, un agent révoqué). Un agent actif la garde : le
+// remplacer est un ré-enrôlement, que l'opérateur demande sur sa fiche.
+func adoptServerMachine(ctx context.Context, tx *sql.Tx, m machine.Machine, now time.Time) error {
+	var rows, active int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*), (SELECT COUNT(*) FROM agents WHERE machine_id = ? AND revoked_at IS NULL)
+		FROM machines WHERE id = ?`, m.ID, m.ID).Scan(&rows, &active)
+	if err != nil {
+		return fmt.Errorf("read server machine: %w", err)
+	}
+	switch {
+	case rows == 0:
+		return insertMachine(ctx, tx, m)
+	case active > 0:
+		return machine.ErrLocalAgentActive
+	default:
+		return reenroll(ctx, tx, m, now)
+	}
+}
+
 // Le ré-enrôlement garde l'id, le nom et la date de création de la machine,
 // rafraîchit ce que l'agent dit d'elle et révoque l'agent d'avant.
 func reenroll(ctx context.Context, tx *sql.Tx, m machine.Machine, now time.Time) error {
 	result, err := tx.ExecContext(ctx, `
 		UPDATE machines SET hostname = ?, address = ?, os = ?, arch = ?
-		WHERE id = ? AND id != 'local'`,
+		WHERE id = ?`,
 		m.Hostname, m.Address, m.OS, m.Arch, m.ID)
 	if err != nil {
 		return fmt.Errorf("reenroll machine: %w", err)

@@ -15,7 +15,6 @@ export interface Machine {
   address: string;
   os: string;
   arch: string;
-  local: boolean;
   online: boolean;
   last_seen_at: string | null;
   // L'agent courant : l'actif, sinon le dernier révoqué ; null tant
@@ -86,6 +85,12 @@ export async function createMachineToken(name: string, capabilities: Capability[
 
 export async function deleteMachineToken(id: string): Promise<void> {
   return api.delete(`${tokensPath}/${segment(id)}`);
+}
+
+// La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
+// n'en a jamais eu : l'écran de première configuration la montre.
+export async function offerLocalEnrollment(): Promise<TokenResponse> {
+  return api.post<TokenResponse>(`${machinesPath}/local-enrollment`);
 }
 
 // Un nouveau jeton pour le même identifiant de machine.

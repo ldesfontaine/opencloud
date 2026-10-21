@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
-	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
@@ -44,12 +43,12 @@ func Explain(err error, text lang.Catalog) (string, bool) {
 
 // Les codes que le serveur renvoie et qui se disent à l'opérateur.
 var refusalKeys = map[string]string{ // #nosec G101 -- des codes de refus, pas des secrets.
-	"token_not_found":      "agent.token_not_found",
-	"token_consumed":       "agent.token_consumed",
-	"token_expired":        "agent.token_expired",
-	"name_taken":           "agent.name_taken",
-	brand.AgentErrorIsHost: "agent.machine_is_opencloud",
-	"clock_skew":           "agent.clock_skew",
-	"machine_not_found":    "agent.identity_refused",
-	"bad_proof":            "agent.identity_refused",
+	"token_not_found":              "agent.token_not_found",
+	"token_consumed":               "agent.token_consumed",
+	"token_expired":                "agent.token_expired",
+	"name_taken":                   "agent.name_taken",
+	agentwire.CodeLocalAgentActive: "agent.local_agent_active",
+	"clock_skew":                   "agent.clock_skew",
+	"machine_not_found":            "agent.identity_refused",
+	"bad_proof":                    "agent.identity_refused",
 }

@@ -128,16 +128,6 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 	}
 }
 
-func TestRevoke_RefusesTheLocalMachine(t *testing.T) {
-	h := newHarness(t)
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := h.service.Revoke(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Fatalf("revoke local: %v", err)
-	}
-}
-
 type lostAlerter struct {
 	lost []string
 }

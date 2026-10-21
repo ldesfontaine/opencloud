@@ -219,7 +219,7 @@ nouveau suit le même ordre, de haut en bas du fichier :
 | Pièce | Règle | Dans `probe` |
 | --- | --- | --- |
 | Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus : les écritures et les lectures de sa règle dans `Store` ; ce qu'il lit d'un autre domaine par le `reader.Reader` | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` ; `status.New(store, reader, …)` |
-| Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetLocalRunner`, `SetClock` |
+| Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetClock` |
 | Définition | Fonction pure, testable sans base : `Definition.Complete()` pose les valeurs par défaut, puis `Validate()` rend le premier refus | `internal/probe/probe.go` ; `heartbeat` n'a que `Validate()`, faute de valeur par défaut |
 | Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise (`slog`, puis `auditor.Record` pour un objet déclaré ou une autorité, sans secret), appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
 | `changed()` | Prévient le `Watcher` ; jamais depuis un handler | `ProbesChanged(machineID)` |

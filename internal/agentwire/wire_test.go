@@ -67,14 +67,14 @@ func TestSignalSections_KeepTheirOrderAndRefusalKeys(t *testing.T) {
 // Les en-têtes de la preuve signée sont ceux que les agents installés posent.
 func TestWire_HeaderNamesAreFrozen(t *testing.T) {
 	want := map[string]string{
-		HeaderMachine:         "OpenCloud-Machine",
-		HeaderNonce:           "OpenCloud-Nonce",
-		HeaderTimestamp:       "OpenCloud-Timestamp",
-		HeaderSignature:       "OpenCloud-Signature",
-		HeaderAgentVersion:    "OpenCloud-Agent-Version",
-		HeaderAgentOS:         "OpenCloud-Agent-OS",
-		HeaderHostFingerprint: "OpenCloud-Host-Fingerprint",
-		HeaderSignalSections:  "OpenCloud-Signal-Sections",
+		HeaderMachine:        "OpenCloud-Machine",
+		HeaderNonce:          "OpenCloud-Nonce",
+		HeaderTimestamp:      "OpenCloud-Timestamp",
+		HeaderSignature:      "OpenCloud-Signature",
+		HeaderAgentVersion:   "OpenCloud-Agent-Version",
+		HeaderAgentOS:        "OpenCloud-Agent-OS",
+		HeaderAgentRights:    "OpenCloud-Agent-Rights",
+		HeaderSignalSections: "OpenCloud-Signal-Sections",
 	}
 	for got, name := range want {
 		if got != name {

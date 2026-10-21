@@ -28,8 +28,10 @@
 `opencloud`, agent en **root** (`/proc`, volumes montés, socket Docker). Les
 réglages vivent à quatre endroits : `config.toml`, `settings.toml`,
 `lifecycle.json`, la base ([« Ce qui est stocké »](22-fonctionnement.md#ce-qui-est-stocké-et-où)).
-La machine openCloud est mesurée par un chemin intégré à `serve`, pas par un
-agent. Aucune mise à jour automatique, ni du serveur ni des agents.
+La machine openCloud reçoit un agent comme les autres, installé dès la
+première configuration ; `serve` n'observe plus rien d'elle (**fait**,
+21 octobre 2026). Aucune mise à jour automatique, ni du serveur ni des
+agents.
 
 **Cible** : un contrat d'installation écrit, identique sur toute machine, la
 machine openCloud comprise : elle reçoit un agent comme les autres.
@@ -53,7 +55,7 @@ et en-têtes qui le portent passent par un seul paquet de constantes
 | Nom à un seul endroit | constante d'affichage + catalogues `internal/lang` ; paquet de constantes techniques | Changer de nom sans chasser chaque occurrence | Faible à moyen : relever les occurrences une fois |
 | Agent installé par une **ligne générée** dans l'interface | serveur, script d'installation | `curl … \| sh`, aussi en cloud-init ; jeton à usage unique lu sur stdin ou dans un fichier, jamais en argv. Le serveur n'a jamais d'accès SSH | Moyen : le script, la page qui le génère |
 | Racine déjà occupée | script d'installation | Si le dossier existe et n'est pas vide, l'installation s'arrête et demande un autre chemin | Faible |
-| Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé |
+| Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé. **Fait** (migration `030_agents.sql`) : l'agent s'installe dès la première configuration, l'empreinte du serveur le rattache à l'identifiant `local` |
 | Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer |
 | Le **serveur** ne se met jamais à jour seul | doc | Il porte la base ; une montée ratée casse tout | Nul |
 | Agent root ou non | `opencloud-agent.service` | Lire `/proc` et Docker en root est accepté aujourd'hui ; écrire dans `/srv/workspace` en root l'est moins | Reportée avant l'étape 2 (décision 2) |
@@ -368,7 +370,7 @@ Il peut revoir chacun.
 
 | Sujet | Décision | Pourquoi |
 | --- | --- | --- |
-| Machine openCloud | Reçoit un agent comme les autres ; le chemin intégré à `serve` disparaît | Trois bouts de code recopiés en moins, un seul mécanisme |
+| Machine openCloud | Reçoit un agent comme les autres ; le chemin intégré à `serve` disparaît. **Fait** le 21 octobre 2026, décision de Lucas : l'agent s'installe dès la première étape, la ligne s'affiche à la première configuration | Trois bouts de code recopiés en moins, un seul mécanisme |
 | Direct | `machines` publié seulement sur un vrai changement (en ligne, hors ligne, système) ; l'événement porte l'identifiant ; une seule liste de sujets ; un sujet « exécutions » | Aujourd'hui 10 machines = relecture complète toutes les 3 s par onglet |
 | Mesures | Gardées ; rétention 24 h chez l'agent (décision 11) ; interfaces virtuelles (veth, ponts) écartées ; agrégat horaire par volume ; historique long par service sur l'identité stable | Trafic compté deux fois, volume plein noyé dans la somme |
 | E-mail | Gardé, relais migré en base, mot de passe chiffré | Isolé, facultatif, c'est le canal que tout opérateur a déjà |

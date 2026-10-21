@@ -59,7 +59,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
   const resources = useMachineResources(tab === "" ? current.id : null);
   return (
     <>
-      <PageHead title={current.name} actions={!current.local && <Actions machine={current} />} />
+      <PageHead title={current.name} actions={<Actions machine={current} />} />
       <Card>
         <CardBody gap={16}>
           <MachineHead current={current} all={all} />
@@ -73,14 +73,13 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
           <Card>
             <CardHeader title={t("tab.summary")} />
             <CardBody gap={10}>
-              <KeyValue label={t("machine.field_kind")} value={t(current.local ? "machine.kind_local" : "machine.kind_remote")} />
               <KeyValue label={t("machine.field_address")} value={current.address} mono />
               <KeyValue label={t("machine.field_os")} value={current.os} />
               <KeyValue label={t("machine.field_seen")} value={machineSeen(t, current, now)} />
               {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
             </CardBody>
           </Card>
-          {!current.local && <AgentCard agent={current.agent} now={now} />}
+          <AgentCard agent={current.agent} now={now} />
         </>
       ) : tab === "services" ? (
         <MachineContainers machineID={current.id} />

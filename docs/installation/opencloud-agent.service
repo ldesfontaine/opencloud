@@ -1,4 +1,5 @@
-# /etc/systemd/system/opencloud-agent.service — l'agent d'une machine.
+# /etc/systemd/system/opencloud-agent.service — l'agent d'une machine, la
+# machine openCloud comprise.
 # À activer APRÈS le premier lancement (enrôlement : -server, jeton sur l'entrée
 # standard).
 [Unit]

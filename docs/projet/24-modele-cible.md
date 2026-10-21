@@ -22,7 +22,7 @@
 | `apply` modifie sur place, ne recrée jamais (décision 3) | Historique et jetons gardés | Chaque objet éditable champ par champ (sondes et tâches : faites, PR « édition sur place ») |
 | Secrets saisis dans l'interface (URL et secret des canaux, mot de passe du relais, jetons de tâche, secret OIDC) : **chiffrés en base** par la clé du serveur, colonnes `*_sealed` | Une base volée sans la clé ne livre rien ; la sauvegarde chiffrée les emporte | Un jeton cherché par valeur a besoin d'une empreinte à côté (`token_lookup`) |
 | Secrets des services : **le `.env` sur la machine fait foi**. Ni en base, ni dans l'export | Une seule source de vérité | Restaurer un service passe par sa sauvegarde (`data/` + `.env`, chiffrés) |
-| La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé |
+| La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé. **Fait** (section 13) |
 | Ni silence, ni maintenance : un seul objet **« taire »**, jugé à chaque envoi. Le moteur d'alertes ne lit plus les pages de statut | Trois notions au lieu de quatre : alerte, acquitter, taire | Une annonce publique de maintenance porte son propre titre |
 
 ## 1. Entités cibles et liens
@@ -744,7 +744,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 
 | Table actuelle | Verdict | Ce qui change | Historique |
 | --- | --- | --- | --- |
-| `machines` | Transformée | `public_key`, `last_seen_at` vers `agents` ; `kind` disparaît. La machine `local` garde son id et son historique ; elle attend un agent, installé par une ligne de ré-enrôlement. Le chemin intégré à `serve` est retiré | Gardé |
+| `machines` | Transformée | `public_key`, `last_seen_at` vers `agents` ; `kind` disparaît. La machine `local` garde son id et son historique ; elle attend un agent, installé par une ligne de ré-enrôlement. Le chemin intégré à `serve` est retiré (**fait**, `030_agents.sql`) | Gardé |
 | `enrollment_tokens` | Transformée | `consumed_by` (texte) → `agent_id` (FK set null) ; ajout des droits demandés (**fait**, `030`) et de la racine (à faire, avec le premier déploiement) | Gardé |
 | `machine_samples`, `machine_disks`, `machine_samples_hourly`, `machine_samples_daily` | Gardées | Interfaces virtuelles (veth, ponts) écartées du trafic ; agrégat horaire par volume | Gardé |
 | `machine_engines` | Gardée | — | — |
@@ -944,7 +944,7 @@ Le texte de chaque décision est dans [`23-direction.md`](23-direction.md).
 | Export sans secrets, marqueur « conservé » | `{ secret: kept }` | Points techniques, « Export » |
 | `id` + `name` dans le YAML ; id dupliqué refusé | Règle « Reconnaissance » | Points techniques, « Identité dans le YAML » |
 | Machine et agent séparés | `machines` + `agents` | Points techniques, « Machine et agent » |
-| Machine openCloud = agent comme les autres | `kind` retiré | Points techniques, « Machine openCloud » |
+| Machine openCloud = agent comme les autres | `kind` retiré, `LocalID` gardé (**fait**, section 13) | Points techniques, « Machine openCloud » |
 | Racine `/srv/workspace`, droits cochés à l'installation | `agents.root_dir`, `enrollment_tokens.requested_capabilities`, `agent_capabilities` | Actées « Racine », « Droits », « Installation » ; liste des droits : décision 9, prise le 21 octobre 2026 |
 | Mesures : historique long par service, veth écartées, agrégat par volume | `service_samples_hourly` | Points techniques, « Mesures » |
 | Migration : service créé d'office seulement pour un conteneur déjà lié | Tableau « De l'existant à la cible », ligne `services` | Points techniques, « Migration de l'existant » |
@@ -1122,4 +1122,9 @@ ses écarts au diagramme :
 | **`agent.enroll` et `agent.revoke` au journal d'audit** ; l'objet est l'agent, nommé par sa machine. `machine.reenroll` (l'émission du jeton) et `machine.delete` restent sur la machine | Les lignes déjà écrites sous `machine.enroll` le gardent : le journal ne se réécrit pas |
 | **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146) |
 | **`machines` perd `kind`, `public_key`, `agent_version`, `enrolled_at`, `last_seen_at`** ; la machine openCloud se reconnaît à son identifiant stable, `local` | La clé, la version, l'enrôlement et le signe de vie sont ceux de l'agent ; un genre de machine n'a plus de raison d'être |
+| **La machine openCloud n'a plus de chemin intégré** : `serve` ne mesure, ne veille, ne sonde ni ne vérifie rien de sa machine ; elle se retire, se révoque et se ré-enrôle comme les autres | Un seul mécanisme. Le prix, dit par le modèle : sans son agent, elle ne se voit pas ; ses sondes attendent |
+| **L'empreinte du serveur ne sert qu'à l'enrôlement** : l'agent qui la présente prend `local` et reprend sa ligne (créée si elle manque, reprise si elle est sans agent actif) ; un second, par un jeton de machine neuve, est refusé tant que le premier est actif (`local_agent_active`, jeton non consommé) | C'est ce qui reconnaît la machine openCloud et lui rend son historique. Remplacer son agent passe par Ré-enrôler, comme ailleurs |
+| **Le jeton de son agent est émis au démarrage tant qu'elle n'a jamais eu d'agent**, `observe` seul, nommé d'après le nom d'hôte ; la ligne s'affiche à la première configuration (`POST /api/machines/local-enrollment`), le journal dit seulement qu'un jeton attend | Décision de Lucas : l'agent s'installe dès la première étape. Un agent révoqué ne se réinstalle pas de lui-même : la révocation est un geste voulu |
+| **`config.toml` perd `docker_socket` et `ca_file`** ; l'unité du serveur perd le groupe `docker` et `AF_NETLINK` | Le serveur ne lit plus rien de sa machine : ce sont des réglages de l'agent (`-docker-socket`, `-ca-file`). Une configuration d'avant les garde, avec l'avertissement « clé inconnue » |
+| **Les formulaires de sonde et de service proposent la première machine de la liste**, plus la machine openCloud | Elle n'a plus rien qui la distingue dans l'API ; le fichier de l'annuaire garde son défaut (une sonde sans `runner` court sur `local`) |
 
