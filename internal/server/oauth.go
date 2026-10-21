@@ -4,17 +4,19 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
 
 // Le serveur OAuth 2.1 que les clients MCP attendent : les métadonnées de
-// découverte, l'autorisation avec PKCE S256 obligatoire, le point de
-// jeton avec les deux grants. Les réponses parlent le vocabulaire des RFC
-// 6749 et 8414, en anglais : elles sont lues par un client, jamais par
-// l'opérateur. Aucune page de consentement : le secret du client, vérifié
-// à l'échange, est la seule preuve. Tout ceci ferme quand MCP n'est pas activé.
+// découverte, l'autorisation avec PKCE S256 obligatoire, le consentement de
+// l'opérateur, le point de jeton avec les deux grants. Les réponses au
+// client parlent le vocabulaire des RFC 6749 et 8414, en anglais. Le
+// consentement est une page du front : l'opérateur, authentifié, voit le
+// client, l'URI de retour et la portée, puis autorise ou refuse ; le code
+// n'existe qu'après son oui. Tout ceci ferme quand MCP n'est pas activé.
 
 type serverMetadata struct {
 	Issuer                            string   `json:"issuer"`
@@ -83,7 +85,9 @@ func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 }
 
 // oauthAuthorize : le redirect_uri est jugé avant tout redirect, y compris
-// pour dire une erreur ; refusé, la réponse est un 400 sans redirect.
+// pour dire une erreur ; refusé, la réponse est un 400 sans redirect. Une
+// demande valide attend l'opérateur : le navigateur part vers la page de
+// consentement avec l'identifiant opaque de la demande, rien d'autre.
 func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if !s.mcpLimit.Allow(s.clientAddress(r)) {
 		httpx.WriteTooMany(w)
@@ -103,20 +107,23 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		s.writeAPI(w, http.StatusBadRequest, oauthError{Error: "invalid_request", Description: "invalid redirect_uri"})
 		return
 	}
-	code, err := s.mcp.Authorize(r.Context(), mcp.AuthorizeRequest{
+	state := query.Get("state")
+	consent, err := s.mcp.RequestConsent(r.Context(), mcp.AuthorizeRequest{
 		ResponseType:    query.Get("response_type"),
 		ClientID:        query.Get("client_id"),
 		RedirectURI:     redirectURI,
+		State:           state,
 		Challenge:       query.Get("code_challenge"),
 		ChallengeMethod: query.Get("code_challenge_method"),
+		Scope:           query.Get("scope"),
 	})
-	state := query.Get("state")
 	if err != nil {
 		s.logger.Warn("mcp authorize refused", "reason", err)
 		s.redirectWith(w, r, redirectURI, authorizeErrorParams(err, state))
 		return
 	}
-	s.redirectWith(w, r, redirectURI, url.Values{"code": {code}, "state": {state}})
+	page := mcpConsentPage + "?" + url.Values{mcpConsentParam: {consent.ID}}.Encode()
+	http.Redirect(w, r, page, http.StatusFound)
 }
 
 func authorizeErrorParams(err error, state string) url.Values {
@@ -136,12 +143,22 @@ func authorizeErrorParams(err error, state string) url.Values {
 }
 
 // redirectWith renvoie vers l'URI déjà jugée, ses paramètres ajoutés aux
-// siens ; un state vide ne s'écrit pas.
+// siens.
 func (s *Server) redirectWith(w http.ResponseWriter, r *http.Request, redirectURI string, params url.Values) {
-	target, err := url.Parse(redirectURI)
+	target, err := redirectTarget(redirectURI, params)
 	if err != nil {
 		s.writeAPI(w, http.StatusBadRequest, oauthError{Error: "invalid_request", Description: "invalid redirect_uri"})
 		return
+	}
+	http.Redirect(w, r, target, http.StatusFound) // #nosec G710 -- redirect_uri jugé par RedirectAllowed avant tout redirect.
+}
+
+// redirectTarget ajoute les paramètres à ceux de l'URI ; un state vide ne
+// s'écrit pas.
+func redirectTarget(redirectURI string, params url.Values) (string, error) {
+	target, err := url.Parse(redirectURI)
+	if err != nil {
+		return "", err
 	}
 	query := target.Query()
 	for key, values := range params {
@@ -150,7 +167,86 @@ func (s *Server) redirectWith(w http.ResponseWriter, r *http.Request, redirectUR
 		}
 	}
 	target.RawQuery = query.Encode()
-	http.Redirect(w, r, target.String(), http.StatusFound) // #nosec G710 -- redirect_uri jugé par RedirectAllowed avant tout redirect.
+	return target.String(), nil
+}
+
+// --- Le consentement, sous /api : la page du front le lit, puis répond ---
+
+// La demande telle que la page la montre : le client, l'URI de retour
+// exacte, ce que l'autorisation donne et combien de temps. WriteAvailable
+// est faux tant que /mcp est en lecture seule : la page ne propose pas
+// l'écriture.
+type mcpConsentJSON struct {
+	ID             string    `json:"id"`
+	ClientID       string    `json:"client_id"`
+	RedirectURI    string    `json:"redirect_uri"`
+	WriteRequested bool      `json:"write_requested"`
+	WriteAvailable bool      `json:"write_available"`
+	ReadTools      int       `json:"read_tools"`
+	AccessSeconds  int       `json:"access_seconds"`
+	RefreshSeconds int       `json:"refresh_seconds"`
+	ExpiresAt      time.Time `json:"expires_at"`
+}
+
+// La décision de l'opérateur, en plus de l'identifiant porté par le
+// chemin : l'écriture cochée ou non.
+type mcpConsentDecision struct {
+	Write bool `json:"write"`
+}
+
+// Où le navigateur part ensuite : l'URI de retour du client, avec le code
+// ou l'erreur. Une réponse JSON, pas un 302 : fetch suivrait le redirect
+// lui-même, hors de la page.
+type mcpConsentAnswer struct {
+	Redirect string `json:"redirect"`
+}
+
+func (s *Server) getMCPConsent(w http.ResponseWriter, r *http.Request) {
+	consent, err := s.mcp.PendingConsent(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, mcpConsentJSON{
+		ID: consent.ID, ClientID: consent.ClientID, RedirectURI: consent.RedirectURI,
+		WriteRequested: consent.WriteRequested, WriteAvailable: !mcpHTTPReadOnly,
+		ReadTools: mcpReadToolCount, AccessSeconds: int(mcp.AccessTTL.Seconds()), RefreshSeconds: int(mcp.RefreshTTL.Seconds()),
+		ExpiresAt: consent.ExpiresAt.UTC(),
+	})
+}
+
+// allowMCPConsent pose le code : c'est une autorité durable, gardée par
+// grantsAuthority. L'écriture cochée ne compte pas tant que /mcp est en
+// lecture seule : un jeton write qui dort se réveillerait avec les
+// écritures, sans que l'opérateur l'ait vu proposer.
+func (s *Server) allowMCPConsent(w http.ResponseWriter, r *http.Request) {
+	var decision mcpConsentDecision
+	if !s.readAPI(w, r, &decision) {
+		return
+	}
+	allowWrite := decision.Write && !mcpHTTPReadOnly
+	consent, code, err := s.mcp.ApproveConsent(r.Context(), r.PathValue("id"), allowWrite)
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.answerConsent(w, r, consent, url.Values{"code": {code}, "state": {consent.State}})
+}
+
+// denyMCPConsent : RFC 6749 §4.1.2.1, access_denied avec le state du client.
+func (s *Server) denyMCPConsent(w http.ResponseWriter, r *http.Request) {
+	consent, err := s.mcp.DenyConsent(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.answerConsent(w, r, consent, url.Values{"error": {"access_denied"}, "state": {consent.State}})
+}
+
+func (s *Server) answerConsent(w http.ResponseWriter, r *http.Request, consent mcp.Consent, params url.Values) {
+	target, err := redirectTarget(consent.RedirectURI, params)
+	if err != nil {
+		s.apiInternalError(w, r, err)
+		return
+	}
+	s.writeAPI(w, http.StatusOK, mcpConsentAnswer{Redirect: target})
 }
 
 // oauthToken : les identifiants du client viennent du corps ou de

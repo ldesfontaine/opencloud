@@ -20,6 +20,7 @@ import { MachineNew } from "./pages/MachineNew";
 import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
+import { OAuthConsent } from "./pages/OAuthConsent";
 import { ProbePage } from "./pages/Probe";
 import { ProbeForm } from "./pages/ProbeForm";
 import { Probes } from "./pages/Probes";
@@ -51,6 +52,8 @@ const VisualSystem = import.meta.env.DEV ? lazy(() => import("./pages/VisualSyst
 export function App() {
   return (
     <Routes>
+      {/* Le consentement d'un agent IA, où /oauth/authorize envoie : hors de l'interface. */}
+      <Route path="oauth/consentir" element={<OAuthConsent />} />
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
         <Route path="machines" element={<Machines />} />

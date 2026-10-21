@@ -46,8 +46,11 @@ type mcpTokenJSON struct {
 	LastUsedAt *time.Time `json:"last_used_at"`
 }
 
+// StartedAt est l'échange du code, qui suit le consentement ; Scope, la
+// portée consentie, que la famille garde.
 type mcpSessionJSON struct {
 	ID         string     `json:"id"`
+	Scope      string     `json:"scope"`
 	StartedAt  time.Time  `json:"started_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
 	ExpiresAt  time.Time  `json:"expires_at"`
@@ -142,7 +145,7 @@ func (s *Server) mcpState(r *http.Request) (mcpResponse, error) {
 	}
 	for _, session := range sessions {
 		response.Sessions = append(response.Sessions, mcpSessionJSON{
-			ID: session.FamilyID, StartedAt: session.StartedAt.UTC(), LastUsedAt: httpx.TimeOrNil(session.LastUsedAt), ExpiresAt: session.ExpiresAt.UTC(),
+			ID: session.FamilyID, Scope: string(session.Scope), StartedAt: session.StartedAt.UTC(), LastUsedAt: httpx.TimeOrNil(session.LastUsedAt), ExpiresAt: session.ExpiresAt.UTC(),
 		})
 	}
 	return response, nil
