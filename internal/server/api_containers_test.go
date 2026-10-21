@@ -15,9 +15,8 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 func (ts *testServer) agentPost(session, path string, payload any) *httptest.ResponseRecorder {
@@ -41,7 +40,7 @@ func readCommand(t *testing.T, stream *bufio.Reader, want string) string {
 		if name == want {
 			return data
 		}
-		if name != probe.CommandProbes && name != update.CommandImages {
+		if name != string(agentwire.KindProbes) && name != string(agentwire.KindImages) {
 			t.Fatalf("commande inattendue %q en attendant %q", name, want)
 		}
 	}
@@ -122,7 +121,7 @@ func TestContainerLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("stream: %d %s", browser.StatusCode, browser.Header.Get("Content-Type"))
 	}
 
-	data := readCommand(t, agentStream, container.CommandLogs)
+	data := readCommand(t, agentStream, string(agentwire.KindLogs))
 	var command container.LogRequest
 	if err := json.Unmarshal([]byte(data), &command); err != nil {
 		t.Fatal(err)
@@ -175,10 +174,10 @@ func TestContainerLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := readCommand(t, agentStream, container.CommandLogs)
+	data := readCommand(t, agentStream, string(agentwire.KindLogs))
 	browser.Body.Close()
 	stop()
-	stopData := readCommand(t, agentStream, container.CommandLogsStop)
+	stopData := readCommand(t, agentStream, string(agentwire.KindLogsStop))
 	if !strings.Contains(data, jsonID(t, stopData)) {
 		t.Fatalf("la commande d'arrêt ne porte pas la requête ouverte: %s", stopData)
 	}
@@ -238,7 +237,7 @@ func TestContainerLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer browser.Body.Close()
-	requestID := jsonID(t, readCommand(t, agentStream, container.CommandLogs))
+	requestID := jsonID(t, readCommand(t, agentStream, string(agentwire.KindLogs)))
 
 	if got := server.agentPost(intruderSession, "/agent/logs/"+requestID, container.LogBatch{Lines: []container.LogLine{{Text: "intrus"}}}); got.Code != http.StatusNotFound {
 		t.Fatalf("intruder: %d %s", got.Code, got.Body.String())
@@ -331,7 +330,7 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.machines.Disconnect(session)
-	for server.Command(remoteID, "filler", nil) == nil {
+	for server.machines.Push(remoteID, machine.StreamEvent{Name: "filler"}) == nil {
 	}
 
 	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
@@ -340,15 +339,15 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	}
 
 	server.probes.Assign(context.Background(), remoteID)
-	for len(session.Commands()) > 0 {
-		<-session.Commands()
+	for len(session.Events()) > 0 {
+		<-session.Events()
 	}
 	server.probes.ResendUnsent(context.Background())
-	if len(session.Commands()) != 1 || (<-session.Commands()).Name != probe.CommandProbes {
+	if len(session.Events()) != 1 || (<-session.Events()).Name != string(agentwire.KindProbes) {
 		t.Fatal("the probe set was not resent")
 	}
 	server.probes.ResendUnsent(context.Background())
-	if len(session.Commands()) != 0 {
+	if len(session.Events()) != 0 {
 		t.Fatal("a delivered set is resent again")
 	}
 }

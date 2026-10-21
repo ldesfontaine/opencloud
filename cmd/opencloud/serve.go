@@ -88,6 +88,11 @@ func runServe(args []string) error {
 	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
 		return err
 	}
+	// La clé qui signe les ordres aux agents, créée au premier démarrage.
+	serverKey, err := openServerKey(stateDir, logger)
+	if err != nil {
+		return err
+	}
 	now := time.Now()
 	if err := db.PurgeTokens(ctx, now, now.Add(-machine.ConsumedTokenRetention)); err != nil {
 		logger.Warn("purge enrollment tokens", "error", err)
@@ -117,6 +122,8 @@ func runServe(args []string) error {
 	parts.alerts.SetWatcher(bus)
 	parts.support.SetWatcher(bus)
 	parts.manifests.SetWatcher(bus)
+	parts.actions.SetWatcher(bus)
+	parts.actions.SetKey(serverKey)
 
 	// serve n'observe rien de sa propre machine : c'est l'agent installé sur
 	// elle, comme sur les autres. L'empreinte de la machine ne sert qu'à le
@@ -128,11 +135,12 @@ func runServe(args []string) error {
 
 	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
-	// Onze boucles de fond : les échéances, le rollup et la purge des
+	// Douze boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
-	// le moteur des alertes, le notifieur, la purge des jetons MCP et la fin
-	// de support. Elles finissent avant que la base ne se ferme.
+	// le moteur des alertes, le notifieur, la purge des jetons MCP, la fin
+	// de support, l'expiration et la purge des ordres. Elles finissent avant
+	// que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { parts.heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { parts.resources.Watch(ctx) })
@@ -145,6 +153,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.notifier.Run(ctx) })
 	runLoop(&loops, func() { parts.access.Watch(ctx) })
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
+	runLoop(&loops, func() { parts.actions.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Une sonde dont la cible porte des identifiants, d'avant leur refus, ne
 	// repart pas : elle attend que l'opérateur change sa cible.
@@ -179,6 +188,7 @@ func runServe(args []string) error {
 	parts.containers.SetCommander(server)
 	parts.probes.SetCommander(server)
 	parts.updates.SetCommander(server)
+	parts.actions.SetCommander(server)
 	// Le port principal s'ouvre avant la socket de commande : un second serve
 	// sur le même state_dir échoue ici, avant d'avoir touché à la socket du
 	// premier.

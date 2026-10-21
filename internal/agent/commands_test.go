@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -132,9 +133,9 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 	logs := &fakeLogs{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := newCommandRunner(ctx, client, "session-1", logs, &fakeProber{}, &fakeUpdater{}, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	runner := newCommandRunner(ctx, client, "session-1", logs, &fakeProber{}, &fakeUpdater{}, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	runner.handle(container.CommandLogs, `{"id":"one","container_id":"c1","tail":10}`)
+	runner.handle(string(agentwire.KindLogs), `{"id":"one","container_id":"c1","tail":10}`)
 	posted.waitFor(t, "one", 2)
 	if logs.requests[0].Tail != 10 || logs.requests[0].Follow || !posted.batches["one"][1].Done {
 		t.Fatalf("one = %+v %+v", logs.requests, posted.batches["one"])
@@ -143,17 +144,17 @@ func TestCommandRunner_ServesLogsUntilStopped(t *testing.T) {
 	// Le 404 passe avant l'arrêt de « two » : annuler un envoi encore en vol
 	// ferme sa connexion, et un autre suivi qui la reprend au même instant
 	// échoue lui aussi (« context canceled »).
-	runner.handle(container.CommandLogs, `{"id":"gone","container_id":"c3","follow":true}`)
+	runner.handle(string(agentwire.KindLogs), `{"id":"gone","container_id":"c3","follow":true}`)
 	posted.waitFor(t, "gone", 1)
 	waitUntilClosed(t, runner, "gone", "a 404 stops the follow")
 
-	runner.handle(container.CommandLogs, `{"id":"two","container_id":"c2","follow":true}`)
+	runner.handle(string(agentwire.KindLogs), `{"id":"two","container_id":"c2","follow":true}`)
 	posted.waitFor(t, "two", 1)
-	runner.handle(container.CommandLogsStop, `{"id":"two"}`)
+	runner.handle(string(agentwire.KindLogsStop), `{"id":"two"}`)
 	waitUntilClosed(t, runner, "two", "two should be stopped")
 
 	runner.handle("unknown", `{"id":"x"}`)
-	runner.handle(container.CommandLogs, `not json`)
+	runner.handle(string(agentwire.KindLogs), `not json`)
 }
 
 // waitUntilClosed attend que le suivi ait quitté le registre : c'est la
@@ -183,25 +184,25 @@ func TestCommandRunner_AssignsTheProbeSet(t *testing.T) {
 	defer cancel()
 	prober := &fakeProber{}
 	updater := &fakeUpdater{}
-	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, updater, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, updater, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	payload, err := json.Marshal(probe.Assignment{Probes: []probe.Task{{ID: "p1", Kind: probe.KindHTTP, Target: "https://a.fr/", IntervalSeconds: 60}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner.handle(probe.CommandProbes, string(payload))
+	runner.handle(string(agentwire.KindProbes), string(payload))
 	if assignment := prober.last(); len(assignment.Probes) != 1 || assignment.Probes[0].ID != "p1" {
 		t.Fatalf("le jeu reçu n'est pas transmis: %+v", assignment)
 	}
 
-	runner.handle(probe.CommandProbes, "{pas du json")
+	runner.handle(string(agentwire.KindProbes), "{pas du json")
 	if len(prober.assignments) != 1 {
 		t.Fatalf("un contenu illisible a été transmis: %+v", prober.assignments)
 	}
 
 	// La commande « image_checks » règle les exclusions de la même façon.
-	runner.handle(update.CommandImages, `{"excluded":["portfolio:latest"],"now":true}`)
-	runner.handle(update.CommandImages, "{pas du json")
+	runner.handle(string(agentwire.KindImages), `{"excluded":["portfolio:latest"],"now":true}`)
+	runner.handle(string(agentwire.KindImages), "{pas du json")
 	if len(updater.assignments) != 1 || !updater.assignments[0].Now || updater.assignments[0].Excluded[0] != "portfolio:latest" {
 		t.Fatalf("exclusions reçues: %+v", updater.assignments)
 	}

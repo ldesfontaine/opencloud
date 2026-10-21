@@ -38,7 +38,7 @@ func answeringServer(t *testing.T, status int, body string) *Client {
 
 // Un tampon avec de quoi remplir chaque section.
 func filledPending() *pending {
-	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}}
+	filled := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults()}
 	filled.readings.push(sampler.Reading{SampledAt: time.Now(), CPUPercent: 1})
 	filled.reports.Deliver(container.Report{Events: []container.Event{{Action: "start"}}})
 	filled.results.Deliver(probe.Report{Results: []probe.Result{{ProbeID: "p"}}})

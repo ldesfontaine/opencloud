@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -21,6 +22,7 @@ type MachineService interface {
 	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
+	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
@@ -54,6 +56,13 @@ type UpdateService interface {
 	Record(ctx context.Context, machineID string, report update.Report) error
 }
 
+// Ce que l'agent attend du composant action : la clé publique du serveur,
+// livrée à l'enrôlement, et l'écriture de ce que l'agent a fait des ordres.
+type ActionService interface {
+	ServerKey() (public []byte, fingerprint string, err error)
+	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
+}
+
 type Options struct {
 	Logger     *slog.Logger
 	Machines   MachineService
@@ -61,6 +70,7 @@ type Options struct {
 	Containers ContainerService
 	Probes     ProbeService
 	Updates    UpdateService
+	Actions    ActionService
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
 	// mandataires de confiance compris : la règle vit à la racine.
 	ClientAddress func(r *http.Request) string
@@ -75,6 +85,7 @@ type Handler struct {
 	containers     ContainerService
 	probes         ProbeService
 	updates        UpdateService
+	actions        ActionService
 	clientAddress  func(r *http.Request) string
 	challengeLimit *ratelimit.BySource
 	signalLimit    *ratelimit.Limiter
@@ -88,6 +99,7 @@ func New(opts Options) *Handler {
 		containers:     opts.Containers,
 		probes:         opts.Probes,
 		updates:        opts.Updates,
+		actions:        opts.Actions,
 		clientAddress:  opts.ClientAddress,
 		challengeLimit: ratelimit.NewBySource(challengePerSourceRate, challengePerSourceBurst, challengeIdle),
 		signalLimit:    ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),

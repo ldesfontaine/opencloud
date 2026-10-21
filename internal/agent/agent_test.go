@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -20,6 +22,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -28,6 +31,8 @@ import (
 type bench struct {
 	url       string
 	machines  *machine.Service
+	actions   *action.Service
+	db        *store.DB
 	resources *resource.Service
 	stateDir  *os.Root
 	logger    *slog.Logger
@@ -46,10 +51,14 @@ func newBench(t *testing.T) *bench {
 	// serveur de test a donc besoin du composant, même vide.
 	probes := probe.New(db, logger)
 	updates := update.New(db, logger)
-	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates})
+	// Les ordres : signés par une clé tirée pour le banc, poussés par le flux.
+	actions := action.New(db, machines, logger)
+	actions.SetKey(action.GenerateKey())
+	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions})
 	if err != nil {
 		t.Fatal(err)
 	}
+	actions.SetCommander(handler)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	agentRoot, err := os.OpenRoot(t.TempDir())
@@ -57,7 +66,7 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { agentRoot.Close() })
-	return &bench{url: server.URL, machines: machines, resources: resources, stateDir: agentRoot, logger: logger}
+	return &bench{url: server.URL, machines: machines, actions: actions, db: db, resources: resources, stateDir: agentRoot, logger: logger}
 }
 
 // Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est
@@ -218,6 +227,73 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 	}
 }
 
+// waitForRun attend que le run atteigne l'état voulu ; la réponse de l'agent
+// arrive par son signal.
+func (b *bench) waitForRun(t *testing.T, runID string, want action.State) action.Run {
+	t.Helper()
+	deadline := time.Now().Add(benchTimeout)
+	for time.Now().Before(deadline) {
+		runs, err := b.db.ListActionRuns(context.Background(), action.Query{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, run := range runs {
+			if run.ID == runID && run.State == want {
+				return run
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("run %s never reached %s", runID, want)
+	return action.Run{}
+}
+
+// De bout en bout : l'agent épingle la clé du serveur à l'enrôlement, la
+// redit à l'ouverture du flux ; un ping signé part, l'agent le vérifie,
+// l'exécute, garde son rang et répond par le signal.
+func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
+	b := newBench(t)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-paris-1", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, b.options(token)) }()
+
+	_, fingerprint, err := b.actions.ServerKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	online := b.waitFor(t, "vps-paris-1", func(s machine.Status) bool { return s.Online && s.Agent.ServerKeyFingerprint != "" })
+	if online.Agent.ServerKeyFingerprint != fingerprint {
+		t.Fatalf("pinned %q, server key %q", online.Agent.ServerKeyFingerprint, fingerprint)
+	}
+	identity, err := LoadIdentity(b.stateDir)
+	if err != nil || identity.ServerKeyFingerprint() != fingerprint || identity.AgentID != online.Agent.ID {
+		t.Fatalf("identity %+v %v", identity, err)
+	}
+
+	sent, err := b.actions.Ping(audit.WithActor(context.Background(), audit.Operator("lucas")), online.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done1 := b.waitForRun(t, sent.ID, action.StateSucceeded)
+	if len(done1.Output) != 1 || done1.Output[0].Line != "pong v0.0.1" {
+		t.Fatalf("output %+v", done1.Output)
+	}
+	identity, err = LoadIdentity(b.stateDir)
+	if err != nil || identity.LastOrderSeq != sent.Seq {
+		t.Fatalf("seq kept %d, want %d (%v)", identity.LastOrderSeq, sent.Seq, err)
+	}
+	// Le second prend le rang suivant.
+	second, err := b.actions.Ping(audit.WithActor(context.Background(), audit.Operator("lucas")), online.ID)
+	if err != nil || second.Seq != sent.Seq+1 {
+		t.Fatalf("second %+v %v", second, err)
+	}
+	b.waitForRun(t, second.ID, action.StateSucceeded)
+	cancel()
+	<-done
+}
+
 func TestReadEvent_ParsesEventsAndSkipsComments(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader(": ping\n\nevent: session\ndata: abc\n\nevent: closed\ndata: bye\n\n"))
 	name, data, err := readEvent(reader)
@@ -271,7 +347,7 @@ func TestPinnedClient_RefusesAnotherCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Signal(context.Background(), "session", nil, nil, nil, nil)
+	_, err = client.Signal(context.Background(), "session", agentwire.SignalRequest{})
 	if !errors.Is(err, ErrPinMismatch) {
 		t.Fatalf("got %v", err)
 	}

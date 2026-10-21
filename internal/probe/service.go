@@ -60,12 +60,12 @@ type Store interface {
 	PurgeProbeHistory(ctx context.Context, resultsBefore, daysBefore time.Time) error
 }
 
-// Commander pousse une commande à l'agent d'une machine par son flux ; il
-// refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
+// Commander pousse le jeu de sondes à l'agent d'une machine par son flux ;
+// il refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
 // son jeu en revenant. Une file pleine rend machine.ErrBusy : le jeu est
 // renvoyé au cycle suivant.
 type Commander interface {
-	Command(machineID, name string, payload any) error
+	AssignProbes(machineID string, assignment Assignment) error
 }
 
 // Assignable reçoit le jeu de sondes : le moteur de l'agent, qui le tient de
@@ -461,7 +461,7 @@ func (s *Service) Assign(ctx context.Context, machineID string) {
 	if commander == nil {
 		return
 	}
-	err = commander.Command(machineID, CommandProbes, assignment)
+	err = commander.AssignProbes(machineID, assignment)
 	if errors.Is(err, machine.ErrBusy) {
 		s.logger.Warn("assign probes later, command queue full", "machine_id", machineID, "probes", len(tasks))
 		s.setUnsent(machineID, true)

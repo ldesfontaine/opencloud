@@ -42,6 +42,9 @@ export interface Agent {
   reported_at: string | null;
   requested: Capability[];
   capabilities_differ: boolean;
+  // L'empreinte de la clé du serveur que l'agent a épinglée ; vide tant
+  // qu'il n'a rien dit, ou s'il n'en a pas.
+  server_key_fingerprint: string;
 }
 
 export interface PendingToken {

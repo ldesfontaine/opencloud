@@ -52,6 +52,7 @@ erDiagram
         TEXT version
         TEXT root_dir "defaut /srv/workspace"
         TEXT server_key_fingerprint
+        INTEGER last_order_seq
         INTEGER desired_revision "sa part de l annuaire"
         INTEGER acked_revision
         INTEGER last_seen_at
@@ -404,6 +405,7 @@ erDiagram
         INTEGER not_after
         INTEGER seq
         TEXT requested_by
+        INTEGER requested_at
         INTEGER finished_at
     }
     run_logs {
@@ -619,7 +621,7 @@ flowchart LR
 | Entité | Rôle | État |
 | --- | --- | --- |
 | `machines` | L'hôte : nom, système. Survit à un ré-enrôlement. Plus de genre `local` : la machine openCloud a un agent comme les autres | Transformée : clé et `last_seen_at` passent à l'agent, `kind` disparaît. **Faite** (`030`) |
-| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle, faite (migration `030_agents.sql`, section 14) |
+| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle, faite (migration `030_agents.sql`, section 14) ; `server_key_fingerprint` et `last_order_seq` remis par `002_actions.sql` (section 16), les révisions attendent l'état désiré |
 | `agent_capabilities` | Droits **lus dans le fichier de l'agent** et rapportés à la connexion. Le demandé reste dans le jeton : l'écart se voit | Nouvelle, faite (`030`) ; liste : décision 9, prise le 21 octobre 2026 |
 | `projects` | Regroupe des services. Sert à la page de statut, au routage des canaux, au filtre de l'interface, plus tard aux droits | Nouvelle, faite |
 | `project_services` | Appartenance d'un service à un projet ; un service peut être dans plusieurs | Nouvelle, faite |
@@ -643,7 +645,7 @@ flowchart LR
 | `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) |
 | `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) ; **faite** (migration `032_alerts_directory.sql`), sans `project_id`, `announce` ni `public_title` (section 13) |
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
-| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles |
+| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles, faites (`002_actions.sql`, section 16), sans `service_id` |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
 | `audit_events` | Qui, quoi, quand, sur quoi, les champs du geste sans secret. Sans clé étrangère vers l'objet : survit à tout. Ajout seul, purgé à un an | Nouvelle, faite (migration `029_audit.sql`, sans `run_id` : voir la section 12) |
 | `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, à faire après le journal (section 12) |
@@ -1154,7 +1156,7 @@ ses écarts au diagramme :
 | **`agent_capabilities` est le dernier rapport**, remplacé à chaque connexion, `scope` porte les chemins séparés par `:` | Le reflet du fichier, pas un historique ; une ligne par droit garde la clé (agent, droit) du diagramme |
 | **Ré-enrôler reprend les droits que le jeton de l'agent courant demandait** ; `observe` seul s'il n'en demandait aucun | **Décision prise, à valider par Lucas** : le plus simple qui ne fait pas perdre ses droits à un agent qu'on réinstalle ; qui les change ensuite reste la décision 10 |
 | **`agent.enroll` et `agent.revoke` au journal d'audit** ; l'objet est l'agent, nommé par sa machine. `machine.reenroll` (l'émission du jeton) et `machine.delete` restent sur la machine | Les lignes déjà écrites sous `machine.enroll` le gardent : le journal ne se réécrit pas |
-| **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146). *Schéma unique (21/10) : les trois dernières, que rien ne lisait ni n'écrivait, sont retirées ; elles reviendront par une migration avec #146* |
+| **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146). *Schéma unique (21/10) : les trois dernières, que rien ne lisait ni n'écrivait, sont retirées ; `server_key_fingerprint` est revenue avec les ordres signés (`002_actions.sql`, section 16), les révisions attendent l'état désiré* |
 | **`machines` perd `kind`, `public_key`, `agent_version`, `enrolled_at`, `last_seen_at`** ; la machine openCloud se reconnaît à son identifiant stable, `local` | La clé, la version, l'enrôlement et le signe de vie sont ceux de l'agent ; un genre de machine n'a plus de raison d'être |
 | **La machine openCloud n'a plus de chemin intégré** : `serve` ne mesure, ne veille, ne sonde ni ne vérifie rien de sa machine ; elle se retire, se révoque et se ré-enrôle comme les autres | Un seul mécanisme. Le prix, dit par le modèle : sans son agent, elle ne se voit pas ; ses sondes attendent |
 | **L'empreinte du serveur ne sert qu'à l'enrôlement** : l'agent qui la présente prend `local` et reprend sa ligne (créée si elle manque, reprise si elle est sans agent actif) ; un second, par un jeton de machine neuve, est refusé tant que le premier est actif (`local_agent_active`, jeton non consommé) | C'est ce qui reconnaît la machine openCloud et lui rend son historique. Remplacer son agent passe par Ré-enrôler, comme ailleurs |
@@ -1182,3 +1184,21 @@ code a tranché, et ses écarts au diagramme :
 | **Slug** : minuscules, chiffres, tirets, 63 au plus, `api` réservé | Un seul segment d'URL, rien à échapper ; `api` était le chemin de l'API publique sous `/statut` |
 | **Les composants de statut restent hors du fichier d'`apply`** | L'export ne porte encore ni pages ni composants ; la section `status_pages` reste refusée à la lecture |
 
+## 16. Ce que les ordres signés ont fixé
+
+La migration `002_actions.sql` (`action_runs`, `run_logs`,
+`agents.server_key_fingerprint`, `agents.last_order_seq`) et le paquet
+`internal/action`. Le fonctionnement est dans `22-fonctionnement.md`,
+« Comment un ordre part et revient ». Ce que le code a tranché, et ses
+écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`agents.last_order_seq`**, en plus du diagramme : le rang d'un ordre se prend sur l'agent, dans la transaction qui écrit le run | Tiré de `MAX(action_runs.seq)`, il reculerait à la purge des runs (90 jours) ou à la suppression d'une machine, et l'agent refuserait tout comme un rejeu. Un index unique (`agent_id`, `seq`) le tient en plus |
+| **`requested_at`**, en plus du diagramme | Une liste se lit du plus récent au plus ancien, la purge se fait à l'âge : il faut l'instant de la demande |
+| **Pas de `service_id`** sur `action_runs` | Aucun ordre ne vise encore un service (`agent.ping` vise la machine) ; la colonne viendra avec le premier qui le fait, comme le veut le garde-fou du schéma |
+| **Pas de `audit_events.run_id`** | L'événement `action.order` a le run pour objet (`object_kind 'action'`, `object_id` = le run) : le lien existe sans colonne. La colonne servira quand un geste d'un autre objet sera lié à un run (une proposition de mise à jour appliquée) ; elle demande aussi de rouvrir le déclencheur d'ajout seul |
+| **`server_key_fingerprint` dit ce que l'agent a épinglé**, redit à chaque ouverture du flux, pas ce que le serveur a livré | C'est ce que l'agent vérifiera qui compte : une empreinte différente de celle du serveur dit d'avance que les ordres seront refusés |
+| **`desired_revision`, `acked_revision` ne reviennent pas** | Rien ne les lit encore : elles viendront avec l'état désiré |
+| **`refusal_reason` porte aussi `undelivered`** | Le serveur pose `failed` quand le flux ne prend pas l'ordre ; une seule colonne dit pourquoi un run n'a pas abouti |
+| **Les états sont une liste du code**, sans CHECK | La règle du schéma : une liste fermée qui grandira se valide dans le code |

@@ -19,6 +19,8 @@ const (
 	TopicStatus     Topic = "status"
 	TopicAlerts     Topic = "alerts"
 	TopicDirectory  Topic = "directory"
+	// Les ordres envoyés aux agents et ce qu'ils deviennent.
+	TopicActions Topic = "actions"
 )
 
 // ResourcesEvery espace les publications des mesures : chaque machine en
@@ -149,6 +151,10 @@ func (b *Bus) AlertsChanged() {
 
 func (b *Bus) DirectoryChanged() {
 	b.Publish(TopicDirectory)
+}
+
+func (b *Bus) ActionsChanged(string) {
+	b.Publish(TopicActions)
 }
 
 func (s *Subscription) add(topic Topic) {

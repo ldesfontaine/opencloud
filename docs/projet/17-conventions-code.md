@@ -12,7 +12,7 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
 internal/reader/             # l'interface Reader : les lectures de la base sans règle, partagées (types seulement)
-internal/agentwire/          # le protocole agent ↔ serveur : en-têtes, corps JSON, sections du signal (types seulement)
+internal/agentwire/          # le protocole agent ↔ serveur entier : en-têtes, corps JSON, sections du signal, liste fermée de ce que le serveur pousse, enveloppe signée des ordres
 internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
 internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron
@@ -165,10 +165,10 @@ binaire par plateforme.
 | HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
-| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
 | Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
-| Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
+| Protocole agent | `internal/agentwire` | Le protocole entier, figé par les agents installés : en-têtes, corps, sections du signal ; la liste fermée de ce que le serveur pousse (`Kind`, `Command` typée, plus d'`any` sur le fil) et l'enveloppe des ordres (`OrderBody`, `SignedOrder`) ; les octets que les deux côtés signent ou comparent (`OrderSigningBytes`, `KeyFingerprint`). Un domaine ne nomme jamais un événement : il déclare son commandeur typé (`container.Commander.RequestLogs`), le serveur l'encode | Une règle, un appel |
 | Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config`, `audit` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation; `audit` : l'acteur dans le contexte et le `Recorder` du journal d'audit, que tous les composants, `server`, `store` et `reader` importent : un outil, sinon un composant qui l'importe et qu'il nommerait ferait un cycle | Importer un composant |
 | Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
 
@@ -348,11 +348,15 @@ lui-même.
 
 ## À venir : les actions
 
-openCloud observe et n'agit sur aucune machine : aucun `exec.Command`,
-aucun script, aucun catalogue d'actions dans le code. Les actions viendront
-avec l'issue #125 (l'agent applique une mise à jour au clic). Les
-conventions ci-dessous sont **écrites d'avance** pour ce jour-là ; rien ne
-les vérifie encore, ni en local ni en CI.
+Le chemin d'un ordre existe (#146, `internal/action`, « Comment un ordre part
+et revient » dans `22-fonctionnement.md`) : liste fermée dans `agentwire`,
+run écrit avant l'envoi, signature de la clé du serveur, réponse par le
+signal. Le seul ordre, `agent.ping`, ne change rien : aucun `exec.Command`,
+aucun script dans le code. Un ordre nouveau ajoute son genre à
+`agentwire.OrderKinds`, son exécution chez l'agent (`orders.go`) et son geste
+dans `action` ; jamais une chaîne shell dans ses paramètres. Les conventions
+ci-dessous sont **écrites d'avance** pour le premier ordre qui écrit ; rien
+ne les vérifie encore, ni en local ni en CI.
 
 ### L'exécution de commandes
 
@@ -471,8 +475,9 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
 
 ## Les journaux
 
-`log/slog`, JSON vers journald. Un champ `action_id` sur tout ce qui touche une
-action. Un marqueur interne pour distinguer les lignes d'openCloud de celles des
+`log/slog`, JSON vers journald. Un champ `run_id` sur tout ce qui touche un
+ordre, chez le serveur comme chez l'agent : le modèle nomme l'exécution un
+run. Un marqueur interne pour distinguer les lignes d'openCloud de celles des
 scripts relus.
 
 ## Les tests

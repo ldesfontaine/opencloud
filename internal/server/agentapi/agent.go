@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -49,6 +51,14 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 	if !h.readJSON(w, r, &request) {
 		return
 	}
+	// La clé que l'agent épinglera, lue avant de consommer le jeton : sans
+	// elle, l'agent ne pourrait vérifier aucun ordre.
+	serverKey, err := h.serverKey()
+	if err != nil {
+		h.logger.Error("enroll without a server key", "error", err)
+		h.writeError(w, http.StatusServiceUnavailable, "server_key_missing")
+		return
+	}
 	publicKey, err := base64.StdEncoding.DecodeString(request.PublicKey)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "bad_key")
@@ -73,8 +83,23 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		h.writeEnrollError(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusCreated, agentwire.EnrollResponse{MachineID: enrolled.ID, Name: enrolled.Name})
+	h.writeJSON(w, http.StatusCreated, agentwire.EnrollResponse{
+		MachineID: enrolled.ID, Name: enrolled.Name, AgentID: enrolled.Agent.ID,
+		ServerKey: base64.StdEncoding.EncodeToString(serverKey),
+	})
 }
+
+func (h *Handler) serverKey() ([]byte, error) {
+	if h.actions == nil {
+		return nil, errNoActions
+	}
+	public, _, err := h.actions.ServerKey()
+	return public, err
+}
+
+// errNoActions : le handler est monté sans composant action (un banc de
+// test qui ne s'en sert pas).
+var errNoActions = errors.New("no action component")
 
 func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -139,6 +164,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(agentwire.HeaderAgentOS)); err != nil {
 		h.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
 	}
+	// L'empreinte de la clé que l'agent a épinglée : la fiche montre un
+	// agent qui refuserait les ordres de ce serveur.
+	if err := h.machines.NoteServerKey(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderServerKey)); err != nil {
+		h.logger.Warn("note server key", "machine_id", authenticated.ID, "error", err)
+	}
 	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
 	// dit, comparés à ce que son jeton demandait, pas encore appliqués.
 	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
@@ -174,22 +204,12 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 			if err := httpx.WriteEvent(w, "ping", ""); err != nil {
 				return
 			}
-		case command := <-session.Commands():
-			if err := writeCommand(w, command); err != nil {
+		case event := <-session.Events():
+			if err := httpx.WriteEvent(w, event.Name, string(event.Data)); err != nil {
 				return
 			}
 		}
 	}
-}
-
-// writeCommand pousse une commande à l'agent : son nom en événement, son
-// contenu en JSON sur une ligne, tiré par le serveur.
-func writeCommand(w http.ResponseWriter, command machine.Command) error {
-	payload, err := json.Marshal(command.Payload)
-	if err != nil {
-		return err
-	}
-	return httpx.WriteEvent(w, command.Name, string(payload))
 }
 
 func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
@@ -308,7 +328,19 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.Images != nil {
 		keep(agentwire.SectionImages, h.updates.Record(ctx, machineID, *request.Images), update.ErrReportInvalid)
 	}
+	if request.Actions != nil {
+		keep(agentwire.SectionActions, h.recordActions(ctx, machineID, *request.Actions), action.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordActions écrit ce que l'agent a fait des ordres ; sans composant
+// action, la section est refusée.
+func (h *Handler) recordActions(ctx context.Context, machineID string, report agentwire.ActionReport) error {
+	if h.actions == nil {
+		return action.ErrReportInvalid
+	}
+	return h.actions.Record(ctx, machineID, report)
 }
 
 // firstRejected rend la clé de la première section refusée, dans l'ordre

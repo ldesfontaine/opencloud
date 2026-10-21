@@ -25,6 +25,9 @@ const (
 	// La clé qui chiffre les secrets saisis dans l'interface, à côté de la
 	// base et jamais dedans.
 	SecretKeyFile = "secret.key" // #nosec G101 -- un nom de fichier, pas un secret.
+	// La clé qui signe les ordres envoyés aux agents, à côté de secret.key :
+	// sa moitié publique est épinglée par chaque agent à l'enrôlement.
+	ServerKeyFile = "server.key" // #nosec G101 -- un nom de fichier, pas un secret.
 	// La socket de commande, dans state_dir : serve y sert les routes du
 	// fichier de l'annuaire à la commande locale, sans rien ouvrir au réseau.
 	ControlSocketFile = "control.sock"
@@ -82,6 +85,9 @@ const (
 	// partage avec le serveur : le mode forward ne croit l'identité que d'une
 	// requête qui le porte. Le nom est dans la configuration du mandataire.
 	ProxySecretHeader = "X-" + HeaderPrefix + "Proxy-Secret" // #nosec G101 -- un nom d'en-tête, pas un secret.
+	// Précède le corps d'un ordre dans ce que la clé du serveur signe : une
+	// signature d'ordre ne vaut pour rien d'autre.
+	OrderSignatureDomain = "opencloud-order/v1\x00"
 )
 
 // Les préfixes de jetons : reconnaissables dans un journal ou un

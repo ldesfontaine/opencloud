@@ -3,8 +3,10 @@ package machine
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +35,7 @@ type Store interface {
 	TouchAgent(ctx context.Context, agentID string, at time.Time) error
 	RecordConnection(ctx context.Context, connection Connection) error
 	RecordSystem(ctx context.Context, id, system string) error
+	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -459,6 +462,28 @@ func (s *Service) Connect(ctx context.Context, authenticated Machine, address, a
 	return session, nil
 }
 
+// NoteServerKey garde l'empreinte de la clé du serveur que l'agent dit avoir
+// épinglée, redite à chaque ouverture de flux : la fiche montre un agent qui
+// ne vérifierait pas les ordres de ce serveur. Une forme qui n'est pas une
+// empreinte, ou rien, s'écrit vide.
+func (s *Service) NoteServerKey(ctx context.Context, agentID, fingerprint string) error {
+	if !isKeyFingerprint(fingerprint) {
+		fingerprint = ""
+	}
+	return s.store.RecordServerKey(ctx, agentID, fingerprint)
+}
+
+// isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans
+// remplissage, la forme d'agentwire.KeyFingerprint.
+func isKeyFingerprint(text string) bool {
+	digest, found := strings.CutPrefix(text, "SHA256:")
+	if !found || len(digest) != 43 {
+		return false
+	}
+	_, err := base64.RawStdEncoding.Strict().DecodeString(digest)
+	return err == nil
+}
+
 // MaxSystemLength borne ce qu'un agent dit de son système.
 const MaxSystemLength = 120
 
@@ -536,7 +561,7 @@ func (s *Service) SessionMachine(sessionToken string) (string, error) {
 	return session.MachineID, nil
 }
 
-// Command pousse une commande à l'agent d'une machine par son flux ouvert.
-func (s *Service) Command(machineID, name string, payload any) error {
-	return s.sessions.Command(machineID, Command{Name: name, Payload: payload})
+// Push pousse un événement à l'agent d'une machine par son flux ouvert.
+func (s *Service) Push(machineID string, event StreamEvent) error {
+	return s.sessions.Push(machineID, event)
 }

@@ -86,6 +86,11 @@ func TestAgentEnroll_CreatesTheMachineAndMapsRefusals(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.MachineID != remoteID || response.Name != "vps-paris-1" {
 		t.Fatalf("response %s", recorder.Body.String())
 	}
+	// L'agent repart avec son identifiant et la clé qui signera les ordres.
+	serverKey, _, _ := server.actions.ServerKey()
+	if !strings.HasPrefix(response.AgentID, "agt_") || response.ServerKey != base64.StdEncoding.EncodeToString(serverKey) {
+		t.Fatalf("agent %q, server key %q", response.AgentID, response.ServerKey)
+	}
 	status, err := server.machines.Get(context.Background(), remoteID)
 	if err != nil || status.Address != "192.0.2.1" || status.Online {
 		t.Fatalf("machine %+v %v", status, err)
@@ -341,6 +346,8 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 
 	request := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, server.requestChallenge(t, enrolled.ID, ""))
 	request.Header.Set(agentwire.HeaderAgentRights, "observe,agent.update")
+	_, fingerprint, _ := server.actions.ServerKey()
+	request.Header.Set(agentwire.HeaderServerKey, fingerprint)
 	ctx, cancel := context.WithCancel(context.Background())
 	resp, err := live.Client().Do(request.WithContext(ctx))
 	if err != nil {
@@ -355,6 +362,9 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 	}
 	if machine.FormatCapabilities(status.Agent.Capabilities) != "observe,agent.update" || !status.Agent.CapabilitiesDiffer() {
 		t.Fatalf("reported rights %+v", status.Agent)
+	}
+	if status.Agent.ServerKeyFingerprint != fingerprint {
+		t.Fatalf("pinned key %q, want %q", status.Agent.ServerKeyFingerprint, fingerprint)
 	}
 
 	if err := server.machines.Revoke(context.Background(), enrolled.ID); err != nil {

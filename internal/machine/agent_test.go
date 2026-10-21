@@ -71,6 +71,33 @@ func TestConnect_RecordsTheReportedRightsAndTheGapShows(t *testing.T) {
 	}
 }
 
+// L'empreinte de la clé du serveur que l'agent redit se garde telle quelle ;
+// ce qui n'a pas la forme d'une empreinte s'écrit vide.
+func TestNoteServerKey_KeepsAFingerprintAndNothingElse(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := h.enrollWith(t, cleartext)
+	const fingerprint = "SHA256:Zmh6rfhivXdsj8GLjp+OIAiXFIVu4jOzkCpZHQ1fKSU"
+	for _, c := range []struct{ reported, kept string }{
+		{fingerprint, fingerprint},
+		{"SHA256:court", ""},
+		{"MD5:" + fingerprint[7:], ""},
+		{"", ""},
+	} {
+		if err := h.service.NoteServerKey(ctx, enrolled.Agent.ID, c.reported); err != nil {
+			t.Fatal(err)
+		}
+		status, _ := h.service.Get(ctx, enrolled.ID)
+		if status.Agent.ServerKeyFingerprint != c.kept {
+			t.Errorf("%q kept as %q", c.reported, status.Agent.ServerKeyFingerprint)
+		}
+	}
+}
+
 // Révoquer : le flux tombe, la preuve suivante est refusée (l'agent
 // s'arrête), les jetons de ré-enrôlement en attente partent ; la machine
 // reste. Ré-enrôler installe un nouvel agent et lève la révocation.

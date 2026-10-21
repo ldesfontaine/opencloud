@@ -145,7 +145,4 @@ const (
 	MaxFollowsPerMachine = 4
 	// Ce que le serveur attend d'un tirage unique avant de renoncer.
 	LogFetchTimeout = 15 * time.Second
-	// Les noms des événements du flux serveur → agent.
-	CommandLogs     = "logs"
-	CommandLogsStop = "logs_stop"
 )

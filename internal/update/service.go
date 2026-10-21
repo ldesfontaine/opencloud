@@ -27,10 +27,10 @@ type Store interface {
 	PurgeImageChecks(ctx context.Context, before time.Time) error
 }
 
-// Commander pousse une commande à l'agent d'une machine par son flux ;
+// Commander pousse les exclusions à l'agent d'une machine par son flux ;
 // il refuse quand elle est hors ligne.
 type Commander interface {
-	Command(machineID, name string, payload any) error
+	AssignImages(machineID string, assignment Assignment) error
 }
 
 // Assignable reçoit les exclusions : la boucle de l'agent, qui les tient de
@@ -130,7 +130,7 @@ func (s *Service) assign(ctx context.Context, machineID string, now bool) error 
 	if commander == nil {
 		return ErrMachineOffline
 	}
-	if err := commander.Command(machineID, CommandImages, assignment); err != nil {
+	if err := commander.AssignImages(machineID, assignment); err != nil {
 		return ErrMachineOffline
 	}
 	return nil

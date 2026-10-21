@@ -158,11 +158,14 @@ d'infra séparés.
 ## 5. L'agent : actions, droits, clés
 
 **Aujourd'hui** ([« Comment une machine entre »](22-fonctionnement.md#comment-une-machine-entre),
+[« Comment un ordre part et revient »](22-fonctionnement.md#comment-un-ordre-part-et-revient),
 issue #146) : l'agent **initie** la connexion, signe un défi, tient un flux
-(SSE + POST). Il n'exécute que **quatre commandes** du serveur : `probes`,
-`logs`, `logs_stop`, `image_checks`, au format `{Name, Payload any}`, dans une
-file de 16 en mémoire ; aucun shell, aucune écriture Docker. Le serveur
-vérifie l'agent ; **l'agent ne vérifie pas le serveur**. Les droits sont
+(SSE + POST). Le serveur lui pousse quatre **commandes d'observation**
+(`probes`, `logs`, `logs_stop`, `image_checks`), non signées, et des
+**ordres** signés Ed25519 par sa clé (`server.key`), que l'agent vérifie avec
+la clé épinglée à l'enrôlement, avec rang et échéance ; un seul ordre existe,
+`agent.ping`, qui ne change rien. Liste fermée typée dans `agentwire`, file de
+16 en mémoire ; aucun shell, aucune écriture Docker. Les droits sont
 cochés à l'installation, écrits dans le fichier de l'agent, rapportés et
 affichés, **pas encore appliqués** : chaque agent accepte les quatre
 commandes. Le jeton d'enrôlement vaut 1 h, sert une fois. L'agent tourne en
@@ -174,9 +177,9 @@ root. Machine et agent sont deux tables (`agents`, migration
 
 | Pièce | Position | Modèle vu ailleurs |
 | --- | --- | --- |
-| Actions | une **liste fermée, typée** (`type` + `params`, un identifiant d'exécution) ; jamais une chaîne shell dans le protocole. Le format actuel se casse ; transport, enrôlement Ed25519 et relais des journaux restent | Komodo `PeripheryRequest` (~100 variantes), Beszel `WebSocketAction` (10) |
+| Actions | une **liste fermée, typée** (`type` + `params`, un identifiant d'exécution) ; jamais une chaîne shell dans le protocole. Le format actuel se casse ; transport, enrôlement Ed25519 et relais des journaux restent. **Fait** (#146) : `agentwire.Kind` et `Command` typés, l'ordre écrit dans `action_runs` et au journal avant l'envoi, `agent.ping` seul ordre | Komodo `PeripheryRequest` (~100 variantes), Beszel `WebSocketAction` (10) |
 | Droits (capacités) | **pas de « modes »** : un seul agent, une liste de droits cochée dans l'interface à l'installation, écrite par la ligne générée dans le fichier local de l'agent. L'agent fait ce qu'il a le droit de faire, rien d'autre ; un refus est journalisé. Liste de départ : décision 9, **prise** ; changement après l'installation : décision 10, reportée. **Fait** : cochés, écrits, rapportés et affichés avec l'écart (030) ; les appliquer reste #146 | Komodo `disable_terminals`, `core_public_keys` ; Netdata `allow from` |
-| Vérification réciproque | l'agent connaît la clé publique du serveur et vérifie chaque session ; un faux serveur ne commande rien | Komodo (clés `core_public_keys`), Beszel (le hub signe le jeton) |
+| Vérification réciproque | l'agent connaît la clé publique du serveur et vérifie chaque session ; un faux serveur ne commande rien. **Fait** (#146) : la clé publique livrée à l'enrôlement et épinglée, chaque ordre signé et vérifié (machine, agent, échéance, rang) ; l'agent ne vérifie pas le flux lui-même, seulement ce qui agit | Komodo (clés `core_public_keys`), Beszel (le hub signe le jeton) |
 | Enrôlement | jeton à usage unique, porté par la ligne générée ; **rotation** de la clé de l'agent et de celle du serveur. Machine et agent séparés : ré-enrôler, réinstaller ou tourner la clé garde la machine et son historique | Teleport (jeton 30 min), Komodo `RotatePrivateKey`, Swarm (3 mois) |
 | Root | reporté avant l'étape 2 (décision 2). Piste : un observateur non privilégié + un exécuteur root étroit avec politique locale | — |
 | Contrôles | après l'étape 2 : contrôles sur le modèle NRPE, commandes définies dans le fichier local de l'agent, le serveur ne demande qu'un nom ; code de sortie 0/1/2/3. Un genre de sonde, avec un état « avertissement » | Nagios NRPE |
@@ -289,7 +292,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | --- | --- | --- | --- |
 | préalable | #153 | réglages en base (`settings.toml` disparaît) ; nom du produit à un seul endroit ; secrets de l'interface chiffrés en base. **Fait** : #155, #156, #157 | non |
 | 1 | #153 | la direction dans la doc ; l'annuaire : services déclarés et unités, projets, nature des services ; édition sur place des sondes et des tâches ; `export` / `apply` ; vue « écart » | non |
-| 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation | non |
+| 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation. **En cours** : ordres signés et journalisés (fait) | non |
 | 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination | oui : la sauvegarde chiffrée, chez l'agent de destination |
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur | oui |

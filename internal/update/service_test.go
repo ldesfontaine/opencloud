@@ -50,10 +50,8 @@ func (m *memoryStore) PurgeImageChecks(context.Context, time.Time) error { retur
 // assignation poussée.
 type recordingRunner struct{ assignments []update.Assignment }
 
-func (r *recordingRunner) Command(_, name string, payload any) error {
-	if assignment, ok := payload.(update.Assignment); ok && name == update.CommandImages {
-		r.assignments = append(r.assignments, assignment)
-	}
+func (r *recordingRunner) AssignImages(_ string, assignment update.Assignment) error {
+	r.assignments = append(r.assignments, assignment)
 	return nil
 }
 

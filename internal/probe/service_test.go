@@ -38,11 +38,7 @@ type recordingRunner struct {
 	assignments []probe.Assignment
 }
 
-func (r *recordingRunner) Command(_, name string, payload any) error {
-	assignment, ok := payload.(probe.Assignment)
-	if !ok || name != probe.CommandProbes {
-		return nil
-	}
+func (r *recordingRunner) AssignProbes(_ string, assignment probe.Assignment) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.assignments = append(r.assignments, assignment)
@@ -700,13 +696,13 @@ type recordingCommander struct {
 	sets map[string]probe.Assignment
 }
 
-func (c *recordingCommander) Command(machineID, _ string, payload any) error {
+func (c *recordingCommander) AssignProbes(machineID string, assignment probe.Assignment) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.sets == nil {
 		c.sets = map[string]probe.Assignment{}
 	}
-	c.sets[machineID] = payload.(probe.Assignment)
+	c.sets[machineID] = assignment
 	return nil
 }
 

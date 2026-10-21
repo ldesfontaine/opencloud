@@ -109,7 +109,7 @@ func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *byt
 		t.Fatal(err)
 	}
 	opts := Options{SignalInterval: 30 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(logs, nil))}
-	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}}
+	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: newActionResults()}
 	done := make(chan error, 1)
 	go func() { done <- keepConnected(ctx, client, identity, waiting, catalogs.For(lang.French), opts) }()
 	return done

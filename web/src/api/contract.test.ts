@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 
+import type { ActionsResponse, ActionRun, RunLine } from "./actions";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditResponse } from "./audit";
 import type { AuthState } from "./auth";
@@ -113,6 +114,7 @@ const machine = shape<Machine>("Machine", {
     capabilities: capability,
     reported_at: value,
     requested: capability,
+    server_key_fingerprint: value,
     capabilities_differ: value,
   }),
   lifecycle: optional(lifecycle),
@@ -692,6 +694,25 @@ const audit = shape<AuditResponse>("AuditResponse", {
   next_before: value,
 });
 
+const actions = shape<ActionsResponse>("ActionsResponse", {
+  runs: shape<ActionRun>("ActionRun", {
+    id: value,
+    kind: value,
+    params: dictionaryOf(value),
+    machine_id: value,
+    machine_name: value,
+    agent_id: value,
+    state: value,
+    reason: value,
+    seq: value,
+    requested_by: value,
+    requested_at: value,
+    not_after: value,
+    finished_at: value,
+    output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
+  }),
+});
+
 const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
 
 const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
@@ -703,6 +724,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 
 // Chaque golden JSON de l'API, et le type du front qui le lit.
 const contract: Record<string, Shape<unknown>> = {
+  "actions.golden.json": actions,
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,

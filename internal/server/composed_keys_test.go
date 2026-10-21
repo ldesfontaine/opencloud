@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
@@ -137,7 +139,20 @@ func closedKeyLists() []composedKeys {
 		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},
 		// Les droits d'un agent : le front remplace le point par « _ ».
 		{prefix: "machine.capability_", values: capabilityKeys()},
+		// Les ordres : leur genre (le point devient « _ »), l'état d'un run,
+		// la raison d'un refus.
+		{prefix: "action.kind_", values: orderKindKeys()},
+		{prefix: "action.state_", values: names(action.States())},
+		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered)},
 	}
+}
+
+func orderKindKeys() []string {
+	out := make([]string, 0, len(agentwire.OrderKinds()))
+	for _, kind := range agentwire.OrderKinds() {
+		out = append(out, strings.ReplaceAll(string(kind), ".", "_"))
+	}
+	return out
 }
 
 func capabilityKeys() []string {

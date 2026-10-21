@@ -6,6 +6,7 @@ import (
 
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
@@ -19,7 +20,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Les dix-neuf lectures : chacune rend les faits de l'API, sous le même JSON.
+// Les vingt et une lectures : chacune rend les faits de l'API, sous le même JSON.
 // Aucun secret d'openCloud n'en sort : ni l'URL de ping d'une tâche, ni les
 // jetons en attente d'une machine, ni l'URL complète d'un canal. Les
 // journaux d'un conteneur, eux, sont bruts et peuvent en contenir un.
@@ -124,6 +125,11 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 		Description: "The audit journal, most recent first (up to 200 per page, default 50; pass next_before as before for the next page), optionally for one object (object_kind, object_id). Each event says who acted (actor_kind: operator, mcp, cli, rule for a background loop, agent, or unknown when a gesture ran without an actor; actor_name: the operator identity, the API token id or OAuth family id, the system account, the machine id), the action (object_kind.verb), the object (kind, id, name copied at the time), details without any secret, and apply_id when an apply wrote it. Observations (signals, measures, probe results) and reads are not journaled. Events are kept one year.",
 		Annotations: readOnlyHints(),
 	}, s.listAuditTool)
+	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_actions",
+		Description: "The orders sent to machine agents, most recent first (default 20, max 100), optionally for one machine. Each run says which order (kind, such as agent.ping), its parameters without any secret, the machine and agent, its state (queued, sent, accepted, refused, succeeded, failed, expired), why it did not succeed (reason: the agent's refusal such as bad_signature or replayed, or undelivered), its rank for that agent (seq), who asked (requested_by), when, until when it was valid (not_after), and its bounded output. Every order is written here and to the audit journal before it leaves, signed by the server key. Reading this list sends nothing.",
+		Annotations: readOnlyHints(),
+	}, s.listActionsTool)
 }
 
 // --- Entrées ---
@@ -135,6 +141,11 @@ type listAuditInput struct {
 	Before     int64  `json:"before,omitempty" jsonschema:"Event id to continue below: the next_before of the previous page"`
 	ObjectKind string `json:"object_kind,omitempty" jsonschema:"Only the events on this kind of object, such as probe, service, channel or mcp_token"`
 	ObjectID   string `json:"object_id,omitempty" jsonschema:"Only the events on this object id"`
+}
+
+type listActionsInput struct {
+	MachineID string `json:"machine_id,omitempty" jsonschema:"Only the orders sent to this machine"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"How many runs, default 20, max 100"`
 }
 
 type machineInput struct {
@@ -665,6 +676,17 @@ func (s *Server) listAuditTool(ctx context.Context, _ *gomcp.CallToolRequest, in
 	response, err := s.auditPage(ctx, query)
 	if err != nil {
 		return s.toolInternal("list_audit", err)
+	}
+	return toolJSON(response)
+}
+
+func (s *Server) listActionsTool(ctx context.Context, _ *gomcp.CallToolRequest, input listActionsInput) (*gomcp.CallToolResult, any, error) {
+	if input.Limit < 0 {
+		return toolRefuse(codeBadQuery)
+	}
+	response, err := s.actionsPage(ctx, action.Query{MachineID: input.MachineID, Limit: input.Limit})
+	if err != nil {
+		return s.toolInternal("list_actions", err)
 	}
 	return toolJSON(response)
 }

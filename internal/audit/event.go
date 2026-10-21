@@ -50,6 +50,8 @@ const (
 	ObjectMCPToken        ObjectKind = "mcp_token" // #nosec G101 -- un nom, pas un secret.
 	ObjectMCPSession      ObjectKind = "mcp_session"
 	ObjectSecrets         ObjectKind = "secrets" // #nosec G101 -- un nom, pas un secret.
+	// Un ordre envoyé à un agent : l'objet est son run, nommé par sa machine.
+	ObjectAction ObjectKind = "action"
 )
 
 func ObjectKinds() []ObjectKind {
@@ -57,7 +59,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
-		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets,
+		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets, ObjectAction,
 	}
 }
 
@@ -146,6 +148,9 @@ const (
 	MCPSessionRevoke    Action = "mcp_session.revoke"
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
+
+	// Un ordre écrit et signé, avant de partir vers l'agent.
+	ActionOrder Action = "action.order"
 )
 
 func Actions() []Action {
@@ -171,6 +176,7 @@ func Actions() []Action {
 		MCPTokenCreate, MCPTokenRevoke,
 		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
 		SecretsForget,
+		ActionOrder,
 	}
 }
 
