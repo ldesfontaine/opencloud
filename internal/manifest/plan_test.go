@@ -65,7 +65,7 @@ func (b *bench) probeByID(t *testing.T, id string) probe.Probe {
 
 func (b *bench) serviceByID(t *testing.T, id string) directory.Service {
 	t.Helper()
-	found, err := b.directory.GetService(context.Background(), id)
+	found, err := b.db.GetDeclaredService(context.Background(), id)
 	if err != nil {
 		t.Fatalf("service %s: %v", id, err)
 	}
@@ -230,7 +230,7 @@ heartbeats:
 		t.Fatalf("the order must put what is referenced first: %v", got)
 	}
 	b.apply(t, data, false)
-	probes, err := b.probes.List(context.Background(), "")
+	probes, err := b.db.ListProbes(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ heartbeats:
 	if service.Name != "ops-tool" || len(service.ProjectIDs) != 1 {
 		t.Fatalf("the probe must point at the created service: %+v", service)
 	}
-	projects, _ := b.directory.ListProjects(context.Background())
+	projects, _ := b.db.ListProjects(context.Background())
 	if !slices.ContainsFunc(projects, func(p directory.Project) bool { return p.ID == service.ProjectIDs[0] && p.Name == "ops" }) {
 		t.Fatalf("the service must be in the created project: %+v %+v", service.ProjectIDs, projects)
 	}

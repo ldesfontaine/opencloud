@@ -49,7 +49,7 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 	if err != nil {
 		t.Fatalf("créer la sonde: %v", err)
 	}
-	statuses := status.New(b.db, b.machines, settings.New(b.db, logger), logger)
+	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
 	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}},
 	})
@@ -82,10 +82,10 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if len(linked.Links.Components) != 1 || linked.Links.Components[0].ID != component.ID || linked.Links.Components[0].Name != "Nuage" {
 		t.Fatalf("composants = %+v", linked.Links.Components)
 	}
-	if _, err := b.directory.GetService(ctx, created.ID); err != nil {
+	if _, err := b.db.GetDeclaredService(ctx, created.ID); err != nil {
 		t.Fatalf("le service a disparu malgré le refus: %v", err)
 	}
-	links, err := b.directory.ServiceLinks(ctx, created.ID)
+	links, err := b.db.ListServiceLinks(ctx, created.ID)
 	if err != nil || links.IsEmpty() {
 		t.Fatalf("ServiceLinks = %+v, %v", links, err)
 	}
@@ -94,7 +94,7 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if err := probe.New(b.db, logger).Delete(ctx, watched.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := status.New(b.db, b.machines, settings.New(b.db, logger), logger).DeleteComponent(ctx, component.ID); err != nil {
+	if err := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger).DeleteComponent(ctx, component.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
@@ -125,7 +125,7 @@ func TestReview_ClearsTheFlagOnlyForAValidDefinition(t *testing.T) {
 	if _, err := b.directory.Review(ctx, taken.ID); !errors.Is(err, directory.ErrImageInvalid) {
 		t.Fatalf("attendu %v, obtenu %v", directory.ErrImageInvalid, err)
 	}
-	if still, _ := b.directory.GetService(ctx, taken.ID); !still.NeedsReview {
+	if still, _ := b.db.GetDeclaredService(ctx, taken.ID); !still.NeedsReview {
 		t.Fatal("un refus ne valide rien")
 	}
 
@@ -134,7 +134,7 @@ func TestReview_ClearsTheFlagOnlyForAValidDefinition(t *testing.T) {
 	if _, err := b.directory.UpdateService(ctx, taken.ID, definition); err != nil {
 		t.Fatal(err)
 	}
-	if edited, _ := b.directory.GetService(ctx, taken.ID); !edited.NeedsReview || edited.DeclaredBy != directory.ByMigration {
+	if edited, _ := b.db.GetDeclaredService(ctx, taken.ID); !edited.NeedsReview || edited.DeclaredBy != directory.ByMigration {
 		t.Fatalf("modifier ne valide pas, et la provenance reste: %+v", edited)
 	}
 
@@ -195,7 +195,7 @@ func TestSetUnitUpdatePolicy_TellsTheMachine(t *testing.T) {
 	if len(assigner.told()) != told {
 		t.Fatalf("un refus ne prévient personne: %v", assigner.told())
 	}
-	if kept, _ := b.directory.GetService(ctx, created.ID); kept.Units[0].UpdatePolicy != container.PolicyHold {
+	if kept, _ := b.db.GetDeclaredService(ctx, created.ID); kept.Units[0].UpdatePolicy != container.PolicyHold {
 		t.Fatalf("un refus ne change rien: %+v", kept.Units)
 	}
 }

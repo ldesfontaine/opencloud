@@ -16,7 +16,7 @@ import (
 // unitIDOf rend l'unité d'un service déclaré par son nom.
 func (ts *testServer) unitIDOf(t *testing.T, serviceID, unitName string) string {
 	t.Helper()
-	found, err := ts.directory.GetService(context.Background(), serviceID)
+	found, err := ts.db.GetDeclaredService(context.Background(), serviceID)
 	if err != nil {
 		t.Fatal(err)
 	}

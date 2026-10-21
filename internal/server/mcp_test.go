@@ -195,7 +195,7 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 	server.seedSecuredProbe(t)
 	server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
-	job, err := server.heartbeats.Get(context.Background(), jobID)
+	job, err := server.db.GetHeartbeat(context.Background(), jobID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +437,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if text, _ = callTool(t, session, "create_silence", map[string]any{"duration_minutes": 120}); toolErrorCode(t, text) != "silence.invalid" {
 		t.Fatalf("silence everything: %s", text)
 	}
-	silences, err := server.alerts.Silences(ctx)
+	silences, err := server.db.ListSilences(ctx)
 	if err != nil || len(silences) != 3 {
 		t.Fatalf("silences %d %v", len(silences), err)
 	}
@@ -471,7 +471,7 @@ func TestMCP_ReadOnlyRegistersNoWriteTool(t *testing.T) {
 	if text, isError := callTool(t, session, "list_jobs", nil); isError || !strings.Contains(text, `"total":2`) {
 		t.Fatalf("read on a read-only server: %s", text)
 	}
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
 		t.Fatal("a write was applied")
 	}
 }
@@ -615,7 +615,7 @@ func TestMCP_HTTPOffersNoWriteWhateverTheToken(t *testing.T) {
 			t.Errorf("pause_job with a %s token: want an unknown tool error, got %v", kind, err)
 		}
 	}
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
 		t.Fatal("a write was applied")
 	}
 }
@@ -632,7 +632,7 @@ func TestMCP_WriteGuardJudgesTheTokenScope(t *testing.T) {
 	if text, isError := callTool(t, reader, "pause_job", map[string]any{"job_id": jobID}); !isError || toolErrorCode(t, text) != codeReadOnly {
 		t.Fatalf("pause with a read token: %v %s", isError, text)
 	}
-	if job, _ := server.heartbeats.Get(context.Background(), jobID); job.IsPaused() {
+	if job, _ := server.db.GetHeartbeat(context.Background(), jobID); job.IsPaused() {
 		t.Fatal("the refused write was applied")
 	}
 	writer := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))

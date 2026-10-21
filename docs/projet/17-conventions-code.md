@@ -11,6 +11,7 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 ```
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
+internal/reader/             # l'interface Reader : les lectures de la base sans règle, partagées (types seulement)
 internal/agentwire/          # le protocole agent ↔ serveur : en-têtes, corps JSON, sections du signal (types seulement)
 internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
 internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
@@ -160,12 +161,13 @@ binaire par plateforme.
 
 | Couche | Paquets | Ce qu'elle fait | Jamais |
 | --- | --- | --- | --- |
-| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche | Une règle métier |
+| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et `mcp` | Une règle métier |
 | HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
-| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL |
-| Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
+| Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
+| Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
 | Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
 | Outils | `refusal`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config` | Un concept chacun, sans règle d'openCloud. `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation | Importer un composant |
 | Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
@@ -175,11 +177,12 @@ Qui peut importer qui :
 | Paquet | Importe | N'importe jamais |
 | --- | --- | --- |
 | `cmd/opencloud` | tout | — |
-| `server` | ses sous-paquets, les composants, les outils, `web` | `store` |
+| `server` | ses sous-paquets, les composants, `reader`, les outils, `web` | `store` |
 | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire`, `server/httpx` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
 | `server/httpx` | la bibliothèque standard | `server`, un autre sous-paquet, un composant, `store` |
-| Un composant | d'autres composants (types et gestes), les outils | `server`, `store`, `cmd` |
-| `store` | les composants, pour leurs types ; `seal` ; `migrations` | `server` |
+| Un composant | d'autres composants (types et gestes), les outils ; `status` et `manifest` importent `reader` | `server`, `store`, `cmd` |
+| `reader` | les composants dont il rend les types : `machine`, `container`, `probe`, `heartbeat`, `directory`, `alert`, `settings` | `server`, `store`, un composant qui l'importe (`status`, `manifest`) : Go refuserait le cycle |
+| `store` | les composants, pour leurs types ; `reader`, pour l'assertion ; `seal` ; `migrations` | `server` |
 | `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
 | Un outil | d'autres outils, la bibliothèque standard | un composant, `server`, `store` |
 | `agent`, `dockerwatch` | les composants (leurs types), les outils, `agentwire` | `server`, `store` |
@@ -194,12 +197,19 @@ deux (Go le refuse) : l'un déclare une interface et reçoit l'autre par un
 
 | Geste | Par où | Exemple |
 | --- | --- | --- |
-| Lire pour dériver : un état, un compte, un écart | La base, par l'interface `Store` de celui qui lit | `status.Store` lit `ListProbes`, `ListContainers`, `LoadSettings` ; `probe.Store` a `DeclaredServiceExists` |
+| Lire pour dériver : un état, un compte, un écart | La base, par le `reader.Reader` reçu au câblage ; une lecture propre à sa règle, que lui seul fait, reste dans son `Store` | `status` lit `ListProbes`, `ListContainers`, `LoadSettings` par son `reader` ; `probe.Store` a `DeclaredServiceExists`, `update.Store` a `ListContainers` |
+| Lire ce qu'un composant montre sans rien y ajouter | Le `Reader`, directement : le composant ne relaie pas | Le serveur et MCP lisent `ListProbes`, `GetHeartbeat`, `CountAlerts` par `s.reader` |
+| Lire ce qui porte une règle | Le composant | `machine.List` (en ligne ou non), `container.Tracker.List` (les vivants), `probe.Days` (la fenêtre), `alert.Engine.List` (la borne) |
 | Écrire | **Toujours le composant du domaine**, par une interface déclarée chez celui qui écrit | `status` écrit le titre de la page par `settings.SetStatusPage` ; `manifest` applique par les gestes de `directory`, `probe` et `heartbeat` |
 
 Le composant porte les règles d'une écriture : existence, validation,
 plafond, direct, alertes. Une écriture par la base les sauterait ; une
-lecture ne change rien, elle prend le chemin court.
+lecture ne change rien, elle prend le chemin court. Un composant qui lit
+par le `Reader` ne peut pas y rendre ses propres types (`status`,
+`manifest`) : ses listes passent par lui (`status.Incidents`,
+`manifest.Applies`), et c'est le seul relais qu'on garde ; `container.Tracker.Get`
+reste pour l'annuaire, qui lit une fiche archivée comprise et ne peut pas
+recevoir le `Reader` sans cycle.
 
 ### Le patron d'un composant
 
@@ -208,12 +218,12 @@ nouveau suit le même ordre, de haut en bas du fichier :
 
 | Pièce | Règle | Dans `probe` |
 | --- | --- | --- |
-| Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` |
+| Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus : les écritures et les lectures de sa règle dans `Store` ; ce qu'il lit d'un autre domaine par le `reader.Reader` | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` ; `status.New(store, reader, …)` |
 | Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetLocalRunner`, `SetClock` |
 | Définition | Fonction pure, testable sans base : `Definition.Complete()` pose les valeurs par défaut, puis `Validate()` rend le premier refus | `internal/probe/probe.go` ; `heartbeat` n'a que `Validate()`, faute de valeur par défaut |
 | Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise, appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
 | `changed()` | Prévient le `Watcher` ; jamais depuis un handler | `ProbesChanged(machineID)` |
-| Lectures | Passent au store, sans règle de plus | `List`, `Get`, `Count`, `Days` |
+| Lectures | Seules celles qui ajoutent une règle : une fenêtre, un filtre, une vérification, une conversion. Une liste, un objet ou un compte tels qu'en base se lisent par le `Reader` ; le composant ne les relaie pas | `Days`, `Uptimes`, `Certificates` ; pas de `List` ni de `Get` |
 | Boucle | `Watch(ctx)` : rollup, purge, relances, jusqu'à l'annulation du contexte | `Watch` |
 
 - **Nommage** : `Watcher` est le direct (`internal/live`), `Alerter` le
@@ -251,6 +261,8 @@ nouveau suit le même ordre, de haut en bas du fichier :
 | Une ligne, un `scanX` | `scanAlert(row scanner)` lit une ligne ; une liste est `collect(rows, scanAlert)`, jamais `nil` |
 | Une ligne attendue | `notFoundIfNoRow(result, alert.ErrNotFound)` : aucune ligne touchée rend la sentinelle du domaine |
 | Unicité | Une contrainte violée devient la sentinelle du domaine (`isUniqueViolation` → `machine.ErrNameTaken`) ; l'annuaire vérifie avant d'écrire, dans la même transaction |
+| Les parties d'une liste | Une requête pour toute la liste, regroupée en Go par identifiant (`attachServiceParts`, `attachMembers`, `attachIncidentParts`), jamais une requête par ligne |
+| Compter | En SQL (`COUNT`, `SUM(CASE…)`), jamais une liste comptée en Go ; une règle écrite en Go et en SQL (`container.NeedsAttention`, `containerNeedsAttention`) a son test de parité |
 
 ### Ce qu'on ne fait pas
 

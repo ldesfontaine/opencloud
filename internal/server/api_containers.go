@@ -191,7 +191,7 @@ func (s *Server) containerListOf(ctx context.Context, machineID string) (contain
 	if err != nil {
 		return containersResponse{}, err
 	}
-	engines, err := s.containers.Engines(ctx)
+	engines, err := s.reader.ListEngines(ctx)
 	if err != nil {
 		return containersResponse{}, err
 	}
@@ -238,7 +238,7 @@ func (s *Server) containerResponseOf(ctx context.Context, item container.Contain
 	if err != nil {
 		return containerResponse{}, err
 	}
-	engines, err := s.containers.Engines(ctx)
+	engines, err := s.reader.ListEngines(ctx)
 	if err != nil {
 		return containerResponse{}, err
 	}
@@ -415,7 +415,7 @@ func logsRefusal(err error) (string, int, bool) {
 }
 
 func (s *Server) containerOr404(w http.ResponseWriter, r *http.Request) (container.Container, bool) {
-	item, err := s.containers.Get(r.Context(), r.PathValue("id"))
+	item, err := s.reader.GetContainer(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, container.ErrNotFound) {
 		return container.Container{}, false
 	}

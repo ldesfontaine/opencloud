@@ -54,7 +54,7 @@ func newBench(t *testing.T) *bench {
 	probes := probe.New(db, logger)
 	probes.SetClock(clock)
 	preferences := settings.New(db, logger)
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, preferences, logger)
 	statusPage.SetClock(clock)
 	bus := live.New()
 	statusPage.AddWatcher(bus)

@@ -167,7 +167,7 @@ func TestAPI_Proposal_FullServiceAnswers409(t *testing.T) {
 	serviceID := server.seedGaps(t)
 
 	ctx := context.Background()
-	current, err := server.directory.GetService(ctx, serviceID)
+	current, err := server.db.GetDeclaredService(ctx, serviceID)
 	if err != nil {
 		t.Fatal(err)
 	}

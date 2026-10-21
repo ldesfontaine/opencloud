@@ -86,19 +86,19 @@ func (b *bench) snapshot(t *testing.T) snapshot {
 	ctx := context.Background()
 	var shot snapshot
 	var err error
-	if shot.Projects, err = b.directory.ListProjects(ctx); err != nil {
+	if shot.Projects, err = b.db.ListProjects(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Services, err = b.directory.ListServices(ctx, directory.Filter{}); err != nil {
+	if shot.Services, err = b.db.ListDeclaredServices(ctx, directory.Filter{}); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Probes, err = b.probes.List(ctx, ""); err != nil {
+	if shot.Probes, err = b.db.ListProbes(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Heartbeats, err = b.heartbeats.List(ctx); err != nil {
+	if shot.Heartbeats, err = b.db.ListHeartbeats(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if shot.Ignored, err = b.directory.IgnoredKeys(ctx); err != nil {
+	if shot.Ignored, err = b.db.ListIgnoredKeys(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
 	return shot
@@ -283,7 +283,7 @@ ignored:
 		t.Fatalf("apply: %+v", applied)
 	}
 	var token string
-	heartbeats, err := b.heartbeats.List(context.Background())
+	heartbeats, err := b.db.ListHeartbeats(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestApply_PruneDeletesAndSaysWhatItCarries(t *testing.T) {
 func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	statuses := status.New(b.db, b.machines, settings.New(b.db, logger), logger)
+	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
 	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})

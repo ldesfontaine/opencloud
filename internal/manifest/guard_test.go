@@ -178,7 +178,7 @@ func TestApply_CreatedNameTakenMeanwhileIsAStalePlan(t *testing.T) {
 	if applied.State != manifest.ApplyFailed || applied.Error != manifest.KeyPlanChanged || applied.ErrorObject != "service/app-1/fresh" {
 		t.Fatalf("apply: %+v", applied)
 	}
-	services, err := b.directory.ListServices(ctx, directory.Filter{})
+	services, err := b.db.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}

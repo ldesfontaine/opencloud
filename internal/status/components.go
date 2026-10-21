@@ -8,6 +8,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
@@ -16,7 +17,7 @@ func (s *Service) CreateComponent(ctx context.Context, definition ComponentDefin
 	if err := definition.Validate(); err != nil {
 		return Component{}, err
 	}
-	id, err := NewID()
+	id, err := ident.New()
 	if err != nil {
 		return Component{}, fmt.Errorf("generate id: %w", err)
 	}
@@ -142,14 +143,14 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 	for _, found := range machines {
 		known.machines[found.ID] = found
 	}
-	declared, err := s.store.ListDeclaredServices(ctx, directory.Filter{})
+	declared, err := s.reader.ListDeclaredServices(ctx, directory.Filter{})
 	if err != nil {
 		return facts{}, err
 	}
 	for _, found := range declared {
 		known.declared[found.ID] = found
 	}
-	containers, err := s.store.ListContainers(ctx, "")
+	containers, err := s.reader.ListContainers(ctx, "")
 	if err != nil {
 		return facts{}, err
 	}
@@ -158,14 +159,14 @@ func (s *Service) facts(ctx context.Context) (facts, error) {
 			known.containersByUnit[found.UnitID] = append(known.containersByUnit[found.UnitID], found)
 		}
 	}
-	heartbeats, err := s.store.ListHeartbeats(ctx)
+	heartbeats, err := s.reader.ListHeartbeats(ctx)
 	if err != nil {
 		return facts{}, err
 	}
 	for _, found := range heartbeats {
 		known.heartbeats[found.ID] = found
 	}
-	probes, err := s.store.ListProbes(ctx, "")
+	probes, err := s.reader.ListProbes(ctx, "")
 	if err != nil {
 		return facts{}, err
 	}

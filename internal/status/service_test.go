@@ -62,7 +62,7 @@ func newFixture(t *testing.T) *fixture {
 	f.services.SetUnits(f.directory)
 	f.probes = probe.New(db, logger)
 	f.probes.SetClock(clock)
-	f.status = status.New(db, f.machines, settings.New(db, logger), logger)
+	f.status = status.New(db, db, f.machines, settings.New(db, logger), logger)
 	f.status.SetClock(clock)
 	f.status.AddWatcher(f.published)
 	f.status.SetFeed(f.bus)

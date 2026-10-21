@@ -113,7 +113,7 @@ func TestCreate_StartsNewWithATokenAndAFirstDeadline(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusNew {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.Status != heartbeat.StatusNew {
 		t.Fatalf("before its first deadline a new heartbeat stays new: %s", got.Status)
 	}
 }
@@ -127,11 +127,11 @@ func TestCheckDeadlines_NeverPinged_BecomesLateAndAlertsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, _ := f.Get(context.Background(), h.ID)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
 	if got.Status != heartbeat.StatusLate || !got.NeverPinged() || !got.NextDeadlineAt.IsZero() {
 		t.Fatalf("a never-pinged heartbeat must become late: %+v", got)
 	}
-	if total, attention, _ := f.Count(context.Background()); total != 1 || attention != 1 {
+	if total, attention, _ := f.db.CountHeartbeats(context.Background()); total != 1 || attention != 1 {
 		t.Fatalf("count %d/%d", total, attention)
 	}
 	f.ping(t, h.Token, heartbeat.KindFinish, nil)
@@ -150,7 +150,7 @@ func TestResume_NeverPinged_StaysNewWithAFreshDeadline(t *testing.T) {
 	if err := f.Resume(context.Background(), h.ID); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := f.Get(context.Background(), h.ID)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
 	if got.Status != heartbeat.StatusNew || !got.NextDeadlineAt.Equal(f.clock.Add(6*time.Minute)) {
 		t.Fatalf("after resume %+v", got)
 	}
@@ -182,7 +182,7 @@ func TestCreate_UnknownMachineRefused(t *testing.T) {
 	if _, err := f.Create(context.Background(), definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
 		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
 	}
-	if listed, _ := f.List(context.Background()); len(listed) != 0 {
+	if listed, _ := f.db.ListHeartbeats(context.Background()); len(listed) != 0 {
 		t.Fatalf("a refused job was written: %+v", listed)
 	}
 }
@@ -218,8 +218,8 @@ func TestReceive_FinishPing_MovesToOnTimeAndRecordsAClosedRun(t *testing.T) {
 	if got.Status != heartbeat.StatusOnTime || !got.LastPingAt.Equal(testNow) || !got.NextDeadlineAt.Equal(testNow.Add(6*time.Minute)) {
 		t.Fatalf("after ping %+v", got)
 	}
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
-	pings, _ := f.Pings(context.Background(), h.ID, 10)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
+	pings, _ := f.db.ListPings(context.Background(), h.ID, 10)
 	if len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeSuccess || !runs[0].StartedAt.IsZero() || len(pings) != 1 || pings[0].Source != "192.0.2.1" {
 		t.Fatalf("runs %+v pings %+v", runs, pings)
 	}
@@ -237,7 +237,7 @@ func TestReceive_StartThenFinish_MeasuresTheDuration(t *testing.T) {
 	if done.Status != heartbeat.StatusOnTime || done.LastDuration == nil || *done.LastDuration != 90*time.Second || !done.RunStartedAt.IsZero() {
 		t.Fatalf("after finish %+v", done)
 	}
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
 	if len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeSuccess || *runs[0].Duration != 90*time.Second || *runs[0].ExitCode != 0 {
 		t.Fatalf("runs %+v", runs)
 	}
@@ -249,7 +249,7 @@ func TestReceive_SecondStart_TimesOutThePreviousRun(t *testing.T) {
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
 	f.advance(time.Minute)
 	f.ping(t, h.Token, heartbeat.KindStart, nil)
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
 	if len(runs) != 2 || runs[0].Outcome != heartbeat.OutcomeInProgress || runs[1].Outcome != heartbeat.OutcomeTimeout {
 		t.Fatalf("runs %+v", runs)
 	}
@@ -333,8 +333,8 @@ func TestReceive_TruncatesThePayload(t *testing.T) {
 	if _, err := f.Receive(context.Background(), h.Token, heartbeat.Ping{Kind: heartbeat.KindFinish, Method: "POST", Payload: long}); err != nil {
 		t.Fatal(err)
 	}
-	pings, _ := f.Pings(context.Background(), h.ID, 1)
-	runs, _ := f.Runs(context.Background(), h.ID, 1)
+	pings, _ := f.db.ListPings(context.Background(), h.ID, 1)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 1)
 	if len(pings[0].Payload) != heartbeat.MaxPayloadBytes || len(runs[0].Payload) != heartbeat.MaxPayloadBytes {
 		t.Fatalf("payload kept %d and %d bytes", len(pings[0].Payload), len(runs[0].Payload))
 	}
@@ -348,7 +348,7 @@ func TestCheckDeadlines_OverdueBecomesLateOnceAndRecoversOnPing(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusOnTime {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.Status != heartbeat.StatusOnTime {
 		t.Fatalf("before the deadline: %s", got.Status)
 	}
 	f.advance(2 * time.Second)
@@ -357,7 +357,7 @@ func TestCheckDeadlines_OverdueBecomesLateOnceAndRecoversOnPing(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, _ := f.Get(context.Background(), h.ID)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
 	if got.Status != heartbeat.StatusLate || !got.NextDeadlineAt.IsZero() {
 		t.Fatalf("after the deadline: %+v", got)
 	}
@@ -375,8 +375,8 @@ func TestCheckDeadlines_StartedRun_IsClosedAsTimeout(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := f.Get(context.Background(), h.ID)
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
 	if got.Status != heartbeat.StatusLate || !got.RunStartedAt.IsZero() || len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeTimeout {
 		t.Fatalf("heartbeat %+v runs %+v", got, runs)
 	}
@@ -393,7 +393,7 @@ func TestPauseAndResume_PausedNeverGetsLateAndResumeOpensAFullInterval(t *testin
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusPaused {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.Status != heartbeat.StatusPaused {
 		t.Fatalf("paused heartbeat became %s", got.Status)
 	}
 	if err := f.Resume(context.Background(), h.ID); err != nil {
@@ -402,7 +402,7 @@ func TestPauseAndResume_PausedNeverGetsLateAndResumeOpensAFullInterval(t *testin
 	if err := f.Resume(context.Background(), h.ID); !errors.Is(err, heartbeat.ErrNotPaused) {
 		t.Fatalf("second resume: %v", err)
 	}
-	got, _ := f.Get(context.Background(), h.ID)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
 	if got.Status != heartbeat.StatusOnTime || !got.NextDeadlineAt.Equal(f.clock.Add(6*time.Minute)) {
 		t.Fatalf("after resume %+v", got)
 	}
@@ -418,7 +418,7 @@ func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
 	if err := f.Pause(ctx, h.ID); err != nil {
 		t.Fatal(err)
 	}
-	paused, _ := f.Get(ctx, h.ID)
+	paused, _ := f.db.GetHeartbeat(ctx, h.ID)
 	f.alerter.events = nil
 	f.advance(time.Hour)
 
@@ -429,15 +429,15 @@ func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
 	if got.Status != heartbeat.StatusPaused {
 		t.Fatalf("a ping must not resume a paused heartbeat, got %s", got.Status)
 	}
-	after, _ := f.Get(ctx, h.ID)
+	after, _ := f.db.GetHeartbeat(ctx, h.ID)
 	if after.Status != heartbeat.StatusPaused || !after.LastPingAt.Equal(paused.LastPingAt) || !after.NextDeadlineAt.IsZero() ||
 		!after.RunStartedAt.IsZero() || after.LastExitCode != paused.LastExitCode {
 		t.Fatalf("a paused heartbeat moved: before %+v, after %+v", paused, after)
 	}
-	if runs, _ := f.Runs(ctx, h.ID, 10); len(runs) != 1 {
+	if runs, _ := f.db.ListRuns(ctx, h.ID, 10); len(runs) != 1 {
 		t.Fatalf("a ping while paused must not open or close a run: %d runs", len(runs))
 	}
-	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 4 {
+	if pings, _ := f.db.ListPings(ctx, h.ID, 10); len(pings) != 4 {
 		t.Fatalf("the raw pings must be kept: %d pings", len(pings))
 	}
 	if len(f.alerter.events) != 0 {
@@ -449,7 +449,7 @@ func TestPause_PingsAreRecordedButChangeNothing(t *testing.T) {
 	if err := f.Resume(ctx, h.ID); err != nil {
 		t.Fatal(err)
 	}
-	if resumed, _ := f.Get(ctx, h.ID); resumed.Status != heartbeat.StatusOnTime {
+	if resumed, _ := f.db.GetHeartbeat(ctx, h.ID); resumed.Status != heartbeat.StatusOnTime {
 		t.Fatalf("only Resume leaves the pause: %s", resumed.Status)
 	}
 }
@@ -485,14 +485,14 @@ func TestBackfillFirstDeadlines_GivesAnOldNeverPingedJobItsDeadline(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	got, _ := f.Get(ctx, h.ID)
+	got, _ := f.db.GetHeartbeat(ctx, h.ID)
 	if got.Status != heartbeat.StatusNew || !got.NextDeadlineAt.Equal(h.CreatedAt.Add(6*time.Minute)) {
 		t.Fatalf("after backfill %+v", got)
 	}
 	if err := f.CheckDeadlines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(ctx, h.ID); got.Status != heartbeat.StatusLate {
+	if got, _ := f.db.GetHeartbeat(ctx, h.ID); got.Status != heartbeat.StatusLate {
 		t.Fatalf("an old deadline already passed must make it late: %s", got.Status)
 	}
 }
@@ -504,10 +504,10 @@ func TestDelete_RemovesTheHeartbeatAndItsHistory(t *testing.T) {
 	if err := f.Delete(context.Background(), h.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Get(context.Background(), h.ID); !errors.Is(err, heartbeat.ErrNotFound) {
+	if _, err := f.db.GetHeartbeat(context.Background(), h.ID); !errors.Is(err, heartbeat.ErrNotFound) {
 		t.Fatalf("still there: %v", err)
 	}
-	if pings, _ := f.Pings(context.Background(), h.ID, 10); len(pings) != 0 {
+	if pings, _ := f.db.ListPings(context.Background(), h.ID, 10); len(pings) != 0 {
 		t.Fatalf("pings survived: %+v", pings)
 	}
 	if err := f.Delete(context.Background(), h.ID); !errors.Is(err, heartbeat.ErrNotFound) {
@@ -524,8 +524,8 @@ func TestPurge_DropsOldPingsAndRunsOnly(t *testing.T) {
 	if err := f.Purge(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	pings, _ := f.Pings(context.Background(), h.ID, 10)
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
+	pings, _ := f.db.ListPings(context.Background(), h.ID, 10)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
 	if len(pings) != 1 || len(runs) != 2 {
 		t.Fatalf("pings %d runs %d", len(pings), len(runs))
 	}
@@ -533,7 +533,7 @@ func TestPurge_DropsOldPingsAndRunsOnly(t *testing.T) {
 	if err := f.Purge(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if runs, _ := f.Runs(context.Background(), h.ID, 10); len(runs) != 0 {
+	if runs, _ := f.db.ListRuns(context.Background(), h.ID, 10); len(runs) != 0 {
 		t.Fatalf("runs %d", len(runs))
 	}
 }
@@ -543,7 +543,7 @@ func TestCount_CountsLateAndFailedAsAttention(t *testing.T) {
 	a := f.create(t, "a")
 	f.create(t, "b")
 	f.ping(t, a.Token, heartbeat.KindExitCode, code(1))
-	total, attention, err := f.Count(context.Background())
+	total, attention, err := f.db.CountHeartbeats(context.Background())
 	if err != nil || total != 2 || attention != 1 {
 		t.Fatalf("total %d attention %d err %v", total, attention, err)
 	}
@@ -556,8 +556,8 @@ func TestPause_DuringAStartedRun_ClosesItAsTimeout(t *testing.T) {
 	if err := f.Pause(context.Background(), h.ID); err != nil {
 		t.Fatal(err)
 	}
-	runs, _ := f.Runs(context.Background(), h.ID, 10)
-	got, _ := f.Get(context.Background(), h.ID)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 10)
+	got, _ := f.db.GetHeartbeat(context.Background(), h.ID)
 	if len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeTimeout || !got.RunStartedAt.IsZero() {
 		t.Fatalf("runs %+v heartbeat %+v", runs, got)
 	}
@@ -583,7 +583,7 @@ func TestReceive_ConcurrentStarts_LeaveASingleOpenRun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	runs, _ := f.Runs(context.Background(), h.ID, 20)
+	runs, _ := f.db.ListRuns(context.Background(), h.ID, 20)
 	open := 0
 	for _, run := range runs {
 		if run.Outcome == heartbeat.OutcomeInProgress {
@@ -606,7 +606,7 @@ func TestCheckDeadlines_PingBetweenListAndWrite_IsNotLost(t *testing.T) {
 	if err := f.CheckDeadlines(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.Status != heartbeat.StatusOnTime {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.Status != heartbeat.StatusOnTime {
 		t.Fatalf("status %s", got.Status)
 	}
 	if len(f.alerter.events) != 0 {
@@ -621,7 +621,7 @@ func TestReceive_TruncatesOnARuneBoundary(t *testing.T) {
 	if _, err := f.Receive(context.Background(), h.Token, heartbeat.Ping{Kind: heartbeat.KindFinish, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
-	pings, _ := f.Pings(context.Background(), h.ID, 1)
+	pings, _ := f.db.ListPings(context.Background(), h.ID, 1)
 	if len(pings[0].Payload) != heartbeat.MaxPayloadBytes-1 {
 		t.Fatalf("payload kept %d bytes", len(pings[0].Payload))
 	}
@@ -651,10 +651,10 @@ func TestUpdate_KeepsIDTokenAndHistory(t *testing.T) {
 	if updated.Name != "sauvegarde" || updated.Interval != time.Hour || updated.Grace != 5*time.Minute || updated.MachineID != "" {
 		t.Fatalf("definition not replaced: %+v", updated)
 	}
-	if runs, _ := f.Runs(ctx, h.ID, 10); len(runs) != 1 {
+	if runs, _ := f.db.ListRuns(ctx, h.ID, 10); len(runs) != 1 {
 		t.Fatalf("runs lost: %d", len(runs))
 	}
-	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 2 {
+	if pings, _ := f.db.ListPings(ctx, h.ID, 10); len(pings) != 2 {
 		t.Fatalf("pings lost: %d", len(pings))
 	}
 	if got := f.ping(t, h.Token, heartbeat.KindFinish, nil); got.ID != h.ID {
@@ -780,7 +780,7 @@ func TestUpdate_ShorterInterval_LateAtNextCheck(t *testing.T) {
 	if err := f.CheckDeadlines(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := f.Get(ctx, h.ID); got.Status != heartbeat.StatusLate {
+	if got, _ := f.db.GetHeartbeat(ctx, h.ID); got.Status != heartbeat.StatusLate {
 		t.Fatalf("the next check must find it late, got %s", got.Status)
 	}
 }
@@ -802,7 +802,7 @@ func TestUpdate_RejectsBadDefinitions(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", c.name, err, c.want)
 		}
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.Interval != 5*time.Minute {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.Interval != 5*time.Minute {
 		t.Fatalf("a refused edit was written: %+v", got)
 	}
 	if _, err := f.Update(context.Background(), "inconnu", heartbeat.Definition{Name: "job", Interval: time.Hour}); !errors.Is(err, heartbeat.ErrNotFound) {
@@ -818,7 +818,7 @@ func TestUpdate_UnknownMachineRefused(t *testing.T) {
 	if _, err := f.Update(context.Background(), h.ID, definition); !errors.Is(err, heartbeat.ErrMachineInvalid) {
 		t.Fatalf("got %v, want %v", err, heartbeat.ErrMachineInvalid)
 	}
-	if got, _ := f.Get(context.Background(), h.ID); got.MachineID != "" || got.Interval != 5*time.Minute {
+	if got, _ := f.db.GetHeartbeat(context.Background(), h.ID); got.MachineID != "" || got.Interval != 5*time.Minute {
 		t.Fatalf("a refused edit was written: %+v", got)
 	}
 	if _, err := f.Update(context.Background(), "inconnu", definition); !errors.Is(err, heartbeat.ErrNotFound) {
@@ -856,7 +856,7 @@ func TestRegenerateToken_OldRefusedNewAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	regenerated, _ := f.Get(ctx, h.ID)
+	regenerated, _ := f.db.GetHeartbeat(ctx, h.ID)
 	if regenerated.Token == h.Token || !strings.HasPrefix(regenerated.Token, "hb_") {
 		t.Fatalf("token not renewed: %q", regenerated.Token)
 	}
@@ -869,7 +869,7 @@ func TestRegenerateToken_OldRefusedNewAccepted(t *testing.T) {
 	if regenerated.Status != heartbeat.StatusPaused || !regenerated.LastPingAt.Equal(pinged.LastPingAt) {
 		t.Fatalf("regenerating must not touch the state: %+v", regenerated)
 	}
-	if pings, _ := f.Pings(ctx, h.ID, 10); len(pings) != 2 {
+	if pings, _ := f.db.ListPings(ctx, h.ID, 10); len(pings) != 2 {
 		t.Fatalf("history lost: %d pings", len(pings))
 	}
 	if err := f.RegenerateToken(ctx, "inconnu"); !errors.Is(err, heartbeat.ErrNotFound) {

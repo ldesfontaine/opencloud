@@ -63,6 +63,22 @@ func scanImageCheck(row scanner) (update.Check, error) {
 	return check, nil
 }
 
+// CountContainerUpdates compte les conteneurs vivants dont l'image a un
+// constat plus récent (update.Check.HasUpdate : un type posé) et dont
+// l'unité veut le voir ; sans unité, la fiche suit « watch ».
+func (db *DB) CountContainerUpdates(ctx context.Context) (int, error) {
+	var count int
+	err := db.sql.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM containers c
+		JOIN image_checks ic ON ic.machine_id = c.machine_id AND ic.image = c.image
+		WHERE c.archived_at IS NULL AND ic.kind != ''
+		AND COALESCE((SELECT u.update_policy FROM service_units u WHERE u.id = c.unit_id), 'watch') = 'watch'`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count container updates: %w", err)
+	}
+	return count, nil
+}
+
 func (db *DB) PurgeImageChecks(ctx context.Context, before time.Time) error {
 	if _, err := db.sql.ExecContext(ctx, `DELETE FROM image_checks WHERE checked_at < ?`, before.Unix()); err != nil {
 		return fmt.Errorf("purge image checks: %w", err)

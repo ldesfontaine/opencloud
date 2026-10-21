@@ -5,14 +5,6 @@ import (
 	"fmt"
 )
 
-func (d *Directory) ListProjects(ctx context.Context) ([]Project, error) {
-	return d.store.ListProjects(ctx)
-}
-
-func (d *Directory) GetProject(ctx context.Context, id string) (Project, error) {
-	return d.store.GetProject(ctx, id)
-}
-
 func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinition) (Project, error) {
 	definition = definition.Complete()
 	if err := definition.Validate(); err != nil {

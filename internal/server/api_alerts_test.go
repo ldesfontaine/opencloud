@@ -104,7 +104,7 @@ func TestAlertsAPI_AcknowledgeAndResolutionByTheComponent(t *testing.T) {
 		t.Fatalf("counts before %+v, after %+v", before.Alerts, after.Alerts)
 	}
 	// Le prochain ping à l'heure de certbot résout l'alerte.
-	jobs, err := server.heartbeats.List(context.Background())
+	jobs, err := server.db.ListHeartbeats(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
