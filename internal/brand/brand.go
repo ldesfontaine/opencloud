@@ -40,6 +40,14 @@ const (
 	MatrixTransactionPrefix = ID + "-"
 )
 
+// Les fichiers d'une version publiée, et le commentaire de sa signature.
+const (
+	ReleaseBinaryPrefix     = ID + "-linux-"
+	ReleaseSumsFile         = "SHA256SUMS"
+	ReleaseSignatureFile    = ReleaseSumsFile + ".minisig"
+	ReleaseSignatureComment = "signature from " + ID + " release key"
+)
+
 // SecretKeyIDDomain sépare l'identifiant d'une clé de toute autre empreinte
 // de la même clé. Il entre dans le calcul de l'identifiant inscrit dans
 // chaque secret chiffré : le changer rend les secrets déjà chiffrés

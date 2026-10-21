@@ -61,9 +61,13 @@ serveur ni sur les machines.
 
 ## Télécharger
 
-Les binaires Linux amd64 et arm64 sont dans la
-[release v0.0.1](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
-avec leurs sommes SHA-256 :
+Les binaires Linux amd64 et arm64 sont dans les
+[releases](https://github.com/ldesfontaine/opencloud/releases) du dépôt. Une
+version publiée ne change jamais ; elle porte `SHA256SUMS` (les sommes
+SHA-256) et `SHA256SUMS.minisig` (leur signature).
+
+**La `v0.0.1` actuelle n'est pas signée** : elle a été réécrite à la main
+jusqu'ici. Elle ne se vérifie que par ses sommes :
 
 ```sh
 base=https://github.com/ldesfontaine/opencloud/releases/download/v0.0.1
@@ -73,8 +77,38 @@ mv opencloud-linux-amd64 opencloud && chmod +x opencloud
 ./opencloud version        # opencloud v0.0.1 (<commit>)
 ```
 
-La release se republie à la main (workflow `release`, onglet Actions) :
-elle garde le nom `v0.0.1`, le commit change. `opencloud version` le donne.
+La vérification par signature commence à la première version taguée par le
+workflow `release` (voir
+[`projet/12-methode.md`](projet/12-methode.md#le-jour-où-lucas-décide-dune-version)).
+Pour une version signée, `vX.Y.Z` :
+
+```sh
+base=https://github.com/ldesfontaine/opencloud/releases/download/vX.Y.Z
+curl -fLO "$base/opencloud-linux-amd64" -fLO "$base/SHA256SUMS" -fLO "$base/SHA256SUMS.minisig"
+chmod +x opencloud-linux-amd64
+./opencloud-linux-amd64 release verify opencloud-linux-amd64
+# ok vX.Y.Z opencloud-linux-amd64 sha256:<somme>
+mv opencloud-linux-amd64 opencloud
+```
+
+`release verify` cherche `SHA256SUMS` et `SHA256SUMS.minisig` à côté du
+fichier (options `-sums` et `-sig` pour d'autres chemins), vérifie la
+signature avec la clé de version que le binaire embarque, puis la somme du
+fichier ; il refuse au moindre écart. Gardez le nom d'origine du fichier
+pendant la vérification : la somme se cherche sous ce nom.
+
+Sans faire confiance au binaire qu'on vient de télécharger, on vérifie avec
+l'outil `minisign` et la clé publique des versions, puis avec la provenance
+GitHub :
+
+```sh
+minisign -Vm SHA256SUMS -P <clé publique des versions>
+sha256sum -c --ignore-missing SHA256SUMS
+gh attestation verify opencloud-linux-amd64 -R ldesfontaine/opencloud
+```
+
+La clé publique des versions sera publiée ici le jour de la première version
+signée.
 
 ## Compiler
 
@@ -768,7 +802,8 @@ argument : `-token` est refusé, il serait visible de tous les comptes via `ps`.
 
 ## Mettre à jour
 
-Il n'y a ni paquet ni dépôt : on remplace le binaire. Les migrations de la
+Il n'y a ni paquet ni dépôt : on remplace le binaire, après l'avoir vérifié
+(`opencloud release verify`, voir « Télécharger »). Les migrations de la
 base s'appliquent **seules au démarrage**, dans l'ordre, chacune dans sa
 transaction, notées dans `schema_migrations`. Pas de commande à lancer, pas
 de retour arrière : **sauvegardez avant**. Un binaire qui trouve une

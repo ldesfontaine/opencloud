@@ -24,6 +24,8 @@ Commandes :
             demandé confirmation (options -config -prune -yes -dry-run)
   secrets   forget : clé de chiffrement perdue, repart d'une clé neuve et oublie
             les secrets qu'elle chiffrait (option -config)
+  release   verify <fichier> : vérifie qu'un fichier appartient à une version signée ;
+            sign, keygen : pour publier une version
   version   affiche la version
 `
 
@@ -48,6 +50,8 @@ func main() {
 		err = runApply(os.Args[2:])
 	case "secrets":
 		err = runSecrets(os.Args[2:])
+	case "release":
+		err = runRelease(os.Args[2:])
 	case "version":
 		err = runVersion()
 	default:
