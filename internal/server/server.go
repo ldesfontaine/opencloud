@@ -61,7 +61,7 @@ type MachineService interface {
 	Get(ctx context.Context, id string) (machine.Status, error)
 	Count(ctx context.Context) (total, online int, err error)
 	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
-	CreateReenrollToken(ctx context.Context, machineID string) (string, machine.Token, error)
+	CreateReenrollToken(ctx context.Context, machineID string, capabilities []machine.Capability) (string, machine.Token, error)
 	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error

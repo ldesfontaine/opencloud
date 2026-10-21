@@ -80,14 +80,23 @@ const (
 	ReasonExpired          = "expired"
 	ReasonReplayed         = "replayed"
 	ReasonUnknownKind      = "unknown_kind"
-	ReasonStateUnwritable  = "state_unwritable"
+	// Suivi de « : » et du droit qui manque : right_missing:agent.update.
+	ReasonRightMissing    = "right_missing"
+	ReasonStateUnwritable = "state_unwritable"
+	ReasonNotImplemented  = "not_implemented"
 )
+
+// RightMissing rend la raison d'un ordre refusé faute du droit nommé.
+func RightMissing(right string) string {
+	return ReasonRightMissing + ":" + right
+}
 
 // RefusalReasons rend la liste, dans l'ordre où l'agent juge.
 func RefusalReasons() []string {
 	return []string{
 		ReasonServerKeyMissing, ReasonBadSignature, ReasonBadOrder, ReasonWrongMachine,
-		ReasonWrongAgent, ReasonExpired, ReasonReplayed, ReasonUnknownKind, ReasonStateUnwritable,
+		ReasonWrongAgent, ReasonExpired, ReasonReplayed, ReasonUnknownKind, ReasonRightMissing,
+		ReasonStateUnwritable, ReasonNotImplemented,
 	}
 }
 

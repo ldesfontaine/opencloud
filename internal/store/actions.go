@@ -67,17 +67,21 @@ func (db *DB) SetRunState(ctx context.Context, id string, state action.State, re
 // ApplyRunResult fait avancer un run de cette machine, sa sortie à la suite
 // de celle déjà gardée. Un run fini ne bouge plus ; un run accepté ne revient
 // pas à accepté.
-func (db *DB) ApplyRunResult(ctx context.Context, machineID string, result action.Result, at time.Time) (bool, error) {
+func (db *DB) ApplyRunResult(ctx context.Context, machineID string, result action.Result, at time.Time) (action.Run, bool, error) {
 	changed := false
+	var run action.Run
 	err := db.inTx(ctx, "apply run result", func(tx *sql.Tx) error {
-		var current string
-		err := tx.QueryRowContext(ctx, `SELECT state FROM action_runs WHERE id = ? AND machine_id = ?`, result.RunID, machineID).Scan(&current)
+		var current, kind, agentID string
+		err := tx.QueryRowContext(ctx, `
+			SELECT state, action, machine_name, COALESCE(agent_id, '') FROM action_runs WHERE id = ? AND machine_id = ?`,
+			result.RunID, machineID).Scan(&current, &kind, &run.MachineName, &agentID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("read run: %w", err)
 		}
+		run.ID, run.Kind, run.MachineID, run.AgentID = result.RunID, agentwire.Kind(kind), machineID, agentID
 		state := action.State(current)
 		if state.IsFinished() || (state == action.StateAccepted && result.State == action.StateAccepted) {
 			return nil
@@ -94,10 +98,11 @@ func (db *DB) ApplyRunResult(ctx context.Context, machineID string, result actio
 		if err := appendRunLogs(ctx, tx, result.RunID, result.Output, at); err != nil {
 			return err
 		}
+		run.State, run.Reason, run.FinishedAt = result.State, result.Reason, finishedAt
 		changed = true
 		return nil
 	})
-	return changed, err
+	return run, changed, err
 }
 
 // appendRunLogs ajoute la sortie à la suite, dans la limite d'une sortie par

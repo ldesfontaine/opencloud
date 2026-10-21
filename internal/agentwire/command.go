@@ -23,10 +23,13 @@ const (
 	KindLogsStop Kind = "logs_stop"
 	KindProbes   Kind = "probes"
 	KindImages   Kind = "image_checks"
-	// Le seul ordre d'aujourd'hui : il ne change rien sur la machine et
-	// prouve le chemin d'un ordre de bout en bout (signature, journal,
-	// réponse).
+	// Il ne change rien sur la machine et prouve le chemin d'un ordre de bout
+	// en bout (signature, journal, réponse).
 	KindAgentPing Kind = "agent.ping"
+	// Le premier geste (décision 14). Déclaré pour que son droit s'applique
+	// dès aujourd'hui ; son exécution vient avec #153 étape 5 : aucune route
+	// ne l'envoie, et un agent qui a le droit le refuse (not_implemented).
+	KindAgentUpdate Kind = "agent.update"
 )
 
 // ObservationKinds rend les genres qui ne font que lire.
@@ -36,7 +39,7 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing}
+	return []Kind{KindAgentPing, KindAgentUpdate}
 }
 
 func (k Kind) IsOrder() bool {

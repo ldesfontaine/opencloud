@@ -11,8 +11,9 @@ import (
 
 // Les droits d'un agent : cochés à l'émission du jeton, écrits par la ligne
 // d'installation dans le fichier de l'agent, rapportés par lui à chaque
-// ouverture de flux. Stockés et affichés ; aucun n'est encore appliqué
-// (#146). observe est toujours là.
+// ouverture de flux, et appliqués par l'agent : un ordre dont le droit n'est
+// pas dans son fichier est refusé (action.RightOf dit lequel). observe est
+// toujours là. Les changer, c'est ré-enrôler avec d'autres droits.
 const (
 	CapabilityObserve       = "observe"
 	CapabilityAgentUpdate   = "agent.update"
@@ -153,6 +154,12 @@ func ParseCapabilities(text string) ([]Capability, error) {
 		capabilities = append(capabilities, capability)
 	}
 	return NormalizeCapabilities(capabilities)
+}
+
+// HasCapability dit si la liste porte ce droit. Les chemins d'un droit borné
+// se jugent avec l'ordre qui les nomme, pas ici.
+func HasCapability(capabilities []Capability, name string) bool {
+	return slices.ContainsFunc(capabilities, func(capability Capability) bool { return capability.Name == name })
 }
 
 // SameCapabilities dit si deux listes normalisées disent la même chose.

@@ -2,7 +2,8 @@ import { pingAgent, useMachineActions, useServerKey, type ActionRun, type Action
 import type { Agent } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
-import { useT } from "../i18n/context";
+import { useT, type Translate } from "../i18n/context";
+import { capabilityLabelKey } from "../lib/machines";
 import type { Tone } from "../lib/tone";
 import { formatWhen } from "../lib/time";
 import { Button } from "./Button";
@@ -102,13 +103,22 @@ function RunRow({ run, now }: { run: ActionRun; now: number }) {
   return (
     <tr>
       <td>{formatWhen(run.requested_at, now)}</td>
-      <td>{t(`action.kind_${run.kind.replace(".", "_")}`)}</td>
+      <td>{t(`action.kind_${run.kind.split(".").join("_")}`)}</td>
       <td>
         <Pill tone={stateTones[run.state]}>{t(`action.state_${run.state}`)}</Pill>
-        {run.reason !== "" && <div className="secondary">{t(`action.reason_${run.reason.split(":")[0]}`)}</div>}
+        {run.reason !== "" && <div className="secondary">{reasonText(t, run.reason)}</div>}
         {output !== "" && <pre className="secondary">{output}</pre>}
       </td>
       <td className="wide-only">{run.requested_by}</td>
     </tr>
   );
+}
+
+// La raison d'un refus ; right_missing porte après « : » le droit qui manque.
+function reasonText(t: Translate, reason: string): string {
+  const [code, right] = reason.split(":");
+  if (right !== undefined) {
+    return t(`action.reason_${code}`, t(capabilityLabelKey(right)));
+  }
+  return t(`action.reason_${code}`);
 }

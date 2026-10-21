@@ -36,7 +36,9 @@ type Identity struct {
 	// Les droits cochés par l'opérateur, écrits par la ligne d'installation
 	// (-rights), un par entrée (« observe », « files.write=/srv/a:/srv/b »).
 	// Absents chez un agent d'avant les droits : observe seul. Rapportés au
-	// serveur à chaque ouverture du flux ; pas encore appliqués (#146).
+	// serveur à chaque ouverture du flux, et appliqués : un ordre dont le
+	// droit n'est pas ici est refusé (orders.go). Les changer, c'est
+	// ré-enrôler avec d'autres droits.
 	Rights []string `json:"rights,omitempty"`
 	// L'agent que le serveur a inscrit à l'enrôlement : un ordre pour un
 	// autre agent de la même machine (avant un ré-enrôlement) est refusé.

@@ -32,7 +32,7 @@ export interface Capability {
 }
 
 // Ce que l'agent rapporte de son fichier, ce que son jeton demandait, et
-// s'ils diffèrent. Aucun droit n'est encore appliqué.
+// s'ils diffèrent. L'agent applique ceux de son fichier.
 export interface Agent {
   id: string;
   version: string;
@@ -96,9 +96,10 @@ export async function offerLocalEnrollment(): Promise<TokenResponse> {
   return api.post<TokenResponse>(`${machinesPath}/local-enrollment`);
 }
 
-// Un nouveau jeton pour le même identifiant de machine.
-export async function reenrollMachine(id: string): Promise<TokenResponse> {
-  return api.post<TokenResponse>(`${machinePath(id)}/actions/reenroll`);
+// Un nouveau jeton pour le même identifiant de machine. Avec des droits,
+// c'est changer ceux de son agent ; sans, il garde ceux d'avant.
+export async function reenrollMachine(id: string, capabilities?: Capability[]): Promise<TokenResponse> {
+  return api.post<TokenResponse>(`${machinePath(id)}/actions/reenroll`, capabilities === undefined ? {} : { capabilities });
 }
 
 // L'agent est refusé et s'arrête ; la machine et son historique restent.

@@ -1,13 +1,14 @@
 import { useNavigate } from "react-router";
 
 import { createMachineToken } from "../api/machines";
-import { Checkbox, Checks, Field, Input } from "../components/Field";
+import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
+import { RightsFields } from "../components/RightsFields";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { alwaysGranted, capabilitiesOf, capabilityLabelKey, capabilityNames, emptyMachineForm, toggleRight } from "../lib/machines";
+import { capabilitiesOf, emptyMachineForm } from "../lib/machines";
 
 // L'opérateur nomme la machine et coche les droits de son agent ; le jeton
 // naît et s'affiche une seule fois, sur la page suivante, avec la commande à
@@ -55,47 +56,7 @@ export function MachineNew() {
             required
           />
         </Field>
-        <Field label={t("machine.rights_label")} help={t("machine.rights_help")}>
-          <Checks>
-            {capabilityNames.map((name) => (
-              <Checkbox
-                key={name}
-                label={t(capabilityLabelKey(name))}
-                checked={name === alwaysGranted || values.rights.includes(name)}
-                disabled={name === alwaysGranted}
-                onChange={() => change("rights", toggleRight(values.rights, name))}
-              />
-            ))}
-          </Checks>
-        </Field>
-        {values.rights.includes("backup.receive") && (
-          <Field label={t("machine.capability_backup_receive")} htmlFor="machine-backup-path" help={t("machine.rights_paths")}>
-            <Input
-              id="machine-backup-path"
-              mono
-              type="text"
-              value={values.backupPath}
-              onChange={(event) => change("backupPath", event.target.value)}
-              placeholder={t("machine.backup_path_placeholder")}
-              autoComplete="off"
-              required
-            />
-          </Field>
-        )}
-        {values.rights.includes("files.write") && (
-          <Field label={t("machine.capability_files_write")} htmlFor="machine-write-paths" help={t("machine.rights_paths")}>
-            <Input
-              id="machine-write-paths"
-              mono
-              type="text"
-              value={values.writePaths}
-              onChange={(event) => change("writePaths", event.target.value)}
-              placeholder={t("machine.write_paths_placeholder")}
-              autoComplete="off"
-              required
-            />
-          </Field>
-        )}
+        <RightsFields values={values} update={form.update} />
       </FormCard>
     </>
   );

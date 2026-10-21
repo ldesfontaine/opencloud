@@ -54,6 +54,7 @@ func newBench(t *testing.T) *bench {
 	// Les ordres : signés par une clé tirée pour le banc, poussés par le flux.
 	actions := action.New(db, machines, logger)
 	actions.SetKey(action.GenerateKey())
+	actions.SetAuditor(audit.New(db, logger))
 	handler, err := server.New(server.Options{Logger: logger, Version: "v0.0.1", Settings: settings.New(db, logger), Machines: machines, Resources: resources, Containers: containers, Probes: probes, Updates: updates, Actions: actions})
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +291,57 @@ func TestRun_PinsTheServerKeyAndAnswersASignedPing(t *testing.T) {
 		t.Fatalf("second %+v %v", second, err)
 	}
 	b.waitForRun(t, second.ID, action.StateSucceeded)
+	cancel()
+	<-done
+}
+
+// Les droits s'appliquent des deux côtés : le serveur ne pousse pas un ordre
+// dont l'agent n'a pas rapporté le droit (409, rien d'écrit) ; un agent qui
+// a le droit juge lui-même, et son refus revient au serveur, journalisé.
+func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
+	b := newBench(t)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-lyon-2", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, b.options(token)) }()
+	online := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool { return s.Online && !s.Agent.ReportedAt.IsZero() })
+	operator := audit.WithActor(context.Background(), audit.Operator("lucas"))
+	if _, err := b.actions.Send(operator, online.ID, agentwire.KindAgentUpdate, nil); !errors.Is(err, action.ErrRightMissing) {
+		t.Fatalf("observe only: %v", err)
+	}
+	cancel()
+	<-done
+
+	// Ré-enrôlée avec le droit : l'ordre part, l'agent n'a pas encore son
+	// exécution et le refuse, le refus est journalisé sous l'agent.
+	reenroll, _, err := b.machines.CreateReenrollToken(context.Background(), online.ID, []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.stateDir.Remove(identityFile); err != nil {
+		t.Fatal(err)
+	}
+	options := b.options(reenroll)
+	options.Rights = []machine.Capability{{Name: machine.CapabilityAgentUpdate}}
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	go func() { done <- Run(ctx, options) }()
+	granted := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool {
+		return s.Online && s.Agent.ID != online.Agent.ID && machine.HasCapability(s.Agent.Capabilities, machine.CapabilityAgentUpdate)
+	})
+	sent, err := b.actions.Send(operator, granted.ID, agentwire.KindAgentUpdate, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := b.waitForRun(t, sent.ID, action.StateRefused)
+	if refused.Reason != agentwire.ReasonNotImplemented {
+		t.Fatalf("refused %+v", refused)
+	}
+	events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 1, ObjectKind: audit.ObjectAction})
+	if err != nil || len(events) != 1 || events[0].Action != audit.ActionRefused || events[0].Actor.Kind != audit.ActorAgent {
+		t.Fatalf("audit %+v %v", events, err)
+	}
 	cancel()
 	<-done
 }

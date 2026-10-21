@@ -30,7 +30,7 @@ type machineJSON struct {
 }
 
 // L'agent d'une machine : ce qu'il rapporte de son fichier, ce que son
-// jeton demandait, et s'ils diffèrent. Aucun droit n'est encore appliqué.
+// jeton demandait, et s'ils diffèrent. L'agent applique ceux de son fichier.
 type agentJSON struct {
 	ID           string           `json:"id"`
 	Version      string           `json:"version"`
@@ -69,6 +69,12 @@ type tokenRequest struct {
 	Name string `json:"name"`
 	// Les droits cochés ; observe s'y ajoute toujours.
 	Capabilities []capabilityJSON `json:"capabilities"`
+}
+
+// Ré-enrôler, avec les droits du nouvel agent ; absents, ceux du jeton de
+// l'agent courant.
+type reenrollRequest struct {
+	Capabilities *[]capabilityJSON `json:"capabilities"`
 }
 
 // Le jeton en clair, une seule fois, avec la commande à coller.
@@ -242,8 +248,18 @@ func (s *Server) revokeAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // Ré-enrôler : un nouveau jeton pour la même machine, qui garde son id.
+// C'est aussi changer les droits de son agent : sans capabilities (ou sans
+// corps), ceux d'avant.
 func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
-	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"))
+	var request reenrollRequest
+	if r.ContentLength != 0 && !s.readAPI(w, r, &request) {
+		return
+	}
+	var capabilities []machine.Capability
+	if request.Capabilities != nil {
+		capabilities = httpx.ConvertAll(*request.Capabilities, capabilityFromJSON)
+	}
+	cleartext, token, err := s.machines.CreateReenrollToken(r.Context(), r.PathValue("id"), capabilities)
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}

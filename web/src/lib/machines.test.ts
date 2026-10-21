@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, toggleRight } from "./machines";
+import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, rightsFormOf, toggleRight } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -33,4 +33,15 @@ test("toggleRight coche puis décoche ; la clé d'un libellé remplace le point"
   expect(capabilityLabelKey("files.write")).toBe("machine.capability_files_write");
   expect(describeCapability(t, { name: "files.write", paths: ["/a", "/b"] })).toBe("machine.right_with_paths:machine.capability_files_write:/a, /b");
   expect(describeCapability(t, { name: "observe", paths: [] })).toBe("machine.capability_observe");
+});
+
+test("rightsFormOf : les droits d'un agent reviennent cochés, chemins compris, et repartent tels quels", () => {
+  const requested = [
+    { name: "observe", paths: [] },
+    { name: "agent.update", paths: [] },
+    { name: "files.write", paths: ["/opt/site", "/srv/workspace"] },
+  ];
+  const values = rightsFormOf(requested);
+  expect(values).toEqual({ rights: ["agent.update", "files.write"], backupPath: "", writePaths: "/opt/site, /srv/workspace" });
+  expect(capabilitiesOf(values)).toEqual(requested.slice(1));
 });

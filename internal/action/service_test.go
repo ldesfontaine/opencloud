@@ -55,8 +55,16 @@ type bench struct {
 }
 
 // newBench enrôle une machine, ouvre la session de son agent (elle est en
-// ligne) et branche le composant comme serve le fait.
+// ligne) et branche le composant comme serve le fait. L'agent n'a pas
+// encore rapporté ses droits.
 func newBench(t *testing.T) *bench {
+	t.Helper()
+	return newBenchReporting(t, "")
+}
+
+// newBenchReporting fait de même avec un agent qui rapporte ces droits à
+// l'ouverture de son flux.
+func newBenchReporting(t *testing.T, rights string) *bench {
 	t.Helper()
 	db := storetest.Open(t)
 	logger := slog.New(slog.DiscardHandler)
@@ -65,7 +73,7 @@ func newBench(t *testing.T) *bench {
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(clock)
 	enrolled := storetest.EnrollMachine(t, machines, machineID, "vps-paris-1")
-	session, err := machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", "")
+	session, err := machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +222,57 @@ func TestPing_WithoutAKeySendsNothing(t *testing.T) {
 	}
 	if runs := b.runs(t); len(runs) != 0 {
 		t.Fatalf("runs %+v", runs)
+	}
+}
+
+// Le serveur n'envoie pas un ordre dont il sait que le droit manque : refus
+// immédiat, sans run ni journal. Tant que l'agent n'a rien rapporté, c'est
+// lui qui juge ; avec le droit, l'ordre part.
+func TestSend_RefusesAnOrderWhoseRightTheAgentDidNotReport(t *testing.T) {
+	observing := newBenchReporting(t, "observe")
+	if _, err := observing.service.Send(operator(), machineID, agentwire.KindAgentUpdate, nil); !errors.Is(err, action.ErrRightMissing) {
+		t.Fatalf("right missing: %v", err)
+	}
+	if runs := observing.runs(t); len(runs) != 0 || len(observing.pusher.sent) != 0 {
+		t.Fatalf("written or sent: %+v %+v", runs, observing.pusher.sent)
+	}
+	if _, err := observing.service.Ping(operator(), machineID); err != nil {
+		t.Fatalf("ping needs observe only: %v", err)
+	}
+	for _, rights := range []string{"", "observe,agent.update"} {
+		b := newBenchReporting(t, rights)
+		run, err := b.service.Send(operator(), machineID, agentwire.KindAgentUpdate, nil)
+		if err != nil || run.State != action.StateSent {
+			t.Fatalf("rights %q: %+v %v", rights, run, err)
+		}
+	}
+	if _, err := observing.service.Send(operator(), machineID, "shell.exec", nil); !errors.Is(err, action.ErrUnknownKind) {
+		t.Fatalf("unknown kind: %v", err)
+	}
+}
+
+// Un refus de l'agent se journalise, sous l'agent, avec sa raison.
+func TestRecord_JournalsARefusalByTheAgent(t *testing.T) {
+	b := newBench(t)
+	run, err := b.service.Ping(operator(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := agentwire.ActionReport{Results: []agentwire.ActionResult{{RunID: run.ID, State: agentwire.ActionRefused, Reason: agentwire.RightMissing("agent.update")}}}
+	agentCtx := audit.WithActor(context.Background(), audit.Agent(machineID))
+	if err := b.service.Record(agentCtx, machineID, refused); err != nil {
+		t.Fatal(err)
+	}
+	events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 10, ObjectKind: audit.ObjectAction})
+	if err != nil || len(events) != 2 || events[0].Action != audit.ActionRefused || events[0].Actor.Kind != audit.ActorAgent ||
+		events[0].Details["reason"] != "right_missing:agent.update" || events[0].ObjectID != run.ID || events[0].Details["kind"] != "agent.ping" {
+		t.Fatalf("events %+v %v", events, err)
+	}
+	// Rejoué, le refus ne se journalise pas deux fois.
+	if err := b.service.Record(agentCtx, machineID, refused); err != nil {
+		t.Fatal(err)
+	}
+	if events, _ := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 10, ObjectKind: audit.ObjectAction}); len(events) != 2 {
+		t.Fatalf("a replayed refusal was journaled again: %+v", events)
 	}
 }

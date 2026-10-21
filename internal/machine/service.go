@@ -194,18 +194,23 @@ func (s *Service) CreateToken(ctx context.Context, name string, capabilities []C
 
 // CreateReenrollToken émet un jeton qui installe un nouvel agent sur une
 // machine existante : elle garde son id et son historique, l'agent d'avant
-// est révoqué à l'enrôlement. Le nouvel agent reçoit les droits que le jeton
-// du précédent demandait ; observe seul s'il n'en demandait aucun.
-func (s *Service) CreateReenrollToken(ctx context.Context, machineID string) (string, Token, error) {
+// est révoqué à l'enrôlement. C'est aussi la seule façon de changer les
+// droits d'un agent (décision 10) : capabilities les donne ; nil reprend ce
+// que le jeton du précédent demandait, observe seul s'il n'en demandait
+// aucun.
+func (s *Service) CreateReenrollToken(ctx context.Context, machineID string, capabilities []Capability) (string, Token, error) {
 	machine, err := s.store.GetMachine(ctx, machineID)
 	if err != nil {
 		return "", Token{}, err
 	}
-	capabilities, err := NormalizeCapabilities(machine.Agent.Requested)
+	if capabilities == nil {
+		capabilities = machine.Agent.Requested
+	}
+	normalized, err := NormalizeCapabilities(capabilities)
 	if err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, machine.Name, machine.ID, capabilities)
+	return s.issueToken(ctx, machine.Name, machine.ID, normalized)
 }
 
 func (s *Service) issueToken(ctx context.Context, name, machineID string, capabilities []Capability) (string, Token, error) {

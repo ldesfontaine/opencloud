@@ -1202,3 +1202,5 @@ La migration `002_actions.sql` (`action_runs`, `run_logs`,
 | **`desired_revision`, `acked_revision` ne reviennent pas** | Rien ne les lit encore : elles viendront avec l'état désiré |
 | **`refusal_reason` porte aussi `undelivered`** | Le serveur pose `failed` quand le flux ne prend pas l'ordre ; une seule colonne dit pourquoi un run n'a pas abouti |
 | **Les états sont une liste du code**, sans CHECK | La règle du schéma : une liste fermée qui grandira se valide dans le code |
+| **`agent_capabilities` sert aussi au refus côté serveur** : un ordre dont l'agent a rapporté ses droits sans celui-là ne s'écrit pas (`409 action.right_missing`) | L'agent le refuserait ; un run de plus ne dirait rien. Tant que l'agent n'a rien rapporté, l'ordre part et l'agent juge : c'est son fichier qui fait foi |
+| **Changer les droits = un jeton de ré-enrôlement qui les porte** (décision 10) ; `enrollment_tokens.requested_capabilities` dit les nouveaux, l'ancien agent est révoqué à l'enrôlement | Pas de table d'historique des droits : le journal d'audit garde `machine.reenroll` avec les droits demandés |

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -107,6 +108,20 @@ func (o Order) encode() ([]byte, error) {
 	})
 }
 
+// RightOf rend le droit qu'un genre exige de l'agent (décision 9) : observe
+// pour ce qui lit et pour agent.ping, qui ne change rien ; pour un geste, son
+// droit. Le serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé,
+// l'agent pour refuser. Un genre inconnu n'en a aucun : rien ne le permet.
+func RightOf(kind agentwire.Kind) (string, bool) {
+	switch kind {
+	case agentwire.KindLogs, agentwire.KindLogsStop, agentwire.KindProbes, agentwire.KindImages, agentwire.KindAgentPing:
+		return machine.CapabilityObserve, true
+	case agentwire.KindAgentUpdate:
+		return machine.CapabilityAgentUpdate, true
+	}
+	return "", false
+}
+
 // Query choisit les runs d'une liste, du plus récent au plus ancien.
 type Query struct {
 	MachineID string
@@ -114,6 +129,9 @@ type Query struct {
 }
 
 var (
+	// ErrRightMissing : l'agent a rapporté ses droits et celui de l'ordre
+	// n'y est pas ; il le refuserait. Rien n'est écrit.
+	ErrRightMissing   = refusal.Conflict("action.right_missing", "the agent does not hold the right this order needs: re-enroll it with that right")
 	ErrMachineOffline = refusal.Conflict("action.machine_offline", "the machine is offline: an order only leaves through its open stream")
 	// ErrReportInvalid : la section actions d'un signal sort de ce qu'un
 	// agent peut rapporter.
@@ -121,4 +139,6 @@ var (
 	// ErrNoServerKey : le serveur n'a pas de clé pour signer (la commande
 	// mcp, qui n'envoie rien).
 	ErrNoServerKey = errors.New("no server key to sign orders")
+	// ErrUnknownKind : le genre n'est pas un ordre de la liste fermée.
+	ErrUnknownKind = errors.New("not an order kind")
 )
