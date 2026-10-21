@@ -31,16 +31,22 @@ type bench struct {
 	mu      sync.Mutex
 }
 
-// recordingRunner tient lieu du moteur de la machine openCloud.
+// recordingRunner tient lieu du flux de l'agent : il garde chaque jeu de
+// sondes poussé, quelle que soit la machine.
 type recordingRunner struct {
 	mu          sync.Mutex
 	assignments []probe.Assignment
 }
 
-func (r *recordingRunner) Assign(assignment probe.Assignment) {
+func (r *recordingRunner) Command(_, name string, payload any) error {
+	assignment, ok := payload.(probe.Assignment)
+	if !ok || name != probe.CommandProbes {
+		return nil
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.assignments = append(r.assignments, assignment)
+	return nil
 }
 
 func (r *recordingRunner) last() probe.Assignment {
@@ -72,7 +78,7 @@ func newBenchLogging(t *testing.T, logger *slog.Logger) *bench {
 	fixture.service = probe.New(db, logger)
 	fixture.service.SetClock(func() time.Time { return fixture.now })
 	fixture.service.SetWatcher(fixture)
-	fixture.service.SetLocalRunner(machine.LocalID, fixture.runner)
+	fixture.service.SetCommander(fixture.runner)
 	return fixture
 }
 
@@ -866,8 +872,8 @@ func TestUpdate_MovingMachine_HandsTheSetToBoth(t *testing.T) {
 	if updated.MachineID != remoteMachineID || updated.Status != probe.StatusNew {
 		t.Fatalf("la sonde n'a pas changé de machine: %+v", updated)
 	}
-	if assignment := fixture.runner.last(); len(assignment.Probes) != 0 {
-		t.Fatalf("l'ancienne machine garde la sonde: %+v", assignment)
+	if previous, pushed := commander.setOf(machine.LocalID); !pushed || len(previous.Probes) != 0 {
+		t.Fatalf("l'ancienne machine garde la sonde: %+v", previous)
 	}
 	set, pushed := commander.setOf(remoteMachineID)
 	if !pushed || len(set.Probes) != 1 || set.Probes[0].ID != created.ID {

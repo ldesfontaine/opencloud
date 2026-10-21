@@ -39,7 +39,7 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | --- | --- |
 | [`config.toml`](installation/config.toml) | `/etc/opencloud/config.toml`, toutes les clés commentées |
 | [`opencloud.service`](installation/opencloud.service) | `/etc/systemd/system/`, le serveur |
-| [`opencloud-agent.service`](installation/opencloud-agent.service) | `/etc/systemd/system/` de chaque machine, l'agent |
+| [`opencloud-agent.service`](installation/opencloud-agent.service) | `/etc/systemd/system/` de chaque machine, la machine openCloud comprise : l'agent |
 | [`traefik-opencloud.yml`](installation/traefik-opencloud.yml) | Le dossier de configuration dynamique de Traefik |
 | [`compose.traefik.yml`](installation/compose.traefik.yml) | Extrait Compose d'un Traefik en conteneur qui joint openCloud sur l'hôte |
 
@@ -115,18 +115,18 @@ Les sous-commandes :
 ## Installer le serveur
 
 Sur le VPS, en root. Un Debian minimal n'a pas `sudo` : les commandes
-« sous le compte du service » passent par `runuser`, toujours présent.
+« sous le compte du service » passent par `runuser`, toujours présent. La
+machine openCloud reçoit **deux unités** : le serveur (`opencloud.service`),
+et son agent (`opencloud-agent.service`), comme toute machine. Le serveur ne
+lit rien de sa machine : sans son agent, elle ne se voit pas.
 
 ```sh
-# Le binaire
+# Le binaire, le même pour le serveur et l'agent
 install -m 0755 opencloud /usr/local/bin/opencloud
 
-# Un compte système, sans shell
+# Un compte système, sans shell. Il n'a besoin ni de root ni du groupe
+# docker : c'est l'agent, en root, qui lit Docker.
 useradd --system --home-dir /var/lib/opencloud --shell /usr/sbin/nologin opencloud
-
-# Docker présent : lire sa socket. Le groupe docker vaut root sur la machine,
-# c'est le prix de la lecture ; openCloud n'appelle aucun verbe qui écrit.
-usermod -aG docker opencloud
 
 # La configuration, lisible par le service seulement
 install -d -m 0750 -o root -g opencloud /etc/opencloud
@@ -141,19 +141,43 @@ journalctl -u opencloud -f
 ```
 
 L'unité crée `/var/lib/opencloud` en `0700` (`StateDirectory=`) et lance
-`serve` sous `opencloud`, dans le groupe `docker` (`SupplementaryGroups=`).
-Sans Docker sur la machine, retirez cette ligne : l'unité échouerait sur un
-groupe inconnu.
+`serve` sous `opencloud`. Une installation d'avant mettait le compte dans le
+groupe `docker` : `gpasswd -d opencloud docker` le retire, et l'unité n'a
+plus de `SupplementaryGroups=docker`.
 
 Au démarrage, le journal dit `listening` avec l'adresse, le répertoire
 d'état et la version. Tant qu'aucun compte n'existe, une ligne le rappelle
 (`interface awaiting first setup`) : `INFO` si `listen` est sur la boucle
 locale, `WARN` sinon, car le premier qui atteint l'adresse crée le compte.
-Créez-le tout de suite : [Authentification](#authentification).
+Créez-le tout de suite : [Authentification](#authentification). Tant que la
+machine openCloud n'a jamais eu d'agent, une autre ligne dit qu'un jeton
+d'enrôlement l'attend (`enrollment token waiting for the agent of this
+machine`, le texte dans la langue de l'interface, **jamais le jeton**).
 
-**Root plutôt qu'un compte dédié ?** Possible : retirez `User=`, `Group=` et
-`SupplementaryGroups=`. Le compte dédié limite ce que le processus touche
-en dehors de Docker.
+**L'agent de la machine openCloud, dès la première étape.** Le compte créé,
+l'écran de première configuration montre la ligne qui l'installe, avec le
+droit d'observer seul ; collez-la **sur cette machine**, en root, puis
+installez l'unité de l'agent :
+
+```sh
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
+# « connected » au journal : Ctrl-C, puis
+install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
+systemctl daemon-reload
+systemctl enable --now opencloud-agent
+```
+
+L'agent présente l'empreinte de la machine : c'est celle du serveur, il
+devient **la machine openCloud** (identifiant `local`). La ligne vaut 1 h ;
+passée, ou pour une installation d'avant les agents (la machine openCloud y
+garde son historique, sans agent : elle ne se voit plus), Machines → la
+machine openCloud → **Ré-enrôler** en donne une. Sur une installation neuve
+où le jeton a expiré, **Ajouter une machine**, jouée sur elle, fait de même.
+Le détail : [Ajouter une machine](#ajouter-une-machine).
+
+**Root plutôt qu'un compte dédié ?** Possible : retirez `User=` et `Group=`.
+Le compte dédié limite ce que le processus touche ; il ne lit rien de la
+machine.
 
 **Les commandes `auth`, `secrets` et `mcp` se lancent sous le compte du service** :
 
@@ -179,12 +203,13 @@ commenté : [`installation/config.toml`](installation/config.toml).
 | `public_url` | vide | L'adresse publique, par exemple `https://opencloud.example.org`. Voir ci-dessous |
 | `trusted_proxies` | `[]` | Les mandataires dont les en-têtes `X-Forwarded-*` sont crus, en CIDR |
 | `forward_secret_file` | vide | Mode `forward` : le fichier d'une ligne qui porte le secret partagé avec le mandataire (32 caractères au moins, illisible pour les autres comptes). Illisible, trop court ou trop ouvert, il arrête le démarrage. Voir [Derrière un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie) |
-| `docker_socket` | `/var/run/docker.sock` | La socket Docker de cette machine. Absente : la machine n'a pas de service, ce n'est pas une erreur |
-| `ca_file` | vide | Un paquet PEM d'autorité interne, ajouté au magasin du système pour les sondes de cette machine. Un chemin illisible arrête le démarrage |
 | `log_level` | `info` | `debug`, `info`, `warn` ou `error`. En `debug`, une ligne par requête HTTP |
 
 Une clé inconnue est signalée au démarrage (`unknown key ["…"] ignored`)
 puis ignorée ; une valeur invalide arrête le démarrage avec le nom du champ.
+`docker_socket` et `ca_file` n'existent plus : le serveur ne lit plus rien de
+sa machine, c'est son agent qui le fait (`-docker-socket`, `-ca-file`). Une
+configuration d'avant les garde sans dommage, avec cet avertissement.
 Le journal est en JSON sur stderr, donc dans `journalctl`.
 
 ### `public_url`
@@ -610,9 +635,11 @@ dans une session ouverte sur la machine, pas en argument de
 arguments du shell distant (et sans terminal, `sudo` ne pourrait pas
 demander son mot de passe).
 
-Pas d'agent sur la machine openCloud elle-même : elle se supervise déjà.
-Lancé là, l'agent est refusé (« cette machine est déjà supervisée par
-openCloud lui-même ») et le jeton reste valable pour une autre machine.
+Sur la machine openCloud elle-même, la commande installe **son** agent :
+l'empreinte de la machine le rattache à la machine openCloud. Si elle a déjà
+un agent actif, l'enrôlement est refusé (« cette machine est la machine
+openCloud, et elle a déjà un agent actif ») et le jeton reste valable pour
+une autre machine : pour remplacer son agent, Ré-enrôler sur sa fiche.
 
 Connecté en root sans `sudo` (Debian minimal) : collez la commande sans
 `sudo`. À la main, sur un terminal, `sudo opencloud agent -server https://…`
@@ -737,7 +764,7 @@ runuser -u opencloud -- sqlite3 /var/lib/opencloud/opencloud.db ".backup '/var/l
 install -m 0755 opencloud /usr/local/bin/opencloud
 systemctl restart opencloud
 
-# Puis sur chaque machine
+# Puis sur chaque machine, la machine openCloud comprise
 install -m 0755 opencloud /usr/local/bin/opencloud
 systemctl restart opencloud-agent
 ```
@@ -1064,11 +1091,12 @@ rm /usr/local/bin/opencloud
 rm -r /var/lib/opencloud/agent
 ```
 
-**Le serveur** (après une dernière sauvegarde si besoin) :
+**Le serveur** (après une dernière sauvegarde si besoin), et l'agent de sa
+machine :
 
 ```sh
-systemctl disable --now opencloud
-rm /etc/systemd/system/opencloud.service && systemctl daemon-reload
+systemctl disable --now opencloud opencloud-agent
+rm /etc/systemd/system/opencloud.service /etc/systemd/system/opencloud-agent.service && systemctl daemon-reload
 rm /usr/local/bin/opencloud
 rm -r /etc/opencloud /var/lib/opencloud
 userdel opencloud
@@ -1091,8 +1119,10 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent : « openCloud ne reconnaît plus cette machine : elle a été retirée ou ré-enrôlée ailleurs. » | Machine retirée, ou restauration d'une base plus ancienne | Ré-enrôler |
 | Agent : « Certificat refusé : ce n'est pas celui dont l'empreinte a été épinglée… » | Le certificat d'openCloud a changé, ou quelqu'un s'interpose | Vérifier l'empreinte, puis ré-enrôler avec la nouvelle |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |
-| Machine openCloud : « L'agent n'a pas le droit de lire la socket Docker de cette machine. » | Le compte du service n'est pas dans `docker` | `usermod -aG docker opencloud`, `SupplementaryGroups=docker`, redémarrer |
-| « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `docker_socket` ou `-docker-socket` ne vise pas la bonne socket | Corriger le chemin |
+| « L'agent n'a pas le droit de lire la socket Docker de cette machine. » | L'agent ne tourne pas en root | L'unité d'exemple le lance en root |
+| « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `-docker-socket` ne vise pas la bonne socket | Corriger le chemin dans l'unité de l'agent |
+| La machine openCloud reste hors ligne, sans mesures | Son agent n'est pas installé (installation d'avant les agents, ou ligne de la première configuration pas jouée) | Machines → la machine openCloud → Ré-enrôler, et jouer la ligne sur elle |
+| Agent : « Enrôlement refusé : cette machine est la machine openCloud, et elle a déjà un agent actif. » | Une ligne d'Ajouter une machine jouée sur la machine openCloud, qui a déjà son agent | Ré-enrôler la machine openCloud depuis sa fiche ; le jeton sert à une autre machine |
 | `serve: listen tcp 172.17.0.1:8080: bind: cannot assign requested address` | `docker0` pas encore là au démarrage | L'unité redémarre seule ; vérifier `After=docker.service` |
 | `serve: listen tcp …: bind: address already in use` | Un autre processus tient le port | `ss -ltnp` ; changer `listen` |
 | Le serveur ou `opencloud mcp` refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |

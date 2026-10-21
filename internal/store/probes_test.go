@@ -15,13 +15,7 @@ var probeTestNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 func insertProbeOnLocalMachine(t *testing.T, db *DB) probe.Probe {
 	t.Helper()
 	ctx := context.Background()
-	err := db.SaveLocalMachine(ctx, machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Hostname: "host",
-		CreatedAt: probeTestNow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	exec(t, db, `INSERT INTO machines (id, name, hostname, created_at) VALUES (?, 'opencloud', 'host', ?)`, machine.LocalID, probeTestNow.Unix())
 	item := probe.Probe{
 		ID: "p1", Name: "site", Kind: probe.KindHTTP, Target: "https://cloud.exemple.fr/", MachineID: machine.LocalID,
 		Status: probe.StatusNew, Interval: time.Minute, Timeout: 10 * time.Second,

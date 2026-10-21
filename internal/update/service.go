@@ -33,8 +33,8 @@ type Commander interface {
 	Command(machineID, name string, payload any) error
 }
 
-// Assignable reçoit les exclusions sans passer par le réseau : la boucle
-// de la machine openCloud, qui est son propre agent.
+// Assignable reçoit les exclusions : la boucle de l'agent, qui les tient de
+// sa commande.
 type Assignable interface {
 	Assign(assignment Assignment)
 }
@@ -55,11 +55,10 @@ type Service struct {
 
 	mu        sync.RWMutex
 	commander Commander
-	local     map[string]Assignable
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, now: time.Now, local: make(map[string]Assignable)}
+	return &Service{store: store, logger: logger, now: time.Now}
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -74,12 +73,6 @@ func (s *Service) SetCommander(commander Commander) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.commander = commander
-}
-
-func (s *Service) SetLocalRunner(machineID string, runner Assignable) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.local[machineID] = runner
 }
 
 // Record écrit ce qu'une machine a constaté sur ses images. Le rapport
@@ -132,13 +125,8 @@ func (s *Service) assign(ctx context.Context, machineID string, now bool) error 
 		}
 	}
 	s.mu.RLock()
-	runner, isLocal := s.local[machineID]
 	commander := s.commander
 	s.mu.RUnlock()
-	if isLocal {
-		runner.Assign(assignment)
-		return nil
-	}
 	if commander == nil {
 		return ErrMachineOffline
 	}

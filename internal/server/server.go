@@ -61,6 +61,7 @@ type MachineService interface {
 	Count(ctx context.Context) (total, online int, err error)
 	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
 	CreateReenrollToken(ctx context.Context, machineID string) (string, machine.Token, error)
+	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
@@ -71,7 +72,6 @@ type MachineService interface {
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
-	WarnIfOpenCloudHost(machine machine.Machine, fingerprint string)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)

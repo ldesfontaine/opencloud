@@ -103,7 +103,4 @@ const (
 	HostFingerprintPrefix = "opencloud-host:"
 	// Le seul client OAuth du serveur MCP.
 	OAuthClientID = "opencloud"
-	// Le code d'erreur qu'un agent reçoit quand il tourne sur la machine du
-	// serveur ; l'agent s'en sert pour choisir son message.
-	AgentErrorIsHost = "machine_is_opencloud"
 )

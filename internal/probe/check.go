@@ -40,8 +40,8 @@ func NewChecker(roots *x509.CertPool) Checker {
 }
 
 // Check exécute une sonde et rend son essai. Elle ne touche ni la base ni
-// le réseau d'openCloud : l'agent l'appelle chez lui, la machine openCloud
-// dans son propre processus.
+// le réseau d'openCloud : l'agent l'appelle chez lui, sur la machine qui
+// sonde.
 func (c Checker) Check(ctx context.Context, task Task, now time.Time) Result {
 	if task.Kind == KindTCP {
 		return c.checkTCP(ctx, task, now)

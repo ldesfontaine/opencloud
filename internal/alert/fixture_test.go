@@ -67,9 +67,7 @@ func newFixture(t *testing.T) *fixture {
 	f.machines = machine.New(db, machine.NewSessions(), logger)
 	f.machines.SetClock(func() time.Time { return f.clock })
 	f.machines.SetAlerter(f.Engine)
-	if err := f.machines.EnsureLocal(context.Background(), machine.LocalInfo{Hostname: "opencloud-host"}); err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, f.machines)
 	return f
 }
 

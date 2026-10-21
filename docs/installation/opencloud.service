@@ -8,10 +8,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Ni root ni le groupe docker : le serveur ne lit rien de sa machine, c'est
+# son agent (opencloud-agent.service) qui le fait.
 User=opencloud
 Group=opencloud
-# Lire la socket Docker. Sans Docker sur la machine, supprimez cette ligne.
-SupplementaryGroups=docker
 ExecStart=/usr/local/bin/opencloud serve -config /etc/opencloud/config.toml
 Restart=on-failure
 RestartSec=5
@@ -36,8 +36,7 @@ RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
-# AF_NETLINK : la liste des interfaces, pour son rôle d'agent.
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target

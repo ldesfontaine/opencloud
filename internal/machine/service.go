@@ -5,17 +5,16 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
-	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 const (
-	TokenLifetime    = time.Hour
-	maxClockSkew     = 5 * time.Minute
-	localMachineName = brand.LocalMachineName
+	TokenLifetime = time.Hour
+	maxClockSkew  = 5 * time.Minute
 	// Une machine sans flux est perdue passé ce délai depuis son dernier
 	// signal : quatre signaux manqués, pas un hoquet de réseau.
 	LostAfter       = 2 * time.Minute
@@ -24,7 +23,6 @@ const (
 
 // Ce que le service attend de la base ; le package store le fournit.
 type Store interface {
-	SaveLocalMachine(ctx context.Context, machine Machine) error
 	ListMachines(ctx context.Context) ([]Machine, error)
 	GetMachine(ctx context.Context, id string) (Machine, error)
 	// DeleteMachine relit le plan dans sa transaction et refuse tant qu'il
@@ -61,15 +59,6 @@ type Connection struct {
 	At           time.Time
 }
 
-// Ce que le serveur sait de la machine où il tourne.
-type LocalInfo struct {
-	Hostname string
-	Address  string
-	OS       string
-	Arch     string
-	Version  string
-}
-
 // Presence dit si l'agent d'une machine est joint. Le service ne sait pas
 // d'où vient la réponse : serve la lit dans les flux ouverts, opencloud mcp,
 // qui n'en tient aucun, dans le dernier signal de la base.
@@ -102,9 +91,11 @@ type Service struct {
 	alerter    Alerter
 	auditor    *audit.Recorder
 	logger     *slog.Logger
-	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
-	// présente la même tourne sur elle. Vide, pas de contrôle.
-	localFingerprint string
+	// La machine où tourne serve, et la ligne d'installation de son agent :
+	// voir local.go.
+	server    serverHost
+	offerLock sync.Mutex
+	offer     localOffer
 	// now est remplaçable dans les tests : « vu il y a » se compare à lui.
 	now func() time.Time
 }
@@ -118,29 +109,6 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 		logger:     logger,
 		now:        time.Now,
 	}
-}
-
-// SetLocalFingerprint retient l'empreinte de la machine openCloud, lue au
-// démarrage de serve.
-func (s *Service) SetLocalFingerprint(fingerprint string) {
-	s.localFingerprint = fingerprint
-}
-
-// isOpenCloudHost dit si une empreinte d'agent est celle de la machine
-// openCloud : elle se supervise déjà, un agent doublerait conteneurs et
-// alertes.
-func (s *Service) isOpenCloudHost(fingerprint string) bool {
-	return s.localFingerprint != "" && fingerprint == s.localFingerprint
-}
-
-// WarnIfOpenCloudHost journalise un agent enrôlé avant le refus et qui
-// tourne sur la machine openCloud : rien ne casse, mais tout est en double.
-func (s *Service) WarnIfOpenCloudHost(machine Machine, fingerprint string) {
-	if !s.isOpenCloudHost(fingerprint) {
-		return
-	}
-	s.logger.Warn("agent runs on the "+brand.ProductName+" machine itself: containers and alerts are doubled; remove this machine and uninstall its agent",
-		"machine_id", machine.ID, "name", machine.Name)
 }
 
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
@@ -168,23 +136,6 @@ func (s *Service) changed(machineID string) {
 	}
 }
 
-// EnsureLocal crée ou rafraîchit la machine openCloud elle-même au démarrage.
-func (s *Service) EnsureLocal(ctx context.Context, info LocalInfo) error {
-	machine := Machine{
-		ID:        LocalID,
-		Name:      localMachineName,
-		Hostname:  info.Hostname,
-		Address:   info.Address,
-		OS:        info.OS,
-		Arch:      info.Arch,
-		CreatedAt: s.now(),
-	}
-	if err := s.store.SaveLocalMachine(ctx, machine); err != nil {
-		return fmt.Errorf("save local machine: %w", err)
-	}
-	return nil
-}
-
 func (s *Service) List(ctx context.Context) ([]Status, error) {
 	machines, err := s.store.ListMachines(ctx)
 	if err != nil {
@@ -205,13 +156,9 @@ func (s *Service) Get(ctx context.Context, id string) (Status, error) {
 	return s.status(machine), nil
 }
 
-// La machine openCloud est en ligne tant que ce processus tourne ; les autres
-// le sont selon la présence installée : leur flux ouvert, ou leur dernier signal.
+// Une machine est en ligne selon la présence installée : le flux ouvert de
+// son agent, ou son dernier signal. La machine openCloud comme les autres.
 func (s *Service) status(machine Machine) Status {
-	if machine.IsLocal() {
-		machine.LastSeenAt = s.now()
-		return Status{Machine: machine, Online: true}
-	}
 	return Status{Machine: machine, Online: s.presence.IsOnline(machine, s.now())}
 }
 
@@ -250,9 +197,6 @@ func (s *Service) CreateReenrollToken(ctx context.Context, machineID string) (st
 	machine, err := s.store.GetMachine(ctx, machineID)
 	if err != nil {
 		return "", Token{}, err
-	}
-	if machine.IsLocal() {
-		return "", Token{}, ErrLocalMachine
 	}
 	capabilities, err := NormalizeCapabilities(machine.Agent.Requested)
 	if err != nil {
@@ -295,25 +239,18 @@ func (s *Service) CancelToken(ctx context.Context, id string) error {
 // tâches, membres de la page de statut), ce qui part avec la machine et ce
 // qui s'en détache. Rien n'est écrit.
 func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
-	machine, err := s.store.GetMachine(ctx, id)
-	if err != nil {
+	if _, err := s.store.GetMachine(ctx, id); err != nil {
 		return deletion.Plan{}, err
-	}
-	if machine.IsLocal() {
-		return deletion.Plan{}, ErrLocalMachine
 	}
 	return s.store.MachineDeletionPlan(ctx, id)
 }
 
-// Remove retire une machine et coupe son flux ; la machine openCloud reste.
-// Tant que son plan est bloqué, le refus porte ce plan.
+// Remove retire une machine et coupe son flux, la machine openCloud comme les
+// autres. Tant que son plan est bloqué, le refus porte ce plan.
 func (s *Service) Remove(ctx context.Context, id string) error {
 	machine, err := s.store.GetMachine(ctx, id)
 	if err != nil {
 		return err
-	}
-	if machine.IsLocal() {
-		return ErrLocalMachine
 	}
 	if err := s.store.DeleteMachine(ctx, id); err != nil {
 		return err
@@ -342,7 +279,7 @@ func (s *Service) CheckLost(ctx context.Context) error {
 	}
 	limit := s.now().Add(-LostAfter)
 	for _, status := range statuses {
-		if status.Online || status.IsLocal() || status.LastSeenAt.After(limit) {
+		if status.Online || status.LastSeenAt.After(limit) {
 			continue
 		}
 		// Sans agent actif, rien à perdre : la machine attend son agent, ou
@@ -380,18 +317,13 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	if len(request.PublicKey) != ed25519.PublicKeySize {
 		return Machine{}, ErrBadKey
 	}
-	// Avant la base : le jeton n'est pas consommé, il servira ailleurs.
-	if s.isOpenCloudHost(request.HostFingerprint) {
-		s.logger.Warn("enrollment refused: the agent runs on the "+brand.ProductName+" machine itself", "hostname", request.Hostname)
-		return Machine{}, ErrIsOpenCloud
-	}
 	agentID, err := NewAgentID()
 	if err != nil {
 		return Machine{}, fmt.Errorf("generate agent id: %w", err)
 	}
 	now := s.now()
 	candidate := Machine{
-		ID:        request.MachineID,
+		ID:        s.machineIDFor(request),
 		Hostname:  request.Hostname,
 		Address:   request.Address,
 		OS:        request.OS,
@@ -420,9 +352,6 @@ func (s *Service) Revoke(ctx context.Context, machineID string) error {
 	if err != nil {
 		return err
 	}
-	if machine.IsLocal() {
-		return ErrLocalMachine
-	}
 	now := s.now()
 	revokedID, err := s.store.RevokeAgent(ctx, machineID, now)
 	if err != nil {
@@ -444,7 +373,7 @@ func (s *Service) Challenge(ctx context.Context, machineID string) ([]byte, erro
 	}
 	// Un agent révoqué reçoit encore son défi : c'est sa preuve qui lui
 	// dira qu'il est révoqué.
-	if machine.IsLocal() || !machine.Agent.Exists() {
+	if !machine.Agent.Exists() {
 		return nil, ErrNotFound
 	}
 	return s.challenges.issue(machineID, s.now()), nil
@@ -471,7 +400,7 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 	if err != nil {
 		return Machine{}, err
 	}
-	if machine.IsLocal() || !machine.Agent.Exists() {
+	if !machine.Agent.Exists() {
 		return Machine{}, ErrNotFound
 	}
 	now := s.now()

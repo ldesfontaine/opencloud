@@ -68,8 +68,8 @@ type Commander interface {
 	Command(machineID, name string, payload any) error
 }
 
-// Assignable reçoit le jeu de sondes sans passer par le réseau : c'est le
-// moteur de la machine openCloud, qui est son propre agent.
+// Assignable reçoit le jeu de sondes : le moteur de l'agent, qui le tient de
+// sa commande.
 type Assignable interface {
 	Assign(assignment Assignment)
 }
@@ -98,7 +98,6 @@ type Service struct {
 
 	mu        sync.RWMutex
 	commander Commander
-	local     map[string]Assignable
 	// Les machines dont le dernier jeu n'est pas parti, file pleine.
 	unsent map[string]bool
 	// creating tient compter-puis-insérer d'un seul tenant : deux créations
@@ -107,7 +106,7 @@ type Service struct {
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, now: time.Now, local: make(map[string]Assignable), unsent: make(map[string]bool)}
+	return &Service{store: store, logger: logger, now: time.Now, unsent: make(map[string]bool)}
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -126,14 +125,6 @@ func (s *Service) SetCommander(commander Commander) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.commander = commander
-}
-
-// SetLocalRunner branche le moteur de la machine openCloud : son jeu de
-// sondes ne sort jamais du processus.
-func (s *Service) SetLocalRunner(machineID string, runner Assignable) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.local[machineID] = runner
 }
 
 func (s *Service) changed(machineID string) {
@@ -464,14 +455,9 @@ func (s *Service) Assign(ctx context.Context, machineID string) {
 		tasks = append(tasks, found.Task())
 	}
 	s.mu.RLock()
-	runner, isLocal := s.local[machineID]
 	commander := s.commander
 	s.mu.RUnlock()
 	assignment := Assignment{Probes: tasks}
-	if isLocal {
-		runner.Assign(assignment)
-		return
-	}
 	if commander == nil {
 		return
 	}

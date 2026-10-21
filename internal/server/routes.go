@@ -36,6 +36,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines", s.listMachines},
 		{"POST", "/api/machines/tokens", s.grantsAuthority(s.createMachineToken)},
 		{"DELETE", "/api/machines/tokens/{id}", s.cancelMachineToken},
+		{"POST", "/api/machines/local-enrollment", s.grantsAuthority(s.offerLocalEnrollment)},
 		{"GET", "/api/machines/{id}", s.getMachine},
 		{"DELETE", "/api/machines/{id}", s.removeMachine},
 		{"GET", "/api/machines/{id}/delete-plan", s.getMachineDeletePlan},
