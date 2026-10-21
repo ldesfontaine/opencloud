@@ -37,7 +37,7 @@ func (ts *testServer) seedActions(t *testing.T) {
 		if _, err := ts.db.InsertRun(ctx, run); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ts.db.ApplyRunResult(ctx, remoteID, outcome, requested.Add(time.Second)); err != nil {
+		if _, _, err := ts.db.ApplyRunResult(ctx, remoteID, outcome, requested.Add(time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}

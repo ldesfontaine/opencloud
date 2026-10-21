@@ -20,7 +20,7 @@ func (s *Service) Record(ctx context.Context, machineID string, report agentwire
 	now := s.now()
 	isChanged := false
 	for _, result := range results {
-		changed, err := s.store.ApplyRunResult(ctx, machineID, result, now)
+		run, changed, err := s.store.ApplyRunResult(ctx, machineID, result, now)
 		if err != nil {
 			return fmt.Errorf("apply run result: %w", err)
 		}
@@ -30,6 +30,9 @@ func (s *Service) Record(ctx context.Context, machineID string, report agentwire
 		}
 		isChanged = true
 		s.logger.Info("run result", "machine_id", machineID, "run_id", result.RunID, "state", string(result.State), "reason", result.Reason)
+		if run.State == StateRefused {
+			s.auditor.Record(ctx, refusedEvent(run))
+		}
 	}
 	if isChanged {
 		s.changed(machineID)

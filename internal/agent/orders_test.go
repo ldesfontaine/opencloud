@@ -31,6 +31,12 @@ type orderBench struct {
 
 func newOrderBench(t *testing.T) *orderBench {
 	t.Helper()
+	return newOrderBenchWithRights(t, nil)
+}
+
+// newOrderBenchWithRights écrit une identité qui porte ces droits.
+func newOrderBenchWithRights(t *testing.T, rights []string) *orderBench {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +46,7 @@ func newOrderBench(t *testing.T) *orderBench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { stateDir.Close() })
-	identity := Identity{MachineID: orderMachineID, AgentID: orderAgentID, ServerKey: public}
+	identity := Identity{MachineID: orderMachineID, AgentID: orderAgentID, ServerKey: public, Rights: rights}
 	if err := SaveIdentity(stateDir, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -169,5 +175,35 @@ func TestOrderRunner_WithoutAPinnedKeyRefusesEverything(t *testing.T) {
 	b.runner.receive([]byte("pas du json"))
 	if report := b.results.take(); report != nil {
 		t.Fatalf("an unreadable envelope was reported: %+v", report)
+	}
+}
+
+// L'agent applique les droits de son fichier : un ordre dont le droit
+// manque est refusé avec ce droit, sans prendre son rang ; avec le droit,
+// un geste dont l'exécution n'existe pas encore est refusé aussi.
+func TestOrderRunner_AppliesTheRightsOfItsFile(t *testing.T) {
+	b := newOrderBench(t)
+	update := order(1)
+	update.Kind = agentwire.KindAgentUpdate
+	result := b.send(t, update, b.private)
+	if result.State != agentwire.ActionRefused || result.Reason != "right_missing:agent.update" {
+		t.Fatalf("without the right: %+v", result)
+	}
+	if saved, _ := LoadIdentity(b.stateDir); saved.LastOrderSeq != 0 {
+		t.Fatalf("a refused order took its seq: %d", saved.LastOrderSeq)
+	}
+	if result := b.send(t, order(1), b.private); result.State != agentwire.ActionSucceeded {
+		t.Fatalf("ping needs observe only: %+v", result)
+	}
+
+	granted := newOrderBenchWithRights(t, []string{"observe", "agent.update"})
+	result = granted.send(t, update, granted.private)
+	if result.State != agentwire.ActionRefused || result.Reason != agentwire.ReasonNotImplemented {
+		t.Fatalf("with the right: %+v", result)
+	}
+	// Un fichier illisible vaut observe seul, le plus étroit.
+	unreadable := newOrderBenchWithRights(t, []string{"agent.update=/nope"})
+	if result := unreadable.send(t, update, unreadable.private); result.Reason != "right_missing:agent.update" {
+		t.Fatalf("unreadable rights: %+v", result)
 	}
 }

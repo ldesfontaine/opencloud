@@ -4,8 +4,8 @@
 > qu'elle change : un flux, un port, une donnée stockée. Dernière mise à jour :
 > première configuration à la place du mode ouvert, journal d'audit, agents
 > séparés des machines (droits, révocation), la machine openCloud avec un
-> agent comme les autres, puis les ordres signés envoyés aux agents (#146),
-> 21 octobre 2026.
+> agent comme les autres, puis les ordres signés envoyés aux agents et les
+> droits appliqués par l'agent (#146), 21 octobre 2026.
 
 ## Les acteurs
 
@@ -14,7 +14,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier et rapportés à chaque connexion, **stockés et affichés, pas encore appliqués** (#146). Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement (aujourd'hui `agent.ping`, qui ne change rien) et refuse tout autre |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement (aujourd'hui `agent.ping`, qui ne change rien) et refuse tout autre |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : l'agent le lit par sa socket, en lecture seule, et ne lui demande jamais rien d'autre |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -251,14 +251,15 @@ le client qui les garde.
 
 ### Les droits d'un agent
 
-Liste de départ prise par Lucas le 21 octobre 2026 (décision 9). **Stockés et
-affichés ; aucun n'est encore appliqué** : l'agent fait aujourd'hui ce qu'il
-faisait, observer. Les appliquer est #146.
+Liste de départ prise par Lucas le 21 octobre 2026 (décision 9). **Appliqués
+par l'agent** (#146) : chaque genre de la liste fermée déclare le droit qu'il
+exige (`action.RightOf`), et l'agent refuse un ordre dont le droit n'est pas
+dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 
-| Droit | Portée | Ce qu'il permettra |
+| Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
-| `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes. Toujours là, la case est cochée et grisée |
-| `agent.update` | — | Mettre à jour l'agent depuis le serveur |
+| `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
+| `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur. Déclaré pour que le droit s'applique ; aucune route ne l'envoie encore, et un agent qui a le droit le refuse (`not_implemented`) jusqu'à #153 étape 5 |
 | `docker.deploy` | — | Déployer un service Compose |
 | `docker.update` | — | Mettre à jour l'image d'un service |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -290,6 +291,26 @@ faisait, observer. Les appliquer est #146.
   que le jeton demandait, et le dit quand ils diffèrent
   (`capabilities_differ` : le fichier a été modifié sur la machine, ou la
   ligne avant d'être jouée). Rien à comparer tant que l'un des deux manque.
+- **Appliqués par l'agent** : c'est le fichier qui fait foi, pas le jeton.
+  Un ordre dont le droit n'y est pas est refusé, `right_missing:<droit>`
+  (« Comment un ordre part et revient »), sans prendre son rang ; le refus
+  revient par le signal et s'inscrit au journal d'audit (`action.refused`,
+  sous l'agent). Un fichier illisible vaut `observe` seul, le plus étroit.
+  Les droits bornés (`backup.receive`, `files.write`) se jugeront chemin par
+  chemin avec l'ordre qui nomme un chemin ; aucun n'existe encore.
+- **Le serveur n'envoie pas ce qu'il sait refusé** : un ordre dont l'agent a
+  rapporté ses droits sans celui-là est refusé tout de suite,
+  `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
+  rapporté, l'ordre part et l'agent juge.
+- **Les changer, c'est ré-enrôler** (décision 10, prise le 21 octobre 2026) :
+  fiche › Agent › **Changer les droits**, qui ouvre les droits cochés du jeton
+  courant ; « Créer le jeton » émet un jeton de ré-enrôlement avec les
+  nouveaux (`POST /api/machines/{id}/actions/reenroll`, corps
+  `{capabilities}` ; sans corps, ceux d'avant), et sa ligne porte `-rights`.
+  Jouée sur la machine (`identity.json` supprimé), elle installe un nouvel
+  agent, l'ancien est révoqué ; la machine et son historique restent. Pas de
+  changement signé par une clé de l'opérateur : modifier le fichier à la main
+  se voit comme un écart, et c'est le fichier qui s'applique.
 
 ### Révoquer un agent
 
@@ -341,12 +362,13 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
-| Droits | `observe`, toujours là | pas encore appliqués (#146, PR suivante) |
+| Droits | `observe`, toujours là | celui de son genre (`action.RightOf`), appliqué par l'agent |
 
 1. **L'opérateur demande** : `POST /api/machines/{id}/actions/ping`, bouton
    « Éprouver l'agent » de la carte Ordres de la fiche. Refus, sans rien
    écrire : `404` machine inconnue, `409 machine.no_agent` sans agent actif,
-   `409 action.machine_offline` sans flux ouvert.
+   `409 action.right_missing` quand l'agent a rapporté ses droits sans celui
+   de l'ordre, `409 action.machine_offline` sans flux ouvert.
 2. **Le serveur écrit le run**, état `queued`, et prend dans la même
    transaction le **rang** suivant de l'agent (`agents.last_order_seq`, qui ne
    recule jamais, même quand les runs sont purgés ; un agent révoqué entre-temps
@@ -368,11 +390,13 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
    cet agent : un ordre fait pour l'agent d'avant un ré-enrôlement est refusé
    (`wrong_agent`) ; il n'est pas périmé (`expired`) ; son rang dépasse
    strictement le dernier exécuté (`replayed`) ; son genre est connu
-   (`unknown_kind`). Il **écrit le rang** dans `identity.json` avant
+   (`unknown_kind`) ; son fichier porte le droit du genre
+   (`right_missing:<droit>`). Il **écrit le rang** dans `identity.json` avant
    d'exécuter (`state_unwritable` s'il ne le peut pas) : un rejeu reste
    refusé après un redémarrage. Un refus se rapporte au run que le corps
    nomme ; une enveloppe illisible ne se rapporte pas, elle se journalise.
 6. **Il exécute** : `agent.ping` finit `succeeded`, sortie `pong <version>`.
+   `agent.update`, déclaré pour son droit, est refusé `not_implemented`.
 7. **Il répond par le signal**, section `actions`, sans attendre les 30 s :
    un résultat réveille la boucle du flux. Un signal raté remet les résultats
    en tampon (32 au plus). Le serveur fait avancer le run : `accepted`, puis
@@ -2781,7 +2805,7 @@ Basic, et vérifie que chacun porte l'opérateur et aucun secret.
 | `mcp` | L'identifiant du jeton d'API, ou la famille d'une autorisation OAuth (le jeton d'accès change toutes les heures) | `guarded`, devant chaque écriture MCP. Aucune n'est offerte sur `/mcp` pendant la refonte : le chemin reste testé pour leur retour |
 | `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
 | `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |
-| `agent` | L'identifiant de la machine que l'agent présente | `agentapi` : l'enrôlement, et les sections du signal, qui n'écrivent aujourd'hui que des observations |
+| `agent` | L'identifiant de la machine que l'agent présente | `agentapi` : l'enrôlement, et les sections du signal : des observations, que rien ne journalise, et le refus d'un ordre (`action.refused`) |
 | `unknown` | Vide | Personne : un oubli de câblage, montré au lieu d'être tu |
 
 ### Ce qui est journalisé
@@ -2818,6 +2842,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Consentement OAuth donné ou refusé, session coupée | `mcp_session.authorize`, `.deny`, `.revoke` | La famille coupée ; un consentement n'a pas encore de famille, il est nommé par le client | `client_id`, `redirect_uri`, `scope` (accordée, ou demandée pour un refus) ; jamais le code ni le `state` |
 | Clé perdue, secrets oubliés | `secrets.forget` | — | `channels_disabled`, `ping_tokens_renewed` |
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |
+| Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 
 ### Ce qui ne l'est jamais
 
@@ -2964,8 +2989,8 @@ refusés avant d'envoyer quoi que ce soit.
 | Manque | Conséquence aujourd'hui | Quand |
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
-| Les droits d'un agent ne sont pas appliqués | Cochés, écrits dans le fichier de l'agent, rapportés et affichés ; l'agent fait ce qu'il faisait, observer. Les changer après l'installation passe par le fichier de l'agent, à la main ; l'interface montre l'écart | #146 (décisions 2 et 10) |
-| Un seul ordre, et sans droit appliqué | `agent.ping` prouve le chemin (signature, journal, réponse) ; mettre à jour l'agent, déployer, mettre à jour une image viendront avec leurs gestes. Le genre d'un ordre ne se juge pas encore contre les droits de l'agent | Les droits : #146, PR suivante ; les gestes : #153 étape 5 |
+| L'agent reste root | Ses droits bornent ce qu'un ordre demande, pas ce que le processus peut faire : un agent compromis sur sa machine a la machine | Décision 2 : un observateur non privilégié et un exécuteur root étroit, à décider |
+| Un seul ordre exécuté | `agent.ping` prouve le chemin (signature, journal, réponse, droits) ; `agent.update` est déclaré pour son droit et refusé ; déployer, mettre à jour une image viendront avec leurs gestes. Les droits bornés ne se jugent pas encore par chemin : aucun ordre n'en nomme | #153 étape 5 |
 | Pas de rotation de `server.key` | Une clé compromise ou perdue se remplace par un ré-enrôlement de chaque agent | #146, protocole v2 |
 | Le journal d'audit reste dans la base | Il n'est envoyé à aucun canal : qui efface la base efface la trace. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | La PR suivante : `audit_deliveries` et les canaux `receives_audit` |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
@@ -3058,3 +3083,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Pages de statut multiples | La migration `034_status_pages.sql` (`status_pages` : `slug` unique, titre, annonce, langue, `project_id` unique facultatif en `restrict` ; `status_components.page_id` en `cascade` ; la page unique reprise en page `statut` sans projet si elle montrait quelque chose ; `settings` reconstruite sans `status_*`), `status.Service` (`CreatePage`, `UpdatePage`, `DeletePage` et son plan, `ListPages`, `PageBySlug`, `Snapshot(pageID)`, `Components(pageID)`, `Incidents(pageID)` ; `status.Settings` et `settings.SetStatusPage` retirés), le refus `project.has_status_page` et `deletion.KindStatusPages`, le refus d'`apply --prune` `manifest.prune_status_page`, les routes `/api/status/pages…` et `/statut/<slug>…` (`/statut` redirige vers la seule page), l'outil MCP `list_status_pages` et le paramètre `page` de `get_status_page` et `list_incidents` (vingt lectures), l'audit `status_page.create` et `.delete`, l'onglet « Pages » de l'administration (`StatusPageForm`, sélecteur de page des composants) et le slug lu dans l'adresse par `statut.html` |
 | Schéma unique | Les 33 migrations écrasées en `migrations/001_schema.sql`, écrit à la main et groupé par domaine ; le test d'équivalence (`internal/store/schema_test.go`) le compare, colonne par colonne et index par index, aux anciennes migrations rejouées suivies de l'élagage (`testdata/legacy_trim.sql`) ; deux garde-fous : chaque clé étrangère vise une clé, chaque table et chaque colonne sert au store. Élagage : `probe_certificates` (les huit `cert_*` de `probes`), `machine_rollups` (`machine_samples_hourly` et `_daily`), `heartbeats.token_sealed` et `token_lookup` (`token` et `token_hash`), `containers.kind` et trois colonnes mortes d'`agents` retirés. Une base qui note une migration que le binaire n'embarque pas est refusée au démarrage (`store.ErrUnknownSchema`). Retirés : l'étape Go de la 024 (`store/migrate_024.go`, `directory/migrate.go`) et les tests de montée |
 | Ordres signés (#146, 1/3) | La migration `002_actions.sql` (`action_runs`, `run_logs`, `agents.server_key_fingerprint` et `last_order_seq`), le paquet `internal/action` (clé `server.key` et sa signature, `Service.Ping`, `Record`, la boucle d'expiration et de purge), le protocole entier dans `internal/agentwire` (`Kind` et `Command` typés à la place de `machine.Command{Name, Payload any}` et des quatre noms de `container`, `probe`, `update` ; `OrderBody`, `SignedOrder`, `KeyFingerprint`, la section `actions` du signal, l'en-tête `OpenCloud-Server-Key`, `agent_id` et `server_key` à l'enrôlement), les commandeurs typés par domaine (`RequestLogs`, `AssignProbes`, `AssignImages`) servis par `server/commands.go`, le juge d'ordres de l'agent (`internal/agent/orders.go`) et `identity.json` (`agent_id`, `server_key`, `last_order_seq`), `fsx.ReadPrivate`, les routes `POST /api/machines/{id}/actions/ping`, `GET /api/actions`, `GET /api/agents/server-key`, l'outil MCP `list_actions` (vingt et une lectures), l'audit `action.order`, le sujet du direct `actions`, la carte « Ordres » de la fiche, les goldens `actions.golden.json` et `mcp_list_actions.golden.json` |
+| Droits appliqués (#146, 2/3) | `action.RightOf` (le droit de chaque genre ; `observe` pour l'observation et `agent.ping`), `machine.HasCapability`, le refus de l'agent `right_missing:<droit>` (`internal/agent/orders.go`, sans prendre le rang) et `not_implemented`, l'ordre déclaré `agent.update`, `action.Service.Send` et son refus `409 action.right_missing` quand l'agent a rapporté ses droits sans celui-là, l'audit `action.refused` sous l'agent, `CreateReenrollToken` qui reçoit les droits (corps `{capabilities}` de `POST /api/machines/{id}/actions/reenroll`), la page « Changer les droits » (`/machines/{id}/droits`, `RightsFields` partagé avec l'ajout d'une machine) |

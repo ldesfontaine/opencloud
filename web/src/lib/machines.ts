@@ -13,11 +13,9 @@ export function machinesSubtitle(t: Translate, total: number, online: number): s
   return t("machines.subtitle", total, online);
 }
 
-// Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
-// droits de son agent, le serveur répond par un jeton et la ligne
-// d'installation qui les porte.
-export interface MachineFormValues {
-  name: string;
+// Les droits d'un agent tels que le formulaire les tient : à l'ajout d'une
+// machine, ou au ré-enrôlement qui les change.
+export interface RightsValues {
   // Les droits cochés, hors observe, toujours là.
   rights: string[];
   // Le dossier où recevoir des sauvegardes, et ceux où écrire, séparés par
@@ -26,7 +24,25 @@ export interface MachineFormValues {
   writePaths: string;
 }
 
+// Le formulaire d'une machine neuve : l'opérateur la nomme et coche les
+// droits de son agent, le serveur répond par un jeton et la ligne
+// d'installation qui les porte.
+export interface MachineFormValues extends RightsValues {
+  name: string;
+}
+
 export const emptyMachineForm: MachineFormValues = { name: "", rights: [], backupPath: "", writePaths: "" };
+
+// Les droits d'un agent en valeurs du formulaire : ce que son jeton
+// demandait, pour les changer.
+export function rightsFormOf(capabilities: Capability[]): RightsValues {
+  const pathsOf = (name: string) => capabilities.find((capability) => capability.name === name)?.paths ?? [];
+  return {
+    rights: capabilities.map((capability) => capability.name).filter((name) => name !== alwaysGranted),
+    backupPath: pathsOf("backup.receive").join(", "),
+    writePaths: pathsOf("files.write").join(", "),
+  };
+}
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
 export const capabilityNames = ["observe", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
@@ -46,13 +62,13 @@ export function toggleRight(rights: string[], name: string): string[] {
 
 // Le corps de la requête : chaque droit coché, avec ses chemins pour un droit
 // borné. Le serveur ajoute observe et juge les chemins.
-export function capabilitiesOf(values: MachineFormValues): Capability[] {
+export function capabilitiesOf(values: RightsValues): Capability[] {
   return capabilityNames
     .filter((name) => name !== alwaysGranted && values.rights.includes(name))
     .map((name) => ({ name, paths: pathsOf(name, values) }));
 }
 
-function pathsOf(name: string, values: MachineFormValues): string[] {
+function pathsOf(name: string, values: RightsValues): string[] {
   if (name === "backup.receive") {
     return splitPaths(values.backupPath);
   }

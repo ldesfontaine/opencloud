@@ -149,8 +149,10 @@ const (
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
 
-	// Un ordre écrit et signé, avant de partir vers l'agent.
-	ActionOrder Action = "action.order"
+	// Un ordre écrit et signé, avant de partir vers l'agent ; refusé par
+	// l'agent, avec sa raison.
+	ActionOrder   Action = "action.order"
+	ActionRefused Action = "action.refused"
 )
 
 func Actions() []Action {
@@ -176,7 +178,7 @@ func Actions() []Action {
 		MCPTokenCreate, MCPTokenRevoke,
 		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
 		SecretsForget,
-		ActionOrder,
+		ActionOrder, ActionRefused,
 	}
 }
 

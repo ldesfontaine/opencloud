@@ -624,8 +624,12 @@ dossiers (un à huit chemins absolus, séparés par des virgules). Au-delà de
 printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org -rights observe,agent.update,files.write=/srv/workspace
 ```
 
-Ils s'écrivent dans `identity.json` et la fiche de la machine les montre ;
-**aucun n'est encore appliqué** par l'agent, qui ne fait qu'observer.
+Ils s'écrivent dans `identity.json`, la fiche de la machine les montre, et
+**l'agent les applique** : un ordre hors de ses droits est refusé, et le refus
+se lit dans les ordres de la fiche et au journal. Pour les changer : fiche ›
+Agent › **Changer les droits**, qui émet un jeton de ré-enrôlement avec les
+nouveaux ; collez sa ligne sur la machine après avoir supprimé
+`identity.json` (voir [Ré-enrôler, retirer](#ré-enrôler-retirer)).
 
 Le jeton passe par l'**entrée standard** de l'agent, jamais par sa ligne de
 commande : une ligne de commande se lit dans `ps` et `/proc/<pid>/cmdline`
@@ -749,6 +753,7 @@ ajoutez-le aussi à `ExecStart=` de l'unité.
 | Besoin | Faire |
 | --- | --- |
 | Changer la clé d'une machine (identité perdue, certificat épinglé changé) | Machines → la machine → **Ré-enrôler** : un nouveau jeton, avec les droits que demandait celui de l'agent en place. Sur la machine : arrêter le service, **supprimer `identity.json`**, relancer la commande d'installation (jeton sur l'entrée standard). Un nouvel agent est inscrit, l'ancien révoqué ; l'identifiant de la machine et l'historique sont gardés |
+| Changer les droits de l'agent | Machines → la machine → Agent → **Changer les droits** : les droits du jeton courant sont cochés, changez-les, puis **Créer le jeton**. La suite est celle d'un ré-enrôlement (arrêter le service, supprimer `identity.json`, coller la ligne, qui porte `-rights`). Modifier `rights` dans `identity.json` à la main marche aussi, l'agent applique son fichier, mais la fiche montre alors un écart avec le jeton |
 | Couper un agent sans perdre la machine (machine compromise, clé volée) | Machines → la machine → **Révoquer l'agent**. Son flux tombe, sa prochaine preuve est refusée (`revoked`) et il s'arrête, code 2 ; les jetons de ré-enrôlement en attente sont annulés. La machine, son historique, ses services restent ; elle passe hors ligne sans être déclarée perdue. Pour la rétablir : **Ré-enrôler**, sur une machine saine. Ce que l'agent détenait (les `.env` des services de la machine) reste à changer à la main |
 | Retirer une machine | Machines → la machine → **Retirer**. La confirmation montre d'abord ce que le retrait emporte (mesures, conteneurs…) et ce qui le retient : services déclarés, sondes qu'elle lance, tâches rattachées, composants de la page de statut. Tant qu'il en reste, le bouton est fermé ; supprimez-les ou détachez-les (changer la machine d'une sonde, retirer la machine d'une tâche ou d'un composant). Son historique est effacé ; l'agent s'arrête en disant « openCloud ne reconnaît plus cette machine » |
 

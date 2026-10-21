@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // orderRunner juge chaque ordre reçu, exécute ceux qui passent et garde
@@ -19,7 +21,10 @@ import (
 // Un ordre passe si, dans cet ordre : l'agent a une clé du serveur ; la
 // signature est de cette clé ; le corps se lit ; il vise cette machine et
 // cet agent ; il n'est pas périmé ; son rang dépasse le dernier exécuté ;
-// son genre est connu. Sinon il est refusé, et le refus est rapporté.
+// son genre est connu ; le fichier de l'agent porte le droit qu'il exige
+// (action.RightOf). Sinon il est refusé, et le refus est rapporté. Les
+// commandes d'observation ne passent pas ici : elles exigent observe, que le
+// fichier porte toujours (machine.NormalizeCapabilities l'ajoute).
 type orderRunner struct {
 	stateDir *os.Root
 	version  string
@@ -80,6 +85,10 @@ func (r *orderRunner) judge(signed agentwire.SignedOrder) (agentwire.OrderBody, 
 	case !body.Kind.IsOrder():
 		return body, agentwire.ReasonUnknownKind
 	}
+	right, known := action.RightOf(body.Kind)
+	if !known || !machine.HasCapability(r.identity.Capabilities(), right) {
+		return body, agentwire.RightMissing(right)
+	}
 	if !r.keepSeq(body.Seq) {
 		return body, agentwire.ReasonStateUnwritable
 	}
@@ -100,8 +109,13 @@ func (r *orderRunner) keepSeq(seq int64) bool {
 }
 
 // execute fait ce que l'ordre demande. agent.ping ne change rien : il dit
-// que l'ordre est arrivé, vérifié, et quel agent l'a pris.
+// que l'ordre est arrivé, vérifié, et quel agent l'a pris. Un geste dont
+// l'exécution n'est pas encore écrite est refusé, même avec son droit.
 func (r *orderRunner) execute(body agentwire.OrderBody) agentwire.ActionResult {
+	if body.Kind != agentwire.KindAgentPing {
+		r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}
+	}
 	r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
 	return agentwire.ActionResult{
 		RunID: body.RunID, State: agentwire.ActionSucceeded,

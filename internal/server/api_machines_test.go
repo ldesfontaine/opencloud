@@ -145,6 +145,34 @@ func TestAPI_Reenroll_IssuesATokenForTheSameMachine(t *testing.T) {
 	}
 }
 
+// Changer les droits d'un agent, c'est le ré-enrôler avec d'autres droits
+// (décision 10) : la ligne les porte, le jeton les garde ; sans droits dans
+// la demande, ceux d'avant. Un droit faux se refuse avant tout jeton.
+func TestAPI_Reenroll_ChangesTheRightsOfTheAgent(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	path := "/api/machines/" + remoteID + "/actions/reenroll"
+	recorder := callAPI(server.Server, http.MethodPost, path, map[string]any{"capabilities": []map[string]any{{"name": "agent.update"}}})
+	var response tokenResponse
+	decodeAPI(t, recorder, &response)
+	if recorder.Code != http.StatusCreated || !strings.HasSuffix(response.Command, " -rights observe,agent.update") {
+		t.Fatalf("%d %+v", recorder.Code, response)
+	}
+	pending, _ := server.machines.PendingTokens(context.Background())
+	if len(pending) != 1 || machine.FormatCapabilities(pending[0].Capabilities) != "observe,agent.update" {
+		t.Fatalf("pending %+v", pending)
+	}
+	kept := callAPI(server.Server, http.MethodPost, path, map[string]any{})
+	decodeAPI(t, kept, &response)
+	if kept.Code != http.StatusCreated || strings.Contains(response.Command, "-rights") {
+		t.Fatalf("without rights: %d %+v", kept.Code, response)
+	}
+	refused := callAPI(server.Server, http.MethodPost, path, map[string]any{"capabilities": []map[string]any{{"name": "shell.exec"}}})
+	if refused.Code != http.StatusUnprocessableEntity || errorCode(t, refused) != "machine.capability_unknown" {
+		t.Fatalf("unknown right: %d %s", refused.Code, refused.Body.String())
+	}
+}
+
 // Les droits cochés passent du formulaire à la ligne d'installation ; un
 // droit inconnu ou un chemin faux se refuse avec sa clé.
 func TestAPI_CreateMachineToken_PutsTheCheckedRightsInTheCommand(t *testing.T) {

@@ -170,7 +170,8 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		h.logger.Warn("note server key", "machine_id", authenticated.ID, "error", err)
 	}
 	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
-	// dit, comparés à ce que son jeton demandait, pas encore appliqués.
+	// dit, comparés à ce que son jeton demandait ; l'agent les applique, le
+	// serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé.
 	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
 		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights))
 	if err != nil {

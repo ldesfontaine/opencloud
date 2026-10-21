@@ -28,7 +28,8 @@ type Store interface {
 	// ApplyRunResult fait avancer un run de cette machine selon ce que son
 	// agent rapporte, sortie comprise ; changed est faux pour un run inconnu,
 	// d'une autre machine ou déjà fini.
-	ApplyRunResult(ctx context.Context, machineID string, result Result, at time.Time) (changed bool, err error)
+	// Le run rendu porte son genre, sa machine et son nouvel état.
+	ApplyRunResult(ctx context.Context, machineID string, result Result, at time.Time) (run Run, changed bool, err error)
 	// ExpireRuns pose expired sur ce qui attend encore après not_after ; il
 	// rend les machines touchées.
 	ExpireRuns(ctx context.Context, now time.Time) ([]string, error)
@@ -115,15 +116,25 @@ func (s *Service) ServerKey() (public []byte, fingerprint string, err error) {
 // Ping envoie l'ordre agent.ping : il ne change rien sur la machine et
 // prouve le chemin d'un ordre de bout en bout.
 func (s *Service) Ping(ctx context.Context, machineID string) (Run, error) {
-	return s.send(ctx, machineID, agentwire.KindAgentPing, nil)
+	return s.Send(ctx, machineID, agentwire.KindAgentPing, nil)
 }
 
-// send écrit le run, le journalise, le signe, le marque envoyé, puis le
+// Send écrit le run, le journalise, le signe, le marque envoyé, puis le
 // pousse par le flux de la machine : une trace existe avant que l'ordre ne
-// parte. Un ordre qui ne part pas finit failed, undelivered.
-func (s *Service) send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (Run, error) {
+// parte. Un ordre qui ne part pas finit failed, undelivered. C'est le geste
+// commun des ordres ; l'API n'en offre que Ping.
+//
+// Un ordre dont le serveur sait déjà que le droit manque (l'agent a rapporté
+// ses droits, celui-là n'y est pas) est refusé tout de suite, sans run : il
+// serait refusé par l'agent. Tant que l'agent n'a rien rapporté, c'est lui
+// qui juge.
+func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (Run, error) {
 	if s.key == nil {
 		return Run{}, ErrNoServerKey
+	}
+	right, ok := RightOf(kind)
+	if !ok || !kind.IsOrder() {
+		return Run{}, fmt.Errorf("%q: %w", kind, ErrUnknownKind)
 	}
 	target, err := s.machines.Get(ctx, machineID)
 	if err != nil {
@@ -131,6 +142,9 @@ func (s *Service) send(ctx context.Context, machineID string, kind agentwire.Kin
 	}
 	if !target.Agent.IsActive() {
 		return Run{}, machine.ErrNoAgent
+	}
+	if !target.Agent.ReportedAt.IsZero() && !machine.HasCapability(target.Agent.Capabilities, right) {
+		return Run{}, ErrRightMissing
 	}
 	if !target.Online {
 		return Run{}, ErrMachineOffline
@@ -212,6 +226,16 @@ func orderEvent(run Run) audit.Event {
 	return audit.Event{
 		Action: audit.ActionOrder, ObjectID: run.ID, ObjectName: run.MachineName,
 		Details: audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID},
+	}
+}
+
+// refusedEvent dit qu'un agent a refusé un ordre : un droit qui manque, ou
+// une signature, un rang, une échéance qui ne tiennent pas. L'acteur est
+// l'agent, que le signal porte.
+func refusedEvent(run Run) audit.Event {
+	return audit.Event{
+		Action: audit.ActionRefused, ObjectID: run.ID, ObjectName: run.MachineName,
+		Details: audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID, "reason": run.Reason},
 	}
 }
 

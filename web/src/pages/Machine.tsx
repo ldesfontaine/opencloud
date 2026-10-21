@@ -80,7 +80,7 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
               {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
             </CardBody>
           </Card>
-          <AgentCard agent={current.agent} now={now} />
+          <AgentCard machineID={current.id} agent={current.agent} now={now} />
           <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
       ) : tab === "services" ? (
@@ -98,8 +98,9 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
 
 // L'agent de la machine : sa version, depuis quand, s'il est révoqué, et ses
 // droits, tels qu'il les rapporte et tels que sa commande d'installation les
-// demandait. Aucun n'est encore appliqué : la carte le dit.
-function AgentCard({ agent, now }: { agent: Agent | null; now: number }) {
+// demandait. Il applique ceux de son fichier ; les changer, c'est le
+// ré-enrôler, par la page des droits.
+function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent | null; now: number }) {
   const t = useT();
   if (agent === null) {
     return (
@@ -127,6 +128,13 @@ function AgentCard({ agent, now }: { agent: Agent | null; now: number }) {
         )}
         {agent.capabilities_differ && <Note tone="warn">{t("machine.agent_rights_differ")}</Note>}
         <p className="secondary">{t("machine.agent_rights_note")}</p>
+        {agent.revoked_at === null && (
+          <div>
+            <Button small icon="settings" to={`/machines/${machineID}/droits`}>
+              {t("machine.change_rights")}
+            </Button>
+          </div>
+        )}
       </CardBody>
     </Card>
   );

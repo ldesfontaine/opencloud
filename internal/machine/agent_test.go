@@ -29,7 +29,7 @@ func TestCreateToken_CarriesTheCheckedRightsAndReenrollKeepsThem(t *testing.T) {
 	if !SameCapabilities(enrolled.Agent.Requested, token.Capabilities) {
 		t.Fatalf("the agent must know what its token asked: %+v", enrolled.Agent)
 	}
-	_, again, err := h.service.CreateReenrollToken(ctx, enrolled.ID)
+	_, again, err := h.service.CreateReenrollToken(ctx, enrolled.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := h.service.CreateReenrollToken(ctx, m.ID); err != nil {
+	if _, _, err := h.service.CreateReenrollToken(ctx, m.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -142,7 +142,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 		t.Fatalf("a revoked agent raised a lost machine: %v %v", alerts.lost, err)
 	}
 
-	cleartext, _, err := h.service.CreateReenrollToken(ctx, m.ID)
+	cleartext, _, err := h.service.CreateReenrollToken(ctx, m.ID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

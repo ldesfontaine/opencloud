@@ -65,11 +65,11 @@ func TestRunLogs_AreBoundedAndFollowTheirRun(t *testing.T) {
 		lines[index] = action.LogLine{Stream: "stdout", Line: "x"}
 	}
 	accepted := action.Result{RunID: "r1", State: action.StateAccepted, Output: lines}
-	if changed, err := db.ApplyRunResult(ctx, found.ID, accepted, at); err != nil || !changed {
+	if _, changed, err := db.ApplyRunResult(ctx, found.ID, accepted, at); err != nil || !changed {
 		t.Fatalf("accepted: %v %v", changed, err)
 	}
 	done := action.Result{RunID: "r1", State: action.StateSucceeded, Output: lines[:3]}
-	if changed, err := db.ApplyRunResult(ctx, found.ID, done, at); err != nil || !changed {
+	if _, changed, err := db.ApplyRunResult(ctx, found.ID, done, at); err != nil || !changed {
 		t.Fatalf("succeeded: %v %v", changed, err)
 	}
 	runs, err := db.ListActionRuns(ctx, action.Query{Limit: 10})
@@ -77,7 +77,7 @@ func TestRunLogs_AreBoundedAndFollowTheirRun(t *testing.T) {
 		t.Fatalf("runs %+v %v", runs, err)
 	}
 	// Un autre rapport de l'autre machine ne touche pas ce run.
-	if changed, err := db.ApplyRunResult(ctx, "autre", action.Result{RunID: "r1", State: action.StateFailed}, at); err != nil || changed {
+	if _, changed, err := db.ApplyRunResult(ctx, "autre", action.Result{RunID: "r1", State: action.StateFailed}, at); err != nil || changed {
 		t.Fatalf("another machine: %v %v", changed, err)
 	}
 
