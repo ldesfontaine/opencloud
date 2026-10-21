@@ -47,7 +47,7 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | Quoi | Version | Pour |
 | --- | --- | --- |
 | Linux | Visé : Debian 13, amd64 ou arm64. Vérifié : Ubuntu 24.04 amd64 | Le serveur et l'agent lisent `/proc` : Linux seulement |
-| Go | 1.26.9 ou plus (ligne `toolchain` de `go.mod`) | Compiler, sur le poste de build seulement |
+| Go | 1.26.10 ou plus (ligne `toolchain` de `go.mod`) | Compiler, sur le poste de build seulement |
 | Node.js | 20.19 ou plus (`web/package.json`) | Compiler l'interface, poste de build seulement |
 | `make`, `git` | — | Compiler |
 | Docker | API 1.41 ou plus (Docker 20.10+) | Facultatif : suivre les conteneurs d'une machine |
