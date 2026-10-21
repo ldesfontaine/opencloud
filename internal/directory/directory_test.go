@@ -131,7 +131,7 @@ func TestCreateService_WritesUnitsProvidesAndProjects(t *testing.T) {
 
 	created := mustCreate(t, b, definition)
 
-	read, err := b.directory.GetService(ctx, created.ID)
+	read, err := b.db.GetDeclaredService(ctx, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestCreateService_WritesUnitsProvidesAndProjects(t *testing.T) {
 	if !slices.Equal(read.ProjectIDs, []string{project.ID}) {
 		t.Fatalf("projets %v", read.ProjectIDs)
 	}
-	linked, err := b.directory.GetProject(ctx, project.ID)
+	linked, err := b.db.GetProject(ctx, project.ID)
 	if err != nil || !slices.Equal(linked.ServiceIDs, []string{created.ID}) {
 		t.Fatalf("services du projet %+v, %v", linked, err)
 	}
@@ -238,7 +238,7 @@ func TestUpdateService_RefusesTheSameUnitIDTwice(t *testing.T) {
 	if _, err := b.directory.UpdateService(context.Background(), created.ID, definition); !errors.Is(err, directory.ErrUnitInvalid) {
 		t.Fatalf("le même identifiant d'unité deux fois: %v", err)
 	}
-	kept, err := b.directory.GetService(context.Background(), created.ID)
+	kept, err := b.db.GetDeclaredService(context.Background(), created.ID)
 	if err != nil || len(kept.Units) != 2 {
 		t.Fatalf("le refus a changé les unités: %+v, %v", kept.Units, err)
 	}
@@ -328,7 +328,7 @@ func TestUpdateService_MovingToAMachineWhereItsKeysAreTaken_Refused(t *testing.T
 		if _, err := b.directory.UpdateService(ctx, testCase.service.ID, testCase.moved); !errors.Is(err, testCase.want) {
 			t.Errorf("%s: got %v, want %v", testCase.name, err, testCase.want)
 		}
-		kept, err := b.directory.GetService(ctx, testCase.service.ID)
+		kept, err := b.db.GetDeclaredService(ctx, testCase.service.ID)
 		if err != nil || kept.MachineID != remoteID {
 			t.Errorf("%s: le refus a déplacé le service: %+v, %v", testCase.name, kept, err)
 		}
@@ -458,7 +458,7 @@ func TestCreateService_UnknownMachineOrProject_Refused(t *testing.T) {
 	if _, err := b.directory.CreateService(context.Background(), definition); !errors.Is(err, directory.ErrProjectInvalid) {
 		t.Fatalf("projet inconnu: %v", err)
 	}
-	listed, err := b.directory.ListServices(context.Background(), directory.Filter{})
+	listed, err := b.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("un refus a laissé une trace: %+v, %v", listed, err)
 	}
@@ -483,7 +483,7 @@ func TestListServices_FiltersByMachineAndProject(t *testing.T) {
 		"les deux": {directory.Filter{MachineID: machine.LocalID, ProjectID: project.ID}, []string{}},
 	}
 	for name, testCase := range cases {
-		listed, err := b.directory.ListServices(ctx, testCase.filter)
+		listed, err := b.db.ListDeclaredServices(ctx, testCase.filter)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -511,14 +511,14 @@ func TestDeleteProject_KeepsItsServices(t *testing.T) {
 	if err := b.directory.DeleteProject(ctx, project.ID); err != nil {
 		t.Fatal(err)
 	}
-	kept, err := b.directory.GetService(ctx, created.ID)
+	kept, err := b.db.GetDeclaredService(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("le service a suivi son projet: %v", err)
 	}
 	if len(kept.ProjectIDs) != 0 || len(kept.Units) != 2 {
 		t.Fatalf("service %+v", kept)
 	}
-	if _, err := b.directory.GetProject(ctx, project.ID); !errors.Is(err, directory.ErrProjectNotFound) {
+	if _, err := b.db.GetProject(ctx, project.ID); !errors.Is(err, directory.ErrProjectNotFound) {
 		t.Fatalf("le projet existe encore: %v", err)
 	}
 }
@@ -534,7 +534,7 @@ func TestDeleteService_TakesItsPartsAndKeepsTheProject(t *testing.T) {
 	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
 		t.Fatal(err)
 	}
-	kept, err := b.directory.GetProject(ctx, project.ID)
+	kept, err := b.db.GetProject(ctx, project.ID)
 	if err != nil || len(kept.ServiceIDs) != 0 {
 		t.Fatalf("projet %+v, %v", kept, err)
 	}
@@ -668,7 +668,7 @@ func TestWrites_ARematchFailureDoesNotUndoTheWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("création: %v", err)
 	}
-	if _, err := b.directory.GetService(context.Background(), created.ID); err != nil {
+	if _, err := b.db.GetDeclaredService(context.Background(), created.ID); err != nil {
 		t.Fatalf("lecture: %v", err)
 	}
 }

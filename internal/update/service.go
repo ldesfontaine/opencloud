@@ -172,29 +172,6 @@ func CheckFor(checks map[string]Check, found container.Container) (Check, bool) 
 	return check, ok
 }
 
-// Count rend le nombre de conteneurs vivants qui ont une mise à jour et
-// dont l'opérateur veut la voir (politique « watch ») : c'est ce que la vue d'ensemble compte.
-func (s *Service) Count(ctx context.Context) (int, error) {
-	containers, err := s.store.ListContainers(ctx, "")
-	if err != nil {
-		return 0, err
-	}
-	checks, err := s.Checks(ctx, "")
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, found := range containers {
-		if found.IsArchived() || found.UpdatePolicy != container.PolicyWatch {
-			continue
-		}
-		if check, ok := CheckFor(checks, found); ok && check.HasUpdate() {
-			count++
-		}
-	}
-	return count, nil
-}
-
 func (s *Service) Purge(ctx context.Context) error {
 	return s.store.PurgeImageChecks(ctx, s.now().Add(-CheckRetention))
 }

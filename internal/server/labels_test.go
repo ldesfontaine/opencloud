@@ -73,7 +73,7 @@ func TestAgentSignal_UnknownFieldInAContainerIsIgnored(t *testing.T) {
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("un champ inconnu doit être ignoré : %d %s", recorder.Code, recorder.Body.String())
 	}
-	found, err := server.containers.Get(context.Background(), container.ID(remoteID, strings.Repeat("a", 64)))
+	found, err := server.db.GetContainer(context.Background(), container.ID(remoteID, strings.Repeat("a", 64)))
 	if err != nil || found.Name != "web" {
 		t.Fatalf("le conteneur du signal doit être écrit : %+v, %v", found, err)
 	}
@@ -90,7 +90,7 @@ func TestDirectoryAPI_LabelMatchAndOrphan(t *testing.T) {
 	server.enroll(t, "vps-paris-1", remoteID)
 	server.seedContainers(t)
 	cloudID := server.seedGaps(t)
-	services, err := server.directory.ListServices(context.Background(), directory.Filter{})
+	services, err := server.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestDirectoryAPI_LabelMatchAndOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := server.directory.ListServices(context.Background(), directory.Filter{})
+	before, err := server.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestDirectoryAPI_LabelMatchAndOrphan(t *testing.T) {
 		t.Fatalf("fiche rattachée = %+v", card.Directory)
 	}
 
-	after, err := server.directory.ListServices(context.Background(), directory.Filter{})
+	after, err := server.db.ListDeclaredServices(context.Background(), directory.Filter{})
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("l'annuaire a changé : %v\n%+v\n%+v", err, before, after)
 	}

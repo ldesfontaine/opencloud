@@ -27,7 +27,6 @@ type Store interface {
 	// AcknowledgeAlerts acquitte d'un seul tenant celles des alertes nommées
 	// qui sont ouvertes et pas encore acquittées ; rend combien.
 	AcknowledgeAlerts(ctx context.Context, ids []int64, at time.Time) (int, error)
-	CountAlerts(ctx context.Context) (Counts, error)
 	PurgeAlerts(ctx context.Context, resolvedBefore time.Time) error
 
 	InsertChannel(ctx context.Context, channel Channel) (int64, error)
@@ -317,22 +316,10 @@ func (e *Engine) resolveAll(ctx context.Context, filter Filter) {
 	}
 }
 
-func (e *Engine) Get(ctx context.Context, id int64) (Alert, error) {
-	return e.store.GetAlert(ctx, id)
-}
-
 // List rend les alertes d'un statut, les plus graves puis les plus
 // récentes d'abord.
 func (e *Engine) List(ctx context.Context, status Status) ([]Alert, error) {
 	return e.store.ListAlerts(ctx, Filter{Status: status, Limit: MaxListed})
-}
-
-func (e *Engine) Count(ctx context.Context) (Counts, error) {
-	return e.store.CountAlerts(ctx)
-}
-
-func (e *Engine) Deliveries(ctx context.Context, alertID int64) ([]Delivery, error) {
-	return e.store.ListDeliveries(ctx, alertID)
 }
 
 // silenced dit si le fait tombe sous un silence actif ou sous une

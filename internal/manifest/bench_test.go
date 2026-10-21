@@ -69,8 +69,7 @@ func newBench(t *testing.T) *bench {
 		Directory:  spyDirectory{Directory: declared, spy: writes},
 		Probes:     spyProbes{Probes: probes, spy: writes},
 		Heartbeats: spyHeartbeats{Heartbeats: heartbeats, spy: writes},
-		Machines:   db,
-		History:    db,
+		Reader:     db,
 		Journal:    db,
 	}, logger)
 	return &bench{db: db, manifest: component, localID: machine.LocalID, directory: declared, probes: probes, heartbeats: heartbeats, machines: machines, containers: containers, writes: writes}

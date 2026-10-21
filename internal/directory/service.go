@@ -25,9 +25,6 @@ type Store interface {
 	// la même transaction : si des sondes ou des composants le visent encore,
 	// rien n'est supprimé et l'erreur est un *LinkedError.
 	DeleteDeclaredService(ctx context.Context, id string) error
-	// ListServiceLinks rend les sondes et les composants de statut qui
-	// visent le service.
-	ListServiceLinks(ctx context.Context, serviceID string) (Links, error)
 	// MarkServiceReviewed baisse « à vérifier » et date la validation.
 	MarkServiceReviewed(ctx context.Context, id string, at time.Time) error
 	// GetUnit rend une unité, ErrUnitNotFound si elle n'existe plus.
@@ -38,7 +35,6 @@ type Store interface {
 	InsertProject(ctx context.Context, project Project) error
 	UpdateProject(ctx context.Context, project Project) error
 	GetProject(ctx context.Context, id string) (Project, error)
-	ListProjects(ctx context.Context) ([]Project, error)
 	DeleteProject(ctx context.Context, id string) error
 	// ListIgnoredKeys rend les clés ignorées d'une machine, de toutes si
 	// machineID est vide, par machine, genre et valeur.
@@ -123,14 +119,6 @@ func (d *Directory) changed() {
 	if d.watcher != nil {
 		d.watcher.DirectoryChanged()
 	}
-}
-
-func (d *Directory) ListServices(ctx context.Context, filter Filter) ([]Service, error) {
-	return d.store.ListDeclaredServices(ctx, filter)
-}
-
-func (d *Directory) GetService(ctx context.Context, id string) (Service, error) {
-	return d.store.GetDeclaredService(ctx, id)
 }
 
 // CreateService déclare un service. Il naît de l'opérateur et sans rien à
@@ -320,12 +308,6 @@ func (d *Directory) DeleteService(ctx context.Context, id string) error {
 	d.settle(ctx, found.MachineID)
 	d.changed()
 	return nil
-}
-
-// ServiceLinks dit ce qui vise le service : ses sondes et les composants de
-// statut où il figure.
-func (d *Directory) ServiceLinks(ctx context.Context, id string) (Links, error) {
-	return d.store.ListServiceLinks(ctx, id)
 }
 
 // Review valide un service repris de l'existant : « à vérifier » tombe, mais

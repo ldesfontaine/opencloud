@@ -160,7 +160,7 @@ func (s *Server) resumeProbeTool(ctx context.Context, input probeInput) (*gomcp.
 }
 
 func (s *Server) probeAfterWrite(ctx context.Context, tool, id string) (*gomcp.CallToolResult, any, error) {
-	found, err := s.probes.Get(ctx, id)
+	found, err := s.reader.GetProbe(ctx, id)
 	if err != nil {
 		return s.toolInternal(tool, err)
 	}
@@ -188,7 +188,7 @@ func (s *Server) resumeJobTool(ctx context.Context, input jobInput) (*gomcp.Call
 }
 
 func (s *Server) jobAfterWrite(ctx context.Context, tool, id string) (*gomcp.CallToolResult, any, error) {
-	found, err := s.heartbeats.Get(ctx, id)
+	found, err := s.reader.GetHeartbeat(ctx, id)
 	if err != nil {
 		return s.toolInternal(tool, err)
 	}

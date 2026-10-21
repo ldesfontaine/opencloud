@@ -9,27 +9,22 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/reader"
 )
 
-// Ce que le fichier lit de l'annuaire et écrit par ses gestes. Chaque
-// interface est celle d'un composant du domaine : l'export passe par leurs
-// lectures, jamais par la base, et l'application par les mêmes gestes que
-// l'interface, pour que les agents reçoivent leurs sondes, que le
-// rapprochement se refasse et que les alertes suivent.
+// Ce que le fichier écrit par les gestes des composants du domaine, pour
+// que les agents reçoivent leurs sondes, que le rapprochement se refasse et
+// que les alertes suivent. Ce qu'il lit (services, projets, sondes, tâches,
+// clés ignorées, noms des machines, historique emporté par une suppression)
+// passe par le reader.Reader : aucune règle en lecture. Seules les
+// propositions, qui dérivent, restent une lecture de l'annuaire.
 type Directory interface {
-	ListProjects(ctx context.Context) ([]directory.Project, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
-	ListServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
-	GetService(ctx context.Context, id string) (directory.Service, error)
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
 	DeleteService(ctx context.Context, id string) error
-	// ServiceLinks dit ce qui vise un service : ses sondes et les composants
-	// de statut où il figure.
-	ServiceLinks(ctx context.Context, id string) (directory.Links, error)
-	IgnoredKeys(ctx context.Context) ([]directory.IgnoredKey, error)
 	// Proposals rend ce que l'export propose d'ajouter, depuis les conteneurs
 	// que les machines montrent sans que rien ne les déclare. Rien n'est écrit.
 	Proposals(ctx context.Context) ([]directory.Proposal, error)
@@ -38,32 +33,15 @@ type Directory interface {
 }
 
 type Probes interface {
-	// List rend les sondes de toutes les machines quand machineID est vide.
-	List(ctx context.Context, machineID string) ([]probe.Probe, error)
-	Get(ctx context.Context, id string) (probe.Probe, error)
 	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
 	Update(ctx context.Context, id string, definition probe.Definition) (probe.Probe, error)
 	Delete(ctx context.Context, id string) error
 }
 
 type Heartbeats interface {
-	List(ctx context.Context) ([]heartbeat.Heartbeat, error)
-	Get(ctx context.Context, id string) (heartbeat.Heartbeat, error)
 	Create(ctx context.Context, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	Update(ctx context.Context, id string, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	Delete(ctx context.Context, id string) error
-}
-
-// Machines rend le nom de chaque machine, par identifiant.
-type Machines interface {
-	MachineNames(ctx context.Context) (map[string]string, error)
-}
-
-// History compte ce qu'une suppression emporte : l'historique d'une sonde
-// ou d'une tâche, que le plan annonce avant qu'on confirme.
-type History interface {
-	CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error)
-	CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error)
 }
 
 // Watcher est prévenu quand une application a touché l'annuaire : le direct
@@ -76,8 +54,7 @@ type Dependencies struct {
 	Directory  Directory
 	Probes     Probes
 	Heartbeats Heartbeats
-	Machines   Machines
-	History    History
+	Reader     reader.Reader
 	Journal    Journal
 }
 

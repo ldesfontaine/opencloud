@@ -216,7 +216,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 
 func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 	filter := directory.Filter{MachineID: r.URL.Query().Get("machine"), ProjectID: r.URL.Query().Get("project")}
-	found, err := s.directory.ListServices(r.Context(), filter)
+	found, err := s.reader.ListDeclaredServices(r.Context(), filter)
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -225,11 +225,11 @@ func (s *Server) listDeclaredServices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getDeclaredService(w http.ResponseWriter, r *http.Request) {
-	found, err := s.directory.GetService(r.Context(), r.PathValue("id"))
+	found, err := s.reader.GetDeclaredService(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, directory.ErrNotFound) {
 		return
 	}
-	links, err := s.directory.ServiceLinks(r.Context(), found.ID)
+	links, err := s.reader.ListServiceLinks(r.Context(), found.ID)
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -306,7 +306,7 @@ func (s *Server) setUnitUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	found, err := s.directory.ListProjects(r.Context())
+	found, err := s.reader.ListProjects(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
@@ -315,7 +315,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
-	found, err := s.directory.GetProject(r.Context(), r.PathValue("id"))
+	found, err := s.reader.GetProject(r.Context(), r.PathValue("id"))
 	if s.failed(w, r, err, directory.ErrProjectNotFound) {
 		return
 	}

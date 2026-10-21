@@ -103,7 +103,7 @@ func newTestServer(t *testing.T) *testServer {
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
 	publicBus := live.New()
-	statusPage := status.New(db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, preferences, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
@@ -135,6 +135,7 @@ func newTestServer(t *testing.T) *testServer {
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
+		Reader:     db,
 		Settings:   preferences,
 		Machines:   machines,
 		Heartbeats: heartbeats,

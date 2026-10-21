@@ -14,6 +14,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
@@ -24,6 +25,7 @@ type bench struct {
 	http.Handler
 	handler    *Handler
 	heartbeats *heartbeat.Service
+	db         *store.DB
 }
 
 func newBench(t *testing.T) *bench {
@@ -38,7 +40,7 @@ func newBench(t *testing.T) *bench {
 	handler.Routes(func(method, pattern string, route http.HandlerFunc) {
 		mux.HandleFunc(method+" "+pattern, route)
 	})
-	return &bench{Handler: mux, handler: handler, heartbeats: heartbeats}
+	return &bench{Handler: mux, handler: handler, heartbeats: heartbeats, db: db}
 }
 
 func (b *bench) createJob(t *testing.T, name string) heartbeat.Heartbeat {

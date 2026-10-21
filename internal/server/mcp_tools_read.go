@@ -286,7 +286,7 @@ func (s *Server) getMachineTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("get_machine", err)
 	}
-	engines, err := s.containers.Engines(ctx)
+	engines, err := s.reader.ListEngines(ctx)
 	if err != nil {
 		return s.toolInternal("get_machine", err)
 	}
@@ -371,7 +371,7 @@ func (s *Server) exportDirectoryTool(ctx context.Context, _ *gomcp.CallToolReque
 }
 
 func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerInput) (*gomcp.CallToolResult, any, error) {
-	item, err := s.containers.Get(ctx, input.ID)
+	item, err := s.reader.GetContainer(ctx, input.ID)
 	if result, done := s.toolFailed("get_container", err, container.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -383,7 +383,7 @@ func (s *Server) getContainerTool(ctx context.Context, _ *gomcp.CallToolRequest,
 }
 
 func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequest, input containerLogsInput) (*gomcp.CallToolResult, any, error) {
-	item, err := s.containers.Get(ctx, input.ID)
+	item, err := s.reader.GetContainer(ctx, input.ID)
 	if result, done := s.toolFailed("get_container_logs", err, container.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -403,7 +403,7 @@ func (s *Server) getContainerLogsTool(ctx context.Context, _ *gomcp.CallToolRequ
 }
 
 func (s *Server) listJobsTool(ctx context.Context, _ *gomcp.CallToolRequest, input pageInput) (*gomcp.CallToolResult, any, error) {
-	heartbeats, err := s.heartbeats.List(ctx)
+	heartbeats, err := s.reader.ListHeartbeats(ctx)
 	if err != nil {
 		return s.toolInternal("list_jobs", err)
 	}
@@ -413,15 +413,15 @@ func (s *Server) listJobsTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 }
 
 func (s *Server) getJobTool(ctx context.Context, _ *gomcp.CallToolRequest, input jobInput) (*gomcp.CallToolResult, any, error) {
-	found, err := s.heartbeats.Get(ctx, input.JobID)
+	found, err := s.reader.GetHeartbeat(ctx, input.JobID)
 	if result, done := s.toolFailed("get_job", err, heartbeat.ErrNotFound); done {
 		return result, nil, nil
 	}
-	runs, err := s.heartbeats.Runs(ctx, found.ID, jobRunsShown)
+	runs, err := s.reader.ListRuns(ctx, found.ID, jobRunsShown)
 	if err != nil {
 		return s.toolInternal("get_job", err)
 	}
-	pings, err := s.heartbeats.Pings(ctx, found.ID, jobPingsShown)
+	pings, err := s.reader.ListPings(ctx, found.ID, jobPingsShown)
 	if err != nil {
 		return s.toolInternal("get_job", err)
 	}
@@ -460,7 +460,7 @@ func (s *Server) listProbesTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 }
 
 func (s *Server) getProbeTool(ctx context.Context, _ *gomcp.CallToolRequest, input probeInput) (*gomcp.CallToolResult, any, error) {
-	found, err := s.probes.Get(ctx, input.ProbeID)
+	found, err := s.reader.GetProbe(ctx, input.ProbeID)
 	if result, done := s.toolFailed("get_probe", err, probe.ErrNotFound); done {
 		return result, nil, nil
 	}
@@ -524,7 +524,7 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 	if err != nil {
 		return s.toolInternal("list_alerts", err)
 	}
-	counts, err := s.alerts.Count(ctx)
+	counts, err := s.reader.CountAlerts(ctx)
 	if err != nil {
 		return s.toolInternal("list_alerts", err)
 	}
@@ -533,11 +533,11 @@ func (s *Server) listAlertsTool(ctx context.Context, _ *gomcp.CallToolRequest, i
 }
 
 func (s *Server) getAlertTool(ctx context.Context, _ *gomcp.CallToolRequest, input alertInput) (*gomcp.CallToolResult, any, error) {
-	found, err := s.alerts.Get(ctx, input.AlertID)
+	found, err := s.reader.GetAlert(ctx, input.AlertID)
 	if result, done := s.toolFailed("get_alert", err, alert.ErrNotFound); done {
 		return result, nil, nil
 	}
-	deliveries, err := s.alerts.Deliveries(ctx, found.ID)
+	deliveries, err := s.reader.ListDeliveries(ctx, found.ID)
 	if err != nil {
 		return s.toolInternal("get_alert", err)
 	}
@@ -545,7 +545,7 @@ func (s *Server) getAlertTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 }
 
 func (s *Server) listAlertChannelsTool(ctx context.Context, _ *gomcp.CallToolRequest, _ emptyInput) (*gomcp.CallToolResult, any, error) {
-	channels, err := s.alerts.Channels(ctx)
+	channels, err := s.reader.ListChannels(ctx)
 	if err != nil {
 		return s.toolInternal("list_alert_channels", err)
 	}

@@ -39,7 +39,7 @@ func TestAPI_CreateProbe_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testin
 	if created.MachineName == "" || !created.MachineOnline {
 		t.Fatalf("la machine openCloud devait être nommée et en ligne: %+v", created)
 	}
-	if got, err := server.probes.Get(context.Background(), created.ID); err != nil || got.Name != "site nextcloud" {
+	if got, err := server.db.GetProbe(context.Background(), created.ID); err != nil || got.Name != "site nextcloud" {
 		t.Fatalf("stored %+v %v", got, err)
 	}
 
@@ -102,7 +102,7 @@ func TestAPI_ProbeActions_PauseResumeDelete(t *testing.T) {
 	if got := callAPI(server.Server, http.MethodPost, "/api/probes/"+created.ID+"/actions/pause", nil); got.Code != http.StatusNoContent {
 		t.Fatalf("pause: %d %s", got.Code, got.Body.String())
 	}
-	if found, _ := server.probes.Get(context.Background(), created.ID); !found.IsPaused() {
+	if found, _ := server.db.GetProbe(context.Background(), created.ID); !found.IsPaused() {
 		t.Fatalf("not paused: %+v", found)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/probes/"+created.ID+"/actions/resume", nil); got.Code != http.StatusNoContent {
@@ -236,7 +236,7 @@ func TestAgentSignal_CarriesProbeResultsAndRefusesBadOnes(t *testing.T) {
 	if got := signal(good); got.Code != http.StatusNoContent {
 		t.Fatalf("signal: %d %s", got.Code, got.Body.String())
 	}
-	stored, err := server.probes.Get(context.Background(), created.ID)
+	stored, err := server.db.GetProbe(context.Background(), created.ID)
 	if err != nil || stored.Status != probe.StatusUp || stored.LastDurationMs != 118 {
 		t.Fatalf("l'essai n'a pas été écrit: %+v %v", stored, err)
 	}
@@ -273,7 +273,7 @@ func TestAPI_UpdateProbe_KeepsItAndRefusesWithTheKey(t *testing.T) {
 	if updated.ID != created.ID || updated.Name != "site nextcloud" || updated.IntervalSeconds != 300 || updated.Status != string(probe.StatusNew) {
 		t.Fatalf("updated %+v", updated)
 	}
-	if got, err := server.probes.Get(context.Background(), created.ID); err != nil || got.Interval != 5*time.Minute {
+	if got, err := server.db.GetProbe(context.Background(), created.ID); err != nil || got.Interval != 5*time.Minute {
 		t.Fatalf("stored %+v %v", got, err)
 	}
 

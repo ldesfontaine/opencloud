@@ -29,7 +29,6 @@ type Store interface {
 	// ListProbes rend les sondes d'une machine, toutes si machineID est vide.
 	ListProbes(ctx context.Context, machineID string) ([]Probe, error)
 	GetProbe(ctx context.Context, id string) (Probe, error)
-	CountProbes(ctx context.Context) (total, attention int, err error)
 	// CountProbeCertificates compte les certificats vus et ceux dont
 	// l'échéance tombe avant l'instant donné.
 	CountProbeCertificates(ctx context.Context, now, before time.Time) (Certificates, error)
@@ -45,7 +44,6 @@ type Store interface {
 	// transaction ; un essai déjà en base, rejoué, est ignoré. Rend les
 	// sondes dont l'état a été écrit : une sonde révisée entre-temps n'y est pas.
 	ApplyProbeResults(ctx context.Context, changes Changes) ([]Probe, error)
-	ListProbeResults(ctx context.Context, probeID string, limit int) ([]Result, error)
 	// ListDays rend les jours d'une sonde, ou de toutes si probeID est vide.
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
 	// CountResults compte les essais et les succès d'une fenêtre, dans le brut.
@@ -313,29 +311,12 @@ func (s *Service) writeRevision(ctx context.Context, before Probe, revision Revi
 	return s.writeUnderCeiling(ctx, revision.Probe.MachineID, write)
 }
 
-func (s *Service) List(ctx context.Context, machineID string) ([]Probe, error) {
-	return s.store.ListProbes(ctx, machineID)
-}
-
-func (s *Service) Get(ctx context.Context, id string) (Probe, error) {
-	return s.store.GetProbe(ctx, id)
-}
-
-// Count renvoie le nombre de sondes et celles à traiter : hors ligne.
-func (s *Service) Count(ctx context.Context) (total, attention int, err error) {
-	return s.store.CountProbes(ctx)
-}
-
 // Certificates compte ce que la vue d'ensemble montre. Le seuil est celui
 // du produit, publié au navigateur par la session : un seul chiffre, une
 // seule source, et la même bascule à l'écran qu'au compteur.
 func (s *Service) Certificates(ctx context.Context) (Certificates, error) {
 	now := s.now()
 	return s.store.CountProbeCertificates(ctx, now, now.Add(CertificateWarning*24*time.Hour))
-}
-
-func (s *Service) Results(ctx context.Context, id string, limit int) ([]Result, error) {
-	return s.store.ListProbeResults(ctx, id, limit)
 }
 
 // Days rend les jours d'une sonde depuis la date donnée, les plus anciens

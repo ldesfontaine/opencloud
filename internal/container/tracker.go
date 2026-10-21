@@ -19,7 +19,6 @@ type Store interface {
 	ListTransitions(ctx context.Context, containerID string, limit int) ([]Transition, error)
 	// LatestContainerSamples rend le dernier échantillon de chaque conteneur.
 	LatestContainerSamples(ctx context.Context) ([]Sample, error)
-	ListEngines(ctx context.Context) ([]Engine, error)
 	// ListNetworks rend les réseaux d'une machine, par nom.
 	ListNetworks(ctx context.Context, machineID string) ([]Network, error)
 	PurgeContainers(ctx context.Context, transitionsBefore, archivedBefore, samplesBefore time.Time) error
@@ -162,6 +161,9 @@ func (t *Tracker) Images(ctx context.Context) ([]string, error) {
 	return images, nil
 }
 
+// Get rend une fiche par son identifiant, archivée comprise : c'est ce que
+// l'annuaire lit pour proposer un conteneur ; il ne peut pas recevoir le
+// Reader sans cycle d'imports.
 func (t *Tracker) Get(ctx context.Context, id string) (Container, error) {
 	return t.store.GetContainer(ctx, id)
 }
@@ -187,11 +189,6 @@ func (t *Tracker) Topology(ctx context.Context, machineID string) (Topology, err
 	return BuildTopology(containers, networks), nil
 }
 
-// Engines rend ce que chaque machine a dit de son Docker.
-func (t *Tracker) Engines(ctx context.Context) ([]Engine, error) {
-	return t.store.ListEngines(ctx)
-}
-
 // CurrentAll rend la mesure courante de chaque conteneur qui en a une.
 func (t *Tracker) CurrentAll(ctx context.Context) ([]Current, error) {
 	samples, err := t.store.LatestContainerSamples(ctx)
@@ -208,7 +205,9 @@ func (t *Tracker) CurrentAll(ctx context.Context) ([]Current, error) {
 }
 
 // NeedsAttention dit si un conteneur va mal : c'est ce que compte la barre
-// latérale. Le front dérive ses pastilles de la même règle.
+// latérale, écrit en SQL dans le store (containerNeedsAttention) et tenu
+// égal à celui-ci par un test de parité. Le front dérive ses pastilles de
+// la même règle.
 func NeedsAttention(container Container) bool {
 	switch container.State {
 	case StateRunning:
@@ -233,20 +232,6 @@ func IsCleanExit(code int) bool {
 // demandé juste avant.
 func IsCleanStop(code int, oomKilled, killed bool) bool {
 	return !oomKilled && !killed && IsCleanExit(code)
-}
-
-// Count rend le nombre de conteneurs vivants et ceux qui demandent attention.
-func (t *Tracker) Count(ctx context.Context) (total, attention int, err error) {
-	containers, err := t.List(ctx, "")
-	if err != nil {
-		return 0, 0, err
-	}
-	for _, container := range containers {
-		if NeedsAttention(container) {
-			attention++
-		}
-	}
-	return len(containers), attention, nil
 }
 
 // Purge efface chaque table au-delà de sa rétention.
