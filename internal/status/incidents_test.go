@@ -87,7 +87,7 @@ func TestChangeIncident_TheSnapshotShowsTheChange(t *testing.T) {
 	if _, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "Panne corrigée", ComponentIDs: []string{site.ID, mail.ID}}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.status.Snapshot(ctx)
+	snapshot, err := f.status.Snapshot(ctx, f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestDeleteIncident_TakesTheIncidentOffTheComponentsAndTheSnapshot(t *testin
 	if f.effective(t, site.ID) != status.StateOperational || f.effective(t, mail.ID) != status.StateDegraded {
 		t.Fatalf("site %q mail %q", f.effective(t, site.ID), f.effective(t, mail.ID))
 	}
-	snapshot, err := f.status.Snapshot(ctx)
+	snapshot, err := f.status.Snapshot(ctx, f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}

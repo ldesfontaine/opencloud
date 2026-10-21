@@ -127,16 +127,6 @@ func (s *Service) SetLifecycleEnabled(ctx context.Context, enabled bool) (isTurn
 	return enabled && !wasEnabled, nil
 }
 
-// SetStatusPage écrit les clés de la page de statut publique, que la page
-// a validées ; rend les réglages écrits, d'où elle résout sa langue.
-func (s *Service) SetStatusPage(ctx context.Context, title, announcement string, language lang.Code) (Settings, error) {
-	return s.store.UpdateSettings(ctx, func(current *Settings) {
-		current.StatusTitle = title
-		current.StatusAnnouncement = announcement
-		current.StatusLanguage = language
-	})
-}
-
 // --- Les lectures ---
 
 func (s *Service) Language(ctx context.Context) (lang.Code, error) {

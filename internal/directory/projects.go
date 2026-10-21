@@ -49,8 +49,8 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 	return d.store.GetProject(ctx, id)
 }
 
-// DeleteProjectPlan dit ce que DeleteProject ferait : rien ne le retient,
-// seuls les liens vers ses services partent.
+// DeleteProjectPlan dit ce que DeleteProject ferait : sa page de statut le
+// retient ; seuls les liens vers ses services partent.
 func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error) {
 	if _, err := d.store.GetProject(ctx, id); err != nil {
 		return deletion.Plan{}, err
@@ -59,7 +59,8 @@ func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.
 }
 
 // DeleteProject défait le groupe et rien d'autre : les services qu'il
-// regroupait restent dans l'annuaire.
+// regroupait restent dans l'annuaire. Un projet qui a sa page de statut se
+// refuse (project.has_status_page) : la page d'abord.
 func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 	found, err := d.store.GetProject(ctx, id)
 	if err != nil {

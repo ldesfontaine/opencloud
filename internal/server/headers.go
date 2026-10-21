@@ -1,6 +1,9 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // CSP stricte : aucun style ni script en ligne, rien depuis Internet.
 const contentSecurityPolicy = "default-src 'none'; " +
@@ -27,15 +30,21 @@ const embeddablePolicy = "default-src 'none'; " +
 	"frame-ancestors *; " +
 	"base-uri 'none'"
 
-// La page de statut publique vit sous /statut (paquet public). Le chemin
-// est connu ici parce que la politique de cadre se décide par lui.
+// Les pages de statut publiques vivent sous /statut/<slug> (paquet public).
+// Le chemin est connu ici parce que la politique de cadre se décide par lui.
 const statusPath = "/statut"
 
-// isPublicStatusPage dit si le chemin est la page HTML publique, la seule
-// réponse qui relâche frame-ancestors : c'est elle qu'un portail ou une
-// documentation met dans un cadre, jamais son API ni l'administration.
+// isPublicStatusPage dit si le chemin est une page HTML publique (/statut et
+// /statut/<slug>, barre finale admise), la seule réponse qui relâche
+// frame-ancestors : c'est elle qu'un portail ou une documentation met dans
+// un cadre, jamais son API ni l'administration.
 func isPublicStatusPage(path string) bool {
-	return path == statusPath || path == statusPath+"/"
+	rest, ok := strings.CutPrefix(path, statusPath)
+	if !ok || (rest != "" && !strings.HasPrefix(rest, "/")) {
+		return false
+	}
+	slug := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/")
+	return !strings.Contains(slug, "/")
 }
 
 func securityHeaders(next http.Handler) http.Handler {

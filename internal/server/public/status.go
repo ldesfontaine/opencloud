@@ -1,6 +1,7 @@
 package public
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -58,9 +59,19 @@ type updateJSON struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// GET /statut/api/status
+// GET /statut/<slug>/api/status : l'instantané de cette page, et d'elle
+// seule.
 func (h *Handler) serveStatus(w http.ResponseWriter, r *http.Request) {
-	snapshot, err := h.status.Snapshot(r.Context())
+	page, ok := h.pageOf(w, r)
+	if !ok {
+		return
+	}
+	snapshot, err := h.status.Snapshot(r.Context(), page.ID)
+	if errors.Is(err, status.ErrNotFound) {
+		// Supprimée entre les deux lectures.
+		http.NotFound(w, nil)
+		return
+	}
 	if err != nil {
 		h.logger.Error("status snapshot", "error", err)
 		http.Error(w, "error", http.StatusInternalServerError)

@@ -9,6 +9,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // Le plan d'une machine se lit avant de la retirer ; retenue, le DELETE
@@ -22,7 +23,7 @@ func TestAPI_DeleteMachine_ReadsThePlanThenRefusesThenRemoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{
+	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: remoteID}},
 	})
 	if err != nil {
@@ -74,7 +75,7 @@ func TestAPI_DeleteProbeAndJob_ShownOnStatus_Answer409WithThePlan(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{
+	component, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, server.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindProbe, ID: watched.ID}, {Kind: status.KindHeartbeat, ID: job.ID}},
 	})
 	if err != nil {

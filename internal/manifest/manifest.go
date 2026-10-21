@@ -23,6 +23,8 @@ type Directory interface {
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	// DeleteProjectPlan dit si une page de statut retient le projet.
+	DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error)
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
 	DeleteService(ctx context.Context, id string) error

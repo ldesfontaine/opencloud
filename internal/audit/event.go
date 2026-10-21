@@ -108,7 +108,9 @@ const (
 	IncidentPost   Action = "incident.post"
 	IncidentDelete Action = "incident.delete"
 
+	StatusPageCreate Action = "status_page.create"
 	StatusPageUpdate Action = "status_page.update"
+	StatusPageDelete Action = "status_page.delete"
 
 	ChannelCreate Action = "channel.create"
 	ChannelUpdate Action = "channel.update"
@@ -152,7 +154,7 @@ func Actions() []Action {
 		HeartbeatCreate, HeartbeatUpdate, HeartbeatDelete, HeartbeatPause, HeartbeatResume, HeartbeatRegenerateToken,
 		StatusComponentCreate, StatusComponentUpdate, StatusComponentDelete,
 		IncidentOpen, IncidentUpdate, IncidentPost, IncidentDelete,
-		StatusPageUpdate,
+		StatusPageCreate, StatusPageUpdate, StatusPageDelete,
 		ChannelCreate, ChannelUpdate, ChannelDelete,
 		MuteCreate, MuteDelete,
 		AlertAcknowledge,

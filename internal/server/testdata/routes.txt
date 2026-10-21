@@ -63,6 +63,12 @@ GET /api/jobs/{id}/delete-plan
 POST /api/jobs/{id}/actions/pause
 POST /api/jobs/{id}/actions/resume
 POST /api/jobs/{id}/actions/regenerate-token
+GET /api/status/pages
+POST /api/status/pages
+GET /api/status/pages/{id}
+PUT /api/status/pages/{id}
+DELETE /api/status/pages/{id}
+GET /api/status/pages/{id}/delete-plan
 GET /api/status/components
 POST /api/status/components
 GET /api/status/components/{id}
@@ -75,8 +81,6 @@ GET /api/status/incidents/{id}
 PUT /api/status/incidents/{id}
 DELETE /api/status/incidents/{id}
 POST /api/status/incidents/{id}/updates
-GET /api/status/page
-PUT /api/status/page
 GET /api/alerts
 GET /api/alerts/channels
 POST /api/alerts/channels
@@ -127,9 +131,11 @@ GET /ping/{token}/{code}
 POST /ping/{token}/{code}
 GET /statut
 GET /statut/{$}
-GET /statut/api/status
-GET /statut/api/i18n
-GET /statut/api/events
+GET /statut/{slug}
+GET /statut/{slug}/{$}
+GET /statut/{slug}/api/status
+GET /statut/{slug}/api/i18n
+GET /statut/{slug}/api/events
 * /statut/
 GET /.well-known/oauth-authorization-server
 GET /.well-known/oauth-protected-resource

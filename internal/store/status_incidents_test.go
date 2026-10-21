@@ -16,7 +16,7 @@ func seedIncident(t *testing.T, db *DB) status.Incident {
 	t.Helper()
 	ctx := context.Background()
 	for _, id := range []string{"c1", "c2"} {
-		if err := db.InsertComponent(ctx, status.Component{ID: id, Name: id, CreatedAt: incidentNow}); err != nil {
+		if err := db.InsertComponent(ctx, status.Component{ID: id, PageID: insertTestPage(t, db, "statut"), Name: id, CreatedAt: incidentNow}); err != nil {
 			t.Fatal(err)
 		}
 	}

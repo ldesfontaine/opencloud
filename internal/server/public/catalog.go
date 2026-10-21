@@ -8,13 +8,11 @@ import (
 // Les seules clés de catalogue qui sortent en public.
 const statusKeyPrefix = "status."
 
-// GET /statut/api/i18n : les chaînes de la page dans sa langue, et rien
-// d'autre du catalogue.
+// GET /statut/<slug>/api/i18n : les chaînes de la page dans sa langue, et
+// rien d'autre du catalogue.
 func (h *Handler) serveCatalog(w http.ResponseWriter, r *http.Request) {
-	page, err := h.status.Page(r.Context())
-	if err != nil {
-		h.logger.Error("status page settings", "error", err)
-		http.Error(w, "error", http.StatusInternalServerError)
+	page, ok := h.pageOf(w, r)
+	if !ok {
 		return
 	}
 	catalog := h.catalogs.For(page.Language)

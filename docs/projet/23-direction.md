@@ -96,7 +96,7 @@ statut. Le **service déclaré** en est l'objet central.
 | Annuaire : services, unités, projets, nature | migration, `internal/…` | Le composant de statut est public ; il ne peut pas porter l'image, la version, les chemins | Moyen ; un rapprochement conteneur → unité à chaque inventaire |
 | Suppressions en `restrict` + plan | migration, chaque suppression | La base refuse toute perte silencieuse | Moyen : chaque suppression écrit son plan |
 | `export` / `apply` | `cmd/opencloud`, API | Reproductibilité de l'annuaire | Moyen à fort : le diff et sa confirmation sont le vrai travail |
-| Pages de statut par projet | `internal/status`, front | La page globale ne sert à rien | Moyen ; la page actuelle devient un projet |
+| Pages de statut par projet | `internal/status`, front | La page globale ne sert à rien | Moyen ; la page actuelle devient une page. **Fait** (PR « une page de statut par projet », migration `034`) : plusieurs pages, chacune à `/statut/<slug>`, rangée dans un projet ou non ; la page d'avant devient la page `statut`, sans projet |
 | Labels `<préfixe>.*` lus par l'agent | `internal/dockerapi`, `dockerwatch` | Rattacher ce qu'openCloud déploie sans ambiguïté ; préfixe tiré du paquet de constantes | Faible, **après** le fichier. **Fait** : annuaire 7/7 (lus, pas encore posés par un déploiement) |
 
 Uptime Kuma a retiré son import/export en v2 et dit de son API interne
@@ -330,7 +330,7 @@ donné avant la décision.
 | Droits | Pas de « modes » : un seul agent, une liste de droits cochée dans l'interface à l'installation, écrite par la ligne générée dans le fichier local de l'agent. L'agent fait ce qu'il a le droit de faire, rien d'autre |
 | Nom | Le nom du produit n'est pas définitif : tout ce qui le porte passe par un seul endroit. Affichage : une constante + les catalogues ; technique : un paquet de constantes (chemins, labels, préfixe de jeton, en-têtes) |
 | Identité de service | Le service déclaré a sa propre identité stable ; les conteneurs s'y rattachent : label posé par openCloud pour ce qu'il déploie, sinon machine + projet + service Compose, sinon nom du conteneur (signalé comme faible). Recréer un conteneur ne casse aucun lien |
-| Statut | La page de statut globale disparaît : plusieurs pages, une par projet, créées à la main, avec le choix de ce qui est montré |
+| Statut | La page de statut globale disparaît : plusieurs pages, une par projet, créées à la main, avec le choix de ce qui est montré. **Fait** (migration `034`, voir `24-modele-cible.md` section 14) |
 | Contrôles | Pour après l'étape 2 : contrôles sur le modèle NRPE (commandes dans le fichier local de l'agent, le serveur ne demande qu'un nom, code de sortie 0/1/2/3). Webhooks entrants génériques à côté des pings de cron |
 
 ## Décisions du tri des fonctionnalités

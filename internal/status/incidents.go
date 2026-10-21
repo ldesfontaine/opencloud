@@ -145,9 +145,35 @@ func (s *Service) DeleteIncident(ctx context.Context, id string) error {
 	return nil
 }
 
-// Incidents rend tout ce que la base garde, du plus récent au plus ancien.
-func (s *Service) Incidents(ctx context.Context) ([]Incident, error) {
-	return s.store.ListIncidents(ctx, time.Time{})
+// Incidents rend ce que la base garde, du plus récent au plus ancien ; avec
+// une page, ceux qui touchent l'un de ses composants, tels quels : un
+// incident n'appartient pas à une page, il touche des composants.
+func (s *Service) Incidents(ctx context.Context, pageID string) ([]Incident, error) {
+	if pageID == "" {
+		return s.store.ListIncidents(ctx, time.Time{})
+	}
+	if _, err := s.store.GetPage(ctx, pageID); err != nil {
+		return nil, err
+	}
+	components, err := s.store.ListComponents(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	onPage := make(map[string]bool, len(components))
+	for _, component := range components {
+		onPage[component.ID] = true
+	}
+	incidents, err := s.store.ListIncidents(ctx, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	kept := []Incident{}
+	for _, incident := range incidents {
+		if _, touches := restrictedTo(incident, onPage); touches {
+			kept = append(kept, incident)
+		}
+	}
+	return kept, nil
 }
 
 func (s *Service) GetIncident(ctx context.Context, id string) (Incident, error) {
@@ -161,7 +187,7 @@ func (s *Service) CountOpenIncidents(ctx context.Context) (int, error) {
 // checkComponents refuse un identifiant qui n'est pas un composant, ou
 // donné deux fois.
 func (s *Service) checkComponents(ctx context.Context, ids []string) error {
-	components, err := s.store.ListComponents(ctx)
+	components, err := s.store.ListComponents(ctx, "")
 	if err != nil {
 		return err
 	}

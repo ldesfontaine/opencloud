@@ -90,13 +90,18 @@ func (s *Server) registerReadTools(server *gomcp.Server) {
 		Annotations: readOnlyHints(),
 	}, s.getProbeTool)
 	gomcp.AddTool(server, &gomcp.Tool{
+		Name:        "list_status_pages",
+		Description: "List the public status pages: id, slug (the page is served at /statut/<slug>), title, announcement, language and the project it belongs to (empty when none).",
+		Annotations: readOnlyHints(),
+	}, s.listStatusPagesTool)
+	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "get_status_page",
-		Description: "The public status page as the operator sees it: the global state, each component with its members (machine, service, job or probe), its derived state and the effective state after incidents, plus the open incidents.",
+		Description: "One public status page as the operator sees it: the page, its global state, each component with its members (machine, service, job or probe), its derived state and the effective state after incidents, plus the open incidents that touch its components. page is the slug from list_status_pages, optional when there is only one page; otherwise the call fails with mcp.status_page_required.",
 		Annotations: readOnlyHints(),
 	}, s.getStatusPageTool)
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "list_incidents",
-		Description: "List status page incidents, open by default or resolved with status=resolved, paged: title, impact (degraded, down, maintenance), status (scheduled, investigating, identified, monitoring, in_progress, resolved), maintenance window, components and the full update thread.",
+		Description: "List status page incidents, open by default or resolved with status=resolved, paged, optionally only those touching a component of one page (page, its slug): title, impact (degraded, down, maintenance), status (scheduled, investigating, identified, monitoring, in_progress, resolved), maintenance window, components and the full update thread.",
 		Annotations: readOnlyHints(),
 	}, s.listIncidentsTool)
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -178,7 +183,12 @@ type probeInput struct {
 	ProbeID string `json:"probe_id" jsonschema:"Probe id, as returned by list_probes"`
 }
 
+type statusPageInput struct {
+	Page string `json:"page,omitempty" jsonschema:"Slug of the status page, as returned by list_status_pages; optional when there is only one page"`
+}
+
 type listIncidentsInput struct {
+	Page   string `json:"page,omitempty" jsonschema:"Only the incidents touching a component of this status page (its slug); default all"`
 	Status string `json:"status,omitempty" jsonschema:"'open' (default) or 'resolved'"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"Page size, default 100, max 500"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Items to skip, default 0"`
@@ -252,10 +262,26 @@ type probesToolResponse struct {
 	Limit  int                  `json:"limit"`
 }
 
+// Une page de statut pour un client MCP : son adresse se lit dans le slug,
+// /statut/<slug> sous l'adresse publique du serveur.
+type statusPageSummaryJSON struct {
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	Title        string `json:"title"`
+	Announcement string `json:"announcement"`
+	Language     string `json:"language"`
+	ProjectID    string `json:"project_id"`
+}
+
+type statusPagesToolResponse struct {
+	Pages []statusPageSummaryJSON `json:"pages"`
+}
+
 type statusPageToolResponse struct {
-	Global     string          `json:"global"`
-	Components []componentJSON `json:"components"`
-	Incidents  []incidentJSON  `json:"incidents"`
+	Page       statusPageSummaryJSON `json:"page"`
+	Global     string                `json:"global"`
+	Components []componentJSON       `json:"components"`
+	Incidents  []incidentJSON        `json:"incidents"`
 }
 
 type incidentsToolResponse struct {
@@ -485,16 +511,56 @@ func (s *Server) getProbeTool(ctx context.Context, _ *gomcp.CallToolRequest, inp
 	return toolJSON(response)
 }
 
-func (s *Server) getStatusPageTool(ctx context.Context, _ *gomcp.CallToolRequest, _ emptyInput) (*gomcp.CallToolResult, any, error) {
-	components, err := s.status.Components(ctx)
+func statusPageSummaryOf(page status.Page) statusPageSummaryJSON {
+	return statusPageSummaryJSON{
+		ID: page.ID, Slug: page.Slug, Title: page.Title, Announcement: page.Announcement,
+		Language: string(page.Language), ProjectID: page.ProjectID,
+	}
+}
+
+func (s *Server) listStatusPagesTool(ctx context.Context, _ *gomcp.CallToolRequest, _ emptyInput) (*gomcp.CallToolResult, any, error) {
+	pages, err := s.status.ListPages(ctx)
+	if err != nil {
+		return s.toolInternal("list_status_pages", err)
+	}
+	return toolJSON(statusPagesToolResponse{Pages: httpx.ConvertAll(pages, statusPageSummaryOf)})
+}
+
+// statusPageNamed rend la page que le client nomme par son slug ; sans nom,
+// la seule page s'il n'y en a qu'une. Un résultat non nil est le refus à
+// rendre.
+func (s *Server) statusPageNamed(ctx context.Context, tool, slug string) (status.Page, *gomcp.CallToolResult) {
+	if slug != "" {
+		page, err := s.status.PageBySlug(ctx, slug)
+		if result, done := s.toolFailed(tool, err, status.ErrNotFound); done {
+			return status.Page{}, result
+		}
+		return page, nil
+	}
+	pages, err := s.status.ListPages(ctx)
+	if result, done := s.toolFailed(tool, err, nil); done {
+		return status.Page{}, result
+	}
+	if len(pages) != 1 {
+		return status.Page{}, refusedResult(codeStatusPageRequired)
+	}
+	return pages[0], nil
+}
+
+func (s *Server) getStatusPageTool(ctx context.Context, _ *gomcp.CallToolRequest, input statusPageInput) (*gomcp.CallToolResult, any, error) {
+	page, refused := s.statusPageNamed(ctx, "get_status_page", input.Page)
+	if refused != nil {
+		return refused, nil, nil
+	}
+	components, err := s.status.Components(ctx, page.ID)
 	if err != nil {
 		return s.toolInternal("get_status_page", err)
 	}
-	incidents, err := s.status.Incidents(ctx)
+	incidents, err := s.status.Incidents(ctx, page.ID)
 	if err != nil {
 		return s.toolInternal("get_status_page", err)
 	}
-	response := statusPageToolResponse{Components: make([]componentJSON, 0, len(components)), Incidents: []incidentJSON{}}
+	response := statusPageToolResponse{Page: statusPageSummaryOf(page), Components: make([]componentJSON, 0, len(components)), Incidents: []incidentJSON{}}
 	states := []status.State{}
 	for _, component := range components {
 		if component.Effective != status.StateUnknown {
@@ -512,7 +578,15 @@ func (s *Server) getStatusPageTool(ctx context.Context, _ *gomcp.CallToolRequest
 }
 
 func (s *Server) listIncidentsTool(ctx context.Context, _ *gomcp.CallToolRequest, input listIncidentsInput) (*gomcp.CallToolResult, any, error) {
-	incidents, err := s.status.Incidents(ctx)
+	pageID := ""
+	if input.Page != "" {
+		page, refused := s.statusPageNamed(ctx, "list_incidents", input.Page)
+		if refused != nil {
+			return refused, nil, nil
+		}
+		pageID = page.ID
+	}
+	incidents, err := s.status.Incidents(ctx, pageID)
 	if err != nil {
 		return s.toolInternal("list_incidents", err)
 	}

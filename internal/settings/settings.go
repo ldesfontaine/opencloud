@@ -11,12 +11,6 @@ import (
 type Settings struct {
 	// Langue de l'interface ; vide tant que l'opérateur n'a rien choisi.
 	Language lang.Code
-	// La page de statut publique : son titre, son annonce en texte brut,
-	// sa langue. Vides : pas de titre, pas d'annonce, la langue de
-	// l'interface.
-	StatusTitle        string
-	StatusAnnouncement string
-	StatusLanguage     lang.Code
 	// Les seuils d'alerte du disque, en pourcentage ; zéro tant que
 	// l'opérateur n'a rien réglé, et le moteur prend alors les siens.
 	DiskAttentionPercent int

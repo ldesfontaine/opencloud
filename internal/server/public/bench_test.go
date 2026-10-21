@@ -19,8 +19,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
@@ -40,6 +40,9 @@ type bench struct {
 	heartbeats *heartbeat.Service
 	probes     *probe.Service
 	bus        *live.Bus
+	db         *store.DB
+	// La page « statut » que chaque banc commence par écrire.
+	pageID string
 }
 
 func newBench(t *testing.T) *bench {
@@ -53,8 +56,7 @@ func newBench(t *testing.T) *bench {
 	heartbeats.SetClock(clock)
 	probes := probe.New(db, logger)
 	probes.SetClock(clock)
-	preferences := settings.New(db, logger)
-	statusPage := status.New(db, db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, logger)
 	statusPage.SetClock(clock)
 	bus := live.New()
 	statusPage.AddWatcher(bus)
@@ -62,7 +64,8 @@ func newBench(t *testing.T) *bench {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &bench{status: statusPage, machines: machines, heartbeats: heartbeats, probes: probes, bus: bus}
+	b := &bench{status: statusPage, machines: machines, heartbeats: heartbeats, probes: probes, bus: bus, db: db}
+	b.pageID = storetest.StatusPage(t, db, "statut")
 	b.handler = New(Options{
 		Logger:        logger,
 		Status:        statusPage,
@@ -121,7 +124,7 @@ func (b *bench) seed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cloud, err := b.status.CreateComponent(ctx, status.ComponentDefinition{Name: "Nuage", Members: []status.MemberRef{
+	cloud, err := b.status.CreateComponent(ctx, status.ComponentDefinition{PageID: b.pageID, Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: servertest.RemoteID},
 		{Kind: status.KindHeartbeat, ID: job.ID},
 		{Kind: status.KindProbe, ID: site.ID},
@@ -139,7 +142,7 @@ func (b *bench) seed(t *testing.T) {
 	if _, err := b.status.AddUpdate(ctx, opened.ID, status.StatusIdentified, "Le disque est plein."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.status.SetPage(ctx, status.Page{Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h."}); err != nil {
+	if _, err := b.status.UpdatePage(ctx, b.pageID, status.PageDefinition{Slug: "statut", Title: "Statut de la maison", Announcement: "Coupure électrique samedi, de 8 h à 10 h."}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -159,7 +162,7 @@ func (b *bench) openLive(t *testing.T, peer, lastEventID string) (func() string,
 	liveServer := httptest.NewServer(wrapped)
 	t.Cleanup(liveServer.Close)
 	ctx, cancel := context.WithCancel(context.Background())
-	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, liveServer.URL+"/statut/api/events", nil)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, liveServer.URL+"/statut/statut/api/events", nil)
 	request.Header.Set("X-Test-Peer", peer)
 	if lastEventID != "" {
 		request.Header.Set("Last-Event-ID", lastEventID)

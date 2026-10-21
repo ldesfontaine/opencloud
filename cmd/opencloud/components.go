@@ -73,7 +73,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// des images de redire à la machine ce qu'elle ne doit plus interroger.
 	declared.SetAssigner(updates)
 	containers.SetUnits(declared)
-	statusPage := status.New(db, db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, logger)
 	// Les alertes : chaque composant lui donne ses faits, le notifieur livre
 	// aux canaux dans la langue de l'interface.
 	catalogs, err := lang.Load()

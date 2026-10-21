@@ -118,6 +118,7 @@ var (
 	ErrProjectNameInvalid    = refusal.Invalid("project.name_invalid", "project name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrProjectTitleInvalid   = refusal.Invalid("project.title_invalid", "project title must be at most 80 characters")
 	ErrProjectNameTaken      = refusal.Invalid("project.name_taken", "project name already used")
+	ErrProjectHasStatusPage  = refusal.Conflict("project.has_status_page", "a status page belongs to the project")
 
 	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
@@ -253,6 +254,12 @@ func RefuseServiceDeletion(plan deletion.Plan) error {
 		deletion.KindProbes:     ErrServiceLinked,
 		deletion.KindComponents: ErrServiceLinked,
 	})
+}
+
+// RefuseProjectDeletion rend le refus de supprimer un projet que sa page de
+// statut retient, nil sinon.
+func RefuseProjectDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindStatusPages: ErrProjectHasStatusPage})
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

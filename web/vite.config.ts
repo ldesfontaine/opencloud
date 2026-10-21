@@ -13,7 +13,8 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8080",
       "/agent": "http://127.0.0.1:8080",
       "/ping": "http://127.0.0.1:8080",
-      "/statut/api": "http://127.0.0.1:8080",
+      // L'API publique de chaque page de statut : /statut/<slug>/api/….
+      "^/statut/[^/]+/api/": "http://127.0.0.1:8080",
     },
   },
   build: {

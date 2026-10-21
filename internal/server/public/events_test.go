@@ -18,7 +18,7 @@ func TestPublicEvents_StreamsStatusThenReconnects(t *testing.T) {
 	if got := next(); got != "connected" {
 		t.Fatalf("first public event %q", got)
 	}
-	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{Name: "Site web"}); err != nil {
+	if _, err := server.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: server.pageID, Name: "Site web"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := next(); got != "status" {
@@ -46,7 +46,7 @@ func TestPublicEvents_RefusesBeyondItsCap(t *testing.T) {
 		t.Fatalf("first event %q", got)
 	}
 	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/statut/api/events", nil))
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/statut/statut/api/events", nil))
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
 	}

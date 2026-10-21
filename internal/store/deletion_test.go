@@ -50,7 +50,7 @@ func insertTestHeartbeat(t *testing.T, db *DB, id, machineID string) {
 
 func insertTestComponent(t *testing.T, db *DB, id string, members ...status.Member) {
 	t.Helper()
-	if err := db.InsertComponent(context.Background(), status.Component{ID: id, Name: "Composant " + id, CreatedAt: linksNow, Members: members}); err != nil {
+	if err := db.InsertComponent(context.Background(), status.Component{ID: id, PageID: insertTestPage(t, db, "statut"), Name: "Composant " + id, CreatedAt: linksNow, Members: members}); err != nil {
 		t.Fatal(err)
 	}
 }

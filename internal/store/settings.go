@@ -11,7 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
-const settingsSelect = `SELECT language, status_title, status_announcement, status_language,
+const settingsSelect = `SELECT language,
 	disk_attention_percent, disk_danger_percent,
 	mail_host, mail_port, mail_tls, mail_username, mail_password, mail_from,
 	lifecycle_disabled
@@ -55,9 +55,9 @@ func (db *DB) UpdateSettings(ctx context.Context, change func(*settings.Settings
 
 func (db *DB) scanSettings(row scanner) (settings.Settings, error) {
 	var current settings.Settings
-	var language, statusLanguage string
+	var language string
 	var lifecycleDisabled int
-	err := row.Scan(&language, &current.StatusTitle, &current.StatusAnnouncement, &statusLanguage,
+	err := row.Scan(&language,
 		&current.DiskAttentionPercent, &current.DiskDangerPercent,
 		&current.MailHost, &current.MailPort, &current.MailTLS, &current.MailUsername, &current.MailPassword, &current.MailFrom,
 		&lifecycleDisabled)
@@ -69,7 +69,6 @@ func (db *DB) scanSettings(row scanner) (settings.Settings, error) {
 		return settings.Settings{}, err
 	}
 	current.Language = lang.Code(language)
-	current.StatusLanguage = lang.Code(statusLanguage)
 	current.LifecycleDisabled = lifecycleDisabled != 0
 	return current, nil
 }
@@ -81,16 +80,13 @@ func (db *DB) saveSettings(ctx context.Context, tx *sql.Tx, current settings.Set
 		return fmt.Errorf("seal mail password: %w", err)
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO settings (id, language, status_title, status_announcement, status_language,
+		INSERT INTO settings (id, language,
 			disk_attention_percent, disk_danger_percent,
 			mail_host, mail_port, mail_tls, mail_username, mail_password, mail_from,
 			lifecycle_disabled, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (id) DO UPDATE SET
 			language = excluded.language,
-			status_title = excluded.status_title,
-			status_announcement = excluded.status_announcement,
-			status_language = excluded.status_language,
 			disk_attention_percent = excluded.disk_attention_percent,
 			disk_danger_percent = excluded.disk_danger_percent,
 			mail_host = excluded.mail_host,
@@ -101,7 +97,7 @@ func (db *DB) saveSettings(ctx context.Context, tx *sql.Tx, current settings.Set
 			mail_from = excluded.mail_from,
 			lifecycle_disabled = excluded.lifecycle_disabled,
 			updated_at = excluded.updated_at`,
-		string(current.Language), current.StatusTitle, current.StatusAnnouncement, string(current.StatusLanguage),
+		string(current.Language),
 		current.DiskAttentionPercent, current.DiskDangerPercent,
 		current.MailHost, current.MailPort, current.MailTLS, current.MailUsername, mailPassword, current.MailFrom,
 		boolToInt(current.LifecycleDisabled), at.Unix())

@@ -19,8 +19,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testActor = manifest.Actor{Kind: manifest.ActorCLI, Name: "opencloud"}
@@ -378,8 +378,8 @@ func TestApply_PruneDeletesAndSaysWhatItCarries(t *testing.T) {
 func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
-	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{
+	statuses := status.New(b.db, b.db, b.machines, logger)
+	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})
 	if err != nil {
@@ -407,8 +407,8 @@ func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.
 	b, _ := seeded(t)
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
-	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{
+	statuses := status.New(b.db, b.db, b.machines, logger)
+	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
 		Name:    "Courrier",
 		Members: []status.MemberRef{{Kind: status.KindProbe, ID: "00000000000000c2"}, {Kind: status.KindHeartbeat, ID: "00000000000000d1"}},
 	})
@@ -432,6 +432,33 @@ func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.
 		t.Fatalf("le geste doit refuser de même: %v", err)
 	}
 	if err := b.heartbeats.Delete(ctx, "00000000000000d1"); !errors.Is(err, heartbeat.ErrShownOnStatus) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
+	}
+}
+
+// Un projet qui a sa page de statut ne se supprime pas par --prune : le
+// fichier ne porte pas les pages, il ne peut pas l'en détacher. Le plan le
+// refuse en nommant la page, comme le geste du domaine le refuserait.
+func TestPlan_PruneOfAProjectWithAStatusPageIsBlocked(t *testing.T) {
+	b, _ := seeded(t)
+	ctx := context.Background()
+	project, err := b.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "vitrine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err := status.New(b.db, b.db, b.machines, logger).CreatePage(ctx, status.PageDefinition{Slug: "vitrine", Title: "Vitrine", ProjectID: project.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPruneStatusPage)
+
+	for _, problem := range plan.Problems {
+		if problem.Key == manifest.KeyPruneStatusPage && (problem.Path != "vitrine" || problem.Value != "Vitrine") {
+			t.Errorf("the refusal must name the project and its page: %+v", problem)
+		}
+	}
+	if err := b.directory.DeleteProject(ctx, project.ID); !errors.Is(err, directory.ErrProjectHasStatusPage) {
 		t.Fatalf("le geste doit refuser de même: %v", err)
 	}
 }

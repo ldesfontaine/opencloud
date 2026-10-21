@@ -224,7 +224,7 @@ func (ts *testServer) seedContainers(t *testing.T) string {
 
 var (
 	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
-	shortID    = regexp.MustCompile(`"(id|machine_id)":"[0-9a-f]{16}"`)
+	shortID    = regexp.MustCompile(`"(id|machine_id|page_id)":"[0-9a-f]{16}"`)
 	tokenMask  = regexp.MustCompile(`oc[skar]?_[a-z2-7]{6}…`)
 	tokenValue = regexp.MustCompile(`oc[skar]?_[a-z2-7]{20,}`)
 	// Les familles de jetons MCP sont des identifiants de 16 hexadécimaux

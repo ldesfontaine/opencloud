@@ -12,8 +12,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 func (f *fixture) mute(t *testing.T, definition alert.MuteDefinition) alert.Mute {
@@ -231,9 +231,9 @@ func TestMaintenance_OfTheStatusPage_NoLongerMutes(t *testing.T) {
 	f := newFixture(t)
 	f.channel(t, "ops", alert.SeverityAttention, true)
 	ctx := context.Background()
-	page := status.New(f.db, f.db, f.machines, settings.New(f.db, discardLogger()), discardLogger())
+	page := status.New(f.db, f.db, f.machines, discardLogger())
 	page.SetClock(func() time.Time { return f.clock })
-	component, err := page.CreateComponent(ctx, status.ComponentDefinition{Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
+	component, err := page.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, f.db, "statut"), Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
 	if err != nil {
 		t.Fatal(err)
 	}

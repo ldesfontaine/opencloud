@@ -129,20 +129,26 @@ func (m *Manifest) describeDeletions(ctx context.Context, plan *Plan) error {
 		if change.Kind == KindProbe || change.Kind == KindHeartbeat {
 			change.Carries = historyCarries(found)
 		}
-		if names := blockingComponents(found); names != "" {
+		if names := blockingNames(found, deletion.KindComponents); names != "" {
 			plan.Problems = append(plan.Problems, Problem{Key: KeyPruneBlocked, Path: change.Name, Value: names})
+		}
+		if names := blockingNames(found, deletion.KindStatusPages); names != "" {
+			plan.Problems = append(plan.Problems, Problem{Key: KeyPruneStatusPage, Path: change.Name, Value: names})
 		}
 		plan.Changes[index] = *change
 	}
 	return nil
 }
 
-// deletionPlan rend le plan de suppression d'un objet que --prune retire. Un
-// projet n'en a pas besoin : rien ne le retient, ses liens sont déjà comptés.
+// deletionPlan rend le plan de suppression d'un objet que --prune retire.
+// Un projet n'est retenu que par sa page de statut, que le fichier ne porte
+// pas : comme un composant, elle se refuse dans le plan.
 func (m *Manifest) deletionPlan(ctx context.Context, change Change) (deletion.Plan, error) {
 	var found deletion.Plan
 	var err error
 	switch change.Kind {
+	case KindProject:
+		found, err = m.deps.Directory.DeleteProjectPlan(ctx, change.ID)
 	case KindProbe:
 		found, err = m.deps.Probes.DeletePlan(ctx, change.ID)
 	case KindHeartbeat:
@@ -166,12 +172,12 @@ func historyCarries(found deletion.Plan) []Carry {
 	return carries
 }
 
-// blockingComponents nomme les composants de statut qui retiennent la
-// suppression, vide s'il n'y en a pas.
-func blockingComponents(found deletion.Plan) string {
+// blockingNames nomme les objets de ce genre qui retiennent la suppression,
+// vide s'il n'y en a pas.
+func blockingNames(found deletion.Plan, kind deletion.Kind) string {
 	var names []string
 	for _, blocker := range found.Blockers {
-		if blocker.Kind != deletion.KindComponents {
+		if blocker.Kind != kind {
 			continue
 		}
 		for _, object := range blocker.Objects {

@@ -516,7 +516,7 @@ func TestAuthTransition_AStreamLapsesWhenTheAuthenticationChanges(t *testing.T) 
 		request := httptest.NewRequest(http.MethodGet, "/api/events", nil)
 		return request.WithContext(context.WithValue(request.Context(), authorizingStateKey{}, authorizing))
 	}
-	stream, publicStream := opened(), httptest.NewRequest(http.MethodGet, "/statut/api/events", nil)
+	stream, publicStream := opened(), httptest.NewRequest(http.MethodGet, "/statut/statut/api/events", nil)
 	if server.authorizationLapsed(stream) || server.authorizationLapsed(publicStream) {
 		t.Fatal("a stream lapsed with nothing changed")
 	}

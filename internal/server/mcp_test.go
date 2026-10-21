@@ -23,14 +23,14 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
-// Le catalogue, fermé : dix-neuf lectures, neuf écritures. Un outil ajouté
+// Le catalogue, fermé : vingt lectures, neuf écritures. Un outil ajouté
 // ou renommé casse ce test, c'est voulu.
 var (
 	mcpReadTools = []string{
 		"get_overview", "list_machines", "get_machine", "get_machine_network",
 		"list_containers", "get_container", "get_container_logs", "list_declared_services", "export_directory",
 		"list_jobs", "get_job", "list_probes", "get_probe",
-		"get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
+		"list_status_pages", "get_status_page", "list_incidents", "list_alerts", "get_alert", "list_alert_channels",
 		"list_audit",
 	}
 	mcpWriteTools = []string{
@@ -217,8 +217,9 @@ func TestMCP_ReadToolsMatchGoldenFilesAndLeakNoSecret(t *testing.T) {
 		"get_job":                {"job_id": jobID},
 		"list_probes":            {"machine_id": remoteID},
 		"get_probe":              {"probe_id": probeID},
+		"list_status_pages":      {},
 		"get_status_page":        {},
-		"list_incidents":         {"status": "resolved"},
+		"list_incidents":         {"status": "resolved", "page": seededSlug},
 		"list_alerts":            {},
 		"get_alert":              {"alert_id": alertID},
 		"list_alert_channels":    {},

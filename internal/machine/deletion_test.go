@@ -13,7 +13,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
@@ -33,7 +32,7 @@ func TestRemove_IsHeldBackByItsPlanThenPassesOnceDetached(t *testing.T) {
 	remote := storetest.EnrollMachine(t, machines, remoteID, "vps-paris-1")
 	probes := probe.New(db, logger)
 	jobs := heartbeat.New(db, logger)
-	pages := status.New(db, db, machines, settings.New(db, logger), logger)
+	pages := status.New(db, db, machines, logger)
 
 	watched, err := probes.Create(ctx, probe.Definition{Name: "site", Kind: probe.KindHTTP, Target: "https://a.fr/", MachineID: remote.ID})
 	if err != nil {
@@ -43,7 +42,7 @@ func TestRemove_IsHeldBackByItsPlanThenPassesOnceDetached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	component, err := pages.CreateComponent(ctx, status.ComponentDefinition{
+	component, err := pages.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, db, "statut"),
 		Name:    "Nuage",
 		Members: []status.MemberRef{{Kind: status.KindMachine, ID: remote.ID}, {Kind: status.KindProbe, ID: watched.ID}},
 	})

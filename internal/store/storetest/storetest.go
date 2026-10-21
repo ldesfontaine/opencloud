@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
+	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -72,6 +73,23 @@ func InsertProbe(t testing.TB, db *store.DB, id string, definition probe.Definit
 		t.Fatal(err)
 	}
 	return item
+}
+
+// StatusPage écrit une page de statut directement en base, sans projet, à
+// l'adresse /statut/<slug> ; rend son identifiant. Un composant naît sur une
+// page : les bancs qui en créent un commencent par elle. Le même slug rend la
+// page déjà écrite.
+func StatusPage(t testing.TB, db *store.DB, slug string) string {
+	t.Helper()
+	ctx := context.Background()
+	if found, err := db.GetPageBySlug(ctx, slug); err == nil {
+		return found.ID
+	}
+	page := status.Page{ID: "page_" + slug, Slug: slug, CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)}
+	if err := db.InsertPage(ctx, page); err != nil {
+		t.Fatal(err)
+	}
+	return page.ID
 }
 
 // EnsureLocalMachine déclare la machine openCloud par le service des

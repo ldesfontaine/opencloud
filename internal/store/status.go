@@ -15,8 +15,11 @@ import (
 func (db *DB) InsertComponent(ctx context.Context, component status.Component) error {
 	return db.inTx(ctx, "insert component", func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
-		INSERT INTO status_components (id, name, position, created_at) VALUES (?, ?, ?, ?)`,
-			component.ID, component.Name, component.Position, component.CreatedAt.Unix())
+		INSERT INTO status_components (id, page_id, name, position, created_at) VALUES (?, ?, ?, ?, ?)`,
+			component.ID, component.PageID, component.Name, component.Position, component.CreatedAt.Unix())
+		if isConstraintViolation(err) {
+			return status.ErrPageInvalid
+		}
 		if err != nil {
 			return fmt.Errorf("insert component: %w", err)
 		}
@@ -91,8 +94,20 @@ func isConstraintViolation(err error) bool {
 	return isUniqueViolation(err)
 }
 
-func (db *DB) ListComponents(ctx context.Context) ([]status.Component, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT id, name, position, created_at FROM status_components ORDER BY position, name, id`)
+const componentColumns = `id, page_id, name, position, created_at`
+
+// ListComponents rend les composants d'une page, ou de toutes quand pageID
+// est vide ; les membres se lisent sur le même filtre.
+func (db *DB) ListComponents(ctx context.Context, pageID string) ([]status.Component, error) {
+	var where, members string
+	var args []any
+	if pageID != "" {
+		where = ` WHERE page_id = ?`
+		members = `WHERE component_id IN (SELECT id FROM status_components WHERE page_id = ?)`
+		args = append(args, pageID)
+	}
+	query := `SELECT ` + componentColumns + ` FROM status_components` + where + ` ORDER BY position, name, id` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list components: %w", err)
 	}
@@ -100,14 +115,14 @@ func (db *DB) ListComponents(ctx context.Context) ([]status.Component, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.attachMembers(ctx, components, ``, nil); err != nil {
+	if err := db.attachMembers(ctx, components, members, args); err != nil {
 		return nil, err
 	}
 	return components, nil
 }
 
 func (db *DB) GetComponent(ctx context.Context, id string) (status.Component, error) {
-	component, err := scanComponent(db.sql.QueryRowContext(ctx, `SELECT id, name, position, created_at FROM status_components WHERE id = ?`, id))
+	component, err := scanComponent(db.sql.QueryRowContext(ctx, `SELECT `+componentColumns+` FROM status_components WHERE id = ?`, id))
 	if err != nil {
 		return status.Component{}, err
 	}
@@ -121,7 +136,7 @@ func (db *DB) GetComponent(ctx context.Context, id string) (status.Component, er
 func scanComponent(row scanner) (status.Component, error) {
 	var component status.Component
 	var createdAt int64
-	err := row.Scan(&component.ID, &component.Name, &component.Position, &createdAt)
+	err := row.Scan(&component.ID, &component.PageID, &component.Name, &component.Position, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return status.Component{}, status.ErrNotFound
 	}
@@ -193,9 +208,11 @@ func (db *DB) DeleteComponent(ctx context.Context, id string) error {
 	return notFoundIfNoRow(result, status.ErrNotFound)
 }
 
-func (db *DB) CountComponents(ctx context.Context) (int, error) {
+// CountComponents compte les composants d'une page : le plafond vaut par
+// page.
+func (db *DB) CountComponents(ctx context.Context, pageID string) (int, error) {
 	var count int
-	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM status_components`).Scan(&count); err != nil {
+	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM status_components WHERE page_id = ?`, pageID).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count components: %w", err)
 	}
 	return count, nil

@@ -19,7 +19,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 		"vps-paris-1", "51.15.20.114", servertest.RemoteID, `"local"`,
 		"nextcloud", "cloud.exemple.fr", "sauvegarde", "hb_",
 	}
-	for _, path := range []string{"/statut/api/status", "/statut/api/i18n", "/statut"} {
+	for _, path := range []string{"/statut/statut/api/status", "/statut/statut/api/i18n", "/statut/statut"} {
 		recorder := server.get(path)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s: status %d", path, recorder.Code)
@@ -31,7 +31,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 			}
 		}
 	}
-	body := server.get("/statut/api/status").Body.String()
+	body := server.get("/statut/statut/api/status").Body.String()
 	for _, expected := range []string{`"Nuage"`, `"Le nuage ne répond plus"`, `"Statut de la maison"`, `"global":"down"`} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("public status lacks %s", expected)
@@ -43,7 +43,7 @@ func TestStatusPublic_LeaksNothingOfTheObjects(t *testing.T) {
 // incident s'écrit [] et non null.
 func TestStatusPublic_KeepsTheJSONShapeTheFrontReads(t *testing.T) {
 	server := newBench(t)
-	recorder := server.get("/statut/api/status")
+	recorder := server.get("/statut/statut/api/status")
 	if recorder.Code != http.StatusOK || recorder.Header().Get("Content-Type") != "application/json" || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("%d %q %q", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Header().Get("Cache-Control"))
 	}

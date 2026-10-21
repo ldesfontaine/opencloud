@@ -9,8 +9,8 @@ import type {
   PublicIncident,
   StatusComponent,
   StatusComponentRequest,
+  StatusPage,
   StatusPageRequest,
-  StatusPageSettings,
   StatusState,
 } from "../api/status";
 import type { Tone } from "./tone";
@@ -214,7 +214,9 @@ export interface MemberChoice {
   id: string;
 }
 
+// La page se choisit à la création : un composant ne change plus de page.
 export interface ComponentFormValues {
+  pageID: string;
   name: string;
   position: string;
   members: MemberChoice[];
@@ -222,14 +224,15 @@ export interface ComponentFormValues {
 
 // Une fonction, pas une constante : la liste ne se partage pas entre deux
 // formulaires.
-export function emptyComponentForm(): ComponentFormValues {
-  return { name: "", position: "0", members: [] };
+export function emptyComponentForm(pageID: string): ComponentFormValues {
+  return { pageID, name: "", position: "0", members: [] };
 }
 
 // Le formulaire ne garde des objets que le genre et l'identifiant : leur
 // nom et leur état se relisent à chaque rendu.
 export function componentFormOf(component: StatusComponent): ComponentFormValues {
   return {
+    pageID: component.page_id,
     name: component.name,
     position: String(component.position),
     members: component.members.map((member) => ({ kind: member.kind, id: member.id })),
@@ -237,13 +240,57 @@ export function componentFormOf(component: StatusComponent): ComponentFormValues
 }
 
 export function componentRequestOf(values: ComponentFormValues): StatusComponentRequest {
-  return { name: values.name, position: Number(values.position), members: values.members };
+  return { page_id: values.pageID, name: values.name, position: Number(values.position), members: values.members };
 }
 
-// Le formulaire des réglages de la page est aussi le corps de leur
-// enregistrement : le titre, l'annonce, la langue.
-export const emptyStatusPageForm: StatusPageRequest = { title: "", announcement: "", language: "" };
+// Le formulaire d'une page est aussi le corps de son enregistrement :
+// l'adresse, le titre, l'annonce, la langue, le projet (vide : aucun).
+export const emptyStatusPageForm: StatusPageRequest = { slug: "", title: "", announcement: "", language: "", project_id: "" };
 
-export function statusPageFormOf(settings: StatusPageSettings): StatusPageRequest {
-  return { title: settings.title, announcement: settings.announcement, language: settings.language };
+export function statusPageFormOf(page: StatusPage): StatusPageRequest {
+  return { slug: page.slug, title: page.title, announcement: page.announcement, language: page.language, project_id: page.project_id };
+}
+
+// Le nom d'une page dans une liste : son titre, sinon son adresse.
+export function pageName(page: Pick<StatusPage, "title" | "slug">): string {
+  return page.title !== "" ? page.title : page.slug;
+}
+
+// Le nom d'un composant à cocher pour un incident : avec sa page dès qu'il y
+// en a plusieurs, deux pages pouvant avoir chacune leur « Site web ».
+export function componentChoiceLabel(component: Pick<StatusComponent, "name" | "page_id">, pages: readonly StatusPage[]): string {
+  if (pages.length < 2) {
+    return component.name;
+  }
+  const page = pages.find((candidate) => candidate.id === component.page_id);
+  return page === undefined ? component.name : `${pageName(page)} · ${component.name}`;
+}
+
+// La page dont l'écran des composants montre les composants : celle que
+// l'adresse demande si elle existe, sinon la première ; aucune sans page.
+export function chosenPageID(pages: readonly Pick<StatusPage, "id">[], requested: string | null): string | null {
+  if (requested !== null && pages.some((page) => page.id === requested)) {
+    return requested;
+  }
+  return pages[0]?.id ?? null;
+}
+
+// Les chemins que lit une page publique, tirés de son adresse
+// /statut/<slug> (barre finale admise) ; null pour une autre adresse. Le
+// slug n'a besoin d'aucun échappement : minuscules, chiffres et tirets.
+export interface PublicStatusPaths {
+  status: string;
+  catalog: string;
+  events: string;
+}
+
+const publicPagePattern = /^\/statut\/([a-z0-9][a-z0-9-]*)\/?$/;
+
+export function publicStatusPaths(pathname: string): PublicStatusPaths | null {
+  const match = publicPagePattern.exec(pathname);
+  if (match === null) {
+    return null;
+  }
+  const base = `/statut/${match[1]}/api`;
+  return { status: `${base}/status`, catalog: `${base}/i18n`, events: `${base}/events` };
 }
