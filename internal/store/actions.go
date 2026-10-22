@@ -33,11 +33,11 @@ func (db *DB) InsertRun(ctx context.Context, run action.Run) (action.Run, error)
 			return fmt.Errorf("read order seq: %w", err)
 		}
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO action_runs (id, action, params, machine_id, machine_name, agent_id, state,
+			INSERT INTO action_runs (id, action, params, machine_id, machine_name, agent_id, service_id, state,
 				not_after, seq, requested_by, requested_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			run.ID, string(run.Kind), paramsText(run.Params), run.MachineID, run.MachineName, run.AgentID,
-			string(run.State), run.NotAfter.Unix(), run.Seq, run.RequestedBy, run.RequestedAt.Unix())
+			nullableString(run.ServiceID), string(run.State), run.NotAfter.Unix(), run.Seq, run.RequestedBy, run.RequestedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert run: %w", err)
 		}
@@ -233,8 +233,7 @@ func (db *DB) PurgeRuns(ctx context.Context, before time.Time) error {
 // au plus ancien, avec leur sortie.
 func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT id, action, params, COALESCE(machine_id, ''), machine_name, COALESCE(agent_id, ''), state,
-			refusal_reason, not_after, seq, requested_by, requested_at, finished_at
+		SELECT `+runColumns+`
 		FROM action_runs
 		WHERE (? = '' OR machine_id = ?)
 		ORDER BY requested_at DESC, id DESC
@@ -256,9 +255,7 @@ func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.
 // n'existe plus (la purge des runs l'a emporté).
 func (db *DB) GetActionRun(ctx context.Context, id string) (action.Run, error) {
 	run, err := scanActionRun(db.sql.QueryRowContext(ctx, `
-		SELECT id, action, params, COALESCE(machine_id, ''), machine_name, COALESCE(agent_id, ''), state,
-			refusal_reason, not_after, seq, requested_by, requested_at, finished_at
-		FROM action_runs WHERE id = ?`, id))
+		SELECT `+runColumns+` FROM action_runs WHERE id = ?`, id))
 	if err != nil {
 		return action.Run{}, fmt.Errorf("get run: %w", err)
 	}
@@ -269,12 +266,57 @@ func (db *DB) GetActionRun(ctx context.Context, id string) (action.Run, error) {
 	return runs[0], nil
 }
 
+// runColumns : ce que scanActionRun lit d'un run, dans son ordre.
+const runColumns = `id, action, params, COALESCE(machine_id, ''), machine_name, COALESCE(agent_id, ''),
+	COALESCE(service_id, ''), state, refusal_reason, not_after, seq, requested_by, requested_at, finished_at`
+
+// LastServiceRun rend le dernier ordre d'un de ces genres qui vise ce
+// service, quel que soit son état ; faux s'il n'y en a aucun.
+func (db *DB) LastServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error) {
+	return db.lastServiceRun(ctx, serviceID, kinds, "")
+}
+
+// LastWrittenServiceRun rend le dernier ordre qui a écrit le dossier du
+// service sur la machine : un qui a réussi, ou un qui a écrit le dossier puis
+// vu Compose échouer (le dossier existe alors, et le redéploiement le
+// reprend). Faux s'il n'y en a aucun.
+func (db *DB) LastWrittenServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error) {
+	return db.lastServiceRun(ctx, serviceID, kinds, ` AND (state = 'succeeded' OR (state = 'failed' AND refusal_reason = 'compose_failed'))`)
+}
+
+// lastServiceRun : narrowing est une condition fixe du code (jamais une valeur
+// reçue), les valeurs sont liées.
+func (db *DB) lastServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind, narrowing string) (action.Run, bool, error) {
+	if len(kinds) == 0 {
+		return action.Run{}, false, nil
+	}
+	args := []any{serviceID}
+	for _, kind := range kinds {
+		args = append(args, string(kind))
+	}
+	query := `SELECT ` + runColumns + ` FROM action_runs
+		WHERE service_id = ? AND action IN (` + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)` + narrowing + `
+		ORDER BY requested_at DESC, id DESC LIMIT 1` // #nosec G202 -- des conditions fixes, les valeurs sont liées.
+	run, err := scanActionRun(db.sql.QueryRowContext(ctx, query, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return action.Run{}, false, nil
+	}
+	if err != nil {
+		return action.Run{}, false, fmt.Errorf("last service run: %w", err)
+	}
+	runs := []action.Run{run}
+	if err := attachRunLogs(ctx, db.sql, runs); err != nil {
+		return action.Run{}, false, err
+	}
+	return runs[0], true, nil
+}
+
 func scanActionRun(row scanner) (action.Run, error) {
 	var run action.Run
 	var kind, params, state string
 	var notAfter, requestedAt int64
 	var finishedAt sql.NullInt64
-	err := row.Scan(&run.ID, &kind, &params, &run.MachineID, &run.MachineName, &run.AgentID, &state,
+	err := row.Scan(&run.ID, &kind, &params, &run.MachineID, &run.MachineName, &run.AgentID, &run.ServiceID, &state,
 		&run.Reason, &notAfter, &run.Seq, &run.RequestedBy, &requestedAt, &finishedAt)
 	if err != nil {
 		return action.Run{}, err

@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -39,6 +40,7 @@ type components struct {
 	db          *store.DB
 	actions     *action.Service
 	backups     *backup.Service
+	deployer    *deploy.Service
 	logger      *slog.Logger
 	preferences *settings.Service
 	machines    *machine.Service
@@ -135,6 +137,8 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	backups := backup.New(db, machines, stateDir, logger)
 	backups.SetSender(actions)
 	backups.SetAuditor(journal)
+	// Le déploiement des services déclarés part par les mêmes ordres signés.
+	deployer := deploy.New(db, machines, db, actions, logger)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. La machine openCloud lit endoflife.date une fois par jour,
 	// deux au plus, pour les produits des images présentes et les systèmes
@@ -151,7 +155,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
-		support: support, manifests: manifests, actions: actions, backups: backups,
+		support: support, manifests: manifests, actions: actions, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -179,6 +183,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		Auth:           c.operator,
 		Actions:        c.actions,
 		Backups:        c.backups,
+		Deploy:         c.deployer,
 		PublicURL:      cfg.PublicURL,
 		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),

@@ -299,6 +299,7 @@ func unitOf(id, serviceID string, definition UnitDefinition) Unit {
 		ContainerName: definition.ContainerName,
 		SystemdUnit:   definition.SystemdUnit,
 		Ports:         definition.Ports,
+		DataPath:      definition.DataPath,
 		UpdatePolicy:  definition.UpdatePolicy,
 	}
 }

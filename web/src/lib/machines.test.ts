@@ -46,7 +46,10 @@ test("rightsFormOf : les droits d'un agent reviennent cochés, chemins compris, 
   expect(capabilitiesOf(values)).toEqual(requested.slice(1));
 });
 
-test("unitWritePaths : seul le droit de recevoir des sauvegardes écrit hors de l'état", () => {
+test("unitWritePaths : les droits de sauvegarde et de déploiement écrivent hors de l'état", () => {
+  expect(unitWritePaths([{ name: "docker.deploy", paths: [] }])).toEqual(["/srv/workspace"]);
+  expect(unitWritePaths([{ name: "docker.update", paths: [] }, { name: "backup.receive", paths: ["/srv/backups"] }])).toEqual(["/srv/backups", "/srv/workspace"]);
+  expect(unitWritePaths([{ name: "docker.deploy", paths: [] }, { name: "backup.receive", paths: ["/srv/workspace"] }])).toEqual(["/srv/workspace"]);
   expect(unitWritePaths([{ name: "agent.update", paths: [] }, { name: "backup.receive", paths: ["/srv/backups"] }])).toEqual(["/srv/backups"]);
   expect(unitWritePaths([{ name: "files.write", paths: ["/srv/a"] }])).toEqual([]);
   expect(unitWritePaths([])).toEqual([]);

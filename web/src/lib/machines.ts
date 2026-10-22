@@ -54,10 +54,20 @@ export function tokenPageState(token: TokenResponse, rights: Capability[]): Toke
   return { ...token, rights };
 }
 
-// Les dossiers où l'agent écrit pour recevoir des sauvegardes : hors de son
-// état, que son unité systemd ne laisse pas écrire sans ReadWritePaths.
+// La racine des services qu'un agent déploie quand on ne lui en donne pas
+// d'autre : brand.WorkspaceRoot côté Go (-root-dir).
+export const workspaceRoot = "/srv/workspace";
+
+// Les dossiers où l'agent écrit hors de son état, que son unité systemd ne
+// laisse pas écrire sans ReadWritePaths : celui des sauvegardes reçues, et la
+// racine des services dès qu'il déploie ou redéploie.
 export function unitWritePaths(rights: Capability[]): string[] {
-  return rights.find((capability) => capability.name === "backup.receive")?.paths ?? [];
+  const paths = [...(rights.find((capability) => capability.name === "backup.receive")?.paths ?? [])];
+  const deploys = rights.some((capability) => capability.name === "docker.deploy" || capability.name === "docker.update");
+  if (deploys && !paths.includes(workspaceRoot)) {
+    paths.push(workspaceRoot);
+  }
+  return paths;
 }
 
 // Le fichier à poser dans le dossier drop-in de l'unité de l'agent.

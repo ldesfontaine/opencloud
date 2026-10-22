@@ -30,7 +30,10 @@ type actionRunJSON struct {
 	MachineID   *string         `json:"machine_id"`
 	MachineName string          `json:"machine_name"`
 	AgentID     *string         `json:"agent_id"`
-	State       string          `json:"state"`
+	// Le service déclaré qu'un ordre de déploiement vise ; null pour les
+	// autres.
+	ServiceID *string `json:"service_id"`
+	State     string  `json:"state"`
 	// Pourquoi l'ordre n'a pas abouti : la raison de l'agent, ou
 	// « undelivered » ; vide sinon.
 	Reason      string        `json:"reason"`
@@ -70,7 +73,8 @@ func actionRunToJSON(run action.Run) actionRunJSON {
 	return actionRunJSON{
 		ID: run.ID, Kind: string(run.Kind), Params: params,
 		MachineID: stringOrNil(run.MachineID), MachineName: run.MachineName, AgentID: stringOrNil(run.AgentID),
-		State: string(run.State), Reason: run.Reason, Seq: run.Seq,
+		ServiceID: stringOrNil(run.ServiceID),
+		State:     string(run.State), Reason: run.Reason, Seq: run.Seq,
 		RequestedBy: run.RequestedBy, RequestedAt: run.RequestedAt.UTC(), NotAfter: run.NotAfter.UTC(),
 		FinishedAt: httpx.TimeOrNil(run.FinishedAt),
 		Output:     httpx.ConvertAll(run.Output, runLineToJSON),

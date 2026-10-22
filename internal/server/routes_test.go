@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -206,6 +207,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	backups.SetParcels(outbox)
 	backups.SetWatcher(bus)
 	backups.SetAuditor(journal)
+	deployer := deploy.New(db, machines, db, actions, logger)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -227,6 +229,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Auth:       operator,
 		Actions:    actions,
 		Backups:    backups,
+		Deploy:     deployer,
 		Live:       bus,
 		PublicLive: publicBus,
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte

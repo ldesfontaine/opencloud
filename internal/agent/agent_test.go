@@ -197,11 +197,16 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 	}
 	options := b.options(token)
 	options.Rights = rights
+	options.RootDir = "/srv/apps"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, options) }()
 	reported := b.waitFor(t, "vps-lyon-2", func(s machine.Status) bool { return !s.Agent.ReportedAt.IsZero() })
+	// La racine des services part avec les droits, dans l'en-tête du flux.
+	if reported.Agent.RootDir != "/srv/apps" {
+		t.Fatalf("reported root %q", reported.Agent.RootDir)
+	}
 	if machine.FormatCapabilities(reported.Agent.Capabilities) != "observe,agent.update,files.write=/srv/workspace" || !reported.Agent.CapabilitiesDiffer() {
 		t.Fatalf("reported %+v", reported.Agent)
 	}

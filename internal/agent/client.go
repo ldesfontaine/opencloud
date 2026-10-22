@@ -89,6 +89,14 @@ type Client struct {
 	system string
 	// Les droits du fichier de l'agent, redits à chaque ouverture du flux.
 	rights string
+	// La racine des services du fichier de l'agent, redite de même.
+	root string
+}
+
+// SetRoot fixe la racine des services que l'agent rapporte à l'ouverture du
+// flux : celle de son fichier.
+func (c *Client) SetRoot(root string) {
+	c.root = root
 }
 
 // SetCapabilities fixe les droits que l'agent rapporte à l'ouverture du
@@ -235,6 +243,9 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	}
 	if fingerprint := identity.ServerKeyFingerprint(); fingerprint != "" {
 		request.Header.Set(agentwire.HeaderServerKey, fingerprint)
+	}
+	if c.root != "" {
+		request.Header.Set(agentwire.HeaderAgentRoot, c.root)
 	}
 	request.Header.Set("Accept", "text/event-stream")
 

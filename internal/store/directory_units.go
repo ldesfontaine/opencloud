@@ -11,7 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 )
 
-const unitColumns = `id, service_id, name, kind, image, version, digest, container_name, systemd_unit, ports, update_policy`
+const unitColumns = `id, service_id, name, kind, image, version, digest, container_name, systemd_unit, ports, data_path, update_policy`
 
 // rewriteUnits garde les unités dont l'identifiant est donné, supprime les
 // autres, crée les nouvelles. Le nom d'une unité est unique dans son
@@ -95,10 +95,10 @@ func insertUnit(ctx context.Context, tx *sql.Tx, unit directory.Unit, position i
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO service_units (id, service_id, name, kind, image, version, digest,
-			container_name, systemd_unit, ports, update_policy, position)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			container_name, systemd_unit, ports, data_path, update_policy, position)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		unit.ID, unit.ServiceID, unit.Name, string(unit.Kind), unit.Image, unit.Version, unit.Digest,
-		unit.ContainerName, unit.SystemdUnit, ports, string(unit.UpdatePolicy), position)
+		unit.ContainerName, unit.SystemdUnit, ports, unit.DataPath, string(unit.UpdatePolicy), position)
 	if err != nil {
 		return fmt.Errorf("insert unit: %w", err)
 	}
@@ -112,10 +112,10 @@ func updateUnit(ctx context.Context, tx *sql.Tx, unit directory.Unit, position i
 	}
 	_, err = tx.ExecContext(ctx, `
 		UPDATE service_units SET name = ?, kind = ?, image = ?, version = ?, digest = ?,
-			container_name = ?, systemd_unit = ?, ports = ?, update_policy = ?, position = ?
+			container_name = ?, systemd_unit = ?, ports = ?, data_path = ?, update_policy = ?, position = ?
 		WHERE id = ?`,
 		unit.Name, string(unit.Kind), unit.Image, unit.Version, unit.Digest,
-		unit.ContainerName, unit.SystemdUnit, ports, string(unit.UpdatePolicy), position, unit.ID)
+		unit.ContainerName, unit.SystemdUnit, ports, unit.DataPath, string(unit.UpdatePolicy), position, unit.ID)
 	if err != nil {
 		return fmt.Errorf("update unit: %w", err)
 	}
@@ -136,7 +136,7 @@ func scanUnit(row scanner) (directory.Unit, error) {
 	var unit directory.Unit
 	var kind, ports, policy string
 	err := row.Scan(&unit.ID, &unit.ServiceID, &unit.Name, &kind, &unit.Image, &unit.Version, &unit.Digest,
-		&unit.ContainerName, &unit.SystemdUnit, &ports, &policy)
+		&unit.ContainerName, &unit.SystemdUnit, &ports, &unit.DataPath, &policy)
 	if err != nil {
 		return directory.Unit{}, err
 	}

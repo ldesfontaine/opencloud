@@ -9,7 +9,7 @@ import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
 import type { DeletionCount, DeletionPlan } from "./deletion";
-import type { DeclaredServiceDetail, DeclaredServicesResponse, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
+import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
 import type { Agent, Capability, Machine, MachinesResponse } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
@@ -447,6 +447,7 @@ const serviceUnit = shape<DeclaredServiceJSON["units"][number]>("ServiceUnit", {
   container_name: value,
   systemd_unit: value,
   ports: value,
+  data_path: value,
   update_policy: value,
 });
 
@@ -551,6 +552,7 @@ const proposal = shape<ProposalResponse>("ProposalResponse", {
       container_name: value,
       systemd_unit: value,
       ports: value,
+      data_path: value,
       update_policy: optional(value),
     }),
   }),
@@ -706,6 +708,7 @@ const actionRun = shape<ActionRun>("ActionRun", {
   machine_id: value,
   machine_name: value,
   agent_id: value,
+  service_id: value,
   state: value,
   reason: value,
   seq: value,
@@ -724,6 +727,19 @@ const agentUpdateOffer = shape<AgentUpdateOffer>("AgentUpdateOffer", {
   arch: value,
   available: value,
   reason: value,
+});
+
+const deployPlan = shape<DeployPlan>("DeployPlan", {
+  service_id: value,
+  machine_id: value,
+  machine_name: value,
+  root_dir: value,
+  path: value,
+  deployed: value,
+  right: value,
+  compose: value,
+  data_dirs: value,
+  last_run: actionRun,
 });
 
 const backups = shape<Backups>("Backups", {
@@ -775,6 +791,8 @@ const contract: Record<string, Shape<unknown>> = {
   "counts.golden.json": counts,
   "declared_service.golden.json": declaredService,
   "declared_services.golden.json": declaredServices,
+  "deploy_plan.golden.json": deployPlan,
+  "deploy_plan_sent.golden.json": deployPlan,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
   "history.golden.json": history,

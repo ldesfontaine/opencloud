@@ -282,8 +282,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
 | `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire |
-| `docker.deploy` | — | Déployer un service Compose |
-| `docker.update` | — | Mettre à jour l'image d'un service |
+| `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
+| `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
 
@@ -325,8 +325,10 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   symbolique sur le chemin demandé est refusé de même. Écrire ailleurs que dans son état demande
   aussi à l'unité systemd de l'agent (`ReadWritePaths=`) : sans elle l'agent
   répond `path_unwritable`, et la page du jeton donne le fichier à poser.
-  `files.write` se jugera de même avec l'ordre qui nomme un chemin ; aucun
-  n'existe encore.
+  Les ordres de déploiement n'ont pas de chemin dans le droit : la racine
+  des services est celle de l'agent (`-root-dir`), et l'unité doit l'autoriser
+  aussi. `files.write` se jugera comme `backup.receive` avec l'ordre qui nomme
+  un chemin ; aucun n'existe encore.
 - **Le serveur n'envoie pas ce qu'il sait refusé** : un ordre dont l'agent a
   rapporté ses droits sans celui-là est refusé tout de suite,
   `409 action.right_missing`, sans run ni journal. Tant que l'agent n'a rien
@@ -384,7 +386,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 
 | | Commandes d'observation | Ordres |
 | --- | --- | --- |
-| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). Les autres gestes (`docker.deploy`…) viendront avec #153 étape 5 |
+| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). `docker.deploy` et `docker.update`, les ordres longs du déploiement (« Comment un service se déploie »). Les autres gestes (`files.write`…) viendront avec #153 étape 5 |
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
@@ -446,8 +448,8 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 | --- | --- | --- |
 | `queued` | le serveur, à l'écriture | non |
 | `sent` | le serveur, juste avant de pousser | non |
-| `accepted` | l'agent, quand un ordre dure (`backup.receive`, `backup.prune`) | non |
-| `refused` | l'agent, avec sa raison | oui |
+| `accepted` | l'agent, quand un ordre dure (`backup.receive`, `backup.prune`, `docker.deploy`, `docker.update`) | non |
+| `refused` | l'agent, avec sa raison ; aussi après `accepted` pour un déploiement que le worker arrête avant d'écrire (dossier, racine, prérequis) : rien n'a changé sur la machine | oui |
 | `succeeded`, `failed` | l'agent ; `failed` aussi par le serveur (`undelivered`, `timeout`) | oui |
 | `expired` | la boucle des ordres, après `not_after` | oui |
 
@@ -478,9 +480,9 @@ mécanisme sert aussi à `agent.update`, qui y trouve le binaire et sa signature
 au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
 `action_runs.params`, ni dans le journal d'audit, ni dans un journal `slog`.
 `action.SendWithSecret(…, secret, label)` l'envoie ; l'audit `action.order`
-porte seulement `<label>: sent` (le futur `.env` d'un déploiement : `env:
+porte seulement `<label>: sent` (le `.env` d'un déploiement : `env:
 sent`). L'agent le garde dans le corps jugé et le passe à l'exécuteur du genre,
-rien d'autre. Aucun genre ne le lit encore.
+rien d'autre. Seuls `docker.deploy` et `docker.update` le lisent.
 
 **La clé du serveur.** `server.key` (Ed25519) naît au premier démarrage de
 `serve`, à côté de `secret.key`, sous les mêmes règles (« Ce qui est stocké,
@@ -532,7 +534,7 @@ d'une machine, relue sur le sujet du direct `actions`.
 Chaque nuit, `serve` prend un instantané cohérent de sa base, l'emballe avec
 ses deux clés, le chiffre pour une clé publique, et l'envoie à l'agent d'une
 **autre machine**. Il n'en garde aucune copie. Seule la base est sauvegardée
-ici ; les services (`data/`, `.env`) viendront avec le déploiement.
+ici ; le `data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
 
 | | |
 | --- | --- |
@@ -594,6 +596,114 @@ que les sauvegardes. Qui a la machine openCloud n'a pas besoin des
 sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
 avoir deux est à la charge de l'opérateur (huit au plus, un plan pour
 l'instant).
+
+## Comment un service se déploie
+
+Depuis la fiche d'un service déclaré d'origine **Compose**, l'opérateur
+**déploie** (la première fois) puis **redéploie** (versions changées, `.env`
+remplacé) le service sur sa machine. openCloud écrit le `compose.yml` qu'il
+**génère** de l'annuaire, et l'`.env` qu'il transmet une fois sans le garder,
+dans `<racine de l'agent>/<projet>/`, puis l'agent lance `docker compose up -d`.
+L'état du service se lit comme avant, par le rapport des conteneurs
+(rattachement par label, niveau 1).
+
+| | |
+| --- | --- |
+| Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus |
+| Qui décide « Déployer » ou « Redéployer » | Le dernier ordre de ce service qui a **écrit le dossier** sur la machine (`action_runs.service_id`) : réussi, ou échoué en `compose_failed` (Compose a échoué après l'écriture, le dossier est là). `deployed` du plan est vrai alors. Un refus de l'agent, un échec avant l'écriture ou un ordre expiré ne comptent pas |
+| Le `compose.yml` | **Généré**, jamais saisi, déterministe : le même annuaire donne le même texte. Il est **réécrit à chaque** (re)déploiement : une retouche faite à la main sur la machine est perdue |
+| Le dossier de données | Un champ de l'unité, `data_path` (chemin absolu **dans le conteneur**, facultatif, un par unité) : `./data/<unité>:<data_path>`. Jamais de volume nommé. L'agent crée `data/<unité>` en `0755`, root ; l'UID du conteneur reste à régler à la main. `data_path` s'exporte et s'applique (`data_path:` sous l'unité) |
+| Le `.env` | **Write-only** : facultatif, 64 Kio au plus, UTF-8 sans octet nul, saisi dans la boîte de confirmation, signé dans `OrderBody.Secret` (`{"env": "…"}`), écrit par l'agent en `0600`. Jamais stocké, jamais journalisé : l'audit dit `env: sent`, `action_runs.params` dit `"env_sent": true`. Absent au déploiement : aucun `.env`. Vide au redéploiement : celui de la machine reste. Pas de relecture dans cette version |
+| La racine | Celle de l'agent : `-root-dir` au premier lancement (défaut `/srv/workspace`, `brand.WorkspaceRoot`), gardée dans `identity.json`, redite à chaque ouverture du flux (`OpenCloud-Agent-Root`) et notée dans `agents.root_dir`. **L'ordre ne porte que le nom du projet** : l'agent calcule le chemin lui-même. Racine absente : créée `0755` avec le fichier témoin `.opencloud` ; existante, non vide et sans témoin : `root_not_ours` |
+| Ce que l'agent vérifie | Dans l'ordre : le nom du projet et ceux des unités (rejugés par les mêmes expressions que l'annuaire) ; le `compose.yml` lui-même (`agentwire.CheckCompose`) : l'agent le relit, en tire image, ports et dossier de données, le **rend à nouveau** par le même code que le serveur (`agentwire.RenderCompose`, chaque valeur rejugée) et compare les octets ; un fichier qui diffère (une clé de plus comme `privileged`, `network_mode`, `cap_add`, `pid`, un montage autre que `./data/<unité>:<chemin>`, une ancre, une balise, un commentaire, un `$` que Compose interpolerait, un autre projet ou service, des dossiers de données qui ne sont pas ceux de l'ordre) est refusé `bad_order` avant d'être accepté : un ordre signé ne fait pas monter l'hôte ; la racine, le dossier (existe ou non selon l'ordre ; un lien symbolique est refusé), `/usr/bin/docker` exécutable (`docker_missing`), `docker compose version --short` au moins 2.24.0 (`compose_too_old`), au moins 2 Gio libres sous la racine (`disk_full`) |
+| Ce que l'agent écrit | Par un `os.Root` ouvert sur la racine, jamais en suivant un lien : `compose.yml` en `0644`, `.env` en `0600`, chacun atomique (fichier temporaire exclusif, `fsync`, renommage, `fsync` du dossier). Un premier déploiement refusé ou échoué avant Compose retire le dossier qu'il vient de créer ; après `compose_failed`, il reste |
+| Ce que l'agent lance | `/usr/bin/docker compose --project-directory <dossier> -f <dossier>/compose.yml -p <projet> up -d --remove-orphans --pull missing`, programme constant, arguments en liste (jamais de shell ; le projet ne commence jamais par `-`), `-p` pour qu'un `COMPOSE_PROJECT_NAME` posé dans l'`.env` ne fasse pas viser (ni nettoyer par `--remove-orphans`) un autre projet, environnement **remplacé** (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`, `HOME=/root` pour les identifiants des registres), dix minutes au plus |
+| La sortie | Les 58 dernières lignes de Compose (stdout et stderr entrelacés, 4 Kio par ligne, caractères de contrôle retirés), **les valeurs de l'`.env` masquées** (`[.env]`, celui de l'ordre ou, au redéploiement sans `.env`, celui de la machine ; une valeur de moins de 6 octets ne l'est pas, une valeur coupée par la borne de 4 Kio peut l'être à moitié) : Compose cite une ligne de l'`.env` dans ses erreurs de syntaxe ; plus au plus 6 lignes de l'agent : un résultat porte 64 lignes au plus, au-delà le serveur écarterait toute la section. Elle va dans `run_logs` et s'affiche sous le dernier ordre. Code de sortie ≠ 0 : `failed`, raison `compose_failed` ; un prérequis manquant : `refused` (après `accepted`), avec sa raison |
+
+Le fichier généré pour un service `nextcloud` de deux unités, dont la première
+monte un dossier de données :
+
+```yaml
+name: nextcloud
+services:
+  app:
+    image: nextcloud:29.0.4
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data/app:/var/www/html
+    env_file:
+      - path: .env
+        required: false
+    labels:
+      opencloud.service: svc_…
+      opencloud.unit: app
+  db:
+    image: postgres:16.4
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    labels:
+      opencloud.service: svc_…
+      opencloud.unit: db
+```
+
+L'image est celle de l'annuaire, **version épinglée** (`image:version`, et
+`@sha256:…` quand l'unité porte une empreinte) : `latest` est déjà refusé à la
+déclaration, et une unité sans version ne se déploie pas
+(`deploy.version_unpinned`). Les labels
+`opencloud.service` et `opencloud.unit` rattachent les conteneurs à leur unité
+au niveau 1 du rapprochement. Le nom du projet (`name:`) est le projet Compose
+de l'annuaire. Le texte est limité à 64 Kio (`deploy.compose_too_large`) ;
+chaque valeur est d'abord rejugée par une expression stricte (projet, nom
+d'unité, référence d'image épinglée, ports, dossier de données : ni `$`, ni
+`#`, ni `{`, ni guillemet, ni retour à la ligne ; refus avec la clé de
+l'annuaire du champ, `directory.image_invalid` par exemple, si une valeur
+gardée par la base ne la passe pas), puis encodée par l'encodeur YAML, jamais
+concaténée : aucune ne peut ajouter une clé ni être interpolée par Compose.
+
+**Ce que le serveur refuse avant d'envoyer**, sans run : un service qui n'est
+pas d'origine Compose, sans projet, sans unité, avec une unité binaire ou sans
+version épinglée (422, `deploy.*`) ; un `.env` illisible ou trop gros (422,
+`deploy.env_invalid`, `deploy.env_too_large`) ; l'agent qui a rapporté ses
+droits sans celui du geste (409 `deploy.right_missing`) ; « Déployer » sur un
+service déjà déployé (409 `deploy.already_deployed`) et « Redéployer » sur un
+service qui ne l'est pas (409 `deploy.not_deployed`) ; une machine sans agent
+actif (409 `deploy.no_agent`). Tant que l'agent n'a pas rapporté ses droits,
+l'ordre part et l'agent juge.
+
+**L'interface** : la carte **Déploiement** de la fiche d'un service Compose
+montre le dossier, les unités qui montent un dossier de données, le
+`compose.yml` tel qu'il sera écrit (replié), le dernier ordre avec son état et
+sa sortie, et le bouton « Déployer » ou « Redéployer », qui ouvre la boîte où
+l'`.env` se tape. Elle suit les sujets `directory`, `actions` et `machines`.
+Routes : `GET /api/directory/services/{id}/deploy-plan`, `POST
+/api/directory/services/{id}/actions/deploy` et `…/actions/redeploy`, corps
+`{"env": null}` ou `{"env": "CLE=valeur\n"}`, `201` avec l'ordre. Le champ
+`service_id` des ordres (`GET /api/actions`) nomme le service visé. Le corps
+d'un déploiement a sa propre borne (256 Kio) : un `.env` de 64 Kio écrit en
+JSON dépasse celle d'un formulaire.
+
+**Ce qui ne se fait pas.**
+
+- **`apply` ne déploie pas.** Pas de `deploy: true` dans le fichier : le
+  fichier écrit l'annuaire, un déploiement est un geste à part, confirmé à
+  l'écran.
+- **Rien ne retire un déploiement** dans cette version : supprimer le service
+  de l'annuaire ne touche pas la machine (règle existante), et le dossier, les
+  conteneurs et `data/` restent.
+- **Pas de compose libre** : un fichier écrit à la main devrait être validé
+  (images, volumes, privilèges) et stocké ; refusé pour cette première version.
+- **Pas de relecture de l'`.env`**, ni de modification sans le remplacer.
+- **L'unité systemd** de l'agent doit autoriser la racine
+  (`ReadWritePaths=/srv/workspace`) : la page du jeton donne le fichier quand
+  `docker.deploy` ou `docker.update` est coché. L'agent reste root (décision
+  2) : ce sont les premiers ordres qui lancent un programme.
+
+**Au journal** : les deux `action.order` de chaque geste, avec `service_id`
+et `env: sent` quand un `.env` part. Jamais le contenu de l'`.env`.
 
 ## Comment une tâche est surveillée
 
@@ -3353,3 +3463,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Sauvegarde de la base (#153, 05) | La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`, `backup_plans`), le paquet `internal/backup` (paire de clés age scellée par la phrase, archive tar chiffrée, `run`, boucle de 15 minutes, `ExtractArchive`), les ordres `backup.receive` et `backup.prune` (`agentwire`), les ordres longs de l'agent (`internal/agent/worker.go`, `backup.go`) et la fin d'un run `accepted` trop long (`timeout`), les colis (`action.Outbox`, `/agent/parcels/{colis}/{nom}`), le champ write-only `OrderBody.Secret` (`SendWithSecret`), `machine.CoversPath`, la commande `opencloud backup restore`, les routes `/api/backups…`, le sujet `backups`, la page Sauvegardes, la dépendance `filippo.io/age` |
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
+| Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |

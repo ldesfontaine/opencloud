@@ -1,0 +1,196 @@
+package deploy
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"path"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/directory"
+	"github.com/ldesfontaine/opencloud/internal/machine"
+)
+
+// Services est ce que le composant lit de l'annuaire ; directory.ErrNotFound
+// pour un service qui n'existe pas.
+type Services interface {
+	GetDeclaredService(ctx context.Context, id string) (directory.Service, error)
+}
+
+// Machines est ce que le composant lit des machines : leur agent, ses droits
+// et sa racine.
+type Machines interface {
+	Get(ctx context.Context, id string) (machine.Status, error)
+}
+
+// Runs est ce que le composant lit des ordres déjà envoyés pour un service.
+type Runs interface {
+	// LastServiceRun rend le dernier ordre de ces genres, quel que soit son
+	// état.
+	LastServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error)
+	// LastWrittenServiceRun rend le dernier qui a écrit le dossier du service
+	// sur la machine.
+	LastWrittenServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error)
+}
+
+// Sender envoie un ordre signé à l'agent d'une machine : le composant action.
+type Sender interface {
+	SendForService(ctx context.Context, order action.ServiceOrder) (action.Run, error)
+}
+
+// Service déploie. L'audit est celui de l'ordre (action.order) : il porte le
+// service, le genre, et « env: sent » quand un .env part.
+type Service struct {
+	services Services
+	machines Machines
+	runs     Runs
+	sender   Sender
+	logger   *slog.Logger
+}
+
+func New(services Services, machines Machines, runs Runs, sender Sender, logger *slog.Logger) *Service {
+	return &Service{services: services, machines: machines, runs: runs, sender: sender, logger: logger}
+}
+
+func deploymentKinds() []agentwire.Kind {
+	return []agentwire.Kind{agentwire.KindDockerDeploy, agentwire.KindDockerUpdate}
+}
+
+// Plan dit ce que déployer ce service ferait. Il refuse ce qui ne peut pas
+// l'être (le service, sa machine), mais pas un droit qui manque : le plan le
+// montre. Ordre des contrôles : le service, son origine et ses unités, sa
+// machine et son agent.
+func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
+	service, err := s.services.GetDeclaredService(ctx, serviceID)
+	if err != nil {
+		return Plan{}, err
+	}
+	compose, dataDirs, err := Render(service)
+	if err != nil {
+		return Plan{}, err
+	}
+	target, err := s.machines.Get(ctx, service.MachineID)
+	if err != nil {
+		return Plan{}, fmt.Errorf("get machine: %w", err)
+	}
+	if !target.Agent.IsActive() {
+		return Plan{}, ErrNoAgent
+	}
+	_, deployed, err := s.runs.LastWrittenServiceRun(ctx, serviceID, deploymentKinds())
+	if err != nil {
+		return Plan{}, fmt.Errorf("read deployments: %w", err)
+	}
+	last, hasLast, err := s.runs.LastServiceRun(ctx, serviceID, deploymentKinds())
+	if err != nil {
+		return Plan{}, fmt.Errorf("read last deployment: %w", err)
+	}
+	root := target.Agent.RootDir
+	if root == "" {
+		root = brand.WorkspaceRoot
+	}
+	plan := Plan{
+		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
+		Deployed: deployed, Right: rightOf(target, deployed), Compose: string(compose), DataDirs: dataDirs,
+	}
+	if hasLast {
+		plan.LastRun = &last
+	}
+	return plan, nil
+}
+
+// rightOf : « ok » ou « missing » une fois les droits de l'agent rapportés,
+// « unknown » avant. Le droit est celui du prochain geste.
+func rightOf(target machine.Status, deployed bool) RightState {
+	if target.Agent.ReportedAt.IsZero() {
+		return RightUnknown
+	}
+	needed := machine.CapabilityDockerDeploy
+	if deployed {
+		needed = machine.CapabilityDockerUpdate
+	}
+	if machine.HasCapability(target.Agent.Capabilities, needed) {
+		return RightOK
+	}
+	return RightMissing
+}
+
+// Deploy est le premier geste : le dossier du service n'existe pas encore sur
+// la machine. env est le contenu de l'.env à écrire ; nil n'en écrit aucun.
+func (s *Service) Deploy(ctx context.Context, serviceID string, env *string) (action.Run, error) {
+	return s.send(ctx, serviceID, env, false)
+}
+
+// Redeploy réécrit le compose.yml et relance Compose : les versions ont
+// changé. env nil laisse l'.env de la machine où il est.
+func (s *Service) Redeploy(ctx context.Context, serviceID string, env *string) (action.Run, error) {
+	return s.send(ctx, serviceID, env, true)
+}
+
+// send juge, puis envoie. Ordre des contrôles : le plan, le droit, déjà
+// déployé ou non, l'.env.
+func (s *Service) send(ctx context.Context, serviceID string, env *string, redeploy bool) (action.Run, error) {
+	plan, err := s.Plan(ctx, serviceID)
+	if err != nil {
+		return action.Run{}, err
+	}
+	if plan.Right == RightMissing {
+		return action.Run{}, ErrRightMissing
+	}
+	if redeploy && !plan.Deployed {
+		return action.Run{}, ErrNotDeployed
+	}
+	if !redeploy && plan.Deployed {
+		return action.Run{}, ErrAlreadyDeployed
+	}
+	secret, err := secretOf(env)
+	if err != nil {
+		return action.Run{}, err
+	}
+	params, err := json.Marshal(agentwire.DockerParams{
+		ServiceID: serviceID, Project: plan.Service.ComposeProject, Compose: plan.Compose,
+		DataDirs: plan.DataDirs, EnvSent: secret != nil,
+	})
+	if err != nil {
+		return action.Run{}, fmt.Errorf("encode params: %w", err)
+	}
+	order := action.ServiceOrder{
+		MachineID: plan.Service.MachineID, ServiceID: serviceID, Kind: agentwire.KindDockerDeploy, Params: params,
+	}
+	if redeploy {
+		order.Kind = agentwire.KindDockerUpdate
+	}
+	if secret != nil {
+		order.Secret, order.SecretLabel = secret, "env"
+	}
+	run, err := s.sender.SendForService(ctx, order)
+	if err != nil {
+		return action.Run{}, err
+	}
+	s.logger.Info("deployment sent", "service_id", serviceID, "run_id", run.ID, "kind", string(run.Kind), "env_sent", secret != nil)
+	return run, nil
+}
+
+// secretOf prépare le secret de l'ordre : le contenu de l'.env, jugé. nil
+// quand il n'y en a pas (absent ou vide). La limite est celle du secret signé
+// avec l'ordre, une fois écrit en JSON.
+func secretOf(env *string) (json.RawMessage, error) {
+	if env == nil || *env == "" {
+		return nil, nil
+	}
+	if !utf8.ValidString(*env) || strings.ContainsRune(*env, 0) {
+		return nil, ErrEnvInvalid
+	}
+	secret, err := json.Marshal(agentwire.DockerSecret{Env: *env})
+	if err != nil {
+		return nil, fmt.Errorf("encode secret: %w", err)
+	}
+	if len(secret) > agentwire.MaxSecretBytes {
+		return nil, ErrEnvTooLarge
+	}
+	return secret, nil
+}

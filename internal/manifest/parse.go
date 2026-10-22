@@ -395,7 +395,7 @@ func (r *fileReader) readServices(node *yaml.Node) []Service {
 
 func (r *fileReader) readUnits(node *yaml.Node) []Unit {
 	var units []Unit
-	known := []string{"name", "image", "version", "digest", "container_name", "systemd_unit", "ports", "updates"}
+	known := []string{"name", "image", "version", "digest", "container_name", "systemd_unit", "ports", "data_path", "updates"}
 	for _, entry := range r.entries(node, "units") {
 		unit := Unit{Line: entry.Line}
 		r.fields(entry, "units", known, nil, func(key string, value *yaml.Node) {
@@ -414,6 +414,8 @@ func (r *fileReader) readUnits(node *yaml.Node) []Unit {
 				unit.SystemdUnit = r.text(value, key)
 			case "ports":
 				unit.Ports = r.texts(value, key)
+			case "data_path":
+				unit.DataPath = r.text(value, key)
 			case "updates":
 				unit.Updates = container.UpdatePolicy(r.text(value, key))
 			}

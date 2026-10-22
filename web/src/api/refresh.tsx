@@ -60,6 +60,11 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/directory/gaps")) {
     return ["directory", "containers"];
   }
+  // Le plan d'un déploiement croise l'annuaire, les ordres (le dernier, et
+  // si le dossier est écrit) et la machine (ses droits, sa racine).
+  if (/^\/api\/directory\/services\/[^/?]+\/deploy-plan(\?.*)?$/.test(path)) {
+    return ["directory", "actions", "machines"];
+  }
   // L'annuaire a son propre sujet, distinct de celui des conteneurs ; le
   // journal des fichiers appliqués le suit : un passage le touche.
   if (path.startsWith("/api/directory") || path.startsWith("/api/manifest")) {

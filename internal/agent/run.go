@@ -72,6 +72,9 @@ type Options struct {
 	// de <état>/bin/ ; nil vaut os.Executable. Non exporté : seuls les tests
 	// du paquet le remplacent, la commande ne peut pas le poser.
 	executable func() (string, error)
+	// RootDir est la racine des services déployés (-root-dir), pour le premier
+	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
+	RootDir string
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
@@ -109,6 +112,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	client.SetCapabilities(identity.Capabilities())
+	client.SetRoot(identity.Root())
 	// Ce que l'opérateur doit régler sans que l'agent s'arrête s'écrit au
 	// journal dans sa langue.
 	catalogs, err := lang.Load()
@@ -224,6 +228,7 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
+	identity.RootDir = opts.RootDir
 	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return Identity{}, err

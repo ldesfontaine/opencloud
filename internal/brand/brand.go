@@ -21,6 +21,9 @@ const (
 	ConfigPath    = ConfigDir + "/config.toml"
 	StateDir      = "/var/lib/" + ID
 	AgentStateDir = StateDir + "/agent"
+	// La racine des services déployés, un dossier par projet Compose ; réglable
+	// par -root-dir au premier lancement de l'agent.
+	WorkspaceRoot = "/srv/workspace"
 	DatabaseFile  = ID + ".db"
 	// La clé qui chiffre les secrets saisis dans l'interface, à côté de la
 	// base et jamais dedans.
@@ -80,8 +83,9 @@ const AgentUnit = ID + "-agent.service"
 // ServerUnit est l'unité du serveur : la restauration dit de la démarrer.
 const ServerUnit = ID + ".service"
 
-// Réservée : pas encore lue, posée pour que le nom n'ait pas à être réécrit
-// le jour où elle sert.
+// WorkspaceMarker est le fichier témoin que l'agent pose à la création de la
+// racine des services : une racine qui existe, n'est pas vide et n'en porte
+// pas n'est pas à openCloud, l'agent n'y écrit rien.
 const WorkspaceMarker = "." + ID
 
 // Command est le nom du binaire. Littéral et non dérivé de ID : il suit le

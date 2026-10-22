@@ -77,6 +77,7 @@ func TestWire_HeaderNamesAreFrozen(t *testing.T) {
 		HeaderAgentVersion:   "OpenCloud-Agent-Version",
 		HeaderAgentOS:        "OpenCloud-Agent-OS",
 		HeaderAgentRights:    "OpenCloud-Agent-Rights",
+		HeaderAgentRoot:      "OpenCloud-Agent-Root",
 		HeaderSignalSections: "OpenCloud-Signal-Sections",
 		HeaderServerKey:      "OpenCloud-Server-Key",
 		HeaderProtocol:       "OpenCloud-Agent-Protocol",

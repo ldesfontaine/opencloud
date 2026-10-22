@@ -108,6 +108,16 @@ func (db *DB) RecordServerKey(ctx context.Context, agentID, fingerprint string) 
 	return notFoundIfNoRow(result, machine.ErrNotFound)
 }
 
+// RecordRootDir note la racine des services que l'agent dit à l'ouverture du
+// flux.
+func (db *DB) RecordRootDir(ctx context.Context, agentID, root string) error {
+	result, err := db.sql.ExecContext(ctx, `UPDATE agents SET root_dir = ? WHERE id = ?`, root, agentID)
+	if err != nil {
+		return fmt.Errorf("record root dir: %w", err)
+	}
+	return notFoundIfNoRow(result, machine.ErrNotFound)
+}
+
 // RecordSystem note le système que l'agent dit à l'ouverture du flux.
 func (db *DB) RecordSystem(ctx context.Context, id, system string) error {
 	result, err := db.sql.ExecContext(ctx, `UPDATE machines SET os = ? WHERE id = ?`, system, id)

@@ -184,7 +184,7 @@ func (s *Service) Ping(ctx context.Context, machineID string) (Run, error) {
 // serait refusé par l'agent. Tant que l'agent n'a rien rapporté, c'est lui
 // qui juge.
 func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (Run, error) {
-	return s.send(ctx, machineID, kind, params, nil, "")
+	return s.send(ctx, ServiceOrder{MachineID: machineID, Kind: kind, Params: params})
 }
 
 // SendWithSecret fait comme Send et signe en plus un secret avec l'ordre : il
@@ -192,10 +192,30 @@ func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kin
 // n'entre ni dans le run, ni dans le journal d'audit, ni dans un journal
 // slog. label dit, dans l'audit, qu'un secret est parti (« env: sent »).
 func (s *Service) SendWithSecret(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage, secret json.RawMessage, label string) (Run, error) {
-	return s.send(ctx, machineID, kind, params, secret, label)
+	return s.send(ctx, ServiceOrder{MachineID: machineID, Kind: kind, Params: params, Secret: secret, SecretLabel: label})
 }
 
-func (s *Service) send(ctx context.Context, machineID string, kind agentwire.Kind, params, secret json.RawMessage, label string) (Run, error) {
+// ServiceOrder est un ordre à envoyer : la machine, le genre, ses
+// paramètres, et ce qui s'y ajoute selon le geste. ServiceID rattache le run
+// au service déclaré qu'il vise (le déploiement) ; Secret et SecretLabel
+// sont ceux de SendWithSecret.
+type ServiceOrder struct {
+	MachineID   string
+	ServiceID   string
+	Kind        agentwire.Kind
+	Params      json.RawMessage
+	Secret      json.RawMessage
+	SecretLabel string
+}
+
+// SendForService fait comme SendWithSecret pour un ordre qui vise un service
+// déclaré : le run garde le service, l'audit aussi.
+func (s *Service) SendForService(ctx context.Context, order ServiceOrder) (Run, error) {
+	return s.send(ctx, order)
+}
+
+func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
+	machineID, kind, params, secret := order.MachineID, order.Kind, order.Params, order.Secret
 	if s.key == nil {
 		return Run{}, ErrNoServerKey
 	}
@@ -223,11 +243,12 @@ func (s *Service) send(ctx context.Context, machineID string, kind agentwire.Kin
 	if err != nil {
 		return Run{}, err
 	}
+	run.ServiceID = order.ServiceID
 	run, err = s.store.InsertRun(ctx, run)
 	if err != nil {
 		return Run{}, fmt.Errorf("insert run: %w", err)
 	}
-	s.auditor.Record(ctx, orderEvent(run, label))
+	s.auditor.Record(ctx, orderEvent(run, order.SecretLabel))
 	run, err = s.deliver(ctx, run, target.Agent.ServerKeyFingerprint, secret)
 	s.changed(machineID)
 	return run, err
@@ -299,6 +320,9 @@ func requesterOf(actor audit.Actor) string {
 // dit par son nom (« env: sent »), jamais par sa valeur.
 func orderEvent(run Run, secretLabel string) audit.Event {
 	details := audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID}
+	if run.ServiceID != "" {
+		details["service_id"] = run.ServiceID
+	}
 	if secretLabel != "" {
 		details[secretLabel] = "sent"
 	}

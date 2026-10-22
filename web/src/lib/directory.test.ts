@@ -30,8 +30,8 @@ function nextcloud(): DeclaredService {
     declared_by: "operator",
     provides: [],
     units: [
-      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
-      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [], update_policy: "watch" },
+      { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
+      { id: "unit_2", name: "db", kind: "container", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch" },
     ],
     project_ids: ["prj_1"],
     created_at: "2026-10-18T09:00:00Z",
@@ -95,8 +95,8 @@ describe("serviceRequestOf", () => {
       public_url: "https://cloud.exemple.fr",
       provides: [],
       units: [
-        { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
-        { id: "unit_2", name: "db", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", ports: [], update_policy: "watch" },
+        { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "/var/www/html", ports: ["8080:80", "443/tcp"], update_policy: "hold" },
+        { id: "unit_2", name: "db", image: "postgres", version: "16.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [], update_policy: "watch" },
       ],
       project_ids: ["prj_1"],
     });
@@ -108,7 +108,7 @@ describe("serviceRequestOf", () => {
     form.provides = ["proxy"];
 
     const compose = serviceRequestOf(form);
-    expect(compose.units[0]).toMatchObject({ container_name: "", systemd_unit: "", image: "nextcloud" });
+    expect(compose.units[0]).toMatchObject({ container_name: "", systemd_unit: "", image: "nextcloud", data_path: "/var/www/html" });
     // Une application ne fournit rien, même si la case était cochée avant.
     expect(compose.provides).toEqual([]);
 
@@ -117,7 +117,7 @@ describe("serviceRequestOf", () => {
     expect(container.units[0]).toMatchObject({ container_name: "nextcloud-app", systemd_unit: "", image: "nextcloud", digest: `sha256:${"a".repeat(64)}` });
 
     const binary = serviceRequestOf({ ...form, origin: "binary", nature: "infra" });
-    expect(binary.units[0]).toMatchObject({ container_name: "", systemd_unit: "nextcloud.service", image: "", digest: "" });
+    expect(binary.units[0]).toMatchObject({ container_name: "", systemd_unit: "nextcloud.service", image: "", digest: "", data_path: "" });
     expect(binary.provides).toEqual(["proxy"]);
   });
 });
@@ -160,9 +160,9 @@ describe("serviceFormOfDefinition", () => {
     public_url: "",
     provides: [],
     units: [
-      { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80"], update_policy: "hold" },
+      { id: "unit_1", name: "app", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: ["8080:80"], update_policy: "hold" },
       // Une unité ajoutée par la proposition arrive sans identifiant.
-      { id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] },
+      { id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] },
     ],
     project_ids: ["prj_1"],
   };
@@ -208,7 +208,7 @@ describe("serviceFormStart", () => {
         compose_project: "nextcloud",
         public_url: "",
         provides: [],
-        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", ports: [] }],
+        units: [{ id: "", name: "redis", image: "redis", version: "", digest: "", container_name: "", systemd_unit: "", data_path: "", ports: [] }],
         project_ids: [],
       },
     };

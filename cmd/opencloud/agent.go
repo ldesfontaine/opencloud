@@ -51,6 +51,7 @@ func runAgent(args []string) error {
 	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'"+brand.ProductName+", s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
 	rights := flags.String("rights", "", "droits cochés à l'installation, premier lancement seulement (observe par défaut)")
+	rootDir := flags.String("root-dir", brand.WorkspaceRoot, "racine des services déployés, premier lancement seulement")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
@@ -83,6 +84,10 @@ func runAgent(args []string) error {
 	if err != nil {
 		return &refusal{message: catalogs.For(code).Get("agent.rights_invalid")}
 	}
+	// La racine aussi se juge avant l'enrôlement, pour la même raison.
+	if !machine.ValidCapabilityPath(*rootDir) {
+		return &refusal{message: catalogs.For(code).Get("agent.root_invalid")}
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
 	if err != nil {
@@ -109,6 +114,7 @@ func runAgent(args []string) error {
 		AllowPlain:   *allowPlain,
 		Language:     code,
 		Rights:       capabilities,
+		RootDir:      *rootDir,
 		Version:      version.Number(),
 		DockerSocket: *dockerSocket,
 		Roots:        roots,

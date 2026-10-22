@@ -12,7 +12,7 @@ import { Failure } from "./Failure";
 import { Pill } from "./Pill";
 import { Table } from "./Table";
 
-const stateTones: Record<ActionState, Tone> = {
+export const stateTones: Record<ActionState, Tone> = {
   queued: "neutral",
   sent: "neutral",
   accepted: "accent",

@@ -342,6 +342,7 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 
 	request := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, servertest.NewNonce(t))
 	request.Header.Set(agentwire.HeaderAgentRights, "observe,agent.update")
+	request.Header.Set(agentwire.HeaderAgentRoot, "/srv/workspace")
 	_, fingerprint, _ := server.actions.ServerKey()
 	request.Header.Set(agentwire.HeaderServerKey, fingerprint)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -361,6 +362,9 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 	}
 	if status.Agent.ServerKeyFingerprint != fingerprint {
 		t.Fatalf("pinned key %q, want %q", status.Agent.ServerKeyFingerprint, fingerprint)
+	}
+	if status.Agent.RootDir != "/srv/workspace" {
+		t.Fatalf("reported root %q", status.Agent.RootDir)
 	}
 
 	if err := server.machines.Revoke(context.Background(), enrolled.ID); err != nil {

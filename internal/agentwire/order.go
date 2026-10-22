@@ -112,6 +112,16 @@ const (
 	ReasonVersionMismatch   = "version_mismatch"
 	ReasonDowngrade         = "downgrade"
 	ReasonSelfCheckFailed   = "self_check_failed"
+	// Les raisons d'un déploiement : le dossier du service existe déjà ou
+	// manque ; la racine existe sans être à openCloud ; Docker ou Compose
+	// manque ou est trop ancien ; le disque est plein ; Compose a échoué.
+	ReasonServiceDirExists  = "service_dir_exists"
+	ReasonServiceDirMissing = "service_dir_missing"
+	ReasonRootNotOurs       = "root_not_ours"
+	ReasonDockerMissing     = "docker_missing"
+	ReasonComposeTooOld     = "compose_too_old"
+	ReasonDiskFull          = "disk_full"
+	ReasonComposeFailed     = "compose_failed"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -128,6 +138,8 @@ func RefusalReasons() []string {
 		ReasonDownloadFailed, ReasonDigestMismatch, ReasonNotAgeFile, ReasonBusy,
 		ReasonNotSelfUpdatable, ReasonReleaseKeyMissing, ReasonSignatureInvalid, ReasonVersionMismatch,
 		ReasonDowngrade, ReasonSelfCheckFailed,
+		ReasonServiceDirExists, ReasonServiceDirMissing, ReasonRootNotOurs, ReasonDockerMissing,
+		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
 	}
 }
 

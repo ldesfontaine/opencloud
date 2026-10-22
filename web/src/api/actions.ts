@@ -1,7 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 
-// Les ordres envoyés aux agents (agent.ping, agent.update) et ce qu'ils
+// Les ordres envoyés aux agents (ping, mise à jour, sauvegarde, déploiement) et ce qu'ils
 // deviennent. Sujet du direct : « actions », que topicsOf devine du chemin.
 // Le genre, l'état et la raison se traduisent sous action.*.
 
@@ -23,6 +23,8 @@ export interface ActionRun {
   machine_id: string | null;
   machine_name: string;
   agent_id: string | null;
+  // Le service déclaré que vise un ordre de déploiement ; null sinon.
+  service_id: string | null;
   state: ActionState;
   // La raison de l'agent, ou « undelivered » ; vide sinon.
   reason: string;

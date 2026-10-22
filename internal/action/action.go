@@ -81,6 +81,9 @@ type Run struct {
 	// Zéro tant que le run n'est pas fini.
 	FinishedAt time.Time
 	Output     []LogLine
+	// Le service déclaré que l'ordre vise (un déploiement) ; vide pour un
+	// ordre qui vise la machine, et après la suppression du service.
+	ServiceID string
 }
 
 // LogLine est une ligne de la sortie d'un run.
@@ -133,6 +136,10 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityAgentUpdate, true
 	case agentwire.KindBackupReceive, agentwire.KindBackupPrune:
 		return machine.CapabilityBackupReceive, true
+	case agentwire.KindDockerDeploy:
+		return machine.CapabilityDockerDeploy, true
+	case agentwire.KindDockerUpdate:
+		return machine.CapabilityDockerUpdate, true
 	}
 	return "", false
 }

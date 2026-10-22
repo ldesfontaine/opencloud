@@ -38,6 +38,11 @@ const (
 	KindBackupReceive Kind = "backup.receive"
 	// Garde les N sauvegardes les plus récentes du chemin, efface les autres.
 	KindBackupPrune Kind = "backup.prune"
+	// Écrit le compose.yml d'un service et lance docker compose up : le
+	// premier déploiement (le dossier du service n'existe pas), puis les
+	// suivants (il existe).
+	KindDockerDeploy Kind = "docker.deploy"
+	KindDockerUpdate Kind = "docker.update"
 )
 
 // ServerKeyParams sont les paramètres de agent.server_key : la clé publique
@@ -53,7 +58,7 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune}
+	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune, KindDockerDeploy, KindDockerUpdate}
 }
 
 func (k Kind) IsOrder() bool {

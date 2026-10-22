@@ -338,6 +338,20 @@ function UnitEditor({
         </Field>
       </div>
       {origin !== "binary" && (
+        <Field label={t("directory.data_path_label")} htmlFor={`${prefix}-data`} help={t("directory.data_path_help")}>
+          <Input
+            id={`${prefix}-data`}
+            mono
+            type="text"
+            value={unit.dataPath}
+            onChange={(event) => change("dataPath", event.target.value)}
+            placeholder={t("directory.data_path_placeholder")}
+            maxLength={255}
+            autoComplete="off"
+          />
+        </Field>
+      )}
+      {origin !== "binary" && (
         <div className="grid-2">
           <Field label={t("directory.unit_digest_label")} htmlFor={`${prefix}-digest`} help={t("directory.unit_digest_help")}>
             <Input id={`${prefix}-digest`} mono type="text" value={unit.digest} onChange={(event) => change("digest", event.target.value)} maxLength={71} autoComplete="off" />

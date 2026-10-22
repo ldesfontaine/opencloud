@@ -133,6 +133,7 @@ func proposedUnit(definition directory.UnitDefinition) Unit {
 		ContainerName: definition.ContainerName,
 		SystemdUnit:   definition.SystemdUnit,
 		Ports:         definition.Ports,
+		DataPath:      definition.DataPath,
 		Updates:       definition.UpdatePolicy,
 	}
 	if unit.Updates == "" {
@@ -253,6 +254,7 @@ func unitOf(item directory.Unit) Unit {
 		ContainerName: item.ContainerName,
 		SystemdUnit:   item.SystemdUnit,
 		Ports:         item.Ports,
+		DataPath:      item.DataPath,
 	}
 	// Un binaire n'a que « watch » : il ne l'écrit pas.
 	if item.Kind == directory.UnitContainer {

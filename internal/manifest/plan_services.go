@@ -120,7 +120,7 @@ func (b *builder) wantedService(entry Service) (definition directory.ServiceDefi
 		units = append(units, directory.UnitDefinition{
 			Name: unit.Name, Image: unit.Image, Version: unit.Version, Digest: unit.Digest,
 			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: slices.Clone(unit.Ports),
-			UpdatePolicy: unit.Updates,
+			DataPath: unit.DataPath, UpdatePolicy: unit.Updates,
 		})
 	}
 	definition = directory.ServiceDefinition{
