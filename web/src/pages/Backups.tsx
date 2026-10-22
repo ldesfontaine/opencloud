@@ -32,7 +32,7 @@ import { isBackedUp, passphraseProblem } from "../lib/backups";
 import type { Tone } from "../lib/tone";
 import { formatWhen } from "../lib/time";
 
-const rightTones: Record<BackupRight, Tone> = { ok: "ok", missing: "danger", unknown: "neutral" };
+const rightTones: Record<BackupRight, Tone> = { ok: "ok", missing: "danger", unavailable: "warn", unknown: "neutral" };
 const stateTones: Record<string, Tone> = { sent: "neutral", accepted: "accent", succeeded: "ok", failed: "danger", refused: "danger", expired: "warn", queued: "neutral" };
 
 // La sauvegarde de la base : son état d'abord (est-elle sauvegardée, et où
@@ -194,6 +194,7 @@ function DestinationsCard({ overview }: { overview: BackupsOverview }) {
                 <td className="mono">{destination.path}</td>
                 <td>
                   <Pill tone={rightTones[destination.right]}>{t(`backup.right_${destination.right}`)}</Pill>
+                  {destination.right === "unavailable" && <div className="secondary">{reasonText(t, destination.right_reason ?? "")}</div>}
                   <Button small variant="ghost" icon="x" disabled={action.busy} onClick={() => remove(destination)}>
                     {t("backup.destination_delete")}
                   </Button>

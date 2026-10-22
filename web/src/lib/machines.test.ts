@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unitDropIn, unitWritePaths } from "./machines";
+import { capabilitiesOf, capabilityLabelKey, describeAccount, describeCapability, describeUnavailable, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -57,4 +57,36 @@ test("unitWritePaths : les droits de sauvegarde et de déploiement écrivent hor
 
 test("unitDropIn : le fichier à poser dans le dossier drop-in de l'unité de l'agent", () => {
   expect(unitDropIn(["/srv/backups"])).toBe("[Service]\nReadWritePaths=/srv/backups");
+});
+
+test("describeAccount : le nom et l'uid, l'uid seul sans nom, rien tant que l'agent n'a rien dit", () => {
+  expect(describeAccount({ uid: 998, name: "opencloud-agent" })).toBe("opencloud-agent (998)");
+  expect(describeAccount({ uid: 0, name: "root" })).toBe("root (0)");
+  expect(describeAccount({ uid: 4000, name: "" })).toBe("4000");
+  expect(describeAccount(null)).toBeNull();
+});
+
+test("describeUnavailable : une phrase par raison, celle d'un dossier refusé nomme le compte, ou change sous root", () => {
+  expect(describeUnavailable(t, "docker_denied", null)).toBe("machine.capability_unavailable_docker_denied");
+  expect(describeUnavailable(t, "path_unwritable", { uid: 998, name: "svc" })).toBe("machine.capability_unavailable_path_unwritable");
+  expect(describeUnavailable(t, "path_denied", { uid: 998, name: "svc" })).toBe("machine.capability_unavailable_path_denied:svc");
+  expect(describeUnavailable(t, "path_denied", { uid: 4000, name: "" })).toBe("machine.capability_unavailable_path_denied:4000");
+  expect(describeUnavailable(t, "path_denied", { uid: 0, name: "root" })).toBe("machine.capability_unavailable_path_denied_root");
+});
+
+test("unavailableRights : seuls les droits que le compte ne peut pas exercer, avec leur raison", () => {
+  const agent = {
+    run_as: { uid: 998, name: "svc" },
+    capabilities: [
+      { name: "observe", paths: [], unavailable: "" },
+      { name: "docker.deploy", paths: [], unavailable: "docker_denied" },
+      { name: "backup.receive", paths: ["/srv/backups"], unavailable: "path_denied" },
+      { name: "agent.update", paths: [], unavailable: "" },
+    ],
+  };
+  expect(unavailableRights(t, agent)).toEqual([
+    "machine.capability_unavailable_item:machine.capability_docker_deploy:machine.capability_unavailable_docker_denied",
+    "machine.capability_unavailable_item:machine.right_with_paths:machine.capability_backup_receive:/srv/backups:machine.capability_unavailable_path_denied:svc",
+  ]);
+  expect(unavailableRights(t, { run_as: null, capabilities: [{ name: "observe", paths: [], unavailable: "" }] })).toEqual([]);
 });

@@ -43,6 +43,8 @@ const (
 type orderError struct {
 	reason string
 	cause  error
+	// Rien n'a été écrit sur la machine : l'ordre est refusé, pas échoué.
+	untouched bool
 }
 
 func (e *orderError) Error() string {
@@ -55,6 +57,11 @@ func (e *orderError) Unwrap() error {
 
 func failWith(reason string, cause error) error {
 	return &orderError{reason: reason, cause: cause}
+}
+
+// refuseWith est failWith pour un ordre jugé avant la première écriture.
+func refuseWith(reason string, cause error) error {
+	return &orderError{reason: reason, cause: cause, untouched: true}
 }
 
 // resultOf rend ce que le serveur lira d'un ordre fini : la sortie si tout
@@ -80,32 +87,43 @@ func stdout(line string) agentwire.OutputLine {
 // s'il n'y en a pas.
 type coveringPath func(path string) (string, bool)
 
+// writableCheck dit pourquoi le compte de l'agent ne peut pas écrire dans un
+// dossier (une raison de refus), vide s'il le peut.
+type writableCheck func(path string) string
+
 // readBackupReceive lit les paramètres de backup.receive et refuse ce que le
-// droit de l'agent ne couvre pas, avant d'accepter l'ordre : un refus
-// immédiat, pas un échec plus tard. Il rend aussi le chemin du droit, où
-// l'écriture ouvrira sa racine.
-func readBackupReceive(body agentwire.OrderBody, cover coveringPath) (agentwire.BackupReceiveParams, string, *agentwire.ActionResult) {
+// droit de l'agent ne couvre pas, ou ce que son compte ne peut pas écrire, avant
+// d'accepter l'ordre : un refus immédiat, aucun colis téléchargé, pas un échec
+// plus tard. Il rend aussi le chemin du droit, où l'écriture ouvrira sa racine.
+func readBackupReceive(body agentwire.OrderBody, cover coveringPath, writable writableCheck) (agentwire.BackupReceiveParams, string, *agentwire.ActionResult) {
 	var params agentwire.BackupReceiveParams
 	if err := json.Unmarshal(body.Params, &params); err != nil || !isReceivable(params) {
 		return params, "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
 	}
-	granted, covered := cover(params.Path)
-	if !covered {
-		return params, "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonPathOutsideRight}
-	}
-	return params, granted, nil
+	granted, refused := judgeGranted(body, params.Path, cover, writable)
+	return params, granted, refused
 }
 
-func readBackupPrune(body agentwire.OrderBody, cover coveringPath) (agentwire.BackupPruneParams, string, *agentwire.ActionResult) {
+func readBackupPrune(body agentwire.OrderBody, cover coveringPath, writable writableCheck) (agentwire.BackupPruneParams, string, *agentwire.ActionResult) {
 	var params agentwire.BackupPruneParams
 	if err := json.Unmarshal(body.Params, &params); err != nil || params.Keep < 1 || params.Keep > 365 {
 		return params, "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
 	}
-	granted, covered := cover(params.Path)
+	granted, refused := judgeGranted(body, params.Path, cover, writable)
+	return params, granted, refused
+}
+
+// judgeGranted : le dossier est sous le droit de l'agent, puis son compte peut
+// l'écrire (ou le créer), dans cet ordre.
+func judgeGranted(body agentwire.OrderBody, path string, cover coveringPath, writable writableCheck) (string, *agentwire.ActionResult) {
+	granted, covered := cover(path)
 	if !covered {
-		return params, "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonPathOutsideRight}
+		return "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonPathOutsideRight}
 	}
-	return params, granted, nil
+	if reason := writable(granted); reason != "" {
+		return "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}
+	}
+	return granted, nil
 }
 
 // openDestination ouvre le dossier de destination sous le chemin du droit.

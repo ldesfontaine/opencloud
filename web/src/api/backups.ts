@@ -15,8 +15,10 @@ export interface BackupKeyring {
 }
 
 // ok : l'agent a rapporté un droit qui couvre le dossier ; missing : il en
-// a rapporté et aucun ne le couvre ; unknown : il n'a rien rapporté encore.
-export type BackupRight = "ok" | "missing" | "unknown";
+// a rapporté et aucun ne le couvre ; unavailable : le droit couvre le dossier
+// mais le compte de l'agent ne peut pas l'exercer (right_reason dit pourquoi) ;
+// unknown : il n'a rien rapporté encore.
+export type BackupRight = "ok" | "missing" | "unavailable" | "unknown";
 
 export interface BackupDestination {
   id: string;
@@ -25,6 +27,8 @@ export interface BackupDestination {
   machine_name: string;
   path: string;
   right: BackupRight;
+  // La raison de « unavailable » ; absente sinon.
+  right_reason?: string;
   created_at: string;
 }
 

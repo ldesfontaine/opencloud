@@ -35,7 +35,7 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.1", "")
+	session, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestWatcher_NilIsTolerated(t *testing.T) {
 func TestWatcher_SignalWithoutChangeDoesNotPublish(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "")
+	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWatcher_SignalWithoutChangeDoesNotPublish(t *testing.T) {
 func TestWatcher_GoingOfflinePublishes(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "")
+	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

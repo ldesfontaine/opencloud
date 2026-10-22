@@ -186,9 +186,12 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
 	// dit, comparés à ce que son jeton demandait ; l'agent les applique, le
-	// serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé.
+	// serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé. Avec
+	// eux, le compte sous lequel il tourne et les droits que ce compte ne peut
+	// pas exercer : la fiche les montre, aucun ordre n'est refusé pour autant.
 	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
-		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights))
+		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights),
+		r.Header.Get(agentwire.HeaderAgentAccount), r.Header.Get(agentwire.HeaderAgentUnavailable))
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")

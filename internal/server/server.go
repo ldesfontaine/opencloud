@@ -71,7 +71,7 @@ type MachineService interface {
 	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
-	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
+	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities, account, unavailable string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
 	NoteRootDir(ctx context.Context, agentID, root string) error

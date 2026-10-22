@@ -27,10 +27,13 @@ type deployPlanJSON struct {
 	// Vrai quand un déploiement a écrit le dossier : le geste est alors
 	// « redéployer ».
 	Deployed bool `json:"deployed"`
-	// Le droit du prochain geste : ok, missing ou unknown.
-	Right    string   `json:"right"`
-	Compose  string   `json:"compose"`
-	DataDirs []string `json:"data_dirs"`
+	// Le droit du prochain geste : ok, missing, unavailable ou unknown. Avec
+	// unavailable, right_reason dit pourquoi le compte de l'agent ne peut pas
+	// l'exercer ; le geste reste permis, l'agent refusera avec la raison.
+	Right       string   `json:"right"`
+	RightReason string   `json:"right_reason,omitempty"`
+	Compose     string   `json:"compose"`
+	DataDirs    []string `json:"data_dirs"`
 	// Le dernier ordre de déploiement du service, null s'il n'y en a pas ou
 	// plus.
 	LastRun *actionRunJSON `json:"last_run"`
@@ -52,7 +55,7 @@ func deployPlanToJSON(plan deploy.Plan) deployPlanJSON {
 	out := deployPlanJSON{
 		ServiceID: plan.Service.ID, MachineID: plan.Service.MachineID, MachineName: plan.MachineName,
 		RootDir: plan.RootDir, Path: plan.Path, Deployed: plan.Deployed, Right: string(plan.Right),
-		Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs),
+		RightReason: plan.RightReason, Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs),
 	}
 	if plan.LastRun != nil {
 		converted := actionRunToJSON(*plan.LastRun)

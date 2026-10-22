@@ -32,6 +32,10 @@ const (
 	// Pas de bibliothèque de versions : la commande mcp n'en a pas, et un
 	// binaire sans clé de version ne peut rien vérifier.
 	OfferNoReleases = "no_releases"
+	// Le droit est coché et rapporté, mais le compte de l'agent ne peut pas
+	// l'exercer. Seule raison qui accompagne une offre disponible : le serveur
+	// l'affiche sans bloquer le bouton, l'agent refuse avec sa raison.
+	OfferRightUnavailable = "right_unavailable"
 )
 
 // OfferReasons rend les raisons que l'interface dit à l'opérateur, une phrase
@@ -39,7 +43,7 @@ const (
 func OfferReasons() []string {
 	return []string{
 		OfferNewerAgent, OfferNoRelease, OfferReleaseInvalid, OfferNoAgent,
-		OfferOffline, OfferRightMissing, OfferArchUnknown, OfferNoReleases,
+		OfferOffline, OfferRightMissing, OfferRightUnavailable, OfferArchUnknown, OfferNoReleases,
 	}
 }
 
@@ -57,7 +61,8 @@ type UpdateOffer struct {
 	Target    string
 	Arch      string
 	Available bool
-	// Vide quand la mise à jour est disponible.
+	// Vide quand la mise à jour est disponible, sauf OfferRightUnavailable :
+	// elle l'est quand même.
 	Reason string
 }
 
@@ -117,6 +122,9 @@ func (s *Service) judgeUpdate(ctx context.Context, machineID string) (UpdateOffe
 		return offer, release.Artifact{}, nil
 	}
 	offer.Available = true
+	if target.Agent.UnavailableReason(machine.CapabilityAgentUpdate) != "" {
+		offer.Reason = OfferRightUnavailable
+	}
 	return offer, artifact, nil
 }
 

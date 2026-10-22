@@ -85,7 +85,7 @@ func newBench(t *testing.T, reportedRights string) *bench {
 	b.machines.SetClock(clock)
 	enrolled := storetest.EnrollMachine(t, b.machines, machineID, "store-1")
 	var err error
-	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", reportedRights)
+	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", reportedRights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

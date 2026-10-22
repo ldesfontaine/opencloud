@@ -82,7 +82,7 @@ func newBenchLogging(t *testing.T, rights string, logger *slog.Logger) *bench {
 	machines := machine.New(db, machine.NewSessions(), logger)
 	machines.SetClock(clock)
 	enrolled := storetest.EnrollMachine(t, machines, machineID, "vps-paris-1")
-	session, err := machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights)
+	session, err := machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
