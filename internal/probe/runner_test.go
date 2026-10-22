@@ -172,27 +172,16 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 }
 
 // La ligne de journal d'un essai ne porte pas le mot de passe de la cible.
+// L'agent refuse déjà une cible à identifiants (voir Task.Validate) : l'essai
+// est lancé ici sans passer par Assign, pour garder la ligne sous test.
 func TestRunner_LogsNeverCarryATargetPassword(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer server.Close()
 	var logs lockedBuffer
 	sink := newSink()
 	runner := NewRunner(sink, NewChecker(nil), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runner.Run(ctx)
-	}()
-	defer func() {
-		cancel()
-		<-done
-	}()
-	task := httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1))
-	runner.Assign(Assignment{Probes: []Task{task}})
+	runner.once(context.Background(), httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1)))
 	sink.waitFor(t, 1)
-	cancel()
-	<-done
 	text := logs.String()
 	if !strings.Contains(text, "probe checked") || strings.Contains(text, "secret") {
 		t.Fatalf("log:\n%s", text)

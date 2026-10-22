@@ -114,6 +114,7 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 	if event.Action == container.ActionDestroy {
 		w.forgetCounters(event.ContainerID)
 		w.forgetStopRequest(event.ContainerID)
+		w.forget(event.ContainerID)
 		w.sink.Deliver(container.Report{Events: []container.Event{event}})
 		return
 	}
@@ -123,7 +124,10 @@ func (w *Watcher) handleEvent(ctx context.Context, raw dockerapi.Event) {
 	if err == nil {
 		observed = toContainer(inspected)
 		event.Container = &observed
-	} else if !isGone {
+		w.remember(event.ContainerID)
+	} else if isGone {
+		w.forget(event.ContainerID)
+	} else {
 		w.logger.Warn("inspect after event", "action", raw.Action, "error", err)
 	}
 	if event.Action == "die" {
