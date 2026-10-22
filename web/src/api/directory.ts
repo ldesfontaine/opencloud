@@ -322,8 +322,10 @@ export async function fetchProjectDeletePlan(id: string): Promise<DeletionPlan> 
 }
 
 // Le droit du prochain geste de déploiement ; « unknown » tant que l'agent
-// n'a pas rapporté ses droits.
-export type DeployRight = "ok" | "missing" | "unknown";
+// n'a pas rapporté ses droits ; « unavailable » : le droit est coché mais le
+// compte de l'agent ne peut pas l'exercer (right_reason dit pourquoi). L'ordre
+// part quand même : c'est l'agent qui le refuse.
+export type DeployRight = "ok" | "missing" | "unavailable" | "unknown";
 
 // Ce que l'opérateur lit avant de déployer : où le service ira, ce qu'il y
 // aura, et où il en est.
@@ -337,6 +339,8 @@ export interface DeployPlan {
   // Le dossier est écrit sur la machine : le geste est « redéployer ».
   deployed: boolean;
   right: DeployRight;
+  // La raison de « unavailable » ; absente sinon.
+  right_reason?: string;
   compose: string;
   // Les unités dont un dossier de données est monté.
   data_dirs: string[];
@@ -353,6 +357,12 @@ export function useDeployPlan(id: string | null): Resource<DeployPlan> {
 // rendu avance ensuite par le direct.
 export async function deployService(id: string, redeploy: boolean, env: string | null): Promise<ActionRun> {
   return api.post<ActionRun>(`${servicePath(id)}/actions/${redeploy ? "redeploy" : "deploy"}`, { env });
+}
+
+// Change la version déclarée de l'unité, puis redéploie son service : un
+// geste. La version est celle que l'agent propose, rien d'autre.
+export async function upgradeUnit(unitID: string, version: string): Promise<ActionRun> {
+  return api.post<ActionRun>(`${directoryPath}/units/${segment(unitID)}/actions/upgrade`, { version });
 }
 
 export async function ignoreObservation(key: IgnoreKey): Promise<void> {

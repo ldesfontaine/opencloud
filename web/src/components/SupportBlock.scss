@@ -27,3 +27,29 @@
   flex-direction: column;
   gap: 4px;
 }
+
+// La ligne du support dans l'en-tête d'une machine : l'état et sa phrase. Sur
+// un portable elles tiennent sur une ligne ; plus étroit, la phrase passe à la
+// ligne plutôt que de se couper : c'est le seul endroit qui la dit (la carte
+// sous l'historique n'en garde que le détail), et une infobulle ne se lit pas
+// sur un téléphone.
+.support-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+
+  > span:last-child {
+    min-width: 0;
+  }
+}
+
+// Le détail du support, sous l'historique d'une machine : les lignes l'une
+// sous l'autre, comme dans le bloc d'un conteneur.
+.support-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

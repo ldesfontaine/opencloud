@@ -9,13 +9,16 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // fakeServer joue le serveur openCloud du point de vue de l'agent : flux,
@@ -27,8 +30,11 @@ type fakeServer struct {
 	streamRefusal   string
 	signalRefusals  []string
 	streams         []time.Time
-	refusedSignals  []time.Time
-	acceptedSignal  int
+	// Ce que l'agent a dit de son compte et de ses droits indisponibles, à
+	// chaque ouverture du flux.
+	accounts, unavailables []string
+	refusedSignals         []time.Time
+	acceptedSignal         int
 }
 
 func (f *fakeServer) handler() http.Handler {
@@ -44,6 +50,8 @@ func (f *fakeServer) stream(w http.ResponseWriter, r *http.Request) {
 		f.withoutProtocol++
 	}
 	f.streams = append(f.streams, time.Now())
+	f.accounts = append(f.accounts, r.Header.Get(agentwire.HeaderAgentAccount))
+	f.unavailables = append(f.unavailables, r.Header.Get(agentwire.HeaderAgentUnavailable))
 	count := len(f.streams)
 	refusal := f.streamRefusal
 	f.mu.Unlock()
@@ -99,9 +107,16 @@ func (f *fakeServer) snapshot() (streams, refused []time.Time, accepted int) {
 // l'identité chargée, et rend ce que keepConnected a rendu.
 func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *bytes.Buffer) <-chan error {
 	t.Helper()
+	return startAgentWith(t, ctx, server, logs, nil, nil)
+}
+
+// startAgentWith est startAgent avec des droits au fichier de l'agent, et la
+// main sur son client et son juge d'ordres avant le premier flux.
+func startAgentWith(t *testing.T, ctx context.Context, server *fakeServer, logs *bytes.Buffer, rights []machine.Capability, configure func(*Client, *orderRunner)) <-chan error {
+	t.Helper()
 	httpServer := httptest.NewServer(server.handler())
 	t.Cleanup(httpServer.Close)
-	identity, err := NewIdentity(httpServer.URL, "", lang.French, nil)
+	identity, err := NewIdentity(httpServer.URL, "", lang.French, rights)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +131,11 @@ func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *byt
 	opts := Options{SignalInterval: 30 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(logs, nil))}
 	actions := newActionResults()
 	// Le juge des ordres sans dossier d'état : ces tests n'en envoient aucun.
-	orders := newOrderRunner(nil, identity, "v0.0.1", actions, opts.Logger)
+	orders := newOrderRunner(nil, identity, "v0.0.1", "", actions, opts.Logger)
+	allowTheAccount(orders)
+	if configure != nil {
+		configure(client, orders)
+	}
 	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: actions, orders: orders}
 	done := make(chan error, 1)
 	go func() { done <- keepConnected(ctx, client, identity, waiting, catalogs.For(lang.French), opts) }()
@@ -315,5 +334,58 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		if refused.Permanent() != c.permanent {
 			t.Errorf("%d %q: permanent %v, want %v", c.status, c.code, refused.Permanent(), c.permanent)
 		}
+	}
+}
+
+// L'agent redit son compte et ses droits indisponibles à chaque ouverture du
+// flux, jugés à neuf : ce qui a été réglé entre deux flux n'est plus dit, et le
+// journal ne parle que d'un changement.
+func TestKeepConnected_SaysItsAccountAndWhatItCannotExerciseAtEachStream(t *testing.T) {
+	server := &fakeServer{signalRefusals: []string{codeNoSession}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logs := &bytes.Buffer{}
+	rights, err := machine.ParseCapabilities("docker.deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var judged atomic.Int32
+	done := startAgentWith(t, ctx, server, logs, rights, func(client *Client, orders *orderRunner) {
+		client.SetAccount(machine.Account{UID: 998, Name: "svc"})
+		checks := allowAll()
+		// Le compte n'a pas Docker au premier flux, l'opérateur l'ajoute au groupe avant le second.
+		checks.docker = func(context.Context) string {
+			if judged.Add(1) == 1 {
+				return agentwire.ReasonDockerDenied
+			}
+			return ""
+		}
+		useHostChecks(orders, checks)
+	})
+	waitUntil(t, "a second stream", func() bool {
+		streams, _, _ := server.snapshot()
+		return len(streams) >= 2
+	})
+	server.mu.Lock()
+	accounts, unavailables := slices.Clone(server.accounts), slices.Clone(server.unavailables)
+	server.mu.Unlock()
+	if accounts[0] != "998:svc" || accounts[1] != "998:svc" {
+		t.Errorf("accounts %q", accounts)
+	}
+	if unavailables[0] != "docker.deploy=docker_denied" {
+		t.Errorf("first stream said %q", unavailables[0])
+	}
+	if unavailables[1] != "" {
+		t.Errorf("a right set right between two streams was still said: %q", unavailables[1])
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("agent stopped with %v", err)
+	}
+	if got := strings.Count(logs.String(), "rights not exercisable"); got != 1 {
+		t.Errorf("%d warnings, one expected:\n%s", got, logs.String())
+	}
+	if !strings.Contains(logs.String(), "every right can be exercised again") {
+		t.Errorf("the return to normal was not logged:\n%s", logs.String())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -236,6 +237,52 @@ func TestRun_KeepsItsRightsReportsThemAndStopsWhenRevoked(t *testing.T) {
 	case <-time.After(benchTimeout):
 		t.Fatal("the revoked agent kept retrying")
 	}
+}
+
+// L'agent dit sous quel compte il tourne et ce que ce compte ne peut pas
+// exercer, de bout en bout contre un vrai serveur : Docker n'est joignable
+// nulle part (une socket qui n'existe pas), le droit coché reste coché et le
+// serveur sait pourquoi il ne s'exerce pas.
+func TestRun_SaysItsAccountAndWhyAnEnrolledRightCannotBeExercised(t *testing.T) {
+	b := newBench(t)
+	token, _, _ := b.machines.CreateToken(context.Background(), "vps-nice-1", []machine.Capability{{Name: machine.CapabilityDockerDeploy}})
+	rights, err := machine.ParseCapabilities("docker.deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := b.options(token)
+	options.Rights = rights
+	// Un chemin court : au-delà de 108 octets, l'ouverture d'une socket rend
+	// EINVAL, pas ENOENT, et Docker passerait pour arrêté (TMPDIR long).
+	short, err := os.MkdirTemp("", "dk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(short) })
+	options.DockerSocket = filepath.Join(short, "absent.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, options) }()
+	// La fiche se lit en deux requêtes (l'agent, puis ses droits) : on attend le
+	// compte, écrit avec les droits dans la même transaction, pas seulement les droits.
+	reported := b.waitFor(t, "vps-nice-1", func(s machine.Status) bool { return s.Agent.RunAs != nil && !s.Agent.ReportedAt.IsZero() })
+
+	if reported.Agent.RunAs == nil || reported.Agent.RunAs.UID != int64(os.Geteuid()) {
+		t.Fatalf("the server learned the account %+v, the agent runs as uid %d", reported.Agent.RunAs, os.Geteuid())
+	}
+	if reason := reported.Agent.UnavailableReason(machine.CapabilityDockerDeploy); reason != agentwire.ReasonDockerMissing {
+		t.Errorf("docker.deploy unavailable for %q, want %q", reason, agentwire.ReasonDockerMissing)
+	}
+	// Le droit reste celui du fichier de l'agent : il est coché, pas retiré.
+	if machine.FormatCapabilities(reported.Agent.Capabilities) != "observe,docker.deploy" {
+		t.Errorf("reported rights %s", machine.FormatCapabilities(reported.Agent.Capabilities))
+	}
+	if reason := reported.Agent.UnavailableReason(machine.CapabilityObserve); reason != "" {
+		t.Errorf("observe is never judged: %q", reason)
+	}
+	cancel()
+	<-done
 }
 
 // waitForRun attend que le run atteigne l'état voulu ; la réponse de l'agent

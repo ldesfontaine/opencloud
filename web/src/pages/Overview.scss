@@ -26,10 +26,12 @@
   justify-content: space-between;
 }
 
-// La bande de cinq tuiles compactes.
+// La bande de cinq tuiles compactes. La tuile Alertes, la dernière, est la
+// plus large : son pied porte la plus urgente, un texte long ; les trois
+// autres, dont le pied est court, cèdent chacune un peu de place.
 .overview-stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.55fr);
   gap: 16px;
 }
 
@@ -123,11 +125,6 @@ a.machine-card {
   > span:last-child {
     flex: none;
   }
-}
-
-// La carte de la vue d'ensemble : trois lignes au plus, le reste par le lien.
-.overview-alerts .row {
-  padding: 10px 20px;
 }
 
 @media (max-width: 1280px) {

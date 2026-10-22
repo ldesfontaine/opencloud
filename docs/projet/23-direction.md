@@ -305,7 +305,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination. **Fait** (21/10) : la base chiffrée part chaque nuit vers un agent ; services à venir avec le déploiement | oui : la sauvegarde chiffrée, chez l'agent de destination |
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur. **Fait** (22/10) : `release import`, `agent.update`, vérifié deux fois (serveur, puis agent avec sa clé), lien `bin/current` basculé, succès constaté au retour | oui |
-| 6 | #125 | appliquer une mise à jour d'image validée | oui |
+| 6 | #125 | appliquer une mise à jour d'image validée. **Fait** (22/10, première version) : passer au tag plus récent d'un service déployé, en un geste ; pas de retour arrière | oui |
 | 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/`. **Fait** (première version, 21/10) : déployer et redéployer un service Compose déclaré ; pas de retrait, pas de modules | oui |
 | 8 | #152 | clés SSH distribuées | oui |
 | 9 | à ouvrir | modules et dépendances ; catalogue | — |

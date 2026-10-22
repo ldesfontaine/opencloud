@@ -33,9 +33,12 @@ type backupDestinationJSON struct {
 	MachineID   string `json:"machine_id"`
 	MachineName string `json:"machine_name"`
 	Path        string `json:"path"`
-	// ok, missing ou unknown : l'agent peut-il écrire dans ce dossier.
-	Right     string    `json:"right"`
-	CreatedAt time.Time `json:"created_at"`
+	// ok, missing, unavailable ou unknown : l'agent peut-il écrire dans ce
+	// dossier. Avec unavailable, right_reason dit pourquoi son compte ne le
+	// peut pas ; l'envoi reste permis, l'agent refusera avec la raison.
+	Right       string    `json:"right"`
+	RightReason string    `json:"right_reason,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type backupPlanJSON struct {
@@ -72,7 +75,7 @@ func backupKeyringToJSON(keyring backup.Keyring) backupKeyringJSON {
 func backupDestinationToJSON(view backup.DestinationView) backupDestinationJSON {
 	return backupDestinationJSON{
 		ID: view.ID, Name: view.Name, MachineID: view.MachineID, MachineName: view.MachineName, Path: view.Path,
-		Right: string(view.Right), CreatedAt: view.CreatedAt.UTC(),
+		Right: string(view.Right), RightReason: view.RightReason, CreatedAt: view.CreatedAt.UTC(),
 	}
 }
 

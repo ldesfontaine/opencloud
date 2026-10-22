@@ -85,14 +85,23 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   seule action principale par écran.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
-  les onglets livrés : Résumé, Services, Domaines et certificats, Réseau,
+  les onglets livrés : Résumé, Services, Disponibilité, Réseau,
   Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
-  et Réglages viendront avec leur écran.
+  et Réglages viendront avec leur écran. La fin de support du système, quand
+  elle est activée, tient sur une ligne sous les métadonnées (pastille et
+  phrase ; la phrase passe à la ligne sur un écran étroit, sans se couper) ;
+  son détail est une carte sous l'historique.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
   de contexte. Variante **compacte** (`Stat compact`, environ 60 px au lieu de
   125) : la valeur à 20 px, l'étiquette et le contexte l'un sous l'autre à sa
   droite, sans jauge. Pour une bande de chiffres en tête de page (la vue
-  d'ensemble) ; une tuile qui porte une jauge garde la forme pleine.
+  d'ensemble, les quatre chiffres d'une machine) ; une tuile qui porte une
+  jauge garde la forme pleine. Avec `wideFoot`, le contexte passe sur toute la
+  largeur sous le chiffre et l'étiquette (environ 66 px) : pour un contexte long.
+  Une tuile compacte qui remplace une jauge garde sa couleur : le contexte passe
+  en attention ou en danger aux mêmes seuils.
+  Sur la vue d'ensemble, la tuile Alertes est la plus large et son contexte
+  porte la plus urgente, tronquée, le texte entier en info-bulle.
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
@@ -116,6 +125,11 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   à côte selon la largeur (le rangement qui garde le plus grand texte dans
   240 px de haut), réduite pour tenir sur un écran de portable mais jamais
   sous 10 px de texte rendu.
+- **Historique d'une machine** : quatre graphes d'aire de 120 px de haut (axes
+  compris, texte de 11 px), sur une rangée au-dessus de 1280 px, deux en
+  dessous, un sous 860 px ; l'axe du temps garde moins de repères quand le
+  graphe est étroit. L'en-tête, les tuiles et l'historique tiennent sur un écran
+  de portable (#141) ; l'agent et les ordres suivent dessous.
 - **Info-bulle** : fond encre, texte 12 px, pour le détail qu'on ne veut pas à
   l'écran.
 

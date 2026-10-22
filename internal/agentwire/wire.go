@@ -40,6 +40,15 @@ const (
 	// La racine des services que l'agent lit dans son fichier, redite à
 	// l'ouverture du flux. Absente chez un agent plus vieux.
 	HeaderAgentRoot = brand.HeaderPrefix + "Agent-Root"
+	// Le compte sous lequel l'agent tourne, redit à chaque ouverture du flux,
+	// « <uid>:<nom> » (machine.FormatAccount). Absent chez un agent plus
+	// vieux : la fiche dit « pas encore rapporté ».
+	HeaderAgentAccount = brand.HeaderPrefix + "Agent-Account"
+	// Les droits cochés que le compte de l'agent ne peut pas exercer sur sa
+	// machine, « <droit>=<raison> » séparés par « , » (machine.FormatUnavailable),
+	// jugés avant chaque ouverture du flux. Absent quand tout est réalisable,
+	// et chez un agent plus vieux.
+	HeaderAgentUnavailable = brand.HeaderPrefix + "Agent-Unavailable"
 )
 
 // ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1

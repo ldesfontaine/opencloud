@@ -3,6 +3,7 @@ import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
+import { probePath } from "./probes";
 import { fromLocalInput } from "./status";
 import { formatClock, formatDuration, since } from "./time";
 
@@ -94,6 +95,27 @@ function lines(t: Translate, kind: AlertKind, factArgs: (string | number)[], cau
   };
 }
 
+// La plus urgente des alertes ouvertes : une que personne n'a acquittée avant
+// une acquittée, puis la plus grave, puis la plus récente. null : aucune
+// ouverte. C'est ce que la tuile Alertes de la vue d'ensemble montre.
+export function mostUrgentAlert(alerts: Alert[]): Alert | null {
+  let best: Alert | null = null;
+  for (const alert of alerts) {
+    if (alert.status !== "open") {
+      continue;
+    }
+    if (best === null || urgencyOf(alert) > urgencyOf(best) || (urgencyOf(alert) === urgencyOf(best) && Date.parse(alert.opened_at) > Date.parse(best.opened_at))) {
+      best = alert;
+    }
+  }
+  return best;
+}
+
+// Non acquittée : 2, grave : 1 ; la gravité ne vient qu'après l'acquittement.
+function urgencyOf(alert: Alert): number {
+  return (alert.acknowledged_at === null ? 2 : 0) + (alert.severity === "danger" ? 1 : 0);
+}
+
 // L'état d'une alerte tel que la pastille le dit.
 export type AlertState = "open" | "acknowledged" | "resolved";
 
@@ -120,7 +142,7 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
     case "heartbeat":
       return `/taches/${object.id}`;
     case "probe":
-      return `/domaines/${object.id}`;
+      return probePath(object.id);
     case "volume":
       return machineID !== "" ? `/machines/${machineID}` : null;
   }

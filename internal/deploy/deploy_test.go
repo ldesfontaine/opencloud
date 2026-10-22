@@ -18,7 +18,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-const serviceID = "svc_00000000000000b1"
+const (
+	serviceID = "svc_00000000000000b1"
+	appUnitID = "unt_00000000000000a1"
+	dbUnitID  = "unt_00000000000000a2"
+)
 
 func nextcloud() directory.Service {
 	return directory.Service{
@@ -26,11 +30,11 @@ func nextcloud() directory.Service {
 		Origin: directory.OriginCompose, ComposeProject: "nextcloud",
 		Units: []directory.Unit{
 			{
-				Name: "app", Kind: directory.UnitContainer, Image: "ghcr.io/example/nextcloud", Version: "29.0.4",
+				ID: appUnitID, ServiceID: serviceID, Name: "app", Kind: directory.UnitContainer, Image: "ghcr.io/example/nextcloud", Version: "29.0.4",
 				Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 				Ports:  []string{"8080:80", "443/tcp"}, DataPath: "/var/www/html",
 			},
-			{Name: "db", Kind: directory.UnitContainer, Image: "postgres", Version: "16.4"},
+			{ID: dbUnitID, ServiceID: serviceID, Name: "db", Kind: directory.UnitContainer, Image: "postgres", Version: "16.4"},
 		},
 	}
 }
@@ -204,6 +208,15 @@ func (f fakeServices) GetDeclaredService(_ context.Context, id string) (director
 	return f.service, nil
 }
 
+func (f fakeServices) GetUnit(_ context.Context, id string) (directory.Unit, error) {
+	for _, unit := range f.service.Units {
+		if unit.ID == id {
+			return unit, nil
+		}
+	}
+	return directory.Unit{}, directory.ErrUnitNotFound
+}
+
 type fakeMachines struct{ status machine.Status }
 
 func (f fakeMachines) Get(context.Context, string) (machine.Status, error) { return f.status, nil }
@@ -261,7 +274,7 @@ type bench struct {
 
 func newBench(rights string, runs fakeRuns) *bench {
 	b := &bench{sender: &fakeSender{}, machines: &fakeMachines{status: activeMachine(rights)}, runs: &runs}
-	b.service = deploy.New(fakeServices{service: nextcloud()}, b.machines, b.runs, b.sender, slog.New(slog.DiscardHandler))
+	b.service = deploy.New(fakeServices{service: nextcloud()}, nil, b.machines, b.runs, b.sender, slog.New(slog.DiscardHandler))
 	return b
 }
 
@@ -349,7 +362,7 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 	} {
 		service := nextcloud()
 		change(&service)
-		b := deploy.New(fakeServices{service: service}, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+		b := deploy.New(fakeServices{service: service}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
 		_, err := b.Plan(ctx, serviceID)
 		if key, ok := refusal.KeyOf(err); !ok || !strings.HasPrefix(key, "deploy.") {
 			t.Errorf("%s: %v", name, err)
@@ -461,6 +474,45 @@ func TestDeploy_RefusesWhenTheAgentLacksTheRight(t *testing.T) {
 	b = newBench("observe,docker.deploy", fakeRuns{folder: succeededRun()})
 	if _, err := b.service.Redeploy(context.Background(), serviceID, nil); !errors.Is(err, deploy.ErrRightMissing) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// Le droit est coché mais le compte de l'agent ne peut pas l'exercer : le plan
+// le dit, avec la raison, et le droit qui compte est celui du prochain geste.
+// Le serveur ne refuse rien d'avance (le rapport date de l'ouverture du flux) :
+// l'ordre part, l'agent le refusera avec sa raison.
+func TestPlan_SaysARightCannotBeExercisedAndTheOrderStillGoes(t *testing.T) {
+	ctx := context.Background()
+	b := newBench("observe,docker.deploy,docker.update", fakeRuns{})
+	b.machines.status.Agent.Unavailable = map[string]string{machine.CapabilityDockerDeploy: agentwire.ReasonDockerDenied}
+	plan, err := b.service.Plan(ctx, serviceID)
+	if err != nil || plan.Right != deploy.RightUnavailable || plan.RightReason != agentwire.ReasonDockerDenied {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	run, err := b.service.Deploy(ctx, serviceID, nil)
+	if err != nil || len(b.sender.sent) != 1 || run.ID == "" {
+		t.Fatalf("an unavailable right must not stop the order: %v %+v", err, b.sender.sent)
+	}
+
+	// Redéployer juge docker.update : une raison sur docker.deploy n'y change rien.
+	redeploy := newBench("observe,docker.deploy,docker.update", fakeRuns{folder: succeededRun(), last: succeededRun()})
+	redeploy.machines.status.Agent.Unavailable = map[string]string{machine.CapabilityDockerDeploy: agentwire.ReasonDockerDenied}
+	if plan, err = redeploy.service.Plan(ctx, serviceID); err != nil || plan.Right != deploy.RightOK || plan.RightReason != "" {
+		t.Fatalf("the redeploy's right is docker.update: %+v %v", plan, err)
+	}
+	redeploy.machines.status.Agent.Unavailable = map[string]string{machine.CapabilityDockerUpdate: agentwire.ReasonPathDenied}
+	if plan, err = redeploy.service.Plan(ctx, serviceID); err != nil || plan.Right != deploy.RightUnavailable || plan.RightReason != agentwire.ReasonPathDenied {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	if _, err := redeploy.service.Redeploy(ctx, serviceID, nil); err != nil || len(redeploy.sender.sent) != 1 {
+		t.Fatalf("redeploy with an unavailable right: %v", err)
+	}
+
+	// Un droit absent reste « missing », avec ou sans raison rapportée.
+	missing := newBench("observe", fakeRuns{})
+	missing.machines.status.Agent.Unavailable = map[string]string{machine.CapabilityDockerDeploy: agentwire.ReasonDockerDenied}
+	if plan, err = missing.service.Plan(ctx, serviceID); err != nil || plan.Right != deploy.RightMissing || plan.RightReason != "" {
+		t.Fatalf("plan %+v %v", plan, err)
 	}
 }
 

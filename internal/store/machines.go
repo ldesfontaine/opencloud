@@ -15,7 +15,7 @@ import (
 // révoqué ; et ce que le jeton qui l'a enrôlé demandait.
 const machineSelect = `SELECT m.id, m.name, m.hostname, m.address, m.os, m.arch, m.created_at,
 		a.id, a.public_key, a.version, a.root_dir, a.enrolled_at, a.last_seen_at, a.revoked_at,
-		a.server_key_fingerprint, t.requested_capabilities
+		a.server_key_fingerprint, a.run_as_uid, a.run_as_name, t.requested_capabilities
 	FROM machines m
 	LEFT JOIN agents a ON a.id = (
 		SELECT id FROM agents WHERE machine_id = m.id
@@ -147,23 +147,33 @@ func (db *DB) RecordConnection(ctx context.Context, connection machine.Connectio
 		if err := notFoundIfNoRow(result, machine.ErrNotFound); err != nil {
 			return err
 		}
+		if connection.Account != nil {
+			_, err = tx.ExecContext(ctx, `UPDATE agents SET run_as_uid = ?, run_as_name = ? WHERE id = ?`,
+				connection.Account.UID, connection.Account.Name, connection.AgentID)
+			if err != nil {
+				return fmt.Errorf("record account: %w", err)
+			}
+		}
 		if connection.Capabilities == nil {
 			return nil
 		}
-		return replaceCapabilities(ctx, tx, connection.AgentID, connection.Capabilities, connection.At)
+		return replaceCapabilities(ctx, tx, connection)
 	})
 }
 
 // replaceCapabilities remplace ce que l'agent avait rapporté : c'est un
 // reflet de son fichier, pas un historique.
-func replaceCapabilities(ctx context.Context, tx *sql.Tx, agentID string, capabilities []machine.Capability, at time.Time) error {
+func replaceCapabilities(ctx context.Context, tx *sql.Tx, connection machine.Connection) error {
+	agentID := connection.AgentID
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_capabilities WHERE agent_id = ?`, agentID); err != nil {
 		return fmt.Errorf("clear capabilities: %w", err)
 	}
-	for _, capability := range capabilities {
+	for _, capability := range connection.Capabilities {
+		// Une raison pour un droit que l'agent ne rapporte pas n'a pas de ligne
+		// où s'écrire : elle se perd, elle ne dit rien d'un droit coché.
 		_, err := tx.ExecContext(ctx, `
-			INSERT INTO agent_capabilities (agent_id, capability, scope, reported_at) VALUES (?, ?, ?, ?)`,
-			agentID, capability.Name, strings.Join(capability.Paths, ":"), at.Unix())
+			INSERT INTO agent_capabilities (agent_id, capability, scope, unavailable, reported_at) VALUES (?, ?, ?, ?, ?)`,
+			agentID, capability.Name, strings.Join(capability.Paths, ":"), connection.Unavailable[capability.Name], connection.At.Unix())
 		if err != nil {
 			return fmt.Errorf("insert capability: %w", err)
 		}
@@ -349,11 +359,11 @@ func classifyTokenFailure(ctx context.Context, tx *sql.Tx, tokenHash string, now
 func scanMachine(row scanner) (machine.Machine, error) {
 	var m machine.Machine
 	var createdAt int64
-	var agentID, version, rootDir, serverKey, requested sql.NullString
+	var agentID, version, rootDir, serverKey, runAsName, requested sql.NullString
 	var publicKey []byte
-	var enrolledAt, lastSeenAt, revokedAt sql.NullInt64
+	var enrolledAt, lastSeenAt, revokedAt, runAsUID sql.NullInt64
 	err := row.Scan(&m.ID, &m.Name, &m.Hostname, &m.Address, &m.OS, &m.Arch, &createdAt,
-		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &requested)
+		&agentID, &publicKey, &version, &rootDir, &enrolledAt, &lastSeenAt, &revokedAt, &serverKey, &runAsUID, &runAsName, &requested)
 	if err != nil {
 		return machine.Machine{}, err
 	}
@@ -366,6 +376,9 @@ func scanMachine(row scanner) (machine.Machine, error) {
 		Version: version.String, RootDir: rootDir.String, ServerKeyFingerprint: serverKey.String,
 		EnrolledAt: time.Unix(enrolledAt.Int64, 0),
 		LastSeenAt: timeOrZero(lastSeenAt), RevokedAt: timeOrZero(revokedAt),
+	}
+	if runAsUID.Valid {
+		m.Agent.RunAs = &machine.Account{UID: runAsUID.Int64, Name: runAsName.String}
 	}
 	// Une liste illisible en base ne se montre pas : il n'y a rien à comparer.
 	if requested.String != "" {
@@ -396,7 +409,7 @@ func attachCapabilities(ctx context.Context, q querier, machines []machine.Machi
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(agentIDs)), ", ")
 	rows, err := q.QueryContext(ctx, `
-		SELECT agent_id, capability, scope, reported_at FROM agent_capabilities
+		SELECT agent_id, capability, scope, unavailable, reported_at FROM agent_capabilities
 		WHERE agent_id IN (`+placeholders+`)`, agentIDs...)
 	if err != nil {
 		return fmt.Errorf("list capabilities: %w", err)
@@ -404,11 +417,18 @@ func attachCapabilities(ctx context.Context, q querier, machines []machine.Machi
 	defer rows.Close()
 	reported := map[string][]machine.Capability{}
 	reportedAt := map[string]time.Time{}
+	unavailable := map[string]map[string]string{}
 	for rows.Next() {
-		var agentID, name, scope string
+		var agentID, name, scope, reason string
 		var at int64
-		if err := rows.Scan(&agentID, &name, &scope, &at); err != nil {
+		if err := rows.Scan(&agentID, &name, &scope, &reason, &at); err != nil {
 			return err
+		}
+		if reason != "" {
+			if unavailable[agentID] == nil {
+				unavailable[agentID] = map[string]string{}
+			}
+			unavailable[agentID][name] = reason
 		}
 		capability := machine.Capability{Name: name}
 		if scope != "" {
@@ -432,6 +452,7 @@ func attachCapabilities(ctx context.Context, q querier, machines []machine.Machi
 			capabilities = normalized
 		}
 		agent.Capabilities = capabilities
+		agent.Unavailable = unavailable[agent.ID]
 		agent.ReportedAt = reportedAt[agent.ID]
 	}
 	return nil

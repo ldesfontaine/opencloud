@@ -103,7 +103,9 @@ func (s *Server) pingAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // Ce que la fiche de la machine propose à son agent : la version du serveur,
-// ou pourquoi pas. reason est vide quand la mise à jour est disponible.
+// ou pourquoi pas. reason est vide quand la mise à jour est disponible, sauf
+// right_unavailable : elle l'est quand même, le compte de l'agent ne peut pas
+// exercer le droit et l'agent refusera avec la raison.
 type agentUpdateOfferJSON struct {
 	Current   string `json:"current"`
 	Target    string `json:"target"`

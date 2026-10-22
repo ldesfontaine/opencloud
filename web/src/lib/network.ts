@@ -285,16 +285,19 @@ export function publicPorts(edges: Edge[]): number[] {
 // côte à côte quand la largeur le permet (fitOverview).
 //
 // Ses écarts sont plus serrés que ceux du graphe d'une machine (margin,
-// columnGap) : la vue d'ensemble doit tenir sur un écran de portable (#141).
+// columnGap, groupGap…) : la vue d'ensemble doit tenir sur un écran de
+// portable (#141). Les constantes overview* ne servent qu'à elle ; la fiche
+// Réseau d'une machine garde les siennes.
 
 export const compactWidth = 148;
-export const compactHeight = 40;
-const compactGap = 8;
-const overviewMargin = 12;
+export const compactHeight = 38;
+export const overviewCompactGap = 6;
+export const overviewMargin = 4;
 const overviewColumnGap = 56;
-const frameGap = 12;
-// En haut, la place de la légende du cadre (texte de 11 px, ligne de base à 15).
-const framePadding = { top: 24, right: 14, bottom: 8, left: 14 };
+export const overviewFrameGap = 6;
+// En haut, la place de la légende du cadre (texte de 11 px, ligne de base à 15,
+// les nœuds commencent 5 px plus bas).
+export const overviewFramePadding = { top: 20, right: 14, bottom: 4, left: 14 };
 const maxColumns = 4;
 // La hauteur d'un cadre sans conteneur : sa légende seule.
 const emptyFrameHeight = 22;
@@ -358,8 +361,8 @@ export function layoutOverview(response: OverviewNetworkResponse, perRow = 1): O
     columnWidths[column] = Math.max(columnWidths[column] ?? 0, machine.frame.width);
     rowHeights[row] = Math.max(rowHeights[row] ?? 0, machine.frame.height);
   });
-  const columnX = columnWidths.map((_, column) => left + columnWidths.slice(0, column).reduce((sum, value) => sum + value + frameGap, 0));
-  const rowY = rowHeights.map((_, row) => overviewMargin + rowHeights.slice(0, row).reduce((sum, value) => sum + value + frameGap, 0));
+  const columnX = columnWidths.map((_, column) => left + columnWidths.slice(0, column).reduce((sum, value) => sum + value + overviewFrameGap, 0));
+  const rowY = rowHeights.map((_, row) => overviewMargin + rowHeights.slice(0, row).reduce((sum, value) => sum + value + overviewFrameGap, 0));
   const machines: PlacedMachine[] = [];
   const nodes: PlacedNode[] = [];
   const cellOf = new Map<string, { column: number; row: number }>();
@@ -376,13 +379,13 @@ export function layoutOverview(response: OverviewNetworkResponse, perRow = 1): O
       cellOf.set(node.id, { column, row });
     }
   });
-  const contentWidth = columnWidths.reduce((sum, value) => sum + value, 0) + (columns - 1) * frameGap;
-  const contentHeight = rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(rowHeights.length - 1, 0) * frameGap;
+  const contentWidth = columnWidths.reduce((sum, value) => sum + value, 0) + (columns - 1) * overviewFrameGap;
+  const contentHeight = rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(rowHeights.length - 1, 0) * overviewFrameGap;
   const height = Math.max(overviewMargin + contentHeight, overviewMargin + nodeHeight) + overviewMargin;
   internet.y = (height - nodeHeight) / 2;
   const start = { x: internet.x + nodeWidth, y: internet.y + nodeHeight / 2 };
   // Le tronc commun des routes publiques, à mi-chemin de la première colonne.
-  const trunkX = (start.x + left + (framed ? framePadding.left : 0)) / 2;
+  const trunkX = (start.x + left + (framed ? overviewFramePadding.left : 0)) / 2;
   const edges: PlacedEdge[] = [];
   for (const machine of response.machines) {
     for (const edge of machine.edges) {
@@ -399,8 +402,8 @@ export function layoutOverview(response: OverviewNetworkResponse, perRow = 1): O
       // Un cadre qui n'est pas dans la première colonne : la route suit
       // l'écart au-dessus de sa rangée, puis celui à sa gauche, sans
       // traverser aucun cadre.
-      const channelY = (rowY[cell.row] ?? overviewMargin) - frameGap / 2;
-      const laneX = (columnX[cell.column] ?? left) - frameGap / 2;
+      const channelY = (rowY[cell.row] ?? overviewMargin) - overviewFrameGap / 2;
+      const laneX = (columnX[cell.column] ?? left) - overviewFrameGap / 2;
       const points = [start, { x: trunkX, y: start.y }, { x: trunkX, y: channelY }, { x: laneX, y: channelY }, { x: laneX, y: end.y }, end];
       edges.push({ edge, path: orthogonal(points), labelX: (laneX + end.x) / 2, labelY: end.y - 7 });
     }
@@ -446,20 +449,20 @@ function placeMachine(machine: NetworkResponse, framed: boolean): { frame: Place
   // Autant de colonnes que la grille en remplit : le cadre les englobe toutes.
   const otherColumns = Math.min(gridColumns, Math.ceil(others.length / rows));
   const usedColumns = Math.max((publicContainers.length > 0 ? 1 : 0) + otherColumns, 1);
-  const padding = framed ? framePadding : { top: 0, right: 0, bottom: 0, left: 0 };
+  const padding = framed ? overviewFramePadding : { top: 0, right: 0, bottom: 0, left: 0 };
   const nodes: PlacedNode[] = [];
   publicContainers.forEach((container, row) => {
-    nodes.push({ id: container.id, x: padding.left, y: padding.top + row * (compactHeight + compactGap), container, public: true });
+    nodes.push({ id: container.id, x: padding.left, y: padding.top + row * (compactHeight + overviewCompactGap), container, public: true });
   });
   const firstGridColumn = publicContainers.length > 0 ? 1 : 0;
   others.forEach((container, index) => {
     const column = firstGridColumn + (index % Math.max(otherColumns, 1));
     const row = Math.floor(index / Math.max(otherColumns, 1));
-    nodes.push({ id: container.id, x: padding.left + column * (compactWidth + compactGap), y: padding.top + row * (compactHeight + compactGap), container, public: false });
+    nodes.push({ id: container.id, x: padding.left + column * (compactWidth + overviewCompactGap), y: padding.top + row * (compactHeight + overviewCompactGap), container, public: false });
   });
   const empty = machine.containers.length === 0;
-  const contentHeight = empty ? emptyFrameHeight : rows * compactHeight + (rows - 1) * compactGap;
-  const contentWidth = usedColumns * compactWidth + (usedColumns - 1) * compactGap;
+  const contentHeight = empty ? emptyFrameHeight : rows * compactHeight + (rows - 1) * overviewCompactGap;
+  const contentWidth = usedColumns * compactWidth + (usedColumns - 1) * overviewCompactGap;
   return {
     frame: {
       id: machine.machine_id, name: machine.machine_name, online: machine.online,
