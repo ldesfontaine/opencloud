@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
 import { useNow } from "../hooks/useNow";
-import { useDiskThresholds, useI18n } from "../i18n/context";
+import { useDiskThresholds, useI18n, useT } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
+import type { StateTone } from "../lib/tone";
 import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, meterTone, percentOf, rateQuantity } from "../lib/units";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Meter, Stat } from "./Card";
@@ -13,7 +14,10 @@ import { Dot } from "./Pill";
 import "./Resources.scss";
 
 // Les quatre chiffres clés d'une machine : processeur, mémoire, disque,
-// réseau. Sans mesure fraîche, un tiret et la raison, jamais un zéro.
+// réseau, en tuiles compactes (#141). Sans mesure fraîche, un tiret et la
+// raison, jamais un zéro. Les pourcentages sont dans les pieds, dans la
+// couleur qu'avait la jauge (un disque presque plein se voit encore) ; les
+// jauges par volume, quand il y en a plusieurs, dans DiskVolumesCard.
 export function ResourceStats({ current }: { current: Current | null }) {
   const { t, language } = useI18n();
   const diskThresholds = useDiskThresholds();
@@ -26,33 +30,41 @@ export function ResourceStats({ current }: { current: Current | null }) {
   const memPercent = sample ? percentOf(sample.mem_used, sample.mem_total) : 0;
   const diskPercent = sample ? percentOf(sample.disk_used, sample.disk_total) : 0;
   const volumes = sample?.disks ?? [];
+  // Plusieurs volumes : la couleur du plus plein, comme sa jauge en tête de
+  // DiskVolumesCard.
+  const diskTonePercent = volumes.length > 1 ? Math.max(...volumes.map((volume) => percentOf(volume.used, volume.total))) : diskPercent;
   return (
-    <div className="grid-4">
+    <div className="grid-4 resource-stats">
       <Stat
+        compact
+        wideFoot
         icon="cpu"
         label={t("resource.cpu")}
         value={sample ? Math.round(sample.cpu_percent) : "–"}
         unit="%"
-        meter={<Meter percent={sample ? sample.cpu_percent : 0} tone={sample ? meterTone(sample.cpu_percent) : undefined} />}
-        foot={sample ? t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)) : foot}
+        foot={sample ? toned(t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)), meterTone(sample.cpu_percent)) : foot}
       />
       <Stat
+        compact
+        wideFoot
         icon="memory"
         label={t("resource.memory")}
         value={sample && memory ? bytesIn(language, sample.mem_used, sample.mem_total) : "–"}
         unit={memory ? `${memory.unit} / ${memory.value}` : undefined}
-        meter={<Meter percent={memPercent} tone={sample ? meterTone(memPercent) : undefined} />}
-        foot={sample ? t("resource.mem_foot", memPercent, formatBytes(t, language, sample.swap_used), formatBytes(t, language, sample.swap_total)) : foot}
+        foot={sample ? toned(t("resource.mem_foot", memPercent, formatBytes(t, language, sample.swap_used), formatBytes(t, language, sample.swap_total)), meterTone(memPercent)) : foot}
       />
       <Stat
+        compact
+        wideFoot
         icon="disk"
         label={t("resource.disk")}
         value={sample && disk ? bytesIn(language, sample.disk_used, sample.disk_total) : "–"}
         unit={disk ? `${disk.unit} / ${disk.value}` : undefined}
-        meter={volumes.length > 1 ? <DiskVolumes disks={volumes} /> : <Meter percent={diskPercent} tone={sample ? meterTone(diskPercent, diskThresholds) : undefined} />}
-        foot={diskFoot(t, sample, volumes.length, diskPercent, foot)}
+        foot={sample ? toned(diskFoot(t, sample, volumes.length, diskPercent, foot), meterTone(diskTonePercent, diskThresholds)) : foot}
       />
       <Stat
+        compact
+        wideFoot
         icon="network"
         label={t("resource.network")}
         value={rate ? rate.value : "–"}
@@ -60,6 +72,31 @@ export function ResourceStats({ current }: { current: Current | null }) {
         foot={sample ? t("resource.net_foot", formatRate(t, language, sample.net_rx_per_second), formatRate(t, language, sample.net_tx_per_second)) : foot}
       />
     </div>
+  );
+}
+
+// Le pied d'une tuile dans le ton de la jauge qu'elle remplace : rien de
+// plus sous le seuil d'attention.
+function toned(text: string, tone: StateTone | undefined): ReactNode {
+  return tone === undefined ? text : <b className={tone}>{text}</b>;
+}
+
+// Les volumes d'une machine qui en a plusieurs, la plus pleine en tête : la
+// tuile Disque n'en garde que le nombre et le total. Rien quand il y en a
+// un seul ou aucune mesure.
+export function DiskVolumesCard({ current }: { current: Current | null }) {
+  const t = useT();
+  const volumes = current?.available ? (current.sample?.disks ?? []) : [];
+  if (volumes.length < 2) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader title={t("resource.disk")} />
+      <CardBody>
+        <DiskVolumes disks={volumes} />
+      </CardBody>
+    </Card>
   );
 }
 
@@ -140,7 +177,13 @@ export function MachineMeters({ current }: { current: Current | undefined }) {
 
 const windows: WindowName[] = ["1h", "24h", "7d", "30d", "90d"];
 
-// L'historique d'une machine : une fenêtre, quatre graphes.
+// La hauteur d'un graphe (axes compris) : 160 px par défaut, moins ici pour que
+// l'historique tienne sous les tuiles sur un portable (#141). Le tracé garde
+// plus de 80 px, les axes leur texte de 11 px.
+const chartHeight = 120;
+
+// L'historique d'une machine : une fenêtre, quatre graphes sur une rangée
+// au-dessus de 1280 px, deux en dessous, un sous 860 px.
 export function ResourceHistory({ machineID }: { machineID: string }) {
   const { t, language } = useI18n();
   const [timeWindow, setTimeWindow] = useState<WindowName>("1h");
@@ -172,9 +215,9 @@ export function ResourceHistory({ machineID }: { machineID: string }) {
         }
       />
       <CardBody gap={16}>
-        <div className="grid-2 gap-24">
-          <ChartBlock title={t("resource.cpu")} series={[series("cpu", t("resource.used"), points, (point) => point.cpu_percent)]} from={from} to={to} stepMs={stepMs} max={100} format={percent} />
-          <ChartBlock title={t("resource.memory")} series={[series("mem", t("resource.used"), points, (point) => point.mem_used)]} from={from} to={to} stepMs={stepMs} max={memTotal} format={bytes} />
+        <div className="resource-charts">
+          <ChartBlock title={t("resource.cpu")} series={[series("cpu", t("resource.used"), points, (point) => point.cpu_percent)]} from={from} to={to} stepMs={stepMs} max={100} format={percent} height={chartHeight} />
+          <ChartBlock title={t("resource.memory")} series={[series("mem", t("resource.used"), points, (point) => point.mem_used)]} from={from} to={to} stepMs={stepMs} max={memTotal} format={bytes} height={chartHeight} />
           <ChartBlock
             title={t("resource.network")}
             series={[
@@ -185,8 +228,9 @@ export function ResourceHistory({ machineID }: { machineID: string }) {
             to={to}
             stepMs={stepMs}
             format={rate}
+            height={chartHeight}
           />
-          <ChartBlock title={t("resource.disk")} series={[series("disk", t("resource.used"), points, (point) => point.disk_used)]} from={from} to={to} stepMs={stepMs} max={diskTotal} format={bytes} />
+          <ChartBlock title={t("resource.disk")} series={[series("disk", t("resource.used"), points, (point) => point.disk_used)]} from={from} to={to} stepMs={stepMs} max={diskTotal} format={bytes} height={chartHeight} />
         </div>
         <span className="secondary">{t("resource.history_text")}</span>
       </CardBody>
@@ -206,6 +250,7 @@ function ChartBlock({
   stepMs,
   max,
   format,
+  height,
 }: {
   title: string;
   series: ChartSeries[];
@@ -214,6 +259,7 @@ function ChartBlock({
   stepMs: number;
   max?: number | undefined;
   format: (value: number) => string;
+  height: number;
 }) {
   return (
     <div className="chart-block">
@@ -230,7 +276,7 @@ function ChartBlock({
           </span>
         )}
       </div>
-      <Chart series={series} from={from} to={to} stepMs={stepMs} max={max} format={format} />
+      <Chart series={series} from={from} to={to} stepMs={stepMs} max={max} format={format} height={height} />
     </div>
   );
 }

@@ -18,6 +18,10 @@ export interface AuthState {
   // En forward, présent et vrai quand rien ne prouve que la requête passe
   // par le mandataire (pas de secret, boucle locale de confiance).
   forward_insecure?: boolean;
+  // Les identités que forward_users (config.toml) admet, en forward
+  // seulement ; null quand la liste est vide (toute identité du mandataire)
+  // et dans les autres modes.
+  allowed_users: string[] | null;
 }
 
 // Un compte et son mot de passe, ou l'en-tête d'un mandataire.

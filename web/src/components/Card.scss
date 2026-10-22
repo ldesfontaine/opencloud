@@ -145,6 +145,15 @@
   }
 }
 
+// Le pied sur toute la largeur, sous le chiffre et l'étiquette : la fiche d'une
+// machine, dont les pieds sont longs. La tuile reste sur deux lignes.
+.stat-compact.stat-wide-foot {
+  grid-template-areas:
+    "value label"
+    "foot foot";
+  row-gap: 2px;
+}
+
 .stat-value {
   font-size: 26px;
   font-weight: 600;

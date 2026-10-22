@@ -611,6 +611,7 @@ const auth = shape<AuthState>("AuthState", {
   enabled_at: value,
   password_min_length: value,
   forward_insecure: optional(value),
+  allowed_users: value,
 });
 
 const session = shape<Session>("Session", {

@@ -81,3 +81,25 @@
   justify-content: space-between;
   gap: 12px;
 }
+
+// Les quatre graphes de l'historique : sur une rangée quand la fenêtre le
+// permet (la barre latérale prend 232 px : sous 1280 px un graphe serait trop
+// étroit pour ses heures), deux au-dessous, un sous 860 px.
+.resource-charts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1280px) {
+  .resource-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 24px;
+  }
+}
+
+@media (max-width: 860px) {
+  .resource-charts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

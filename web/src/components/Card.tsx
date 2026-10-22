@@ -43,6 +43,7 @@ export function Stat({
   meter,
   foot,
   compact = false,
+  wideFoot = false,
 }: {
   icon: IconName;
   label: string;
@@ -51,10 +52,13 @@ export function Stat({
   meter?: ReactNode;
   foot: ReactNode;
   compact?: boolean;
+  // Compacte, avec le pied sur toute la largeur de la tuile, sous le chiffre :
+  // pour un pied long (« 39 % utilisée, swap 0 o / 2 Go »).
+  wideFoot?: boolean;
 }) {
   return (
     <Card>
-      <div className={compact ? "card-b stat stat-compact" : "card-b stat"}>
+      <div className={compact ? (wideFoot ? "card-b stat stat-compact stat-wide-foot" : "card-b stat stat-compact") : "card-b stat"}>
         <span className="label">
           <Icon name={icon} />
           <span>{label}</span>
