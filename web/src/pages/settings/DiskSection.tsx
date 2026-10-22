@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 
 import { saveDiskSettings, type DiskSettings } from "../../api/settings";
-import { CardHeader } from "../../components/Card";
-import { Field, Input } from "../../components/Field";
-import { FormActions, FormCard } from "../../components/FormCard";
+import { Button } from "../../components/Button";
+import { Failure } from "../../components/Failure";
+import { Input } from "../../components/Field";
 import { Pill } from "../../components/Pill";
+import { SettingBlock, SettingFoot, SettingRow } from "../../components/SettingRow";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useI18n, useT } from "../../i18n/context";
+import { hasChanged } from "../../lib/changes";
 import { diskFormOf, diskRequestOf, diskSettingsError } from "../../lib/disks";
+import { SettingsSection } from "./SettingsSection";
 
 // Les seuils d'alerte du disque. Le retour n'est pas un champ : il suit
-// l'attention, cinq points dessous, et la carte le dit.
+// l'attention, cinq points dessous, et la section le dit. « Enregistrer »
+// attend un changement par rapport aux seuils que le serveur a gardés.
 export function DiskSection({ settings, reload }: { settings: DiskSettings; reload: () => void }) {
   const t = useT();
   const { reloadSession } = useI18n();
@@ -25,6 +29,7 @@ export function DiskSection({ settings, reload }: { settings: DiskSettings; relo
   useEffect(() => {
     update(diskFormOf(settings));
   }, [settings.attention, settings.danger]);
+  const changed = hasChanged(values, diskFormOf(settings));
 
   const save = () => {
     setSaved(false);
@@ -37,35 +42,46 @@ export function DiskSection({ settings, reload }: { settings: DiskSettings; relo
     action.run(() => saveDiskSettings(thresholds), {
       onDone: () => {
         setSaved(true);
-        reload();
         // Les jauges lisent les seuils dans la session : elle se relit avec
         // eux. Si elle échoue, les seuils n'en sont pas moins enregistrés : la
         // pastille « enregistré » reste, l'erreur s'ajoute.
         action.run(reloadSession);
       },
+      // Après chaque réponse, refus compris : ce que le serveur garde est la
+      // référence de « rien à enregistrer ».
+      onSettled: reload,
     });
   };
-  const help = t("settings.disk_percent_help", settings.min_attention, settings.max_danger);
+  const error = refusal ?? action.error;
   return (
-    <FormCard
-      onSubmit={save}
-      error={refusal ?? action.error}
-      header={<CardHeader title={t("settings.disk_title")} />}
-      actions={
-        <FormActions submitLabel={t("settings.disk_save")} submitIcon="check" busy={action.busy}>
-          {saved && <Pill tone="ok">{t("settings.disk_saved")}</Pill>}
-        </FormActions>
-      }
-    >
-      <p className="secondary">{t("settings.disk_intro")}</p>
-      <Field label={t("settings.disk_attention_label")} htmlFor="disk-attention" help={help}>
-        <Input id="disk-attention" type="number" inputMode="numeric" min={settings.min_attention} max={settings.max_danger - 1} value={values.attention} onChange={(event) => change("attention", event.target.value)} required />
-      </Field>
-      <Field label={t("settings.disk_danger_label")} htmlFor="disk-danger">
-        <Input id="disk-danger" type="number" inputMode="numeric" min={settings.min_attention + 1} max={settings.max_danger} value={values.danger} onChange={(event) => change("danger", event.target.value)} required />
-      </Field>
-      <p className="secondary">{t("settings.disk_recovery", settings.recovery)}</p>
-      <p className="secondary">{t("settings.disk_applies")}</p>
-    </FormCard>
+    <SettingsSection id="alertes" titleKey="settings.section_alerts" text={t("settings.disk_intro")}>
+      <form
+        className="setting-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save();
+        }}
+      >
+        <SettingRow label={t("settings.disk_attention_label")} description={t("settings.disk_percent_help", settings.min_attention, settings.max_danger)} htmlFor="disk-attention" width="short">
+          <Input id="disk-attention" type="number" inputMode="numeric" min={settings.min_attention} max={settings.max_danger - 1} value={values.attention} onChange={(event) => change("attention", event.target.value)} required />
+        </SettingRow>
+        <SettingRow label={t("settings.disk_danger_label")} htmlFor="disk-danger" width="short">
+          <Input id="disk-danger" type="number" inputMode="numeric" min={settings.min_attention + 1} max={settings.max_danger} value={values.danger} onChange={(event) => change("danger", event.target.value)} required />
+        </SettingRow>
+        <SettingBlock>
+          <p className="secondary">{t("settings.disk_recovery", settings.recovery)}</p>
+        </SettingBlock>
+        {error !== null && (
+          <SettingBlock>
+            <Failure error={error} />
+          </SettingBlock>
+        )}
+        <SettingFoot note={saved && !changed ? <Pill tone="ok">{t("settings.disk_saved")}</Pill> : t("settings.disk_applies")}>
+          <Button type="submit" variant="primary" icon="check" disabled={action.busy || !changed}>
+            {t("settings.disk_save")}
+          </Button>
+        </SettingFoot>
+      </form>
+    </SettingsSection>
   );
 }

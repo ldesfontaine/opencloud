@@ -80,14 +80,14 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
-| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
+| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le SSO qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire (Traefik) d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
-| Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
+| Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
 | Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse des **commandes d'observation** (« suis les journaux du conteneur X », « arrête », le jeu de sondes, les images à ne pas interroger) : des lectures, **non signées**, que l'agent ne reçoit que du serveur qui tient son flux. Elles ne sont pas crues pour autant : l'agent rejuge le jeu de sondes et n'ouvre que le journal d'un conteneur qu'il a lui-même rapporté (« Comment une cible est sondée », « Comment les conteneurs sont suivis »). Les **ordres** voyagent dans une enveloppe **signée Ed25519 par la clé du serveur** (`server.key`), que l'agent vérifie avec la clé épinglée à l'enrôlement avant d'en lire un champ : qui tient le flux sans la clé (un mandataire, un faux serveur) peut couper ou retarder un ordre, pas en fabriquer ; un ordre périmé ou rejoué est refusé (« Comment un ordre part et revient ») |
 | Sauvegarde, le départ | `serve` → agent d'une autre machine : l'ordre signé `backup.receive` sur le flux, puis `GET /agent/parcels/{colis}/{nom}` sous le jeton de session de l'agent | TLS de Traefik ; le fichier est **déjà** chiffré (age, pour la clé publique de sauvegarde) avant de quitter `serve` | L'ordre est signé par `server.key` et porte la taille et le SHA-256 de chaque fichier : l'agent ne garde que ce qui correspond. Le colis ne se sert qu'à la machine pour laquelle il est écrit (`404` sinon), 30 requêtes par minute et par machine |
 | Sauvegarde, au repos | la destination, sur la machine d'un agent | age : X25519 et ChaCha20-Poly1305 pour l'archive ; la clé privée, déposée à côté, est scellée par scrypt avec la phrase de passe de l'opérateur | Seule la phrase ouvre la clé, seule la clé ouvre l'archive. L'agent n'a ni l'une ni l'autre : il vérifie la somme et l'en-tête `age-encryption.org/v1`, il ne déchiffre jamais |
-| Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, suivis des onglets et tirages uniques compris |
+| Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, suivis des onglets et tirages uniques compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
 | Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root. `opencloud serve` ne lit plus la socket : il n'a besoin ni de root ni du groupe `docker`. Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
@@ -140,7 +140,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les jetons d'API dans `api_tokens` (empreinte SHA-256, préfixe affiché, portée `read` ; `write` est dans le schéma, refusé par le code ; nom ; échéance de 30, 90 ou 365 jours ou aucune ; dernier usage) | Rien n'est en clair : une copie de la base n'ouvre rien. Révoquer **efface** la ligne ; purge des jetons échus toutes les 15 minutes ; 16 jetons au plus ; activer l'authentification de l'interface les efface tous |
-| Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le SSO n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key` |
@@ -842,7 +842,7 @@ dépend plus de sa taille. Le serveur HTTP borne aussi les en-têtes à 64 Kio
 (`MaxHeaderBytes`, 1 Mio par défaut dans Go) : les plus gros en-têtes
 légitimes, `Authorization`, `X-Forwarded-For` et la preuve signée de
 l'agent, tiennent en quelques centaines d'octets ; l'interface ne pose aucun
-cookie, et ceux qu'un mandataire d'authentification pose sur le domaine
+cookie, et ceux qu'un SSO pose sur le domaine
 parent pèsent quelques Kio. Au-delà, `431` avant même le routage.
 
 ## Comment une machine est mesurée
@@ -1603,7 +1603,7 @@ comme le reste de l'API (authentification, garde même-origine) ; sur la
 socket, aucune garde. **L'acteur** d'un apply est `cli` sur la socket, sous le
 compte système que la commande déclare (`actor_name`, indicatif, jamais une
 preuve), et `operator` sur le port web, sous l'identifiant Basic ou l'identité
-transmise par le mandataire. Seules les quatre routes `/api/manifest/…` sont
+transmise par le SSO. Seules les quatre routes `/api/manifest/…` sont
 servies sur la socket, et chacune avec sa méthode.
 
 `opencloud apply [-config] [-prune] [-yes] [-dry-run] <fichier>` :
@@ -2448,7 +2448,7 @@ liste vit dans `internal/alert`.
    adresses nues (`nom@domaine`, sans nom affiché ; virgules,
    points-virgules ou espaces ; un doublon compte une fois, refus
    `channel.recipients_invalid`), et part par le relais SMTP réglé sous
-   Paramètres, carte « Envoi d'e-mails » (`GET`/`PUT /api/settings/mail`,
+   Paramètres, section E-mails (`GET`/`PUT /api/settings/mail`,
    essai par `POST /api/settings/mail/actions/test` vers une adresse
    saisie). Le relais est relu à chaque envoi : un changement vaut dès
    l'alerte suivante. Même file, mêmes trois essais, même historique ; le
@@ -2519,8 +2519,8 @@ Deux gravités et pas trois : un ton de plus ne dirait rien de plus à qui
 doit agir. Les seuils sont ceux du produit, tenus dans `internal/alert`,
 sauf ceux du disque, réglables.
 
-**Les seuils du disque** se règlent sous Paramètres, carte « Alertes
-disque » (`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
+**Les seuils du disque** se règlent sous Paramètres, section Alertes
+(`GET`/`PUT /api/settings/disk`) : attention et danger, entiers,
 **50 ≤ attention < danger ≤ 99**, sinon refus `settings.disk_invalid`. Le
 retour n'est pas un champ : il suit l'attention, cinq points dessous, ce
 qui garde l'hystérésis sans troisième règle à valider. Ils vivent dans
@@ -2582,7 +2582,7 @@ requête : `none` (par défaut), `basic` et `forward`.
   `/api/`, une ligne dit d'ouvrir l'interface et de créer le compte. Le front
   voit `mode: none` et affiche l'écran de première configuration à la place
   de l'interface : identifiant et mot de passe deux fois (12 caractères au
-  moins), ou le mandataire. Le compte créé, il se présente avec ces
+  moins), ou le SSO. Le compte créé, il se présente avec ces
   identifiants par une requête `XMLHttpRequest` qui les porte (le navigateur
   les retient comme s'il les avait demandés, `fetch` ne sait pas le faire),
   puis relit `/api/auth` : l'interface s'ouvre sans fenêtre de connexion. Un
@@ -2602,17 +2602,22 @@ requête : `none` (par défaut), `basic` et `forward`.
   ce que le navigateur montre si l'on annule sa fenêtre. Le navigateur demande alors dans sa propre fenêtre
   et renvoie seul les identifiants, `EventSource` compris. La barre
   latérale dit « Accès protégé · identifiant ».
-- **`forward`** : openCloud derrière un mandataire qui authentifie
-  (Authelia en `forwardAuth` de Traefik) et lui transmet l'identité dans
+- **`forward`** (« SSO » dans l'interface et la documentation ; *mandataire* ne
+  désigne que le reverse proxy de `trusted_proxies`) : openCloud derrière un
+  SSO en amont qui authentifie (Authelia en `forwardAuth` de Traefik) et lui transmet l'identité dans
   un en-tête, `Remote-User` par défaut (lettres, chiffres et `-`, 64
   caractères au plus). Passe seulement une requête venue d'un pair de
-  `trusted_proxies`, **qui prouve être passée par le mandataire** (voir
+  `trusted_proxies`, **qui prouve être passée par le mandataire** (le reverse proxy ; voir
   ci-dessous) **et** qui porte cet en-tête non vide ; tout le reste
   répond `401`, sans `WWW-Authenticate` : pas de fenêtre Basic, pas de
   double connexion. Hors `/api/`, le corps dit en une ligne de passer par
-  le mandataire, et que `opencloud auth disable -config …` rouvre l'accès.
+  le SSO, et que `opencloud auth disable -config …` rouvre l'accès.
   L'identité voyage dans le contexte de la requête jusqu'à `/api/auth`, et
-  la barre latérale dit « Accès protégé · mandataire · identité ». Tout
+  la barre latérale dit « Protégé · SSO · identité ». Sous Paramètres, la
+  section Accès le dit en phrase (l'en-tête cru, l'identité reçue) et montre
+  **qui peut entrer** : `allowed_users` de `GET /api/auth`, la liste
+  `forward_users`, ou, sans liste, l'avertissement que toute identité du SSO
+  passe. Tout
   repose sur trois réglages du déploiement : `trusted_proxies` limité à
   l'adresse du mandataire seul, un mandataire qui écrase l'en-tête
   envoyé par le client (Traefik `authResponseHeaders`), et le secret
@@ -2647,7 +2652,7 @@ requête : `none` (par défaut), `basic` et `forward`.
     démarrage (la configuration seule ne connaît pas le mode, il est dans la
     base : l'avertissement est dans `runServe`, pas dans `wideProxyWarnings`)
     et `GET /api/auth` ajoute `forward_insecure: true`, que la carte
-    « Accès à l'interface » de Paramètres montre en avertissement ;
+    la section Accès de Paramètres montre en avertissement ;
   - un pair qui n'est pas la boucle locale (Traefik en conteneur, en `/32`)
     garde le comportement d'avant : cru sur son adresse. Le secret reste
     recommandé.
@@ -2655,7 +2660,7 @@ requête : `none` (par défaut), `basic` et `forward`.
   il ne protège pas d'un compte qui lit `forward_secret_file` ou la
   configuration de Traefik.
 
-  **La seconde serrure : `forward_users`.** Le mandataire dit *qui* est
+  **La seconde serrure : `forward_users`.** Le SSO dit *qui* est
   l'utilisateur ; il n'a pas à dire si openCloud l'admet. La clé
   `forward_users = ["lucas"]` de `config.toml` (relue au démarrage seulement,
   comme `trusted_proxies` : ce qui garde la porte ne se change pas par cette
@@ -2667,7 +2672,7 @@ requête : `none` (par défaut), `basic` et `forward`.
   not in forward_users » (identité tronquée à 64 caractères, sans caractère de
   contrôle, pair, chemin). Un seul point : tout ce que garde `requireOperator`
   (le front, `/api/…`, `/api/events`, les flux de journaux) passe par lui.
-  - **Liste absente ou vide : toute identité que le mandataire transmet.**
+  - **Liste absente ou vide : toute identité que le SSO transmet.**
     C'est le comportement d'avant, aucune installation ne casse.
   - **Comparaison exacte, casse comprise**, sur l'identité déjà rognée des
     espaces en bord (`lucas ` vaut `lucas`, `Lucas` ne le vaut pas) :
@@ -2684,10 +2689,10 @@ requête : `none` (par défaut), `basic` et `forward`.
     `opencloud auth disable` n'en sort pas (réactiver depuis une identité hors
     liste reste refusé) et ouvre la première configuration à toute identité
     que le SSO laisse passer.
-  - **Un jeton d'API n'est pas une identité du mandataire** : il est jugé
+  - **Un jeton d'API n'est pas une identité du SSO** : il est jugé
     avant le mode (« Comment un agent IA lit openCloud ») et la liste ne le
     juge pas. Retirer quelqu'un de la liste ne révoque donc pas les jetons
-    qu'il a tirés (Paramètres → Jetons d'API).
+    qu'il a tirés (Paramètres → Agent IA → Jetons d'API).
   - **Le journal d'audit** nomme l'acteur par l'identité transmise
     (`operatorName`, 64 caractères au plus), sous le genre `operator` ; la
     liste ne le change pas.
@@ -2790,7 +2795,7 @@ configuré ; on ne peut donc pas s'enfermer dehors depuis l'interface. Elle
 l'est aussi (`422 auth.forward_secret_required`) tant que le secret manque
 et que la boucle locale est de confiance, et (`422
 auth.forward_user_not_listed`) si l'identité qui active n'est pas dans une
-liste `forward_users` non vide. Mot de passe perdu ou mandataire en
+liste `forward_users` non vide. Mot de passe perdu ou SSO en
 panne : `opencloud auth disable -config …` sous le compte du service, que
 `serve` suit à la requête suivante sans redémarrer. **C'est voulu : la
 commande ramène à la première configuration**, et le premier qui atteint
@@ -2841,7 +2846,7 @@ répond.
 
 Un `Authorization: Bearer …` est jugé **avant le mode** d'authentification :
 en `basic` comme en `forward`, il passe par le jeton, ni par Basic ni par
-l'en-tête du mandataire. En mode `none` il est ignoré : la première
+l'en-tête d'identité du SSO. En mode `none` il est ignoré : la première
 configuration seule est servie.
 
 | Cas | Réponse |
@@ -2893,7 +2898,7 @@ les réponses de l'opérateur ne changent pas) :
 Ce qu'un jeton lit n'est pas pour autant sans risque : les **journaux bruts
 des conteneurs** (`…/logs`) partent par mcp-maison chez le fournisseur du
 modèle, et peuvent contenir un secret que personne n'a saisi comme tel. La
-carte Paramètres → Agent IA le dit.
+section Paramètres → Agent IA le dit.
 
 **Le texte de tiers n'est pas une consigne.** Ce qu'un tiers a écrit (lignes
 de journal, extraits d'un arrêt anormal, charges de ping, sujet d'un
@@ -3186,7 +3191,7 @@ Basic, et vérifie que chacun porte l'opérateur et aucun secret.
 
 | `actor_kind` | `actor_name` | Posé par |
 | --- | --- | --- |
-| `operator` | L'identifiant Basic, ou l'identité transmise par le mandataire en mode `forward` ; vide à la première configuration, seul geste admis sans compte (un en-tête Basic qu'aucun mode ne vérifie ne nomme personne ; le compte créé se lit dans les détails). Borné, sans caractère de contrôle | `server`, sur toute route de l'opérateur, juste après `requireOperator` (`withOperatorActor`) |
+| `operator` | L'identifiant Basic, ou l'identité transmise par le SSO en mode `forward` ; vide à la première configuration, seul geste admis sans compte (un en-tête Basic qu'aucun mode ne vérifie ne nomme personne ; le compte créé se lit dans les détails). Borné, sans caractère de contrôle | `server`, sur toute route de l'opérateur, juste après `requireOperator` (`withOperatorActor`) |
 | `api` | L'identifiant du jeton d'API ; la personne au nom de qui mcp-maison lit est dans `details.on_behalf_of` (en-tête `X-MCP-Maison-User`, bornée à 200 caractères), indicative, pas une preuve | `server`, sur une route admise par jeton. Aucune écriture n'est admise : rien ne s'écrit encore sous cet acteur, le chemin attend les actions de l'API (#153, étape 5) |
 | `cli` | Le compte système que la commande déclare : indicatif, pas une preuve | La socket de commande (`markControlSocket`), puis `apply` sous le nom qu'il porte déjà dans `applies` ; `opencloud auth disable` et `opencloud secrets forget`, qui écrivent sur la base |
 | `rule` | Vide | `serve`, sur son contexte racine : ses boucles de fond et ce qu'il fait au démarrage (une sonde qui porte des identifiants mise en pause, la fenêtre d'une maintenance qui s'ouvre ou se ferme) |

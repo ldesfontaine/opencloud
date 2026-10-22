@@ -93,7 +93,7 @@ function FirstSetup({ state, onConfigured }: { state: AuthState; onConfigured: (
             </Field>
             <Failure error={action.error} />
           </CardBody>
-          {mode === "basic" && <AccessCredentialsForm withUsername minLength={state.password_min_length} busy={action.busy} onSubmit={createAccount} />}
+          {mode === "basic" && <AccessCredentialsForm minLength={state.password_min_length} busy={action.busy} onSubmit={createAccount} />}
           {mode === "forward" && <AccessForwardForm busy={action.busy} onSubmit={trustProxy} />}
         </Card>
       </div>

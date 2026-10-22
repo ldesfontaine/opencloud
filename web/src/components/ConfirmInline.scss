@@ -1,0 +1,38 @@
+.confirm-inline {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+// La question et ses deux boutons prennent la place du bouton : la question
+// passe à la ligne si elle est longue, les boutons restent ensemble.
+.confirm-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  max-width: 420px;
+}
+
+.confirm-question {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--ink);
+}
+
+.confirm-buttons {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 860px) {
+  .confirm-ask {
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  .confirm-buttons {
+    margin-left: 0;
+  }
+}

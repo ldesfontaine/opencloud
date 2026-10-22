@@ -35,7 +35,7 @@ through mcp-maison. One Go binary, with SQLite and the web interface embedded.
 | Keeps an audit log of every writing action and every order, also sent to the channels you tick | Keep the trace if you tick no channel: whoever wipes the database wipes it |
 | Updates its agents from a signed version you import (`opencloud release import`) | Offer a signed version yet: none is published, and `v0.0.1` does not embed the key that verifies them. The first signed version is installed by hand, server and agents; the next ones go through this action |
 | Sends alerts as signed webhooks (Discord, Slack, Mattermost, ntfy, JSON), by e-mail through your SMTP relay, or to a Matrix room | SMS |
-| Publishes public status pages under `/statut/<address>` | Multiple accounts or a second factor of its own: behind a proxy (Authelia), `forward` mode delegates them to your SSO |
+| Publishes public status pages under `/statut/<address>` | Multiple accounts or a second factor of its own: behind an SSO (Authelia), `forward` mode delegates them to it |
 | Gives an AI agent a read-only API token, for mcp-maison | Any write or action on a machine through that token, any secret returned |
 
 openCloud observes, and acts only through named, signed, logged actions that
