@@ -74,10 +74,11 @@ func TestSend_LinksNoService(t *testing.T) {
 	}
 }
 
-// Le serveur propose « Redéployer » quand un déploiement a écrit le dossier :
-// un run réussi, ou un échec de Compose (le dossier existe). Un refus de
-// l'agent, lui, n'a rien écrit.
-func TestLastWrittenServiceRun_CountsWhatWroteTheFolder(t *testing.T) {
+// Le serveur juge « Déployer » ou « Redéployer » sur le dernier constat de
+// l'agent sur le dossier : un run réussi, un échec de Compose, un run coupé,
+// ou un refus faute de dossier. Un refus d'avant l'écriture n'en dit rien,
+// ni un dossier déjà là que le serveur ne sait pas avoir écrit.
+func TestLastFolderRun_KeepsWhatTheAgentSaidOfTheFolder(t *testing.T) {
 	b := newBenchReporting(t, "docker.deploy,docker.update")
 	service := b.declareService(t)
 	ctx := operator()
@@ -100,16 +101,24 @@ func TestLastWrittenServiceRun_CountsWhatWroteTheFolder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	lastFolder := func(kinds []agentwire.Kind) (action.Run, bool) {
+		t.Helper()
+		run, found, err := b.db.LastFolderRun(ctx, service.ID, kinds)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return run, found
+	}
 
-	if _, found, err := b.db.LastWrittenServiceRun(ctx, service.ID, kinds); err != nil || found {
-		t.Fatalf("nothing was sent yet: %v %v", found, err)
+	if _, found := lastFolder(kinds); found {
+		t.Fatal("nothing was sent yet")
 	}
 	refused := send(agentwire.KindDockerDeploy)
 	answer(refused, agentwire.ActionRefused, agentwire.ReasonDockerMissing)
 	failedEarly := send(agentwire.KindDockerDeploy)
 	answer(failedEarly, agentwire.ActionFailed, agentwire.ReasonDiskFull)
-	if _, found, err := b.db.LastWrittenServiceRun(ctx, service.ID, kinds); err != nil || found {
-		t.Fatalf("a refusal or an early failure writes nothing: %v %v", found, err)
+	if _, found := lastFolder(kinds); found {
+		t.Fatal("a refusal or an early failure says nothing of the folder")
 	}
 	if last, found, err := b.db.LastServiceRun(ctx, service.ID, kinds); err != nil || !found || last.ID != failedEarly.ID {
 		t.Fatalf("the last run, whatever its state: %+v %v %v", last, found, err)
@@ -117,20 +126,49 @@ func TestLastWrittenServiceRun_CountsWhatWroteTheFolder(t *testing.T) {
 
 	composeFailed := send(agentwire.KindDockerDeploy)
 	answer(composeFailed, agentwire.ActionFailed, agentwire.ReasonComposeFailed)
-	if last, found, err := b.db.LastWrittenServiceRun(ctx, service.ID, kinds); err != nil || !found || last.ID != composeFailed.ID {
-		t.Fatalf("compose failed after the folder was written: %+v %v %v", last, found, err)
+	if last, found := lastFolder(kinds); !found || last.ID != composeFailed.ID {
+		t.Fatalf("compose failed after the folder was written: %+v %v", last, found)
 	}
 
-	succeeded := send(agentwire.KindDockerUpdate)
+	// Un dossier déjà là que le serveur ne sait pas avoir écrit : rien de sûr,
+	// le constat d'avant reste le dernier.
+	exists := send(agentwire.KindDockerDeploy)
+	answer(exists, agentwire.ActionRefused, agentwire.ReasonServiceDirExists)
+	if last, found := lastFolder(kinds); !found || last.ID != composeFailed.ID {
+		t.Fatalf("service_dir_exists must not count: %+v %v", last, found)
+	}
+
+	// Accepté puis plus de nouvelles : la boucle de fond le passe en timeout,
+	// et l'agent a pu écrire le dossier.
+	cut := send(agentwire.KindDockerUpdate)
+	answer(cut, agentwire.ActionAccepted, "")
+	if last, _ := lastFolder(kinds); last.ID != composeFailed.ID {
+		t.Fatalf("an accepted run says nothing yet: %+v", last)
+	}
+	b.now = b.now.Add(action.MaxRunDuration + time.Minute)
+	if err := b.service.Timeout(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if last, found := lastFolder(kinds); !found || last.ID != cut.ID || last.State != action.StateFailed || last.Reason != action.ReasonTimeout {
+		t.Fatalf("a timed out run says the folder may exist: %+v %v", last, found)
+	}
+
+	// L'agent a regardé et n'a pas de dossier : c'est le dernier constat.
+	missing := send(agentwire.KindDockerUpdate)
+	answer(missing, agentwire.ActionRefused, agentwire.ReasonServiceDirMissing)
+	if last, found := lastFolder(kinds); !found || last.ID != missing.ID {
+		t.Fatalf("a missing folder is the latest word: %+v %v", last, found)
+	}
+
+	succeeded := send(agentwire.KindDockerDeploy)
 	answer(succeeded, agentwire.ActionSucceeded, "")
-	last, found, err := b.db.LastWrittenServiceRun(ctx, service.ID, kinds)
-	if err != nil || !found || last.ID != succeeded.ID {
-		t.Fatalf("the newest written run: %+v %v %v", last, found, err)
+	if last, found := lastFolder(kinds); !found || last.ID != succeeded.ID {
+		t.Fatalf("the newest word: %+v %v", last, found)
 	}
-	if _, found, err := b.db.LastWrittenServiceRun(ctx, service.ID, kinds[:1]); err != nil || !found {
-		t.Fatalf("by kind: %v %v", found, err)
+	if _, found := lastFolder(kinds[:1]); !found {
+		t.Fatal("by kind")
 	}
-	if _, found, err := b.db.LastWrittenServiceRun(ctx, "svc_other", kinds); err != nil || found {
+	if _, found, err := b.db.LastFolderRun(ctx, "svc_other", kinds); err != nil || found {
 		t.Fatalf("another service: %v %v", found, err)
 	}
 }
