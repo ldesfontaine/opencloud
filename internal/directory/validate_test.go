@@ -135,6 +135,12 @@ func TestValidate_RefusesEachRuleWithItsError(t *testing.T) {
 			d.Units[0].Ports = slices.Repeat([]string{"80"}, MaxPorts+1)
 			return d
 		}, composeDefinition, ErrPortsInvalid},
+		{"dossier de données relatif", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "data"; return d }, composeDefinition, ErrDataPathInvalid},
+		{"dossier de données à la racine", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "/"; return d }, composeDefinition, ErrDataPathInvalid},
+		{"dossier de données qui remonte", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "/var/../etc"; return d }, composeDefinition, ErrDataPathInvalid},
+		{"dossier de données non nettoyé", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "/var/www/"; return d }, composeDefinition, ErrDataPathInvalid},
+		{"dossier de données à espace", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "/var/my data"; return d }, composeDefinition, ErrDataPathInvalid},
+		{"dossier de données sur un binaire", func(d ServiceDefinition) ServiceDefinition { d.Units[0].DataPath = "/var/lib/caddy"; return d }, binaryDefinition, ErrDataPathInvalid},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -152,6 +158,18 @@ func TestValidate_AcceptsPortsAndRegistryPorts(t *testing.T) {
 	definition.Units[0].Ports = []string{"80", "8080:80", "53/udp", "127:1/tcp", "65535"}
 	if err := definition.Complete().Validate(); err != nil {
 		t.Fatalf("image d'un registre à port ou ports valables refusés: %v", err)
+	}
+}
+
+func TestValidate_AcceptsADataPath(t *testing.T) {
+	definition := composeDefinition()
+	definition.Units[0].DataPath = " /var/www/html "
+	completed := definition.Complete()
+	if err := completed.Validate(); err != nil {
+		t.Fatalf("dossier de données valable refusé: %v", err)
+	}
+	if completed.Units[0].DataPath != "/var/www/html" {
+		t.Fatalf("dossier de données %q, espaces non retirés", completed.Units[0].DataPath)
 	}
 }
 

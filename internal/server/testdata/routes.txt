@@ -34,6 +34,9 @@ GET /api/directory/services/{id}
 PUT /api/directory/services/{id}
 DELETE /api/directory/services/{id}
 GET /api/directory/services/{id}/delete-plan
+GET /api/directory/services/{id}/deploy-plan
+POST /api/directory/services/{id}/actions/deploy
+POST /api/directory/services/{id}/actions/redeploy
 PUT /api/directory/units/{id}/update-policy
 GET /api/directory/projects
 POST /api/directory/projects

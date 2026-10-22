@@ -241,6 +241,45 @@ func TestApply_UnitsMatchedByNameKeepIDsPolicyAndContainers(t *testing.T) {
 	}
 }
 
+// Sans « data_path » dans le fichier, un apply vide le dossier de données :
+// l'export l'écrit donc, et un apply le change comme tout autre champ.
+func TestApply_KeepsAndChangesDataPath(t *testing.T) {
+	b, data := seeded(t)
+	data = replaceOnce(t, data, `version: "2.4.1"`, "version: \"2.4.1\"\n        data_path: /var/www/html")
+	applied, _ := b.apply(t, data, false)
+	if applied.State != manifest.ApplyApplied {
+		t.Fatalf("apply: %+v", applied)
+	}
+	unitPath := func(name string) string {
+		for _, unit := range b.serviceByID(t, "svc_00000000000000b1").Units {
+			if unit.Name == name {
+				return unit.DataPath
+			}
+		}
+		return "?"
+	}
+	if got := unitPath("app"); got != "/var/www/html" || unitPath("db") != "" {
+		t.Fatalf("data_path after apply: app %q, db %q", got, unitPath("db"))
+	}
+	// L'export le redit, et le relire ne change rien.
+	exported := string(b.export(t))
+	if !strings.Contains(exported, "data_path: /var/www/html") {
+		t.Fatalf("export lacks data_path:\n%s", exported)
+	}
+	if plan := b.plan(t, exported, false); len(plan.Changes) > 0 {
+		t.Fatalf("the export does not read back as a no-op: %v", changeLabels(plan))
+	}
+	changed := replaceOnce(t, exported, "data_path: /var/www/html", "data_path: /data")
+	if plan := b.plan(t, changed, false); len(plan.Changes) != 1 {
+		t.Fatalf("a changed data_path is one change: %v", changeLabels(plan))
+	}
+	removed := replaceOnce(t, exported, "        data_path: /var/www/html\n", "")
+	b.apply(t, removed, false)
+	if got := unitPath("app"); got != "" {
+		t.Fatalf("a file without data_path clears it, got %q", got)
+	}
+}
+
 func TestApply_SecretKeptLeavesTheTokenAlone(t *testing.T) {
 	b, data := seeded(t)
 	before := b.heartbeatByID(t, "00000000000000d1")

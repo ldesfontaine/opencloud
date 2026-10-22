@@ -190,7 +190,7 @@ func declaredServiceRequestOf(definition directory.ServiceDefinition) declaredSe
 		units = append(units, unitRequest{
 			ID: unit.ID, Name: unit.Name, Image: unit.Image, Version: unit.Version, Digest: unit.Digest,
 			ContainerName: unit.ContainerName, SystemdUnit: unit.SystemdUnit, Ports: orEmpty(unit.Ports),
-			UpdatePolicy: string(unit.UpdatePolicy),
+			DataPath: unit.DataPath, UpdatePolicy: string(unit.UpdatePolicy),
 		})
 	}
 	return declaredServiceRequest{

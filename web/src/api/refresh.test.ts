@@ -20,6 +20,11 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/directory/gaps?machine=m1&project=prj_1")).toEqual(["directory", "containers"]);
   });
 
+  it("rereads a deployment plan when the directory, the orders or the machines change", () => {
+    expect(topicsOf("/api/directory/services/svc_1/deploy-plan")).toEqual(["directory", "actions", "machines"]);
+    expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);
+  });
+
   it("rereads an adoption proposal only when the directory changes", () => {
     expect(topicsOf("/api/directory/proposal?container=abc")).toEqual(["directory"]);
   });

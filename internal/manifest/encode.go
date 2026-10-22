@@ -233,6 +233,7 @@ func unitNodes(units []Unit, annotations Annotations) []*yaml.Node {
 		if len(item.Ports) > 0 {
 			entry.add("ports", shortList(item.Ports, quoted))
 		}
+		entry.addText("data_path", item.DataPath)
 		entry.addText("updates", string(item.Updates))
 		nodes = append(nodes, entry.Node)
 	}

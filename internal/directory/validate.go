@@ -2,6 +2,7 @@ package directory
 
 import (
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -20,6 +21,7 @@ var (
 	containerNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)
 	systemdUnitPattern   = regexp.MustCompile(`^[A-Za-z0-9:_.@-]{1,250}\.service$`)
 	portPattern          = regexp.MustCompile(`^(?:([0-9]{1,5}):)?([0-9]{1,5})(?:/(?:tcp|udp))?$`)
+	dataPathPattern      = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,254}$`)
 )
 
 // Complete pose ce que l'opérateur n'a pas à dire : les espaces en trop
@@ -50,6 +52,7 @@ func (u UnitDefinition) complete(kind UnitKind) UnitDefinition {
 	u.Digest = strings.TrimSpace(u.Digest)
 	u.ContainerName = strings.TrimSpace(u.ContainerName)
 	u.SystemdUnit = strings.TrimSpace(u.SystemdUnit)
+	u.DataPath = strings.TrimSpace(u.DataPath)
 	ports := make([]string, 0, len(u.Ports))
 	for _, port := range u.Ports {
 		ports = append(ports, strings.TrimSpace(port))
@@ -192,6 +195,9 @@ func (u UnitDefinition) validate(origin Origin) error {
 	if err := validatePorts(u.Ports); err != nil {
 		return err
 	}
+	if err := u.validateDataPath(origin); err != nil {
+		return err
+	}
 	return u.validateUpdatePolicy(origin)
 }
 
@@ -263,6 +269,20 @@ func (u UnitDefinition) validateMatchKeys(origin Origin) error {
 		}
 	} else if u.SystemdUnit != "" {
 		return ErrSystemdUnitInvalid
+	}
+	return nil
+}
+
+// Le dossier de données est celui du conteneur : un binaire n'en monte pas.
+// « . » et « .. » sont refusés par la propreté du chemin, « / » parce que
+// monter la racine du conteneur le rendrait inutilisable.
+func (u UnitDefinition) validateDataPath(origin Origin) error {
+	if u.DataPath == "" {
+		return nil
+	}
+	isClean := dataPathPattern.MatchString(u.DataPath) && path.Clean(u.DataPath) == u.DataPath
+	if unitKindOf(origin) == UnitBinary || !isClean {
+		return ErrDataPathInvalid
 	}
 	return nil
 }

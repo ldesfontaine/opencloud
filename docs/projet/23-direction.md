@@ -107,8 +107,12 @@ qu'en base.
 
 ## 3. Déployer un service
 
-**Aujourd'hui** : rien. La commande de mise à jour d'une image est fabriquée,
-jamais jouée ([« Comment une image est comparée »](22-fonctionnement.md#comment-une-image-est-comparée-à-son-registre)).
+**Aujourd'hui** : **fait** (première version, 21/10) : déployer et redéployer
+un service Compose déclaré, depuis sa fiche
+([« Comment un service se déploie »](22-fonctionnement.md#comment-un-service-se-déploie)).
+Le `compose.yml` est généré de l'annuaire, le `.env` part une fois sans être
+gardé. Pas de retrait, pas de modules. La commande de mise à jour d'une image
+reste fabriquée, jamais jouée ([« Comment une image est comparée »](22-fonctionnement.md#comment-une-image-est-comparée-à-son-registre)).
 
 **Cible** : un geste de base, avant tout catalogue : *déployer ce compose sur
 cette machine, dans l'arborescence fixe.*
@@ -300,7 +304,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur. **Fait** (22/10) : `release import`, `agent.update`, vérifié deux fois (serveur, puis agent avec sa clé), lien `bin/current` basculé, succès constaté au retour | oui |
 | 6 | #125 | appliquer une mise à jour d'image validée | oui |
-| 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/` | oui |
+| 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/`. **Fait** (première version, 21/10) : déployer et redéployer un service Compose déclaré ; pas de retrait, pas de modules | oui |
 | 8 | #152 | clés SSH distribuées | oui |
 | 9 | à ouvrir | modules et dépendances ; catalogue | — |
 

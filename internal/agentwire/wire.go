@@ -37,6 +37,9 @@ const (
 	// enrôlement (KeyFingerprint), redite à chaque ouverture du flux : le
 	// serveur la garde pour montrer qu'un agent ne vérifierait pas ses ordres.
 	HeaderServerKey = brand.HeaderPrefix + "Server-Key"
+	// La racine des services que l'agent lit dans son fichier, redite à
+	// l'ouverture du flux. Absente chez un agent plus vieux.
+	HeaderAgentRoot = brand.HeaderPrefix + "Agent-Root"
 )
 
 // ProtocolVersion est la seule que ce serveur et cet agent parlent. Le 1

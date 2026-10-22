@@ -199,6 +199,7 @@ erDiagram
         TEXT container_name "niveau 3, faible"
         TEXT systemd_unit "binaire"
         TEXT ports "JSON"
+        TEXT data_path "dossier du conteneur monte depuis data/unite, facultatif"
         TEXT update_policy "watch, hold, ignore"
         TEXT eol_product "fin de support, choisi a la main"
     }
@@ -628,7 +629,7 @@ flowchart LR
 | `declared_services` | L'annuaire. Une ligne = un dossier `<racine>/<service>/`, ou un projet Compose observé, ou un conteneur seul, ou un binaire supervisé. Porte la nature, l'adresse, « protégé » | Nouvelle, faite (sans « protégé ») |
 | `service_provides` | Ce que fournit un outil d'infra : `sso`, `proxy`, `tls`, `backup-target`. Admis seulement si la nature est « outil d'infra » (contrôlé par le code) | Nouvelle, faite |
 | `service_open_paths` | SSO du service : tout est protégé par défaut, sauf ces chemins. Pré-remplis par le modèle, modifiables, affichés comme publics | Nouvelle |
-| `service_units` | Ce qui tourne dans le service : un service Compose, un conteneur ou un binaire. Image, version épinglée, ports, politique de mise à jour, produit de fin de support | Nouvelle, faite (sans produit de fin de support) |
+| `service_units` | Ce qui tourne dans le service : un service Compose, un conteneur ou un binaire. Image, version épinglée, ports, dossier de données (`data_path`), politique de mise à jour, produit de fin de support | Nouvelle, faite (sans produit de fin de support ; `data_path` ajouté par `007`, section 21) |
 | `containers` | Le conteneur vu par Docker, plus son rattachement (`unit_id`, `match_level`) | Ex-`services`, faite ; `kind` retiré par le schéma unique |
 | `container_events` | Transitions d'état, rattachées aussi à l'unité : l'historique traverse les recréations | Ex-`service_transitions`, renommée ; `unit_id` à faire |
 | `service_samples_hourly` | Historique long des mesures par service, sur l'identité stable | Nouvelle |
@@ -645,7 +646,7 @@ flowchart LR
 | `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) ; **faites** (`005`, section 19) |
 | `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) ; **faite** (migration `032_alerts_directory.sql`) ; `announce` et `public_title` **faits** (`005`, section 19) ; `project_id` à faire |
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
-| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles, faites (`002_actions.sql`, section 16), sans `service_id` |
+| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles, faites (`002_actions.sql`, section 16) ; `service_id` ajouté par `007_deploy.sql` (section 21) |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
 | `audit_events` | Qui, quoi, quand, sur quoi, les champs du geste sans secret. Sans clé étrangère vers l'objet : survit à tout. Ajout seul, purgé à un an | Nouvelle, faite (migration `029_audit.sql`, sans `run_id` : voir la section 12) |
 | `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, **faite** (`004`, section 18) |
@@ -1197,7 +1198,7 @@ La migration `002_actions.sql` (`action_runs`, `run_logs`,
 | --- | --- |
 | **`agents.last_order_seq`**, en plus du diagramme : le rang d'un ordre se prend sur l'agent, dans la transaction qui écrit le run | Tiré de `MAX(action_runs.seq)`, il reculerait à la purge des runs (90 jours) ou à la suppression d'une machine, et l'agent refuserait tout comme un rejeu. Un index unique (`agent_id`, `seq`) le tient en plus |
 | **`requested_at`**, en plus du diagramme | Une liste se lit du plus récent au plus ancien, la purge se fait à l'âge : il faut l'instant de la demande |
-| **Pas de `service_id`** sur `action_runs` | Aucun ordre ne vise encore un service (`agent.ping` vise la machine) ; la colonne viendra avec le premier qui le fait, comme le veut le garde-fou du schéma |
+| **Pas de `service_id`** sur `action_runs` (*fait depuis : `007`, section 21*) | Aucun ordre ne vise encore un service (`agent.ping` vise la machine) ; la colonne viendra avec le premier qui le fait, comme le veut le garde-fou du schéma |
 | **Pas de `audit_events.run_id`** | L'événement `action.order` a le run pour objet (`object_kind 'action'`, `object_id` = le run) : le lien existe sans colonne. La colonne servira quand un geste d'un autre objet sera lié à un run (une proposition de mise à jour appliquée) ; elle demande aussi de rouvrir le déclencheur d'ajout seul |
 | **`server_key_fingerprint` dit ce que l'agent a épinglé**, redit à chaque ouverture du flux, pas ce que le serveur a livré | C'est ce que l'agent vérifiera qui compte : une empreinte différente de celle du serveur dit d'avance que les ordres seront refusés |
 | **`desired_revision`, `acked_revision` ne reviennent pas** | Rien ne les lit encore : elles viendront avec l'état désiré |
@@ -1280,6 +1281,27 @@ tranché, et ses écarts au diagramme :
 | **Un run `accepted` depuis plus d'une heure passe `failed`, raison `timeout`** | Avant, un run accepté n'expirait jamais : un ordre long dont l'agent ne répond plus restait « accepté » à jamais |
 | **`OrderBody.Secret`**, signé avec l'ordre, jamais écrit dans `action_runs.params`, l'audit ou un journal | Préparé ici, servi par le déploiement (le `.env` d'un service). La colonne `params` n'a jamais à garder un secret |
 | **La phrase de passe n'est écrite nulle part** (`passphrase` rejoint les noms de détail interdits de l'audit) | Sans elle, aucune sauvegarde ne se relit : c'est à l'opérateur de la garder, ailleurs que les sauvegardes |
+
+## 21. Ce que le déploiement a fixé
+
+La migration `007_deploy.sql` (`service_units.data_path`,
+`action_runs.service_id`) et le paquet `internal/deploy`. Le fonctionnement est
+dans `22-fonctionnement.md`, « Comment un service se déploie ». Ce que le code
+a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Le `compose.yml` est généré de l'annuaire**, jamais saisi ni stocké | L'annuaire porte déjà image, version, empreinte et ports par unité : le fichier en dérive, déterministe. Un compose libre demanderait de valider images, volumes et privilèges. Il est réécrit à chaque déploiement ; le texte envoyé se garde dans les paramètres du run (il ne contient aucun secret) |
+| **`service_units.data_path`**, en plus du diagramme : un dossier de données par unité, chemin dans le conteneur | Un bind mount `./data/<unité>:<data_path>`, jamais de volume nommé. Il entre dans le fichier d'`apply` et l'export, sans quoi un `apply` l'effacerait. Seul un conteneur en a un |
+| **`action_runs.service_id`**, en `set null` (la ligne du diagramme, *faite*) | Le premier ordre qui vise un service. Elle dit aussi où en est le service : « Déployer » tant qu'aucun ordre n'a écrit son dossier, « Redéployer » ensuite. Indexée (`service_id`, `requested_at`) |
+| **« Écrit le dossier » = réussi ou `compose_failed`**, pas seulement réussi | Compose qui échoue laisse le dossier : l'état à proposer est « Redéployer », sans quoi l'agent refuserait le second déploiement (`service_dir_exists`) |
+| **Le `.env` passe par `OrderBody.Secret`** (celui que la sauvegarde avait préparé) | Écrit par l'agent en `0600`, jamais gardé : `action_runs.params` dit `env_sent`, l'audit `env: sent` |
+| **L'agent rejuge le `compose.yml`** : il le relit, le rend à nouveau par le même code que le serveur (`agentwire.RenderCompose`) et compare les octets (`agentwire.CheckCompose`) | Sans cela, le droit `docker.deploy` serait root sur la machine pour quiconque signe un ordre (une clé du serveur volée) : `privileged`, `network_mode: host`, `- /:/host`. Avec, un ordre signé ne fait qu'épingler des images, publier des ports et monter `data/<unité>`. Contrepartie : changer la forme du fichier change le protocole (`agentwire`), un agent plus vieux refuse le nouveau fichier (`bad_order`) |
+| **Un ordre ne porte que le nom du projet** ; la racine est celle de l'agent, dite par un en-tête à chaque ouverture du flux | L'agent calcule le chemin lui-même et ne peut être mené nulle part. Écart au diagramme : pas de `enrollment_tokens.root_dir` ; l'identité (`-root-dir` au premier lancement) suffit, et `agents.root_dir` existait déjà |
+| **Les ordres sont jugés « longs »** : acceptés tout de suite, exécutés par le worker, la sortie de Compose revient en 58 lignes au plus | Le serveur écarte tout un rapport de plus de 64 lignes ; le reste (6 lignes) est celui de l'agent |
+| **`apply` ne déploie pas** | « Jamais … agir sur une machine » (section 3) : `apply` écrit l'annuaire, les ordres viennent après, d'un geste confirmé à l'écran |
+| **Rien ne retire un déploiement** (`service.remove` plus tard) | Supprimer le service de l'annuaire ne touche pas la machine : règle existante |
+| **L'agent reste root** (décision 2) | C'est le premier ordre qui lance un programme (`/usr/bin/docker`, chemin constant, arguments en liste, environnement remplacé). Le durcissement de l'unité (`ProtectSystem=strict`) borne ce qu'il écrit |
 
 ## 22. Ce que la mise à jour des agents a fixé
 

@@ -74,6 +74,7 @@ type MachineService interface {
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
+	NoteRootDir(ctx context.Context, agentID, root string) error
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
@@ -310,6 +311,7 @@ type Server struct {
 	auth       AuthService
 	actions    ActionService
 	backups    Backups
+	deploy     Deployer
 	live       Live
 	logStreams atomic.Int32
 	// Le limiteur de la racine, par source : les essais d'identifiants Basic
@@ -369,7 +371,9 @@ type Options struct {
 	Actions ActionService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
-	Live    Live
+	// Deploy déploie les services déclarés ; voir api_deploy.go.
+	Deploy Deployer
+	Live   Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
 	PublicLive Live
@@ -423,6 +427,7 @@ func New(opts Options) (*Server, error) {
 		auth:           opts.Auth,
 		actions:        opts.Actions,
 		backups:        opts.Backups,
+		deploy:         opts.Deploy,
 		live:           opts.Live,
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),

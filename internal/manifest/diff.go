@@ -186,6 +186,7 @@ func diffUnit(diff *fieldDiff, before, after directory.UnitDefinition) {
 	diff.text(prefix+"container_name", before.ContainerName, after.ContainerName)
 	diff.text(prefix+"systemd_unit", before.SystemdUnit, after.SystemdUnit)
 	diff.list(prefix+"ports", before.Ports, after.Ports)
+	diff.text(prefix+"data_path", before.DataPath, after.DataPath)
 	diff.text(prefix+"updates", string(before.UpdatePolicy), string(after.UpdatePolicy))
 }
 

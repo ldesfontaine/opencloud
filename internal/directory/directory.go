@@ -106,6 +106,7 @@ var (
 	ErrSystemdUnitInvalid    = refusal.Invalid("directory.systemd_unit_invalid", "systemd unit is required for a binary service, and only for it")
 	ErrUnitKeyDuplicate      = refusal.Invalid("directory.unit_key_duplicate", "two units of the service declare the same container name or systemd unit")
 	ErrPortsInvalid          = refusal.Invalid("directory.ports_invalid", "unit ports must be port, host:port, with an optional /tcp or /udp")
+	ErrDataPathInvalid       = refusal.Invalid("directory.data_path_invalid", "unit data path must be a clean absolute path inside the container, never /, and only for a container")
 	ErrNameTaken             = refusal.Invalid("directory.name_taken", "declared service name already used on this machine")
 	ErrComposeProjectTaken   = refusal.Invalid("directory.compose_project_taken", "compose project already declared on this machine")
 	ErrMatchKeyTaken         = refusal.Invalid("directory.match_key_taken", "container name or systemd unit already declared on this machine")
@@ -169,6 +170,9 @@ type Unit struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Chemin absolu dans le conteneur où monter ./data/<unité> au
+	// déploiement ; vide : aucun dossier de données.
+	DataPath string
 	// Ce que l'opérateur veut des mises à jour de l'image ; elle vaut pour
 	// tous les conteneurs de l'unité, recréés compris.
 	UpdatePolicy container.UpdatePolicy
@@ -214,6 +218,8 @@ type UnitDefinition struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Chemin absolu dans le conteneur où monter ./data/<unité> ; vide : aucun.
+	DataPath string
 	// Vide : Complete la pose à watch.
 	UpdatePolicy container.UpdatePolicy
 }

@@ -40,6 +40,9 @@ type unitJSON struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Le dossier du conteneur que le déploiement monte sur la machine ;
+	// vide : aucun.
+	DataPath string `json:"data_path"`
 	// Ce que l'opérateur veut des mises à jour de l'image : watch, hold,
 	// ignore.
 	UpdatePolicy string `json:"update_policy"`
@@ -104,6 +107,8 @@ type unitRequest struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Vide : aucun dossier de données.
+	DataPath string `json:"data_path"`
 	// Absente : watch.
 	UpdatePolicy string `json:"update_policy,omitempty"`
 }
@@ -150,6 +155,7 @@ func unitToJSON(unit directory.Unit) unitJSON {
 		ContainerName: unit.ContainerName,
 		SystemdUnit:   unit.SystemdUnit,
 		Ports:         orEmpty(unit.Ports),
+		DataPath:      unit.DataPath,
 		UpdatePolicy:  string(unit.UpdatePolicy),
 	}
 }
@@ -188,6 +194,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 			ContainerName: unit.ContainerName,
 			SystemdUnit:   unit.SystemdUnit,
 			Ports:         unit.Ports,
+			DataPath:      unit.DataPath,
 			UpdatePolicy:  container.UpdatePolicy(unit.UpdatePolicy),
 		})
 	}

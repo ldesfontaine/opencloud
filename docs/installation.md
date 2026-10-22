@@ -882,6 +882,7 @@ relais.
 | `-pin` | Oui | Empreinte SHA-256 du certificat d'openCloud, s'il est auto-signé |
 | `-lang` | Oui | Langue des messages de l'agent, `fr` ou `en` |
 | `-rights` | Oui | Droits cochés dans l'interface ; sans lui, `observe` seul. Un droit mal écrit est refusé avant l'enrôlement (code 2), le jeton reste valable |
+| `-root-dir` | Oui | Racine des services que l'agent déploie (`docker.deploy`, `docker.update`), `/srv/workspace` par défaut, premier lancement seulement. Un chemin absolu et propre. Chaque service s'y écrit dans `<racine>/<projet>/` |
 | `-state` | Non | Répertoire d'état, `/var/lib/opencloud/agent` par défaut |
 | `-allow-plain` | **Non** | Accepte `http://` vers un serveur distant |
 | `-docker-socket` | **Non** | Socket Docker, `/var/run/docker.sock` par défaut |
@@ -906,10 +907,11 @@ par son drop-in), sans `-server` ni jeton : l'agent relit son
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
-**Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »)
-demande un fichier de plus : l'unité n'écrit que dans son état
-(`ProtectSystem=strict`), le dossier du droit doit être autorisé. La page du
-jeton donne le fichier ; par exemple pour `/srv/backups` :
+**Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »,
+« Déployer » et « Mettre à jour un service Docker ») demande un fichier de
+plus : l'unité n'écrit que dans son état (`ProtectSystem=strict`), le dossier
+du droit doit être autorisé. La page du jeton donne le fichier ; par exemple
+pour `/srv/backups` :
 
 ```sh
 install -d -m 0700 /srv/backups
@@ -927,6 +929,34 @@ l'ordre, ne peut pas écrire, et répond `path_unwritable`.
 de changer de binaire (`agent.update`) et s'arrête pour que systemd le relance
 sur le nouveau. `Restart=on-failure` le relance, `RestartPreventExitStatus=2`
 ne retient que le code 2.
+
+**Déployer un service Docker** (droits `docker.deploy` et `docker.update`)
+demande deux choses sur la machine, et une dans l'unité :
+
+- **Docker et Docker Compose 2.24 au moins** (`docker compose version --short`),
+  l'exécutable à `/usr/bin/docker`. Sans eux, l'ordre est refusé
+  (`docker_missing`, `compose_too_old`) ; il l'est aussi sous 2 Gio libres sous
+  la racine (`disk_full`).
+- **La racine des services** (`/srv/workspace` par défaut, ou celle de
+  `-root-dir`) : créée par l'agent si elle manque, mais l'unité doit
+  l'autoriser, et systemd refuse de démarrer sur un chemin absent, donc créez-la
+  d'abord. Si elle existe, elle doit être vide ou porter le fichier témoin
+  `.opencloud` (`root_not_ours` sinon : l'agent n'écrit pas dans un dossier qui
+  n'est pas à lui).
+
+```sh
+install -d -m 0755 /srv/workspace
+mkdir -p /etc/systemd/system/opencloud-agent.service.d
+printf '[Service]\nReadWritePaths=/srv/workspace\n' > /etc/systemd/system/opencloud-agent.service.d/droits.conf
+systemctl daemon-reload
+systemctl restart opencloud-agent
+```
+
+Avec la sauvegarde, une seule ligne `ReadWritePaths=` liste les deux dossiers,
+séparés par une espace. Le `compose.yml` d'un service déployé est **réécrit à
+chaque déploiement** : ne le retouchez pas à la main. Les dossiers `data/<unité>`
+sont créés en `0755`, root : si le conteneur tourne sous un autre utilisateur,
+donnez-lui le dossier (`chown`) avant le premier lancement.
 
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
 reconnecte seul, avec un délai de 1 à 60 s, et signe à chaque fois une

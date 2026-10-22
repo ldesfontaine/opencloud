@@ -46,6 +46,8 @@ ReadWritePaths=/var/lib/opencloud/agent
 #   [Service]
 #   ReadWritePaths=/srv/backups
 # puis systemctl daemon-reload && systemctl restart opencloud-agent.
+# Déployer des services (docker.deploy, docker.update) demande de même la
+# racine des services : ReadWritePaths=/srv/workspace (ou celle de -root-dir).
 ProtectHome=read-only
 PrivateTmp=true
 UMask=0077

@@ -16,6 +16,7 @@ import {
 } from "../api/directory";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
+import { DeployCard } from "../components/DeployCard";
 import { NaturePill } from "../components/DeclaredServiceTable";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
@@ -165,6 +166,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
         )}
       </Card>
       <AttachedContainers gap={gap} />
+      {service.origin === "compose" && <DeployCard serviceID={service.id} />}
     </>
   );
 }

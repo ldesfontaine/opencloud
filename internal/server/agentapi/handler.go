@@ -23,6 +23,7 @@ type MachineService interface {
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
 	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
+	NoteRootDir(ctx context.Context, agentID, root string) error
 	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities string) (*machine.Session, error)
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)

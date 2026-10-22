@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -51,6 +52,18 @@ type Identity struct {
 	// un rejeu. Écrit avant d'exécuter, pour qu'un redémarrage ne rouvre
 	// pas la porte.
 	LastOrderSeq int64 `json:"last_order_seq,omitempty"`
+	// La racine des services déployés, choisie au premier lancement
+	// (-root-dir). Vide chez un agent d'avant le déploiement : la racine par
+	// défaut. Redite au serveur à chaque ouverture du flux.
+	RootDir string `json:"root_dir,omitempty"`
+}
+
+// Root rend la racine des services que cet agent écrit.
+func (id Identity) Root() string {
+	if id.RootDir == "" {
+		return brand.WorkspaceRoot
+	}
+	return id.RootDir
 }
 
 // ServerKeyFingerprint rend l'empreinte de la clé épinglée, vide sans clé :

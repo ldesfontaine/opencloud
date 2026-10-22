@@ -36,6 +36,7 @@ type Store interface {
 	RecordConnection(ctx context.Context, connection Connection) error
 	RecordSystem(ctx context.Context, id, system string) error
 	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
+	RecordRootDir(ctx context.Context, agentID, root string) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
@@ -451,6 +452,22 @@ func (s *Service) NoteServerKey(ctx context.Context, agentID, fingerprint string
 		fingerprint = ""
 	}
 	return s.store.RecordServerKey(ctx, agentID, fingerprint)
+}
+
+// NoteRootDir garde la racine des services que l'agent dit avoir dans son
+// fichier, redite à l'ouverture du flux : c'est là que le plan d'un
+// déploiement montre le dossier. Un agent plus vieux ne la dit pas, et un
+// chemin qui n'en est pas un n'est pas gardé : on reste sur ce que la base
+// avait.
+func (s *Service) NoteRootDir(ctx context.Context, agentID, root string) error {
+	if root == "" {
+		return nil
+	}
+	if !ValidCapabilityPath(root) {
+		s.logger.Warn("agent root unreadable", "agent_id", agentID)
+		return nil
+	}
+	return s.store.RecordRootDir(ctx, agentID, root)
 }
 
 // isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans

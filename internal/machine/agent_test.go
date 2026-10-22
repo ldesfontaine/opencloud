@@ -98,6 +98,35 @@ func TestNoteServerKey_KeepsAFingerprintAndNothingElse(t *testing.T) {
 	}
 }
 
+// La racine que l'agent redit se garde si c'est un chemin de droit ; sinon la
+// base garde ce qu'elle avait.
+func TestNoteRootDir_KeepsAValidPathAndIgnoresTheRest(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := h.enrollWith(t, cleartext)
+	for _, c := range []struct{ reported, kept string }{
+		{"/srv/apps", "/srv/apps"},
+		{"", "/srv/apps"},
+		{"srv/relatif", "/srv/apps"},
+		{"/srv/../etc", "/srv/apps"},
+		{"/srv/espace ici", "/srv/apps"},
+		{"/", "/srv/apps"},
+		{"/srv/workspace", "/srv/workspace"},
+	} {
+		if err := h.service.NoteRootDir(ctx, enrolled.Agent.ID, c.reported); err != nil {
+			t.Fatal(err)
+		}
+		status, _ := h.service.Get(ctx, enrolled.ID)
+		if status.Agent.RootDir != c.kept {
+			t.Errorf("%q kept as %q, want %q", c.reported, status.Agent.RootDir, c.kept)
+		}
+	}
+}
+
 // Révoquer : le flux tombe, la preuve suivante est refusée (l'agent
 // s'arrête), les jetons de ré-enrôlement en attente partent ; la machine
 // reste. Ré-enrôler installe un nouvel agent et lève la révocation.

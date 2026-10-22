@@ -1,0 +1,55 @@
+.deploy-compose,
+.deploy-output {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.deploy-compose {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.deploy-dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  &:not([open]) {
+    display: none;
+  }
+
+  &::backdrop {
+    background: var(--scrim);
+  }
+}
+
+.deploy-dialog-question {
+  margin: 0;
+  font-weight: 600;
+}
+
+.deploy-dialog-path {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.deploy-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

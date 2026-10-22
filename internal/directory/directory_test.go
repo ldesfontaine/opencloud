@@ -84,6 +84,32 @@ func composeDefinition(machineID string) directory.ServiceDefinition {
 	}
 }
 
+// Le dossier de données d'une unité se relit tel qu'il a été écrit, et un
+// remplacement du service le change ou le vide.
+func TestCreateAndReplaceService_KeepsTheUnitDataPath(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	definition := composeDefinition(remoteID)
+	definition.Units[0].DataPath = "/var/www/html"
+
+	created := mustCreate(t, b, definition)
+	read, err := b.db.GetDeclaredService(ctx, created.ID)
+	if err != nil || read.Units[0].DataPath != "/var/www/html" || read.Units[1].DataPath != "" {
+		t.Fatalf("dossiers de données %q %q, %v", read.Units[0].DataPath, read.Units[1].DataPath, err)
+	}
+
+	replaced := read.Definition()
+	replaced.Units[0].DataPath = ""
+	replaced.Units[1].DataPath = "/var/lib/postgresql/data"
+	if _, err := b.directory.UpdateService(ctx, created.ID, replaced); err != nil {
+		t.Fatal(err)
+	}
+	read, err = b.db.GetDeclaredService(ctx, created.ID)
+	if err != nil || read.Units[0].DataPath != "" || read.Units[1].DataPath != "/var/lib/postgresql/data" {
+		t.Fatalf("dossiers de données après remplacement %q %q, %v", read.Units[0].DataPath, read.Units[1].DataPath, err)
+	}
+}
+
 func containerDefinition(machineID, name, containerName string) directory.ServiceDefinition {
 	return directory.ServiceDefinition{
 		MachineID: machineID,

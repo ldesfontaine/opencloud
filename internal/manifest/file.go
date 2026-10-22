@@ -80,6 +80,7 @@ type Unit struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	DataPath      string
 	// Vide pour un binaire, qui n'a que « watch ».
 	Updates container.UpdatePolicy
 	// Proposée par l'export à un service déjà déclaré : elle vient d'un

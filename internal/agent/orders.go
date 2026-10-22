@@ -40,6 +40,9 @@ type orderRunner struct {
 	// La mise à jour de l'agent (agent.update) : la clé de version et la
 	// relance viennent de Run.
 	updater *selfUpdater
+	// Docker et le disque, que les déploiements touchent ; les tests les
+	// remplacent.
+	docker dockerTools
 
 	mu       sync.Mutex
 	identity Identity
@@ -48,7 +51,7 @@ type orderRunner struct {
 func newOrderRunner(stateDir *os.Root, identity Identity, version string, results *actionResults, logger *slog.Logger) *orderRunner {
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
-		worker: newOrderWorker(), fetch: &fetcher{}, updater: newSelfUpdater(stateDir, version, logger),
+		worker: newOrderWorker(), fetch: &fetcher{}, updater: newSelfUpdater(stateDir, version, logger), docker: newDockerTools(),
 	}
 }
 
@@ -152,6 +155,10 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptBackupPrune(body)
 	case agentwire.KindAgentUpdate:
 		return r.acceptAgentUpdate(body)
+	case agentwire.KindDockerDeploy:
+		return r.acceptDocker(body, false)
+	case agentwire.KindDockerUpdate:
+		return r.acceptDocker(body, true)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil
@@ -193,6 +200,32 @@ func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.Act
 		output, err := pruneBackups(granted, params)
 		r.finishLong(body, output, err)
 	}
+}
+
+// acceptDocker juge un déploiement vite, puis l'accepte : le dossier, les
+// prérequis, les écritures et Compose sont le travail du worker. La racine
+// des services est celle du fichier de l'agent, lue ici sous le verrou.
+func (r *orderRunner) acceptDocker(body agentwire.OrderBody, update bool) (agentwire.ActionResult, func(ctx context.Context)) {
+	job, refused := readDockerOrder(body, r.identity.Root(), update)
+	if refused != nil {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		return *refused, nil
+	}
+	return accepted(body), func(ctx context.Context) {
+		output, err := r.docker.deployService(ctx, job)
+		r.finishDocker(body, output, err)
+	}
+}
+
+// finishDocker rapporte la fin d'un déploiement. Le .env ne passe ici que par
+// le job : ni le résultat ni le journal ne le portent.
+func (r *orderRunner) finishDocker(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
+	if err != nil {
+		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+	} else {
+		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+	}
+	r.results.push(dockerResultOf(body.RunID, output, err))
 }
 
 // finishLong rapporte la fin d'un ordre long.

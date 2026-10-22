@@ -232,6 +232,9 @@ var (
 	// Les identifiants de l'annuaire et des agents sont tirés à chaque
 	// création, préfixe en tête.
 	directoryID = regexp.MustCompile(`"(svc|unit|prj|agt)_[0-9a-f]{16}"`)
+	// Un fichier rendu dans une chaîne JSON (le compose d'un plan de
+	// déploiement) : ses identifiants y sont dans le texte, pas entre guillemets.
+	yamlInJSONDirectoryID = regexp.MustCompile(`\b(svc|prj)_[0-9a-f]{16}\b`)
 )
 
 // Les identifiants de tâche et de jeton, les jetons de ping et
@@ -242,6 +245,7 @@ func normalize(body string) string {
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
 	body = probeKey.ReplaceAllString(body, `"ID":[`)
 	body = directoryID.ReplaceAllString(body, `"${1}_ID"`)
+	body = yamlInJSONDirectoryID.ReplaceAllString(body, "${1}_ID")
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 
