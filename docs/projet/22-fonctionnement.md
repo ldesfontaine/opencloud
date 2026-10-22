@@ -609,8 +609,8 @@ L'état du service se lit comme avant, par le rapport des conteneurs
 
 | | |
 | --- | --- |
-| Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus |
-| Qui décide « Déployer » ou « Redéployer » | Le dernier ordre de ce service qui a **écrit le dossier** sur la machine (`action_runs.service_id`) : réussi, ou échoué en `compose_failed` (Compose a échoué après l'écriture, le dossier est là). `deployed` du plan est vrai alors. Un refus de l'agent, un échec avant l'écriture ou un ordre expiré ne comptent pas |
+| Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus. Un dossier qu'openCloud ne sait pas avoir écrit se retire à la main |
+| Qui décide « Déployer » ou « Redéployer » | **Le dernier constat de l'agent sur le dossier** (`action_runs.service_id`) : parmi les ordres de ce service, le plus récent qui dit quelque chose du dossier. Réussi, `compose_failed` (Compose a échoué après l'écriture) et `timeout` (accepté puis plus de nouvelles : le dossier a pu être écrit, l'agent ne retire pas un dossier qu'il n'a pas fini) disent « déployé » ; `service_dir_missing` (l'agent a regardé) dit « pas déployé ». Le reste ne compte pas : un refus d'avant l'écriture, un ordre expiré, et `service_dir_exists`, pour ne jamais proposer « Redéployer » par-dessus un dossier qu'openCloud ne sait pas avoir écrit. Un déploiement coupé se reprend donc en un geste au plus : « Redéployer », et si le dossier n'existait pas, l'agent répond `service_dir_missing` et « Déployer » revient |
 | Le `compose.yml` | **Généré**, jamais saisi, déterministe : le même annuaire donne le même texte. Il est **réécrit à chaque** (re)déploiement : une retouche faite à la main sur la machine est perdue |
 | Le dossier de données | Un champ de l'unité, `data_path` (chemin absolu **dans le conteneur**, facultatif, un par unité) : `./data/<unité>:<data_path>`. Jamais de volume nommé. L'agent crée `data/<unité>` en `0755`, root ; l'UID du conteneur reste à régler à la main. `data_path` s'exporte et s'applique (`data_path:` sous l'unité) |
 | Le `.env` | **Write-only** : facultatif, 64 Kio au plus, UTF-8 sans octet nul, saisi dans la boîte de confirmation, signé dans `OrderBody.Secret` (`{"env": "…"}`), écrit par l'agent en `0600`. Jamais stocké, jamais journalisé : l'audit dit `env: sent`, `action_runs.params` dit `"env_sent": true`. Absent au déploiement : aucun `.env`. Vide au redéploiement : celui de la machine reste. Pas de relecture dans cette version |
@@ -1638,6 +1638,18 @@ openCloud dit quand l'image d'un service a quelque chose de plus récent à
 offrir. Il ne tire rien et ne relance rien : il fabrique la commande, et
 c'est l'opérateur qui la joue. Ce que le module d'origine faisait de plus,
 les CVE, le changelog, le score de risque, n'a pas été repris.
+
+L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
+(IPv6 entre crochets) ou `localhost`, avec un port facultatif. Tout autre
+caractère (`$`, accolade, guillemet, espace, `_`…) est refusé dès la
+déclaration (`directory.image_invalid`), parce qu'un tel hôte serait interpolé
+par Compose s'il arrivait jusqu'au `compose.yml`. Une image déjà enregistrée
+avec un hôte refusé reste en base : l'écart dit « Image illisible » pour son
+unité (sans erreur ni ligne de journal), et la fiche ne se modifie plus, par
+le formulaire ou un `apply` qui la change, tant qu'on n'a pas corrigé l'image ;
+le déploiement, lui, refusait déjà ce que Compose interpolerait. La
+surveillance des images lit ce que Docker écrit, que cette règle ne refuse
+pas.
 
 1. **L'agent de chaque machine interroge lui-même** les registres de ses
    images : il a le trousseau Docker de la machine, et un registre privé

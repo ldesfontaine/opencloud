@@ -276,12 +276,12 @@ func (db *DB) LastServiceRun(ctx context.Context, serviceID string, kinds []agen
 	return db.lastServiceRun(ctx, serviceID, kinds, "")
 }
 
-// LastWrittenServiceRun rend le dernier ordre qui a écrit le dossier du
-// service sur la machine : un qui a réussi, ou un qui a écrit le dossier puis
-// vu Compose échouer (le dossier existe alors, et le redéploiement le
-// reprend). Faux s'il n'y en a aucun.
-func (db *DB) LastWrittenServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error) {
-	return db.lastServiceRun(ctx, serviceID, kinds, ` AND (state = 'succeeded' OR (state = 'failed' AND refusal_reason = 'compose_failed'))`)
+// LastFolderRun rend le dernier ordre de ces genres qui a dit quelque chose
+// du dossier du service sur la machine : réussi, Compose en échec, coupé
+// (timeout), ou refusé faute de dossier. « deploy » juge ce qu'il dit. Faux
+// s'il n'y en a aucun.
+func (db *DB) LastFolderRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error) {
+	return db.lastServiceRun(ctx, serviceID, kinds, ` AND (state = 'succeeded' OR (state = 'failed' AND refusal_reason IN ('compose_failed', 'timeout')) OR (state = 'refused' AND refusal_reason = 'service_dir_missing'))`)
 }
 
 // lastServiceRun : narrowing est une condition fixe du code (jamais une valeur
