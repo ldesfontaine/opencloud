@@ -292,6 +292,23 @@ const maxColumns = 4;
 // La hauteur d'un cadre sans conteneur : sa légende seule.
 const emptyFrameHeight = 22;
 
+// La vue d'ensemble doit tenir sur un écran de portable (#141) : le schéma
+// vise 300 px de haut au plus, mais jamais en rendant un texte sous 10 px.
+// 11 px est le plus petit texte du dessin (la légende d'un cadre et le
+// sous-titre d'Internet, NetworkGraph.scss). Un très grand réseau reste donc
+// plus haut que 300 px, et la page défile : c'est voulu.
+export const overviewGraphMaxHeight = 300;
+const overviewSmallestText = 11;
+const overviewReadableText = 10;
+export const overviewGraphFloor = overviewReadableText / overviewSmallestText;
+
+// L'échelle du dessin de la vue d'ensemble. La largeur s'impose toujours
+// (jamais de défilement horizontal) ; la hauteur réduit le dessin, mais pas
+// sous le plancher.
+export function overviewScale(layout: { width: number; height: number }, width: number, maxHeight: number, floor: number): number {
+  return Math.min(1, width / layout.width, Math.max(floor, maxHeight / layout.height));
+}
+
 export interface PlacedMachine {
   id: string;
   name: string;

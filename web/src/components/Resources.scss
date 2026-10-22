@@ -1,7 +1,45 @@
+// Les jauges d'une carte de machine : trois colonnes. Dans une carte étroite
+// l'étiquette et le chiffre s'empilent au-dessus de la barre ; dès que la
+// carte est assez large pour les deux sur une ligne, ils s'y mettent. Une
+// mesure indisponible garde la forme empilée : « Indisponible » est long.
 .meters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.meters-item {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meters-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.3;
+
+  > span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .k {
+    color: var(--muted);
+  }
+}
+
+@container (min-width: 330px) {
+  .meters:not(.meters-unavailable) .meters-text {
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 8px;
+  }
 }
 
 .meter-row {

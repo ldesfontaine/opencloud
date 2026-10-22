@@ -106,7 +106,8 @@ function unavailableFoot(t: ReturnType<typeof useI18n>["t"], now: number, curren
   return t("resource.unavailable_text");
 }
 
-// Les trois jauges d'une carte de machine, sur la vue d'ensemble.
+// Les trois jauges d'une carte de machine, sur la vue d'ensemble : côte à
+// côte, chacune son étiquette et son chiffre au-dessus de sa barre.
 export function MachineMeters({ current }: { current: Current | undefined }) {
   const { t } = useI18n();
   const diskThresholds = useDiskThresholds();
@@ -123,10 +124,10 @@ export function MachineMeters({ current }: { current: Current | undefined }) {
         { key: "resource.disk", percent: 0 },
       ];
   return (
-    <div className="meters">
+    <div className={sample ? "meters" : "meters meters-unavailable"}>
       {rows.map((row) => (
-        <div className="meter-row" key={row.key}>
-          <div className="kv">
+        <div className="meters-item" key={row.key}>
+          <div className="meters-text">
             <span className="k">{t(row.key)}</span>
             <span className={sample ? "mono" : "muted"}>{sample ? `${row.percent} %` : t("resource.unavailable")}</span>
           </div>

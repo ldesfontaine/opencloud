@@ -4,7 +4,7 @@ import type { Container } from "../api/containers";
 import type { NetworkResponse } from "../api/network";
 import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
-import { compactHeight, compactWidth, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
+import { compactHeight, compactWidth, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewGraphFloor, overviewGraphMaxHeight, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
@@ -223,4 +223,30 @@ test("modeText traduit host et none, et dit un tiret quand le mode est vide", ()
 test("modeText rend le nom d'un réseau tel quel et raccourcit l'identifiant d'un conteneur partagé", () => {
   expect(modeText(modeTranslate, { network_mode: "ocfix_back" })).toBe("ocfix_back");
   expect(modeText(modeTranslate, { network_mode: "container:0123456789abcdef0123" })).toBe("network.mode_container:0123456789ab");
+});
+
+test("overviewGraphFloor garde le plus petit texte du dessin à 10 px au moins", () => {
+  expect(11 * overviewGraphFloor).toBeGreaterThanOrEqual(10 - 1e-9);
+  expect(overviewGraphMaxHeight).toBe(300);
+});
+
+test("overviewScale laisse un petit dessin à l'échelle 1", () => {
+  expect(overviewScale({ width: 600, height: 200 }, 1000, 300, 0.9)).toBe(1);
+});
+
+test("overviewScale : la largeur décide quand elle réduit le plus", () => {
+  expect(overviewScale({ width: 1000, height: 250 }, 500, 300, 0.9)).toBe(0.5);
+});
+
+test("overviewScale : la hauteur décide quand le dessin dépasse la hauteur maximale", () => {
+  // 300 / 330 = 0,909… : au-dessus du plancher de 0,8.
+  expect(overviewScale({ width: 600, height: 330 }, 1000, 300, 0.8)).toBeCloseTo(300 / 330, 10);
+});
+
+test("overviewScale : un dessin très haut s'arrête au plancher", () => {
+  expect(overviewScale({ width: 600, height: 900 }, 1000, 300, 0.9)).toBe(0.9);
+});
+
+test("overviewScale : la largeur l'emporte sur le plancher, pour ne jamais défiler à l'horizontale", () => {
+  expect(overviewScale({ width: 2000, height: 900 }, 1000, 300, 0.9)).toBe(0.5);
 });

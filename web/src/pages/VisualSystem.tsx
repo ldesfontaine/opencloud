@@ -128,6 +128,20 @@ export function VisualSystem() {
                   </>
                 }
               />
+              <Stat compact icon="cpu" label={t("visual.stats.cpu")} value="23" unit="%" foot={t("visual.stats.cpu_foot")} />
+              <Stat
+                compact
+                icon="disk"
+                label={t("visual.stats.disk")}
+                value="69"
+                unit={t("visual.stats.disk_unit")}
+                foot={
+                  <>
+                    <b>86 %</b>
+                    {t("visual.stats.disk_foot")}
+                  </>
+                }
+              />
             </div>
           </section>
 

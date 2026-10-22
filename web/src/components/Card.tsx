@@ -32,7 +32,9 @@ export function KeyValue({ label, value, mono = false }: { label: string; value:
 }
 
 // Chiffre clé : étiquette avec icône, valeur, jauge optionnelle, une ligne
-// de contexte.
+// de contexte. La variante compacte sert une bande de chiffres en tête de
+// page : la valeur à gauche, l'étiquette et le contexte l'un sous l'autre à
+// côté, sans jauge.
 export function Stat({
   icon,
   label,
@@ -40,6 +42,7 @@ export function Stat({
   unit,
   meter,
   foot,
+  compact = false,
 }: {
   icon: IconName;
   label: string;
@@ -47,19 +50,20 @@ export function Stat({
   unit?: string | undefined;
   meter?: ReactNode;
   foot: ReactNode;
+  compact?: boolean;
 }) {
   return (
     <Card>
-      <div className="card-b stat">
+      <div className={compact ? "card-b stat stat-compact" : "card-b stat"}>
         <span className="label">
           <Icon name={icon} />
-          {label}
+          <span>{label}</span>
         </span>
         <span className="stat-value">
           {value}
           {unit !== undefined && <small>{unit}</small>}
         </span>
-        {meter}
+        {!compact && meter}
         <span className="foot">{foot}</span>
       </div>
     </Card>

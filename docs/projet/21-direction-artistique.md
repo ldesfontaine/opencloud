@@ -89,7 +89,10 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
   et Réglages viendront avec leur écran.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
-  de contexte.
+  de contexte. Variante **compacte** (`Stat compact`, environ 60 px au lieu de
+  125) : la valeur à 20 px, l'étiquette et le contexte l'un sous l'autre à sa
+  droite, sans jauge. Pour une bande de chiffres en tête de page (la vue
+  d'ensemble) ; une tuile qui porte une jauge garde la forme pleine.
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
