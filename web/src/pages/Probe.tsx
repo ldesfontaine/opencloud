@@ -187,7 +187,7 @@ function CertificateCard({ probe }: { probe: Probe }) {
             <CertificatePill reading={reading} />
             <TrustPill reading={reading} />
           </span>
-          <Remaining reading={reading} />
+          <Remaining reading={reading} plain />
         </div>
         <KeyValue label={t("probe.cert_subject")} value={certificate.subject} mono />
         <KeyValue label={t("probe.cert_issuer")} value={certificate.issuer} mono />

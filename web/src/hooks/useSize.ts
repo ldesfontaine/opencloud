@@ -8,7 +8,7 @@ export interface Size {
 // La taille d'un conteneur, suivie : un SVG se dessine en pixels. La
 // première mesure est prise tout de suite : un onglet qui ne peint pas
 // encore ne livre pas d'observation, et le dessin l'attendrait.
-export function useSize(holder: RefObject<HTMLDivElement | null>): Size {
+export function useSize(holder: RefObject<HTMLElement | null>): Size {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 });
   useEffect(() => {
     const element = holder.current;

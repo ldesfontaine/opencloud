@@ -3,24 +3,26 @@ import type { Translate } from "../i18n/context";
 import { ago, formatDuration, formatWhen, since } from "./time";
 import type { Tone } from "./tone";
 
+// Le ton d'un code de sortie : seul un code non nul est un fait à signaler ;
+// zéro n'est pas une bonne nouvelle à teinter, la pastille de l'état le dit.
+export function exitCodeTone(code: number): Tone {
+  return code === 0 ? "neutral" : "danger";
+}
+
 // Le dernier résultat connu : code de sortie et durée, quand la tâche les
 // a donnés.
-export function lastResult(t: Translate, job: Job): { text: string; tone: "ok" | "danger" } | null {
+export function lastResult(t: Translate, job: Job): { text: string; tone: Tone } | null {
   if (job.last_exit_code === null && job.last_duration_ms === null) {
     return null;
   }
   const parts: string[] = [];
-  let tone: "ok" | "danger" = "ok";
   if (job.last_exit_code !== null) {
     parts.push(t("job.exit_code", job.last_exit_code));
-    if (job.last_exit_code !== 0) {
-      tone = "danger";
-    }
   }
   if (job.last_duration_ms !== null) {
     parts.push(formatDuration(t, job.last_duration_ms));
   }
-  return { text: parts.join(" · "), tone };
+  return { text: parts.join(" · "), tone: job.last_exit_code === null ? "neutral" : exitCodeTone(job.last_exit_code) };
 }
 
 // Pastille par état de tâche : le vocabulaire de la direction artistique.

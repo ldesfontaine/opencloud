@@ -354,16 +354,33 @@ func (db *DB) CountProbeResults(ctx context.Context, probeID string, from, to ti
 	return total, success, nil
 }
 
-// CountDays additionne les jours d'une fenêtre : c'est pour cela que
-// l'agrégat garde des comptes et non un pourcentage.
-func (db *DB) CountProbeDays(ctx context.Context, probeID string, from time.Time) (total, success int, err error) {
+// CountProbeWindow compte une fenêtre de plusieurs jours : les jours agrégés
+// complets, puis le brut depuis la fin du dernier d'entre eux. Le jour courant
+// n'est jamais lu dans l'agrégat (il est réécrit toutes les 5 min, donc en
+// retard) ; un jour agrégé n'est jamais relu dans le brut, qui le garde
+// pourtant 7 jours : pas de double compte. Sans jour agrégé dans la
+// fenêtre, tout vient du brut. L'agrégat garde des comptes et non un
+// pourcentage pour que cette addition soit juste.
+func (db *DB) CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error) {
+	now = now.UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	var lastDay sql.NullInt64
 	err = db.sql.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(total), 0), COALESCE(SUM(success), 0) FROM probe_days
-		WHERE probe_id = ? AND day >= ?`, probeID, from.Unix()).Scan(&total, &success)
+		SELECT COALESCE(SUM(total), 0), COALESCE(SUM(success), 0), MAX(day) FROM probe_days
+		WHERE probe_id = ? AND day >= ? AND day < ?`,
+		probeID, from.Unix(), today.Unix()).Scan(&total, &success, &lastDay)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count probe days: %w", err)
 	}
-	return total, success, nil
+	rawFrom := from
+	if lastDay.Valid {
+		rawFrom = time.Unix(lastDay.Int64, 0).UTC().AddDate(0, 0, 1)
+	}
+	rawTotal, rawSuccess, err := db.CountProbeResults(ctx, probeID, rawFrom, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	return total + rawTotal, success + rawSuccess, nil
 }
 
 // RollupDay réécrit un jour entier depuis le brut, en une instruction :

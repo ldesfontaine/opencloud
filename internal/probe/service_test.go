@@ -437,6 +437,34 @@ func TestUptimes_ReadTheirOwnTableAndSayNothingWhenEmpty(t *testing.T) {
 	}
 }
 
+// Un essai du jour que le rollup n'a pas repris compte dans 7, 30 et 90 jours
+// comme dans 24 h : la fenêtre la plus longue n'en a jamais moins.
+func TestUptimes_DailyWindowsCountTheRawNotYetRolledUp(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow.Add(-3*24*time.Hour), probe.OutcomeUp)
+	fixture.record(t, created.ID, testNow.Add(-2*24*time.Hour), probe.OutcomeDown)
+	if err := fixture.service.Rollup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.record(t, created.ID, testNow.Add(-time.Hour), probe.OutcomeUp)
+	fixture.record(t, created.ID, testNow.Add(-time.Minute), probe.OutcomeUp)
+
+	uptimes, err := fixture.service.Uptimes(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, uptime := range uptimes {
+		want := probe.Uptime{Window: uptime.Window, Total: 4, Success: 3}
+		if uptime.Window == "24h" {
+			want = probe.Uptime{Window: "24h", Total: 2, Success: 2}
+		}
+		if uptime != want {
+			t.Fatalf("fenêtre %s: attendu %+v, obtenu %+v", uptime.Window, want, uptime)
+		}
+	}
+}
+
 func TestUptimes_SayNothingRatherThanZeroWithoutAnyCheck(t *testing.T) {
 	fixture := newBench(t)
 	created := fixture.create(t, "site", "https://cloud.exemple.fr/")

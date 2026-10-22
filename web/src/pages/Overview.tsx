@@ -10,12 +10,12 @@ import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { OnlinePill } from "../components/Pill";
+import { OnlinePill, Pill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/context";
 import { describeAlert, mostUrgentAlert } from "../lib/alerts";
-import { daysUntil } from "../lib/certificates";
+import { certificateTone, daysUntil } from "../lib/certificates";
 import { machineSeen, machinesSubtitle } from "../lib/machines";
 import "./Overview.scss";
 
@@ -38,7 +38,13 @@ function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
       const urgentText = urgent === null ? "" : t("overview.alerts_top", describeAlert(t, urgent, now, disks).fact, urgent.machine_name !== "" ? urgent.machine_name : urgent.object.name);
       foot = (
         <span title={urgentText === "" ? lead : `${lead} · ${urgentText}`}>
-          {counts.unacknowledged > 0 ? <b className="danger">{lead}</b> : lead}
+          {counts.unacknowledged > 0 ? (
+            <Pill tone="danger" small>
+              {lead}
+            </Pill>
+          ) : (
+            lead
+          )}
           {urgentText !== "" && ` · ${urgentText}`}
         </span>
       );
@@ -61,20 +67,29 @@ function AvailabilityFoot({ counts }: { counts: Counts }) {
   const thresholds = useCertificateThresholds();
   const certificates = counts.certificates;
   if (counts.probes.attention > 0) {
-    return <b className="danger">{t("overview.probes_attention", counts.probes.attention)}</b>;
+    return (
+      <Pill tone="danger" small>
+        {t("overview.probes_attention", counts.probes.attention)}
+      </Pill>
+    );
   }
   if (certificates.expired > 0) {
     const key = certificates.expired === 1 ? "overview.certificate_expired" : "overview.certificates_expired";
-    return <b className="danger">{t(key, certificates.expired)}</b>;
+    return (
+      <Pill tone="danger" small>
+        {t(key, certificates.expired)}
+      </Pill>
+    );
   }
   const soonest = certificates.soonest_expires_at;
   if (certificates.expiring > 0 && soonest !== null) {
     const days = daysUntil(soonest, now);
     const key = certificates.expiring === 1 ? "overview.certificate_expiring" : "overview.certificates_expiring";
+    const text = certificates.expiring === 1 ? t(key, days) : t(key, certificates.expiring, days);
     return (
-      <b className={days <= thresholds.danger ? "danger" : "warn"}>
-        {certificates.expiring === 1 ? t(key, days) : t(key, certificates.expiring, days)}
-      </b>
+      <Pill tone={certificateTone(days, thresholds)} small title={text}>
+        {text}
+      </Pill>
     );
   }
   return <>{t("overview.probes_ok")}</>;
@@ -99,7 +114,7 @@ export function Overview() {
     <div className="overview-page">
       <PageHead
         title={t("nav.overview")}
-        subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}
+        subtitle={machines.data && list.length === 0 ? machinesSubtitle(t, 0, 0) : ""}
         actions={
           <Button variant="primary" icon="plus" to="/machines/nouvelle">
             {t("machine.add")}
@@ -121,13 +136,17 @@ export function Overview() {
               value={counts.data?.containers.total ?? "–"}
               foot={
                 counts.data && counts.data.containers.attention > 0 ? (
-                  <b className="danger">{t("overview.services_attention", counts.data.containers.attention)}</b>
+                  <Pill tone="danger" small>
+                    {t("overview.services_attention", counts.data.containers.attention)}
+                  </Pill>
                 ) : counts.data && counts.data.containers.unknown > 0 ? (
-                  t("overview.services_unknown", counts.data.containers.unknown)
+                  <Pill tone="neutral" small>
+                    {t("overview.services_unknown", counts.data.containers.unknown)}
+                  </Pill>
                 ) : counts.data && counts.data.containers.updates > 0 ? (
-                  <b className="accent">
+                  <Pill tone="accent" small>
                     {counts.data.containers.updates === 1 ? t("overview.service_update") : t("overview.services_updates", counts.data.containers.updates)}
-                  </b>
+                  </Pill>
                 ) : (
                   t("overview.services_ok")
                 )
@@ -147,7 +166,9 @@ export function Overview() {
               value={counts.data?.jobs.total ?? "–"}
               foot={
                 counts.data && counts.data.jobs.attention > 0 ? (
-                  <b className="danger">{t("overview.jobs_attention", counts.data.jobs.attention)}</b>
+                  <Pill tone="danger" small>
+                    {t("overview.jobs_attention", counts.data.jobs.attention)}
+                  </Pill>
                 ) : (
                   t("overview.jobs_ok")
                 )

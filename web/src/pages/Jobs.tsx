@@ -5,7 +5,7 @@ import { Button } from "../components/Button";
 import { Card, EmptyCard } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { PageHead } from "../components/PageHead";
-import { JobPill } from "../components/Pill";
+import { JobPill, Pill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
@@ -62,7 +62,11 @@ export function Jobs() {
                       <JobPill status={job.status} />
                     </td>
                     <td className="secondary nowrap">{lastPing(t, job.last_ping_at, now)}</td>
-                    <td className="num td-end wide-only">{result && <span className={`result result-${result.tone}`}>{result.text}</span>}</td>
+                    <td className="num td-end wide-only">{result && (
+                        <Pill tone={result.tone} dot={result.tone !== "neutral"} small>
+                          {result.text}
+                        </Pill>
+                      )}</td>
                   </tr>
                 );
               })}

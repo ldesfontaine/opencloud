@@ -11,8 +11,16 @@ import "./Pill.scss";
 
 // Un état se lit par une pastille : fond lavis, texte, point. Jamais par du
 // texte coloré seul.
-export function Pill({ tone, dot = true, children }: { tone: Tone; dot?: boolean; children: ReactNode }) {
-  return <span className={`pill pill-${tone}${dot ? "" : " nodot"}`}>{children}</span>;
+// `small` tient dans une ligne de texte de 12 px (le pied d'une tuile, le titre
+// d'une ligne de liste) sans la faire grandir.
+// Dans un pied de tuile étroit, son texte se tronque (…) plutôt que de couper
+// la pastille ; `title` dit alors le texte entier.
+export function Pill({ tone, dot = true, small = false, title, children }: { tone: Tone; dot?: boolean; small?: boolean; title?: string; children: ReactNode }) {
+  return (
+    <span className={`pill pill-${tone}${dot ? "" : " nodot"}${small ? " pill-sm" : ""}`} title={title}>
+      <span className="pill-label">{children}</span>
+    </span>
+  );
 }
 
 export function Dot({ tone }: { tone: Tone }) {

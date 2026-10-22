@@ -53,8 +53,9 @@ type Store interface {
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
 	// CountResults compte les essais et les succès d'une fenêtre, dans le brut.
 	CountProbeResults(ctx context.Context, probeID string, from, to time.Time) (total, success int, err error)
-	// CountDays fait la même chose depuis l'agrégat journalier.
-	CountProbeDays(ctx context.Context, probeID string, from time.Time) (total, success int, err error)
+	// CountProbeWindow compte une fenêtre de jours : l'agrégat des jours
+	// complets, puis le brut que l'agrégat n'a pas repris.
+	CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error)
 	// RollupDay réécrit un jour entier en une instruction idempotente.
 	RollupProbeDay(ctx context.Context, dayStart, dayEnd time.Time) error
 	PurgeProbeHistory(ctx context.Context, resultsBefore, daysBefore time.Time) error
@@ -333,7 +334,7 @@ func (s *Service) Uptimes(ctx context.Context, id string) ([]Uptime, error) {
 		var total, success int
 		var err error
 		if window.Source == SourceDaily {
-			total, success, err = s.store.CountProbeDays(ctx, id, startOfDay(now.Add(-window.Span)))
+			total, success, err = s.store.CountProbeWindow(ctx, id, startOfDay(now.Add(-window.Span)), now)
 		} else {
 			total, success, err = s.store.CountProbeResults(ctx, id, now.Add(-window.Span), now)
 		}

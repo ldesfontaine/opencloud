@@ -10,14 +10,14 @@ import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
-import { Dot, JobPill } from "../components/Pill";
+import { Dot, JobPill, Pill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, outcomeKey, preview, runMoment, runsShownFirst, runTones } from "../lib/jobs";
+import { awaitsFirstPing, exitCodeTone, jobFact, jobTones, lastResult, lastSuccessText, outcomeKey, preview, runMoment, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 
 // La page d'une tâche : le verdict, les dernières exécutions, puis les
@@ -72,7 +72,9 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
         {result && (
           <>
             <span className="sep" />
-            <span className={`mono result result-${result.tone}`}>{result.text}</span>
+            <Pill tone={result.tone} dot={result.tone !== "neutral"}>
+              <span className="mono">{result.text}</span>
+            </Pill>
           </>
         )}
       </Verdict>
@@ -211,7 +213,9 @@ function RunRow({ run, now }: { run: Run; now: number }) {
             {run.exit_code !== null && (
               <>
                 {" · "}
-                <span className="mono">{t("job.exit_code", run.exit_code)}</span>
+                <Pill tone={exitCodeTone(run.exit_code)} dot={exitCodeTone(run.exit_code) !== "neutral"} small>
+                  <span className="mono">{t("job.exit_code", run.exit_code)}</span>
+                </Pill>
               </>
             )}
             {run.duration_ms !== null && (

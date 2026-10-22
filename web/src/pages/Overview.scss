@@ -1,5 +1,6 @@
-// La vue d'ensemble tient sur un écran de portable (#141) : 16 px entre ses
-// blocs, pour cette page seulement (.content, global, garde ses 24 px).
+// La vue d'ensemble tient sur un écran de portable (#141) : 12 px entre ses
+// blocs et pas de sous-titre (la tuile Machines dit déjà le compte), pour
+// cette page seulement (.content, global, garde ses 24 px).
 // Sous 860 px le flux reste naturel : tout passe en colonnes plus étroites.
 //
 // Les coupures sont à 1280 px et non à 1100 : la barre latérale prend 232 px,
@@ -8,7 +9,7 @@
 .overview-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 

@@ -52,6 +52,22 @@
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   overflow-y: hidden;
+
+  // La barre déborde : un fondu au bord qui cache encore des onglets (TabNav).
+  &.fade-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+
+  &.fade-left {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  }
+
+  &.fade-both {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
 }
 
 .tab {
