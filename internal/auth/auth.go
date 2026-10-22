@@ -18,7 +18,7 @@ const (
 	ModeNone Mode = "none"
 	// HTTP Basic, identifiant et mot de passe choisis à l'activation.
 	ModeBasic Mode = "basic"
-	// Derrière un mandataire qui authentifie (Authelia) et transmet
+	// Derrière un SSO en amont qui authentifie (Authelia) et transmet
 	// l'identité dans un en-tête ; cru seulement depuis trusted_proxies.
 	ModeForward Mode = "forward"
 )
@@ -66,7 +66,7 @@ var (
 	ErrPasswordTooShort = refusal.Invalid("auth.password_too_short", "auth: password too short")
 	ErrPasswordTooLong  = refusal.Invalid("auth.password_too_long", "auth: password too long")
 	ErrHeaderInvalid    = refusal.Invalid("auth.header_invalid", "auth: header name invalid")
-	// En mode forward, c'est le mandataire qui authentifie : il n'y a pas
+	// En mode forward, c'est le SSO qui authentifie : il n'y a pas
 	// de mot de passe à changer.
 	ErrNoPassword = refusal.Conflict("auth.no_password", "auth: no password in this mode")
 	// L'état a changé entre l'instant où la requête a été autorisée et celui

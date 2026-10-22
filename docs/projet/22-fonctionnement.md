@@ -2817,7 +2817,7 @@ répond.
 
 ### Le jeton
 
-1. L'opérateur en crée un sous Paramètres → **Jetons d'API** : un nom (80
+1. L'opérateur en crée un sous Paramètres → Agent IA → **Jetons d'API** : un nom (80
    caractères au plus), une **échéance** de 30, 90 (défaut) ou 365 jours, ou
    sans échéance si l'opérateur le choisit explicitement (`POST
    /api/settings/api-tokens` `{name, expires_in_days}`, 0 pour sans échéance ;

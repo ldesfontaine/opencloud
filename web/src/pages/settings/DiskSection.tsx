@@ -76,7 +76,15 @@ export function DiskSection({ settings, reload }: { settings: DiskSettings; relo
             <Failure error={error} />
           </SettingBlock>
         )}
-        <SettingFoot note={saved && !changed ? <Pill tone="ok">{t("settings.disk_saved")}</Pill> : t("settings.disk_applies")}>
+        <SettingFoot
+          note={
+            <>
+              {/* La portée du réglage reste dite, « Enregistré » ou non. */}
+              {saved && !changed && <Pill tone="ok">{t("settings.disk_saved")}</Pill>}
+              <span>{t("settings.disk_applies")}</span>
+            </>
+          }
+        >
           <Button type="submit" variant="primary" icon="check" disabled={action.busy || !changed}>
             {t("settings.disk_save")}
           </Button>
