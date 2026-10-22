@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -165,7 +166,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	containers, failing, err := s.reader.CountContainers(ctx)
+	containers, failing, err := s.reader.CountContainers(ctx, machine.ObservedSince(s.now()))
 	if err != nil {
 		return countsResponse{}, err
 	}

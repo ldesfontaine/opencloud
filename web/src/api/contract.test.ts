@@ -167,6 +167,8 @@ const container = shape<ContainerJSON>("Container", {
   }),
   lifecycle: optional(lifecycle),
   state: value,
+  observed: value,
+  machine_last_seen_at: value,
   exit_code: value,
   oom_killed: value,
   killed: value,
@@ -492,6 +494,7 @@ const gaps = shape<GapsResponse>("GapsResponse", {
   services: shape<ServiceGapJSON>("ServiceGap", {
     service_id: value,
     state: value,
+    observed: value,
     weak: value,
     units: shape<UnitGapJSON>("UnitGap", {
       unit_id: value,

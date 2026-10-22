@@ -75,11 +75,26 @@ const containerNeedsAttention = `CASE state
 	WHEN 'exited' THEN NOT (oom_killed = 0 AND killed = 0 AND exit_code IN (0, 137, 143))
 	ELSE 0 END`
 
-// CountContainers compte les conteneurs vivants et ceux qui demandent
-// attention, en une requête.
-func (db *DB) CountContainers(ctx context.Context) (total, attention int, err error) {
+// containerObserved est machine.Observed écrit en SQL : l'agent actif de la
+// machine du conteneur a signalé depuis observedSince. Un conteneur dont la
+// machine n'est pas observée ne demande rien : l'alerte « machine perdue »
+// porte l'information, et son état n'est plus connu.
+const containerObserved = `EXISTS (SELECT 1 FROM agents
+	WHERE agents.machine_id = containers.machine_id AND agents.revoked_at IS NULL AND agents.last_seen_at >= ?)`
+
+// CountContainers compte les conteneurs vivants, tous, et ceux qui demandent
+// attention parmi ceux dont la machine est observée depuis observedSince
+// (machine.ObservedSince), en une requête.
+func (db *DB) CountContainers(ctx context.Context, observedSince time.Time) (total, attention int, err error) {
+	// Les dates sont stockées à la seconde : arrondir vers le haut garde
+	// l'égalité avec machine.Observed, qui compare à la nanoseconde.
+	since := observedSince.Truncate(time.Second)
+	if since.Before(observedSince) {
+		since = since.Add(time.Second)
+	}
 	err = db.sql.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(`+containerNeedsAttention+`), 0) FROM containers WHERE archived_at IS NULL`).Scan(&total, &attention)
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN `+containerObserved+` THEN `+containerNeedsAttention+` ELSE 0 END), 0)
+		FROM containers WHERE archived_at IS NULL`, since.Unix()).Scan(&total, &attention)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count containers: %w", err)
 	}

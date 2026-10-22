@@ -270,6 +270,9 @@ func compareGolden(t *testing.T, golden, got string) {
 func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
+	// L'agent de la machine distante vient de signaler : ses conteneurs sont
+	// observés. La machine openCloud, elle, n'a jamais signalé.
+	server.signaledAt(t, remoteID, testNow)
 	if _, _, err := server.machines.CreateToken(context.Background(), "vps-lyon-2", nil); err != nil {
 		t.Fatal(err)
 	}

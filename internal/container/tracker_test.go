@@ -428,7 +428,14 @@ func TestCount_CountsLiveContainersAndThoseNeedingAttention(t *testing.T) {
 	stopped := running("2222222222222222222222222222222222222222222222222222222222222222", "old", "")
 	stopped.State, stopped.ExitCode = container.StateExited, 143
 	b.record(t, inventory(running(webID, "web", ""), crashed, stopped))
-	total, attention, err := b.db.CountContainers(context.Background())
+	local, err := b.db.GetMachine(context.Background(), machine.LocalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.db.TouchAgent(context.Background(), local.Agent.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+	total, attention, err := b.db.CountContainers(context.Background(), machine.ObservedSince(testNow))
 	if err != nil || total != 3 || attention != 1 {
 		t.Fatalf("total = %d attention = %d err = %v", total, attention, err)
 	}
