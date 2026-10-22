@@ -51,7 +51,8 @@ attestation de provenance GitHub, et **ne se réécrit jamais**.
 | Étape | Geste |
 | --- | --- |
 | Tirer la paire | `opencloud release keygen -o release.key` sur son poste ; la commande écrit la clé privée (`0600`) et affiche la clé publique |
-| Poser la clé privée | secret `RELEASE_SIGNING_KEY` du dépôt (Settings › Secrets and variables › Actions) = contenu de `release.key` ; une copie de `release.key` dans le coffre |
+| Créer l'environnement | Settings › Environments › New : nom `release`, *Required reviewers* = Lucas, *Deployment branches and tags* = tags `v*`. Le job `sign` s'y exécute : sans la règle des tags `v*`, il attend ou échoue ; sans l'environnement, GitHub en crée un vide au premier usage, le job échoue faute de secret et rien ne se publie |
+| Poser la clé privée | secret **d'environnement** `RELEASE_SIGNING_KEY` (dans `release`, pas un secret du dépôt) = contenu de `release.key` ; une copie de `release.key` dans le coffre. Supprimer le secret du dépôt s'il existe : seul le job `sign`, derrière le relecteur, doit pouvoir lire la clé |
 | Poser la clé publique | collée dans `internal/release/key.go` (`TrustedPublicKey`), par une pull request. Tant qu'elle est vide, le binaire refuse de vérifier et le job échoue : rien ne se publie sans clé |
 | Régler le dépôt | ruleset de tags `v*` : création réservée aux administrateurs, ni mise à jour ni suppression ; Settings › General › « Releases immuables ». Ce sont des réglages du dépôt : le code ne peut pas les poser |
 
@@ -70,7 +71,9 @@ commit de `main` choisi : `git tag -s vX.Y.Z <commit>` et
 | Le tag n'est pas sur un commit de `main` | une version vient de l'état jugé stable |
 | La version existe déjà | une version ne se réécrit pas ; on en publie une autre |
 | Le second build donne d'autres sommes que le premier | le binaire n'est pas reproductible |
-| La clé privée est absente ou mal formée | rien à signer avec |
+| Les fichiers reçus par `sign` ne sont pas ceux que `build` a listés | une somme qui ne correspond pas, un fichier manquant ou en trop dans `dist-release` : le transfert n'est pas fidèle |
+| L'environnement `release` n'a pas le secret, ou la clé est mal formée | rien à signer avec |
+| Le relecteur de l'environnement refuse, ou la règle ne laisse pas passer le tag | `sign` n'a pas lieu, rien ne se publie |
 | La clé publique embarquée est vide, ou n'est pas celle de la clé privée | `release verify` refuse les deux binaires |
 
 ## La CI
@@ -91,9 +94,20 @@ Dans `go.mod`, `go 1.26` dit ce qu'il faut pour lire le module ; la ligne
 
 `.github/workflows/release.yml` publie une version : les binaires Linux
 amd64 et arm64 (`make release`), leurs sommes, la signature minisign des
-sommes et l'attestation de provenance, après les tests. **Déclenché
-seulement par un tag `vX.Y.Z` poussé sur un commit de `main`** ; une version
-publiée n'est jamais réécrite (voir « Les versions »).
+sommes et l'attestation de provenance, après les tests, en deux jobs :
+`build` (npm, tests, binaires) n'a aucun secret et ne peut rien écrire ;
+`sign`, sous l'environnement `release`, recompile son signataire sans npm,
+signe, vérifie et publie. **Déclenché seulement par un tag `vX.Y.Z` poussé sur
+un commit de `main`** ; une version publiée n'est jamais réécrite (voir « Les
+versions »).
+
+`web/.npmrc` pose `ignore-scripts=true` : npm n'exécute aucun script
+d'installation, ni en CI, ni au build de version, ni sur le poste. Seuls
+`@parcel/watcher` (optionnel, pour le mode `--watch` de `sass`) et `fsevents`
+(macOS) en ont un dans le verrou, et le build n'en a pas besoin ; Vite prend
+son binaire natif par paquet optionnel. Si un futur paquet exige son script,
+la CI échouera : l'autoriser nommément (`npm rebuild <paquet>`) plutôt que de
+rouvrir tous les scripts.
 
 **Sobriété.** La CI tourne sur chaque pull request vers `dev` ou `main`, à
 la poussée sur `main`, et à la main (`workflow_dispatch`) ; plus à la fusion
