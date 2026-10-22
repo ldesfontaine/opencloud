@@ -707,6 +707,50 @@ Routes : `GET /api/directory/services/{id}/deploy-plan`, `POST
 d'un déploiement a sa propre borne (256 Kio) : un `.env` de 64 Kio écrit en
 JSON dépasse celle d'un formulaire.
 
+**Passer à la version proposée** (`POST /api/directory/units/{id}/actions/upgrade`,
+corps `{"version": "<tag>"}`, `201` avec l'ordre, comme `redeploy`) : depuis
+la carte « Mise à jour de l'image » d'un conteneur, un geste change la
+version déclarée de l'unité puis redéploie son service.
+
+- **La version est celle que l'agent propose, rien d'autre.** Elle doit être
+  **égale** au `newer_tag` du constat le plus récent parmi les conteneurs
+  rattachés à l'unité (`Directory.OfferedVersion`), sinon 409
+  `deploy.version_not_offered`. Une unité `hold` ou `ignore` n'a pas d'offre.
+  Seuls comptent les conteneurs qui tournent l'image déclarée (même registre,
+  même dépôt) ; un tag venu du registre qui n'a pas la forme d'une version de
+  l'annuaire (« $ », « # », « : », « / », « @ », retour, `latest`, plus de 128
+  caractères) n'est jamais offert.
+  Pour une autre version, ou une empreinte changée sous le même tag : modifier
+  le service, puis « Redéployer » (deux gestes, comme avant).
+- **Tout se vérifie avant d'écrire, et un refus n'écrit rien** : l'unité
+  existe (404 `directory.unit_not_found`) et est un conteneur (422
+  `directory.unit_not_container`) ; le service est déployé (409
+  `deploy.not_deployed`) ; l'agent n'a pas rapporté son droit sans
+  `docker.update` (409 `deploy.right_missing`) ; la machine est en ligne (409
+  `action.machine_offline`) ; l'unité n'épingle pas d'empreinte (409
+  `deploy.unit_pinned_digest` : l'empreinte appartient à l'ancien tag,
+  l'opérateur la retire à la main) ; la version est offerte ; elle a la forme
+  d'une version de l'annuaire (422 `directory.version_invalid` ou
+  `directory.version_latest`, jugé **avant** le rendu : le motif du compose
+  lirait un « : » ou un « / » comme une partie du nom de l'image) ; et le
+  `compose.yml` de la nouvelle version **se rend** (un tag que le rendu refuse,
+  `directory.image_invalid`, n'est jamais écrit).
+- **Puis, dans cet ordre** : `Directory.SetUnitVersion` (le composant de
+  l'annuaire : une transaction pour la version et la date du service, puis le
+  rapprochement, les images à ne plus interroger et le direct, comme pour toute
+  écriture de l'annuaire) ; ensuite `Redeploy` (`docker.update`, `.env` de la
+  machine inchangé).
+- **Pas de transaction entre l'annuaire et l'ordre** : si l'envoi échoue après
+  l'écriture (la machine tombe entre les deux), la version reste changée et
+  l'erreur revient à l'opérateur, qui redéploie. C'est le découpage des deux
+  gestes d'avant, en plus court.
+- **Au journal** : `service.update` sur le service, avec `unit`,
+  `version_before`, `version_after` et `via: upgrade`, puis le `action.order`
+  habituel du redéploiement.
+- **Pas de retour arrière automatique** : un service qui ne redevient pas sain
+  reste sur la nouvelle version ; revenir, c'est redéclarer l'ancienne et
+  redéployer.
+
 **Ce qui ne se fait pas.**
 
 - **`apply` ne déploie pas.** Pas de `deploy: true` dans le fichier : le
@@ -1710,9 +1754,9 @@ Docker ne connaît aucun verbe qui écrit.
 openCloud dit quand l'image d'un service a quelque chose de plus récent à
 offrir. La comparaison ne tire rien et ne relance rien. Pour un service
 qu'openCloud n'a pas déployé, il fabrique la commande, et c'est l'opérateur
-qui la joue ; pour un service qu'il a déployé, la nouvelle version se déclare
-dans l'annuaire, puis « Redéployer » réécrit le `compose.yml` et relance
-Compose (« Comment un service se déploie »). Ce que le module d'origine
+qui la joue ; pour un service qu'il a déployé, un bouton « Passer à `<tag>` »
+change la version dans l'annuaire puis redéploie, en un geste (point 5 et
+« Comment un service se déploie »). Ce que le module d'origine
 faisait de plus, les CVE, le changelog, le score de risque, n'a pas été repris.
 
 L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
@@ -1773,6 +1817,20 @@ pas.
    la fiche dit de le recréer avec ses options, qu'openCloud ne connaît
    pas. Une rétrogradation est impossible par construction : seul un tag
    strictement plus récent est nommé.
+   **Sur un service qu'openCloud a déployé**, la ligne à copier laisse la
+   place au bouton **« Passer à `<tag>` »** (le compose est réécrit par le
+   serveur, pas édité à la main). Il paraît quand les quatre conditions
+   tiennent : le conteneur est rattaché à une unité déclarée, un ordre a déjà
+   écrit le dossier du service (le plan de déploiement dit `deployed`), le
+   constat propose un **tag** plus récent, et la politique de l'unité est
+   `watch`. Une empreinte changée sous le même tag (`digest`) n'a pas de
+   bouton : `--pull missing` ne la tirerait pas ; elle garde la ligne à
+   copier. Un clic ouvre une confirmation **dans la carte** (pas de boîte) :
+   l'unité, la version, le service, la machine, « le compose est réécrit,
+   l'`.env` reste, pas de retour arrière automatique » ; puis l'ordre se suit
+   sur le service (« Comment un service se déploie »). Le bouton est grisé
+   tant que l'agent n'a pas le droit `docker.update` ou qu'un ordre du
+   service est en route.
 6. **La politique se règle sur l'unité de l'annuaire**, pas sur la fiche :
    `watch` (par défaut), `hold` (vérifié, ni montré ni compté), `ignore` (le
    registre n'est jamais interrogé). Tous les conteneurs rattachés à l'unité
@@ -3578,7 +3636,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
 | Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, sous Administration, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
-| Appliquer une mise à jour | Pour un service **déployé par openCloud** : la nouvelle version se déclare dans l'annuaire, puis « Redéployer » ; deux gestes, pas de bouton qui les fasse ensemble, et aucun retour arrière si le service ne redevient pas sain. Pour les autres, openCloud montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | À décider (issue #125) |
+| Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
 | Pas d'assistant d'identifiants | Un registre dont les identifiants passent par `credHelpers` ou `credsStore` répond « refusé » ; seuls les `auths` en clair du `config.json` sont lus | À décider |
 | Dix mille tags au plus | Un dépôt qui en publie plus est lu jusqu'à la dixième page ; un tag plus récent au-delà n'est pas vu | À décider |

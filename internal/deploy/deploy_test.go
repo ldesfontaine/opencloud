@@ -18,7 +18,11 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
-const serviceID = "svc_00000000000000b1"
+const (
+	serviceID = "svc_00000000000000b1"
+	appUnitID = "unt_00000000000000a1"
+	dbUnitID  = "unt_00000000000000a2"
+)
 
 func nextcloud() directory.Service {
 	return directory.Service{
@@ -26,11 +30,11 @@ func nextcloud() directory.Service {
 		Origin: directory.OriginCompose, ComposeProject: "nextcloud",
 		Units: []directory.Unit{
 			{
-				Name: "app", Kind: directory.UnitContainer, Image: "ghcr.io/example/nextcloud", Version: "29.0.4",
+				ID: appUnitID, ServiceID: serviceID, Name: "app", Kind: directory.UnitContainer, Image: "ghcr.io/example/nextcloud", Version: "29.0.4",
 				Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 				Ports:  []string{"8080:80", "443/tcp"}, DataPath: "/var/www/html",
 			},
-			{Name: "db", Kind: directory.UnitContainer, Image: "postgres", Version: "16.4"},
+			{ID: dbUnitID, ServiceID: serviceID, Name: "db", Kind: directory.UnitContainer, Image: "postgres", Version: "16.4"},
 		},
 	}
 }
@@ -204,6 +208,15 @@ func (f fakeServices) GetDeclaredService(_ context.Context, id string) (director
 	return f.service, nil
 }
 
+func (f fakeServices) GetUnit(_ context.Context, id string) (directory.Unit, error) {
+	for _, unit := range f.service.Units {
+		if unit.ID == id {
+			return unit, nil
+		}
+	}
+	return directory.Unit{}, directory.ErrUnitNotFound
+}
+
 type fakeMachines struct{ status machine.Status }
 
 func (f fakeMachines) Get(context.Context, string) (machine.Status, error) { return f.status, nil }
@@ -261,7 +274,7 @@ type bench struct {
 
 func newBench(rights string, runs fakeRuns) *bench {
 	b := &bench{sender: &fakeSender{}, machines: &fakeMachines{status: activeMachine(rights)}, runs: &runs}
-	b.service = deploy.New(fakeServices{service: nextcloud()}, b.machines, b.runs, b.sender, slog.New(slog.DiscardHandler))
+	b.service = deploy.New(fakeServices{service: nextcloud()}, nil, b.machines, b.runs, b.sender, slog.New(slog.DiscardHandler))
 	return b
 }
 
@@ -349,7 +362,7 @@ func TestPlan_RefusesWhatCannotBeDeployed(t *testing.T) {
 	} {
 		service := nextcloud()
 		change(&service)
-		b := deploy.New(fakeServices{service: service}, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
+		b := deploy.New(fakeServices{service: service}, nil, fakeMachines{status: activeMachine("observe,docker.deploy")}, fakeRuns{}, &fakeSender{}, slog.New(slog.DiscardHandler))
 		_, err := b.Plan(ctx, serviceID)
 		if key, ok := refusal.KeyOf(err); !ok || !strings.HasPrefix(key, "deploy.") {
 			t.Errorf("%s: %v", name, err)

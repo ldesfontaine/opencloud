@@ -22,6 +22,11 @@ var (
 	ErrAlreadyDeployed = refusal.Conflict("deploy.already_deployed", "the service is already deployed: redeploy it")
 	ErrNotDeployed     = refusal.Conflict("deploy.not_deployed", "the service has never been deployed: deploy it first")
 	ErrNoAgent         = refusal.Conflict("deploy.no_agent", "the machine of the service has no active agent")
+
+	// Passer à une version : la demande n'est pas celle que l'agent propose,
+	// ou l'unité garde une empreinte qui appartient à l'ancien tag.
+	ErrVersionNotOffered = refusal.Conflict("deploy.version_not_offered", "the version is not the newer tag the agent found for this unit")
+	ErrUnitPinnedDigest  = refusal.Conflict("deploy.unit_pinned_digest", "the unit pins an image digest of its current tag: remove it before changing version")
 )
 
 // RightState dit si l'agent de la machine porte le droit du prochain geste :
@@ -45,6 +50,8 @@ type Plan struct {
 	// Vrai quand un déploiement a écrit le dossier sur la machine : le geste
 	// est alors « redéployer ».
 	Deployed bool
+	// Vrai quand la machine est en ligne : un ordre ne part que par son flux.
+	MachineOnline bool
 	// Le droit du prochain geste : docker.deploy, puis docker.update.
 	Right RightState
 	// Le compose.yml que le prochain geste écrira, et les unités dont il

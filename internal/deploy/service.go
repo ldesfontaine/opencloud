@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -20,6 +21,16 @@ import (
 // pour un service qui n'existe pas.
 type Services interface {
 	GetDeclaredService(ctx context.Context, id string) (directory.Service, error)
+	// GetUnit rend une unité, directory.ErrUnitNotFound si elle n'existe plus.
+	GetUnit(ctx context.Context, id string) (directory.Unit, error)
+}
+
+// Units est ce que le composant demande à l'annuaire pour changer la version
+// d'une unité : la version que l'agent propose, et l'écriture, qui passe par
+// le composant de l'annuaire (rapprochement, audit, direct).
+type Units interface {
+	OfferedVersion(ctx context.Context, unitID string) (string, bool, error)
+	SetUnitVersion(ctx context.Context, unitID, version string) error
 }
 
 // Machines est ce que le composant lit des machines : leur agent, ses droits
@@ -48,14 +59,15 @@ type Sender interface {
 // service, le genre, et « env: sent » quand un .env part.
 type Service struct {
 	services Services
+	units    Units
 	machines Machines
 	runs     Runs
 	sender   Sender
 	logger   *slog.Logger
 }
 
-func New(services Services, machines Machines, runs Runs, sender Sender, logger *slog.Logger) *Service {
-	return &Service{services: services, machines: machines, runs: runs, sender: sender, logger: logger}
+func New(services Services, units Units, machines Machines, runs Runs, sender Sender, logger *slog.Logger) *Service {
+	return &Service{services: services, units: units, machines: machines, runs: runs, sender: sender, logger: logger}
 }
 
 func deploymentKinds() []agentwire.Kind {
@@ -97,7 +109,7 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	}
 	plan := Plan{
 		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
-		Deployed: deployed, Right: rightOf(target, deployed), Compose: string(compose), DataDirs: dataDirs,
+		Deployed: deployed, MachineOnline: target.Online, Right: rightOf(target, deployed), Compose: string(compose), DataDirs: dataDirs,
 	}
 	if hasLast {
 		plan.LastRun = &last
@@ -131,6 +143,74 @@ func (s *Service) Deploy(ctx context.Context, serviceID string, env *string) (ac
 // changé. env nil laisse l'.env de la machine où il est.
 func (s *Service) Redeploy(ctx context.Context, serviceID string, env *string) (action.Run, error) {
 	return s.send(ctx, serviceID, env, true)
+}
+
+// Upgrade passe une unité d'un service déployé à la version que l'agent
+// propose, en un geste : la version déclarée change dans l'annuaire, puis le
+// service est redéployé (l'.env de la machine reste). Tout se juge avant la
+// première écriture : un refus ne change rien. Ce qui reste après l'écriture
+// (la machine qui tombe entre les deux, l'envoi qui échoue) laisse la
+// version changée : l'erreur revient à l'opérateur, qui redéploie, comme avec
+// les deux gestes séparés.
+func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.Run, error) {
+	unit, err := s.services.GetUnit(ctx, unitID)
+	if err != nil {
+		return action.Run{}, err
+	}
+	if unit.Kind != directory.UnitContainer {
+		return action.Run{}, directory.ErrUnitNotContainer
+	}
+	plan, err := s.Plan(ctx, unit.ServiceID)
+	if err != nil {
+		return action.Run{}, err
+	}
+	if !plan.Deployed {
+		return action.Run{}, ErrNotDeployed
+	}
+	if plan.Right == RightMissing {
+		return action.Run{}, ErrRightMissing
+	}
+	if !plan.MachineOnline {
+		return action.Run{}, action.ErrMachineOffline
+	}
+	if unit.Digest != "" {
+		return action.Run{}, ErrUnitPinnedDigest
+	}
+	offered, isOffered, err := s.units.OfferedVersion(ctx, unitID)
+	if err != nil {
+		return action.Run{}, err
+	}
+	// Égalité stricte : pas de version « proche » de celle qui est offerte.
+	if !isOffered || version != offered {
+		return action.Run{}, ErrVersionNotOffered
+	}
+	// La forme d'un tag, jugée ici avant le rendu : le motif du compose admet
+	// « : » et « / » dans le nom de l'image, pas l'annuaire dans une version.
+	if err := directory.CheckVersion(version); err != nil {
+		return action.Run{}, err
+	}
+	// Le compose de la nouvelle version se rend d'abord : un tag que le rendu
+	// refuse ne doit pas avoir été écrit.
+	if _, _, err := Render(withVersion(plan.Service, unitID, version)); err != nil {
+		return action.Run{}, err
+	}
+	if err := s.units.SetUnitVersion(ctx, unitID, version); err != nil {
+		return action.Run{}, err
+	}
+	s.logger.Info("unit upgrade", "service_id", plan.Service.ID, "unit_id", unitID, "from", unit.Version, "to", version)
+	return s.Redeploy(ctx, plan.Service.ID, nil)
+}
+
+// withVersion rend le service avec la version d'une de ses unités changée ;
+// l'original n'est pas touché.
+func withVersion(service directory.Service, unitID, version string) directory.Service {
+	service.Units = slices.Clone(service.Units)
+	for index := range service.Units {
+		if service.Units[index].ID == unitID {
+			service.Units[index].Version = version
+		}
+	}
+	return service
 }
 
 // send juge, puis envoie. Ordre des contrôles : le plan, le droit, déjà

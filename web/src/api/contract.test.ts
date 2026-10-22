@@ -794,6 +794,7 @@ const contract: Record<string, Shape<unknown>> = {
   "declared_services.golden.json": declaredServices,
   "deploy_plan.golden.json": deployPlan,
   "deploy_plan_sent.golden.json": deployPlan,
+  "deploy_upgrade.golden.json": actionRun,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
   "history.golden.json": history,
