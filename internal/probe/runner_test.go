@@ -54,7 +54,7 @@ func (s *collectingSink) waitFor(t *testing.T, wanted int) {
 func testRunner(t *testing.T, sink Sink) (*Runner, context.CancelFunc) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, NewChecker(nil), logger)
+	runner := NewRunner(sink, NewChecker(nil, true), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -154,7 +154,7 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 	defer server.Close()
 	sink := newSink()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, NewChecker(nil), logger)
+	runner := NewRunner(sink, NewChecker(nil, true), logger)
 	runner.Assign(Assignment{Probes: []Task{httpTask(server.URL)}})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -179,7 +179,7 @@ func TestRunner_LogsNeverCarryATargetPassword(t *testing.T) {
 	defer server.Close()
 	var logs lockedBuffer
 	sink := newSink()
-	runner := NewRunner(sink, NewChecker(nil), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	runner := NewRunner(sink, NewChecker(nil, true), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	runner.once(context.Background(), httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1)))
 	sink.waitFor(t, 1)
 	text := logs.String()

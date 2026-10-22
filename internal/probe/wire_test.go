@@ -266,7 +266,7 @@ func TestRunner_AssignNeverStartsARefusedTask(t *testing.T) {
 // Un jeu refusé reçu avant le démarrage attend lui aussi le nettoyage.
 func TestRunner_AssignBeforeRunKeepsOnlyTheKeptTasks(t *testing.T) {
 	sink := newSink()
-	runner := NewRunner(sink, NewChecker(nil), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	runner := NewRunner(sink, NewChecker(nil, true), slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
 	runner.Assign(Assignment{Probes: []Task{
 		{ID: "meta", Kind: KindHTTP, Target: "http://169.254.169.254/", IntervalSeconds: 60},
 		{ID: "good", Kind: KindTCP, Target: "127.0.0.1:1", IntervalSeconds: 60, TimeoutSeconds: 1},
@@ -281,7 +281,7 @@ func TestRunner_AssignBeforeRunKeepsOnlyTheKeptTasks(t *testing.T) {
 // L'agent dit ce qu'il écarte, sans la cible entière, et borne son journal.
 func TestRunner_LogsWhatItRefusesWithoutTheTarget(t *testing.T) {
 	var logs lockedBuffer
-	runner := NewRunner(newSink(), NewChecker(nil), slog.New(slog.NewTextHandler(&logs, nil)))
+	runner := NewRunner(newSink(), NewChecker(nil, true), slog.New(slog.NewTextHandler(&logs, nil)))
 	var tasks []Task
 	for i := range 12 {
 		task := validTask(fmt.Sprintf("p%02d", i))
