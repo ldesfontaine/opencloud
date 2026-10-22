@@ -1644,8 +1644,12 @@ L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
 caractère (`$`, accolade, guillemet, espace, `_`…) est refusé dès la
 déclaration (`directory.image_invalid`), parce qu'un tel hôte serait interpolé
 par Compose s'il arrivait jusqu'au `compose.yml`. Une image déjà enregistrée
-avec un hôte refusé reste en base, illisible pour l'écart et la surveillance,
-jusqu'à ce qu'on corrige l'image.
+avec un hôte refusé reste en base : l'écart dit « Image illisible » pour son
+unité (sans erreur ni ligne de journal), et la fiche ne se modifie plus, par
+le formulaire ou un `apply` qui la change, tant qu'on n'a pas corrigé l'image ;
+le déploiement, lui, refusait déjà ce que Compose interpolerait. La
+surveillance des images lit ce que Docker écrit, que cette règle ne refuse
+pas.
 
 1. **L'agent de chaque machine interroge lui-même** les registres de ses
    images : il a le trousseau Docker de la machine, et un registre privé
