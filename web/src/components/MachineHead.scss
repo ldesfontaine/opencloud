@@ -52,6 +52,9 @@
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   overflow-y: hidden;
+  // Un onglet amené dans la vue (actif, ou atteint au clavier) s'arrête hors
+  // du fondu de 32 px.
+  scroll-padding-inline: 32px;
 
   // La barre déborde : un fondu au bord qui cache encore des onglets (TabNav).
   &.fade-right {

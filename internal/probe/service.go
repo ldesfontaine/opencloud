@@ -53,8 +53,8 @@ type Store interface {
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
 	// CountResults compte les essais et les succès d'une fenêtre, dans le brut.
 	CountProbeResults(ctx context.Context, probeID string, from, to time.Time) (total, success int, err error)
-	// CountProbeWindow compte une fenêtre de jours : l'agrégat des jours
-	// complets, puis le brut que l'agrégat n'a pas repris.
+	// CountProbeWindow compte une fenêtre de jours : l'agrégat des jours que
+	// le brut ne couvre plus en entier, puis le brut.
 	CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error)
 	// RollupDay réécrit un jour entier en une instruction idempotente.
 	RollupProbeDay(ctx context.Context, dayStart, dayEnd time.Time) error

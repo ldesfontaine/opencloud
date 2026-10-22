@@ -266,31 +266,38 @@ func seedProbeResult(t *testing.T, db *DB, at time.Time, outcome probe.Outcome) 
 		at.Unix(), string(outcome))
 }
 
-func countWindow(t *testing.T, db *DB, days int) (total, success int) {
+func day(d int, hour int) time.Time {
+	return time.Date(2026, 10, d, hour, 0, 0, 0, time.UTC)
+}
+
+// countWindow compte la fenêtre de n jours comme Uptimes : depuis minuit,
+// n jours avant now.
+func countWindow(t *testing.T, db *DB, days int, now time.Time) (total, success int) {
 	t.Helper()
-	from := time.Date(2026, 10, 18-days, 0, 0, 0, 0, time.UTC)
-	total, success, err := db.CountProbeWindow(context.Background(), "p1", from, probeTestNow)
+	at := now.AddDate(0, 0, -days)
+	from := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	total, success, err := db.CountProbeWindow(context.Background(), "p1", from, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return total, success
 }
 
-// Des jours agrégés jusqu'à hier, et du brut aujourd'hui que rien n'a repris :
-// la fenêtre additionne les deux.
-func TestCountProbeWindow_AddsTodaysRawToTheAggregatedDays(t *testing.T) {
+// Le brut d'aujourd'hui, que le rollup n'a pas encore repris, compte : avec
+// probeTestNow (le 18 à midi), le brut couvre entièrement les jours du 12 au
+// 18, l'agrégat seul dit le 11.
+func TestCountProbeWindow_AddsTheRawNotYetRolledUp(t *testing.T) {
 	db := openTestDB(t)
 	insertProbeOnLocalMachine(t, db)
-	for offset := 1; offset <= 3; offset++ {
-		seedProbeDay(t, db, time.Date(2026, 10, 18-offset, 0, 0, 0, 0, time.UTC), 10, 9)
-	}
+	seedProbeDay(t, db, day(11, 0), 10, 9)
+	seedProbeResult(t, db, day(16, 8), probe.OutcomeUp)
+	seedProbeDay(t, db, day(16, 0), 1, 1)
 	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
 	seedProbeResult(t, db, probeTestNow.Add(-2*time.Hour), probe.OutcomeDown)
 	seedProbeResult(t, db, probeTestNow.Add(-3*time.Hour), probe.OutcomeDegraded)
 
-	total, success := countWindow(t, db, 7)
-	if total != 33 || success != 29 {
-		t.Fatalf("attendu 33 essais dont 29 réussis, obtenu %d dont %d", total, success)
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 14 || success != 12 {
+		t.Fatalf("attendu 14 essais dont 12 réussis, obtenu %d dont %d", total, success)
 	}
 }
 
@@ -298,62 +305,77 @@ func TestCountProbeWindow_AddsTodaysRawToTheAggregatedDays(t *testing.T) {
 func TestCountProbeWindow_CountsEveryRawDayAfterTheLastAggregatedOne(t *testing.T) {
 	db := openTestDB(t)
 	insertProbeOnLocalMachine(t, db)
-	seedProbeDay(t, db, time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC), 10, 10)
-	seedProbeDay(t, db, time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC), 10, 10)
-	seedProbeResult(t, db, time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC), probe.OutcomeDown)
-	seedProbeResult(t, db, time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC), probe.OutcomeUp)
+	seedProbeResult(t, db, day(16, 8), probe.OutcomeUp)
+	seedProbeDay(t, db, day(16, 0), 1, 1)
+	seedProbeResult(t, db, day(17, 8), probe.OutcomeDown)
+	seedProbeResult(t, db, day(17, 9), probe.OutcomeUp)
 	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
 
-	total, success := countWindow(t, db, 7)
-	if total != 23 || success != 22 {
-		t.Fatalf("attendu 23 essais dont 22 réussis, obtenu %d dont %d", total, success)
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 4 || success != 3 {
+		t.Fatalf("attendu 4 essais dont 3 réussis, obtenu %d dont %d", total, success)
 	}
 }
 
 // Un jour agrégé dont le brut existe encore (sept jours de rétention) ne se
-// compte qu'une fois.
-func TestCountProbeWindow_NeverCountsAnAggregatedDayTwice(t *testing.T) {
+// compte qu'une fois, même quand son agrégat est en retard sur son brut.
+func TestCountProbeWindow_NeverCountsADayTwice(t *testing.T) {
 	db := openTestDB(t)
 	insertProbeOnLocalMachine(t, db)
-	seedProbeDay(t, db, time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC), 2, 1)
-	seedProbeDay(t, db, time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), 2, 1)
-	seedProbeResult(t, db, time.Date(2026, 10, 16, 8, 0, 0, 0, time.UTC), probe.OutcomeUp)
-	seedProbeResult(t, db, time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC), probe.OutcomeDown)
-	seedProbeResult(t, db, time.Date(2026, 10, 17, 8, 0, 0, 0, time.UTC), probe.OutcomeUp)
-	seedProbeResult(t, db, time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC), probe.OutcomeDown)
-
-	total, success := countWindow(t, db, 7)
-	if total != 4 || success != 2 {
-		t.Fatalf("attendu 4 essais dont 2 réussis, obtenu %d dont %d", total, success)
-	}
-}
-
-// Le jour courant, déjà agrégé, l'est en retard : on lit son brut.
-func TestCountProbeWindow_ReadsTodayFromTheRawEvenWhenARollupWroteIt(t *testing.T) {
-	db := openTestDB(t)
-	insertProbeOnLocalMachine(t, db)
-	seedProbeDay(t, db, time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC), 5, 5)
-	seedProbeDay(t, db, time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC), 1, 1)
+	seedProbeDay(t, db, day(17, 0), 1, 1)
+	seedProbeDay(t, db, day(18, 0), 1, 1)
+	seedProbeResult(t, db, day(17, 8), probe.OutcomeUp)
+	seedProbeResult(t, db, day(17, 9), probe.OutcomeDown)
 	seedProbeResult(t, db, probeTestNow.Add(-2*time.Hour), probe.OutcomeUp)
 	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
 
-	total, success := countWindow(t, db, 7)
-	if total != 7 || success != 7 {
-		t.Fatalf("attendu 7 essais dont 7 réussis, obtenu %d dont %d", total, success)
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 4 || success != 3 {
+		t.Fatalf("attendu 4 essais dont 3 réussis, obtenu %d dont %d", total, success)
 	}
 }
 
-// Rien dans la fenêtre : 0 sur 0, pas d'erreur. Sans jour agrégé, tout vient
-// du brut.
-func TestCountProbeWindow_SaysNothingWithoutDataAndReadsRawWithoutAggregate(t *testing.T) {
+// Le rollup a écrit le 17 à 23 h 57 puis ne passe plus (minuit, ou un
+// rollup en panne plusieurs jours) : l'agrégat partiel n'est pas lu, le brut
+// du 17 compte en entier.
+func TestCountProbeWindow_IgnoresAPartialAggregateWhenTheRollupLags(t *testing.T) {
 	db := openTestDB(t)
 	insertProbeOnLocalMachine(t, db)
-	if total, success := countWindow(t, db, 7); total != 0 || success != 0 {
-		t.Fatalf("attendu 0 sur 0, obtenu %d sur %d", success, total)
+	seedProbeResult(t, db, day(17, 22), probe.OutcomeUp)
+	seedProbeDay(t, db, day(17, 0), 1, 1)
+	seedProbeResult(t, db, time.Date(2026, 10, 17, 23, 58, 0, 0, time.UTC), probe.OutcomeDown)
+	seedProbeResult(t, db, day(18, 0), probe.OutcomeUp)
+
+	afterMidnight := time.Date(2026, 10, 18, 0, 2, 0, 0, time.UTC)
+	if total, success := countWindow(t, db, 7, afterMidnight); total != 3 || success != 2 {
+		t.Fatalf("après minuit : attendu 3 essais dont 2 réussis, obtenu %d dont %d", total, success)
 	}
-	seedProbeResult(t, db, time.Date(2026, 10, 14, 8, 0, 0, 0, time.UTC), probe.OutcomeUp)
-	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeDown)
-	if total, success := countWindow(t, db, 7); total != 2 || success != 1 {
-		t.Fatalf("attendu 2 essais dont 1 réussi, obtenu %d dont %d", total, success)
+	if total, success := countWindow(t, db, 7, day(20, 12)); total != 3 || success != 2 {
+		t.Fatalf("rollup arrêté : attendu 3 essais dont 2 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Les jours que le brut ne couvre plus viennent de l'agrégat, sans le reste
+// de brut que la purge n'a pas encore effacé.
+func TestCountProbeWindow_ReadsOlderDaysFromTheAggregateOnly(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeDay(t, db, time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), 100, 90)
+	seedProbeDay(t, db, day(11, 0), 10, 9)
+	seedProbeResult(t, db, day(11, 20), probe.OutcomeDown)
+	seedProbeResult(t, db, day(12, 1), probe.OutcomeUp)
+
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 11 || success != 10 {
+		t.Fatalf("7 jours : attendu 11 essais dont 10 réussis, obtenu %d dont %d", total, success)
+	}
+	if total, success := countWindow(t, db, 30, probeTestNow); total != 111 || success != 100 {
+		t.Fatalf("30 jours : attendu 111 essais dont 100 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Rien dans la fenêtre : 0 sur 0, pas d'erreur.
+func TestCountProbeWindow_SaysNothingWithoutData(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 0 || success != 0 {
+		t.Fatalf("attendu 0 sur 0, obtenu %d sur %d", success, total)
 	}
 }

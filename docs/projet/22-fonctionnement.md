@@ -2113,7 +2113,7 @@ propose la première machine de la liste.
 | Fenêtre | Table lue | Pourquoi |
 | --- | --- | --- |
 | 24 h | `probe_results` | Le brut est gardé sept jours, strictement plus longtemps |
-| 7 j, 30 j, 90 j | `probe_days`, puis `probe_results` | L'agrégat garde des comptes, pas un pourcentage : les jours s'additionnent. Ce sont les jours agrégés **antérieurs au jour courant**, puis le brut depuis la fin du dernier d'entre eux (depuis le début de la fenêtre si aucun n'y est), jusqu'à maintenant : un essai que le rollup n'a pas repris compte déjà, et « 24 h » n'a jamais plus d'essais que « 7 j ». Un jour agrégé n'est jamais relu dans le brut, qui le garde pourtant sept jours |
+| 7 j, 30 j, 90 j | `probe_days`, puis `probe_results` | L'agrégat garde des comptes, pas un pourcentage : les jours s'additionnent. L'agrégat dit les jours que le brut ne couvre plus en entier ; le brut dit tous les suivants, du premier jour que sa rétention couvre entièrement (celui où le rollup commence) jusqu'à maintenant. La frontière ne dépend pas du retard du rollup : un essai pas encore repris compte déjà, un jour n'est lu que d'un côté, et « 24 h » n'a jamais plus d'essais que « 7 j » |
 
 Le serveur rend des faits : des essais et des succès, jamais un
 pourcentage ; le navigateur divise, et affiche un tiret quand la fenêtre
