@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 
-import type { ActionsResponse, ActionRun, RunLine } from "./actions";
+import type { ActionsResponse, ActionRun, AgentUpdateOffer, RunLine } from "./actions";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
 import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./backups";
@@ -719,6 +719,14 @@ const actionRun = shape<ActionRun>("ActionRun", {
 
 const actions = shape<ActionsResponse>("ActionsResponse", { runs: actionRun });
 
+const agentUpdateOffer = shape<AgentUpdateOffer>("AgentUpdateOffer", {
+  current: value,
+  target: value,
+  arch: value,
+  available: value,
+  reason: value,
+});
+
 const backups = shape<Backups>("Backups", {
   keyring: shape<BackupKeyring>("BackupKeyring", { recipient: value, fingerprint: value, created_at: value }),
   destinations: shape<BackupDestination>("BackupDestination", {
@@ -752,6 +760,7 @@ const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
 // Chaque golden JSON de l'API, et le type du front qui le lit.
 const contract: Record<string, Shape<unknown>> = {
   "actions.golden.json": actions,
+  "agent_update_offer.golden.json": agentUpdateOffer,
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,

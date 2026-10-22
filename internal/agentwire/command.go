@@ -26,9 +26,9 @@ const (
 	// Il ne change rien sur la machine et prouve le chemin d'un ordre de bout
 	// en bout (signature, journal, réponse).
 	KindAgentPing Kind = "agent.ping"
-	// Le premier geste (décision 14). Déclaré pour que son droit s'applique
-	// dès aujourd'hui ; son exécution vient avec #153 étape 5 : aucune route
-	// ne l'envoie, et un agent qui a le droit le refuse (not_implemented).
+	// Le premier geste (décision 14) : l'agent télécharge sa nouvelle version
+	// depuis le serveur (AgentUpdateParams), la vérifie, bascule son lien
+	// current et demande à être relancé.
 	KindAgentUpdate Kind = "agent.update"
 	// La rotation de la clé du serveur : signé par la clé que l'agent a
 	// épinglée, il lui livre la neuve (ServerKeyParams). Le serveur l'envoie

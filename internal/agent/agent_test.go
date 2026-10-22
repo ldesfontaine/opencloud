@@ -353,8 +353,8 @@ func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 	cancel()
 	<-done
 
-	// Ré-enrôlée avec le droit : l'ordre part, l'agent n'a pas encore son
-	// exécution et le refuse, le refus est journalisé sous l'agent.
+	// Ré-enrôlée avec le droit : l'ordre part, l'agent, qui ne tourne pas
+	// depuis son dossier bin/, le refuse ; le refus est journalisé sous l'agent.
 	reenroll, _, err := b.machines.CreateReenrollToken(context.Background(), online.ID, []machine.Capability{{Name: machine.CapabilityAgentUpdate}})
 	if err != nil {
 		t.Fatal(err)
@@ -375,7 +375,7 @@ func TestRun_AppliesItsRightsAndItsRefusalIsJournaled(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused := b.waitForRun(t, sent.ID, action.StateRefused)
-	if refused.Reason != agentwire.ReasonNotImplemented {
+	if refused.Reason != agentwire.ReasonNotSelfUpdatable {
 		t.Fatalf("refused %+v", refused)
 	}
 	events, err := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 1, ObjectKind: audit.ObjectAction})

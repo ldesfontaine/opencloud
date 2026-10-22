@@ -43,6 +43,8 @@ func (s *Server) routes() []route {
 		{"POST", "/api/machines/{id}/actions/reenroll", s.grantsAuthority(s.reenrollMachine)},
 		{"POST", "/api/machines/{id}/actions/revoke", s.revokeAgent},
 		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
+		{"GET", "/api/machines/{id}/agent-update", s.getAgentUpdate},
+		{"POST", "/api/machines/{id}/actions/update-agent", s.updateAgent},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},

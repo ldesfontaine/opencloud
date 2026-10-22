@@ -102,6 +102,16 @@ const (
 	ReasonNotAgeFile       = "not_an_age_file"
 	// La file des ordres longs de l'agent est pleine.
 	ReasonBusy = "busy"
+	// Les raisons de agent.update : l'agent ne tourne pas depuis son dossier
+	// bin/ ; son binaire n'embarque pas de clé de version ; la signature n'est
+	// pas de cette clé ; la version signée n'est pas celle demandée ; elle
+	// n'est pas plus récente que la sienne ; la nouvelle ne s'est pas lancée.
+	ReasonNotSelfUpdatable  = "not_self_updatable"
+	ReasonReleaseKeyMissing = "release_key_missing"
+	ReasonSignatureInvalid  = "signature_invalid"
+	ReasonVersionMismatch   = "version_mismatch"
+	ReasonDowngrade         = "downgrade"
+	ReasonSelfCheckFailed   = "self_check_failed"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -116,6 +126,8 @@ func RefusalReasons() []string {
 		ReasonWrongAgent, ReasonExpired, ReasonReplayed, ReasonUnknownKind, ReasonRightMissing,
 		ReasonStateUnwritable, ReasonNotImplemented, ReasonPathOutsideRight, ReasonPathUnwritable,
 		ReasonDownloadFailed, ReasonDigestMismatch, ReasonNotAgeFile, ReasonBusy,
+		ReasonNotSelfUpdatable, ReasonReleaseKeyMissing, ReasonSignatureInvalid, ReasonVersionMismatch,
+		ReasonDowngrade, ReasonSelfCheckFailed,
 	}
 }
 

@@ -18,11 +18,16 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
 const defaultAgentStateDir = brand.AgentStateDir
+
+// updatedExitCode : « mis à jour, relance-moi ». Ni 0 ni 1 (une erreur) ni 2
+// (un refus, que systemd ne relance pas).
+const updatedExitCode = 3
 
 // Un refus se dit à l'opérateur dans sa langue et sort avec le code 2 ; une
 // erreur porte une phrase puis le détail, code 1.
@@ -93,6 +98,9 @@ func runAgent(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.Info("agent starting", "version", version.String(), "state_dir", *stateDir)
+	// Sans clé de version embarquée, l'agent refuse agent.update : il ne
+	// saurait rien vérifier.
+	releaseKey, keyErr := release.TrustedKey()
 	err = agent.Run(ctx, agent.Options{
 		StateDir:     root,
 		Server:       *server,
@@ -105,9 +113,17 @@ func runAgent(args []string) error {
 		DockerSocket: *dockerSocket,
 		Roots:        roots,
 		Logger:       logger,
+
+		ReleaseKey:    releaseKey,
+		HasReleaseKey: keyErr == nil,
 	})
 	if err == nil {
 		return nil
+	}
+	// Mis à jour : le lien current vise la nouvelle version, systemd relance.
+	if errors.Is(err, agent.ErrUpdated) {
+		logger.Info("agent updated, exiting for systemd to restart it")
+		return &exitStatus{code: updatedExitCode}
 	}
 	return explainAgentError(err, root, code, catalogs)
 }

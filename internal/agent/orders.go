@@ -37,6 +37,9 @@ type orderRunner struct {
 	// leur donne les colis du serveur.
 	worker *orderWorker
 	fetch  *fetcher
+	// La mise à jour de l'agent (agent.update) : la clé de version et la
+	// relance viennent de Run.
+	updater *selfUpdater
 
 	mu       sync.Mutex
 	identity Identity
@@ -45,7 +48,7 @@ type orderRunner struct {
 func newOrderRunner(stateDir *os.Root, identity Identity, version string, results *actionResults, logger *slog.Logger) *orderRunner {
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
-		worker: newOrderWorker(), fetch: &fetcher{},
+		worker: newOrderWorker(), fetch: &fetcher{}, updater: newSelfUpdater(stateDir, version, logger),
 	}
 }
 
@@ -127,9 +130,9 @@ func (r *orderRunner) keepSeq(seq int64) bool {
 // execute fait ce que l'ordre demande. agent.ping ne change rien : il dit
 // que l'ordre est arrivé, vérifié, et quel agent l'a pris. agent.server_key
 // épingle la clé neuve du serveur. Un ordre long (backup.receive,
-// backup.prune) est jugé ici, vite, puis accepté : le travail est rendu à
-// part, que le worker fera à son tour. Un geste dont l'exécution n'est pas
-// encore écrite est refusé, même avec son droit.
+// backup.prune, agent.update) est jugé ici, vite, puis accepté : le travail
+// est rendu à part, que le worker fera à son tour. Un genre dont l'exécution
+// n'est pas écrite est refusé, même avec son droit.
 //
 // Le secret de l'ordre (body.Secret) est signé avec lui ; seul l'exécuteur du
 // genre qui en a besoin le lit, et rien ne l'écrit.
@@ -147,6 +150,8 @@ func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult,
 		return r.acceptBackupReceive(body)
 	case agentwire.KindBackupPrune:
 		return r.acceptBackupPrune(body)
+	case agentwire.KindAgentUpdate:
+		return r.acceptAgentUpdate(body)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
 	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil

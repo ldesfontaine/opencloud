@@ -178,6 +178,43 @@ func (db *DB) TimeoutRuns(ctx context.Context, acceptedBefore, now time.Time) ([
 	return machines, err
 }
 
+// CompleteAgentUpdates pose succeeded sur les mises à jour de cet agent qui
+// attendent encore et visaient cette version : l'agent est revenu avec elle.
+// Un ordre pour une autre version, ou d'un autre agent, n'est pas touché.
+func (db *DB) CompleteAgentUpdates(ctx context.Context, agentID, version string, at time.Time) ([]action.Run, error) {
+	var runs []action.Run
+	err := db.inTx(ctx, "complete agent updates", func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id, COALESCE(machine_id, ''), machine_name FROM action_runs
+			WHERE action = ? AND agent_id = ? AND state IN ('sent', 'accepted')
+				AND json_extract(params, '$.version') = ?`, string(agentwire.KindAgentUpdate), agentID, version)
+		if err != nil {
+			return fmt.Errorf("list agent updates: %w", err)
+		}
+		runs, err = collect(rows, func(row scanner) (action.Run, error) {
+			run := action.Run{Kind: agentwire.KindAgentUpdate, AgentID: agentID, State: action.StateSucceeded, FinishedAt: at}
+			err := row.Scan(&run.ID, &run.MachineID, &run.MachineName)
+			return run, err
+		})
+		if err != nil {
+			return err
+		}
+		line := []action.LogLine{{At: at, Stream: "stdout", Line: "reconnected as " + version}}
+		for _, run := range runs {
+			_, err := tx.ExecContext(ctx, `
+				UPDATE action_runs SET state = 'succeeded', refusal_reason = '', finished_at = ? WHERE id = ?`, at.Unix(), run.ID)
+			if err != nil {
+				return fmt.Errorf("complete agent update: %w", err)
+			}
+			if err := appendRunLogs(ctx, tx, run.ID, line, at); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return runs, err
+}
+
 func scanString(row scanner) (string, error) {
 	var value string
 	err := row.Scan(&value)

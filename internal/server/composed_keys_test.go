@@ -144,6 +144,8 @@ func closedKeyLists() []composedKeys {
 		{prefix: "action.kind_", values: orderKindKeys()},
 		{prefix: "action.state_", values: names(action.States())},
 		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered, action.ReasonTimeout)},
+		// La fiche d'une machine dit pourquoi son agent n'a pas de mise à jour à recevoir.
+		{prefix: "machine.agent_update_reason_", values: action.OfferReasons()},
 	}
 }
 

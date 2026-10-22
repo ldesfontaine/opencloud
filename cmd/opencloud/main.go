@@ -25,11 +25,22 @@ Commandes :
   secrets   forget : clé de chiffrement perdue, repart d'une clé neuve et oublie
             les secrets qu'elle chiffrait (option -config)
   release   verify <fichier> : vérifie qu'un fichier appartient à une version signée ;
+            import <dossier> : copie une version vérifiée, pour mettre à jour les agents (option -config) ;
             sign, keygen : pour publier une version
   backup    restore : restaure une sauvegarde chiffrée de la base, hors ligne
             (options -key -state ; phrase de passe sur l'entrée standard)
   version   affiche la version
 `
+
+// exitStatus est le code de sortie qu'une commande demande, sans message : le
+// code 3 de l'agent dit à systemd « mis à jour, relance-moi ».
+type exitStatus struct {
+	code int
+}
+
+func (e *exitStatus) Error() string {
+	return fmt.Sprintf("exit status %d", e.code)
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -63,6 +74,12 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
+		// Un code de sortie voulu par la commande (l'agent mis à jour demande
+		// à systemd de le relancer) n'est pas une erreur à afficher.
+		var status *exitStatus
+		if errors.As(err, &status) {
+			os.Exit(status.code)
+		}
 		fmt.Fprintln(os.Stderr, brand.Command+" :", err)
 		var refused *refusal
 		if errors.As(err, &refused) {

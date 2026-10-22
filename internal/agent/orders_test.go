@@ -181,7 +181,8 @@ func TestOrderRunner_WithoutAPinnedKeyRefusesEverything(t *testing.T) {
 
 // L'agent applique les droits de son fichier : un ordre dont le droit
 // manque est refusé avec ce droit, sans prendre son rang ; avec le droit,
-// un geste dont l'exécution n'existe pas encore est refusé aussi.
+// agent.update est jugé par l'agent : celui du test ne tourne pas depuis son
+// dossier bin/.
 func TestOrderRunner_AppliesTheRightsOfItsFile(t *testing.T) {
 	b := newOrderBench(t)
 	update := order(1)
@@ -199,7 +200,7 @@ func TestOrderRunner_AppliesTheRightsOfItsFile(t *testing.T) {
 
 	granted := newOrderBenchWithRights(t, []string{"observe", "agent.update"})
 	result = granted.send(t, update, granted.private)
-	if result.State != agentwire.ActionRefused || result.Reason != agentwire.ReasonNotImplemented {
+	if result.State != agentwire.ActionRefused || result.Reason != agentwire.ReasonNotSelfUpdatable {
 		t.Fatalf("with the right: %+v", result)
 	}
 	// Un fichier illisible vaut observe seul, le plus étroit.

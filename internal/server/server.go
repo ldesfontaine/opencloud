@@ -261,6 +261,11 @@ type ActionService interface {
 	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
 	Rekey(ctx context.Context, machineID string) error
 	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
+	// La mise à jour de l'agent : ce que la fiche propose, l'ordre, et la
+	// fin de l'ordre au retour de l'agent (voir agentapi).
+	OfferUpdate(ctx context.Context, machineID string) (action.UpdateOffer, error)
+	UpdateAgent(ctx context.Context, machineID string) (action.Run, error)
+	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 
 // Ce que le serveur attend du composant backup : les gestes de la page

@@ -96,6 +96,11 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.includes("/containers") || path.includes("/network")) {
     return ["containers"];
   }
+  // L'offre de mise à jour d'un agent suit la machine (sa version, son état)
+  // et les ordres (celui qui est parti).
+  if (/^\/api\/machines\/[^/?]+\/agent-update/.test(path)) {
+    return ["machines", "actions"];
+  }
   if (path.startsWith("/api/machines")) {
     return ["machines"];
   }

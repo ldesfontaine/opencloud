@@ -147,3 +147,69 @@ func TestTimeoutRuns_OnlyAcceptedAndOld(t *testing.T) {
 		t.Errorf("absent run: %v", err)
 	}
 }
+
+// Seule la mise à jour de cet agent, vers la version qu'il annonce, et qui
+// attend encore, devient faite ; sa sortie dit pourquoi.
+func TestCompleteAgentUpdates_OnlyThisAgentAndVersion(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	found, err := db.GetMachine(ctx, enrolledMachine(t, db, "vps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.GetMachine(ctx, enrolledMachine(t, db, "autre"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1_800_000_000, 0)
+	updateTo := func(id string, target machine.Machine, version string) {
+		t.Helper()
+		run := pendingRun(id, target, at)
+		run.Kind = agentwire.KindAgentUpdate
+		run.Params = []byte(`{"version":"` + version + `"}`)
+		if _, err := db.InsertRun(ctx, run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updateTo("sent", found, "v0.0.2")
+	updateTo("accepted", found, "v0.0.2")
+	updateTo("other-version", found, "v0.0.3")
+	updateTo("other-agent", other, "v0.0.2")
+	updateTo("refused", found, "v0.0.2")
+	updateTo("queued", found, "v0.0.2")
+	if _, err := db.InsertRun(ctx, pendingRun("ping", found, at)); err != nil {
+		t.Fatal(err)
+	}
+	for id, state := range map[string]action.State{
+		"sent": action.StateSent, "accepted": action.StateAccepted, "other-version": action.StateAccepted,
+		"other-agent": action.StateAccepted, "refused": action.StateRefused, "ping": action.StateAccepted,
+	} {
+		if err := db.SetRunState(ctx, id, state, "", time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	back := at.Add(time.Minute)
+	completed, err := db.CompleteAgentUpdates(ctx, found.Agent.ID, "v0.0.2", back)
+	if err != nil || len(completed) != 2 {
+		t.Fatalf("completed %+v %v", completed, err)
+	}
+	want := map[string]action.State{
+		"sent": action.StateSucceeded, "accepted": action.StateSucceeded, "other-version": action.StateAccepted,
+		"other-agent": action.StateAccepted, "refused": action.StateRefused, "queued": action.StateQueued, "ping": action.StateAccepted,
+	}
+	for id, state := range want {
+		run, err := db.GetActionRun(ctx, id)
+		if err != nil || run.State != state {
+			t.Errorf("%s: %+v %v, want %s", id, run.State, err, state)
+		}
+	}
+	done, err := db.GetActionRun(ctx, "accepted")
+	if err != nil || !done.FinishedAt.Equal(back) || len(done.Output) != 1 || done.Output[0].Line != "reconnected as v0.0.2" {
+		t.Fatalf("completed run %+v %v", done, err)
+	}
+	again, err := db.CompleteAgentUpdates(ctx, found.Agent.ID, "v0.0.2", back)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("a second reconnection completes nothing: %+v %v", again, err)
+	}
+}
