@@ -23,7 +23,9 @@ export interface Job {
   created_at: string;
 }
 
-export type RunOutcome = "in_progress" | "success" | "failure" | "timeout";
+// « missed » : une échéance dépassée sans ping, une ligne par épisode de
+// retard, sans début ni code de sortie.
+export type RunOutcome = "in_progress" | "success" | "failure" | "timeout" | "missed";
 
 export interface Run {
   id: number;
