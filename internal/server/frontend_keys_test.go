@@ -20,7 +20,8 @@ var (
 // Les littéraux qui ont la forme d'une clé d'une section du catalogue sans
 // en être une, chacun avec sa raison.
 var literalsNotKeys = map[string]string{
-	"agent.update": "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+	"agent.update":   "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+	"backup.receive": "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
 }
 
 // frontKeys rend les clés que le texte d'un fichier du front demande en

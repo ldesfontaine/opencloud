@@ -19,11 +19,18 @@ type OrderBody struct {
 	AgentID   string          `json:"agent_id"`
 	Kind      Kind            `json:"kind"`
 	Params    json.RawMessage `json:"params,omitempty"`
+	// Signé avec l'ordre ; jamais écrit dans un run, un journal ou l'audit :
+	// il ne vit que le temps de l'exécution (le .env d'un déploiement).
+	Secret json.RawMessage `json:"secret,omitempty"` // #nosec G117 -- le champ existe pour porter un secret, le temps d'un ordre.
 	// Secondes Unix : au-delà, l'agent refuse l'ordre.
 	NotAfter int64 `json:"not_after"`
 	// Croissant par agent : l'anti-rejeu de l'agent.
 	Seq int64 `json:"seq"`
 }
+
+// MaxSecretBytes borne le champ secret d'un ordre : l'enveloppe entière doit
+// tenir dans un événement (MaxEventBytes).
+const MaxSecretBytes = 64 << 10
 
 // SignedOrder est l'enveloppe qui voyage : le corps tel qu'il a été signé,
 // octet pour octet, sa signature Ed25519 et l'empreinte de la clé qui l'a
@@ -84,6 +91,17 @@ const (
 	ReasonRightMissing    = "right_missing"
 	ReasonStateUnwritable = "state_unwritable"
 	ReasonNotImplemented  = "not_implemented"
+	// Les raisons des ordres qui écrivent : le chemin n'est pas couvert par le
+	// droit de l'agent, ou son unité ne l'autorise pas ; le colis n'a pas pu
+	// être téléchargé, ne correspond pas à la somme signée, ou n'est pas ce
+	// qu'il prétend être.
+	ReasonPathOutsideRight = "path_outside_right"
+	ReasonPathUnwritable   = "path_unwritable"
+	ReasonDownloadFailed   = "download_failed"
+	ReasonDigestMismatch   = "digest_mismatch"
+	ReasonNotAgeFile       = "not_an_age_file"
+	// La file des ordres longs de l'agent est pleine.
+	ReasonBusy = "busy"
 )
 
 // RightMissing rend la raison d'un ordre refusé faute du droit nommé.
@@ -96,7 +114,8 @@ func RefusalReasons() []string {
 	return []string{
 		ReasonServerKeyMissing, ReasonBadSignature, ReasonBadOrder, ReasonWrongMachine,
 		ReasonWrongAgent, ReasonExpired, ReasonReplayed, ReasonUnknownKind, ReasonRightMissing,
-		ReasonStateUnwritable, ReasonNotImplemented,
+		ReasonStateUnwritable, ReasonNotImplemented, ReasonPathOutsideRight, ReasonPathUnwritable,
+		ReasonDownloadFailed, ReasonDigestMismatch, ReasonNotAgeFile, ReasonBusy,
 	}
 }
 

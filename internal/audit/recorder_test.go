@@ -89,6 +89,24 @@ func TestRecord_DropsSecretAndEmptyDetails(t *testing.T) {
 	}
 }
 
+// La phrase de passe de la sauvegarde ne s'écrit jamais, quel que soit le
+// nom qui la porte ; l'empreinte de la clé qu'elle scelle, oui.
+func TestRecord_DropsAPassphraseDetail(t *testing.T) {
+	recorder, db, logs := newRecorder(t)
+	ctx := audit.WithActor(context.Background(), audit.CLI("root"))
+	recorder.Record(ctx, audit.Event{Action: audit.BackupKeyringCreate, ObjectID: "1", Details: audit.Details{
+		"passphrase": "une phrase de test assez longue", "new_passphrase": "une autre phrase de test", // gitleaks:allow
+		"fingerprint": "0123456789abcdef",
+	}})
+	got := listAll(t, db)[0].Details
+	if len(got) != 1 || got["fingerprint"] != "0123456789abcdef" {
+		t.Fatalf("details %v", got)
+	}
+	if !strings.Contains(logs.String(), "audit detail dropped") {
+		t.Fatalf("no error: %s", logs.String())
+	}
+}
+
 func TestRecord_NilRecorderDoesNothing(t *testing.T) {
 	var recorder *audit.Recorder
 	recorder.Record(context.Background(), audit.Event{Action: audit.ProbeCreate})

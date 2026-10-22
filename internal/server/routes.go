@@ -152,6 +152,13 @@ func (s *Server) routes() []route {
 		{"GET", "/api/audit/forwarding", s.auditForwarding},
 		{"GET", "/api/actions", s.listActions},
 		{"GET", "/api/agents/server-key", s.getServerKey},
+		{"GET", "/api/backups", s.getBackups},
+		{"POST", "/api/backups/keyring", s.createBackupKeyring},
+		{"POST", "/api/backups/destinations", s.createBackupDestination},
+		{"DELETE", "/api/backups/destinations/{id}", s.deleteBackupDestination},
+		{"PUT", "/api/backups/plan", s.saveBackupPlan},
+		{"DELETE", "/api/backups/plan", s.deleteBackupPlan},
+		{"POST", "/api/backups/actions/run", s.runBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {

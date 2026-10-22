@@ -125,6 +125,11 @@ func Run(ctx context.Context, opts Options) error {
 	// attendent le signal suivant, qu'ils avancent.
 	actions := newActionResults()
 	orders := newOrderRunner(opts.StateDir, identity, opts.Version, actions, opts.Logger)
+	// Les ordres longs (recevoir une sauvegarde) s'exécutent à part, un à la
+	// fois, et vivent avec l'agent comme les sondes : une coupure du flux ne
+	// les interrompt pas, seul leur téléchargement échoue.
+	orders.fetch.use(client)
+	go orders.worker.run(ctx)
 	return keepConnected(ctx, client, identity, &pending{
 		readings: readings, reports: observed, results: checked, images: constated, actions: actions,
 		logs: watcher, probes: prober, updates: updater, orders: orders,
@@ -269,6 +274,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 		return err
 	}
 	defer stream.Close()
+	// Les colis se téléchargent sous le jeton de ce flux, et tant qu'il vit.
+	pending.orders.fetch.setSession(stream.Session)
+	defer pending.orders.fetch.setSession("")
 	opts.Logger.Info("connected", "server", identity.Server)
 	pending.reports.markReplayed()
 	pending.results.markReplayed()

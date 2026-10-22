@@ -748,6 +748,23 @@ lance `opencloud agent -state
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
+**Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »)
+demande un fichier de plus : l'unité n'écrit que dans son état
+(`ProtectSystem=strict`), le dossier du droit doit être autorisé. La page du
+jeton donne le fichier ; par exemple pour `/srv/backups` :
+
+```sh
+install -d -m 0700 /srv/backups
+mkdir -p /etc/systemd/system/opencloud-agent.service.d
+printf '[Service]\nReadWritePaths=/srv/backups\n' > /etc/systemd/system/opencloud-agent.service.d/droits.conf
+systemctl daemon-reload
+systemctl restart opencloud-agent
+```
+
+Le dossier doit exister avant le redémarrage : systemd refuse de démarrer
+une unité dont un `ReadWritePaths=` manque. Sans ce fichier, l'agent accepte
+l'ordre, ne peut pas écrire, et répond `path_unwritable`.
+
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
 reconnecte seul, avec un délai de 1 à 60 s, et signe à chaque fois une
 preuve neuve (un aléa qu'il tire, l'heure) : il n'a rien à demander au
@@ -875,6 +892,37 @@ page Machines affiche la version de chaque agent ; tant qu'elle reste
 machine donne le commit.
 
 ## Sauvegarder et restaurer
+
+**La sauvegarde intégrée.** Administration → **Sauvegardes** envoie chaque
+nuit (après 3 h, heure du serveur) un instantané chiffré de la base, avec
+`secret.key` et `server.key`, à l'agent d'une **autre machine**. openCloud n'en
+garde aucune copie. Trois gestes, dans l'ordre :
+
+1. **Créer la clé** : une phrase de passe d'au moins 16 caractères, saisie
+   deux fois. openCloud ne la garde pas ; sans elle, aucune sauvegarde ne se
+   relit. Gardez-la dans un coffre, **pas à côté des sauvegardes**.
+2. **Ajouter une destination** : une machine dont l'agent a été enrôlé avec le
+   droit « Recevoir des sauvegardes », dans un dossier, celui du droit ou un
+   sous-dossier (voir [Ajouter une machine](#ajouter-une-machine) ; le droit se
+   change par un ré-enrôlement). L'unité de l'agent doit autoriser ce dossier
+   (`ReadWritePaths=`, étape 4 de [Ajouter une machine](#ajouter-une-machine)) ;
+   sans cela l'ordre échoue avec `path_unwritable`.
+3. **Régler le plan** : la destination et le nombre de sauvegardes à garder
+   (14 par défaut). « Sauvegarder maintenant » en lance une tout de suite.
+
+Sur la destination, chaque sauvegarde est un fichier
+`opencloud-AAAAMMJJ-HHMMSS.tar.age`, à côté de
+`opencloud-key-<empreinte>.age`, la clé privée **scellée par la phrase**.
+L'agent vérifie ce qu'il a écrit (taille, somme, en-tête `age`) et la page dit
+l'état du dernier ordre ; il ne déchiffre rien, il n'a pas la clé. Les clés
+déposées ne sont jamais effacées par l'élagage. Remplacer la clé ne rend pas
+les anciennes sauvegardes illisibles : chacune a sa clé à côté d'elle, mais il
+faut garder l'ancienne phrase.
+
+Les méthodes ci-dessous (`sqlite3 .backup`, `tar`) restent comme secours, et
+pour ce que la sauvegarde intégrée ne couvre pas (la configuration, l'identité
+des agents). Les services déployés (`data/`, `.env`) viendront avec le
+déploiement.
 
 ### Quoi
 
@@ -1098,6 +1146,45 @@ migrée au démarrage.
 Les agents gardent leur identité : ceux que la copie connaît se
 reconnectent seuls. Une machine enrôlée après la sauvegarde est refusée
 (« openCloud ne reconnaît plus cette machine ») : ré-enrôlez-la.
+
+### Restaurer une sauvegarde chiffrée
+
+Hors ligne, `serve` arrêté, sur n'importe quelle machine qui a le binaire et
+les deux fichiers de la destination : l'archive
+`opencloud-AAAAMMJJ-HHMMSS.tar.age` et la clé `opencloud-key-<empreinte>.age`
+de la **même** sauvegarde.
+
+```sh
+systemctl stop opencloud
+opencloud backup restore -key opencloud-key-0123456789abcdef.age \
+  -state /var/lib/opencloud opencloud-20261021-030000.tar.age
+```
+
+La phrase de passe se lit sur l'entrée standard (une ligne, jamais en
+argument ; elle s'affiche à la frappe si l'entrée est un terminal). Le dossier
+`-state` doit être **vide ou absent** (créé en `0700`) : la commande ne
+restaure jamais par-dessus une base. Elle écrit `opencloud.db`, `secret.key` et
+`server.key` en `0600`, rien d'autre, et rien n'apparaît sous son nom définitif
+tant que l'archive n'est pas lue jusqu'au bout. Puis :
+
+```sh
+chown -R opencloud:opencloud /var/lib/opencloud
+systemctl start opencloud
+```
+
+Les agents se reconnectent seuls : `server.key` est celle d'avant, ils n'ont
+rien à ré-enrôler.
+
+**Sans openCloud**, avec l'outil [`age`](https://age-encryption.org) seul :
+
+```sh
+age -d -o cle.txt opencloud-key-0123456789abcdef.age          # demande la phrase
+age -d -i cle.txt opencloud-20261021-030000.tar.age | tar -x   # opencloud.db, secret.key, server.key
+install -m 0600 -o opencloud -g opencloud opencloud.db secret.key server.key /var/lib/opencloud/
+shred -u cle.txt
+```
+
+`cle.txt` est la clé privée en clair : ne la laissez pas traîner.
 
 ### Clé perdue
 

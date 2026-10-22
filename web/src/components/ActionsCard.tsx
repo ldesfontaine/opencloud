@@ -117,7 +117,7 @@ function RunRow({ run, now }: { run: ActionRun; now: number }) {
 }
 
 // La raison d'un refus ; right_missing porte après « : » le droit qui manque.
-function reasonText(t: Translate, reason: string): string {
+export function reasonText(t: Translate, reason: string): string {
   const [code, right] = reason.split(":");
   if (right !== undefined) {
     return t(`action.reason_${code}`, t(capabilityLabelKey(right)));

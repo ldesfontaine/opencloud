@@ -69,8 +69,14 @@ func newBench(t *testing.T) *bench {
 // l'ouverture de son flux.
 func newBenchReporting(t *testing.T, rights string) *bench {
 	t.Helper()
+	return newBenchLogging(t, rights, slog.New(slog.DiscardHandler))
+}
+
+// newBenchLogging garde en plus le journal du service, pour les tests qui
+// y cherchent ce qui ne doit pas s'y trouver.
+func newBenchLogging(t *testing.T, rights string, logger *slog.Logger) *bench {
+	t.Helper()
 	db := storetest.Open(t)
-	logger := slog.New(slog.DiscardHandler)
 	b := &bench{db: db, now: benchNow}
 	clock := func() time.Time { return b.now }
 	machines := machine.New(db, machine.NewSessions(), logger)

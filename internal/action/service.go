@@ -34,6 +34,9 @@ type Store interface {
 	// ExpireRuns pose expired sur ce qui attend encore après not_after ; il
 	// rend les machines touchées.
 	ExpireRuns(ctx context.Context, now time.Time) ([]string, error)
+	// TimeoutRuns pose failed, timeout sur ce qu'un agent a accepté avant
+	// acceptedBefore sans le finir ; il rend les machines touchées.
+	TimeoutRuns(ctx context.Context, acceptedBefore, now time.Time) ([]string, error)
 	PurgeRuns(ctx context.Context, before time.Time) error
 }
 
@@ -71,6 +74,7 @@ type Service struct {
 	commander Commander
 	watcher   Watcher
 	key       *Key
+	outbox    *Outbox
 	auditor   *audit.Recorder
 	logger    *slog.Logger
 	now       func() time.Time
@@ -83,6 +87,12 @@ func New(store Store, machines Machines, logger *slog.Logger) *Service {
 // SetKey branche la clé qui signe les ordres ; sans elle, rien ne part.
 func (s *Service) SetKey(key *Key) {
 	s.key = key
+}
+
+// SetOutbox branche les colis que les agents téléchargent ; sans lui,
+// OpenParcel ne trouve rien.
+func (s *Service) SetOutbox(outbox *Outbox) {
+	s.outbox = outbox
 }
 
 func (s *Service) SetCommander(commander Commander) {
@@ -165,12 +175,27 @@ func (s *Service) Ping(ctx context.Context, machineID string) (Run, error) {
 // serait refusé par l'agent. Tant que l'agent n'a rien rapporté, c'est lui
 // qui juge.
 func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (Run, error) {
+	return s.send(ctx, machineID, kind, params, nil, "")
+}
+
+// SendWithSecret fait comme Send et signe en plus un secret avec l'ordre : il
+// part à l'agent, qui le passe à l'exécuteur du genre, et c'est tout. Il
+// n'entre ni dans le run, ni dans le journal d'audit, ni dans un journal
+// slog. label dit, dans l'audit, qu'un secret est parti (« env: sent »).
+func (s *Service) SendWithSecret(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage, secret json.RawMessage, label string) (Run, error) {
+	return s.send(ctx, machineID, kind, params, secret, label)
+}
+
+func (s *Service) send(ctx context.Context, machineID string, kind agentwire.Kind, params, secret json.RawMessage, label string) (Run, error) {
 	if s.key == nil {
 		return Run{}, ErrNoServerKey
 	}
 	right, ok := RightOf(kind)
 	if !ok || !kind.IsOrder() {
 		return Run{}, fmt.Errorf("%q: %w", kind, ErrUnknownKind)
+	}
+	if len(secret) > agentwire.MaxSecretBytes {
+		return Run{}, ErrSecretTooLarge
 	}
 	target, err := s.machines.Get(ctx, machineID)
 	if err != nil {
@@ -193,8 +218,8 @@ func (s *Service) Send(ctx context.Context, machineID string, kind agentwire.Kin
 	if err != nil {
 		return Run{}, fmt.Errorf("insert run: %w", err)
 	}
-	s.auditor.Record(ctx, orderEvent(run))
-	run, err = s.deliver(ctx, run, target.Agent.ServerKeyFingerprint)
+	s.auditor.Record(ctx, orderEvent(run, label))
+	run, err = s.deliver(ctx, run, target.Agent.ServerKeyFingerprint, secret)
 	s.changed(machineID)
 	return run, err
 }
@@ -216,8 +241,10 @@ func (s *Service) newRun(ctx context.Context, target machine.Status, kind agentw
 // deliver signe le run écrit avec la clé que l'agent a épinglée, le marque
 // envoyé, puis le pousse. Marqué avant de partir : la réponse de l'agent
 // trouve toujours un run envoyé.
-func (s *Service) deliver(ctx context.Context, run Run, pinned string) (Run, error) {
-	signed, err := s.key.Sign(run.order(), pinned)
+func (s *Service) deliver(ctx context.Context, run Run, pinned string, secret json.RawMessage) (Run, error) {
+	order := run.order()
+	order.Secret = secret
+	signed, err := s.key.Sign(order, pinned)
 	if err != nil {
 		return s.failUndelivered(ctx, run, err)
 	}
@@ -259,11 +286,14 @@ func requesterOf(actor audit.Actor) string {
 	return string(actor.Kind) + ":" + actor.Name
 }
 
-func orderEvent(run Run) audit.Event {
-	return audit.Event{
-		Action: audit.ActionOrder, ObjectID: run.ID, ObjectName: run.MachineName,
-		Details: audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID},
+// orderEvent dit qu'un ordre est écrit et part. Un secret signé avec lui se
+// dit par son nom (« env: sent »), jamais par sa valeur.
+func orderEvent(run Run, secretLabel string) audit.Event {
+	details := audit.Details{"kind": string(run.Kind), "machine_id": run.MachineID, "agent_id": run.AgentID}
+	if secretLabel != "" {
+		details[secretLabel] = "sent"
 	}
+	return audit.Event{Action: audit.ActionOrder, ObjectID: run.ID, ObjectName: run.MachineName, Details: details}
 }
 
 // refusedEvent dit qu'un agent a refusé un ordre : un droit qui manque, ou
@@ -276,8 +306,9 @@ func refusedEvent(run Run) audit.Event {
 	}
 }
 
-// Watch est la boucle de fond : ce qui attend après not_after expire, ce
-// qui a passé Retention part.
+// Watch est la boucle de fond : ce qui attend après not_after expire, un
+// ordre accepté depuis plus de MaxRunDuration échoue, les colis échus
+// partent, ce qui a passé Retention part.
 func (s *Service) Watch(ctx context.Context) {
 	ticker := time.NewTicker(watchPeriod)
 	defer ticker.Stop()
@@ -295,15 +326,36 @@ func (s *Service) tidy(ctx context.Context) {
 	if err := s.Expire(ctx); err != nil && ctx.Err() == nil {
 		s.logger.Error("expire runs", "error", err)
 	}
+	if err := s.Timeout(ctx); err != nil && ctx.Err() == nil {
+		s.logger.Error("time out runs", "error", err)
+	}
+	s.outbox.Sweep()
 	if err := s.store.PurgeRuns(ctx, s.now().Add(-Retention)); err != nil && ctx.Err() == nil {
 		s.logger.Error("purge runs", "error", err)
 	}
 }
 
 // Expire pose expired sur les runs qui attendent encore leur agent après
-// not_after. Un run accepté n'expire pas : l'agent y travaille.
+// not_after. Un run accepté n'expire pas : l'agent y travaille (Timeout le
+// borne).
 func (s *Service) Expire(ctx context.Context) error {
 	machines, err := s.store.ExpireRuns(ctx, s.now())
+	if err != nil {
+		return err
+	}
+	for _, machineID := range machines {
+		s.changed(machineID)
+	}
+	return nil
+}
+
+// Timeout pose failed, timeout sur les ordres que l'agent a acceptés il y a
+// plus de MaxRunDuration sans les finir : un ordre long ne reste pas
+// « accepté » pour toujours. Il ne rend pas la main à l'agent, qui a pu
+// mourir en route.
+func (s *Service) Timeout(ctx context.Context) error {
+	now := s.now()
+	machines, err := s.store.TimeoutRuns(ctx, now.Add(-MaxRunDuration), now)
 	if err != nil {
 		return err
 	}

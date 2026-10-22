@@ -20,6 +20,9 @@ const (
 	// qui parle.
 	maxReasonBytes = 200
 	maxRunIDBytes  = 64
+	// MaxRunDuration est le temps qu'un ordre long a pour finir une fois
+	// accepté : au-delà, la boucle de fond le dit échoué (ReasonTimeout).
+	MaxRunDuration = time.Hour
 )
 
 // State est l'état d'un run. Le serveur pose queued, sent et expired ;
@@ -54,6 +57,10 @@ func (s State) IsFinished() bool {
 // pleine). La seule raison que pose le serveur ; les autres viennent de
 // l'agent (agentwire.RefusalReasons).
 const ReasonUndelivered = "undelivered"
+
+// ReasonTimeout : l'agent a accepté l'ordre et n'a pas répondu dans
+// MaxRunDuration. Posée aussi par le serveur.
+const ReasonTimeout = "timeout"
 
 // Run est un ordre et ce qu'il est devenu. Il survit à sa machine et à son
 // agent : MachineID et AgentID se vident, le nom reste.
@@ -90,8 +97,10 @@ type Order struct {
 	AgentID   string
 	Kind      agentwire.Kind
 	Params    json.RawMessage
-	NotAfter  time.Time
-	Seq       int64
+	// Signé avec l'ordre, jamais gardé : il n'est pas dans le Run.
+	Secret   json.RawMessage
+	NotAfter time.Time
+	Seq      int64
 }
 
 func (r Run) order() Order {
@@ -102,10 +111,13 @@ func (r Run) order() Order {
 }
 
 func (o Order) encode() ([]byte, error) {
-	return json.Marshal(agentwire.OrderBody{
+	body := agentwire.OrderBody{
 		RunID: o.RunID, MachineID: o.MachineID, AgentID: o.AgentID, Kind: o.Kind,
-		Params: o.Params, NotAfter: o.NotAfter.Unix(), Seq: o.Seq,
-	})
+		Params: o.Params, Secret: o.Secret, NotAfter: o.NotAfter.Unix(), Seq: o.Seq,
+	}
+	// Le secret part signé vers l'agent, c'est son rôle : ces octets ne vont
+	// qu'à la signature et au flux, jamais à la base ni à un journal.
+	return json.Marshal(body) // #nosec G117 -- le corps signé porte le secret jusqu'à l'agent, rien d'autre ne le garde.
 }
 
 // RightOf rend le droit qu'un genre exige de l'agent (décision 9) : observe
@@ -119,6 +131,8 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityObserve, true
 	case agentwire.KindAgentUpdate:
 		return machine.CapabilityAgentUpdate, true
+	case agentwire.KindBackupReceive, agentwire.KindBackupPrune:
+		return machine.CapabilityBackupReceive, true
 	}
 	return "", false
 }
@@ -140,6 +154,8 @@ var (
 	// ErrNoServerKey : le serveur n'a pas de clé pour signer (la commande
 	// mcp, qui n'envoie rien).
 	ErrNoServerKey = errors.New("no server key to sign orders")
+	// ErrSecretTooLarge : le secret d'un ordre dépasse ce qu'un agent lit.
+	ErrSecretTooLarge = errors.New("order secret larger than an agent reads")
 	// ErrUnknownKind : le genre n'est pas un ordre de la liste fermée.
 	ErrUnknownKind = errors.New("not an order kind")
 )

@@ -34,6 +34,10 @@ const (
 	// épinglée, il lui livre la neuve (ServerKeyParams). Le serveur l'envoie
 	// de lui-même, à l'ouverture du flux d'un agent resté sur la précédente.
 	KindServerKey Kind = "agent.server_key"
+	// Écrit sous son chemin les fichiers d'un colis que l'agent télécharge.
+	KindBackupReceive Kind = "backup.receive"
+	// Garde les N sauvegardes les plus récentes du chemin, efface les autres.
+	KindBackupPrune Kind = "backup.prune"
 )
 
 // ServerKeyParams sont les paramètres de agent.server_key : la clé publique
@@ -49,7 +53,7 @@ func ObservationKinds() []Kind {
 
 // OrderKinds rend les genres d'ordres, signés et journalisés.
 func OrderKinds() []Kind {
-	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey}
+	return []Kind{KindAgentPing, KindAgentUpdate, KindServerKey, KindBackupReceive, KindBackupPrune}
 }
 
 func (k Kind) IsOrder() bool {

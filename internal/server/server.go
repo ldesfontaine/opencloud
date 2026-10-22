@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -258,6 +260,19 @@ type ActionService interface {
 	PreviousServerKey() string
 	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
 	Rekey(ctx context.Context, machineID string) error
+	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
+}
+
+// Ce que le serveur attend du composant backup : les gestes de la page
+// Sauvegardes. Le dernier ordre du plan se lit par le Reader.
+type Backups interface {
+	Overview(ctx context.Context) (backup.Overview, error)
+	CreateKeyring(ctx context.Context, passphrase string, replace bool) (backup.Keyring, error)
+	CreateDestination(ctx context.Context, definition backup.DestinationDefinition) (backup.Destination, error)
+	DeleteDestination(ctx context.Context, id string) error
+	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
+	DeletePlan(ctx context.Context) error
+	RunNow(ctx context.Context) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.
@@ -288,6 +303,7 @@ type Server struct {
 	mcp        MCPService
 	auth       AuthService
 	actions    ActionService
+	backups    Backups
 	live       Live
 	logStreams atomic.Int32
 	// Les limiteurs de la racine, par source : /mcp et l'autorisation
@@ -348,6 +364,8 @@ type Options struct {
 	Auth AuthService
 	// Actions envoie les ordres signés aux agents ; voir api_actions.go.
 	Actions ActionService
+	// Backups pilote la page Sauvegardes ; voir api_backups.go.
+	Backups Backups
 	Live    Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
@@ -403,6 +421,7 @@ func New(opts Options) (*Server, error) {
 		mcp:            opts.MCP,
 		auth:           opts.Auth,
 		actions:        opts.Actions,
+		backups:        opts.Backups,
 		live:           opts.Live,
 		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
 		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),

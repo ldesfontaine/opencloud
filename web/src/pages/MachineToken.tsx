@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 
-import type { TokenResponse } from "../api/machines";
 import { Button } from "../components/Button";
 import { Card, CardBody, Note } from "../components/Card";
-import { TokenBox } from "../components/Copy";
+import { CopyButton, TokenBox } from "../components/Copy";
 import { PageHead } from "../components/PageHead";
 import { useT } from "../i18n/context";
+import { unitDropIn, unitWritePaths, type TokenPageState } from "../lib/machines";
 import { formatRemaining } from "../lib/time";
 
 // Le jeton arrive par l'état de navigation et en sort aussitôt : le
@@ -17,7 +17,7 @@ export function MachineToken() {
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
-  const [token] = useState(location.state as TokenResponse | null);
+  const [token] = useState(location.state as TokenPageState | null);
   useEffect(() => {
     if (location.state !== null) {
       void navigate(location.pathname, { replace: true, state: null });
@@ -26,6 +26,8 @@ export function MachineToken() {
   if (!token) {
     return <Navigate to="/machines" replace />;
   }
+  // Un droit qui écrit hors de l'état de l'agent demande un drop-in de son unité.
+  const writePaths = unitWritePaths(token.rights ?? []);
   const expiresIn = formatRemaining(t, Date.parse(token.expires_at) - Date.now());
   return (
     <>
@@ -41,6 +43,15 @@ export function MachineToken() {
             <span className="field-label">{t("machine.command_label")}</span>
             <TokenBox value={token.command} />
           </div>
+          {writePaths.length > 0 && (
+            <Note tone="warn">
+              <p>{t("machine.unit_read_write", writePaths.join(", "))}</p>
+              <div className="token-box">
+                <pre className="mono">{unitDropIn(writePaths)}</pre>
+                <CopyButton text={unitDropIn(writePaths)} />
+              </div>
+            </Note>
+          )}
           {token.url_local && <Note tone="danger">{t("machine.url_local")}</Note>}
           <div className="cluster">
             <Button to="/machines">{t("machine.back_to_list")}</Button>

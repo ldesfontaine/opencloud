@@ -129,7 +129,7 @@ func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) 
 // La liste des ouvertes est une décision : la voici, entière, la même pour
 // chaque mode.
 var wantOpenRoutes = []string{
-	"/agent/enroll", "/agent/stream", "/agent/signal", "/agent/logs/{request}", "/agent/",
+	"/agent/enroll", "/agent/stream", "/agent/signal", "/agent/logs/{request}", "/agent/parcels/{parcel}/{name}", "/agent/",
 	"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
 	"/statut", "/statut/{$}", "/statut/{slug}", "/statut/{slug}/{$}",
 	"/statut/{slug}/api/status", "/statut/{slug}/api/i18n", "/statut/{slug}/api/events", "/statut/",

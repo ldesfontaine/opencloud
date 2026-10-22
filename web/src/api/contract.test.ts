@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import type { ActionsResponse, ActionRun, RunLine } from "./actions";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
+import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
@@ -699,22 +700,43 @@ const audit = shape<AuditResponse>("AuditResponse", {
 
 const auditForwarding = shape<AuditForwarding>("AuditForwarding", { channels: value, failing: value });
 
-const actions = shape<ActionsResponse>("ActionsResponse", {
-  runs: shape<ActionRun>("ActionRun", {
+const actionRun = shape<ActionRun>("ActionRun", {
+  id: value,
+  kind: value,
+  params: dictionaryOf(value),
+  machine_id: value,
+  machine_name: value,
+  agent_id: value,
+  state: value,
+  reason: value,
+  seq: value,
+  requested_by: value,
+  requested_at: value,
+  not_after: value,
+  finished_at: value,
+  output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
+});
+
+const actions = shape<ActionsResponse>("ActionsResponse", { runs: actionRun });
+
+const backups = shape<Backups>("Backups", {
+  keyring: shape<BackupKeyring>("BackupKeyring", { recipient: value, fingerprint: value, created_at: value }),
+  destinations: shape<BackupDestination>("BackupDestination", {
     id: value,
-    kind: value,
-    params: dictionaryOf(value),
+    name: value,
     machine_id: value,
     machine_name: value,
-    agent_id: value,
-    state: value,
-    reason: value,
-    seq: value,
-    requested_by: value,
-    requested_at: value,
-    not_after: value,
-    finished_at: value,
-    output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
+    path: value,
+    right: value,
+    created_at: value,
+  }),
+  plan: shape<BackupPlan>("BackupPlan", {
+    destination_id: value,
+    keep: value,
+    schedule: value,
+    last_attempt_at: value,
+    last_error: value,
+    last_run: actionRun,
   }),
 });
 
@@ -736,6 +758,8 @@ const contract: Record<string, Shape<unknown>> = {
   "alerts.golden.json": alerts,
   "audit.golden.json": audit,
   "audit_forwarding.golden.json": auditForwarding,
+  "backups.golden.json": backups,
+  "backups_empty.golden.json": backups,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,
   "containers.golden.json": containers,

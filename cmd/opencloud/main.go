@@ -26,6 +26,8 @@ Commandes :
             les secrets qu'elle chiffrait (option -config)
   release   verify <fichier> : vérifie qu'un fichier appartient à une version signée ;
             sign, keygen : pour publier une version
+  backup    restore : restaure une sauvegarde chiffrée de la base, hors ligne
+            (options -key -state ; phrase de passe sur l'entrée standard)
   version   affiche la version
 `
 
@@ -52,6 +54,8 @@ func main() {
 		err = runSecrets(os.Args[2:])
 	case "release":
 		err = runRelease(os.Args[2:])
+	case "backup":
+		err = runBackup(os.Args[2:])
 	case "version":
 		err = runVersion()
 	default:

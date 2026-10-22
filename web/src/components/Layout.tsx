@@ -143,8 +143,7 @@ interface NavEntry {
   attentionHref?: string;
 }
 
-// Seul ce qui est livré a son entrée : les Sauvegardes reviendront avec
-// leur fonctionnalité.
+// Seul ce qui est livré a son entrée.
 const viewEntries: NavEntry[] = [
   { key: "overview", label: "nav.overview", href: "/", icon: "grid" },
   { key: "machines", label: "nav.machines", href: "/machines", icon: "server" },
@@ -156,6 +155,7 @@ const viewEntries: NavEntry[] = [
 ];
 
 const settingsEntries: NavEntry[] = [
+  { key: "backups", label: "nav.backups", href: "/sauvegardes", icon: "archive" },
   { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" },
   { key: "audit", label: "nav.audit", href: "/journal", icon: "file" },
 ];

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -93,5 +94,56 @@ func TestRunLogs_AreBoundedAndFollowTheirRun(t *testing.T) {
 	}
 	if left := count(t, db, `SELECT COUNT(*) FROM run_logs`); left != 0 {
 		t.Fatalf("%d run logs left after the purge", left)
+	}
+}
+
+// Seul un ordre accepté depuis longtemps échoue en timeout ; un ordre
+// récent, un ordre qui attend encore son agent et un ordre fini ne bougent
+// pas, et la machine touchée est rendue.
+func TestTimeoutRuns_OnlyAcceptedAndOld(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	found, err := db.GetMachine(ctx, enrolledMachine(t, db, "vps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1_800_000_000, 0)
+	for index, id := range []string{"old-accepted", "recent-accepted", "old-sent", "old-done"} {
+		requested := at
+		if id == "recent-accepted" {
+			requested = at.Add(2 * time.Hour)
+		}
+		if _, err := db.InsertRun(ctx, pendingRun(id, found, requested)); err != nil {
+			t.Fatalf("%d: %v", index, err)
+		}
+	}
+	for id, state := range map[string]action.State{
+		"old-accepted": action.StateAccepted, "recent-accepted": action.StateAccepted,
+		"old-sent": action.StateSent, "old-done": action.StateSucceeded,
+	} {
+		if err := db.SetRunState(ctx, id, state, "", time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := at.Add(3 * time.Hour)
+	machines, err := db.TimeoutRuns(ctx, now.Add(-time.Hour), now)
+	if err != nil || len(machines) != 1 || machines[0] != found.ID {
+		t.Fatalf("machines %v %v", machines, err)
+	}
+	want := map[string]action.State{
+		"old-accepted": action.StateFailed, "recent-accepted": action.StateAccepted,
+		"old-sent": action.StateSent, "old-done": action.StateSucceeded,
+	}
+	for id, state := range want {
+		run, err := db.GetActionRun(ctx, id)
+		if err != nil || run.State != state {
+			t.Errorf("%s: %+v %v, want %s", id, run, err, state)
+		}
+	}
+	if run, _ := db.GetActionRun(ctx, "old-accepted"); run.Reason != action.ReasonTimeout || !run.FinishedAt.Equal(now) {
+		t.Errorf("timed out run %+v", run)
+	}
+	if _, err := db.GetActionRun(ctx, "absent"); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("absent run: %v", err)
 	}
 }

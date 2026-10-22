@@ -8,7 +8,7 @@ import { RightsFields } from "../components/RightsFields";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { capabilitiesOf, emptyMachineForm } from "../lib/machines";
+import { capabilitiesOf, emptyMachineForm, tokenPageState } from "../lib/machines";
 
 // L'opérateur nomme la machine et coche les droits de son agent ; le jeton
 // naît et s'affiche une seule fois, sur la page suivante, avec la commande à
@@ -21,9 +21,10 @@ export function MachineNew() {
   const action = useAction();
 
   const save = () => {
-    action.run(() => createMachineToken(values.name, capabilitiesOf(values)), {
+    const rights = capabilitiesOf(values);
+    action.run(() => createMachineToken(values.name, rights), {
       topic: "all",
-      onDone: (token) => void navigate("/machines/jeton", { state: token }),
+      onDone: (token) => void navigate("/machines/jeton", { state: tokenPageState(token, rights) }),
     });
   };
 

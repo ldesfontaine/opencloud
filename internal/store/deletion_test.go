@@ -130,6 +130,24 @@ func TestRestrict_EveryLinkBetweenDeclaredObjectsRefusesARawDelete(t *testing.T)
 			unlink: `DELETE FROM status_components WHERE id = 'c1'`,
 			parent: `DELETE FROM probes WHERE id = 'p1'`,
 		},
+		{
+			name: "backup_destinations.machine_id",
+			link: func(t *testing.T, db *DB) {
+				exec(t, db, `INSERT INTO backup_destinations (id, name, machine_id, path, created_at) VALUES ('bkd_1', 'store', 'm1', '/srv/backups', 1)`)
+			},
+			unlink: `DELETE FROM backup_destinations WHERE id = 'bkd_1'`,
+			parent: deleteRemote,
+		},
+		{
+			name: "backup_plans.destination_id",
+			link: func(t *testing.T, db *DB) {
+				exec(t, db, `INSERT INTO backup_destinations (id, name, machine_id, path, created_at) VALUES ('bkd_1', 'store', 'm1', '/srv/backups', 1)`)
+				exec(t, db, `INSERT INTO backup_plans (id, subject, destination_id, schedule, keep, created_at, updated_at)
+					VALUES ('bkp_1', 'database', 'bkd_1', 'daily', 14, 1, 1)`)
+			},
+			unlink: `DELETE FROM backup_plans WHERE id = 'bkp_1'`,
+			parent: `DELETE FROM backup_destinations WHERE id = 'bkd_1'`,
+		},
 	}
 	for _, link := range cases {
 		t.Run(link.name, func(t *testing.T) {

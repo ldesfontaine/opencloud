@@ -152,6 +152,32 @@ func (db *DB) ExpireRuns(ctx context.Context, now time.Time) ([]string, error) {
 	return machines, err
 }
 
+// TimeoutRuns pose failed, timeout sur ce que l'agent a accepté avant
+// acceptedBefore sans le finir, et rend les machines touchées.
+func (db *DB) TimeoutRuns(ctx context.Context, acceptedBefore, now time.Time) ([]string, error) {
+	var machines []string
+	err := db.inTx(ctx, "time out runs", func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT DISTINCT COALESCE(machine_id, '') FROM action_runs
+			WHERE state = 'accepted' AND requested_at < ?`, acceptedBefore.Unix())
+		if err != nil {
+			return fmt.Errorf("list timing out runs: %w", err)
+		}
+		machines, err = collect(rows, scanString)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE action_runs SET state = 'failed', refusal_reason = ?, finished_at = ?
+			WHERE state = 'accepted' AND requested_at < ?`, action.ReasonTimeout, now.Unix(), acceptedBefore.Unix())
+		if err != nil {
+			return fmt.Errorf("time out runs: %w", err)
+		}
+		return nil
+	})
+	return machines, err
+}
+
 func scanString(row scanner) (string, error) {
 	var value string
 	err := row.Scan(&value)
@@ -187,6 +213,23 @@ func (db *DB) ListActionRuns(ctx context.Context, query action.Query) ([]action.
 		return nil, err
 	}
 	return runs, nil
+}
+
+// GetActionRun rend un run et sa sortie ; sql.ErrNoRows, enveloppé, s'il
+// n'existe plus (la purge des runs l'a emporté).
+func (db *DB) GetActionRun(ctx context.Context, id string) (action.Run, error) {
+	run, err := scanActionRun(db.sql.QueryRowContext(ctx, `
+		SELECT id, action, params, COALESCE(machine_id, ''), machine_name, COALESCE(agent_id, ''), state,
+			refusal_reason, not_after, seq, requested_by, requested_at, finished_at
+		FROM action_runs WHERE id = ?`, id))
+	if err != nil {
+		return action.Run{}, fmt.Errorf("get run: %w", err)
+	}
+	runs := []action.Run{run}
+	if err := attachRunLogs(ctx, db.sql, runs); err != nil {
+		return action.Run{}, err
+	}
+	return runs[0], nil
 }
 
 func scanActionRun(row scanner) (action.Run, error) {

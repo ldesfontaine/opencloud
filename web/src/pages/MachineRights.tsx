@@ -8,7 +8,7 @@ import { RightsFields } from "../components/RightsFields";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { capabilitiesOf, rightsFormOf, type RightsValues } from "../lib/machines";
+import { capabilitiesOf, rightsFormOf, tokenPageState, type RightsValues } from "../lib/machines";
 import { NotFound } from "./NotFound";
 
 const noRights: RightsValues = { rights: [], backupPath: "", writePaths: "" };
@@ -36,9 +36,10 @@ function RightsForm({ machine }: { machine: Machine }) {
   const { values } = form;
   const action = useAction();
   const save = () => {
-    action.run(() => reenrollMachine(machine.id, capabilitiesOf(values)), {
+    const rights = capabilitiesOf(values);
+    action.run(() => reenrollMachine(machine.id, rights), {
       topic: "all",
-      onDone: (token) => void navigate("/machines/jeton", { state: token }),
+      onDone: (token) => void navigate("/machines/jeton", { state: tokenPageState(token, rights) }),
     });
   };
   return (

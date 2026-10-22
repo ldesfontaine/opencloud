@@ -87,4 +87,7 @@ type Reader interface {
 	// ListActionRuns rend les ordres envoyés aux agents, d'une machine ou de
 	// toutes, du plus récent au plus ancien, avec leur sortie.
 	ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error)
+	// GetActionRun rend un ordre et sa sortie ; sql.ErrNoRows, enveloppé,
+	// s'il n'existe plus.
+	GetActionRun(ctx context.Context, id string) (action.Run, error)
 }

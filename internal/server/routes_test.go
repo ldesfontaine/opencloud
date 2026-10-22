@@ -17,6 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
@@ -57,6 +58,8 @@ type testServer struct {
 	operator   *auth.Service
 	journal    *audit.Recorder
 	actions    *action.Service
+	backups    *backup.Service
+	state      *os.Root
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
@@ -190,6 +193,20 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	actions.SetWatcher(bus)
 	actions.SetAuditor(journal)
 	actions.SetKey(testServerKey(t))
+	// La sauvegarde : une vraie boîte à colis sous l'état de test, une phrase
+	// scellée à bas coût.
+	outbox, err := action.NewOutbox(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions.SetOutbox(outbox)
+	backups := backup.New(db, machines, root, logger)
+	backups.SetClock(func() time.Time { return testNow })
+	backups.SetWorkFactor(10)
+	backups.SetSender(actions)
+	backups.SetParcels(outbox)
+	backups.SetWatcher(bus)
+	backups.SetAuditor(journal)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -210,6 +227,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		MCP:        access,
 		Auth:       operator,
 		Actions:    actions,
+		Backups:    backups,
 		Live:       bus,
 		PublicLive: publicBus,
 		ConfigPath: "/etc/opencloud/config.toml",
@@ -226,7 +244,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{actions: actions, backups: backups, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme
