@@ -131,6 +131,10 @@ test("jobFact dit la reprise d'une tâche restée sans signal, et la durée du t
   expect(jobFact(t, onTime, resumed, now)).toBe("job.fact_resumed:time.minutes:10:time.hours:4");
   // Sans réussite d'avant dans l'historique rendu : le trou n'a pas de durée.
   expect(jobFact(t, onTime, runsAgo([["success", 10 * minute], ["missed", 4 * hour]]), now)).toBe("job.fact_resumed_after_late:time.minutes:10");
+  // Un échec avant le trou est un signal : le trou part de lui, pas de la réussite d'avant.
+  expect(jobFact(t, onTime, runsAgo([["success", 10 * minute], ["missed", 2 * hour], ["failure", 3 * hour], ["success", 2 * day]]), now)).toBe(
+    "job.fact_resumed:time.minutes:10:time.hours:2",
+  );
   // Plusieurs réussites depuis la reprise : la série part de la première.
   expect(jobFact(t, onTime, runsAgo([["success", 10 * minute], ["success", 70 * minute], ["missed", 3 * hour], ["success", 4 * hour]]), now)).toBe(
     "job.fact_resumed:time.hours:1:time.hours:2",
@@ -153,6 +157,7 @@ test("currentStreak : un missed coupe une série de réussites, sans être un é
   const streak = currentStreak(runs("success", "success", "success", "missed", "success"));
   expect(streak).toMatchObject({ succeeded: true, count: 3, brokenBy: "missed" });
   expect(streak?.beforeBreak?.id).toBe(1);
+  expect(currentStreak(runs("success", "missed", "failure", "success"))?.beforeBreak?.outcome).toBe("failure");
   expect(currentStreak(runs("success", "failure"))).toMatchObject({ brokenBy: "failure" });
   expect(currentStreak(runs("success", "success"))).toMatchObject({ brokenBy: null, beforeBreak: null });
 });

@@ -807,7 +807,7 @@ ne rapporterait rien.
 
    | La série de réussites | La phrase |
    | --- | --- |
-   | remonte à une ligne « Manquée », la première réussite d'après date de moins de 24 h | « Repartie il y a 10 min après 5 h sans signal » (le trou va de la réussite d'avant à celle d'après ; sans réussite d'avant dans les 20 : « après un retard ») |
+   | remonte à une ligne « Manquée », la première réussite d'après date de moins de 24 h | « Repartie il y a 10 min après 5 h sans signal » (le trou va du dernier signal d'avant, réussite ou échec, à la réussite d'après ; sans signal d'avant dans les 20 : « après un retard ») |
    | remonte à une autre rupture, ou à un « Manquée » plus vieux | « À l'heure depuis 3 j » (depuis la première réussite après la rupture) |
    | ne rencontre aucune rupture dans les 20 rendues | « À l'heure depuis au moins 10 h » ; sans « au moins » si l'historique est plus court que 20 |
    | une seule exécution, réussie | « La dernière exécution a réussi » |

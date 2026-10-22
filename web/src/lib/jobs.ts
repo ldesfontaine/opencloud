@@ -98,8 +98,10 @@ export interface Streak {
   since: string | null;
   // Ce qui a coupé la série ; nul quand elle couvre tout l'historique rendu.
   brokenBy: RunOutcome | null;
-  // Série de réussites : la dernière réussite d'avant la rupture, si elle
-  // est dans l'historique rendu. Elle donne la durée du trou.
+  // Série de réussites : le dernier signal d'avant la rupture (réussite ou
+  // échec, une exécution close par un ping), s'il est dans l'historique
+  // rendu. Il donne la durée du trou : un échec est un signal, le trou part
+  // de lui et pas de la réussite d'avant.
   beforeBreak: Run | null;
 }
 
@@ -135,7 +137,7 @@ export function currentStreak(runs: Run[]): Streak | null {
     isOpenEnded: count === finished.length && runs.length >= runHistoryLimit,
     since,
     brokenBy: breaker === undefined ? null : breaker.outcome,
-    beforeBreak: succeeded ? (finished.slice(count).find((run) => run.outcome === "success") ?? null) : null,
+    beforeBreak: succeeded ? (finished.slice(count + 1).find((run) => run.outcome === "success" || run.outcome === "failure") ?? null) : null,
   };
 }
 

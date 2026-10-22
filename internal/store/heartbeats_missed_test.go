@@ -44,4 +44,20 @@ func TestMigration009_KeepsTheRunsAndAdmitsMissed(t *testing.T) {
 	if _, err := db.sql.Exec(`INSERT INTO heartbeat_runs (heartbeat_id, outcome) VALUES ('hb', 'oublie')`); err == nil {
 		t.Fatal("une issue inconnue est acceptée")
 	}
+
+	// Les colonnes dans l'ordre de 001, les deux index à l'identique.
+	if got := text(t, db, `SELECT group_concat(name, ',') FROM pragma_table_info('heartbeat_runs')`); got != "id,heartbeat_id,started_at,completed_at,duration_ms,exit_code,outcome,payload" {
+		t.Fatalf("colonnes : %s", got)
+	}
+	indexes := text(t, db, `SELECT group_concat(sql, ' | ') FROM (SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'heartbeat_runs' ORDER BY name)`)
+	if want := "CREATE INDEX heartbeat_runs_by_heartbeat ON heartbeat_runs (heartbeat_id, id DESC) | " +
+		"CREATE UNIQUE INDEX heartbeat_runs_open ON heartbeat_runs (heartbeat_id) WHERE outcome = 'in_progress'"; indexes != want {
+		t.Fatalf("index : %s", indexes)
+	}
+	// La clé étrangère est refaite avec la table : la tâche retirée emporte
+	// ses exécutions, la nouvelle comprise.
+	exec(t, db, `DELETE FROM heartbeats WHERE id = 'hb'`)
+	if rows := count(t, db, `SELECT COUNT(*) FROM heartbeat_runs`); rows != 0 {
+		t.Fatalf("%d exécutions survivent à leur tâche : la cascade est perdue", rows)
+	}
 }
