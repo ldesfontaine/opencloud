@@ -51,8 +51,8 @@ attestation de provenance GitHub, et **ne se réécrit jamais**.
 | Étape | Geste |
 | --- | --- |
 | Tirer la paire | `opencloud release keygen -o release.key` sur son poste ; la commande écrit la clé privée (`0600`) et affiche la clé publique |
-| Créer l'environnement | Settings › Environments › New : nom `release`, *Required reviewers* = Lucas, *Deployment branches and tags* = tags `v*`. Le job `sign` s'y exécute : sans la règle des tags `v*`, il attend ou échoue ; sans l'environnement, GitHub en crée un vide au premier usage, le job échoue faute de secret et rien ne se publie |
-| Poser la clé privée | secret **d'environnement** `RELEASE_SIGNING_KEY` (dans `release`, pas un secret du dépôt) = contenu de `release.key` ; une copie de `release.key` dans le coffre. Supprimer le secret du dépôt s'il existe : seul le job `sign`, derrière le relecteur, doit pouvoir lire la clé |
+| Créer l'environnement | Settings › Environments › New : nom `release` ; *Required reviewers* = Lucas, **sans** cocher *Prevent self-review* (c'est Lucas qui pousse le tag et qui approuve) ; *Deployment branches and tags* = *Selected branches and tags*, une seule règle de type *Tag*, motif `v*`. Le job `sign` s'y exécute après `build` et attend l'approbation. La règle réserve l'environnement, donc la clé, aux tags de version : un job lancé d'une branche qui le nommerait est refusé ; une règle qui n'admet pas le tag fait échouer `sign`. Sans l'environnement, GitHub en crée un vide au premier usage, sans relecteur : le job échoue faute de secret et rien ne se publie, **si** le secret du dépôt n'existe pas (sinon il le lit) |
+| Poser la clé privée | secret **d'environnement** `RELEASE_SIGNING_KEY` (dans `release`, pas un secret du dépôt) = contenu de `release.key` ; une copie de `release.key` dans le coffre. Supprimer le secret du dépôt s'il existe : un secret du dépôt du même nom sert quand l'environnement n'a pas le sien, et seul le job `sign`, derrière le relecteur, doit pouvoir lire la clé |
 | Poser la clé publique | collée dans `internal/release/key.go` (`TrustedPublicKey`), par une pull request. Tant qu'elle est vide, le binaire refuse de vérifier et le job échoue : rien ne se publie sans clé |
 | Régler le dépôt | ruleset de tags `v*` : création réservée aux administrateurs, ni mise à jour ni suppression ; Settings › General › « Releases immuables ». Ce sont des réglages du dépôt : le code ne peut pas les poser |
 
@@ -74,6 +74,7 @@ commit de `main` choisi : `git tag -s vX.Y.Z <commit>` et
 | Les fichiers reçus par `sign` ne sont pas ceux que `build` a listés | une somme qui ne correspond pas, un fichier manquant ou en trop dans `dist-release` : le transfert n'est pas fidèle |
 | L'environnement `release` n'a pas le secret, ou la clé est mal formée | rien à signer avec |
 | Le relecteur de l'environnement refuse, ou la règle ne laisse pas passer le tag | `sign` n'a pas lieu, rien ne se publie |
+| L'approbation arrive plus d'un jour après `build` | l'artefact `dist-release` a expiré : relancer tout le workflow (*Re-run all jobs*), pas seulement `sign` |
 | La clé publique embarquée est vide, ou n'est pas celle de la clé privée | `release verify` refuse les deux binaires |
 
 ## La CI

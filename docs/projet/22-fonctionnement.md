@@ -3254,7 +3254,7 @@ posé la clé de signature.
 | --- | --- | --- |
 | 1 | Format **minisign**, écrit en Go (`crypto/ed25519` et `blake2b` de `golang.org/x/crypto`, aucune dépendance de plus) ; seul l'algorithme pré-haché `ED` est accepté, l'ancien `Ed` est refusé | Environ 200 lignes de format à maintenir ; n'importe qui vérifie avec l'outil `minisign` officiel |
 | 2 | Clé **privée** au format d'openCloud (identifiant de 8 octets suivi de la graine, en base64, non chiffrée) ; signature et clé **publique** au format minisign exact | Elle vit dans un secret de l'environnement `release` et dans le coffre de Lucas ; ce n'est pas un fichier de `minisign -G` |
-| 3 | Un **signataire recompilé depuis le tag, sans npm**, signe ; le binaire publié n'est jamais exécuté dans le job qui tient la clé. Aucun outil téléchargé, la clé passe par une variable d'environnement posée sur cette seule étape, jamais par `argv` | Une minute de compilation de plus ; le binaire publié n'est pas celui qui signe, c'est le signataire qui le vérifie. Un script npm piégé dans `build` pourrait modifier les sources Go avant la compilation : il pourrait fausser le binaire publié (une ruse déterministe passe la reproductibilité), pas le signataire, qui ne dépend que du tag et de `go.sum` |
+| 3 | Un **signataire recompilé depuis le tag, sans npm**, signe ; le binaire publié n'est jamais exécuté dans le job qui tient la clé. Aucun outil téléchargé, la clé passe par une variable d'environnement posée sur cette seule étape, jamais par `argv` | Une minute de compilation de plus ; le binaire publié n'est pas celui qui signe, c'est le signataire qui le vérifie. Un script npm piégé dans `build` pourrait modifier les sources Go avant la compilation : il pourrait fausser le binaire publié (une ruse déterministe passe la reproductibilité), pas le signataire, qui ne dépend que du tag et de `go.sum` : `sign` compile **sans le cache Go** (celui que `build` enregistre sort d'un runner où npm a tourné, et `go` ne revérifie ni `GOCACHE` ni `GOMODCACHE`) |
 | 4 | Le **commentaire de confiance** (signé) porte la version : `timestamp:<unix>\tfile:SHA256SUMS\tversion:vX.Y.Z`. Le serveur et l'agent lisent la version là, jamais dans un nom de fichier | Une version ne se lit que dans un fichier signé |
 | 5 | **Clé publique embarquée** (`release.TrustedPublicKey`), vide tant que Lucas n'a pas généré la paire : `release verify` refuse (code 2) et le job échoue | Rien ne se publie sans clé ; changer la clé, c'est ne plus reconnaître les versions signées par l'ancienne |
 | 6 | **Immuable** : `build` puis `sign` (le second contrôle est celui qui compte pour la course) échouent si la release du tag existe, plus aucun `gh release delete`. Réglages du dépôt à poser par Lucas : ruleset de tags `v*`, « Releases immuables », environnement `release` | Ces réglages ne s'automatisent pas ici |
@@ -3266,8 +3266,9 @@ posé la clé de signature.
 | 12 | `web/.npmrc` pose `ignore-scripts=true` : npm n'exécute aucun script d'installation, au build comme sur le poste | Un futur paquet qui en exige un fait échouer le build ; on l'autorise nommément (`npm rebuild <paquet>`) |
 
 **Ce que le contrôle de `sign` prouve, et ce qu'il ne prouve pas.** Avant de
-signer, `sign` exige que `sha256sum -c SHA256SUMS` passe et que le dossier reçu
-contienne exactement `SHA256SUMS` et les deux binaires. Cela prouve le
+signer, `sign` exige que `sha256sum --strict -c SHA256SUMS` passe, que le
+dossier reçu contienne exactement `SHA256SUMS` et les deux binaires, et que
+`SHA256SUMS` ne liste qu'eux. Cela prouve le
 **transfert** : ce que `sign` signe est ce que `build` a listé, rien en plus,
 rien d'abîmé. Cela ne prouve pas l'innocence du build, qui a exécuté du code
 npm : un `build` piégé aurait listé ses propres sommes. La clé, elle, ne

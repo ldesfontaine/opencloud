@@ -102,9 +102,13 @@ jobs:
 
       # Pas de setup-node ni de make : web/dist ne garde que .gitkeep, que
       # web/embed.go accepte, et rien de npm n'entre dans ce job.
+      # Sans cache : celui que build enregistre (même clé, même ref) sort d'un
+      # runner où npm a tourné, et go fait confiance à GOCACHE et à GOMODCACHE
+      # sans les revérifier. Modules téléchargés à neuf, contrôlés par go.sum.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: construire le signataire, sans npm
         run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/signer" ./cmd/opencloud
@@ -117,11 +121,17 @@ jobs:
       - name: les fichiers sont ceux du build
         working-directory: dist-release
         run: |
-          sha256sum -c SHA256SUMS
+          sha256sum --strict -c SHA256SUMS
           # LC_ALL=C : l'ordre du tri ne dépend pas de la langue du runner
           liste=$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')
           if [ "$liste" != "SHA256SUMS opencloud-linux-amd64 opencloud-linux-arm64 " ]; then
             echo "le dossier reçu ne contient pas exactement les fichiers du build : $liste"
+            exit 1
+          fi
+          # SHA256SUMS est ce qui est signé : il ne liste que les deux binaires
+          noms=$(sed 's/^[0-9a-f]\{64\}  //' SHA256SUMS | LC_ALL=C sort | tr '\n' ' ')
+          if [ "$noms" != "opencloud-linux-amd64 opencloud-linux-arm64 " ]; then
+            echo "SHA256SUMS ne liste pas exactement les deux binaires : $noms"
             exit 1
           fi
 
