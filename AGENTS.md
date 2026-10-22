@@ -16,6 +16,8 @@
 
 - **Français** dans les documents et tout ce que voit l'opérateur ; **anglais**
   dans le code. Phrases courtes, tableaux, pas d'explication longue.
+- **SSO** pour le mode `forward` (Authelia, Authentik…) ; *mandataire* est réservé
+  au reverse proxy de `trusted_proxies`.
 - **Vocabulaire interdit** : « nœud de contrôle » (dire *la machine openCloud*),
   « parc », « palier », « hors openCloud ».
 - Chaque fait vit à un seul endroit ; les autres documents y renvoient.

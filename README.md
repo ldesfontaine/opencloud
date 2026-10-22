@@ -25,7 +25,7 @@ l'interface web embarqués.
 
 | Fait | Ne fait pas |
 | --- | --- |
-| Mesure chaque machine toutes les 10 s : processeur, mémoire, disques, réseau | N'agit sur une machine que par des **ordres signés**, un par geste, que son agent accepte selon les **droits cochés à son installation** (hors `observe`, rien n'est coché d'office). Aucun shell, aucune commande libre, rien par le jeton d'API |
+| Mesure chaque machine toutes les 10 s : processeur, mémoire, disques, réseau | N'agit sur une machine que par des **ordres signés**, un par geste, que son agent accepte selon les **droits cochés à son installation** (hors `observe` et `probe.lan`, qui ouvre le réseau local aux sondes sans permettre aucun ordre, rien n'est coché d'office). Aucun shell, aucune commande libre, rien par le jeton d'API |
 | Suit les conteneurs Docker : état, santé, redémarrages, journaux, réseaux | Lit Docker en lecture seule ; n'y touche que pour déployer un service déclaré (`docker compose up`, fichier Compose **généré** depuis l'annuaire, jamais saisi) |
 | Déclare vos services (interface, ou fichier YAML : `opencloud export` / `opencloud apply`) et montre l'écart avec ce qui tourne | Ne déclare rien tout seul : un conteneur inconnu s'affiche « non déclaré ». Le fichier YAML ne s'applique que par la commande |
 | Déploie ou redéploie un service Compose déclaré, depuis sa fiche ; le `.env` part une fois avec l'ordre, écrit sur la machine, jamais gardé par openCloud | Ne retire rien : supprimer le service de l'annuaire laisse conteneurs et dossier sur la machine |
@@ -37,7 +37,7 @@ l'interface web embarqués.
 | Tient un journal d'audit de chaque geste qui écrit et de chaque ordre, envoyé aussi vers les canaux que vous cochez | Sans canal coché, qui efface la base efface la trace |
 | Met à jour ses agents depuis une version signée que vous importez (`opencloud release import`) | Aucune version signée n'est encore publiée, et la `v0.0.1` n'embarque pas la clé qui les vérifie : la première version signée s'installe à la main, serveur et agents ; les suivantes passent par ce geste |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
-| Publie des pages de statut publiques sous `/statut/<adresse>` | Pas de comptes multiples ni de second facteur en propre : derrière un mandataire (Authelia), le mode `forward` les délègue à votre SSO |
+| Publie des pages de statut publiques sous `/statut/<adresse>` | Pas de comptes multiples ni de second facteur en propre : derrière un SSO (Authelia), le mode `forward` les lui délègue |
 | Donne à un agent IA un jeton d'API en lecture, pour mcp-maison | Aucune écriture ni action sur une machine par ce jeton, aucun secret rendu |
 
 openCloud observe, et n'agit que par des gestes nommés, signés et journalisés,

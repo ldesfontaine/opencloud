@@ -93,8 +93,22 @@ func (f *fakeStore) RecordServerKey(_ context.Context, agentID, fingerprint stri
 func (f *fakeStore) RecordConnection(_ context.Context, c Connection) error {
 	m := f.machines[c.MachineID]
 	m.Address, m.Agent.Version, m.Agent.LastSeenAt, m.LastSeenAt = c.Address, c.Version, c.At, c.At
+	if c.Account != nil {
+		account := *c.Account
+		m.Agent.RunAs = &account
+	}
+	// Comme la base : les raisons suivent les droits rapportés, et seulement
+	// ceux-là.
 	if c.Capabilities != nil {
-		m.Agent.Capabilities, m.Agent.ReportedAt = c.Capabilities, c.At
+		m.Agent.Capabilities, m.Agent.ReportedAt, m.Agent.Unavailable = c.Capabilities, c.At, nil
+		for _, capability := range c.Capabilities {
+			if reason := c.Unavailable[capability.Name]; reason != "" {
+				if m.Agent.Unavailable == nil {
+					m.Agent.Unavailable = map[string]string{}
+				}
+				m.Agent.Unavailable[capability.Name] = reason
+			}
+		}
 	}
 	f.machines[c.MachineID] = m
 	return nil
@@ -365,7 +379,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("online before any connection")
 	}
-	session, err := h.service.Connect(context.Background(), m, "51.15.20.114", "v0.0.1", "")
+	session, err := h.service.Connect(context.Background(), m, "51.15.20.114", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +410,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 func TestRemove_ClosesTheOpenSession(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m, "", "", "")
+	session, err := h.service.Connect(context.Background(), m, "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

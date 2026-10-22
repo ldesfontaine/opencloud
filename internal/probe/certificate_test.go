@@ -109,7 +109,7 @@ func TestCertificate_TrustedChainIsJudgedOnTheHappyPath(t *testing.T) {
 	fake := forge(t, "127.0.0.1", notBefore, notAfter)
 	server := serveTLS(t, fake.leaf)
 
-	result := NewChecker(fake.roots).Check(t.Context(), httpTask(server.URL), checkNow)
+	result := NewChecker(fake.roots, true).Check(t.Context(), httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeUp || result.Reason != ReasonNone {
 		t.Fatalf("attendu en ligne, obtenu %+v", result)
 	}
@@ -167,7 +167,7 @@ func TestCertificate_ExpiredIsDegradedNotDown(t *testing.T) {
 	fake := forge(t, "127.0.0.1", checkNow.AddDate(0, 0, -90), checkNow.Add(-24*time.Hour))
 	server := serveTLS(t, fake.leaf)
 
-	result := NewChecker(fake.roots).Check(t.Context(), httpTask(server.URL), checkNow)
+	result := NewChecker(fake.roots, true).Check(t.Context(), httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeDegraded || result.Reason != ReasonTLSExpired {
 		t.Fatalf("attendu dégradé pour échéance passée, obtenu %+v", result)
 	}
@@ -190,7 +190,7 @@ func TestCertificate_WrongNameKeepsTheChainValid(t *testing.T) {
 	fake := forge(t, "autre.exemple", notBefore, notAfter)
 	server := serveTLS(t, fake.leaf)
 
-	result := NewChecker(fake.roots).Check(t.Context(), httpTask(server.URL), checkNow)
+	result := NewChecker(fake.roots, true).Check(t.Context(), httpTask(server.URL), checkNow)
 	if result.Outcome != OutcomeDegraded || result.Reason != ReasonTLSHostname {
 		t.Fatalf("attendu dégradé pour nom qui ne correspond pas, obtenu %+v", result)
 	}
@@ -218,7 +218,7 @@ func TestCheckTCP_WithTLSReadsTheCertificate(t *testing.T) {
 	address := strings.TrimPrefix(server.URL, "https://")
 
 	task := Task{ID: "p3", Kind: KindTCP, Target: address, IntervalSeconds: 60, TimeoutSeconds: 5, TLS: true}
-	result := NewChecker(fake.roots).Check(t.Context(), task, checkNow)
+	result := NewChecker(fake.roots, true).Check(t.Context(), task, checkNow)
 	if result.Outcome != OutcomeUp || result.Reason != ReasonNone {
 		t.Fatalf("attendu en ligne, obtenu %+v", result)
 	}
@@ -237,7 +237,7 @@ func TestCheckTCP_WithoutTLSSeesNoCertificate(t *testing.T) {
 	server := serveTLS(t, fake.leaf)
 
 	task := Task{ID: "p3", Kind: KindTCP, Target: strings.TrimPrefix(server.URL, "https://"), IntervalSeconds: 60, TimeoutSeconds: 5}
-	result := NewChecker(fake.roots).Check(t.Context(), task, checkNow)
+	result := NewChecker(fake.roots, true).Check(t.Context(), task, checkNow)
 	if result.Outcome != OutcomeUp {
 		t.Fatalf("attendu en ligne, obtenu %+v", result)
 	}

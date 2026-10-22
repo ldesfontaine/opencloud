@@ -31,6 +31,20 @@ export interface Capability {
   paths: string[];
 }
 
+// Un droit tel que l'agent le rapporte : unavailable dit pourquoi son compte
+// ne peut pas l'exercer sur la machine (vide quand il le peut). Le droit coché
+// reste coché : l'agent refusera l'ordre, avec cette raison.
+export interface ReportedCapability extends Capability {
+  unavailable: string;
+}
+
+// Le compte système sous lequel l'agent tourne ; name est vide quand il n'a
+// pas de nom lisible, l'uid 0 dit alors root.
+export interface Account {
+  uid: number;
+  name: string;
+}
+
 // Ce que l'agent rapporte de son fichier, ce que son jeton demandait, et
 // s'ils diffèrent. L'agent applique ceux de son fichier.
 export interface Agent {
@@ -38,13 +52,16 @@ export interface Agent {
   version: string;
   enrolled_at: string;
   revoked_at: string | null;
-  capabilities: Capability[];
+  capabilities: ReportedCapability[];
   reported_at: string | null;
   requested: Capability[];
   capabilities_differ: boolean;
   // L'empreinte de la clé du serveur que l'agent a épinglée ; vide tant
   // qu'il n'a rien dit, ou s'il n'en a pas.
   server_key_fingerprint: string;
+  // Le compte que l'agent a dit à l'ouverture de son flux ; null tant qu'il
+  // n'a rien dit (un agent plus ancien).
+  run_as: Account | null;
 }
 
 export interface PendingToken {

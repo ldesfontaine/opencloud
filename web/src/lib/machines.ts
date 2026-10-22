@@ -1,4 +1,4 @@
-import type { Capability, Machine, TokenResponse } from "../api/machines";
+import type { Account, Agent, Capability, Machine, ReportedCapability, TokenResponse } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { seenAgo } from "./time";
 
@@ -31,7 +31,9 @@ export interface MachineFormValues extends RightsValues {
   name: string;
 }
 
-export const emptyMachineForm: MachineFormValues = { name: "", rights: [], backupPath: "", writePaths: "" };
+// probe.lan est coché d'emblée : les sondes d'une machine visent d'abord son
+// réseau local ; l'opérateur le décoche s'il veut les en empêcher.
+export const emptyMachineForm: MachineFormValues = { name: "", rights: ["probe.lan"], backupPath: "", writePaths: "" };
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
 // demandait, pour les changer.
@@ -76,7 +78,7 @@ export function unitDropIn(paths: string[]): string {
 }
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
-export const capabilityNames = ["observe", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
+export const capabilityNames = ["observe", "probe.lan", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
 
 // observe est toujours accordé : la case se montre cochée et grisée.
 export const alwaysGranted = "observe";
@@ -120,6 +122,37 @@ function splitPaths(text: string): string[] {
 export function describeCapability(t: Translate, capability: Capability): string {
   const label = t(capabilityLabelKey(capability.name));
   return capability.paths.length === 0 ? label : t("machine.right_with_paths", label, capability.paths.join(", "));
+}
+
+// Le compte de l'agent en une ligne : son nom et son uid, ou l'uid seul quand
+// le compte n'a pas de nom lisible. null : l'agent n'a rien dit.
+export function describeAccount(account: Account | null): string | null {
+  if (account === null) {
+    return null;
+  }
+  return account.name === "" ? String(account.uid) : `${account.name} (${account.uid})`;
+}
+
+// Le compte pour une phrase : son nom, ou son uid sans nom.
+function accountLabel(account: Account | null): string {
+  return account === null ? "" : account.name === "" ? String(account.uid) : account.name;
+}
+
+// Pourquoi un droit coché ne s'exerce pas : une phrase par raison. Sous root,
+// un dossier refusé ne se règle pas par un chown : la phrase est autre.
+export function describeUnavailable(t: Translate, reason: string, account: Account | null): string {
+  if (reason === "path_denied") {
+    return account?.uid === 0 ? t("machine.capability_unavailable_path_denied_root") : t("machine.capability_unavailable_path_denied", accountLabel(account));
+  }
+  return t(`machine.capability_unavailable_${reason}`);
+}
+
+// Les droits cochés que le compte de l'agent ne peut pas exercer, un par ligne :
+// « droit : raison ». Vide quand il peut tout, ou n'a rien dit.
+export function unavailableRights(t: Translate, agent: Pick<Agent, "capabilities" | "run_as">): string[] {
+  return agent.capabilities
+    .filter((capability: ReportedCapability) => capability.unavailable !== "")
+    .map((capability) => t("machine.capability_unavailable_item", describeCapability(t, capability), describeUnavailable(t, capability.unavailable, agent.run_as)));
 }
 
 // « vu » d'une machine. En ligne, elle l'est à l'instant : son flux est

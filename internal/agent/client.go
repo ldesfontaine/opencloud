@@ -91,6 +91,21 @@ type Client struct {
 	rights string
 	// La racine des services du fichier de l'agent, redite de même.
 	root string
+	// Le compte sous lequel l'agent tourne, et les droits cochés qu'il ne peut
+	// pas exercer : jugés avant chaque ouverture du flux, redits avec lui.
+	account     string
+	unavailable string
+}
+
+// SetAccount fixe le compte que l'agent dit à l'ouverture du flux.
+func (c *Client) SetAccount(account machine.Account) {
+	c.account = machine.FormatAccount(account)
+}
+
+// SetUnavailable fixe les droits cochés que le compte de l'agent ne peut pas
+// exercer, avec leur raison. Une table vide efface le rapport précédent.
+func (c *Client) SetUnavailable(unavailable map[string]string) {
+	c.unavailable = machine.FormatUnavailable(unavailable)
 }
 
 // SetRoot fixe la racine des services que l'agent rapporte à l'ouverture du
@@ -246,6 +261,12 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	}
 	if c.root != "" {
 		request.Header.Set(agentwire.HeaderAgentRoot, c.root)
+	}
+	if c.account != "" {
+		request.Header.Set(agentwire.HeaderAgentAccount, c.account)
+	}
+	if c.unavailable != "" {
+		request.Header.Set(agentwire.HeaderAgentUnavailable, c.unavailable)
 	}
 	request.Header.Set("Accept", "text/event-stream")
 

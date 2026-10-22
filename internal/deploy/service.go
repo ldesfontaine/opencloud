@@ -107,9 +107,10 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	if root == "" {
 		root = brand.WorkspaceRoot
 	}
+	right, reason := rightOf(target, deployed)
 	plan := Plan{
 		Service: service, MachineName: target.Name, RootDir: root, Path: path.Join(root, service.ComposeProject),
-		Deployed: deployed, MachineOnline: target.Online, Right: rightOf(target, deployed), Compose: string(compose), DataDirs: dataDirs,
+		Deployed: deployed, MachineOnline: target.Online, Right: right, RightReason: reason, Compose: string(compose), DataDirs: dataDirs,
 	}
 	if hasLast {
 		plan.LastRun = &last
@@ -118,19 +119,23 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 }
 
 // rightOf : « ok » ou « missing » une fois les droits de l'agent rapportés,
-// « unknown » avant. Le droit est celui du prochain geste.
-func rightOf(target machine.Status, deployed bool) RightState {
+// « unknown » avant. Le droit est celui du prochain geste. « unavailable » et
+// sa raison quand l'agent le porte sans pouvoir l'exercer.
+func rightOf(target machine.Status, deployed bool) (RightState, string) {
 	if target.Agent.ReportedAt.IsZero() {
-		return RightUnknown
+		return RightUnknown, ""
 	}
 	needed := machine.CapabilityDockerDeploy
 	if deployed {
 		needed = machine.CapabilityDockerUpdate
 	}
-	if machine.HasCapability(target.Agent.Capabilities, needed) {
-		return RightOK
+	if !machine.HasCapability(target.Agent.Capabilities, needed) {
+		return RightMissing, ""
 	}
-	return RightMissing
+	if reason := target.Agent.UnavailableReason(needed); reason != "" {
+		return RightUnavailable, reason
+	}
+	return RightOK, ""
 }
 
 // Deploy est le premier geste : le dossier du service n'existe pas encore sur

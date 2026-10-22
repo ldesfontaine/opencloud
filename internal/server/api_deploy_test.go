@@ -29,7 +29,7 @@ func deploySetup(t *testing.T, server *testServer, rights string) (serviceID str
 func deploySetupSession(t *testing.T, server *testServer, rights string) (serviceID string, session *machine.Session) {
 	t.Helper()
 	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
-	session, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights)
+	session, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

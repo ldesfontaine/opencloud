@@ -82,8 +82,10 @@ export async function pingAgent(machineID: string): Promise<ActionRun> {
 }
 
 // Ce que la fiche d'une machine propose à son agent : la version du serveur,
-// ou pourquoi pas. reason est vide quand la mise à jour est disponible ;
-// « same_version » dit qu'il n'y a rien à dire.
+// ou pourquoi pas. reason est vide quand la mise à jour est disponible, sauf
+// « right_unavailable » : le compte de l'agent ne peut pas l'exercer, l'offre
+// reste faite et c'est l'agent qui refusera. « same_version » dit qu'il n'y a
+// rien à dire.
 export interface AgentUpdateOffer {
   current: string;
   target: string;

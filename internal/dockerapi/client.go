@@ -113,7 +113,7 @@ func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {
 	}
 	response, err := c.http.Do(request)
 	if err != nil {
-		return nil, classifyDialError(err)
+		return nil, ClassifyDial(err)
 	}
 	if response.StatusCode == http.StatusNotFound {
 		_ = response.Body.Close()
@@ -130,9 +130,10 @@ func (c *Client) get(ctx context.Context, path string) (*http.Response, error) {
 	return response, nil
 }
 
-// classifyDialError distingue « pas de Docker », « pas le droit » et « Docker
-// ne répond pas » : trois causes, trois remèdes pour l'opérateur.
-func classifyDialError(err error) error {
+// ClassifyDial distingue « pas de Docker », « pas le droit » et « Docker ne
+// répond pas » : trois causes, trois remèdes pour l'opérateur. L'agent s'en
+// sert aussi pour dire, avant un ordre, que la socket est fermée à son compte.
+func ClassifyDial(err error) error {
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOENT):
 		return fmt.Errorf("%w: %w", ErrNoSocket, err)

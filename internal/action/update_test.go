@@ -43,6 +43,8 @@ type updateOptions struct {
 	rights       string
 	agentVersion string
 	arch         string
+	// Les droits que l'agent dit ne pas pouvoir exercer (l'en-tête).
+	unavailable string
 }
 
 func newUpdateBench(t *testing.T, options updateOptions) *updateBench {
@@ -52,7 +54,7 @@ func newUpdateBench(t *testing.T, options updateOptions) *updateBench {
 	b := &updateBench{db: db, state: state}
 	b.machines = machine.New(db, machine.NewSessions(), logger)
 	enrolled := enrollWithArch(t, b.machines, options.arch)
-	session, err := b.machines.Connect(context.Background(), enrolled, "192.0.2.1", options.agentVersion, options.rights)
+	session, err := b.machines.Connect(context.Background(), enrolled, "192.0.2.1", options.agentVersion, options.rights, "", options.unavailable)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +245,35 @@ func TestOfferUpdate_SaysWhatItKnows(t *testing.T) {
 	}
 	if _, err := b.service.OfferUpdate(operator(), "11111111-2222-4333-8444-000000000000"); !errors.Is(err, machine.ErrNotFound) {
 		t.Fatalf("unknown machine: %v", err)
+	}
+}
+
+// Le compte de l'agent ne peut pas exercer agent.update (bin/ n'est pas à lui) :
+// la fiche le dit, l'offre reste disponible et l'ordre part. Le serveur ne
+// refuse jamais d'avance sur la foi d'un rapport qui date de l'ouverture du
+// flux ; l'agent refuse au moment de l'ordre, avec sa raison.
+func TestUpdateAgent_AnUnavailableRightIsShownButNeverRefusedByTheServer(t *testing.T) {
+	b := newUpdateBench(t, updateOptions{
+		rights: "observe,agent.update", agentVersion: "v0.0.1", arch: "amd64", unavailable: "agent.update=path_denied",
+	})
+	b.publishBoth(t, "v0.0.2")
+	b.service.SetReleases(b.library, "v0.0.2")
+	want := action.UpdateOffer{Current: "v0.0.1", Target: "v0.0.2", Arch: "amd64", Available: true, Reason: action.OfferRightUnavailable}
+	if offer := b.offer(t); offer != want {
+		t.Fatalf("offer %+v, want %+v", offer, want)
+	}
+	run, err := b.service.UpdateAgent(operator(), machineID)
+	if err != nil || run.Kind != agentwire.KindAgentUpdate || len(b.pusher.sent) != 1 {
+		t.Fatalf("the order must leave: %+v %v / %+v", run, err, b.pusher.sent)
+	}
+	// Une raison pour un autre droit ne touche pas l'offre.
+	other := newUpdateBench(t, updateOptions{
+		rights: "observe,agent.update,docker.deploy", agentVersion: "v0.0.1", arch: "amd64", unavailable: "docker.deploy=docker_denied",
+	})
+	other.publishBoth(t, "v0.0.2")
+	other.service.SetReleases(other.library, "v0.0.2")
+	if offer := other.offer(t); offer.Reason != "" || !offer.Available {
+		t.Fatalf("another right's reason leaked into the offer: %+v", offer)
 	}
 }
 

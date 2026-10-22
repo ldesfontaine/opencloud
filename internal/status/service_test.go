@@ -258,7 +258,7 @@ func TestDerive_ServicesAndMachines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := f.machines.Connect(context.Background(), local.Machine, "10.8.0.1", "v0.0.1", "")
+	session, err := f.machines.Connect(context.Background(), local.Machine, "10.8.0.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +523,7 @@ func TestWatch_IgnoresTopicsOutsideTheMembers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.machines.Connect(ctx, enrolled.Machine, "192.0.2.1", "v0.0.1", ""); err != nil {
+	if _, err := f.machines.Connect(ctx, enrolled.Machine, "192.0.2.1", "v0.0.1", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	f.bus.Publish(live.TopicResources)

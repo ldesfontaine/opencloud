@@ -30,13 +30,17 @@ var (
 )
 
 // RightState dit si l'agent de la machine porte le droit du prochain geste :
-// « unknown » tant qu'il n'a pas rapporté ses droits.
+// « unknown » tant qu'il n'a pas rapporté ses droits. « unavailable » : il le
+// porte, mais son compte ne peut pas l'exercer (Plan.RightReason dit
+// pourquoi). Le serveur l'affiche sans refuser le geste : le rapport date de
+// l'ouverture du flux, et l'agent refuse, avec la raison, au moment de l'ordre.
 type RightState string
 
 const (
-	RightOK      RightState = "ok"
-	RightMissing RightState = "missing"
-	RightUnknown RightState = "unknown"
+	RightOK          RightState = "ok"
+	RightMissing     RightState = "missing"
+	RightUnavailable RightState = "unavailable"
+	RightUnknown     RightState = "unknown"
 )
 
 // Plan est ce que l'opérateur lit avant de déployer : où le service ira, ce
@@ -52,8 +56,10 @@ type Plan struct {
 	Deployed bool
 	// Vrai quand la machine est en ligne : un ordre ne part que par son flux.
 	MachineOnline bool
-	// Le droit du prochain geste : docker.deploy, puis docker.update.
-	Right RightState
+	// Le droit du prochain geste : docker.deploy, puis docker.update. Avec
+	// « unavailable », la raison que l'agent a rapportée (agentwire).
+	Right       RightState
+	RightReason string
 	// Le compose.yml que le prochain geste écrira, et les unités dont il
 	// monte un dossier de données.
 	Compose  string

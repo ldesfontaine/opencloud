@@ -61,7 +61,14 @@ type Connection struct {
 	// nil : l'agent n'a rien rapporté (un agent d'avant les droits), ce qui
 	// est en base reste.
 	Capabilities []Capability
-	At           time.Time
+	// Les droits rapportés qu'il ne peut pas exercer, avec la raison. nil :
+	// rien d'indisponible, ou un agent qui ne sait pas le juger ; les droits
+	// rapportés se réécrivent alors sans raison.
+	Unavailable map[string]string
+	// nil : l'agent n'a pas dit son compte (ou illisible), ce qui est en base
+	// reste.
+	Account *Account
+	At      time.Time
 }
 
 // Presence dit si l'agent d'une machine est joint. Le service ne sait pas
@@ -418,9 +425,10 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 }
 
 // Connect ouvre la session d'une machine authentifiée et note sa venue :
-// l'adresse sur la machine, la version et les droits sur son agent. Des
-// droits illisibles ne sont pas gardés, le flux s'ouvre quand même.
-func (s *Service) Connect(ctx context.Context, authenticated Machine, address, agentVersion, capabilities string) (*Session, error) {
+// l'adresse sur la machine, la version, les droits, le compte et les droits
+// indisponibles sur son agent. Un texte illisible n'est pas gardé, le flux
+// s'ouvre quand même.
+func (s *Service) Connect(ctx context.Context, authenticated Machine, address, agentVersion, capabilities, account, unavailable string) (*Session, error) {
 	machineID := authenticated.ID
 	now := s.now()
 	connection := Connection{
@@ -434,6 +442,7 @@ func (s *Service) Connect(ctx context.Context, authenticated Machine, address, a
 		}
 		connection.Capabilities = reported
 	}
+	s.readAgentAccount(&connection, account, unavailable)
 	if err := s.store.RecordConnection(ctx, connection); err != nil {
 		return nil, fmt.Errorf("record connection: %w", err)
 	}
@@ -447,6 +456,25 @@ func (s *Service) Connect(ctx context.Context, authenticated Machine, address, a
 	}
 	s.changed(machineID)
 	return session, nil
+}
+
+// readAgentAccount lit le compte et les droits indisponibles que l'agent dit.
+// Le texte vient d'un pair : un compte ou un en-tête illisible n'est pas
+// gardé (le compte reste celui d'avant, les raisons s'effacent), le flux
+// s'ouvre quand même.
+func (s *Service) readAgentAccount(connection *Connection, account, unavailable string) {
+	if account != "" {
+		if parsed, ok := ParseAccount(account); ok {
+			connection.Account = &parsed
+		} else {
+			s.logger.Warn("agent account unreadable", "machine_id", connection.MachineID)
+		}
+	}
+	reasons, err := ParseUnavailable(unavailable)
+	if err != nil {
+		s.logger.Warn("agent unavailable rights unreadable", "machine_id", connection.MachineID, "error", err)
+	}
+	connection.Unavailable = reasons
 }
 
 // NoteServerKey garde l'empreinte de la clé du serveur que l'agent dit avoir

@@ -1,0 +1,27 @@
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.section-head-text {
+  min-width: 0;
+
+  // L'étiquette de section pose déjà son espacement de barre latérale :
+  // ici, un titre de contenu.
+  .side-label {
+    padding: 0 0 4px;
+  }
+
+  p {
+    color: var(--ink-2);
+    max-width: 72ch;
+  }
+}
+
+.section-head-aside {
+  flex: none;
+  padding-top: 2px;
+}

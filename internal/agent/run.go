@@ -122,6 +122,11 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	client.SetCapabilities(identity.Capabilities())
 	client.SetRoot(identity.Root())
+	// Le compte est dit à chaque ouverture du flux, et une fois au journal :
+	// c'est lui qui décide de ce que la machine laisse faire.
+	account := CurrentAccount()
+	client.SetAccount(account)
+	opts.Logger.Info("agent running as", "uid", account.UID, "name", AccountLabel(account))
 	// Ce que l'opérateur doit régler sans que l'agent s'arrête s'écrit au
 	// journal dans sa langue.
 	catalogs, err := lang.Load()
@@ -142,17 +147,21 @@ func Run(ctx context.Context, opts Options) error {
 	// Les images de la machine se vérifient contre leur registre, avec le
 	// trousseau Docker de la machine ; les constats attendent aussi.
 	constated := &images{}
-	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), constated, opts.Logger)
+	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: dockerConfigPath()})), constated, opts.Logger)
 	go updater.Run(ctx)
 	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
 	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
 	checked := &results{}
-	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
+	// Le réseau local ne s'ouvre aux sondes que par probe.lan, lu une fois
+	// ici : changer le droit, c'est ré-enrôler. Un état mal gardé n'a que
+	// observe, donc le ferme aussi.
+	allowLAN := machine.HasCapability(identity.Capabilities(), machine.CapabilityProbeLAN)
+	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots, allowLAN), opts.Logger)
 	go prober.Run(ctx)
 	// Les ordres signés : jugés et exécutés à leur arrivée, leurs résultats
 	// attendent le signal suivant, qu'ils avancent.
 	actions := newActionResults()
-	orders := newOrderRunner(opts.StateDir, identity, opts.Version, actions, opts.Logger)
+	orders := newOrderRunner(opts.StateDir, identity, opts.Version, opts.DockerSocket, actions, opts.Logger)
 	// Les ordres longs (recevoir une sauvegarde) s'exécutent à part, un à la
 	// fois, et vivent avec l'agent comme les sondes : une coupure du flux ne
 	// les interrompt pas, seul leur téléchargement échoue.
@@ -189,6 +198,28 @@ type pending struct {
 	probes   probe.Assignable
 	updates  update.Assignable
 	orders   *orderRunner
+	// Les droits que le compte ne peut pas exercer, tels que le dernier flux
+	// les a dits : le journal ne parle que d'un changement.
+	unavailable map[string]string
+}
+
+// judgeRights juge ce que le compte de l'agent ne peut pas exercer, le met sur
+// le client pour l'ouverture du flux, et ne le dit au journal que s'il a changé.
+func (p *pending) judgeRights(ctx context.Context, client *Client, identity Identity, logger *slog.Logger) {
+	unavailable := judgeRights(ctx, identity, p.orders.checks)
+	client.SetUnavailable(unavailable)
+	if machine.FormatUnavailable(unavailable) == machine.FormatUnavailable(p.unavailable) {
+		return
+	}
+	for _, right := range machine.JudgedCapabilities() {
+		if reason := unavailable[right]; reason != "" && reason != p.unavailable[right] {
+			logger.Warn("rights not exercisable", "right", right, "reason", reason)
+		}
+	}
+	if len(unavailable) == 0 && len(p.unavailable) > 0 {
+		logger.Info("every right can be exercised again")
+	}
+	p.unavailable = unavailable
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -310,6 +341,9 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	// La clé du serveur que le flux redit est celle épinglée en ce moment :
 	// une rotation l'a peut-être changée depuis le démarrage.
 	identity.ServerKey = pending.orders.serverKey()
+	// Le compte et la machine ont pu changer depuis la dernière ouverture : un
+	// dossier rendu, un groupe docker ajouté. Les droits se jugent à neuf.
+	pending.judgeRights(streamCtx, client, identity, opts.Logger)
 	stream, err := client.OpenStream(streamCtx, identity)
 	if err != nil {
 		return err

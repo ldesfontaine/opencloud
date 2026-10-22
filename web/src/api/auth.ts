@@ -4,7 +4,8 @@ import { api } from "./client";
 // L'accès de l'opérateur à l'interface. Chemin sans sujet du direct : relu
 // à la reconnexion, quand tout se relit, jamais à chaque sujet.
 
-// « forward » est le mode derrière un mandataire (Authelia).
+// « forward » est le mode derrière un SSO en amont (Authelia) ; « SSO » dans
+// l'interface, « mandataire » ne désignant que trusted_proxies.
 type AuthMode = "none" | "basic" | "forward";
 
 // En forward, username est l'identité que le mandataire a transmise avec

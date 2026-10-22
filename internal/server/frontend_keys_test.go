@@ -22,6 +22,7 @@ var (
 var literalsNotKeys = map[string]string{
 	"agent.update":   "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
 	"backup.receive": "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
+	"probe.lan":      "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
 }
 
 // frontKeys rend les clés que le texte d'un fichier du front demande en

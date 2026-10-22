@@ -221,7 +221,7 @@ func TestCommandRunner_RejudgesTheProbeSetItReceives(t *testing.T) {
 	defer cancel()
 	var journal bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&journal, nil))
-	prober := probe.NewRunner(discardSink{}, probe.NewChecker(nil), logger)
+	prober := probe.NewRunner(discardSink{}, probe.NewChecker(nil, true), logger)
 	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, &fakeUpdater{}, nil, logger)
 
 	payload, err := json.Marshal(probe.Assignment{Probes: []probe.Task{

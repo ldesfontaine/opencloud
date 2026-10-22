@@ -43,15 +43,21 @@ type orderRunner struct {
 	// Docker et le disque, que les déploiements touchent ; les tests les
 	// remplacent.
 	docker dockerTools
+	// Ce que la machine répond au compte de l'agent : Docker, les dossiers, son
+	// propre dossier bin/. Les mêmes questions que le rapport des droits
+	// indisponibles ; un ordre est refusé, avant d'écrire, sur la même raison.
+	checks hostChecks
 
 	mu       sync.Mutex
 	identity Identity
 }
 
-func newOrderRunner(stateDir *os.Root, identity Identity, version string, results *actionResults, logger *slog.Logger) *orderRunner {
+func newOrderRunner(stateDir *os.Root, identity Identity, version, dockerSocket string, results *actionResults, logger *slog.Logger) *orderRunner {
+	updater := newSelfUpdater(stateDir, version, logger)
+	checks := newHostChecks(dockerSocket, updater)
 	return &orderRunner{
 		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
-		worker: newOrderWorker(), fetch: &fetcher{}, updater: newSelfUpdater(stateDir, version, logger), docker: newDockerTools(),
+		worker: newOrderWorker(), fetch: &fetcher{}, updater: updater, docker: newDockerTools(checks), checks: checks,
 	}
 }
 
@@ -179,7 +185,7 @@ func accepted(body agentwire.OrderBody) agentwire.ActionResult {
 }
 
 func (r *orderRunner) acceptBackupReceive(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
-	params, granted, refused := readBackupReceive(body, r.coversBackupPath())
+	params, granted, refused := readBackupReceive(body, r.coversBackupPath(), r.checks.writable)
 	if refused != nil {
 		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
 		return *refused, nil
@@ -191,7 +197,7 @@ func (r *orderRunner) acceptBackupReceive(body agentwire.OrderBody) (agentwire.A
 }
 
 func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
-	params, granted, refused := readBackupPrune(body, r.coversBackupPath())
+	params, granted, refused := readBackupPrune(body, r.coversBackupPath(), r.checks.writable)
 	if refused != nil {
 		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
 		return *refused, nil

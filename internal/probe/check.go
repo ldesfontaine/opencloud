@@ -33,10 +33,13 @@ var errTooManyRedirects = errors.New("too many redirects")
 type Checker struct {
 	// roots à nil vaut le magasin du système, que crypto/x509 lit ainsi.
 	roots *x509.CertPool
+	// allowPrivate : le droit probe.lan de l'agent. Sans lui, la sonde ne
+	// compose pas vers le réseau local (egress.Private), à aucun saut.
+	allowPrivate bool
 }
 
-func NewChecker(roots *x509.CertPool) Checker {
-	return Checker{roots: roots}
+func NewChecker(roots *x509.CertPool, allowPrivate bool) Checker {
+	return Checker{roots: roots, allowPrivate: allowPrivate}
 }
 
 // Check exécute une sonde et rend son essai. Elle ne touche ni la base ni
@@ -65,7 +68,7 @@ func (c Checker) checkTCP(ctx context.Context, task Task, now time.Time) Result 
 
 	started := time.Now()
 	if !task.TLS {
-		conn, err := egress.Dial(ctx, "tcp", address.String(), timeout)
+		conn, err := egress.DialWith(ctx, "tcp", address.String(), timeout, c.allowPrivate)
 		result.DurationMs = time.Since(started).Milliseconds()
 		if err != nil {
 			result.Outcome, result.Reason = OutcomeDown, reasonFor(err)
@@ -75,7 +78,7 @@ func (c Checker) checkTCP(ctx context.Context, task Task, now time.Time) Result 
 		result.Outcome = OutcomeUp
 		return result
 	}
-	state, err := inspectTLS(ctx, address, timeout)
+	state, err := inspectTLS(ctx, address, timeout, c.allowPrivate)
 	result.DurationMs = time.Since(started).Milliseconds()
 	if err != nil {
 		result.Outcome, result.Reason = OutcomeDown, reasonFor(err)
@@ -179,7 +182,7 @@ func (c Checker) degradedOrDown(ctx context.Context, result Result, address Addr
 		result.Outcome, result.Reason = OutcomeDown, reasonFor(err)
 		return result
 	}
-	state, dialErr := inspectTLS(ctx, address, timeout)
+	state, dialErr := inspectTLS(ctx, address, timeout, c.allowPrivate)
 	if dialErr != nil {
 		result.Outcome, result.Reason = OutcomeDown, reason
 		return result
@@ -196,7 +199,7 @@ func (c Checker) degradedOrDown(ctx context.Context, result Result, address Addr
 func (c Checker) newClient(task Task, timeout time.Duration) *http.Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return egress.Dial(ctx, network, address, timeout)
+			return egress.DialWith(ctx, network, address, timeout, c.allowPrivate)
 		},
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: c.roots},
 		ResponseHeaderTimeout: timeout,
@@ -222,6 +225,9 @@ func (c Checker) newClient(task Task, timeout time.Duration) *http.Client {
 func reasonFor(err error) Reason {
 	if errors.Is(err, egress.ErrForbiddenAddress) {
 		return ReasonAddress
+	}
+	if errors.Is(err, egress.ErrPrivateAddress) {
+		return ReasonLAN
 	}
 	if errors.Is(err, errTooManyRedirects) {
 		return ReasonRedirect

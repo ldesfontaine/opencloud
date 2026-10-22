@@ -11,7 +11,7 @@ import type { Counts } from "./counts";
 import type { DeletionCount, DeletionPlan } from "./deletion";
 import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Agent, Capability, Machine, MachinesResponse } from "./machines";
+import type { Account, Agent, Capability, Machine, MachinesResponse, ReportedCapability } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
@@ -98,6 +98,7 @@ const lifecycle = shape<NonNullable<Machine["lifecycle"]>>("Lifecycle", {
 });
 
 const capability = shape<Capability>("Capability", { name: value, paths: value });
+const reportedCapability = shape<ReportedCapability>("ReportedCapability", { name: value, paths: value, unavailable: value });
 
 const machine = shape<Machine>("Machine", {
   id: value,
@@ -113,11 +114,12 @@ const machine = shape<Machine>("Machine", {
     version: value,
     enrolled_at: value,
     revoked_at: value,
-    capabilities: capability,
+    capabilities: reportedCapability,
     reported_at: value,
     requested: capability,
     server_key_fingerprint: value,
     capabilities_differ: value,
+    run_as: shape<Account>("Account", { uid: value, name: value }),
   }),
   lifecycle: optional(lifecycle),
 });
@@ -741,6 +743,7 @@ const deployPlan = shape<DeployPlan>("DeployPlan", {
   path: value,
   deployed: value,
   right: value,
+  right_reason: optional(value),
   compose: value,
   data_dirs: value,
   last_run: actionRun,
@@ -755,6 +758,7 @@ const backups = shape<Backups>("Backups", {
     machine_name: value,
     path: value,
     right: value,
+    right_reason: optional(value),
     created_at: value,
   }),
   plan: shape<BackupPlan>("BackupPlan", {
@@ -789,6 +793,7 @@ const contract: Record<string, Shape<unknown>> = {
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
   "backups_empty.golden.json": backups,
+  "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,
   "containers.golden.json": containers,
@@ -797,6 +802,7 @@ const contract: Record<string, Shape<unknown>> = {
   "declared_services.golden.json": declaredServices,
   "deploy_plan.golden.json": deployPlan,
   "deploy_plan_sent.golden.json": deployPlan,
+  "deploy_plan_unavailable.golden.json": deployPlan,
   "deploy_upgrade.golden.json": actionRun,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
@@ -809,6 +815,7 @@ const contract: Record<string, Shape<unknown>> = {
   "local_network.golden.json": network,
   "local_resources.golden.json": current,
   "machine.golden.json": machine,
+  "machine_account.golden.json": machine,
   "machine_delete_plan.golden.json": deletionPlan,
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,

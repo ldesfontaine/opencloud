@@ -24,6 +24,14 @@ type Agent struct {
 	// vide tant qu'il n'a rien rapporté (un agent d'avant les droits).
 	Capabilities []Capability
 	ReportedAt   time.Time
+	// Pourquoi un droit rapporté ne peut pas s'exercer sur la machine (une
+	// raison de UnavailableReasons, par nom de droit) ; vide quand tout est
+	// réalisable, et chez un agent qui ne sait pas le juger. À part de
+	// Capabilities : la raison n'entre pas dans la comparaison avec le jeton.
+	Unavailable map[string]string
+	// Le compte sous lequel l'agent dit tourner ; nil tant qu'il ne l'a pas
+	// dit (un agent d'avant).
+	RunAs *Account
 	// Ce que le jeton qui l'a enrôlé demandait ; vide pour un agent d'avant
 	// les droits.
 	Requested []Capability
@@ -44,6 +52,12 @@ func (a Agent) IsRevoked() bool {
 // connecter.
 func (a Agent) IsActive() bool {
 	return a.Exists() && !a.IsRevoked()
+}
+
+// UnavailableReason rend pourquoi le droit ne peut pas s'exercer, vide s'il le
+// peut ou si l'agent ne l'a pas dit.
+func (a Agent) UnavailableReason(capability string) string {
+	return a.Unavailable[capability]
 }
 
 // CapabilitiesDiffer dit si le fichier de l'agent ne dit pas ce que le jeton

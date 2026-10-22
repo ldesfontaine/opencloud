@@ -100,6 +100,11 @@ const (
 	ReasonDownloadFailed   = "download_failed"
 	ReasonDigestMismatch   = "digest_mismatch"
 	ReasonNotAgeFile       = "not_an_age_file"
+	// Le compte sous lequel tourne l'agent ne possède pas le dossier (il n'y a
+	// pas accès en écriture), ou n'a pas accès à la socket de Docker : refusé
+	// avant d'écrire quoi que ce soit.
+	ReasonPathDenied   = "path_denied"
+	ReasonDockerDenied = "docker_denied"
 	// La file des ordres longs de l'agent est pleine.
 	ReasonBusy = "busy"
 	// Les raisons de agent.update : l'agent ne tourne pas depuis son dossier
@@ -140,6 +145,7 @@ func RefusalReasons() []string {
 		ReasonDowngrade, ReasonSelfCheckFailed,
 		ReasonServiceDirExists, ReasonServiceDirMissing, ReasonRootNotOurs, ReasonDockerMissing,
 		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
+		ReasonPathDenied, ReasonDockerDenied,
 	}
 }
 

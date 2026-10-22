@@ -48,26 +48,115 @@ func TestConnect_RecordsTheReportedRightsAndTheGapShows(t *testing.T) {
 		t.Fatal(err)
 	}
 	enrolled := h.enrollWith(t, cleartext)
-	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "observe"); err != nil {
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "observe", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	status, _ := h.service.Get(ctx, enrolled.ID)
 	if FormatCapabilities(status.Agent.Capabilities) != "observe" || !status.Agent.CapabilitiesDiffer() {
 		t.Fatalf("after a report without agent.update: %+v", status.Agent)
 	}
-	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "observe,agent.update"); err != nil {
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "observe,agent.update", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	status, _ = h.service.Get(ctx, enrolled.ID)
 	if status.Agent.CapabilitiesDiffer() || status.Agent.Version != "v0.0.2" {
 		t.Fatalf("after the right report: %+v", status.Agent)
 	}
-	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "shell.exec"); err != nil {
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "shell.exec", "", ""); err != nil {
 		t.Fatalf("unreadable rights must not refuse the stream: %v", err)
 	}
 	status, _ = h.service.Get(ctx, enrolled.ID)
 	if FormatCapabilities(status.Agent.Capabilities) != "observe,agent.update" {
 		t.Fatalf("unreadable rights replaced the report: %+v", status.Agent)
+	}
+}
+
+// Le compte et les droits indisponibles se redisent à chaque ouverture du flux.
+// Une raison est remplacée avec les droits ; un compte qui ne se lit pas laisse
+// celui d'avant ; la raison ne fait pas apparaître d'écart avec le jeton.
+func TestConnect_RecordsTheAccountAndWhyARightCannotBeExercised(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", []Capability{{Name: CapabilityDockerDeploy}, {Name: CapabilityAgentUpdate}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := h.enrollWith(t, cleartext)
+	status, _ := h.service.Get(ctx, enrolled.ID)
+	if status.Agent.RunAs != nil || status.Agent.Unavailable != nil {
+		t.Fatalf("an agent that said nothing has no account: %+v", status.Agent)
+	}
+
+	const rights = "observe,agent.update,docker.deploy"
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", rights, "998:opencloud-agent", "docker.deploy=docker_denied"); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = h.service.Get(ctx, enrolled.ID)
+	if status.Agent.RunAs == nil || *status.Agent.RunAs != (Account{UID: 998, Name: "opencloud-agent"}) {
+		t.Fatalf("account %+v", status.Agent.RunAs)
+	}
+	if status.Agent.UnavailableReason(CapabilityDockerDeploy) != "docker_denied" || status.Agent.UnavailableReason(CapabilityAgentUpdate) != "" {
+		t.Fatalf("unavailable %+v", status.Agent.Unavailable)
+	}
+	if status.Agent.CapabilitiesDiffer() {
+		t.Fatal("the reason must not make a gap with the token")
+	}
+
+	// Un compte illisible laisse celui d'avant ; un en-tête de droits illisible
+	// efface les raisons plutôt que d'en garder des périmées.
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", rights, "Root:0", "docker.deploy=whatever"); err != nil {
+		t.Fatalf("unreadable account and reasons must not refuse the stream: %v", err)
+	}
+	status, _ = h.service.Get(ctx, enrolled.ID)
+	if status.Agent.RunAs == nil || status.Agent.RunAs.UID != 998 {
+		t.Fatalf("an unreadable account replaced the previous one: %+v", status.Agent.RunAs)
+	}
+	if status.Agent.Unavailable != nil {
+		t.Fatalf("an unreadable header kept a stale reason: %+v", status.Agent.Unavailable)
+	}
+
+	// Un agent qui ne dit plus rien n'a plus de raison, mais garde son compte.
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", rights, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = h.service.Get(ctx, enrolled.ID)
+	if status.Agent.RunAs == nil || status.Agent.RunAs.Name != "opencloud-agent" || status.Agent.Unavailable != nil {
+		t.Fatalf("after a silent report: %+v", status.Agent)
+	}
+
+	// Le compte change avec l'unité : root.
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", rights, "0:root", ""); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = h.service.Get(ctx, enrolled.ID)
+	if status.Agent.RunAs == nil || !status.Agent.RunAs.IsRoot() {
+		t.Fatalf("account after the move to root: %+v", status.Agent.RunAs)
+	}
+}
+
+// Une raison pour un droit que l'agent ne rapporte pas ne s'écrit nulle part ;
+// sans droits rapportés, aucune raison ne s'écrit.
+func TestConnect_IgnoresAReasonForARightTheAgentDoesNotReport(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := h.enrollWith(t, cleartext)
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "observe", "", "files.write=path_denied"); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := h.service.Get(ctx, enrolled.ID)
+	if len(status.Agent.Unavailable) != 0 {
+		t.Fatalf("a reason for a right nobody reported: %+v", status.Agent.Unavailable)
+	}
+	if _, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.2", "", "", "files.write=path_denied"); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = h.service.Get(ctx, enrolled.ID)
+	if len(status.Agent.Unavailable) != 0 {
+		t.Fatalf("reasons without a report of rights: %+v", status.Agent.Unavailable)
 	}
 }
 
@@ -134,7 +223,7 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 	h := newHarness(t)
 	ctx := context.Background()
 	m, private := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(ctx, m, "192.0.2.1", "v0.0.1", "")
+	session, err := h.service.Connect(ctx, m, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

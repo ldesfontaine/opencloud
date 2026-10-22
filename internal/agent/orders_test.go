@@ -30,6 +30,22 @@ type orderBench struct {
 	private  ed25519.PrivateKey
 }
 
+// useHostChecks remplace ce que la machine du test dit des droits du compte :
+// les bancs ne dépendent pas du compte qui lance les tests.
+func useHostChecks(runner *orderRunner, checks hostChecks) {
+	runner.checks = checks
+	runner.docker.checks = checks
+}
+
+// allowTheAccount : le compte du test peut tout écrire et parler à Docker, mais
+// agent.update garde son vrai juge (le binaire de test ne tourne pas depuis
+// bin/), sur le lanceur de mises à jour que le test a mis en place.
+func allowTheAccount(runner *orderRunner) {
+	checks := allowAll()
+	checks.agentUpdate = func() string { return runner.updater.unavailableReason(func(string) string { return "" }) }
+	useHostChecks(runner, checks)
+}
+
 func newOrderBench(t *testing.T) *orderBench {
 	t.Helper()
 	return newOrderBenchWithRights(t, nil)
@@ -52,7 +68,8 @@ func newOrderBenchWithRights(t *testing.T, rights []string) *orderBench {
 		t.Fatal(err)
 	}
 	results := newActionResults()
-	runner := newOrderRunner(stateDir, identity, "v0.0.1", results, slog.New(slog.DiscardHandler))
+	runner := newOrderRunner(stateDir, identity, "v0.0.1", "", results, slog.New(slog.DiscardHandler))
+	allowTheAccount(runner)
 	runner.now = func() time.Time { return orderNow }
 	return &orderBench{runner: runner, results: results, stateDir: stateDir, private: private}
 }
@@ -158,7 +175,8 @@ func TestOrderRunner_RefusesAReplayEvenAfterARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.runner = newOrderRunner(b.stateDir, reloaded, "v0.0.1", b.results, slog.New(slog.DiscardHandler))
+	b.runner = newOrderRunner(b.stateDir, reloaded, "v0.0.1", "", b.results, slog.New(slog.DiscardHandler))
+	allowTheAccount(b.runner)
 	b.runner.now = func() time.Time { return orderNow }
 	if result := b.send(t, order(2), b.private); result.Reason != agentwire.ReasonReplayed {
 		t.Fatalf("after restart %+v", result)
