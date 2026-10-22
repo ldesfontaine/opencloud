@@ -44,6 +44,11 @@ Règles :
   boutons courants.
 - Un état se lit par une pastille (fond lavis + texte + point), jamais par du
   texte coloré seul.
+- **Inconnu** : pastille neutre (gris), jamais verte. Pour un état que le
+  serveur ne confirme plus (la machine ne signale plus depuis 2 min) ; elle
+  garde le dernier état connu dessous (« Dernier état : Actif, il y a 5 h »).
+  Un état inconnu ne compte pas comme un problème et ne se dessine ni en
+  vert ni en rouge.
 - Le sombre reprend les mêmes rôles avec des valeurs propres ; on ne dérive pas
   le sombre du clair par inversion.
 

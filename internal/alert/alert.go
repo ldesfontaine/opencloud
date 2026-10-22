@@ -243,9 +243,6 @@ type Counts struct {
 }
 
 const (
-	// Une machine est perdue passé ce délai sans signal : quatre signaux
-	// manqués, pas un hoquet de réseau.
-	MachineLostAfter = 2 * time.Minute
 	// Les redémarrages non demandés se comptent sur cette fenêtre ; au
 	// troisième, c'est une boucle. Le même délai de calme résout l'alerte.
 	RestartWindow        = 10 * time.Minute

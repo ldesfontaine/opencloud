@@ -3,12 +3,15 @@ package server
 import (
 	"errors"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
+	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
 // Une machine telle que le front la lit : des faits et des instants, pas
@@ -96,11 +99,14 @@ type reenrollRequest struct {
 
 // Le jeton en clair, une seule fois, avec la commande à coller.
 type tokenResponse struct {
-	Name      string    `json:"name"`
-	Token     string    `json:"token"`
-	Command   string    `json:"command"`
-	ExpiresAt time.Time `json:"expires_at"`
-	URLLocal  bool      `json:"url_local"`
+	Name    string `json:"name"`
+	Token   string `json:"token"`
+	Command string `json:"command"`
+	// Les commandes à jouer une fois en root avant Command : le compte de
+	// l'agent, son dossier, son binaire, les dossiers où ses droits écrivent.
+	Preparation string    `json:"preparation"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	URLLocal    bool      `json:"url_local"`
 }
 
 func machineToJSON(machineStatus machine.Status) machineJSON {
@@ -228,21 +234,24 @@ func (s *Server) createMachineToken(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext)
+	s.writeToken(w, r, token, cleartext, false)
 }
 
-func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string) {
+// local : le jeton est celui de la machine openCloud, dont le binaire est celui
+// que le serveur a installé, pas celui qu'on a copié dans /tmp.
+func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machine.Token, cleartext string, local bool) {
 	url, isLocal := s.resolvePublicURL(r)
 	language, err := s.language(r.Context())
 	if s.failed(w, r, err, nil) {
 		return
 	}
 	s.writeAPI(w, http.StatusCreated, tokenResponse{
-		Name:      token.Name,
-		Token:     cleartext,
-		Command:   installCommand(url, cleartext, language, token.Capabilities),
-		ExpiresAt: token.ExpiresAt.UTC(),
-		URLLocal:  isLocal,
+		Name:        token.Name,
+		Token:       cleartext,
+		Command:     installCommand(url, cleartext, language, token.Capabilities),
+		Preparation: installPreparation(token.Capabilities, version.Number(), local),
+		ExpiresAt:   token.ExpiresAt.UTC(),
+		URLLocal:    isLocal,
 	})
 }
 
@@ -255,8 +264,12 @@ func (s *Server) writeToken(w http.ResponseWriter, r *http.Request, token machin
 // de « sudo VAR=… » : la variable finirait dans les arguments de sudo. Les
 // droits, eux, ne sont pas un secret : ils restent lisibles dans la ligne,
 // et leur forme (lettres, chiffres, « . _ - / = : , ») passe sans guillemets.
+// Le binaire est celui de l'état de l'agent, pas /usr/local/bin/opencloud : un
+// lien root vers un fichier que le compte de l'agent peut remplacer serait une
+// escalade sur une machine sans Docker.
 func installCommand(publicURL, token string, code lang.Code, capabilities []machine.Capability) string {
-	command := "printf '%s\\n' '" + token + "' | sudo " + brand.Command + " agent -server " + publicURL
+	command := "printf '%s\\n' '" + token + "' | sudo -u " + brand.AgentAccount + " " + brand.AgentCurrentPath +
+		" agent -server " + publicURL
 	if code != lang.Default {
 		command += " -lang " + string(code)
 	}
@@ -264,6 +277,113 @@ func installCommand(publicURL, token string, code lang.Code, capabilities []mach
 		command += " -rights " + rights
 	}
 	return command
+}
+
+// Les commandes à jouer une fois, en root, avant la ligne d'installation : le
+// compte de l'agent (dans le groupe docker si la machine en a un), son dossier
+// d'état et son binaire, puis un dossier par droit qui écrit ailleurs, à lui.
+// Le groupe docker équivaut à root : la page et la documentation le disent.
+// Rien n'y est protégé pour le shell : le compte, les chemins de
+// l'état et la version sont des constantes, et un chemin de droit ne porte
+// que des lettres, chiffres et « . _ - / » (machine.ValidCapabilityPath).
+// Jamais le jeton. useradd échoue sur un compte qui existe : sans effet sur
+// les lignes suivantes, qui ne dépendent pas de lui. Le lien current ne bouge
+// que si le binaire a été posé, pour ne jamais viser un fichier absent.
+//
+// La ligne se rejoue sur une machine déjà préparée (Changer les droits), où le
+// compte possède son état et peut-être un agent compromis : root n'y agit
+// jamais sur un nom que le compte contrôle. install -d suit un lien et donne
+// sa cible ; bin/, le binaire et un dossier de droit sous un dossier du
+// compte se font donc sous le compte (runuser), et un dossier de droit que
+// root donne est d'abord vérifié n'être pas un lien.
+func installPreparation(capabilities []machine.Capability, number string, local bool) string {
+	account := brand.AgentAccount
+	owner := "-o " + account + " -g " + account
+	asAccount := "runuser -u " + account + " -- "
+	source := "/tmp/" + brand.Command
+	if local {
+		source = "/usr/local/bin/" + brand.Command
+	}
+	binDir := brand.AgentStateDir + "/" + brand.AgentBinDir
+	binaryName := brand.AgentBinaryPrefix + number
+	lines := []string{
+		"useradd --system --home-dir " + brand.AgentStateDir + " --shell /usr/sbin/nologin " + account,
+		"getent group docker >/dev/null && usermod -aG docker " + account,
+		"install -d -m 0700 " + owner + " " + brand.AgentStateDir,
+		asAccount + "install -d -m 0700 " + binDir,
+		asAccount + "install -m 0755 " + source + " " + binDir + "/" + binaryName +
+			" && " + asAccount + "ln -sfn " + binaryName + " " + binDir + "/" + brand.AgentCurrentLink,
+	}
+	folders := writtenFolders(capabilities)
+	accountFolders := []string{brand.AgentStateDir}
+	for _, folder := range folders {
+		accountFolders = append(accountFolders, folder.path)
+	}
+	// Un dossier sous un autre dossier du compte vient après lui, sous le compte.
+	var nested []string
+	for _, folder := range folders {
+		comment := " # " + strings.Join(folder.rights, ", ")
+		if insideAny(folder.path, accountFolders) {
+			nested = append(nested, asAccount+"install -d -m "+folder.mode+" "+folder.path+comment)
+			continue
+		}
+		lines = append(lines, "test ! -L "+folder.path+" && install -d -m "+folder.mode+" "+owner+" "+folder.path+comment)
+	}
+	return strings.Join(append(lines, nested...), "\n")
+}
+
+// insideAny dit si path est sous l'un des dossiers (pas l'un d'eux).
+func insideAny(path string, folders []string) bool {
+	return slices.ContainsFunc(folders, func(folder string) bool {
+		return strings.HasPrefix(path, folder+"/")
+	})
+}
+
+// Un dossier où un droit coché écrit, avec le mode que l'agent lui donne et
+// les droits qui l'utilisent.
+type writtenFolder struct {
+	path   string
+	mode   string
+	rights []string
+}
+
+// writtenFolders liste les dossiers à préparer, chacun une fois, dans l'ordre
+// des droits : la racine des services pour docker.deploy et docker.update, le
+// dossier de backup.receive (0700 : ce sont des sauvegardes), ceux de
+// files.write. Un dossier demandé par deux droits garde le mode du premier.
+func writtenFolders(capabilities []machine.Capability) []writtenFolder {
+	var folders []writtenFolder
+	add := func(path, mode, right string) {
+		// Les droits viennent normalisés ; un chemin qui ne l'est pas ne
+		// s'écrit pas dans des lignes qu'on colle en root.
+		if !machine.ValidCapabilityPath(path) {
+			return
+		}
+		for index := range folders {
+			if folders[index].path == path {
+				if !slices.Contains(folders[index].rights, right) {
+					folders[index].rights = append(folders[index].rights, right)
+				}
+				return
+			}
+		}
+		folders = append(folders, writtenFolder{path: path, mode: mode, rights: []string{right}})
+	}
+	for _, capability := range capabilities {
+		switch capability.Name {
+		case machine.CapabilityDockerDeploy, machine.CapabilityDockerUpdate:
+			add(brand.WorkspaceRoot, "0755", capability.Name)
+		case machine.CapabilityBackupReceive:
+			for _, path := range capability.Paths {
+				add(path, "0700", capability.Name)
+			}
+		case machine.CapabilityFilesWrite:
+			for _, path := range capability.Paths {
+				add(path, "0755", capability.Name)
+			}
+		}
+	}
+	return folders
 }
 
 // Un jeton déjà parti est un jeton annulé : 204 dans les deux cas.
@@ -303,7 +423,7 @@ func (s *Server) reenrollMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, machine.ErrNotFound) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext)
+	s.writeToken(w, r, token, cleartext, token.MachineID == machine.LocalID)
 }
 
 // La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
@@ -314,5 +434,5 @@ func (s *Server) offerLocalEnrollment(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeToken(w, r, token, cleartext)
+	s.writeToken(w, r, token, cleartext, true)
 }

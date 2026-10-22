@@ -1,11 +1,12 @@
 import type { Engine, Finding, Port, Container, ContainerState, Transition } from "../api/containers";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
+import { formatDuration, since } from "./time";
 
 // Les pastilles de la direction artistique, dérivées des faits : l'état
 // Docker, le code de sortie, la santé. La même règle que le serveur pour
 // « demande attention ».
-export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created";
+export type PillKey = "active" | "starting" | "failing" | "out_of_memory" | "killed" | "restarting" | "paused" | "stopped" | "created" | "unknown";
 
 export interface ContainerPillInfo {
   key: PillKey;
@@ -18,9 +19,23 @@ export function isCleanExit(code: number): boolean {
 }
 
 // Les faits dont la pastille dépend ; oom_killed et killed manquent sur
-// une fiche d'avant leur correctif.
-export type PillFacts = Pick<Container, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean };
+// une fiche d'avant leur correctif. observed manque sur une transition, qui
+// est un fait passé : elle se lit toujours.
+export type PillFacts = Pick<Container, "state" | "exit_code" | "health"> & { oom_killed?: boolean; killed?: boolean; observed?: boolean };
 
+// L'état que l'interface montre d'un conteneur : « Inconnu » dès que sa
+// machine ne signale plus (observed faux, décidé par le serveur), l'état
+// que disent les faits sinon. Tout ce qui montre l'état d'un conteneur, ou
+// le compte, passe par ici ; containerPill ne lit que les faits, pour les
+// transitions et le « dernier état ».
+export function displayedState(container: PillFacts): ContainerPillInfo {
+  if (container.observed === false) {
+    return { key: "unknown", tone: "neutral" };
+  }
+  return containerPill(container);
+}
+
+// Ce que disent les faits seuls, sans se demander si la machine répond.
 export function containerPill(container: PillFacts): ContainerPillInfo {
   switch (container.state) {
     case "running":
@@ -55,7 +70,7 @@ export function containerPill(container: PillFacts): ContainerPillInfo {
 }
 
 export function containerNeedsAttention(container: PillFacts): boolean {
-  const key = containerPill(container).key;
+  const key = displayedState(container).key;
   return key === "failing" || key === "out_of_memory" || key === "killed" || key === "restarting";
 }
 
@@ -64,9 +79,13 @@ export type Filter = "all" | "active" | "stopped";
 
 const activeStates: ReadonlySet<ContainerState> = new Set(["running", "restarting"]);
 
-export function matchesFilter(container: Pick<Container, "state">, filter: Filter): boolean {
+// Un conteneur d'état inconnu n'est ni actif ni arrêté : seul « Tous » le garde.
+export function matchesFilter(container: Pick<Container, "state"> & { observed?: boolean }, filter: Filter): boolean {
   if (filter === "all") {
     return true;
+  }
+  if (container.observed === false) {
+    return false;
   }
   return activeStates.has(container.state) === (filter === "active");
 }
@@ -140,7 +159,13 @@ export function needsCaution(container: Pick<Container, "exposure">): boolean {
 // Le point d'un nœud : le danger d'abord, puis l'attention d'un constat ou
 // d'un redémarrage, puis l'état.
 export function nodeTone(container: PillFacts & Pick<Container, "exposure">): Tone {
-  const tone = containerPill(container).tone;
+  const state = displayedState(container);
+  // Inconnu reste neutre : un constat d'exposition d'avant le silence de la
+  // machine n'est pas une alerte d'aujourd'hui.
+  if (state.key === "unknown") {
+    return state.tone;
+  }
+  const tone = state.tone;
   if (tone === "danger" || tone === "warn") {
     return tone;
   }
@@ -161,11 +186,29 @@ export function nodeSubtitle(container: Pick<Container, "image" | "ports">): str
   return parts.join(" · ");
 }
 
-// Le sous-titre de la page Services : rien, un, plusieurs, et ce qui
-// demande attention.
-export function servicesSubtitle(t: Translate, total: number, attention: number): string {
+// « Dernier état : Actif, il y a 5 h » sous la pastille « Inconnu » : l'état
+// que disaient les faits, et depuis quand la machine s'est tue. Rien quand la
+// machine est observée, ou qu'elle n'a jamais signalé.
+export function lastStateText(t: Translate, container: PillFacts & Pick<Container, "machine_last_seen_at">, now: number): string | null {
+  if (container.observed !== false || container.machine_last_seen_at === null) {
+    return null;
+  }
+  const state = t(`container.state_${containerPill(container).key}`);
+  return t("container.last_state", state, formatDuration(t, since(container.machine_last_seen_at, now)));
+}
+
+// Le sous-titre de la page Services : rien, un, plusieurs, ce qui demande
+// attention, et ce dont l'état est inconnu : « tous actifs » ne se dit pas
+// de conteneurs que leur machine ne confirme plus.
+export function servicesSubtitle(t: Translate, total: number, attention: number, unknown: number): string {
   if (total === 0) {
     return t("services.subtitle_none");
+  }
+  if (unknown > 0) {
+    if (total === 1) {
+      return t("services.subtitle_one_unknown");
+    }
+    return attention === 0 ? t("services.subtitle_unknown", total, unknown) : t("services.subtitle_attention_unknown", total, attention, unknown);
   }
   if (total === 1) {
     return t(attention === 0 ? "services.subtitle_one" : "services.subtitle_one_attention");

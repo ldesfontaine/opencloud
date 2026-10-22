@@ -15,7 +15,7 @@ import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
-import { findingText, formatBindings, containerPill, transitionPassage } from "../lib/containers";
+import { findingText, formatBindings, containerPill, lastStateText, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
 import { newProbePath } from "../lib/probes";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
@@ -54,6 +54,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
   const { t, language } = useI18n();
   const now = useNow();
   const container = response.container;
+  const lastState = lastStateText(t, container, now);
   return (
     <>
       <PageHead
@@ -84,7 +85,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               <Link to={`/machines/${container.machine_id}`}>{container.machine_name}</Link>
               <span className="sep" />
               <span className="mono">{container.image}</span>
-              {container.state === "running" && container.started_at !== null && (
+              {container.observed && container.state === "running" && container.started_at !== null && (
                 <>
                   <span className="sep" />
                   <span>{t("container.uptime", formatDuration(t, since(container.started_at, now)))}</span>
@@ -102,6 +103,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               )}
             </span>
           </span>
+          {lastState !== null && <span className="secondary">{lastState}</span>}
         </CardBody>
       </Card>
       <UpdateCard container={container} directory={response.directory} reload={reload} />

@@ -81,6 +81,8 @@ export interface TokenResponse {
   name: string;
   token: string;
   command: string;
+  // Les commandes à jouer une fois, en root, avant `command`.
+  preparation: string;
   expires_at: string;
   url_local: boolean;
 }

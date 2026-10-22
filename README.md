@@ -95,11 +95,17 @@ curl -X POST -H 'Content-Type: application/json' \
 ```
 
 **Ajoutez une machine** : Machines → Ajouter une machine, donnez-lui un nom.
-openCloud affiche une commande à coller sur la machine, en root :
+openCloud affiche la préparation de la machine (le compte dédié `opencloud-agent`,
+son dossier, son binaire) puis une commande à coller, en root :
 
 ```sh
-printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
+printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org
 ```
+
+L'agent tourne sous ce compte, dans le groupe `docker` si la machine a Docker :
+**le groupe `docker` équivaut à root** (la socket lance un conteneur qui monte
+`/`), le compte dédié protège des erreurs, pas d'un attaquant décidé. Root reste
+possible, par un drop-in documenté.
 
 Le jeton sert une fois et expire en 1 h. L'agent exige HTTPS vers openCloud,
 sauf `-allow-plain` sur un réseau déjà chiffré (WireGuard) ; vers la boucle
@@ -109,7 +115,7 @@ locale, HTTP passe. La suite (proxy, service, `-pin`) est dans
 **La machine openCloud a aussi son agent**, comme toute machine : `serve`
 n'observe rien d'elle, et sans cet agent elle ne se voit pas. Après la création du
 compte, l'écran de première configuration affiche la ligne qui l'installe
-(avec le seul droit d'observer) ; collez-la sur cette machine, en root. Elle ne
+(avec le seul droit d'observer), et la préparation au-dessus ; collez-les sur cette machine, en root. Elle ne
 s'affiche qu'une fois, et vaut 1 h : passé ce délai, « Ajouter une machine »
 jouée sur elle en redonne une (ou Ré-enrôler, sur sa fiche). L'unité systemd de
 cet agent est dans [docs/installation.md](docs/installation.md#installer-le-serveur).

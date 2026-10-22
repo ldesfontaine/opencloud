@@ -128,6 +128,12 @@ function AgentLine({ line, onContinue }: { line: TokenResponse; onContinue: () =
             <p>{t("auth.setup_agent_intro")}</p>
             <Note tone="warn">{t("machine.token_once", expiresIn)}</Note>
             <div className="field">
+              <span className="field-label">{t("machine.prepare_label")}</span>
+              <TokenBox value={line.preparation} lines />
+              <span className="field-help">{t("machine.prepare_help")}</span>
+            </div>
+            <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
+            <div className="field">
               <span className="field-label">{t("machine.command_label")}</span>
               <TokenBox value={line.command} />
             </div>

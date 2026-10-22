@@ -275,10 +275,13 @@ func TestRevoke_RefusesTheAgentClosesItsSessionAndReenrollLiftsIt(t *testing.T) 
 
 type lostAlerter struct {
 	lost []string
+	back []string
 }
 
 func (a *lostAlerter) MachineLost(_ context.Context, machine Machine) {
 	a.lost = append(a.lost, machine.ID)
 }
-func (a *lostAlerter) MachineBack(context.Context, string)    {}
+func (a *lostAlerter) MachineBack(_ context.Context, machineID string) {
+	a.back = append(a.back, machineID)
+}
 func (a *lostAlerter) MachineRemoved(context.Context, string) {}
