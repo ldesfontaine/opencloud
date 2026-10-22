@@ -113,7 +113,7 @@ export function Overview() {
   const online = list.filter((machine) => machine.online).length;
   const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
   return (
-    <div className="overview">
+    <div className="overview-page">
       <PageHead
         title={t("nav.overview")}
         subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}

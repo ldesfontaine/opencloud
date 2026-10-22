@@ -111,7 +111,11 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de
-  300 px à droite.
+  300 px à droite. Sur la vue d'ensemble, une version compacte sans zoom :
+  nœuds de 148 px, un cadre en pointillé par machine, cadres empilés ou côte
+  à côte selon la largeur (le rangement qui garde le plus grand texte dans
+  240 px de haut), réduite pour tenir sur un écran de portable mais jamais
+  sous 10 px de texte rendu.
 - **Info-bulle** : fond encre, texte 12 px, pour le détail qu'on ne veut pas à
   l'écran.
 

@@ -4,7 +4,8 @@
 //
 // Les coupures sont à 1280 px et non à 1100 : la barre latérale prend 232 px,
 // une tuile ou une carte de machine serait trop étroite entre les deux.
-.overview {
+// (« overview » seul est déjà la classe du schéma, NetworkOverview.scss.)
+.overview-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
