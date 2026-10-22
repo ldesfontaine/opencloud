@@ -3006,6 +3006,55 @@ cron, sans catalogue : `heartbeat.ErrExitCodeInvalid` reste une erreur nue.
 Un test relève chaque `refusal.Invalid` et `refusal.Conflict` du code et
 exige leur clé, littérale et unique, dans chaque catalogue.
 
+## Comment une version est publiée et vérifiée
+
+Une version se publie par un **tag `vX.Y.Z` poussé sur un commit de `main`**
+(workflow `release.yml`, procédure dans `12-methode.md`) et ne se réécrit
+jamais. Rien ne se publie ici tant que Lucas n'a pas décidé d'une version et
+posé la clé de signature.
+
+| Acteur | Ce qu'il fait |
+| --- | --- |
+| GitHub Actions (`release.yml`) | Contrôle le tag, construit deux fois, signe, vérifie, atteste, publie |
+| Le binaire qui vient d'être construit | `release sign` signe `SHA256SUMS` ; `release verify` relit le résultat avec sa propre clé embarquée |
+| `internal/release` | Lit et écrit les signatures minisign, lit les sommes, vérifie un fichier. Ne télécharge rien, ne connaît ni le serveur ni l'agent |
+| L'opérateur | `release verify <fichier>`, ou `minisign` et `gh attestation verify` sans faire confiance au binaire |
+
+| # | Décision | Contrepartie |
+| --- | --- | --- |
+| 1 | Format **minisign**, écrit en Go (`crypto/ed25519` et `blake2b` de `golang.org/x/crypto`, aucune dépendance de plus) ; seul l'algorithme pré-haché `ED` est accepté, l'ancien `Ed` est refusé | Environ 200 lignes de format à maintenir ; n'importe qui vérifie avec l'outil `minisign` officiel |
+| 2 | Clé **privée** au format d'openCloud (identifiant de 8 octets suivi de la graine, en base64, non chiffrée) ; signature et clé **publique** au format minisign exact | Elle vit dans un secret du dépôt et dans le coffre de Lucas ; ce n'est pas un fichier de `minisign -G` |
+| 3 | Le binaire qui vient d'être construit signe : aucun outil téléchargé dans le job, la clé passe par une variable d'environnement, jamais par `argv` | Le job dépend du code qu'il publie ; la vérification qui suit le rend visible |
+| 4 | Le **commentaire de confiance** (signé) porte la version : `timestamp:<unix>\tfile:SHA256SUMS\tversion:vX.Y.Z`. Le serveur et l'agent lisent la version là, jamais dans un nom de fichier | Une version ne se lit que dans un fichier signé |
+| 5 | **Clé publique embarquée** (`release.TrustedPublicKey`), vide tant que Lucas n'a pas généré la paire : `release verify` refuse (code 2) et le job échoue | Rien ne se publie sans clé ; changer la clé, c'est ne plus reconnaître les versions signées par l'ancienne |
+| 6 | **Immuable** : le job échoue si la release du tag existe, plus aucun `gh release delete`. Réglages du dépôt à poser par Lucas : ruleset de tags `v*` et « Releases immuables » | Ces deux réglages ne s'automatisent pas ici |
+| 7 | Le tag doit être **sur `main`** (`git merge-base --is-ancestor`) ; plus de `workflow_dispatch` | Une version attend que `dev` ait rejoint `main` |
+| 8 | **Reproductible** : le job reconstruit, sans le cache de compilation de Go, et exige les mêmes sommes (`-trimpath`, `CGO_ENABLED=0`, version et commit par `ldflags`, front reconstruit depuis le verrou) | Un build qui dépend de l'horloge ou du chemin fait échouer la publication |
+| 9 | **Attestation de provenance** GitHub sur les sommes (`gh attestation verify <binaire> -R ldesfontaine/opencloud`) | Une action de plus à suivre (épinglée par SHA, comme les autres) |
+| 10 | `release verify <fichier>` cherche `SHA256SUMS` et `SHA256SUMS.minisig` à côté du fichier, vérifie la signature avec la clé embarquée, puis la somme du fichier sous son **nom de base** | Un fichier renommé n'est pas retrouvé : le refus le dit |
+| 11 | La `v0.0.1` existante reste telle quelle, non signée | La vérification par signature commence à la première version taguée |
+
+**Ce que vérifie `release verify`**, dans l'ordre, et refuse au premier écart
+(code 2, rien n'est affiché sur la sortie standard) :
+
+1. le binaire embarque une clé de version (sinon : il ne peut rien vérifier) ;
+2. la signature de `SHA256SUMS` : quatre lignes, algorithme `ED`, identifiant
+   de la clé embarquée, signature du condensé BLAKE2b-512, puis signature du
+   commentaire de confiance (modifier la version dans le commentaire casse la
+   signature) ;
+3. le commentaire de confiance nomme `SHA256SUMS` et une version `vX.Y.Z` ;
+4. `SHA256SUMS` est bien formé (somme en 64 hexadécimaux minuscules, un nom de
+   fichier seul, chaque nom une fois) ;
+5. le nom du fichier y figure et sa somme SHA-256 est celle qui est signée.
+
+En cas de succès : `ok <version> <nom> sha256:<somme>`. Cette sortie est
+stable. `agent.update` réutilisera `release.VerifyFile` (et
+`Version.Compare` pour refuser une version plus ancienne), pas la commande.
+Signer et vérifier ne touchent pas la base : aucun événement d'audit, aucune
+clé de catalogue (textes de commande, comme `secrets`). La clé privée ne
+s'écrit que par `PrivateKey.Encode` (le fichier de `keygen`) ; passée à `fmt`
+ou à un journal, elle s'affiche masquée.
+
 ## Le nom du produit
 
 Le nom s'écrit à un seul endroit, le paquet `internal/brand`, et ne change
@@ -3181,3 +3230,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Protocole v2, agent durci, rotation des clés (#146, 3/3) | La preuve de l'agent sans défi (`machine.SignedPayload` : étiquette `opencloud-agent-proof/v2`, aléa tiré par l'agent, identifiant préfixé de sa longueur, heure ; `machine.NewNonce`, l'ensemble des aléas vus dix minutes, `ErrReplayed`, `401 replayed`), `/agent/challenge` et `machine.Service.Challenge` retirés, l'en-tête `OpenCloud-Agent-Protocol: 2` et le refus `426 protocol_unsupported` (une route `/agent/` attrape le reste), le seau par source partagé par l'enrôlement et l'ouverture du flux (`agentapi/source_limits.go`), l'événement découpé en lignes `data:` de 32 Kio et borné à 1 Mio (`agentwire.EventDataLine`, `MaxEventLineBytes`, `MaxEventBytes`), l'agent qui ne suit pas les redirections et lit le flux borné (`readEvent`, `ErrEventTooLarge`), le plancher de l'intervalle des sondes côté agent, `secret.key` à plusieurs lignes (`seal.Keyring`, `WithNewKey`, `Current`, `Retired`), `store.ResealSecrets`, `server.key` à deux lignes (`action.Key.Rotated`, `Finished`, `SaveKey`, la signature par la clé épinglée), l'ordre `agent.server_key` et `action.Service.Rekey`, `previous_fingerprint` de `GET /api/agents/server-key`, les commandes `opencloud secrets rotate`, `rotate-server-key` et `finish-server-key`, les audits `secrets.rotate`, `secrets.rotate_server_key` et `secrets.finish_server_key` |
 | Annuaire, retrait de « à vérifier » | La migration `003_needs_review.sql` (`declared_services.needs_review` supprimée, `declared_by = 'migration'` réécrit en `operator`), `directory.Review`, `MarkServiceReviewed`, la route `POST /api/directory/services/{id}/actions/review`, l'action d'audit `service.review`, `manifest.Annotations.NeedsReview` (le commentaire « à vérifier » de l'export), `logServicesToReview`, la bannière et la pastille « À vérifier » de la fiche et du tableau ; `declared_by` reste, avec la seule valeur `operator` |
 | Journal vers les canaux | La migration `004_audit_deliveries.sql` (`alert_channels.receives_audit`, la table `audit_deliveries` en `cascade` vers l'événement et le canal), `audit.Forwarder` et `Recorder.SetForwarder`, `InsertAuditEvent` qui réserve les livraisons dans la transaction de l'événement, `alert.EventAudit` (hors de `alert.Events()`), `Engine.ForwardAuditEvent`, `Requeue` et `retryDue` qui rejouent aussi le journal, le notifieur (un essai dans l'ouvrier, `UpdateAuditDelivery`), `RenderAudit` et `JournalLink` (`forward_render.go`), l'identifiant de transaction Matrix `audit-`, `reader.CountAuditForwarding` et `GET /api/audit/forwarding`, la case « Recevoir le journal » du formulaire de canal et sa pastille, l'avertissement de la page Journal, les clés `audit.notify_*`, `audit.forwarding_*`, `channel.receives_audit_*` et `alert.notify_audit`, les goldens `audit_forwarding.golden.json` et (`receives_audit`) `alert_channels`, `mcp_list_alert_channels` |
+| Versions signées | Le paquet `internal/release` (minisign en Go, sommes, version, `VerifyFile`, clé publique embarquée `TrustedPublicKey`), la sous-commande `opencloud release` (`verify`, `sign`, `keygen`), le workflow `release.yml` (tag `vX.Y.Z` sur `main`, build reproductible, signature, attestation, version jamais réécrite), les constantes `Release*` de `internal/brand`. Pas de migration |

@@ -56,7 +56,7 @@ et en-têtes qui le portent passent par un seul paquet de constantes
 | Agent installé par une **ligne générée** dans l'interface | serveur, script d'installation | `curl … \| sh`, aussi en cloud-init ; jeton à usage unique lu sur stdin ou dans un fichier, jamais en argv. Le serveur n'a jamais d'accès SSH | Moyen : le script, la page qui le génère |
 | Racine déjà occupée | script d'installation | Si le dossier existe et n'est pas vide, l'installation s'arrête et demande un autre chemin | Faible |
 | Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé. **Fait** (migration `030_agents.sql`) : l'agent s'installe dès la première configuration, l'empreinte du serveur le rattache à l'identifiant `local` |
-| Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer |
+| Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer. Prérequis **fait** (21/10) : versions immuables, signées, vérifiées par le binaire (`22-fonctionnement.md`, « Comment une version est publiée et vérifiée ») |
 | Le **serveur** ne se met jamais à jour seul | doc | Il porte la base ; une montée ratée casse tout | Nul |
 | Agent root ou non | `opencloud-agent.service` | Lire `/proc` et Docker en root est accepté aujourd'hui ; écrire dans `/srv/workspace` en root l'est moins | Reportée avant l'étape 2 (décision 2) |
 
