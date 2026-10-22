@@ -41,7 +41,7 @@ func Kinds() []Kind {
 }
 
 // Le résultat d'une exécution : ouverte par un start, close par une fin ou
-// par le dépassement de l'échéance.
+// par le dépassement de l'échéance ; ou, sans exécution, le retard lui-même.
 type Outcome string
 
 const (
@@ -49,10 +49,13 @@ const (
 	OutcomeSuccess    Outcome = "success"
 	OutcomeFailure    Outcome = "failure"
 	OutcomeTimeout    Outcome = "timeout"
+	// Une échéance dépassée sans aucun ping : une ligne par épisode de retard,
+	// sans début ni code de sortie.
+	OutcomeMissed Outcome = "missed"
 )
 
 func Outcomes() []Outcome {
-	return []Outcome{OutcomeInProgress, OutcomeSuccess, OutcomeFailure, OutcomeTimeout}
+	return []Outcome{OutcomeInProgress, OutcomeSuccess, OutcomeFailure, OutcomeTimeout, OutcomeMissed}
 }
 
 const (

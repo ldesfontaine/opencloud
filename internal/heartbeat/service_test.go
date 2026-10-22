@@ -872,3 +872,241 @@ func TestRegenerateToken_OldRefusedNewAccepted(t *testing.T) {
 		t.Fatalf("unknown id: %v", err)
 	}
 }
+
+// Le retard s'inscrit dans l'historique : une ligne « missed » close à
+// l'échéance dépassée (pas à l'instant du contrôle), sans début ni code.
+func TestCheckDeadlines_Overdue_WritesAMissedRunClosedAtTheDeadline(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	pinged := f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(2 * time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := f.db.ListRuns(ctx, h.ID, 10)
+	if len(runs) != 2 || runs[0].Outcome != heartbeat.OutcomeMissed {
+		t.Fatalf("runs %+v", runs)
+	}
+	missed := runs[0]
+	if !missed.CompletedAt.Equal(pinged.NextDeadlineAt) || !missed.StartedAt.IsZero() || missed.Duration != nil || missed.ExitCode != nil || missed.Payload != "" {
+		t.Fatalf("missed run %+v, deadline %v", missed, pinged.NextDeadlineAt)
+	}
+}
+
+// Une tâche muette pendant des heures passe en retard une fois : une ligne
+// par épisode, pas une par échéance ni une par contrôle.
+func TestCheckDeadlines_AlreadyLate_DoesNotWriteASecondMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(10 * time.Minute)
+	for range 3 {
+		if err := f.CheckDeadlines(ctx); err != nil {
+			t.Fatal(err)
+		}
+		f.advance(24 * time.Hour)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 1 {
+		t.Fatalf("%d missed runs, 1 expected", missed)
+	}
+	// L'alerte suit le passage en retard, une fois : la ligne n'y change rien.
+	if want := "late:job"; strings.Join(f.alerter.events, ",") != want {
+		t.Fatalf("alerts %v, want %s", f.alerter.events, want)
+	}
+}
+
+// Deux contrôles qui se croisent (deux boucles, ou une boucle et un
+// redémarrage) : tous ont présélectionné la tâche avant qu'un seul ne la
+// passe en retard. L'échéance relue dans la transaction n'en laisse passer
+// qu'un : une seule ligne.
+func TestCheckDeadlines_CrossedChecks_WriteOneMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	const checks = 4
+	listed := &listedTogether{DB: f.db}
+	listed.wg.Add(checks)
+	var wg sync.WaitGroup
+	errs := make([]error, checks)
+	for i := range errs {
+		service := heartbeat.New(listed, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+		service.SetClock(func() time.Time { return testNow.Add(10 * time.Minute) })
+		wg.Go(func() { errs[i] = service.CheckDeadlines(ctx) })
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatal(err)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 1 {
+		t.Fatalf("%d missed runs, 1 expected", missed)
+	}
+}
+
+// listedTogether retient chaque présélection jusqu'à ce que toutes soient
+// faites : les contrôles se croisent à coup sûr.
+type listedTogether struct {
+	*store.DB
+	wg sync.WaitGroup
+}
+
+func (l *listedTogether) ListOverdueHeartbeats(ctx context.Context, now time.Time) ([]heartbeat.Heartbeat, error) {
+	found, err := l.DB.ListOverdueHeartbeats(ctx, now)
+	l.wg.Done()
+	l.wg.Wait()
+	return found, err
+}
+
+// Le serveur redémarre pendant le retard : l'état est en base, le nouveau
+// service (rattrapage des premières échéances puis contrôle, comme Watch au
+// départ) ne réécrit rien, pour une tâche pingée comme pour une jamais pingée.
+func TestCheckDeadlines_AfterARestartDuringTheLateness_WritesNoSecondMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	pinged := f.create(t, "job")
+	never := f.create(t, "jamais pingée")
+	f.ping(t, pinged.Token, heartbeat.KindFinish, nil)
+	f.advance(time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restarted := heartbeat.New(f.db, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	restarted.SetClock(func() time.Time { return testNow.Add(3 * 24 * time.Hour) })
+	if err := restarted.BackfillFirstDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{pinged.ID, never.ID} {
+		if missed := countOutcome(t, f, id, heartbeat.OutcomeMissed); missed != 1 {
+			t.Fatalf("%s: %d missed runs, 1 expected", id, missed)
+		}
+	}
+}
+
+// En pause pendant le retard puis reprise : la ligne du retard reste, la
+// pause et la reprise n'en écrivent pas. La reprise ouvre une échéance
+// neuve : dépassée à son tour sans ping, c'est un nouvel épisode.
+func TestPauseWhileLate_ThenResume_WritesOnlyForANewlyMissedDeadline(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	f.advance(10 * time.Minute)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Pause(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(48 * time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Resume(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(5 * time.Minute)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 1 {
+		t.Fatalf("%d missed runs before the new deadline, 1 expected", missed)
+	}
+	f.advance(2 * time.Minute)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 2 {
+		t.Fatalf("%d missed runs after the new deadline, 2 expected", missed)
+	}
+}
+
+// Un nouvel épisode, après une reprise, fait une nouvelle ligne.
+func TestCheckDeadlines_LateAgainAfterARecovery_WritesASecondMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	for range 2 {
+		f.advance(10 * time.Minute)
+		if err := f.CheckDeadlines(ctx); err != nil {
+			t.Fatal(err)
+		}
+		f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 2 {
+		t.Fatalf("%d missed runs, 2 expected", missed)
+	}
+}
+
+// Une exécution ouverte par un start est déjà close en dépassement, qui
+// compte comme un échec : « missed » en plus compterait l'échéance deux fois.
+func TestCheckDeadlines_OpenRun_IsClosedAsTimeoutWithoutAMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindStart, nil)
+	f.advance(time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := f.db.ListRuns(ctx, h.ID, 10)
+	if len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeTimeout {
+		t.Fatalf("runs %+v", runs)
+	}
+}
+
+// Une tâche en pause ne peut pas être en retard, et la reprise n'écrit rien.
+func TestPauseAndResume_WriteNoMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "job")
+	f.ping(t, h.Token, heartbeat.KindFinish, nil)
+	if err := f.Pause(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.advance(48 * time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Resume(ctx, h.ID); err != nil {
+		t.Fatal(err)
+	}
+	if missed := countOutcome(t, f, h.ID, heartbeat.OutcomeMissed); missed != 0 {
+		t.Fatalf("%d missed runs, none expected", missed)
+	}
+}
+
+// Jamais pingée, une tâche passe en retard : c'est un vrai retard, il s'inscrit.
+func TestCheckDeadlines_NeverPinged_WritesAMissedRun(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	h := f.create(t, "mal branchée")
+	f.advance(time.Hour)
+	if err := f.CheckDeadlines(ctx); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := f.db.ListRuns(ctx, h.ID, 10)
+	if len(runs) != 1 || runs[0].Outcome != heartbeat.OutcomeMissed || !runs[0].CompletedAt.Equal(h.NextDeadlineAt) {
+		t.Fatalf("runs %+v, deadline %v", runs, h.NextDeadlineAt)
+	}
+}
+
+func countOutcome(t *testing.T, f *fixture, id string, outcome heartbeat.Outcome) int {
+	t.Helper()
+	runs, err := f.db.ListRuns(context.Background(), id, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, run := range runs {
+		if run.Outcome == outcome {
+			total++
+		}
+	}
+	return total
+}
