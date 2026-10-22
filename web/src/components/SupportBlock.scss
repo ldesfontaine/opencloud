@@ -28,8 +28,11 @@
   gap: 4px;
 }
 
-// La ligne du support dans l'en-tête d'une machine : l'état et sa phrase, sur
-// une seule ligne.
+// La ligne du support dans l'en-tête d'une machine : l'état et sa phrase. Sur
+// un portable elles tiennent sur une ligne ; plus étroit, la phrase passe à la
+// ligne plutôt que de se couper : c'est le seul endroit qui la dit (la carte
+// sous l'historique n'en garde que le détail), et une infobulle ne se lit pas
+// sur un téléphone.
 .support-line {
   display: flex;
   align-items: center;
@@ -40,9 +43,6 @@
 
   > span:last-child {
     min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 }
 

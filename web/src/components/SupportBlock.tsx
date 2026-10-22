@@ -22,16 +22,15 @@ export function SupportBlock({ lifecycle, subject }: { lifecycle: Lifecycle; sub
   );
 }
 
-// L'état du support et sa phrase, sur une ligne : ce que l'en-tête d'une
-// machine garde du bloc. Trop longue, la phrase se coupe d'une ellipse, son
-// texte entier en infobulle (et sous l'historique, dans SupportDetails).
+// L'état du support et sa phrase : ce que l'en-tête d'une machine garde du
+// bloc. La phrase n'est dite qu'ici (SupportDetails n'en a que le détail) :
+// trop longue, elle passe à la ligne, elle ne se coupe pas.
 export function SupportLine({ lifecycle, subject }: { lifecycle: Lifecycle; subject: Subject }) {
   const { t, language } = useI18n();
-  const text = lifecycleText(t, lifecycle, language, subject);
   return (
     <div className="support-line">
       <Pill tone={lifecycleTones[lifecycle.status]}>{t(`lifecycle.status_${lifecycle.status}`)}</Pill>
-      <span title={text}>{text}</span>
+      <span>{lifecycleText(t, lifecycle, language, subject)}</span>
     </div>
   );
 }

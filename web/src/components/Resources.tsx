@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useResourceHistory, type Current, type Disk, type Reading, type WindowName } from "../api/resources";
 import { useNow } from "../hooks/useNow";
 import { useDiskThresholds, useI18n, useT } from "../i18n/context";
 import { fullestFirst } from "../lib/disks";
 import { ago } from "../lib/time";
+import type { StateTone } from "../lib/tone";
 import { bytesIn, bytesQuantity, formatBytes, formatDecimal, formatRate, meterTone, percentOf, rateQuantity } from "../lib/units";
 import { Button } from "./Button";
 import { Card, CardBody, CardHeader, Meter, Stat } from "./Card";
@@ -14,10 +15,12 @@ import "./Resources.scss";
 
 // Les quatre chiffres clés d'une machine : processeur, mémoire, disque,
 // réseau, en tuiles compactes (#141). Sans mesure fraîche, un tiret et la
-// raison, jamais un zéro. Les pourcentages sont dans les pieds ; les jauges
-// par volume, quand il y en a plusieurs, dans DiskVolumesCard.
+// raison, jamais un zéro. Les pourcentages sont dans les pieds, dans la
+// couleur qu'avait la jauge (un disque presque plein se voit encore) ; les
+// jauges par volume, quand il y en a plusieurs, dans DiskVolumesCard.
 export function ResourceStats({ current }: { current: Current | null }) {
   const { t, language } = useI18n();
+  const diskThresholds = useDiskThresholds();
   const now = useNow();
   const sample = current?.available ? current.sample : null;
   const foot = unavailableFoot(t, now, current);
@@ -27,6 +30,9 @@ export function ResourceStats({ current }: { current: Current | null }) {
   const memPercent = sample ? percentOf(sample.mem_used, sample.mem_total) : 0;
   const diskPercent = sample ? percentOf(sample.disk_used, sample.disk_total) : 0;
   const volumes = sample?.disks ?? [];
+  // Plusieurs volumes : la couleur du plus plein, comme sa jauge en tête de
+  // DiskVolumesCard.
+  const diskTonePercent = volumes.length > 1 ? Math.max(...volumes.map((volume) => percentOf(volume.used, volume.total))) : diskPercent;
   return (
     <div className="grid-4 resource-stats">
       <Stat
@@ -36,7 +42,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.cpu")}
         value={sample ? Math.round(sample.cpu_percent) : "–"}
         unit="%"
-        foot={sample ? t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)) : foot}
+        foot={sample ? toned(t("resource.cpu_foot", sample.cpu_cores, formatDecimal(language, sample.load_1)), meterTone(sample.cpu_percent)) : foot}
       />
       <Stat
         compact
@@ -45,7 +51,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.memory")}
         value={sample && memory ? bytesIn(language, sample.mem_used, sample.mem_total) : "–"}
         unit={memory ? `${memory.unit} / ${memory.value}` : undefined}
-        foot={sample ? t("resource.mem_foot", memPercent, formatBytes(t, language, sample.swap_used), formatBytes(t, language, sample.swap_total)) : foot}
+        foot={sample ? toned(t("resource.mem_foot", memPercent, formatBytes(t, language, sample.swap_used), formatBytes(t, language, sample.swap_total)), meterTone(memPercent)) : foot}
       />
       <Stat
         compact
@@ -54,7 +60,7 @@ export function ResourceStats({ current }: { current: Current | null }) {
         label={t("resource.disk")}
         value={sample && disk ? bytesIn(language, sample.disk_used, sample.disk_total) : "–"}
         unit={disk ? `${disk.unit} / ${disk.value}` : undefined}
-        foot={diskFoot(t, sample, volumes.length, diskPercent, foot)}
+        foot={sample ? toned(diskFoot(t, sample, volumes.length, diskPercent, foot), meterTone(diskTonePercent, diskThresholds)) : foot}
       />
       <Stat
         compact
@@ -67,6 +73,12 @@ export function ResourceStats({ current }: { current: Current | null }) {
       />
     </div>
   );
+}
+
+// Le pied d'une tuile dans le ton de la jauge qu'elle remplace : rien de
+// plus sous le seuil d'attention.
+function toned(text: string, tone: StateTone | undefined): ReactNode {
+  return tone === undefined ? text : <b className={tone}>{text}</b>;
 }
 
 // Les volumes d'une machine qui en a plusieurs, la plus pleine en tête : la

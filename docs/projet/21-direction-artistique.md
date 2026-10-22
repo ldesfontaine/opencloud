@@ -89,7 +89,8 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
   et Réglages viendront avec leur écran. La fin de support du système, quand
   elle est activée, tient sur une ligne sous les métadonnées (pastille et
-  phrase) ; son détail est une carte sous l'historique.
+  phrase ; la phrase passe à la ligne sur un écran étroit, sans se couper) ;
+  son détail est une carte sous l'historique.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
   de contexte. Variante **compacte** (`Stat compact`, environ 60 px au lieu de
   125) : la valeur à 20 px, l'étiquette et le contexte l'un sous l'autre à sa
@@ -97,6 +98,8 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   d'ensemble, les quatre chiffres d'une machine) ; une tuile qui porte une
   jauge garde la forme pleine. Avec `wideFoot`, le contexte passe sur toute la
   largeur sous le chiffre et l'étiquette (environ 66 px) : pour un contexte long.
+  Une tuile compacte qui remplace une jauge garde sa couleur : le contexte passe
+  en attention ou en danger aux mêmes seuils.
   Sur la vue d'ensemble, la tuile Alertes est la plus large et son contexte
   porte la plus urgente, tronquée, le texte entier en info-bulle.
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
