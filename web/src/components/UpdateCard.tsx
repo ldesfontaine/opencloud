@@ -2,17 +2,18 @@ import { useState } from "react";
 
 import { Link } from "react-router";
 
+import { inFlightStates } from "../api/actions";
 import type { Container } from "../api/containers";
-import { saveUpdatePolicy, type ContainerDirectory, type UpdatePolicy } from "../api/directory";
+import { saveUpdatePolicy, upgradeUnit, useDeployPlan, type ContainerDirectory, type UpdatePolicy } from "../api/directory";
 import { checkMachineUpdates } from "../api/machines";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
 import { ago } from "../lib/time";
-import { checkText, imageLineChange, shortDigest, updateAvailable } from "../lib/updates";
+import { checkText, imageLineChange, shortDigest, updateAvailable, upgradeOffer, upgradeServiceID } from "../lib/updates";
 import { Button } from "./Button";
-import { Card, CardBody, CardHeader, KeyValue } from "./Card";
+import { Card, CardBody, CardHeader, KeyValue, Note } from "./Card";
 import { CopyButton, TokenBox } from "./Copy";
 import { Fold } from "./Disclosure";
 import { Failure } from "./Failure";
@@ -28,6 +29,10 @@ const defaultComposeFile = "compose.yaml";
 // l'image, la ligne du fichier Compose à changer, la commande à copier,
 // jamais exécutée, et vérifier maintenant. Quand la fin de support est
 // activée, le support de la version suit, sous un trait.
+// Sur un service déployé par un ordre signé, le tag plus récent se prend d'un
+// geste : « Passer à » change la version déclarée puis redéploie, après une
+// confirmation dans la carte. Là, la ligne à copier laisse la place : le
+// compose est réécrit par le serveur, pas édité à la main.
 // Les empreintes et la politique sont repliées : on les règle une fois. La
 // politique vit sur l'unité de l'annuaire, pas sur ce conteneur : elle
 // survit à sa recréation, et un conteneur non déclaré n'en a pas à régler.
@@ -38,12 +43,39 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
   const { t } = useI18n();
   const now = useNow();
   const action = useAction();
+  const upgrading = useAction();
   const [asked, setAsked] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [upgradeSent, setUpgradeSent] = useState(false);
+  // Le plan de déploiement ne se lit que si une offre est possible.
+  const plan = useDeployPlan(upgradeServiceID(container, directory));
+  const offer = upgradeOffer(container, directory, plan.data);
+  // Ce que le bouton et sa confirmation disent ; rien une fois l'ordre parti.
+  const upgrade =
+    offer !== null && plan.data !== null && directory !== null && !upgradeSent
+      ? {
+          version: offer.version,
+          right: plan.data.right,
+          inFlight: plan.data.last_run !== null && inFlightStates.has(plan.data.last_run.state),
+          unitName: directory.unit_name,
+          serviceName: directory.service_name,
+          machineName: plan.data.machine_name,
+        }
+      : null;
   const check = container.image_check;
   const available = updateAvailable(container);
   const lineChange = check !== null ? imageLineChange(container, check) : null;
 
   const unitID = directory !== null && directory.declared ? directory.unit_id : "";
+  const sendUpgrade = (version: string) => {
+    upgrading.run(() => upgradeUnit(unitID, version), {
+      topic: "all",
+      onDone: () => {
+        setConfirming(false);
+        setUpgradeSent(true);
+      },
+    });
+  };
   const setPolicy = (policy: UpdatePolicy) => {
     action.run(() => saveUpdatePolicy(unitID, policy), { topic: "all", onDone: reload });
   };
@@ -66,7 +98,27 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
         </div>
         {container.update_policy === "hold" && <span className="secondary">{t("update.hold_note")}</span>}
         {container.update_policy === "ignore" && <span className="secondary">{t("update.ignore_note")}</span>}
-        {available && check !== null && check.command !== "" && (
+        {upgradeSent && directory !== null && (
+          <span className="secondary">
+            {t("update.upgrade_sent")} <Link to={`/services/annuaire/${directory.service_id}`}>{directory.service_name}</Link>
+          </span>
+        )}
+        {upgrade !== null && upgrade.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+        {upgrade !== null && confirming && (
+          <div className="update-confirm" role="group" aria-label={t("update.upgrade_to", upgrade.version)}>
+            <Failure error={upgrading.error} />
+            <p>{t("update.upgrade_confirm", upgrade.unitName, upgrade.version, upgrade.serviceName, upgrade.machineName)}</p>
+            <div className="update-confirm-actions">
+              <Button small variant="primary" icon="box" onClick={() => sendUpgrade(upgrade.version)} disabled={upgrading.busy}>
+                {t("update.upgrade_to", upgrade.version)}
+              </Button>
+              <Button small onClick={() => setConfirming(false)} disabled={upgrading.busy}>
+                {t("update.upgrade_cancel")}
+              </Button>
+            </div>
+          </div>
+        )}
+        {offer === null && available && check !== null && check.command !== "" && (
           <div className="update-command">
             <span className="secondary">{t("update.command_title")}</span>
             {lineChange !== null && (
@@ -87,6 +139,11 @@ export function UpdateCard({ container, directory, reload }: { container: Contai
           </div>
         )}
         <div className="update-actions">
+          {upgrade !== null && !confirming && (
+            <Button small variant="primary" icon="box" onClick={() => setConfirming(true)} disabled={upgrade.right === "missing" || upgrade.inFlight}>
+              {t("update.upgrade_to", upgrade.version)}
+            </Button>
+          )}
           <Button small icon="refresh" onClick={checkNow} disabled={action.busy}>
             {t("update.check_now")}
           </Button>

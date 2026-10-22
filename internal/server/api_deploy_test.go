@@ -10,6 +10,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // Un mot de passe de test, pas un secret.
@@ -18,6 +19,14 @@ const deployEnvLine = "POSTGRES_PASSWORD=cle-de-test-0001" // gitleaks:allow
 // deploySetup déclare l'application Compose de la machine distante dont
 // l'agent a rapporté ses droits et sa racine, et rend l'identifiant du service.
 func deploySetup(t *testing.T, server *testServer, rights string) (serviceID string) {
+	t.Helper()
+	serviceID, _ = deploySetupSession(t, server, rights)
+	return serviceID
+}
+
+// deploySetupSession rend aussi la session de l'agent : le test qui la garde
+// fait parler la machine (un ordre réussi, un constat d'image) ou la coupe.
+func deploySetupSession(t *testing.T, server *testServer, rights string) (serviceID string, session *machine.Session) {
 	t.Helper()
 	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	session, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights)
@@ -38,7 +47,7 @@ func deploySetup(t *testing.T, server *testServer, rights string) (serviceID str
 	if service.Units[0].DataPath != "/var/www/html" {
 		t.Fatalf("data_path %+v", service.Units)
 	}
-	return service.ID
+	return service.ID, session
 }
 
 // Le plan dit où le service ira et ce qu'il y aura ; l'ordre parti, la fiche

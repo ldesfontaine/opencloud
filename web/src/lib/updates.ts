@@ -1,4 +1,5 @@
 import type { ImageCheck, Container } from "../api/containers";
+import type { ContainerDirectory, DeployPlan } from "../api/directory";
 import type { Translate } from "../i18n/context";
 
 type Checked = Pick<Container, "update_policy" | "image_check">;
@@ -51,4 +52,30 @@ export function imageLineChange(container: Pick<Container, "compose_service" | "
 // L'empreinte courte, comme Docker l'écrit.
 export function shortDigest(digest: string): string {
   return digest.replace("sha256:", "").slice(0, 12);
+}
+
+// Le service dont il faut lire le plan de déploiement pour savoir si le
+// bouton « Passer à » paraît : l'unité est déclarée, suivie (watch), et le
+// constat propose un tag plus récent. Une empreinte changée sous le même tag
+// n'en est pas un : `--pull missing` ne la tirerait pas. null : pas de
+// requête à faire.
+export function upgradeServiceID(container: Checked, directory: ContainerDirectory | null): string | null {
+  if (directory === null || !directory.declared || container.update_policy !== "watch") {
+    return null;
+  }
+  const check = container.image_check;
+  if (check === null || check.newer_tag === "" || check.kind === "" || check.kind === "digest") {
+    return null;
+  }
+  return directory.service_id;
+}
+
+// L'offre du bouton : la version que l'agent propose, pour un service qu'un
+// ordre signé a déjà déployé (le plan le dit). Sinon, la carte garde
+// la ligne à copier.
+export function upgradeOffer(container: Checked, directory: ContainerDirectory | null, plan: Pick<DeployPlan, "deployed"> | null): { version: string } | null {
+  if (upgradeServiceID(container, directory) === null || plan === null || !plan.deployed || container.image_check === null) {
+    return null;
+  }
+  return { version: container.image_check.newer_tag };
 }

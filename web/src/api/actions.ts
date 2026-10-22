@@ -7,6 +7,9 @@ import { api, segment } from "./client";
 
 export type ActionState = "queued" | "sent" | "accepted" | "refused" | "succeeded" | "failed" | "expired";
 
+// Un ordre encore en route : un second pour le même service ne part pas avant lui.
+export const inFlightStates: ReadonlySet<ActionState> = new Set<ActionState>(["queued", "sent", "accepted"]);
+
 export interface RunLine {
   at: string;
   stream: string;

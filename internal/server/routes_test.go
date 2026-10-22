@@ -207,7 +207,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	backups.SetParcels(outbox)
 	backups.SetWatcher(bus)
 	backups.SetAuditor(journal)
-	deployer := deploy.New(db, machines, db, actions, logger)
+	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
