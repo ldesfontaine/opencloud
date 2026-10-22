@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -82,8 +85,9 @@ func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *tes
 	want := strings.Join([]string{
 		"useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent",
 		"getent group docker >/dev/null && usermod -aG docker opencloud-agent",
-		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent /var/lib/opencloud-agent/bin",
-		"install -m 0755 -o opencloud-agent -g opencloud-agent /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current",
+		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent",
+		"runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin",
+		"runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current",
 	}, "\n")
 	if plain != want {
 		t.Fatalf("observe alone prepares the account only:\n%s", plain)
@@ -94,11 +98,11 @@ func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *tes
 		t.Fatal(err)
 	}
 	lines := strings.Split(installPreparation(rights, "v0.0.1", false), "\n")
-	folders := lines[4:]
+	folders := lines[5:]
 	wantFolders := []string{
-		"install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy, docker.update, files.write",
-		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive",
-		"install -d -m 0755 -o opencloud-agent -g opencloud-agent /opt/site # files.write",
+		"test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy, docker.update, files.write",
+		"test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive",
+		"test ! -L /opt/site && install -d -m 0755 -o opencloud-agent -g opencloud-agent /opt/site # files.write",
 	}
 	// Un dossier demandé par deux droits n'est préparé qu'une fois.
 	if len(folders) != len(wantFolders) {
@@ -115,39 +119,125 @@ func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *tes
 	}
 }
 
-// Les lignes se collent dans un shell root : rien d'autre que ce qui est
-// prévu n'y passe, et le jeton n'y paraît jamais, même quand les droits portent
-// les chemins les plus larges que le serveur accepte.
-func TestInstallPreparation_CarriesNoShellSyntaxBeyondWhatItWrites(t *testing.T) {
-	rights, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/back_ups-2.0,files.write=/a/b.c:/d_e/f-g:/srv/x")
+// La préparation se rejoue sur une machine dont le compte possède déjà son
+// état (Changer les droits). install -d suit un lien et donne sa cible : si
+// root l'appliquait à bin/, le compte, sans Docker, n'aurait qu'à remplacer
+// bin/ par un lien vers /etc/cron.d pour se le faire donner. Root ne touche donc
+// aucun nom que le compte contrôle : bin/, le binaire, le lien et un dossier de
+// droit sous un dossier du compte se font sous le compte ; un dossier que root
+// donne est d'abord vérifié n'être pas un lien.
+func TestInstallPreparation_RootNeverActsOnWhatTheAccountControls(t *testing.T) {
+	rights, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/backups/nightly,files.write=/srv/workspace/blog/static:/opt/site:/var/lib/opencloud-agent/extra")
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := machine.NewToken("vps", "")
+	accountFolders := []string{"/var/lib/opencloud-agent", "/srv/workspace", "/srv/backups/nightly", "/srv/workspace/blog/static", "/opt/site", "/var/lib/opencloud-agent/extra"}
+	seenNested := false
+	for number, line := range strings.Split(installPreparation(rights, "v0.0.1", false), "\n") {
+		code, _, _ := strings.Cut(line, " # ")
+		for _, command := range strings.Split(code, " && ") {
+			if strings.HasPrefix(command, "runuser -u opencloud-agent -- ") || !strings.Contains(command, "/var/lib/opencloud-agent") && !strings.HasPrefix(command, "install ") {
+				continue
+			}
+			target := command[strings.LastIndex(command, " ")+1:]
+			// root ne crée ni ne donne que l'état lui-même (sous /var/lib, à
+			// root) et des dossiers qui ne sont sous aucun dossier du compte.
+			if target != "/var/lib/opencloud-agent" && insideAny(target, accountFolders) {
+				t.Errorf("line %d: root acts on %s, under a folder of the account: %q", number, target, line)
+			}
+			if strings.Contains(command, "-o opencloud-agent") && target != "/var/lib/opencloud-agent" && !strings.HasPrefix(code, "test ! -L "+target+" && ") {
+				t.Errorf("line %d: root gives %s without checking it is not a link: %q", number, target, line)
+			}
+		}
+		if strings.HasPrefix(line, "runuser -u opencloud-agent -- install -d -m 0755 /srv/workspace/blog/static") {
+			seenNested = true
+		}
+	}
+	if !seenNested {
+		t.Fatal("a right's folder under the services root is made by the account")
+	}
+}
+
+// Les lignes se collent dans un shell root : le shell doit y lire exactement
+// les mots écrits, rien de plus. On les fait lire par un vrai sh, chaque
+// commande remplacée par un témoin qui note ses arguments.
+func TestInstallPreparation_TheShellReadsExactlyTheWrittenWords(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	rights, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/back_ups-2.0,files.write=/a/b.c:/d_e/f-g:/srv/workspace/x")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, local := range []bool{false, true} {
 		preparation := installPreparation(rights, "v0.0.1", local)
-		if strings.Contains(preparation, token) || strings.Contains(preparation, "oc_") {
-			t.Fatalf("the token must never be in the preparation:\n%s", preparation)
+		stubs := t.TempDir()
+		record := filepath.Join(stubs, "record")
+		witness := "#!" + shell + "\nfor word in \"${0##*/}\" \"$@\"; do printf '%s\\n' \"$word\" >> " + record + "; done\nprintf -- '---\\n' >> " + record + "\n"
+		if err := os.WriteFile(filepath.Join(stubs, "witness"), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
+			t.Fatal(err)
 		}
-		for number, line := range strings.Split(preparation, "\n") {
-			code, comment, _ := strings.Cut(line, " # ")
-			// Du code : des mots, des options, des chemins, « && » entre deux
-			// commandes ; la seule redirection est celle de getent.
-			for _, forbidden := range []string{"$", "`", ";", "|", "(", ")", "'", "\"", "\\", "<", "{", "}", "*", "?", "!", "~"} {
-				if strings.Contains(strings.ReplaceAll(code, ">/dev/null", ""), forbidden) {
-					t.Errorf("line %d: %q has %q", number, line, forbidden)
+		for _, name := range []string{"useradd", "getent", "usermod", "install", "runuser", "ln"} {
+			if err := os.Symlink("witness", filepath.Join(stubs, name)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run := exec.Command(shell, "-c", preparation) // #nosec G204 -- le texte que le test juge, lu par un sh dont chaque commande est un témoin.
+		run.Env = []string{"PATH=" + stubs}
+		if output, err := run.CombinedOutput(); err != nil {
+			t.Fatalf("sh: %v %s", err, output)
+		}
+		recorded, err := os.ReadFile(record) // #nosec G304 G703 -- le fichier du témoin, dans le dossier du test.
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want []string
+		for line := range strings.SplitSeq(preparation, "\n") {
+			code, _, _ := strings.Cut(line, " # ")
+			for _, command := range strings.Split(code, " && ") {
+				if strings.HasPrefix(command, "test ") {
+					continue
+				}
+				want = append(want, strings.Fields(strings.ReplaceAll(command, ">/dev/null", ""))...)
+				want = append(want, "---")
+			}
+		}
+		if got := strings.Fields(string(recorded)); !slices.Equal(got, want) {
+			t.Fatalf("the shell read other words than written:\n got %q\nwant %q", got, want)
+		}
+	}
+}
+
+// Un chemin hostile ne passe pas la normalisation des droits ; et même donné
+// tel quel, sans elle, il n'entre pas dans des lignes collées en root. Le jeton
+// n'y paraît jamais.
+func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
+	hostile := []string{"/srv/a;id", "/srv/$(id)", "/srv/a b", "/srv/`id`", "/srv/a\nid", "/srv/a'b", "/srv/a\"b", "/srv/a|id", "/srv/a&id", "/srv/a>b", "/srv/*", "/srv/../etc", "/", "srv/x", "/srv/a\\b", "/srv/~"}
+	for _, path := range hostile {
+		for _, name := range []string{machine.CapabilityBackupReceive, machine.CapabilityFilesWrite} {
+			raw := []machine.Capability{{Name: name, Paths: []string{path}}}
+			if _, err := machine.NormalizeCapabilities(raw); err == nil {
+				t.Errorf("%s=%q passes the normalization", name, path)
+			}
+			for _, local := range []bool{false, true} {
+				// Cinq lignes : le compte et son état, aucun dossier de droit.
+				if preparation := installPreparation(raw, "v0.0.1", local); strings.Count(preparation, "\n") != 4 || path != "/" && strings.Contains(preparation, path) {
+					t.Errorf("%s=%q reaches the preparation:\n%s", name, path, preparation)
 				}
 			}
-			if strings.Count(strings.ReplaceAll(code, "&&", ""), "&") != 0 || strings.Contains(strings.ReplaceAll(code, ">/dev/null", ""), ">") {
-				t.Errorf("line %d: %q has a stray & or >", number, line)
-			}
-			if !regexp.MustCompile(`^[A-Za-z0-9., -]*$`).MatchString(comment) {
-				t.Errorf("line %d: comment %q", number, comment)
-			}
 		}
+	}
+	token, _, err := machine.NewToken("vps", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rights, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/backups,files.write=/opt/site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preparation := installPreparation(rights, "v0.0.1", false); strings.Contains(preparation, token) || strings.Contains(preparation, "oc_") {
+		t.Fatalf("the token must never be in the preparation:\n%s", preparation)
 	}
 }
 

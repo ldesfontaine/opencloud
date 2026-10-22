@@ -185,11 +185,15 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    fabrique (`installPreparation`) et rend avec le jeton (`preparation`), à
    jouer une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
    shell, son dossier personnel est l'état de l'agent), le groupe `docker` s'il
-   existe, l'état et `bin/` à ce compte, le binaire (`/tmp/opencloud` copié par
-   l'opérateur, `/usr/local/bin/opencloud` pour la machine openCloud) posé dans
-   `bin/` sous la version du serveur avec son lien `current`, puis un
-   `install -d` au nom du compte par dossier où un droit coché écrit (la racine
-   des services, le dossier de `backup.receive`, ceux de `files.write`). Ensuite la
+   existe, l'état à ce compte, puis **sous le compte** (`runuser`) `bin/` et le
+   binaire (`/tmp/opencloud` copié par l'opérateur, `/usr/local/bin/opencloud`
+   pour la machine openCloud) posé dans `bin/` sous la version du serveur avec
+   son lien `current`, puis un `install -d` au nom du compte par dossier où un
+   droit coché écrit (la racine des services, le dossier de `backup.receive`,
+   ceux de `files.write`), précédé de `test ! -L` ; un dossier sous un autre
+   dossier du compte se crée sous le compte. Root n'agit ainsi sur aucun nom
+   que le compte contrôle : la ligne se rejoue sur une machine déjà préparée,
+   et `install -d` suit un lien. Ensuite la
    ligne : `printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://… -rights observe,…`
    (`-rights` n'y est que si un droit dépasse `observe`). Le binaire est celui de
    l'état, jamais un lien `/usr/local/bin/opencloud` : root le lancerait, et le

@@ -212,8 +212,9 @@ binaire du serveur, `/usr/local/bin/opencloud` (v0.0.1 : la version que
 # La préparation (une fois) : le compte, son dossier, son binaire
 useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
-install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent /var/lib/opencloud-agent/bin
-install -m 0755 -o opencloud-agent -g opencloud-agent /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
+install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
+runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
 
 # La ligne d'installation de l'écran ; « connected » au journal : Ctrl-C
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org
@@ -243,7 +244,8 @@ lien `/usr/local/bin/opencloud` vers `bin/current`** : ce lien serait lancé par
 root, et le compte de l'agent peut remplacer le binaire qu'il vise (une
 escalade sur une machine sans Docker). Ici de plus,
 `/usr/local/bin/opencloud` est le binaire du serveur, que rien ne met à jour
-seul. Pour lancer `opencloud version` sur l'agent : `/var/lib/opencloud-agent/bin/current version`.
+seul. Pour lancer `opencloud version` sur l'agent, sous son compte, jamais en
+root : `runuser -u opencloud-agent -- /var/lib/opencloud-agent/bin/current version`.
 
 L'agent présente l'empreinte de la machine : c'est celle du serveur, il
 devient **la machine openCloud** (identifiant `local`). La ligne vaut 1 h ;
@@ -957,10 +959,11 @@ la version v0.0.1 donne :
 ```sh
 useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
-install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent /var/lib/opencloud-agent/bin
-install -m 0755 -o opencloud-agent -g opencloud-agent /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
-install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy
-install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive
+install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent
+runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/bin
+runuser -u opencloud-agent -- install -m 0755 /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current
+test ! -L /srv/workspace && install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy
+test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive
 ```
 
 - **Le compte** `opencloud-agent` : un compte système sans shell, qui n'a pas de
@@ -978,7 +981,17 @@ install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.r
   seul (voir [Mettre à jour](#mettre-à-jour)). `v0.0.1` est la version du
   serveur : l'agent doit parler son protocole. Le lien n'est posé que si
   `install` a réussi, pour ne jamais viser un fichier absent. **Pas de lien
-  `/usr/local/bin/opencloud`.**
+  `/usr/local/bin/opencloud`.** `/tmp/opencloud` doit être lisible par le
+  compte (`chmod 0755 /tmp/opencloud` si `install` répond `Permission denied`).
+- **Root ne touche rien de ce que le compte possède.** `bin/`, le binaire et
+  le lien se font sous le compte (`runuser -u opencloud-agent --`), et root ne
+  donne un dossier de droit qu'après avoir vérifié qu'il n'est pas un lien
+  (`test ! -L`) : `install -d` suit un lien et donne sa cible. Sur une machine
+  déjà préparée, un agent compromis aurait pu remplacer `bin/` par un lien vers
+  `/etc/cron.d` ; root qui le « préparerait » le lui donnerait. Un dossier de
+  droit sous un autre dossier du compte (`files.write=/srv/workspace/blog/static`)
+  se crée de même sous le compte. Un dossier de droit qui est un lien n'est
+  pas préparé (la ligne s'arrête au `test`) : donnez au droit le chemin réel.
 - **Une ligne `install -d` par dossier où un droit coché écrit**, au nom du
   compte : la racine des services (`/srv/workspace`) pour `docker.deploy` et
   `docker.update`, le dossier de `backup.receive` en `0700`, ceux de
@@ -986,9 +999,11 @@ install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.r
   aucun. Un droit dont le dossier n'appartient pas au compte est signalé
   « indisponible » sur la fiche, et l'agent refuse l'ordre en le disant
   (`path_denied`) : ne créez pas le dossier à sa place en root.
-- **Sur une machine déjà préparée** (un second jeton, un ré-enrôlement),
-  `useradd` répond que le compte existe : ignorez cette erreur, les lignes
-  suivantes ne dépendent pas de lui. Pour la **machine openCloud**, le binaire
+- **Sur une machine déjà préparée** (un second jeton, un ré-enrôlement,
+  Changer les droits), jouez-la l'agent arrêté (`systemctl stop
+  opencloud-agent`, comme le ré-enrôlement le demande) : `useradd` répond que le
+  compte existe, ignorez cette erreur, les lignes suivantes ne dépendent pas
+  de lui. Pour la **machine openCloud**, le binaire
   est celui du serveur (`/usr/local/bin/opencloud`) et non `/tmp/opencloud` ;
   la page le sait.
 
@@ -1239,16 +1254,17 @@ install -m 0755 opencloud /usr/local/bin/opencloud
 systemctl restart opencloud
 
 # L'agent a son binaire dans son état (bin/), sur la machine openCloud comme
-# ailleurs : depuis la fiche (voir plus bas), ou à la main, au nom du compte
-install -m 0755 -o opencloud-agent -g opencloud-agent opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.2
-ln -sfn opencloud-v0.0.2 /var/lib/opencloud-agent/bin/current
+# ailleurs : depuis la fiche (voir plus bas), ou à la main, sous son compte
+# (bin/ est à lui : root n'y écrit pas). Ailleurs, le binaire copié en /tmp/opencloud.
+runuser -u opencloud-agent -- install -m 0755 /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.2
+runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.2 /var/lib/opencloud-agent/bin/current
 systemctl restart opencloud-agent
 ```
 
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
 le nouveau prend effet au redémarrage. `v0.0.2` est la version installée
 (`opencloud version`). Un agent gardé en root ([Garder l'agent en
-root](#garder-lagent-en-root)) n'a pas besoin de `-o … -g …`. Sur une machine
+root](#garder-lagent-en-root)) : les mêmes lignes sans `runuser -u opencloud-agent --`. Sur une machine
 que l'agent met à jour seul, le binaire de `bin/` n'a pas de lien
 `/usr/local/bin/opencloud`. Sur la machine openCloud, `/usr/local/bin/opencloud`
 est le binaire du serveur (le premier `install` ci-dessus) : la copie de
@@ -1309,7 +1325,7 @@ deux d'un coup.
 plus ancienne (l'agent la refuserait aussi). À la main, sur la machine :
 
 ```sh
-ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current   # la précédente
+runuser -u opencloud-agent -- ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current   # la précédente
 systemctl restart opencloud-agent
 ```
 
@@ -1468,7 +1484,7 @@ le rang des ordres sont gardés : **pas de ré-enrôlement**. Pour rester en roo
 systemctl cat opencloud-agent | grep '^ExecStart='   # notez les options (-allow-plain, -ca-file, -docker-socket)
 systemctl stop opencloud-agent
 
-# Le compte, et son groupe docker s'il y a Docker
+# Le compte, et son groupe docker s'il y a Docker (rejouée : « already exists », ignorez)
 useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent
 getent group docker >/dev/null && usermod -aG docker opencloud-agent
 
@@ -1477,22 +1493,25 @@ test ! -L /var/lib/opencloud-agent && chown -hR opencloud-agent:opencloud-agent 
 
 # La racine des services, si docker.deploy ou docker.update : sans -R
 # (une racine de -root-dir : son chemin à la place de /srv/workspace)
-test -d /srv/workspace && chown -h opencloud-agent:opencloud-agent /srv/workspace
+test -d /srv/workspace && test ! -L /srv/workspace && chown -h opencloud-agent:opencloud-agent /srv/workspace
 test -e /srv/workspace/.opencloud && chown -h opencloud-agent:opencloud-agent /srv/workspace/.opencloud
-# Chaque service déployé par openCloud (ls /srv/workspace) : blog et site2 ici
+# Chaque service déployé par openCloud (ls /srv/workspace) : blog et site2 ici.
+# Un service qui est un lien est sauté : chown passerait par lui.
 for project in blog site2; do
-  chown -h opencloud-agent:opencloud-agent "/srv/workspace/$project" "/srv/workspace/$project/compose.yml"
-  test -e "/srv/workspace/$project/.env" && chown -h opencloud-agent:opencloud-agent "/srv/workspace/$project/.env"
-  test -d "/srv/workspace/$project/data" && chown -h opencloud-agent:opencloud-agent "/srv/workspace/$project/data"
+  dir="/srv/workspace/$project"
+  test -d "$dir" && test ! -L "$dir" || continue
+  chown -h opencloud-agent:opencloud-agent "$dir" "$dir/compose.yml"
+  test -e "$dir/.env" && chown -h opencloud-agent:opencloud-agent "$dir/.env"
+  test -d "$dir/data" && chown -h opencloud-agent:opencloud-agent "$dir/data"
 done
 
 # Le dossier des sauvegardes (backup.receive) : tout ce qu'il contient vient de l'agent
 test ! -L /srv/backups && chown -hR opencloud-agent:opencloud-agent /srv/backups
 # Chaque dossier de files.write : le dossier lui-même, pas son contenu
-chown -h opencloud-agent:opencloud-agent /opt/site
+test ! -L /opt/site && chown -h opencloud-agent:opencloud-agent /opt/site
 
-# Le lien /usr/local/bin/opencloud → bin/current, s'il existe (jamais le binaire du serveur)
-test "$(readlink /usr/local/bin/opencloud)" = /var/lib/opencloud-agent/bin/current && rm /usr/local/bin/opencloud
+# Le lien /usr/local/bin/opencloud qui mène dans l'état de l'agent, s'il existe (jamais le binaire du serveur)
+case "$(readlink -f /usr/local/bin/opencloud)" in /var/lib/opencloud-agent/*) rm /usr/local/bin/opencloud ;; esac
 
 # L'unité (sous le compte). S'il y avait des options à reporter, décommentez le sed
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
@@ -1509,6 +1528,14 @@ droit n'y est « indisponible ». Adaptez la liste à l'agent : les noms de la
 boucle `for` sont vos services, un `chown` par dossier de `files.write`, rien
 pour un droit que l'agent n'a pas.
 
+**Aucune ligne ne suit un lien**, et la procédure se rejoue sans risque (sur
+une machine déjà passée, elle ne change rien) : `chown -h` change le lien
+lui-même, `chown -hR` ne descend dans aucun, et un dossier qui est un lien est
+sauté (`test ! -L`). Un dossier ainsi sauté reste à son propriétaire : la
+fiche le dira (`path_denied`). Un dossier de sauvegardes sur un montage NFS
+(`root_squash`) ou CIFS refuse `chown` : donnez-le au compte du côté du serveur
+de fichiers, ou par les options du montage (`uid=`, `gid=`).
+
 **Pourquoi pas `chown -R /srv/workspace`.** Le dossier `data/<unité>` d'un
 service appartient souvent à l'UID du conteneur (Postgres : 999) : le reprendre
 casserait le service. L'agent n'a besoin que d'**écrire** ce qu'il réécrit (le
@@ -1521,9 +1548,10 @@ pour masquer sa sortie). `data/<unité>` reste à qui il est. Si votre
 **Pourquoi le lien `/usr/local/bin/opencloud` s'en va.** Root qui lancerait
 `opencloud` exécuterait `bin/current`, que le compte de l'agent peut
 remplacer : sur une machine sans Docker, une escalade. Le test du `readlink`
-ne retire que ce lien ; sur la machine openCloud, `/usr/local/bin/opencloud`
-est un fichier, le binaire du serveur, et il reste. Pour une commande sur le
-binaire de l'agent : `/var/lib/opencloud-agent/bin/current version`.
+ne retire qu'un lien qui mène dans l'état de l'agent ; sur la machine
+openCloud, `/usr/local/bin/opencloud` est un fichier, le binaire du serveur, et
+il reste. Pour une commande sur le binaire de l'agent, sous son compte :
+`runuser -u opencloud-agent -- /var/lib/opencloud-agent/bin/current version`.
 
 **Les identifiants d'un registre privé** se refont sous le compte :
 `runuser -u opencloud-agent -- docker login <registre>`. Ceux de
@@ -1535,7 +1563,8 @@ dans `/root/.docker/cli-plugins`.
 root](#garder-lagent-en-root), `systemctl daemon-reload && systemctl restart
 opencloud-agent`. `StateDirectory=` repasse l'état à root, récursivement ; les
 dossiers des droits (services, sauvegardes) restent au compte `opencloud-agent`,
-que root lit et écrit sans difficulté.
+que root lit et écrit sans difficulté. Pour ne rien laisser au compte : les
+mêmes `chown -h`, à `root:root`, puis `userdel opencloud-agent`.
 
 ## Sauvegarder et restaurer
 
@@ -1971,7 +2000,7 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | `secrets finish-server-key` : « ces machines ont encore la clé précédente » | Leur agent ne s'est pas reconnecté depuis la rotation | Attendre leur connexion (redémarrer l'agent au besoin), ou `-force` et les ré-enrôler |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |
 | « L'agent n'a pas le droit de lire la socket Docker de cette machine. » (`docker_denied`) | Le compte de l'agent n'est pas dans le groupe `docker`, ou y a été mis après le démarrage de l'agent : un groupe se lit au démarrage du processus | `usermod -aG docker opencloud-agent` puis `systemctl restart opencloud-agent`. Le groupe `docker` équivaut à root ([ce que cela donne](#le-groupe-docker-équivaut-à-root)) ; sinon, [garder l'agent en root](#garder-lagent-en-root) |
-| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) | `path_denied` : `chown opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` |
+| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) | `path_denied` : `chown -h opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` |
 | « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `-docker-socket` ne vise pas la bonne socket | Corriger le chemin dans l'unité de l'agent |
 | La machine openCloud reste hors ligne, sans mesures | Son agent n'est pas installé (installation d'avant les agents, ou ligne de la première configuration pas jouée) | Machines → la machine openCloud → Ré-enrôler, et jouer la ligne sur elle |
 | Agent : « Enrôlement refusé : cette machine est la machine openCloud, et elle a déjà un agent actif. » | Une ligne d'Ajouter une machine jouée sur la machine openCloud, qui a déjà son agent | Ré-enrôler la machine openCloud depuis sa fiche ; le jeton sert à une autre machine |

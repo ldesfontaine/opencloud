@@ -289,25 +289,54 @@ func installCommand(publicURL, token string, code lang.Code, capabilities []mach
 // Jamais le jeton. useradd échoue sur un compte qui existe : sans effet sur
 // les lignes suivantes, qui ne dépendent pas de lui. Le lien current ne bouge
 // que si le binaire a été posé, pour ne jamais viser un fichier absent.
+//
+// La ligne se rejoue sur une machine déjà préparée (Changer les droits), où le
+// compte possède son état et peut-être un agent compromis : root n'y agit
+// jamais sur un nom que le compte contrôle. install -d suit un lien et donne
+// sa cible ; bin/, le binaire et un dossier de droit sous un dossier du
+// compte se font donc sous le compte (runuser), et un dossier de droit que
+// root donne est d'abord vérifié n'être pas un lien.
 func installPreparation(capabilities []machine.Capability, number string, local bool) string {
 	account := brand.AgentAccount
 	owner := "-o " + account + " -g " + account
+	asAccount := "runuser -u " + account + " -- "
 	source := "/tmp/" + brand.Command
 	if local {
 		source = "/usr/local/bin/" + brand.Command
 	}
-	binary := brand.AgentStateDir + "/" + brand.AgentBinDir + "/" + brand.AgentBinaryPrefix + number
+	binDir := brand.AgentStateDir + "/" + brand.AgentBinDir
+	binaryName := brand.AgentBinaryPrefix + number
 	lines := []string{
 		"useradd --system --home-dir " + brand.AgentStateDir + " --shell /usr/sbin/nologin " + account,
 		"getent group docker >/dev/null && usermod -aG docker " + account,
-		"install -d -m 0700 " + owner + " " + brand.AgentStateDir + " " + brand.AgentStateDir + "/" + brand.AgentBinDir,
-		"install -m 0755 " + owner + " " + source + " " + binary +
-			" && ln -sfn " + brand.AgentBinaryPrefix + number + " " + brand.AgentStateDir + "/" + brand.AgentBinDir + "/" + brand.AgentCurrentLink,
+		"install -d -m 0700 " + owner + " " + brand.AgentStateDir,
+		asAccount + "install -d -m 0700 " + binDir,
+		asAccount + "install -m 0755 " + source + " " + binDir + "/" + binaryName +
+			" && " + asAccount + "ln -sfn " + binaryName + " " + binDir + "/" + brand.AgentCurrentLink,
 	}
-	for _, folder := range writtenFolders(capabilities) {
-		lines = append(lines, "install -d -m "+folder.mode+" "+owner+" "+folder.path+" # "+strings.Join(folder.rights, ", "))
+	folders := writtenFolders(capabilities)
+	accountFolders := []string{brand.AgentStateDir}
+	for _, folder := range folders {
+		accountFolders = append(accountFolders, folder.path)
 	}
-	return strings.Join(lines, "\n")
+	// Un dossier sous un autre dossier du compte vient après lui, sous le compte.
+	var nested []string
+	for _, folder := range folders {
+		comment := " # " + strings.Join(folder.rights, ", ")
+		if insideAny(folder.path, accountFolders) {
+			nested = append(nested, asAccount+"install -d -m "+folder.mode+" "+folder.path+comment)
+			continue
+		}
+		lines = append(lines, "test ! -L "+folder.path+" && install -d -m "+folder.mode+" "+owner+" "+folder.path+comment)
+	}
+	return strings.Join(append(lines, nested...), "\n")
+}
+
+// insideAny dit si path est sous l'un des dossiers (pas l'un d'eux).
+func insideAny(path string, folders []string) bool {
+	return slices.ContainsFunc(folders, func(folder string) bool {
+		return strings.HasPrefix(path, folder+"/")
+	})
 }
 
 // Un dossier où un droit coché écrit, avec le mode que l'agent lui donne et
@@ -325,6 +354,11 @@ type writtenFolder struct {
 func writtenFolders(capabilities []machine.Capability) []writtenFolder {
 	var folders []writtenFolder
 	add := func(path, mode, right string) {
+		// Les droits viennent normalisés ; un chemin qui ne l'est pas ne
+		// s'écrit pas dans des lignes qu'on colle en root.
+		if !machine.ValidCapabilityPath(path) {
+			return
+		}
 		for index := range folders {
 			if folders[index].path == path {
 				if !slices.Contains(folders[index].rights, right) {
