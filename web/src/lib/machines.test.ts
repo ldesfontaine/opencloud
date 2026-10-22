@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unitDropIn, unitWritePaths } from "./machines";
+import { capabilitiesOf, capabilityLabelKey, describeCapability, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -44,6 +44,17 @@ test("rightsFormOf : les droits d'un agent reviennent cochés, chemins compris, 
   const values = rightsFormOf(requested);
   expect(values).toEqual({ rights: ["agent.update", "files.write"], backupPath: "", writePaths: "/opt/site, /srv/workspace" });
   expect(capabilitiesOf(values)).toEqual(requested.slice(1));
+});
+
+test("probe.lan : coché dans le formulaire neuf, jamais coché pour un agent qui ne l'a pas demandé", () => {
+  expect(emptyMachineForm.rights).toEqual(["probe.lan"]);
+  expect(capabilitiesOf(emptyMachineForm)).toEqual([{ name: "probe.lan", paths: [] }]);
+  expect(capabilityLabelKey("probe.lan")).toBe("machine.capability_probe_lan");
+  expect(rightsFormOf([{ name: "observe", paths: [] }]).rights).toEqual([]);
+  const both = rightsFormOf([{ name: "observe", paths: [] }, { name: "probe.lan", paths: [] }, { name: "agent.update", paths: [] }]);
+  expect(both.rights).toEqual(["probe.lan", "agent.update"]);
+  // Décoché, il part de la requête : le serveur ne l'ajoute pas de lui-même.
+  expect(capabilitiesOf({ ...emptyMachineForm, rights: [] })).toEqual([]);
 });
 
 test("unitWritePaths : les droits de sauvegarde et de déploiement écrivent hors de l'état", () => {

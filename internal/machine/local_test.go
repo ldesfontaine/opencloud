@@ -81,8 +81,8 @@ func TestEnroll_FromTheServerMachine_TakesTheStableID(t *testing.T) {
 }
 
 // Tant que la machine openCloud n'a jamais eu d'agent, le serveur offre la
-// ligne qui l'installe : la même tant qu'elle attend, observe seul, nommée
-// d'après le nom d'hôte. Une fois l'agent enrôlé, plus rien n'est offert.
+// ligne qui l'installe : la même tant qu'elle attend, avec observe et
+// probe.lan, nommée d'après le nom d'hôte. Une fois l'agent enrôlé, plus rien n'est offert.
 func TestOfferLocalEnrollment_UntilTheServerMachineHasAnAgent(t *testing.T) {
 	ctx := context.Background()
 	machines := newMachines(t)
@@ -90,7 +90,7 @@ func TestOfferLocalEnrollment_UntilTheServerMachineHasAnAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token.Name != "oc-host" || token.MachineID != "" || machine.FormatCapabilities(token.Capabilities) != machine.CapabilityObserve {
+	if token.Name != "oc-host" || token.MachineID != "" || machine.FormatCapabilities(token.Capabilities) != "observe,probe.lan" {
 		t.Fatalf("offered token %+v", token)
 	}
 	again, sameToken, err := machines.OfferLocalEnrollment(ctx)

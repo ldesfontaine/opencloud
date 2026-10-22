@@ -36,6 +36,7 @@ type bench struct {
 	serverKey *action.Key
 	db        *store.DB
 	resources *resource.Service
+	probes    *probe.Service
 	stateDir  *os.Root
 	logger    *slog.Logger
 }
@@ -63,6 +64,7 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	actions.SetCommander(handler)
+	probes.SetCommander(handler)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	agentRoot, err := os.OpenRoot(t.TempDir())
@@ -70,7 +72,7 @@ func newBench(t *testing.T) *bench {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { agentRoot.Close() })
-	return &bench{url: server.URL, machines: machines, actions: actions, serverKey: serverKey, db: db, resources: resources, stateDir: agentRoot, logger: logger}
+	return &bench{url: server.URL, machines: machines, actions: actions, serverKey: serverKey, db: db, resources: resources, probes: probes, stateDir: agentRoot, logger: logger}
 }
 
 // Une borne large : elle ne sert qu'à ne pas bloquer la CI si le code est

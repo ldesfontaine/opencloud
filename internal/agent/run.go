@@ -147,7 +147,11 @@ func Run(ctx context.Context, opts Options) error {
 	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
 	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
 	checked := &results{}
-	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
+	// Le réseau local ne s'ouvre aux sondes que par probe.lan, lu une fois
+	// ici : changer le droit, c'est ré-enrôler. Un état mal gardé n'a que
+	// observe, donc le ferme aussi.
+	allowLAN := machine.HasCapability(identity.Capabilities(), machine.CapabilityProbeLAN)
+	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots, allowLAN), opts.Logger)
 	go prober.Run(ctx)
 	// Les ordres signés : jugés et exécutés à leur arrivée, leurs résultats
 	// attendent le signal suivant, qu'ils avancent.

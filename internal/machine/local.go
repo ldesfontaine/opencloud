@@ -50,7 +50,8 @@ type localOffer struct {
 
 // OfferLocalEnrollment rend le jeton de l'agent de la machine openCloud, tant
 // qu'elle n'a jamais eu d'agent : celui déjà offert s'il attend encore, sinon
-// un neuf, avec observe seul. Un jeton de ré-enrôlement si sa ligne existe
+// un neuf, avec observe et probe.lan : une sonde de la machine openCloud vise
+// d'abord ses propres services. Un jeton de ré-enrôlement si sa ligne existe
 // (une base d'avant les agents), un jeton de machine neuve, nommée d'après
 // le nom d'hôte, sinon : l'empreinte la rattache à LocalID. ErrLocalEnrolled
 // quand elle a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de
@@ -69,12 +70,12 @@ func (s *Service) OfferLocalEnrollment(ctx context.Context) (string, Token, erro
 	if live, err := s.isPending(ctx, s.offer.token); err != nil || live {
 		return s.offer.cleartext, s.offer.token, err
 	}
-	observeOnly := []Capability{{Name: CapabilityObserve}}
+	rights := []Capability{{Name: CapabilityObserve}, {Name: CapabilityProbeLAN}}
 	name, machineID := s.localMachineName(), ""
 	if hasRow {
 		name, machineID = existing.Name, LocalID
 	}
-	cleartext, token, err := s.issueToken(ctx, name, machineID, observeOnly)
+	cleartext, token, err := s.issueToken(ctx, name, machineID, rights)
 	if err != nil {
 		return "", Token{}, err
 	}

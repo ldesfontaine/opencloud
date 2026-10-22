@@ -53,10 +53,15 @@ func (r *Runner) Run(ctx context.Context) {
 // Assign remplace le jeu de sondes : ce qui n'y est plus s'arrête, ce qui
 // a changé repart, ce qui est identique continue. Un jeu reçu avant le
 // démarrage attend celui-ci. Le jeu se nettoie d'abord (Sanitize) ; Assign
-// rend le nombre de tâches écartées, dites une à une dans le journal.
+// rend le nombre de tâches écartées, dites une à une dans le journal et,
+// quand elles ont un identifiant que le serveur reconnaîtra, rapportées
+// comme un essai « refusée par l'agent » : l'opérateur le lit sur la sonde.
 func (r *Runner) Assign(assignment Assignment) int {
 	kept, dropped := Sanitize(assignment.Probes)
 	r.logDropped(dropped)
+	if refused := refusedResults(kept, dropped, time.Now()); len(refused) > 0 {
+		r.sink.Deliver(Report{Results: refused})
+	}
 	r.mu.Lock()
 	r.wanted = kept
 	started := r.ctx != nil

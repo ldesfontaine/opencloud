@@ -76,6 +76,11 @@ const (
 	ReasonTLSUntrusted Reason = "tls_untrusted"
 	ReasonTLSExpired   Reason = "tls_expired"
 	ReasonTLSHostname  Reason = "tls_hostname"
+	// ReasonLAN : la cible est sur le réseau local et l'agent n'a pas le
+	// droit probe.lan. ReasonAgentRefused : l'agent a écarté la sonde à
+	// l'assignation, sans l'essayer (Runner.Assign).
+	ReasonLAN          Reason = "lan"
+	ReasonAgentRefused Reason = "agent_refused"
 )
 
 // Reasons liste les motifs d'échec ; le motif vide, celui d'un succès,
@@ -84,6 +89,7 @@ func Reasons() []Reason {
 	return []Reason{
 		ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonAddress,
 		ReasonStatus, ReasonBody, ReasonRedirect, ReasonTLSUntrusted, ReasonTLSExpired, ReasonTLSHostname,
+		ReasonLAN, ReasonAgentRefused,
 	}
 }
 

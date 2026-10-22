@@ -854,20 +854,25 @@ journal d'audit :
 
 Dans l'interface : Machines → **Ajouter une machine**, un nom en lettres
 minuscules, chiffres et tirets, et les **droits** de l'agent à cocher.
-openCloud affiche une seule fois la commande à coller :
+openCloud affiche une seule fois la commande à coller. Avec les droits par
+défaut (`probe.lan` coché, voir ci-dessous), elle porte `-rights` :
 
 ```sh
-printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org -rights observe,probe.lan
 ```
 
-Les droits : `observe` (toujours, la case est grisée), mettre à jour
-l'agent, déployer un service Docker, mettre à jour un service Docker,
+Les droits : `observe` (toujours, la case est grisée), sonder le réseau
+local (`probe.lan`, **coché par défaut** : sans lui, les sondes de cette
+machine refusent de composer vers la boucle locale, les adresses privées et
+`100.64.0.0/10`, et tombent « Hors ligne » avec le motif « adresse du réseau
+local » ; décochez-le pour une machine dont les sondes ne doivent viser que
+l'extérieur), mettre à jour l'agent, déployer un service Docker, mettre à jour un service Docker,
 recevoir des sauvegardes dans un dossier, écrire des fichiers dans des
 dossiers (un à huit chemins absolus, séparés par des virgules). Au-delà de
 `observe`, la commande les porte en clair, à lire avant de coller :
 
 ```sh
-printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org -rights observe,agent.update,files.write=/srv/workspace
+printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org -rights observe,probe.lan,agent.update,files.write=/srv/workspace
 ```
 
 Ils s'écrivent dans `identity.json`, la fiche de la machine les montre, et
@@ -1115,6 +1120,14 @@ n'utilisez pas `install` sur `/usr/local/bin/opencloud` : c'est un lien vers
 `bin/current`, `install` le remplacerait par une copie qui ne suivrait plus.
 Sur la machine openCloud, `/usr/local/bin/opencloud` est le binaire du serveur
 (le premier `install` ci-dessus) : la copie de l'agent est à part, dans `bin/`.
+
+**Un agent enrôlé avant le droit `probe.lan` ne l'a pas.** Une fois son
+binaire à jour, ses sondes vers le réseau local (boucle locale, adresses
+privées, `100.64.0.0/10`) tombent « Hors ligne · adresse du réseau local »
+(et ouvrent l'alerte de sonde, comme toute sonde qui tombe) jusqu'à ce que
+vous lui donniez le droit : fiche › Agent › **Changer les droits**, cochez
+« Sonder le réseau local », rejouez la ligne sur la machine (la machine et son
+historique restent). Rien n'est coché à votre place.
 
 ### Mettre à jour les agents depuis openCloud
 

@@ -31,7 +31,9 @@ export interface MachineFormValues extends RightsValues {
   name: string;
 }
 
-export const emptyMachineForm: MachineFormValues = { name: "", rights: [], backupPath: "", writePaths: "" };
+// probe.lan est coché d'emblée : les sondes d'une machine visent d'abord son
+// réseau local ; l'opérateur le décoche s'il veut les en empêcher.
+export const emptyMachineForm: MachineFormValues = { name: "", rights: ["probe.lan"], backupPath: "", writePaths: "" };
 
 // Les droits d'un agent en valeurs du formulaire : ce que son jeton
 // demandait, pour les changer.
@@ -76,7 +78,7 @@ export function unitDropIn(paths: string[]): string {
 }
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.
-export const capabilityNames = ["observe", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
+export const capabilityNames = ["observe", "probe.lan", "agent.update", "docker.deploy", "docker.update", "backup.receive", "files.write"] as const;
 
 // observe est toujours accordé : la case se montre cochée et grisée.
 export const alwaysGranted = "observe";
