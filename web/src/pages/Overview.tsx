@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 
-import { useAlerts } from "../api/alerts";
+import { useAlerts, type AlertsResponse } from "../api/alerts";
 import { useCounts, type Counts } from "../api/counts";
 import { useMachines } from "../api/machines";
 import { useCurrentResources } from "../api/resources";
@@ -10,7 +11,7 @@ import { List } from "../components/Table";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
-import { Pill, OnlinePill } from "../components/Pill";
+import { OnlinePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
@@ -21,41 +22,48 @@ import "./Overview.scss";
 
 const alertsShown = 3;
 
-// La carte Alertes : le compte des ouvertes en pastille, les trois
-// premières avec leur fait et leur cause, le reste par le lien.
-function AlertsCard() {
+// La tuile Alertes : le nombre d'ouvertes, et ce qui reste à acquitter. Elle
+// mène à la liste, et remplace l'ancienne rangée qui s'affichait même à zéro.
+function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
   const t = useT();
-  const alerts = useAlerts();
-  if (!alerts.data) {
+  const counts = alerts?.counts;
+  let foot: ReactNode = "–";
+  if (counts) {
+    if (counts.open === 0) {
+      foot = t("alerts.overview_none");
+    } else if (counts.unacknowledged > 0) {
+      foot = <b className="danger">{t("overview.alerts_unacknowledged", counts.unacknowledged)}</b>;
+    } else {
+      foot = t("overview.alerts_acknowledged");
+    }
+  }
+  return (
+    <Link className="stat-link" to="/alertes">
+      <Stat compact icon="bell" label={t("alerts.title")} value={counts?.open ?? "–"} foot={foot} />
+    </Link>
+  );
+}
+
+// Les trois premières alertes ouvertes avec leur fait et leur cause, le reste
+// par le lien. Sans alerte ouverte il n'y a rien à lister : la tuile le dit.
+function AlertsList({ alerts }: { alerts: AlertsResponse | null }) {
+  const t = useT();
+  if (!alerts || alerts.counts.open === 0) {
     return null;
   }
-  const open = alerts.data.counts.open;
   return (
-    <div className="overview-machines overview-alerts">
+    <div className="overview-block overview-alerts">
       <div className="overview-head">
-        <span className="cluster">
-          <span className="card-t">{t("alerts.title")}</span>
-          {open > 0 ? (
-            <Pill tone={alerts.data.counts.unacknowledged > 0 ? "danger" : "accent"} dot={false}>
-              {t("alerts.overview_open", open)}
-            </Pill>
-          ) : (
-            <Pill tone="ok" dot={false}>
-              {t("alerts.overview_none")}
-            </Pill>
-          )}
-        </span>
+        <span className="card-t">{t("alerts.title")}</span>
         <Link to="/alertes">{t("alerts.overview_see_all")}</Link>
       </div>
-      {open > 0 && (
-        <Card>
-          <List>
-            {alerts.data.alerts.slice(0, alertsShown).map((alert) => (
-              <AlertRow key={alert.id} alert={alert} compact />
-            ))}
-          </List>
-        </Card>
-      )}
+      <Card>
+        <List>
+          {alerts.alerts.slice(0, alertsShown).map((alert) => (
+            <AlertRow key={alert.id} alert={alert} compact />
+          ))}
+        </List>
+      </Card>
     </div>
   );
 }
@@ -89,21 +97,23 @@ function DomainsFoot({ counts }: { counts: Counts }) {
   return <>{t("overview.probes_ok")}</>;
 }
 
-// La vue d'ensemble compte les machines, les conteneurs, les sondes et les
-// tâches, dessine le réseau de
-// toutes les machines, puis montre chaque machine en carte avec ses trois
-// jauges ; sans machine, elle invite à en ajouter une.
+// La vue d'ensemble tient sur un écran de portable : une bande de cinq
+// tuiles (machines, conteneurs, sondes, tâches, alertes), les alertes
+// ouvertes s'il y en a, le réseau de toutes les machines mis à l'échelle,
+// puis une rangée de cartes de machine serrées avec leurs trois jauges ;
+// sans machine, elle invite à en ajouter une.
 export function Overview() {
   const t = useT();
   const now = useNow();
   const machines = useMachines();
   const counts = useCounts();
+  const alerts = useAlerts();
   const resources = useCurrentResources();
   const list = machines.data?.machines ?? [];
   const online = list.filter((machine) => machine.online).length;
   const currentOf = (machineID: string) => resources.data?.machines.find((current) => current.machine_id === machineID);
   return (
-    <>
+    <div className="overview-page">
       <PageHead
         title={t("nav.overview")}
         subtitle={machines.data ? machinesSubtitle(t, list.length, online) : ""}
@@ -119,9 +129,10 @@ export function Overview() {
       )}
       {machines.data && list.length > 0 && (
         <>
-          <div className="grid-4">
-            <Stat icon="server" label={t("nav.machines")} value={list.length} foot={<b>{t("overview.online", online)}</b>} />
+          <div className="overview-stats">
+            <Stat compact icon="server" label={t("nav.machines")} value={list.length} foot={<b>{t("overview.online", online)}</b>} />
             <Stat
+              compact
               icon="box"
               label={t("services.tab_containers")}
               value={counts.data?.containers.total ?? "–"}
@@ -138,12 +149,14 @@ export function Overview() {
               }
             />
             <Stat
+              compact
               icon="globe"
               label={t("nav.domains")}
               value={counts.data?.probes.total ?? "–"}
               foot={counts.data ? <DomainsFoot counts={counts.data} /> : "–"}
             />
             <Stat
+              compact
               icon="clock"
               label={t("nav.jobs")}
               value={counts.data?.jobs.total ?? "–"}
@@ -155,36 +168,37 @@ export function Overview() {
                 )
               }
             />
+            <AlertsTile alerts={alerts.data} />
           </div>
-          <AlertsCard />
-          <div className="overview-machines">
+          <AlertsList alerts={alerts.data} />
+          <div className="overview-block">
             <div className="overview-head">
               <span className="card-t">{t("tab.network")}</span>
               {list.length === 1 && list[0] !== undefined && <Link to={`/machines/${list[0].id}/reseau`}>{t("network.overview_detail")}</Link>}
             </div>
             <NetworkOverview />
           </div>
-          <div className="overview-machines">
+          <div className="overview-block">
             <div className="overview-head">
               <span className="card-t">{t("nav.machines")}</span>
               <Link to="/machines">{t("overview.see_all")}</Link>
             </div>
-            <div className="grid-3">
+            <div className="overview-machines-grid">
               {list.map((machine) => (
                 <Link className="card machine-card" key={machine.id} to={`/machines/${machine.id}`}>
-                  <div className="card-h">
+                  <div className="machine-card-head">
                     <span className="machine-card-title">
                       <span className="card-t">{machine.name}</span>
-                      <span className="mono muted">{machine.address !== "" ? machine.address : machine.os}</span>
+                      <span className="mono muted" title={machine.address !== "" ? machine.address : machine.os}>
+                        {machine.address !== "" ? machine.address : machine.os}
+                      </span>
                     </span>
                     <OnlinePill online={machine.online} />
                   </div>
-                  <div className="card-b">
-                    <MachineMeters current={currentOf(machine.id)} />
-                    <div className="kv">
-                      <span className="k">{machine.os}</span>
-                      <span className="secondary">{machineSeen(t, machine, now)}</span>
-                    </div>
+                  <MachineMeters current={currentOf(machine.id)} />
+                  <div className="machine-card-foot secondary">
+                    <span>{machine.os}</span>
+                    <span>{machineSeen(t, machine, now)}</span>
                   </div>
                 </Link>
               ))}
@@ -192,6 +206,6 @@ export function Overview() {
           </div>
         </>
       )}
-    </>
+    </div>
   );
 }

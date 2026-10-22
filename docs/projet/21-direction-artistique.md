@@ -89,7 +89,10 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
   et Réglages viendront avec leur écran.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
-  de contexte.
+  de contexte. Variante **compacte** (`Stat compact`, environ 60 px au lieu de
+  125) : la valeur à 20 px, l'étiquette et le contexte l'un sous l'autre à sa
+  droite, sans jauge. Pour une bande de chiffres en tête de page (la vue
+  d'ensemble) ; une tuile qui porte une jauge garde la forme pleine.
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
@@ -108,7 +111,11 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de
-  300 px à droite.
+  300 px à droite. Sur la vue d'ensemble, une version compacte sans zoom :
+  nœuds de 148 px, un cadre en pointillé par machine, cadres empilés ou côte
+  à côte selon la largeur (le rangement qui garde le plus grand texte dans
+  240 px de haut), réduite pour tenir sur un écran de portable mais jamais
+  sous 10 px de texte rendu.
 - **Info-bulle** : fond encre, texte 12 px, pour le détail qu'on ne veut pas à
   l'écran.
 
