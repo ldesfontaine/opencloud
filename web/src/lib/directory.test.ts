@@ -28,7 +28,6 @@ function nextcloud(): DeclaredService {
     compose_project: "nextcloud",
     public_url: "https://cloud.exemple.fr",
     declared_by: "operator",
-    needs_review: false,
     provides: [],
     units: [
       { id: "unit_1", name: "app", kind: "container", image: "nextcloud", version: "29.0.4", digest: "", container_name: "", systemd_unit: "", ports: ["8080:80", "443/tcp"], update_policy: "hold" },

@@ -18,8 +18,6 @@ import (
 type Annotations struct {
 	// En tête du fichier ; une ligne par ligne du texte, sans le « # ».
 	Header string
-	// Au-dessus d'un service « à vérifier ».
-	NeedsReview string
 	// Au-dessus d'un service que l'export propose, et d'une unité qu'il
 	// ajoute à un service déclaré : ils viennent de conteneurs non déclarés,
 	// l'opérateur les relit avant d'appliquer.
@@ -188,9 +186,6 @@ func serviceNodes(services []Service, annotations Annotations) []*yaml.Node {
 	nodes := make([]*yaml.Node, 0, len(services))
 	for _, item := range services {
 		entry := block()
-		if item.NeedsReview {
-			entry.HeadComment = annotations.NeedsReview
-		}
 		if item.Proposed {
 			entry.HeadComment = annotations.Proposed
 		}

@@ -172,8 +172,7 @@ erDiagram
         TEXT machine_id FK
         TEXT nature "application ou infra, libelle provisoire"
         TEXT origin "deployed, compose, container, binary"
-        TEXT declared_by "operator, migration, discovery"
-        INTEGER needs_review "a verifier, jamais bloquant"
+        TEXT declared_by "operator, discovery plus tard"
         TEXT compose_project "niveau 2"
         TEXT public_url
         INTEGER protected "1 par defaut"
@@ -984,8 +983,9 @@ Le texte de chaque décision est dans [`23-direction.md`](23-direction.md).
 Les six propositions que le modèle ajoutait ont été tranchées par Lucas le
 17 octobre 2026, une par une : voir
 [23-direction.md, « Propositions du modèle »](23-direction.md#propositions-du-modèle).
-Ce document en tient compte : nom unique par machine, `declared_by` et
-`needs_review` sur le service déclaré.
+Ce document en tient compte : nom unique par machine, `declared_by` sur
+le service déclaré ; « à vérifier » a été retiré le 21 octobre 2026
+(section 17).
 
 ## 6. Ce que l'annuaire (1/5) a fixé
 
@@ -994,12 +994,12 @@ tranché en l'écrivant, et que les migrations suivantes prolongent :
 
 | Décision | Pourquoi |
 | --- | --- |
-| Pas de `CHECK` sur la nature, l'origine, `declared_by` et le genre d'unité ; le code valide, la liste est exposée (`Natures()`, `Origins()`, `Provenances()`, `Capabilities()`) et un test exige la clé de catalogue de chaque valeur | SQLite ne modifie pas un `CHECK` sans reconstruire la table ; les listes grandiront (`deployed`, `discovery`). `needs_review` garde son `CHECK 0/1` |
+| Pas de `CHECK` sur la nature, l'origine, `declared_by` et le genre d'unité ; le code valide, la liste est exposée (`Natures()`, `Origins()`, `Provenances()`, `Capabilities()`) et un test exige la clé de catalogue de chaque valeur | SQLite ne modifie pas un `CHECK` sans reconstruire la table ; les listes grandiront (`deployed`, `discovery`). `needs_review` garde son `CHECK 0/1` *(retiré le 21/10, section 17)* |
 | `title` sur `declared_services` et `position` sur `service_units` | Le titre est le nom affiché ; la position garde l'ordre saisi par l'opérateur |
 | Le genre de l'unité se déduit de l'origine du service : `container` pour Compose comme pour un conteneur seul, `binary` pour un binaire ; une unité Compose est un service du projet | L'opérateur ne le saisit pas ; le rattachement de niveau 2 s'appuie sur le nom |
 | Identifiants préfixés : `svc_`, `unit_`, `prj_` + 16 caractères hexadécimaux tirés par le serveur | Lisibles dans un journal, jamais confondus entre objets |
 | Unicité en base : `(machine_id, name)`, et `(machine_id, compose_project)` pour l'origine `compose` ; en code, dans la même transaction : nom de conteneur et unité systemd uniques par machine | La clé (`container_name`, `systemd_unit`) est dans `service_units` et la machine dans `declared_services` : un index unique ne porte pas sur deux tables |
-| L'origine `deployed` est réservée et refusée ; `declared_by` vaut `operator` (`migration` à venir) | Le déploiement par l'application et la migration de l'existant arrivent plus tard |
+| L'origine `deployed` est réservée et refusée ; `declared_by` vaut `operator` (`migration` à venir) *(retiré le 21/10, section 17)* | Le déploiement par l'application et la migration de l'existant arrivent plus tard |
 | `latest` est refusé ; l'image s'écrit sans étiquette ni empreinte ; la version est facultative (sans elle, l'écart dira « version non vérifiable ») ; l'empreinte ne s'attache pas à un binaire | La déclaration ne ment pas sur ce qui tourne, et ne force pas à épingler ce qu'on ne sait pas encore |
 | Retirer un service supprime ses unités, ses fournitures et ses liens de projet ; retirer un projet ne retire que les liens ; retirer une machine qui porte un service est refusé (409) | `restrict` entre objets déclarés, `cascade` pour ce qui fait partie du service |
 | Ce qui n'est pas encore là : `protected`, `service_open_paths`, `update_policy`, `eol_product`, `template_id`, les ports lus du réel | Chacun arrive avec la migration de la PR qui s'en sert |
@@ -1015,7 +1015,7 @@ vers l'annuaire. Ce que le code a tranché en l'écrivant :
 | **L'étape Go** `store.linkContainersToDirectory` s'exécute dans la même transaction que le SQL, juste avant lui. Elle lit et écrit avec des requêtes **figées sur le schéma de sa version**, jamais celles du store, et dépose sa table de correspondance dans `temp.link_migration` | Le nommage et le rapprochement sont ceux du code (`directory.PlanLinks`, pur et déterministe) ; les écrire en SQL les dédoublerait. Les requêtes du store changeront avec les PR suivantes, la migration ne doit pas les suivre. Après le SQL, `verifyContainerLinks` compte ce qui devait survivre (sondes et celles qui ont un service, résultats, jours, alertes des sondes, membres sans les doublons, unités qui portent une politique) |
 | `''` / `pinned` / `excluded` deviennent `watch` / `hold` / `ignore`, sur `service_units.update_policy` | La politique suit le service, pas l'identifiant Docker ; trois mots qui disent ce que l'opérateur veut plutôt que ce que l'ancien code faisait. Plusieurs fiches pour une unité : la plus récente qui portait une politique, une vivante avant une archivée. Pas de `CHECK` : le code valide, comme pour les autres listes de l'annuaire. Un binaire n'admet que `watch` |
 | **Seuls les conteneurs liés** reçoivent un service, et le projet Compose de ce conteneur devient **un** service : une unité par service Compose **lié ou qui tourne** (`running`, `restarting`), au plus 32. Un conteneur arrêté que rien ne vise (l'`init`) n'a pas d'unité et reste non déclaré. Un projet que l'opérateur a déjà déclaré n'est jamais recréé : ce qui n'y tient pas (32 unités) devient un conteneur seul | Un service d'origine Compose est le projet, pas un conteneur : n'en créer qu'une unité ferait « absentes » les autres au prochain rapprochement. Mais l'état d'un service étant le pire de ses unités, un `init` arrêté en 0 devenu unité ferait passer le composant de statut en panne le jour de la montée : on ne crée d'unité que pour ce qui est lié ou tourne. Le projet de plus de 32 unités, ou dont le nom est refusé, retombe sur un service par conteneur lié ; créer un second service Compose pour (machine, projet) violerait l'unicité et `serve` ne démarrerait plus. Un nom de conteneur déjà porté par une unité déclarée rejoint cette unité (aucun index unique ne garde cette clé) |
-| `declared_by` vaut `migration` et `needs_review` est levé sur ce qu'elle a créé ; **Valider** est la seule façon de le lever | La migration devine (noms, images lues sur Docker) : l'opérateur relit. Modifier le service ne le valide pas |
+| `declared_by` vaut `migration` et `needs_review` est levé sur ce qu'elle a créé ; **Valider** est la seule façon de le lever *(retiré le 21/10, section 17)* | La migration devine (noms, images lues sur Docker) : l'opérateur relit. Modifier le service ne le valide pas |
 | Les membres d'un même composant qui visent deux conteneurs d'un même projet **sont réunis en un seul** (le premier dans l'ordre), sans `OR IGNORE` | Un seul service déclaré ; l'index unique `(component, service)` l'exige. `OR IGNORE` taisait aussi un `CHECK` violé, donc un lien perdu : on déduplique explicitement et le compte le dit |
 | **La règle d'état** d'un service déclaré dans un composant : le pire de ses unités conteneur ; une unité sans conteneur vivant est en panne ; un binaire ne compte pas | L'état ne dépend plus d'un identifiant Docker. Le prix : une unité qui n'a jamais eu de conteneur compte comme en panne |
 | `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression (passées en restrict depuis, section 11) |
@@ -1035,7 +1035,7 @@ rien appliquer. Ce que le code a tranché en l'écrivant, et que la 4b lit :
 | **Les tâches n'ont ni `service` ni genre** (`cron`, `webhook`) pour l'instant | `heartbeats` n'a pas encore de `service_id` (annuaire 5) ; le fichier n'écrit pas ce que la base ne tient pas |
 | **Les identifiants sont toujours écrits** ; la 4b refusera un identifiant inconnu et demandera l'identifiant pour un nom ambigu ; les unités n'en ont pas | L'identifiant rattache à l'objet quand on renomme ; une unité se reconnaît à son nom dans son service |
 | **Un champ absent veut dire la valeur par défaut**, un champ nul aussi (sauf `token:`, nul = refusé) | Un fichier écrit à la main n'a pas à répéter les défauts ; l'export, lui, écrit tout ce qui a une valeur |
-| **L'état n'est jamais dans le fichier** : pause, essais, conteneurs rattachés, « à vérifier » (commentaire seulement), historique | Le fichier dit ce que l'opérateur déclare ; l'état est ce que le système observe |
+| **L'état n'est jamais dans le fichier** : pause, essais, conteneurs rattachés, « à vérifier » (commentaire seulement ; *retiré le 21/10, section 17*), historique | Le fichier dit ce que l'opérateur déclare ; l'état est ce que le système observe |
 | **Un secret ne s'écrit que `{secret: kept}`** | Garder la valeur du serveur ; le fichier peut aller dans Git |
 | **Sections refusées** : tout ce qui n'est pas dans la liste de la section 3 ci-dessus (canaux, pages, réglages, sauvegardes), avec sa ligne | Mieux vaut refuser que lire en ignorant : un fichier qui semble tout dire et ne dit pas tout |
 | **Durées avec unité** (`60s`, `5m`, `24h`) ; une sonde en secondes entières, une tâche en minutes entières | Ce que la base sait stocker ; une durée ronde sinon refusée plutôt qu'arrondie |
@@ -1079,7 +1079,7 @@ code a tranché :
 | **L'agent ne transmet que les clés qui commencent par `brand.LabelPrefix`**, préfixe retiré, bornées (suffixe `^[a-z0-9][a-z0-9_.-]{0,62}$`, valeur de 255 octets, 16 clés, `service` et `unit` avant la coupe) ; le serveur borne encore à la réception et n'en garde que `service`, `unit` et le signe `invalid` | Un label de Traefik (règles d'hôtes) ou de Compose ne doit pas quitter la machine ; la borne est reposée côté serveur parce qu'un agent n'est pas une preuve |
 | **Compatibilité du protocole** : le champ `labels` d'un conteneur du signal est nouveau et optionnel, aucune clé existante ne change ; un agent plus ancien contre ce serveur ne l'envoie pas, un agent nouveau contre un serveur plus ancien est ignoré (le décodeur est tolérant, `TestAgentSignal_UnknownFieldInAContainerIsIgnored`) | Mise à jour du serveur d'abord, puis des agents, sans coupure |
 | **Un groupe fait seulement d'orphelins n'est pas adoptable** ; `Propose` répond `ErrContainerLabelled` (409) et le représentant d'un groupe mixte est le premier conteneur sans label | L'unité qu'on créerait pour lui ne le rattacherait pas : le label continuerait de gagner |
-| **`ProposeAll` ne construit que le socle d'une découverte** : un service par groupe adoptable non ignoré, nom unique par machine, `needs_review` et `declared_by` ne sont pas construits | L'export avec propositions s'en sert aujourd'hui ; la découverte qui écrirait toute seule viendra plus tard et devra refaire le même calcul |
+| **`ProposeAll` ne construit que le socle d'une découverte** : un service par groupe adoptable non ignoré, nom unique par machine, `needs_review` *(retiré le 21/10, section 17)* et `declared_by` ne sont pas construits | L'export avec propositions s'en sert aujourd'hui ; la découverte qui écrirait toute seule viendra plus tard et devra refaire le même calcul |
 | **`export -propose` est un fichier à relire, jamais une écriture** : les entrées nouvelles sont sans `id`, commentées, triées ; sans `-propose`, les octets sont ceux d'avant | `TestExport_ProposedFileGivesAnApplicablePlan` : le fichier proposé donne un plan applicable avec le vrai `BuildPlan` |
 | **Le préfixe des labels dérive de `ID`** ; le catalogue le dit par `{label_prefix}`, jamais en littéral | `TestNameOnlyInBrand` interdit le nom hors de `internal/brand` ; un renommage coûte un changement dans chaque Compose étiqueté |
 | **Trois colonnes, pas une table** : `containers.label_service`, `label_unit` et `label_invalid`, vides par défaut (migration `027_container_labels.sql`) | Seuls ces deux labels servent au rapprochement ; garder tous les labels stockerait ce que l'opérateur n'a pas demandé |
@@ -1207,3 +1207,14 @@ La migration `002_actions.sql` (`action_runs`, `run_logs`,
 | **`server_key_fingerprint` choisit aussi la clé qui signe**, le temps d'une rotation : le serveur signe chaque ordre avec la clé que l'agent a épinglée, et note la neuve quand l'agent a réussi `agent.server_key` | Pas de colonne de plus : l'empreinte que l'agent redit est déjà ce que l'agent vérifiera. La fin de la rotation se juge sur elle (`finish-server-key` refuse tant qu'un agent actif a la précédente) |
 | **Les aléas vus de la preuve vivent en mémoire**, pas en base | Dix minutes de vie, des dizaines d'entrées : une table ajouterait une écriture par connexion pour ne fermer qu'un rejeu de moins de 5 min après un redémarrage, que seul le proxy qui termine TLS peut tenter |
 | **`secret.key` reste un fichier**, à plusieurs lignes pendant une rotation ; aucune colonne ne dit quelle clé a scellé quoi | L'identifiant de la clé est déjà dans chaque chiffré ; la rotation rescelle tout dans une transaction, puis le fichier ne garde que la neuve |
+
+## 17. Ce que le retrait de « à vérifier » a fixé
+
+La migration `003_needs_review.sql` retire `declared_services.needs_review`.
+Le fonctionnement est dans `22-fonctionnement.md`, « Comment l'annuaire se
+déclare ». Ce que le code a tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| `needs_review` et `declared_by = migration` sont retirés (migration `003`) ; la valeur `migration` est réécrite en `operator` avant que la colonne tombe | Plus rien ne crée un service sans l'opérateur depuis le schéma unique : le drapeau, l'action **Valider**, le commentaire d'export et la ligne du journal ne servaient plus qu'à une reprise qui n'existe plus |
+| `declared_by` est gardé, avec une seule valeur : `operator` | La découverte automatique l'étendra, sans reconstruire la table (pas de `CHECK`) ; en attendant, c'est une colonne quasi constante |

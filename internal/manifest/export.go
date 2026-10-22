@@ -223,7 +223,6 @@ func serviceOf(item directory.Service, projectNames map[string]string) Service {
 		Origin:         item.Origin,
 		ComposeProject: item.ComposeProject,
 		PublicURL:      item.PublicURL,
-		NeedsReview:    item.NeedsReview,
 	}
 	// Dans l'ordre de Capabilities() : celui des fournitures dans l'interface.
 	for _, capability := range directory.Capabilities() {

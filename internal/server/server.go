@@ -134,7 +134,6 @@ type DirectoryService interface {
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
 	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
-	Review(ctx context.Context, id string) (directory.Service, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)

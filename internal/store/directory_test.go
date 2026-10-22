@@ -334,3 +334,34 @@ func TestIgnoredKeys_RoundTrip(t *testing.T) {
 		t.Fatalf("après le retrait de la machine: %+v", left)
 	}
 }
+
+// La 003 retire « à vérifier » et réécrit la provenance « migration » en
+// « operator » : un service qui portait l'un ou l'autre garde sa place.
+func TestMigration003_DropsNeedsReviewAndRewritesMigrationProvenance(t *testing.T) {
+	ctx := context.Background()
+	db := openEmpty(t)
+	for version, name := range []string{"001_schema.sql", "002_actions.sql"} {
+		if err := db.apply(ctx, name, version+1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(t, db, `INSERT INTO machines (id, name, created_at) VALUES ('m1', 'vps-1', 1)`)
+	exec(t, db, `INSERT INTO declared_services (id, machine_id, name, nature, origin, declared_by, needs_review, created_at, updated_at)
+		VALUES ('svc_a', 'm1', 'ancien', 'application', 'container', 'migration', 1, 1, 1)`)
+	exec(t, db, `INSERT INTO declared_services (id, machine_id, name, nature, origin, declared_by, needs_review, created_at, updated_at)
+		VALUES ('svc_b', 'm1', 'recent', 'application', 'container', 'operator', 0, 1, 1)`)
+
+	if err := db.apply(ctx, "003_needs_review.sql", 3); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := count(t, db, `SELECT COUNT(*) FROM pragma_table_info('declared_services') WHERE name = 'needs_review'`); got != 0 {
+		t.Fatal("la colonne needs_review est restée")
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM declared_services WHERE declared_by = 'operator'`); got != 2 {
+		t.Fatalf("%d service(s) écrits par l'opérateur, 2 attendus", got)
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM declared_services WHERE declared_by = 'migration'`); got != 0 {
+		t.Fatalf("%d service(s) encore marqués « migration »", got)
+	}
+}

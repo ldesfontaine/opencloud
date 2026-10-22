@@ -16,7 +16,7 @@ export function NaturePill({ nature }: { nature: DeclaredService["nature"] }) {
 }
 
 // Le tableau des services déclarés : nom et titre, machine, nature,
-// origine, nombre d'unités, projets, la pastille « à vérifier » et l'écart.
+// origine, nombre d'unités, projets et l'écart.
 // Sans réponse sur l'écart (elle se lit à part), la colonne reste vide.
 export function DeclaredServiceTable({
   services,
@@ -54,11 +54,6 @@ export function DeclaredServiceTable({
                   </span>
                 </Subject>
               </Link>
-              {service.needs_review && (
-                <Pill tone="warn" dot={false}>
-                  {t("directory.needs_review")}
-                </Pill>
-              )}
             </td>
             <td className="wide-only">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>

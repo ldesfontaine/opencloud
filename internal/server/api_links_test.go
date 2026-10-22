@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/status"
@@ -56,66 +55,6 @@ func TestAPI_DeleteLinkedService_Answers409WithThePlan(t *testing.T) {
 	}
 	if got := callAPI(server.Server, http.MethodDelete, "/api/directory/services/"+created.ID, nil); got.Code != http.StatusNotFound {
 		t.Fatalf("supprimé deux fois: %d", got.Code)
-	}
-}
-
-// Valider lève « à vérifier » si la définition passe la validation, et la dit
-// par sa clé sinon ; deux fois, c'est la même réponse ; un service inconnu est
-// un 404.
-func TestAPI_Review_ClearsAndRefusesInvalid(t *testing.T) {
-	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
-	taken := directory.Service{
-		ID: "svc_0123456789abcdef", MachineID: remoteID, Name: "whoami", Nature: directory.NatureApplication,
-		Origin: directory.OriginContainer, DeclaredBy: directory.ByMigration, NeedsReview: true,
-		CreatedAt: testNow, UpdatedAt: testNow,
-		Units: []directory.Unit{{
-			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
-			Image: "Not A Valid Image", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
-		}},
-	}
-	if err := server.db.InsertDeclaredService(context.Background(), taken); err != nil {
-		t.Fatal(err)
-	}
-	path := "/api/directory/services/" + taken.ID + "/actions/review"
-
-	got := callAPI(server.Server, http.MethodPost, path, nil)
-	if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != "directory.image_invalid" {
-		t.Fatalf("définition invalide: %d %s", got.Code, got.Body.String())
-	}
-	var still declaredServiceDetailJSON
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/services/"+taken.ID, nil), &still)
-	if !still.NeedsReview {
-		t.Fatal("un refus ne valide pas")
-	}
-
-	fixed := declaredServiceRequest{
-		MachineID: remoteID, Name: "whoami", Nature: "application", Origin: "container",
-		Units: []unitRequest{{ID: "unit_0123456789abcdef", Name: "whoami", Image: "traefik/whoami", ContainerName: "whoami"}},
-	}
-	if got := callAPI(server.Server, http.MethodPut, "/api/directory/services/"+taken.ID, fixed); got.Code != http.StatusOK {
-		t.Fatalf("correction: %d %s", got.Code, got.Body.String())
-	}
-	var edited declaredServiceDetailJSON
-	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/services/"+taken.ID, nil), &edited)
-	if !edited.NeedsReview {
-		t.Fatal("modifier un service repris ne le valide pas")
-	}
-
-	var reviewed declaredServiceJSON
-	got = callAPI(server.Server, http.MethodPost, path, nil)
-	if got.Code != http.StatusOK {
-		t.Fatalf("validation: %d %s", got.Code, got.Body.String())
-	}
-	decodeAPI(t, got, &reviewed)
-	if reviewed.NeedsReview || reviewed.ID != taken.ID || reviewed.DeclaredBy != "migration" {
-		t.Fatalf("service validé = %+v", reviewed)
-	}
-	if got := callAPI(server.Server, http.MethodPost, path, nil); got.Code != http.StatusOK {
-		t.Fatalf("valider deux fois: %d", got.Code)
-	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/directory/services/svc_inconnu/actions/review", nil); got.Code != http.StatusNotFound {
-		t.Fatalf("service inconnu: %d", got.Code)
 	}
 }
 

@@ -61,17 +61,14 @@ func Capabilities() []Capability {
 	return []Capability{CapabilitySSO, CapabilityProxy, CapabilityTLS, CapabilityBackupTarget}
 }
 
-// DeclaredBy dit d'où vient la déclaration : de l'opérateur, ou de la
-// reprise de l'existant (migration).
+// DeclaredBy dit qui a écrit la déclaration : l'opérateur (la découverte
+// automatique, plus tard).
 type DeclaredBy string
 
-const (
-	ByOperator  DeclaredBy = "operator"
-	ByMigration DeclaredBy = "migration"
-)
+const ByOperator DeclaredBy = "operator"
 
 func Provenances() []DeclaredBy {
-	return []DeclaredBy{ByOperator, ByMigration}
+	return []DeclaredBy{ByOperator}
 }
 
 const (
@@ -152,7 +149,6 @@ type Service struct {
 	ComposeProject string
 	PublicURL      string
 	DeclaredBy     DeclaredBy
-	NeedsReview    bool
 	Provides       []Capability
 	Units          []Unit
 	ProjectIDs     []string

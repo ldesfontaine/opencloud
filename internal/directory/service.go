@@ -28,8 +28,6 @@ type Store interface {
 	// rien n'est supprimé et l'erreur est un *deletion.RefusedError.
 	DeleteDeclaredService(ctx context.Context, id string) error
 	DeclaredServiceDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
-	// MarkServiceReviewed baisse « à vérifier » et date la validation.
-	MarkServiceReviewed(ctx context.Context, id string, at time.Time) error
 	// GetUnit rend une unité, ErrUnitNotFound si elle n'existe plus.
 	GetUnit(ctx context.Context, id string) (Unit, error)
 	// SetUnitUpdatePolicy écrit la politique de l'unité et rien d'autre ;
@@ -159,8 +157,8 @@ func (d *Directory) CreateService(ctx context.Context, definition ServiceDefinit
 }
 
 // UpdateService remplace la définition, sur place : l'identifiant, la
-// provenance, « à vérifier » et la date de création restent. Changer de
-// machine est permis ; une unité absente de la définition est supprimée.
+// provenance et la date de création restent. Changer de machine est permis ;
+// une unité absente de la définition est supprimée.
 func (d *Directory) UpdateService(ctx context.Context, id string, definition ServiceDefinition) (Service, error) {
 	before, err := d.store.GetDeclaredService(ctx, id)
 	if err != nil {
@@ -176,7 +174,6 @@ func (d *Directory) UpdateService(ctx context.Context, id string, definition Ser
 	}
 	updated := serviceOf(id, definition, units)
 	updated.DeclaredBy = before.DeclaredBy
-	updated.NeedsReview = before.NeedsReview
 	updated.CreatedAt = before.CreatedAt
 	updated.UpdatedAt = d.now()
 	if err := d.store.UpdateDeclaredService(ctx, updated); err != nil {
@@ -336,32 +333,6 @@ func (d *Directory) DeleteService(ctx context.Context, id string) error {
 	d.settle(ctx, found.MachineID)
 	d.changed()
 	return nil
-}
-
-// Review valide un service repris de l'existant : « à vérifier » tombe, mais
-// seulement si sa définition passe la validation que l'opérateur subirait en
-// la créant. Sinon on validerait une unité mal reprise. Le refus est celui de
-// la première règle violée ; modifier le service ne le valide pas. Valider
-// deux fois ne change rien.
-func (d *Directory) Review(ctx context.Context, id string) (Service, error) {
-	found, err := d.store.GetDeclaredService(ctx, id)
-	if err != nil {
-		return Service{}, err
-	}
-	if !found.NeedsReview {
-		return found, nil
-	}
-	definition := found.Definition().Complete()
-	if err := definition.Validate(); err != nil {
-		return Service{}, err
-	}
-	if err := d.store.MarkServiceReviewed(ctx, id, d.now()); err != nil {
-		return Service{}, err
-	}
-	d.logger.Info("declared service reviewed", "service_id", id, "name", found.Name)
-	d.auditor.Record(ctx, serviceEvent(audit.ServiceReview, found))
-	d.changed()
-	return d.store.GetDeclaredService(ctx, id)
 }
 
 // SetUnitUpdatePolicy règle ce que l'opérateur veut des mises à jour d'une
