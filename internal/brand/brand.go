@@ -17,10 +17,13 @@ const ProductName = "openCloud"
 const ID = "opencloud"
 
 const (
-	ConfigDir     = "/etc/" + ID
-	ConfigPath    = ConfigDir + "/config.toml"
-	StateDir      = "/var/lib/" + ID
-	AgentStateDir = StateDir + "/agent"
+	ConfigDir  = "/etc/" + ID
+	ConfigPath = ConfigDir + "/config.toml"
+	StateDir   = "/var/lib/" + ID
+	// L'état de l'agent (root, 0700). Hors de StateDir : sur la machine
+	// openCloud, StateDir appartient au compte du serveur, qui pourrait
+	// renommer un dossier dessous et en poser un autre.
+	AgentStateDir = "/var/lib/" + ID + "-agent"
 	// La racine des services déployés, un dossier par projet Compose ; réglable
 	// par -root-dir au premier lancement de l'agent.
 	WorkspaceRoot = "/srv/workspace"

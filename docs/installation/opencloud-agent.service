@@ -1,5 +1,5 @@
 # /etc/systemd/system/opencloud-agent.service — l'agent d'une machine, la
-# machine openCloud comprise.
+# machine openCloud comprise : une seule disposition pour toutes.
 # À activer APRÈS le premier lancement (enrôlement : -server, jeton sur l'entrée
 # standard).
 [Unit]
@@ -16,15 +16,17 @@ Type=simple
 # sont pas retenus. -server, -pin et -lang le sont, inutile de les
 # redonner.
 # Le binaire est le lien bin/current de l'état : c'est lui que l'agent bascule
-# quand openCloud lui envoie une mise à jour (agent.update). Sauf sur la
-# machine openCloud : /var/lib/opencloud y appartient au compte du serveur, et
-# l'agent lance /usr/local/bin/opencloud par un drop-in (installation.md,
-# « Installer le serveur ») :
-# /etc/systemd/system/opencloud-agent.service.d/machine-opencloud.conf
-#   [Service]
-#   ExecStart=
-#   ExecStart=/usr/local/bin/opencloud agent -state /var/lib/opencloud/agent
-ExecStart=/var/lib/opencloud/agent/bin/current agent -state /var/lib/opencloud/agent
+# quand openCloud lui envoie une mise à jour (agent.update). Sur la machine
+# openCloud comme ailleurs.
+ExecStart=/var/lib/opencloud-agent/bin/current agent -state /var/lib/opencloud-agent
+# L'état est à root (0700), hors de /var/lib/opencloud, dont le compte du
+# serveur est propriétaire sur la machine openCloud. systemd le crée et le
+# rend inscriptible sous ProtectSystem=strict. L'agent juge ce dossier et
+# ceux au-dessus au démarrage : si l'un appartient à un autre compte ou lui
+# est ouvert en écriture, il refuse ses droits d'écriture et ne garde que
+# observe (journal : « state dir is not safe »).
+StateDirectory=opencloud-agent
+StateDirectoryMode=0700
 # Code 3 : « mis à jour, relance-moi » ; on-failure le relance.
 Restart=on-failure
 RestartSec=10
@@ -34,10 +36,9 @@ RestartPreventExitStatus=2
 # Durcissement : root reste root, mais un agent compromis ne réécrit ni le
 # système ni les comptes. Il lit /proc, les volumes, /root/.docker (les
 # identifiants des registres) et la socket Docker ; il n'écrit que dans
-# son état, qui doit exister (premier lancement fait).
+# son état (StateDirectory ci-dessus).
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/opencloud/agent
 # Un droit qui écrit ailleurs (backup.receive=/srv/backups) demande un
 # dossier créé d'avance (install -d -m 0700 /srv/backups : systemd refuse
 # de démarrer sur un ReadWritePaths absent) et un drop-in, pas une édition

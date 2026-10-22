@@ -40,7 +40,8 @@ machine openCloud comprise : elle reçoit un agent comme les autres.
 | --- | --- | --- |
 | `/usr/local/bin/opencloud` | le binaire, serveur ou agent | pareil |
 | `/etc/opencloud/config.toml` | ce que l'admin pose avant le démarrage ; **lecture seule** pour le serveur | `settings.toml` disparaît, vers la base ; `lifecycle.json` reste un cache, hors export |
-| `/var/lib/opencloud/` | la base, l'identité de l'agent, sa rétention locale | la base et `identity.json` ; la rétention n'existe pas |
+| `/var/lib/opencloud/` | la base, `secret.key`, `server.key` | pareil |
+| `/var/lib/opencloud-agent/` | l'état de l'agent, root `0700` : l'identité, `bin/`, sa rétention locale | `identity.json` et `bin/` (**fait**, 22 octobre 2026, #235) ; la rétention n'existe pas |
 | `/srv/workspace/<service>/` | `compose.yml`, `.env`, conf ; `data/` : un service déployé par openCloud. Racine réglable dans le fichier de l'agent à l'installation ; fichier témoin `.opencloud` | n'existe pas |
 
 Le nom du produit n'est pas définitif : les chemins, labels, préfixe de jeton
@@ -212,7 +213,7 @@ Les jetons de ping sont en clair dans la base.
 | Où | Quoi | Combien de temps | Pourquoi |
 | --- | --- | --- | --- |
 | Serveur, `opencloud.db` | les données principales ; les secrets saisis dans l'interface **chiffrés** par la clé du serveur ; un historique long par service, sur son identité stable ; trafic sans les interfaces virtuelles (veth, ponts) ; un agrégat horaire par volume | purges actuelles | Une base volée sans la clé ne livre rien ; trafic compté deux fois et volume plein noyé dans la somme aujourd'hui |
-| Agent, `/var/lib/opencloud/agent/local.db` | un **petit SQLite** : mesures, résultats de sondes, dernier jeu de sondes, sa part de l'annuaire | **24 h**, anneau | Un tampon en mémoire disparaît au redémarrage, et c'est au redémarrage qu'on veut les données. Quelques Mo |
+| Agent, `/var/lib/opencloud-agent/local.db` | un **petit SQLite** : mesures, résultats de sondes, dernier jeu de sondes, sa part de l'annuaire | **24 h**, anneau | Un tampon en mémoire disparaît au redémarrage, et c'est au redémarrage qu'on veut les données. Quelques Mo |
 | Agent → serveur | **rejeu** des échantillons manqués à la reconnexion, fenêtre bornée à 24 h | — | Netdata (`replication period`), Centreon (fichiers de rétention rejoués) |
 | Destination de sauvegarde | la base, avec la clé du serveur ; chaque service (`data/` + `.env`). **Chiffrées**, envoyées vers une destination choisie : une machine avec agent, plus tard un stockage externe. **Pas de copie locale** ; sans destination, l'interface le dit | N copies gardées, à régler | Sans ça, la base-vérité n'a pas de filet. Une sauvegarde parmi d'autres, dans la page Sauvegardes |
 | Chiffrement des sauvegardes | une paire de clés : la publique chiffre chaque nuit sur le serveur ; la privée, chiffrée par une phrase de passe, est déposée avec les sauvegardes | — | Sauvegarde automatique sans secret en clair sur le serveur ; seule la phrase est à garder de côté |
@@ -320,7 +321,7 @@ donné avant la décision.
 | N° | Question | Options | Mon avis | Décision |
 | --- | --- | --- | --- | --- |
 | 1 | Un seul fichier de réglages ? | garder `settings.toml` + `lifecycle.json` ; tout ramener dans `config.toml` + base | tout ramener | `config.toml` = posé par l'admin avant le démarrage, lecture seule pour le serveur. Ce que l'interface change va en base ; `settings.toml` disparaît. `lifecycle.json` reste un cache, hors export |
-| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | Reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale. **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas. `backup.receive` est le premier ordre qui écrit sur une machine (21/10) : l'agent reste root, borné par ses droits et un `os.Root` sur le chemin (à revoir avec cette décision) |
+| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | Reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale. **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas. **État au 22 octobre 2026** : l'état de l'agent vit hors du dossier du serveur, root `0700`, et l'agent n'écrit rien si un dossier au-dessus appartient à un autre compte (#235). Utile quel que soit le découpage décidé. `backup.receive` est le premier ordre qui écrit sur une machine (21/10) : l'agent reste root, borné par ses droits et un `os.Root` sur le chemin (à revoir avec cette décision) |
 | 3 | Édition des sondes avant tout ? | oui ; non, on recrée | oui | Oui : un `apply` modifie sur place, ne recrée jamais ; sondes, tâches, composants gardent historique et jeton |
 | 4 | Format du fichier déclaratif | YAML ; TOML | YAML, plus courant chez ceux qui écrivent des compose | YAML |
 | 5 | `apply` supprime ce qui n'est pas déclaré ? | jamais ; option explicite ; toujours | option explicite, jamais par défaut | Sur option explicite seulement, en affichant ce que la suppression emporte |
