@@ -63,8 +63,13 @@ const codeAuthStateChanged = "auth.state_changed"
 const codeSetupRequired = "auth.setup_required"
 
 // codeForwardForbidden est le refus d'une identité du mandataire absente de
-// forward_users.
+// forward_users. Son texte ne nomme pas l'identité : le front qui le lit ne
+// la connaît pas. La page, elle, la nomme (forwardForbiddenPage).
 const codeForwardForbidden = "auth.forward_forbidden"
+
+// forwardForbiddenPage est le texte du même refus pour une page, qui dit
+// l'identité reçue (%s).
+const forwardForbiddenPage = "auth.forward_forbidden_identity"
 
 // Les routes de l'opérateur qu'une installation sans compte (mode none) sert
 // à qui atteint le port : le front, sa session et ses catalogues pour
@@ -469,7 +474,7 @@ func (s *Server) writeForwardForbidden(w http.ResponseWriter, r *http.Request, i
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	catalog := s.catalogs.For(browserLanguage(r))
-	http.Error(w, catalog.Format(codeForwardForbidden, printable(identity, auth.MaxUsernameLength)), http.StatusForbidden)
+	http.Error(w, catalog.Format(forwardForbiddenPage, printable(identity, auth.MaxUsernameLength)), http.StatusForbidden)
 }
 
 // La langue du navigateur, faute de session : le français s'il le demande

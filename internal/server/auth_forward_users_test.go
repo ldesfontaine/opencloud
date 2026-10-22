@@ -13,6 +13,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
 // Ces tests n'ont besoin d'aucun front construit : les refus tombent avant
@@ -56,7 +57,7 @@ func callIdentityValues(server *Server, path, peer string, values ...string) *ht
 
 // Liste absente ou vide : le comportement d'avant, aucune installation ne
 // casse. C'est aussi ce que la configuration d'aujourd'hui produit.
-func TestAuthForwardUsers_NoListAdmitsEveryIdentity(t *testing.T) {
+func TestForwardUsers_NoListAdmitsEveryIdentity(t *testing.T) {
 	for _, users := range [][]string{nil, {}} {
 		server, logs := forwardWithList(t, users...)
 		for _, identity := range []string{"lucas", "autre", "Lucas", "léa@example.org"} {
@@ -70,7 +71,7 @@ func TestAuthForwardUsers_NoListAdmitsEveryIdentity(t *testing.T) {
 	}
 }
 
-func TestAuthForwardUsers_OnlyTheListedIdentitiesPass(t *testing.T) {
+func TestForwardUsers_OnlyTheListedIdentitiesPass(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas", "léa@example.org")
 	cases := []struct {
 		name     string
@@ -96,7 +97,7 @@ func TestAuthForwardUsers_OnlyTheListedIdentitiesPass(t *testing.T) {
 		{"listed identity as a suffix", "xlucas", http.StatusForbidden},
 		{"NUL after", "lucas\x00", http.StatusForbidden},
 		{"NUL before", "\x00lucas", http.StatusForbidden},
-		{"zero-width space after", "lucas​", http.StatusForbidden},
+		{"zero-width space after", "lucas\u200b", http.StatusForbidden},
 		{"Cyrillic look-alike of the letter c", "lu\u0441as", http.StatusForbidden},
 		{"two identities in one value", "lucas,autre", http.StatusForbidden},
 		{"another listed identity after a comma", "autre,lucas", http.StatusForbidden},
@@ -113,7 +114,7 @@ func TestAuthForwardUsers_OnlyTheListedIdentitiesPass(t *testing.T) {
 
 // Les refus d'avant la liste restent des 401 : un 403 avant eux apprendrait
 // à un pair hors trusted_proxies quelles identités sont admises.
-func TestAuthForwardUsers_EarlierRefusalsStayUnauthorized(t *testing.T) {
+func TestForwardUsers_EarlierRefusalsStayUnauthorized(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 
 	cases := []struct {
@@ -143,7 +144,7 @@ func TestAuthForwardUsers_EarlierRefusalsStayUnauthorized(t *testing.T) {
 }
 
 // La liste ne remplace ni trusted_proxies ni le secret partagé.
-func TestAuthForwardUsers_TheSecretIsJudgedBeforeTheList(t *testing.T) {
+func TestForwardUsers_TheSecretIsJudgedBeforeTheList(t *testing.T) {
 	server := newFirstSetupServer(t)
 	server.enableForwardOnLoopback(t, proxySecret)
 	server.forwardUsers = forwardUserSet([]string{"lucas"})
@@ -169,7 +170,7 @@ func TestAuthForwardUsers_TheSecretIsJudgedBeforeTheList(t *testing.T) {
 	}
 }
 
-func TestAuthForwardUsers_ARefusalIsLoggedOnceWithTheIdentityReceived(t *testing.T) {
+func TestForwardUsers_ARefusalIsLoggedOnceWithTheIdentityReceived(t *testing.T) {
 	server, logs := forwardWithList(t, "lucas")
 
 	if got := callForwarded(server.Server, http.MethodGet, forwardUsersProbe, trustedPeer, "autre"); got.Code != http.StatusForbidden {
@@ -194,7 +195,7 @@ func TestAuthForwardUsers_ARefusalIsLoggedOnceWithTheIdentityReceived(t *testing
 
 // Une identité de 10 000 caractères, ou pleine de caractères de contrôle,
 // est refusée, et ni le journal ni la page n'en recopient plus que la borne.
-func TestAuthForwardUsers_AHostileIdentityIsRefusedAndTruncatedInTheLogAndThePage(t *testing.T) {
+func TestForwardUsers_AHostileIdentityIsRefusedAndTruncatedInTheLogAndThePage(t *testing.T) {
 	server, logs := forwardWithList(t, "lucas")
 	huge := strings.Repeat("x", 10_000)
 
@@ -230,12 +231,19 @@ func TestAuthForwardUsers_AHostileIdentityIsRefusedAndTruncatedInTheLogAndThePag
 
 // Les trois formes du refus : le JSON pour l'API, du texte pour une page,
 // la langue du navigateur, jamais de cache.
-func TestAuthForwardUsers_TheRefusalIsAForbiddenWithItsOwnCode(t *testing.T) {
+func TestForwardUsers_TheRefusalIsAForbiddenWithItsOwnCode(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 
 	api := callForwarded(server.Server, http.MethodGet, forwardUsersProbe, trustedPeer, "autre")
 	if api.Code != http.StatusForbidden || errorCode(t, api) != forwardForbiddenCode {
 		t.Fatalf("API: %d %s", api.Code, api.Body.String())
+	}
+	// Le front traduit la clé sans argument : son texte n'a pas de verbe,
+	// sinon il afficherait « %s » brut.
+	for _, language := range []lang.Code{lang.French, lang.English} {
+		if text := server.catalogs.For(language).Get(forwardForbiddenCode); strings.Contains(text, "%") {
+			t.Errorf("%s: the API refusal %q carries a verb the front cannot fill", language, text)
+		}
 	}
 
 	for acceptLanguage, want := range map[string]string{
@@ -265,7 +273,7 @@ func TestAuthForwardUsers_TheRefusalIsAForbiddenWithItsOwnCode(t *testing.T) {
 }
 
 // Une écriture de l'API refusée à une identité hors liste n'écrit rien.
-func TestAuthForwardUsers_ARefusedIdentityWritesNothing(t *testing.T) {
+func TestForwardUsers_ARefusedIdentityWritesNothing(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 	mark := server.latestAuditID(t)
 
@@ -288,15 +296,41 @@ func TestAuthForwardUsers_ARefusedIdentityWritesNothing(t *testing.T) {
 	}
 }
 
-// Toutes les routes de l'API réservées à l'opérateur, écritures comprises,
-// passent par la même porte : un 403 pour une identité hors liste, jamais
-// un 401 (le pair est fiable) ni un 2xx.
-func TestAuthForwardUsers_EveryOperatorAPIRouteRefusesAnUnlistedIdentity(t *testing.T) {
+// callUnlisted joue une requête de l'identité « autre », hors liste, depuis
+// un pair fiable, avec un corps JSON. Un flux admis à tort ne finirait
+// jamais : le délai fait échouer le test au lieu de le suspendre.
+func callUnlisted(server *Server, method, path string) *httptest.ResponseRecorder {
+	ctx, cancel := context.WithTimeout(context.Background(), streamGuardTimeout)
+	defer cancel()
+	request := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader("{}"))
+	request.RemoteAddr = net.JoinHostPort(trustedPeer, "4000")
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(auth.DefaultForwardHeader, "autre")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+// Toutes les routes réservées à l'opérateur, l'API, ses écritures, ses flux,
+// ses routes de première configuration, /api/auth lui-même et les pages du
+// front, passent par la même porte : un 403 du refus de la liste, rendu
+// avant le handler (aucune trace au journal d'audit), jamais un 401 (le pair
+// est fiable) ni un 2xx. Le parcours lit routes() : une route ajoutée plus
+// tard y entre seule.
+func TestForwardUsers_EveryOperatorRouteRefusesAnUnlistedIdentity(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
+	mark := server.latestAuditID(t)
 	placeholders := strings.NewReplacer("{id}", "x", "{code}", "fr", "{name}", "x", "{kind}", "x")
 	checked := 0
 	for _, route := range server.routes() {
-		if !isOperatorRoute(route.pattern) || !strings.HasPrefix(route.pattern, "/api/") {
+		if !isOperatorRoute(route.pattern) {
+			// Une route sortie de la porte ne sortirait pas du parcours en
+			// silence : les seules ouvertes sont celles qui ont leur propre
+			// preuve (agent, pings) ou n'en ont pas besoin (statut).
+			if !strings.HasPrefix(route.pattern, "/agent/") && !strings.HasPrefix(route.pattern, "/ping/") && !strings.HasPrefix(route.pattern, "/statut") {
+				t.Errorf("%s %s: open route outside the agent, pings and status page", route.method, route.pattern)
+			}
 			continue
 		}
 		path := placeholders.Replace(route.pattern)
@@ -304,32 +338,48 @@ func TestAuthForwardUsers_EveryOperatorAPIRouteRefusesAnUnlistedIdentity(t *test
 			t.Errorf("%s %s: add its placeholder to the test", route.method, route.pattern)
 			continue
 		}
-		method := route.method
-		if method == anyMethod {
-			method = http.MethodGet
+		methods := []string{route.method}
+		switch route.method {
+		case anyMethod:
+			methods = []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodDelete}
+		case http.MethodGet:
+			methods = append(methods, http.MethodHead)
 		}
-		// Un flux admis à tort ne finirait jamais : le délai fait échouer le
-		// test au lieu de le suspendre.
-		ctx, cancel := context.WithTimeout(context.Background(), streamGuardTimeout)
-		request := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader("{}"))
-		request.RemoteAddr = net.JoinHostPort(trustedPeer, "4000")
-		request.Header.Set("Sec-Fetch-Site", "same-origin")
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set(auth.DefaultForwardHeader, "autre")
-		recorder := httptest.NewRecorder()
-		server.ServeHTTP(recorder, request)
-		cancel()
-		if recorder.Code != http.StatusForbidden {
-			t.Errorf("%s %s: status %d, want 403", method, path, recorder.Code)
+		for _, method := range methods {
+			got := callUnlisted(server.Server, method, path)
+			if got.Code != http.StatusForbidden {
+				t.Errorf("%s %s: status %d, want 403", method, path, got.Code)
+				continue
+			}
+			if strings.HasPrefix(path, "/api/") && method != http.MethodHead && errorCode(t, got) != forwardForbiddenCode {
+				t.Errorf("%s %s: %s, want the list's refusal", method, path, got.Body.String())
+			}
+			checked++
 		}
-		checked++
 	}
-	if checked < 50 {
-		t.Fatalf("only %d operator routes checked: the walk lost its routes", checked)
+	if checked < 100 {
+		t.Fatalf("only %d operator calls checked: the walk lost its routes", checked)
+	}
+	// Des chemins qu'aucun motif ne nomme tels quels tombent sur un
+	// fourre-tout gardé, jamais sur une route ouverte.
+	for _, path := range []string{"/API/session", "/api/session/", "/api/nope", "/machines", "/parametres", "/index.html", "/statut-x"} {
+		if got := callUnlisted(server.Server, http.MethodGet, path); got.Code != http.StatusForbidden {
+			t.Errorf("GET %s: status %d, want 403", path, got.Code)
+		}
+	}
+	// Un chemin à nettoyer est redirigé par le mux avant toute garde, sans
+	// réponse de handler ; sa cible est refusée ci-dessus.
+	for _, path := range []string{"/api/./auth", "//api/auth", "/statut/../api/auth", "/ping/../api/session"} {
+		if got := callUnlisted(server.Server, http.MethodGet, path); got.Code < 300 || got.Code >= 400 {
+			t.Errorf("GET %s: status %d, want a redirect", path, got.Code)
+		}
+	}
+	if events := server.auditSince(t, mark); len(events) != 0 {
+		t.Fatalf("a refused identity reached a handler that journals: %+v", events)
 	}
 }
 
-func TestAuthForwardUsers_TheLogStreamsAreGuarded(t *testing.T) {
+func TestForwardUsers_TheLogStreamsAreGuarded(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 	for _, path := range []string{"/api/events", "/api/containers/x/logs/stream", "/api/containers/x/logs"} {
 		ctx, cancel := context.WithTimeout(context.Background(), streamGuardTimeout)
@@ -343,7 +393,7 @@ func TestAuthForwardUsers_TheLogStreamsAreGuarded(t *testing.T) {
 
 // Une liste mal construite ne rouvre jamais la porte : [""] n'est pas « vide »
 // (la configuration la refuse, mais le serveur ne le suppose pas).
-func TestAuthForwardUsers_AListHoldingOnlyAnEmptyEntryAdmitsNobody(t *testing.T) {
+func TestForwardUsers_AListHoldingOnlyAnEmptyEntryAdmitsNobody(t *testing.T) {
 	server, _ := forwardWithList(t, "")
 	for _, identity := range []string{"lucas", "autre", " ", "\x00"} {
 		got := callForwarded(server.Server, http.MethodGet, forwardUsersProbe, trustedPeer, identity)
@@ -359,7 +409,7 @@ func TestAuthForwardUsers_AListHoldingOnlyAnEmptyEntryAdmitsNobody(t *testing.T)
 
 // Des doublons (qu'une configuration ne laisse pas passer) ne changent rien :
 // l'ensemble est le même, et l'API rend chaque identité une fois.
-func TestAuthForwardUsers_DuplicatesCollapse(t *testing.T) {
+func TestForwardUsers_DuplicatesCollapse(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas", "lucas", "léa", "lucas")
 	if got := callForwarded(server.Server, http.MethodGet, forwardUsersProbe, trustedPeer, "lucas"); got.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", got.Code)
@@ -373,7 +423,7 @@ func TestAuthForwardUsers_DuplicatesCollapse(t *testing.T) {
 
 // L'activation ne s'enferme pas dehors : même garde-fou que l'en-tête
 // absent, avec sa propre clé pour que la page dise quoi faire.
-func TestAuthForwardUsers_EnablingFromAnUnlistedIdentityIsRefused(t *testing.T) {
+func TestForwardUsers_EnablingFromAnUnlistedIdentityIsRefused(t *testing.T) {
 	const enable = "/api/auth/actions/enable"
 	server := newFirstSetupServer(t)
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
@@ -412,7 +462,7 @@ func TestAuthForwardUsers_EnablingFromAnUnlistedIdentityIsRefused(t *testing.T) 
 	}
 }
 
-func TestAuthForwardUsers_NoListNeverBlocksTheActivation(t *testing.T) {
+func TestForwardUsers_NoListNeverBlocksTheActivation(t *testing.T) {
 	server := newFirstSetupServer(t)
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
 	got := callForwardedJSON(server.Server, http.MethodPost, "/api/auth/actions/enable", `{"mode":"forward"}`, trustedPeer, auth.DefaultForwardHeader, "autre")
@@ -428,7 +478,7 @@ func TestAuthForwardUsers_NoListNeverBlocksTheActivation(t *testing.T) {
 
 // GET /api/auth : la liste en forward seulement, null sinon ; le JSON dit
 // null, pas [].
-func TestAuthForwardUsers_AuthStateShowsTheListInForwardModeOnly(t *testing.T) {
+func TestForwardUsers_AuthStateShowsTheListInForwardModeOnly(t *testing.T) {
 	forward, _ := forwardWithList(t, "lucas", "Léa")
 	got := callForwarded(forward.Server, http.MethodGet, "/api/auth", trustedPeer, "lucas")
 	if got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"allowed_users":["Léa","lucas"]`) {
@@ -460,7 +510,7 @@ func TestAuthForwardUsers_AuthStateShowsTheListInForwardModeOnly(t *testing.T) {
 
 // En basic, forward_users ne garde rien : un Basic juste passe, quelle que
 // soit la liste (elle ne vaut qu'en forward).
-func TestAuthForwardUsers_TheListDoesNotTouchBasicMode(t *testing.T) {
+func TestForwardUsers_TheListDoesNotTouchBasicMode(t *testing.T) {
 	server := newTestServer(t)
 	server.forwardUsers = forwardUserSet([]string{"autre"})
 	if got := callAPI(server.Server, http.MethodGet, forwardUsersProbe, nil); got.Code != http.StatusOK {
@@ -470,7 +520,7 @@ func TestAuthForwardUsers_TheListDoesNotTouchBasicMode(t *testing.T) {
 
 // Un jeton d'API n'est pas une identité du mandataire : il passe avant le
 // mode, la liste ne le juge pas. Il a été tiré par un opérateur admis.
-func TestAuthForwardUsers_AnAPITokenIsNotJudgedByTheList(t *testing.T) {
+func TestForwardUsers_AnAPITokenIsNotJudgedByTheList(t *testing.T) {
 	server, _ := forwardWithList(t, "lucas")
 	bearer := server.issueAPIToken(t, "inspecteur")
 	if got := callBearerWith(server.Server, http.MethodGet, "/api/counts", bearer, untrustedPeer); got.Code != http.StatusOK {

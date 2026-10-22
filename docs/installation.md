@@ -586,6 +586,15 @@ cause. Activer le mode `forward` depuis une identité hors liste est refusé
 (`auth.forward_user_not_listed`) : on ne s'enferme pas en activant.
 `opencloud auth status` affiche la liste que la commande lit.
 
+**Enfermé dehors par la liste** (une liste posée après l'activation, sans
+votre identité ou avec une faute de casse) : la sortie est la même que
+l'entrée. La page `403` et le `WARN` disent l'identité reçue ; corrigez
+`forward_users` dans `/etc/opencloud/config.toml` (ou videz-la), puis
+`systemctl restart opencloud`. `opencloud auth disable` n'en sort **pas** :
+l'interface revient à sa première configuration, mais réactiver le mode
+`forward` depuis une identité hors liste reste refusé, et en attendant toute
+identité que le SSO laisse passer peut créer le compte.
+
 La contrepartie : retirer quelqu'un de la liste ne révoque pas les jetons
 d'API qu'il a tirés (Paramètres → Jetons d'API), et les groupes d'Authelia
 (`Remote-Groups`) ne sont pas lus.

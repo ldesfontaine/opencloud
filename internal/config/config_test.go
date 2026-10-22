@@ -163,7 +163,7 @@ func TestParse_ForwardUsers_AFalseListStopsTheStart(t *testing.T) {
 		{"trailing space", `"lucas "`},
 		{"only spaces", `"   "`},
 		{"trailing tab", `"lucas\t"`},
-		{"no-break space at the edge", `"lucas "`},
+		{"no-break space at the edge", `"lucas\u00a0"`},
 		{"newline inside", `"lu\ncas"`},
 		{"NUL inside", `"lu\u0000cas"`},
 		{"escape inside", `"lu\u001bcas"`},
