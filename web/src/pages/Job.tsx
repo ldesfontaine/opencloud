@@ -17,7 +17,7 @@ import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
+import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, outcomeKey, preview, runMoment, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 
 // La page d'une tâche : le verdict, les dernières exécutions, puis les
@@ -44,7 +44,7 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
         tone={jobTones[job.status]}
         pill={<JobPill status={job.status} />}
         fact={jobFact(t, job, response.runs, now)}
-        context={lastSuccessText(t, job, response.runs, now)}
+        context={lastSuccessText(t, response.runs, now)}
       >
         {job.machine_id !== "" && (
           <>
@@ -200,14 +200,14 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
 
 function RunRow({ run, now }: { run: Run; now: number }) {
   const t = useT();
-  const when = run.completed_at ?? run.started_at;
+  const when = runMoment(run);
   return (
     <div className="row">
       <Dot tone={runTones[run.outcome]} />
       <RowText
         title={
           <>
-            {t(`job.outcome_${run.outcome}`)}
+            {t(outcomeKey(run))}
             {run.exit_code !== null && (
               <>
                 {" · "}
@@ -224,6 +224,7 @@ function RunRow({ run, now }: { run: Run; now: number }) {
         }
       >
         {run.started_at !== null && t("job.started_at", formatClock(run.started_at))}
+        {run.outcome === "missed" && run.completed_at !== null && t("job.missed_detail", formatClock(run.completed_at))}
         {run.payload !== "" && (
           <>
             {run.started_at !== null && <br />}

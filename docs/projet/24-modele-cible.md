@@ -770,7 +770,8 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `service_samples` | Gardée | Renommée `container_samples` (**fait, annuaire 3b**) ; alimente `service_samples_hourly` | Gardé (48 h) |
 | `service_networks` | Gardée | Renommée `container_networks` (**fait, annuaire 3b**) | — |
 | `heartbeats` | Transformée | + `service_id`, + `kind` (`cron` pour l'existant, `webhook`) ; `token` → `token_sealed` + `token_lookup` (les URL de ping ne changent pas ; **fait**, schéma unique) ; `machine_id` passe de set null à restrict (**fait**, `028_restrict.sql`) ; édition sur place, régénération, pause qui tient | Gardé |
-| `heartbeat_pings`, `heartbeat_runs` | Gardées | — | Gardé |
+| `heartbeat_pings` | Gardée | — | Gardé |
+| `heartbeat_runs` | Gardée | Issue `missed` ajoutée (**fait**, `009_heartbeat_missed.sql`, section 26) | Gardé |
 | `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict (restrict **fait**, `028_restrict.sql` ; le renommage reste à faire) ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; le certificat dans `probe_certificates` (**fait**, schéma unique) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
 | `probe_results`, `probe_days` | Gardées | Issue `warning` ajoutée | Gardé |
 | `image_checks` | Gardée | Reste un cache (machine, image) ; les montées trouvées deviennent des `update_proposals` | Cache |
@@ -1357,3 +1358,21 @@ installation existante est dans `installation.md`. Ce que le code a tranché
 | **Un état mal gardé ne garde que `observe`**, sans arrêt : `Options.UnsafeState` pose `narrowed` sur l'identité, `Capabilities()` rend `observe`, le flux le rapporte, les ordres qui écrivent sont refusés (`right_missing`) | Un arrêt aurait aveuglé la supervision ; une ligne de journal seule ne protégerait rien. L'écart apparaît sur la fiche, et le serveur refuse l'ordre d'avance | Le fichier ne change pas sur le disque (champ non exporté, jamais écrit) : l'état corrigé, un redémarrage rend les droits. Une machine openCloud non déplacée perd ses droits d'écriture au premier démarrage du nouveau binaire (par défaut elle n'a que `observe` : rien ne change pour elle) |
 | **`agent.server_key` passe encore sous un état mal gardé** : il ne demande que `observe`, et l'ordre doit être signé par la clé déjà épinglée | Un état mal gardé, c'est un autre compte qui peut réécrire `identity.json`, la clé épinglée comprise : l'ordre ne lui donne rien de plus. Et le serveur qui tourne sa clé ne gagne aucun droit, `observe` seul restant appliqué | Un agent mal gardé suit la rotation de la clé du serveur comme les autres ; corrigé, il n'a pas à être ré-enrôlé |
 | **La machine openCloud se met à jour depuis sa fiche** comme les autres : son agent lance `/var/lib/opencloud-agent/bin/current` | Il n'y avait d'exception que parce que son état était sous le dossier du serveur. Le code n'avait pas de cas particulier : il n'y en a plus dans l'unité, les textes ni la documentation | Pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle : c'est le binaire du serveur, que rien ne met à jour seul. Le serveur et l'agent y ont chacun leur copie du binaire |
+
+## 26. Ce que le retard dans l'historique a fixé
+
+Migration `009_heartbeat_missed.sql` : `heartbeat_runs` est refaite pour que
+`outcome` admette `missed` (SQLite ne modifie pas un `CHECK`) ; les lignes
+gardent leur `id` (l'API trie par `id`), l'index et l'index partiel des
+exécutions ouvertes sont recréés à l'identique. Aucune table ne référence
+`heartbeat_runs`. Le fonctionnement est dans `22-fonctionnement.md`, « Comment
+une tâche est surveillée » (#128, option 1 amendée). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Une ligne `missed` par épisode de retard**, pas par échéance, écrite par `heartbeat.Service.expire` dans la transaction qui passe la tâche en retard | Le serveur ne passe en retard qu'une fois par trou : la règle n'a pas d'état de plus à garder, et la boucle repassée sur une tâche déjà en retard n'écrit rien | « Combien d'échéances manquées » n'est pas stocké ; l'afficher serait une estimation (durée ÷ intervalle), dite « environ » |
+| **Rien si une exécution était ouverte** : elle est close en `timeout`, qui compte déjà comme un échec | Écrire aussi `missed` compterait l'échéance deux fois | Un trou précédé d'un `start` s'y lit comme « Dépassée », pas « Manquée » |
+| **La ligne n'a ni début, ni durée, ni code, ni corps ; sa fin est l'échéance dépassée** (`NextDeadlineAt`) | La boucle passe toutes les 15 s : l'échéance est le fait, l'instant du contrôle n'est qu'un retard de la boucle. `duration_ms` nul garde la ligne hors de toute moyenne de durées | Une exécution sans `started_at` : le front lit sa fin (`completed_at`) |
+| **La série se coupe sur `missed` sans le compter comme un échec**, dans le front (`currentStreak`) ; le serveur ne calcule toujours aucune série | Une série d'échecs ne compte que de vraies exécutions : quatre codes non nuls sont quatre échecs, un trou n'en est pas un | Les 20 exécutions rendues bornent la vue : un `missed` au-delà ne se voit pas, la phrase dit « au moins » |
+| **La phrase de tête dit une durée** (« Repartie il y a 10 min après 5 h sans signal »), pas un compte | Les revues du 12/10 : « 4 réussites de suite » enjambait un trou de plusieurs heures. Une durée dit ce que l'opérateur veut savoir | Le trou va de la réussite d'avant à celle d'après : il comprend un intervalle normal. Choix de rédaction, à valider (P7) |
+| **« Passage signalé » pour une réussite sans code de sortie** | Le ping nu part même si la commande d'avant a échoué : il atteste que le cron a tourné, pas que la tâche a réussi | Un mot de plus à connaître dans la liste des exécutions |

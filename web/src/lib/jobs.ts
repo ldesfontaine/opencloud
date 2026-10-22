@@ -38,7 +38,24 @@ export const runTones: Record<RunOutcome, Tone> = {
   success: "ok",
   failure: "danger",
   timeout: "warn",
+  missed: "warn",
 };
+
+// Le moment d'une exécution : sa fin, ou son début tant qu'elle court.
+export function runMoment(run: Run): string | null {
+  return run.completed_at ?? run.started_at;
+}
+
+// Un ping nu (sans code de sortie) part même si la commande d'avant a
+// échoué : sa « réussite » est un passage signalé, pas un succès constaté.
+export function isSignaled(run: Run): boolean {
+  return run.outcome === "success" && run.exit_code === null;
+}
+
+// La clé du libellé d'une exécution.
+export function outcomeKey(run: Run): string {
+  return isSignaled(run) ? "job.outcome_signaled" : `job.outcome_${run.outcome}`;
+}
 
 // Ce qu'on montre du corps d'un ping : le début, sur une ligne.
 const payloadPreview = 160;
@@ -67,45 +84,91 @@ export const runHistoryLimit = 20;
 // Ce qu'on montre d'abord dans la liste ; le reste se déplie.
 export const runsShownFirst = 5;
 
-// La série en cours : combien d'exécutions finies se suivent avec la même
-// issue, en partant de la plus récente. Une exécution dépassée compte comme
-// un échec ; celle en cours ne compte pas.
+// La série en cours, en partant de l'exécution la plus récente. Une série de
+// réussites s'arrête au premier « missed », échec ou dépassement ; une série
+// d'échecs ne compte que les échecs et les dépassements (un « missed » n'est
+// pas une exécution) et s'arrête à tout autre. L'exécution en cours ne compte
+// pas.
 export interface Streak {
   succeeded: boolean;
   count: number;
   isOpenEnded: boolean;
+  // Où la série a commencé : le début d'une série d'échecs, la fin de la
+  // première réussite d'une série de réussites.
   since: string | null;
+  // Ce qui a coupé la série ; nul quand elle couvre tout l'historique rendu.
+  brokenBy: RunOutcome | null;
+  // Série de réussites : la dernière réussite d'avant la rupture, si elle
+  // est dans l'historique rendu. Elle donne la durée du trou.
+  beforeBreak: Run | null;
+}
+
+// Les exécutions finies : celle qui court encore n'a pas d'issue.
+function finishedRuns(runs: Run[]): Run[] {
+  return runs.filter((run) => run.outcome !== "in_progress");
 }
 
 export function currentStreak(runs: Run[]): Streak | null {
-  const finished = runs.filter((run) => run.outcome !== "in_progress");
+  const finished = finishedRuns(runs);
   const latest = finished[0];
   if (latest === undefined) {
     return null;
   }
   const succeeded = latest.outcome === "success";
+  const continues = (run: Run) => (succeeded ? run.outcome === "success" : run.outcome === "failure" || run.outcome === "timeout");
   let count = 0;
   for (const run of finished) {
-    if ((run.outcome === "success") !== succeeded) {
+    if (!continues(run)) {
       break;
     }
     count += 1;
   }
   const oldest = finished[count - 1];
+  const breaker = finished[count];
+  let since: string | null = null;
+  if (oldest !== undefined) {
+    since = succeeded ? runMoment(oldest) : (oldest.started_at ?? oldest.completed_at);
+  }
   return {
     succeeded,
     count,
     isOpenEnded: count === finished.length && runs.length >= runHistoryLimit,
-    since: oldest === undefined ? null : (oldest.started_at ?? oldest.completed_at),
+    since,
+    brokenBy: breaker === undefined ? null : breaker.outcome,
+    beforeBreak: succeeded ? (finished.slice(count).find((run) => run.outcome === "success") ?? null) : null,
   };
 }
 
-function streakFact(t: Translate, streak: Streak, now: number): string {
-  if (streak.count === 1) {
-    return streak.succeeded ? t("job.fact_success") : t("job.fact_failed");
+const day = 24 * 60 * 60 * 1000;
+
+// La phrase d'une série de réussites (tâche à l'heure). Une reprise récente
+// après un « missed » dit le trou ; une rupture plus ancienne, ou un échec,
+// dit depuis quand tout va bien.
+function successFact(t: Translate, streak: Streak, finishedCount: number, now: number): string {
+  if (finishedCount === 1) {
+    return t("job.fact_success");
   }
-  if (streak.succeeded) {
-    return streak.isOpenEnded ? t("job.fact_successes_all", streak.count) : t("job.fact_successes", streak.count);
+  if (streak.since === null) {
+    return t("job.fact_on_time");
+  }
+  const resumedFor = since(streak.since, now);
+  if (streak.brokenBy === "missed" && resumedFor < day) {
+    const lastBefore = streak.beforeBreak === null ? null : runMoment(streak.beforeBreak);
+    if (lastBefore === null) {
+      return t("job.fact_resumed_after_late", formatDuration(t, resumedFor));
+    }
+    const gap = Date.parse(streak.since) - Date.parse(lastBefore);
+    return t("job.fact_resumed", formatDuration(t, resumedFor), formatDuration(t, gap));
+  }
+  if (streak.brokenBy === null) {
+    return streak.isOpenEnded ? t("job.fact_on_time_at_least", formatDuration(t, resumedFor)) : t("job.fact_on_time_since", formatDuration(t, resumedFor));
+  }
+  return t("job.fact_on_time_since", formatDuration(t, resumedFor));
+}
+
+function failureFact(t: Translate, streak: Streak, now: number): string {
+  if (streak.count === 1) {
+    return t("job.fact_failed");
   }
   if (streak.isOpenEnded || streak.since === null) {
     return t("job.fact_failures_all", streak.count);
@@ -127,28 +190,30 @@ export function jobFact(t: Translate, job: Job, runs: Run[], now: number): strin
     case "late":
       return job.last_ping_at === null ? t("job.fact_never_pinged") : t("job.fact_late", formatDuration(t, since(job.last_ping_at, now)));
     case "failed":
-      return streak === null || streak.succeeded ? t("job.fact_failed") : streakFact(t, streak, now);
-    case "on_time":
-      return streak === null || !streak.succeeded ? t("job.fact_on_time") : streakFact(t, streak, now);
+      return streak === null || streak.succeeded ? t("job.fact_failed") : failureFact(t, streak, now);
+    case "on_time": {
+      if (streak === null || !streak.succeeded) {
+        return t("job.fact_on_time");
+      }
+      return successFact(t, streak, finishedRuns(runs).length, now);
+    }
   }
 }
 
-// Sous le fait, quand la tâche va mal : la dernière fois qu'elle a réussi,
-// ou qu'aucune des exécutions connues n'a réussi.
-export function lastSuccessText(t: Translate, job: Job, runs: Run[], now: number): string | null {
-  if (!attentionStatuses.has(job.status)) {
-    return null;
-  }
-  const finished = runs.filter((run) => run.outcome !== "in_progress");
+// Sous le fait, toujours : la dernière fois que la tâche a réussi, ou
+// qu'aucune des exécutions connues n'a réussi. Sans code de sortie, c'est un
+// passage signalé, pas une réussite constatée.
+export function lastSuccessText(t: Translate, runs: Run[], now: number): string | null {
+  const finished = finishedRuns(runs);
   if (finished.length === 0) {
     return null;
   }
   const success = finished.find((run) => run.outcome === "success");
-  const at = success === undefined ? null : (success.completed_at ?? success.started_at);
-  if (at === null) {
+  const at = success === undefined ? null : runMoment(success);
+  if (success === undefined || at === null) {
     return t("job.no_success", finished.length);
   }
-  return t("job.last_success", formatWhen(at, now), ago(t, at, now));
+  return t(isSignaled(success) ? "job.last_signaled" : "job.last_success", formatWhen(at, now), ago(t, at, now));
 }
 
 // Le formulaire d'une tâche, tel que l'opérateur le tape : le serveur parle

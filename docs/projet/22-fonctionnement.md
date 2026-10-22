@@ -124,7 +124,7 @@ dit comment. Une migration de plus part de `002`.
 | --- | --- | --- | --- |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq` ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code) | Purgés : pings après 7 jours, exécutions après 90 jours |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'annuaire déclaré : `projects`, `declared_services`, `service_units`, `service_provides`, `project_services`, et sur chaque unité la politique de mise à jour (`service_units.update_policy`, `watch`, `hold` ou `ignore`). Aucun secret, aucune donnée lue sur une machine | Pas de purge : ce que l'opérateur déclare reste. Supprimer un service emporte ses unités et ses fournitures, supprimer un projet ne retire que les liens ; une machine qui porte des services ne se retire pas, un service que des sondes ou des composants visent non plus |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le journal des fichiers appliqués : la table `applies` (`id` en `apl_` et seize hexadécimaux, `at`, `finished_at`, `actor_kind` `cli` ou `operator`, `actor_name`, `file_hash`, `file_name`, `prune`, `plan_hash`, `state` `confirmed`, `applied` ou `failed`, les quatre compteurs, `done`, `error` et `error_object`, et `plan`, le JSON des changements dans l'ordre d'écriture). **Ni le fichier ni aucun secret** : le plan ne porte que des valeurs de l'annuaire, la cible d'une sonde y est masquée (`user:…@hôte`) et un jeton n'y est jamais ; une tâche créée y est notée `token_generated` sans le jeton. Pas de clé étrangère vers les objets touchés : le journal leur survit | Pas de purge : le journal est petit (une ligne par fichier appliqué) et c'est lui qui répond à « qui a changé ça ». Une ligne restée `confirmed` au démarrage est celle d'un arrêt brutal : `serve` la passe en `failed` (`manifest.interrupted`) |
@@ -760,7 +760,19 @@ ne rapporterait rien.
    Un `start` sans fin est clos en « Dépassée » par le `start` suivant ou par
    l'échéance. Un code de sortie autre que 0 met la tâche « En échec ».
 4. Toutes les 15 s, une boucle passe « En retard » les tâches dont
-   l'échéance est dépassée. Le prochain ping les remet « À l'heure ».
+   l'échéance est dépassée. Le prochain ping les remet « À l'heure ». Un
+   retard s'inscrit dans l'historique : **une ligne « Manquée » (`missed`) par
+   épisode de retard**, écrite dans la transaction qui passe la tâche en
+   retard. Elle n'a ni début, ni durée, ni code, et sa fin est **l'échéance
+   dépassée**, pas l'instant du contrôle. Une tâche muette trois jours en
+   fait donc une seule, pas une par échéance. Si une exécution était ouverte
+   par un `start`, elle est close en « Dépassée » (un échec) et **aucune**
+   ligne « Manquée » ne s'y ajoute : l'échéance compterait deux fois. Une
+   tâche « Nouveau » qui n'a jamais pingé écrit sa ligne (c'est un vrai
+   retard) ; une tâche en pause n'en écrit pas, et la reprise non plus. Elle
+   est purgée avec les autres exécutions (90 jours). Le nombre d'échéances
+   manquées n'est pas stocké : une estimation (durée ÷ intervalle) se dirait
+   « environ ».
 5. En pause, une tâche n'a plus d'échéance, et **un ping ne la reprend
    pas** : il est écrit tel quel dans les pings bruts, pour qu'on voie qu'un
    cron oublié tourne encore, et l'URL répond toujours 200 `ok`. Rien
@@ -786,7 +798,27 @@ ne rapporterait rien.
    du retard (À l'heure, Nouveau) lève l'alerte « Tâche en retard » ; un
    retour à « En échec » la lève aussi, et ouvre l'alerte « Tâche en échec ».
    L'alerte suit aussi la machine de la tâche quand l'édition la change.
-7. **Le jeton se régénère** depuis la page de la tâche, section « URL de
+7. **La série et la phrase de tête** se calculent dans le navigateur, sur
+   les 20 dernières exécutions que le serveur rend (il ne calcule aucune
+   série). Une ligne « Manquée » coupe une série de réussites comme un échec,
+   mais **n'est pas comptée comme un échec de suite** : ce n'est pas une
+   exécution. Une série d'échecs ne compte que les échecs et les
+   dépassements. Pour une tâche « À l'heure » :
+
+   | La série de réussites | La phrase |
+   | --- | --- |
+   | remonte à une ligne « Manquée », la première réussite d'après date de moins de 24 h | « Repartie il y a 10 min après 5 h sans signal » (le trou va de la réussite d'avant à celle d'après ; sans réussite d'avant dans les 20 : « après un retard ») |
+   | remonte à une autre rupture, ou à un « Manquée » plus vieux | « À l'heure depuis 3 j » (depuis la première réussite après la rupture) |
+   | ne rencontre aucune rupture dans les 20 rendues | « À l'heure depuis au moins 10 h » ; sans « au moins » si l'historique est plus court que 20 |
+   | une seule exécution, réussie | « La dernière exécution a réussi » |
+
+   « Dernière réussite : … » s'affiche **toujours** sous la phrase. Un ping
+   sans code de sortie (le ping nu) part même si la commande d'avant a
+   échoué : son exécution s'écrit « Passage signalé » et la ligne devient
+   « Dernier passage signalé : … » ; ce n'est pas une réussite constatée. La
+   frise dessine « Manquée » en trou hachuré. Au-delà des 20 exécutions, un
+   « Manquée » ne se voit pas : c'est la limite que dit « au moins ».
+8. **Le jeton se régénère** depuis la page de la tâche, section « URL de
    ping », après confirmation (`POST /api/jobs/{id}/actions/regenerate-token`,
    204). L'ancienne URL répond 404 aussitôt ; l'état, l'échéance et
    l'historique ne bougent pas ; c'est permis en pause. Le jeton neuf est
