@@ -48,7 +48,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	}
 	opened, err := ts.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Le nuage ne répond plus", Impact: status.ImpactDown, Status: status.StatusInvestigating,
-		Message: "Nous regardons.", ComponentIDs: []string{cloud.ID},
+		Message: "Nous regardons.", Targets: []status.MemberRef{{Kind: status.KindService, ID: declaredServiceID}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func (ts *testServer) seedStatus(t *testing.T, declaredServiceID, jobID, probeID
 	}
 	yesterday, err := ts.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Certificat renouvelé en retard", Impact: status.ImpactDegraded, Status: status.StatusMonitoring,
-		ComponentIDs: []string{cloud.ID},
+		Targets: []status.MemberRef{{Kind: status.KindService, ID: declaredServiceID}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -267,8 +267,9 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	}
 	var component componentJSON
 	decodeAPI(t, recorder, &component)
-	// L'incident ouvert impose encore son état.
-	if component.Name != "Nuage bleu" || component.Derived != "" || component.Effective != "down" {
+	// L'incident vise des objets, pas des composants : sans objet, le composant
+	// n'est plus touché et ne dit rien.
+	if component.Name != "Nuage bleu" || component.Derived != "" || component.Effective != "" {
 		t.Fatalf("component %+v", component)
 	}
 	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"page_id": server.seededPageID(t), "name": "", "members": []any{}})
@@ -285,7 +286,7 @@ func TestStatusAPI_WritesGoThroughTheComponent(t *testing.T) {
 	}
 	starts := testNow.Add(time.Hour)
 	recorder = callAPI(server.Server, http.MethodPost, "/api/status/incidents", map[string]any{
-		"title": "Migration", "impact": "maintenance", "status": "scheduled", "component_ids": []string{componentID},
+		"title": "Migration", "impact": "maintenance", "status": "scheduled", "targets": remoteTargets(),
 		"starts_at": starts, "ends_at": starts.Add(30 * time.Minute),
 	})
 	if recorder.Code != http.StatusCreated {
@@ -358,18 +359,28 @@ func componentIDByName(t *testing.T, server *testServer, name string) (id, deriv
 	return "", ""
 }
 
+// remoteTargets vise la machine distante, que le composant « Nuage » montre.
+func remoteTargets() []map[string]string {
+	return []map[string]string{{"kind": "machine", "id": remoteID}}
+}
+
 func TestStatusAPI_ChangeIncident_RewritesItAndThePublicPageFollows(t *testing.T) {
 	server := newTestServer(t)
 	_, incidentID := server.seedAll(t)
 	silenceID, _ := componentIDByName(t, server, "Silence")
 	_, cloudDerived := componentIDByName(t, server, "Nuage")
+	// La sonde que montre « Silence », et elle seule.
+	probes, err := server.db.ListProbes(context.Background(), machine.LocalID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	before := readPublicStatus(t, server)
 	if before.stateOf("Nuage") != "down" || before.stateOf("Silence") != "" || len(before.Open) != 1 {
 		t.Fatalf("before the change: %+v", before)
 	}
 
 	recorder := callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+incidentID, map[string]any{
-		"title": "  Disque remplacé  ", "component_ids": []string{silenceID},
+		"title": "  Disque remplacé  ", "targets": []map[string]string{{"kind": "probe", "id": probes[0].ID}},
 	})
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("change: %d %s", recorder.Code, recorder.Body.String())
@@ -378,6 +389,9 @@ func TestStatusAPI_ChangeIncident_RewritesItAndThePublicPageFollows(t *testing.T
 	decodeAPI(t, recorder, &changed)
 	if changed.ID != incidentID || changed.Title != "Disque remplacé" || changed.Impact != "down" || changed.Status != "identified" {
 		t.Fatalf("incident %+v", changed)
+	}
+	if len(changed.Targets) != 1 || changed.Targets[0].Kind != "probe" || changed.Targets[0].ID != probes[0].ID || changed.Targets[0].Name != probes[0].Name {
+		t.Fatalf("targets %+v", changed.Targets)
 	}
 	if len(changed.Components) != 1 || changed.Components[0].ID != silenceID || len(changed.Updates) != 2 {
 		t.Fatalf("components %+v, %d updates: the timeline must stay", changed.Components, len(changed.Updates))
@@ -403,12 +417,64 @@ func TestStatusAPI_ChangeIncident_RewritesItAndThePublicPageFollows(t *testing.T
 	}
 }
 
+// Un incident sur un service paraît sur chaque page dont un composant montre
+// ce service ou l'une de ses sondes, et l'administration lit les composants
+// touchés, toutes pages confondues.
+func TestAPI_Incident_ShowsOnThePagesWhoseComponentsItTouches(t *testing.T) {
+	server := newTestServer(t)
+	ctx := context.Background()
+	server.enroll(t, "vps-paris-1", remoteID)
+	serviceID := server.seedGaps(t)
+	probeID := server.seedProbes(t, serviceID)
+	shop, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "boutique"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blog, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "blog"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	onShop, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: shop.ID, Name: "Cloud", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	onBlog, err := server.status.CreateComponent(ctx, status.ComponentDefinition{PageID: blog.ID, Name: "Site", Members: []status.MemberRef{{Kind: status.KindProbe, ID: probeID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := callAPI(server.Server, http.MethodPost, "/api/status/incidents", map[string]any{
+		"title": "Nextcloud est tombé", "impact": "down", "status": "investigating",
+		"targets": []map[string]string{{"kind": "service", "id": serviceID}},
+	})
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("open: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var opened incidentJSON
+	decodeAPI(t, recorder, &opened)
+	if len(opened.Targets) != 1 || opened.Targets[0].Name != "Nextcloud" || len(opened.Components) != 2 ||
+		opened.Components[0].ID != onShop.ID || opened.Components[1].ID != onBlog.ID {
+		t.Fatalf("targets %+v components %+v", opened.Targets, opened.Components)
+	}
+	for _, page := range []status.Page{shop, blog} {
+		var listed incidentsResponse
+		decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/status/incidents?page="+page.ID, nil), &listed)
+		if len(listed.Incidents) != 1 || listed.Incidents[0].ID != opened.ID || len(listed.Incidents[0].Components) != 2 {
+			t.Errorf("incidents of %s: %+v", page.Slug, listed.Incidents)
+		}
+		snapshot, err := server.status.Snapshot(ctx, page.ID)
+		if err != nil || len(snapshot.Open) != 1 || len(snapshot.Open[0].Components) != 1 {
+			t.Errorf("snapshot of %s: %+v %v", page.Slug, snapshot.Open, err)
+		}
+	}
+}
+
 func TestStatusAPI_ChangeIncident_MovesAMaintenanceWindow(t *testing.T) {
 	server := newTestServer(t)
-	cloudID, _ := server.seedAll(t)
+	server.seedAll(t)
 	starts := testNow.Add(time.Hour)
 	recorder := callAPI(server.Server, http.MethodPost, "/api/status/incidents", map[string]any{
-		"title": "Migration", "impact": "maintenance", "status": "scheduled", "component_ids": []string{cloudID},
+		"title": "Migration", "impact": "maintenance", "status": "scheduled", "targets": remoteTargets(),
 		"starts_at": starts, "ends_at": starts.Add(30 * time.Minute),
 	})
 	if recorder.Code != http.StatusCreated {
@@ -419,7 +485,7 @@ func TestStatusAPI_ChangeIncident_MovesAMaintenanceWindow(t *testing.T) {
 
 	later := starts.Add(2 * time.Hour)
 	recorder = callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+planned.ID, map[string]any{
-		"title": planned.Title, "component_ids": []string{cloudID}, "starts_at": later, "ends_at": later.Add(time.Hour),
+		"title": planned.Title, "targets": remoteTargets(), "starts_at": later, "ends_at": later.Add(time.Hour),
 	})
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("move: %d %s", recorder.Code, recorder.Body.String())
@@ -430,7 +496,7 @@ func TestStatusAPI_ChangeIncident_MovesAMaintenanceWindow(t *testing.T) {
 		t.Fatalf("window %v → %v, status %q", moved.StartsAt, moved.EndsAt, moved.Status)
 	}
 	// Sans fenêtre, une maintenance n'a pas de sens.
-	recorder = callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+planned.ID, map[string]any{"title": planned.Title, "component_ids": []string{cloudID}})
+	recorder = callAPI(server.Server, http.MethodPut, "/api/status/incidents/"+planned.ID, map[string]any{"title": planned.Title, "targets": remoteTargets()})
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "incident.window_invalid" {
 		t.Fatalf("no window: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -447,12 +513,13 @@ func TestStatusAPI_ChangeIncident_Refuses(t *testing.T) {
 		code int
 		key  string
 	}{
-		{"inconnu", "/api/status/incidents/nope", map[string]any{"title": "x", "component_ids": []string{cloudID}}, http.StatusNotFound, "not_found"},
-		{"titre vide", "/api/status/incidents/" + incidentID, map[string]any{"title": " ", "component_ids": []string{cloudID}}, http.StatusUnprocessableEntity, "incident.title_invalid"},
-		{"sans composant", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{}}, http.StatusUnprocessableEntity, "incident.component_invalid"},
-		{"composant inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{"nope"}}, http.StatusUnprocessableEntity, "incident.component_invalid"},
-		{"fenêtre sur un incident", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{cloudID}, "starts_at": starts, "ends_at": starts.Add(time.Hour)}, http.StatusUnprocessableEntity, "incident.window_invalid"},
-		{"champ inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "component_ids": []string{cloudID}, "impact": "maintenance"}, http.StatusBadRequest, "bad_json"},
+		{"inconnu", "/api/status/incidents/nope", map[string]any{"title": "x", "targets": remoteTargets()}, http.StatusNotFound, "not_found"},
+		{"titre vide", "/api/status/incidents/" + incidentID, map[string]any{"title": " ", "targets": remoteTargets()}, http.StatusUnprocessableEntity, "incident.title_invalid"},
+		{"sans cible", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "targets": []any{}}, http.StatusUnprocessableEntity, "incident.target_invalid"},
+		{"cible inconnue", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "targets": []map[string]string{{"kind": "machine", "id": "nope"}}}, http.StatusUnprocessableEntity, "incident.target_invalid"},
+		{"genre inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "targets": []map[string]string{{"kind": "component", "id": cloudID}}}, http.StatusUnprocessableEntity, "incident.target_invalid"},
+		{"fenêtre sur un incident", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "targets": remoteTargets(), "starts_at": starts, "ends_at": starts.Add(time.Hour)}, http.StatusUnprocessableEntity, "incident.window_invalid"},
+		{"champ inconnu", "/api/status/incidents/" + incidentID, map[string]any{"title": "x", "targets": remoteTargets(), "impact": "maintenance"}, http.StatusBadRequest, "bad_json"},
 	}
 	for _, tc := range cases {
 		recorder := callAPI(server.Server, http.MethodPut, tc.path, tc.body)

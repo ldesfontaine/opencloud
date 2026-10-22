@@ -132,6 +132,10 @@ type muteJSON struct {
 	CreatedByKind string    `json:"created_by_kind"`
 	CreatedByName string    `json:"created_by_name"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Annoncé, le silence paraît en public comme une maintenance, sous ce
+	// titre.
+	Announce    bool   `json:"announce"`
+	PublicTitle string `json:"public_title"`
 }
 
 type mutesResponse struct {
@@ -146,6 +150,8 @@ type muteRequest struct {
 	Reason          string     `json:"reason"`
 	StartsAt        *time.Time `json:"starts_at"`
 	DurationMinutes int        `json:"duration_minutes"`
+	Announce        bool       `json:"announce"`
+	PublicTitle     string     `json:"public_title"`
 }
 
 func alertToJSON(found alert.Alert) alertJSON {
@@ -177,6 +183,7 @@ func muteToJSON(mute alert.Mute, now time.Time) muteJSON {
 		Target: objectJSON{Kind: string(mute.Target.Kind), ID: mute.Target.ID, Name: mute.Target.Name},
 		Reason: mute.Reason, StartsAt: mute.StartsAt.UTC(), EndsAt: mute.EndsAt.UTC(),
 		Active: mute.IsActive(now), CreatedByKind: string(mute.CreatedBy.Kind), CreatedByName: mute.CreatedBy.Name, CreatedAt: mute.CreatedAt.UTC(),
+		Announce: mute.Announce, PublicTitle: mute.PublicTitle,
 	}
 }
 
@@ -381,6 +388,7 @@ func (s *Server) createMute(w http.ResponseWriter, r *http.Request) {
 		Reason:   request.Reason,
 		StartsAt: timeOrZero(request.StartsAt),
 		Duration: time.Duration(request.DurationMinutes) * time.Minute,
+		Announce: request.Announce, PublicTitle: request.PublicTitle,
 	})
 	if s.failed(w, r, err, alert.ErrNotFound) {
 		return

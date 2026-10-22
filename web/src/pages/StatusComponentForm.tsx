@@ -1,30 +1,20 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 
-import { useDeclaredServices } from "../api/directory";
-import { useJobs } from "../api/jobs";
-import { useMachines } from "../api/machines";
-import { useProbes } from "../api/probes";
-import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type MemberKind, type StatusComponent, type StatusMember } from "../api/status";
+import { deleteStatusComponent, fetchComponentDeletePlan, saveStatusComponent, useStatusComponent, useStatusPages, type StatusComponent, type StatusMember } from "../api/status";
 import { Button } from "../components/Button";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
-import { EnumSelect, Field, Input, Select } from "../components/Field";
+import { Field, Input, Select } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { nameWithMachine } from "../lib/objects";
-import { chosenPageID, componentFormOf, componentRequestOf, emptyComponentForm, memberKinds, pageName, type MemberChoice } from "../lib/status";
+import { chosenPageID, componentFormOf, componentRequestOf, emptyComponentForm, pageName } from "../lib/status";
 import { StatusPagePill } from "./status/StatusPagePill";
-import "./StatusAdmin.scss";
-
-interface Candidate {
-  id: string;
-  name: string;
-}
 
 // Créer ou modifier un composant : sa page (à la création), un nom public,
 // un ordre, et les objets rattachés, choisis parmi ce qu'openCloud surveille
@@ -44,41 +34,14 @@ function ComponentForm({ existing, pageID }: { existing: StatusComponent | null;
   const t = useT();
   const navigate = useNavigate();
   const pages = useStatusPages();
-  const machines = useMachines();
-  // Un membre « service » est un service déclaré : il survit à la recréation de ses conteneurs.
-  const services = useDeclaredServices();
-  const jobs = useJobs();
-  const probes = useProbes();
   const form = useForm(existing === null ? emptyComponentForm(pageID) : componentFormOf(existing));
   // Le retour mène aux composants de la page du formulaire.
   const back = `/page-statut/composants?page=${encodeURIComponent(form.values.pageID)}`;
   const { values, change } = form;
   const action = useAction();
-  const [pickKind, setPickKind] = useState<MemberKind>("probe");
-  const [pickID, setPickID] = useState("");
   const [removing, setRemoving] = useState(false);
 
-  const candidates: Record<MemberKind, Candidate[]> = {
-    machine: machines.data?.machines ?? [],
-    service: (services.data?.services ?? []).map((service) => ({ id: service.id, name: nameWithMachine({ name: service.title !== "" ? service.title : service.name, machine_name: service.machine_name }) })),
-    heartbeat: (jobs.data?.jobs ?? []).map((job) => ({ id: job.id, name: nameWithMachine(job) })),
-    probe: (probes.data?.probes ?? []).map((probe) => ({ id: probe.id, name: nameWithMachine(probe) })),
-  };
   const known = new Map<string, StatusMember>((existing?.members ?? []).map((member) => [`${member.kind}:${member.id}`, member]));
-  const nameOf = (choice: MemberChoice) => candidates[choice.kind].find((candidate) => candidate.id === choice.id)?.name ?? known.get(`${choice.kind}:${choice.id}`)?.name ?? t("component.missing");
-  const available = candidates[pickKind].filter((candidate) => !values.members.some((member) => member.kind === pickKind && member.id === candidate.id));
-
-  useEffect(() => {
-    setPickID("");
-  }, [pickKind]);
-
-  const add = () => {
-    if (pickID === "") {
-      return;
-    }
-    change("members", [...values.members, { kind: pickKind, id: pickID }]);
-    setPickID("");
-  };
 
   const save = () => {
     const body = componentRequestOf(values);
@@ -151,43 +114,19 @@ function ComponentForm({ existing, pageID }: { existing: StatusComponent | null;
           <Input id="component-position" mono type="number" value={values.position} onChange={(event) => change("position", event.target.value)} min={0} max={1000} />
         </Field>
         <Field label={t("component.objects_label")} help={t("component.objects_help")}>
-          {values.members.length === 0 ? (
-            <span className="secondary">{t("component.objects_empty")}</span>
-          ) : (
-            <div className="members">
-              {values.members.map((member) => {
-                const detail = known.get(`${member.kind}:${member.id}`);
-                return (
-                  <div className="member" key={`${member.kind}:${member.id}`}>
-                    <span className="kind">{t(`component.kind_${member.kind}`)}</span>
-                    <span className="medium">{nameOf(member)}</span>
-                    {detail ? <MemberPill member={detail} /> : <span />}
-                    <Button
-                      small
-                      variant="ghost"
-                      icon="x"
-                      onClick={() => change("members", values.members.filter((candidate) => candidate !== member))}
-                      aria-label={t("component.remove_object")}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <div className="member-pick">
-            <EnumSelect value={pickKind} values={memberKinds} labelKey="component.kind_" onChange={setPickKind} aria-label={t("component.objects_label")} />
-            <Select value={pickID} onChange={(event) => setPickID(event.target.value)} aria-label={t("component.pick_object")}>
-              <option value="">{t("component.pick_object")}</option>
-              {available.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                </option>
-              ))}
-            </Select>
-            <Button icon="plus" onClick={add} disabled={pickID === ""}>
-              {t("component.add_object")}
-            </Button>
-          </div>
+          <ObjectPicker
+            value={values.members}
+            onChange={(members) => change("members", members)}
+            labelKeyPrefix="component.kind_"
+            label={t("component.objects_label")}
+            addLabel={t("component.add_object")}
+            emptyText={t("component.objects_empty")}
+            nameOf={(choice) => known.get(`${choice.kind}:${choice.id}`)?.name ?? t("component.missing")}
+            detailOf={(choice) => {
+              const detail = known.get(`${choice.kind}:${choice.id}`);
+              return detail ? <MemberPill member={detail} /> : null;
+            }}
+          />
         </Field>
       </FormCard>
     </>

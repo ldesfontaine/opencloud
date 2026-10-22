@@ -119,7 +119,7 @@ export interface IncidentFormValues {
   impact: Impact;
   status: IncidentStatus;
   message: string;
-  componentIDs: string[];
+  targets: MemberChoice[];
   startsAt: string;
   endsAt: string;
 }
@@ -127,7 +127,7 @@ export interface IncidentFormValues {
 // Une fonction, pas une constante : la liste ne se partage pas entre deux
 // formulaires.
 export function emptyIncidentForm(): IncidentFormValues {
-  return { kind: "incident", title: "", impact: "down", status: "investigating", message: "", componentIDs: [], startsAt: "", endsAt: "" };
+  return { kind: "incident", title: "", impact: "down", status: "investigating", message: "", targets: [], startsAt: "", endsAt: "" };
 }
 
 // Une maintenance ignore l'impact et le statut tapés : elle est planifiée,
@@ -139,15 +139,10 @@ export function incidentRequestOf(values: IncidentFormValues): IncidentRequest {
     impact: isScheduled ? "maintenance" : values.impact,
     status: isScheduled ? "scheduled" : values.status,
     message: values.message,
-    component_ids: values.componentIDs,
+    targets: values.targets,
     starts_at: isScheduled ? fromLocalInput(values.startsAt) : null,
     ends_at: isScheduled ? fromLocalInput(values.endsAt) : null,
   };
-}
-
-// Cocher ou décocher un composant, sans toucher à la liste reçue.
-export function toggleComponent(selected: string[], id: string): string[] {
-  return selected.includes(id) ? selected.filter((candidate) => candidate !== id) : [...selected, id];
 }
 
 // Une entrée du fil ne « planifie » rien : « scheduled » n'est pas proposé.
@@ -180,7 +175,7 @@ export function saysNothing(values: IncidentUpdateFormValues, incident: Pick<Inc
 
 export interface IncidentEditFormValues {
   title: string;
-  componentIDs: string[];
+  targets: MemberChoice[];
   startsAt: string;
   endsAt: string;
 }
@@ -188,7 +183,7 @@ export interface IncidentEditFormValues {
 export function incidentEditFormOf(incident: Incident): IncidentEditFormValues {
   return {
     title: incident.title,
-    componentIDs: incident.components.map((component) => component.id),
+    targets: incident.targets.map((target) => ({ kind: target.kind, id: target.id })),
     startsAt: toLocalInput(incident.starts_at),
     endsAt: toLocalInput(incident.ends_at),
   };
@@ -199,7 +194,7 @@ export function incidentEditRequestOf(values: IncidentEditFormValues, impact: Im
   const isScheduled = impact === "maintenance";
   return {
     title: values.title,
-    component_ids: values.componentIDs,
+    targets: values.targets,
     starts_at: isScheduled ? fromLocalInput(values.startsAt) : null,
     ends_at: isScheduled ? fromLocalInput(values.endsAt) : null,
   };
@@ -256,7 +251,7 @@ export function pageName(page: Pick<StatusPage, "title" | "slug">): string {
   return page.title !== "" ? page.title : page.slug;
 }
 
-// Le nom d'un composant à cocher pour un incident : avec sa page dès qu'il y
+// Le nom d'un composant que touche un incident : avec sa page dès qu'il y
 // en a plusieurs, deux pages pouvant avoir chacune leur « Site web ».
 export function componentChoiceLabel(component: Pick<StatusComponent, "name" | "page_id">, pages: readonly StatusPage[]): string {
   if (pages.length < 2) {

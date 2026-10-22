@@ -9,6 +9,7 @@ import {
   describeAlert,
   deliveryFailure,
   emptyChannelForm,
+  canAnnounce,
   emptyMuteForm,
   muteRequestOf,
   mutePathOf,
@@ -153,7 +154,16 @@ describe("muteRequestOf", () => {
       reason: "maintenance",
       starts_at: new Date("2026-09-26T08:00").toISOString(),
       duration_minutes: 240,
+      announce: false,
+      public_title: "",
     });
+  });
+  it("n'annonce qu'un objet du répertoire, avec son titre public", () => {
+    const values = { ...emptyMuteForm, targetKind: "service" as const, targetID: "s1", announce: true, publicTitle: "Mise à jour du site" };
+    expect(muteRequestOf(values)).toMatchObject({ announce: true, public_title: "Mise à jour du site" });
+    expect(muteRequestOf({ ...values, targetKind: "container" })).toMatchObject({ announce: false, public_title: "" });
+    expect(canAnnounce({ targetKind: "", targetID: "" })).toBe(false);
+    expect(canAnnounce({ targetKind: "machine", targetID: "" })).toBe(false);
   });
   it("n'envoie pas de genre de cible quand aucun objet n'est choisi", () => {
     const request = muteRequestOf({ ...emptyMuteForm, kind: "job_late", targetKind: "probe" });

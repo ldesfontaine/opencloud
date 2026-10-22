@@ -3,6 +3,7 @@ package status_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
@@ -27,6 +29,7 @@ var testNow = time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 // écrivent les objets : ce qu'il dérive, il le dérive de leurs faits.
 type fixture struct {
 	status     *status.Service
+	db         *store.DB
 	machines   *machine.Service
 	heartbeats *heartbeat.Service
 	services   *container.Tracker
@@ -47,7 +50,7 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	db := storetest.Open(t)
-	f := &fixture{bus: live.New(), published: &counter{}, now: testNow}
+	f := &fixture{db: db, bus: live.New(), published: &counter{}, now: testNow}
 	clock := func() time.Time { return f.now }
 	f.machines = machine.New(db, machine.NewSessions(), logger)
 	f.machines.SetClock(clock)
@@ -81,6 +84,16 @@ func (f *fixture) component(t *testing.T, name string, members ...status.MemberR
 		t.Fatal(err)
 	}
 	return created
+}
+
+// targetsOf vise le premier membre de chaque composant : ceux des tests n'en
+// ont qu'un, un incident sur lui touche son composant.
+func targetsOf(components ...status.Component) []status.MemberRef {
+	refs := make([]status.MemberRef, 0, len(components))
+	for _, component := range components {
+		refs = append(refs, status.MemberRef{Kind: component.Members[0].Kind, ID: component.Members[0].ID})
+	}
+	return refs
 }
 
 func (f *fixture) probe(t *testing.T, name string, outcome probe.Outcome, certificate *probe.Certificate) probe.Probe {
@@ -247,7 +260,7 @@ func TestIncident_OverridesTheDerivedStateWhileOpen(t *testing.T) {
 	site := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
 	opened, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{
 		Title: "Migration en cours", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, Message: "Lecture seule.",
-		ComponentIDs: []string{site.ID}, StartsAt: f.now.Add(-time.Minute), EndsAt: f.now.Add(time.Hour),
+		Targets: targetsOf(site), StartsAt: f.now.Add(-time.Minute), EndsAt: f.now.Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -280,7 +293,7 @@ func TestIncident_ScheduledMaintenanceOpensAndClosesOnTime(t *testing.T) {
 	site := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
 	planned, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{
 		Title: "Redémarrage", Impact: status.ImpactMaintenance, Status: status.StatusScheduled,
-		ComponentIDs: []string{site.ID}, StartsAt: f.now.Add(time.Hour), EndsAt: f.now.Add(2 * time.Hour),
+		Targets: targetsOf(site), StartsAt: f.now.Add(time.Hour), EndsAt: f.now.Add(2 * time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +325,7 @@ func TestIncident_UpdateThatSaysNothing_IsRefused(t *testing.T) {
 	f := newFixture(t)
 	up := f.probe(t, "site", probe.OutcomeUp, nil)
 	site := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
-	opened, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}})
+	opened, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,13 +354,14 @@ func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 		definition status.IncidentDefinition
 		want       error
 	}{
-		"no component":             {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating}, status.ErrComponentInvalid},
-		"unknown component":        {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{"nope"}}, status.ErrComponentInvalid},
-		"maintenance status":       {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInProgress, ComponentIDs: []string{site.ID}}, status.ErrStatusInvalid},
-		"window on an incident":    {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
-		"maintenance without end":  {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
-		"maintenance already over": {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, ComponentIDs: []string{site.ID}, StartsAt: f.now.Add(-2 * time.Hour), EndsAt: f.now.Add(-time.Hour)}, status.ErrWindowInvalid},
-		"empty title":              {status.IncidentDefinition{Title: " ", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}}, status.ErrTitleInvalid},
+		"no target":                {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating}, status.ErrTargetInvalid},
+		"unknown target":           {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: []status.MemberRef{{Kind: status.KindMachine, ID: "nope"}}}, status.ErrTargetInvalid},
+		"too many targets":         {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: manyTargets(status.MaxMembers + 1)}, status.ErrTargetInvalid},
+		"maintenance status":       {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInProgress, Targets: targetsOf(site)}, status.ErrStatusInvalid},
+		"window on an incident":    {status.IncidentDefinition{Title: "x", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site), StartsAt: f.now}, status.ErrWindowInvalid},
+		"maintenance without end":  {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, Targets: targetsOf(site), StartsAt: f.now}, status.ErrWindowInvalid},
+		"maintenance already over": {status.IncidentDefinition{Title: "x", Impact: status.ImpactMaintenance, Status: status.StatusScheduled, Targets: targetsOf(site), StartsAt: f.now.Add(-2 * time.Hour), EndsAt: f.now.Add(-time.Hour)}, status.ErrWindowInvalid},
+		"empty title":              {status.IncidentDefinition{Title: " ", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site)}, status.ErrTitleInvalid},
 	}
 	for name, tc := range cases {
 		if _, err := f.status.OpenIncident(context.Background(), tc.definition); !errors.Is(err, tc.want) {
@@ -357,6 +371,14 @@ func TestIncident_RefusesWhatMakesNoSense(t *testing.T) {
 	if _, err := f.status.CreateComponent(context.Background(), status.ComponentDefinition{PageID: f.pageID, Name: "x", Members: []status.MemberRef{{status.KindProbe, "nope"}}}); !errors.Is(err, status.ErrMemberInvalid) {
 		t.Errorf("unknown member: %v", err)
 	}
+}
+
+func manyTargets(count int) []status.MemberRef {
+	refs := make([]status.MemberRef, 0, count)
+	for i := range count {
+		refs = append(refs, status.MemberRef{Kind: status.KindProbe, ID: fmt.Sprintf("probe-%d", i)})
+	}
+	return refs
 }
 
 func TestRefresh_PublishesOnlyWhenSomethingVisibleChanges(t *testing.T) {
@@ -391,7 +413,7 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := f.component(t, "Nuage", status.MemberRef{Kind: status.KindProbe, ID: site.ID}, status.MemberRef{Kind: status.KindService, ID: stopped}, status.MemberRef{Kind: status.KindHeartbeat, ID: job.ID}, status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID})
-	if _, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne du nuage", Impact: status.ImpactDown, Status: status.StatusInvestigating, Message: "On regarde.", ComponentIDs: []string{all.ID}}); err != nil {
+	if _, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Panne du nuage", Impact: status.ImpactDown, Status: status.StatusInvestigating, Message: "On regarde.", Targets: targetsOf(all)}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := f.status.Snapshot(context.Background(), f.pageID)
@@ -404,6 +426,9 @@ func TestSnapshot_SaysNothingOfTheObjects(t *testing.T) {
 	if snapshot.Open[0].Components[0].Name != "Nuage" || snapshot.Open[0].Components[0].ID != all.ID {
 		t.Fatalf("incident components %+v", snapshot.Open[0].Components)
 	}
+	if snapshot.Open[0].Targets != nil {
+		t.Fatalf("the objects an incident targets must not reach the public snapshot: %+v", snapshot.Open[0].Targets)
+	}
 	if len(snapshot.Components[0].Days) != 0 {
 		t.Fatalf("no rollup yet, days %+v", snapshot.Components[0].Days)
 	}
@@ -413,7 +438,7 @@ func TestPurge_ForgetsIncidentsResolvedOverAYearAgo(t *testing.T) {
 	f := newFixture(t)
 	up := f.probe(t, "site", probe.OutcomeUp, nil)
 	site := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
-	old, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Vieux", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}})
+	old, err := f.status.OpenIncident(context.Background(), status.IncidentDefinition{Title: "Vieux", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -115,6 +115,45 @@ func TestMute_RefusesWhatMakesNoSense_AndTakesEverythingWithoutATarget(t *testin
 	}
 }
 
+// Annoncer exige un titre public et une cible de l'annuaire ; un titre sans
+// la case est refusé, et un silence annoncé se relit tel qu'écrit.
+func TestMute_AnnounceNeedsAPublicTitleAndADirectoryTarget(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	machineTarget := alert.Target{Kind: alert.TargetMachine, ID: machine.LocalID}
+	refused := []alert.MuteDefinition{
+		{Target: machineTarget, Duration: time.Hour, Announce: true},
+		{Target: machineTarget, Duration: time.Hour, Announce: true, PublicTitle: "   "},
+		{Target: machineTarget, Duration: time.Hour, Announce: true, PublicTitle: strings.Repeat("é", alert.MaxPublicTitleLength+1)},
+		{Target: machineTarget, Duration: time.Hour, Announce: true, PublicTitle: "deux\nlignes"},
+		{Duration: time.Hour, Announce: true, PublicTitle: "Tout"},
+		{Target: alert.Target{Kind: alert.TargetContainer, ID: "x"}, Duration: time.Hour, Announce: true, PublicTitle: "Conteneur"},
+		{Target: machineTarget, Duration: time.Hour, PublicTitle: "Sans la case"},
+	}
+	for _, definition := range refused {
+		if _, err := f.CreateMute(ctx, definition); !errors.Is(err, alert.ErrMuteAnnounceInvalid) {
+			t.Errorf("%+v: %v, want %v", definition, err, alert.ErrMuteAnnounceInvalid)
+		}
+	}
+	announced := f.mute(t, alert.MuteDefinition{Target: machineTarget, Duration: time.Hour, Announce: true, PublicTitle: "  Migration du disque  "})
+	if !announced.Announce || announced.PublicTitle != "Migration du disque" {
+		t.Fatalf("announced %+v", announced)
+	}
+	plain := f.mute(t, alert.MuteDefinition{Target: machineTarget, Duration: time.Hour})
+	mutes, err := f.db.ListMutes(ctx)
+	if err != nil || len(mutes) != 2 {
+		t.Fatalf("mutes %+v, %v", mutes, err)
+	}
+	for _, found := range mutes {
+		if found.ID == announced.ID && (!found.Announce || found.PublicTitle != "Migration du disque") {
+			t.Errorf("the announced mute lost its announcement: %+v", found)
+		}
+		if found.ID == plain.ID && (found.Announce || found.PublicTitle != "") {
+			t.Errorf("a plain mute must stay internal: %+v", found)
+		}
+	}
+}
+
 // Une fenêtre planifiée ne tait rien avant son heure.
 func TestMute_PlannedWindowWaitsForItsStart(t *testing.T) {
 	f := newFixture(t)
@@ -233,13 +272,13 @@ func TestMaintenance_OfTheStatusPage_NoLongerMutes(t *testing.T) {
 	ctx := context.Background()
 	page := status.New(f.db, f.db, f.machines, discardLogger())
 	page.SetClock(func() time.Time { return f.clock })
-	component, err := page.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, f.db, "statut"), Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
+	_, err := page.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, f.db, "statut"), Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	maintenance, err := page.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Migration", Impact: status.ImpactMaintenance, Status: status.StatusScheduled,
-		ComponentIDs: []string{component.ID}, StartsAt: f.clock.Add(-time.Minute), EndsAt: f.clock.Add(time.Hour),
+		Targets: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}, StartsAt: f.clock.Add(-time.Minute), EndsAt: f.clock.Add(time.Hour),
 	})
 	if err != nil || maintenance.Status != status.StatusInProgress {
 		t.Fatalf("maintenance %+v, %v", maintenance, err)

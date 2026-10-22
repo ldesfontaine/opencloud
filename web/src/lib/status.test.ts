@@ -21,7 +21,6 @@ import {
   pageName,
   publicStatusPaths,
   statusPageFormOf,
-  toggleComponent,
   toLocalInput,
   updateStatusesFor,
 } from "./status";
@@ -79,6 +78,7 @@ function incident(overrides: Partial<Incident>): Incident {
     status: "identified",
     starts_at: null,
     ends_at: null,
+    targets: [{ kind: "machine", id: "m1", name: "Serveur" }],
     components: [{ id: "c1", name: "Site" }],
     updates: [],
     created_at: "2026-09-26T07:00:00Z",
@@ -95,43 +95,34 @@ describe("openingStatuses", () => {
 });
 
 describe("emptyIncidentForm", () => {
-  it("part d'un incident en panne, sans composant, et ne partage pas sa liste", () => {
+  it("part d'un incident en panne, sans cible, et ne partage pas sa liste", () => {
     const form = emptyIncidentForm();
-    expect(form).toMatchObject({ kind: "incident", impact: "down", status: "investigating", componentIDs: [] });
-    expect(emptyIncidentForm().componentIDs).not.toBe(form.componentIDs);
+    expect(form).toMatchObject({ kind: "incident", impact: "down", status: "investigating", targets: [] });
+    expect(emptyIncidentForm().targets).not.toBe(form.targets);
   });
 });
 
 describe("incidentRequestOf", () => {
   it("rend l'incident tel que tapé, sans fenêtre", () => {
-    const values = { ...emptyIncidentForm(), title: "Panne", impact: "degraded" as const, status: "monitoring" as const, message: "On regarde", componentIDs: ["c1"], startsAt: "2026-09-26T08:00" };
+    const values = { ...emptyIncidentForm(), title: "Panne", impact: "degraded" as const, status: "monitoring" as const, message: "On regarde", targets: [{ kind: "machine" as const, id: "m1" }], startsAt: "2026-09-26T08:00" };
     expect(incidentRequestOf(values)).toEqual({
       title: "Panne",
       impact: "degraded",
       status: "monitoring",
       message: "On regarde",
-      component_ids: ["c1"],
+      targets: [{ kind: "machine", id: "m1" }],
       starts_at: null,
       ends_at: null,
     });
   });
   it("planifie une maintenance : impact et statut imposés, fenêtre en instants ISO", () => {
-    const values = { ...emptyIncidentForm(), kind: "maintenance" as const, title: "Mise à jour", componentIDs: ["c1"], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" };
+    const values = { ...emptyIncidentForm(), kind: "maintenance" as const, title: "Mise à jour", targets: [{ kind: "machine" as const, id: "m1" }], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" };
     expect(incidentRequestOf(values)).toMatchObject({
       impact: "maintenance",
       status: "scheduled",
       starts_at: windowStart.toISOString(),
       ends_at: windowEnd.toISOString(),
     });
-  });
-});
-
-describe("toggleComponent", () => {
-  it("ajoute puis retire un composant sans modifier la liste reçue", () => {
-    const selected = ["c1"];
-    expect(toggleComponent(selected, "c2")).toEqual(["c1", "c2"]);
-    expect(toggleComponent(selected, "c1")).toEqual([]);
-    expect(selected).toEqual(["c1"]);
   });
 });
 
@@ -167,15 +158,15 @@ describe("incidentUpdateRequestOf", () => {
 });
 
 describe("formulaire de correction", () => {
-  it("part de l'incident : titre, composants, fenêtre en heure locale", () => {
+  it("part de l'incident : titre, cibles, fenêtre en heure locale", () => {
     const maintenance = incident({ impact: "maintenance", starts_at: windowStart.toISOString(), ends_at: windowEnd.toISOString() });
-    expect(incidentEditFormOf(maintenance)).toEqual({ title: "Panne du site", componentIDs: ["c1"], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" });
+    expect(incidentEditFormOf(maintenance)).toEqual({ title: "Panne du site", targets: [{ kind: "machine" as const, id: "m1" }], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" });
   });
   it("renvoie la fenêtre d'une maintenance, et des dates nulles à un incident", () => {
-    const values = { title: "Titre", componentIDs: ["c1"], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" };
+    const values = { title: "Titre", targets: [{ kind: "machine" as const, id: "m1" }], startsAt: "2026-09-26T08:00", endsAt: "2026-09-26T10:00" };
     expect(incidentEditRequestOf(values, "maintenance")).toEqual({
       title: "Titre",
-      component_ids: ["c1"],
+      targets: [{ kind: "machine", id: "m1" }],
       starts_at: windowStart.toISOString(),
       ends_at: windowEnd.toISOString(),
     });

@@ -54,7 +54,7 @@ func (s *Server) registerWriteTools(server *gomcp.Server) {
 	}, guarded(s.resumeJobTool))
 	gomcp.AddTool(server, &gomcp.Tool{
 		Name:        "open_incident",
-		Description: "Open an incident on the PUBLIC status page: visitors read the title and message immediately. impact is degraded, down or maintenance; status is investigating, identified or monitoring for an outage, scheduled or in_progress for a maintenance, which also needs starts_at and ends_at (RFC 3339). At least one component_id from get_status_page. " + mcpOnRequestOnly,
+		Description: "Open an incident on the PUBLIC status page: visitors read the title and message immediately. impact is degraded, down or maintenance; status is investigating, identified or monitoring for an outage, scheduled or in_progress for a maintenance, which also needs starts_at and ends_at (RFC 3339). At least one target {kind, id}: a machine, declared service, heartbeat or probe. " + mcpOnRequestOnly,
 		Annotations: destructiveWriteHints(false),
 	}, guarded(s.openIncidentTool))
 	gomcp.AddTool(server, &gomcp.Tool{
@@ -122,13 +122,18 @@ func tokenInfoOf(ctx context.Context, request *gomcp.CallToolRequest) *auth.Toke
 // --- Entrées ---
 
 type openIncidentInput struct {
-	Title        string   `json:"title" jsonschema:"Public title, 1 to 120 characters"`
-	Impact       string   `json:"impact" jsonschema:"degraded, down or maintenance"`
-	Status       string   `json:"status" jsonschema:"investigating, identified or monitoring for an outage; scheduled or in_progress for a maintenance"`
-	Message      string   `json:"message,omitempty" jsonschema:"First public update, up to 2000 characters"`
-	ComponentIDs []string `json:"component_ids" jsonschema:"Affected components, at least one"`
-	StartsAt     string   `json:"starts_at,omitempty" jsonschema:"Maintenance window start, RFC 3339"`
-	EndsAt       string   `json:"ends_at,omitempty" jsonschema:"Maintenance window end, RFC 3339"`
+	Title    string           `json:"title" jsonschema:"Public title, 1 to 120 characters"`
+	Impact   string           `json:"impact" jsonschema:"degraded, down or maintenance"`
+	Status   string           `json:"status" jsonschema:"investigating, identified or monitoring for an outage; scheduled or in_progress for a maintenance"`
+	Message  string           `json:"message,omitempty" jsonschema:"First public update, up to 2000 characters"`
+	Targets  []mcpTargetInput `json:"targets" jsonschema:"Affected directory objects, at least one: kind is machine, service, heartbeat or probe"`
+	StartsAt string           `json:"starts_at,omitempty" jsonschema:"Maintenance window start, RFC 3339"`
+	EndsAt   string           `json:"ends_at,omitempty" jsonschema:"Maintenance window end, RFC 3339"`
+}
+
+type mcpTargetInput struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
 }
 
 type incidentUpdateInput struct {
@@ -223,12 +228,20 @@ func (s *Server) openIncidentTool(ctx context.Context, input openIncidentInput) 
 	}
 	opened, err := s.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: input.Title, Impact: status.Impact(input.Impact), Status: status.IncidentStatus(input.Status),
-		Message: input.Message, ComponentIDs: input.ComponentIDs, StartsAt: startsAt, EndsAt: endsAt,
+		Message: input.Message, Targets: targetRefsOf(input.Targets), StartsAt: startsAt, EndsAt: endsAt,
 	})
 	if result, done := s.toolFailed("open_incident", err, nil); done {
 		return result, nil, nil
 	}
 	return toolJSON(incidentToJSON(opened))
+}
+
+func targetRefsOf(inputs []mcpTargetInput) []status.MemberRef {
+	var refs []status.MemberRef
+	for _, input := range inputs {
+		refs = append(refs, status.MemberRef{Kind: status.MemberKind(input.Kind), ID: input.ID})
+	}
+	return refs
 }
 
 func (s *Server) addIncidentUpdateTool(ctx context.Context, input incidentUpdateInput) (*gomcp.CallToolResult, any, error) {

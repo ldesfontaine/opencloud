@@ -145,7 +145,8 @@ func TestRestrict_EveryLinkBetweenDeclaredObjectsRefusesARawDelete(t *testing.T)
 }
 
 // Ce qu'une machine a observé et mesuré part avec elle (cascade), compté
-// d'avance par son plan ; ses alertes restent, détachées, avec leur nom.
+// d'avance par son plan ; ses alertes restent, détachées, avec leur nom, et
+// les incidents qui la visaient gardent leur texte.
 func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	ctx := context.Background()
 	db := deletionBench(t)
@@ -171,6 +172,7 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	exec(t, db, `INSERT INTO mutes (alert_kind, starts_at, ends_at, created_at) VALUES ('disk_full', 1, 2, 1)`)
 	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, machine_id, opened_at, updated_at)
 		VALUES ('machine_lost', 'danger', 'resolved', 'machine', 'm1', 'vps-paris-1', 'm1', 1, 1)`)
+	insertTestIncident(t, db, "i1", "machine_id", "m1")
 
 	plan, err := db.MachineDeletionPlan(ctx, "m1")
 	if err != nil {
@@ -184,7 +186,7 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 			{Kind: deletion.KindContainerEvents, Count: 2}, {Kind: deletion.KindImageChecks, Count: 1},
 			{Kind: deletion.KindIgnoredKeys, Count: 1}, {Kind: deletion.KindSilences, Count: 2},
 		},
-		Detaches: []deletion.Count{{Kind: deletion.KindAlerts, Count: 1}},
+		Detaches: []deletion.Count{{Kind: deletion.KindAlerts, Count: 1}, {Kind: deletion.KindIncidentLinks, Count: 1}},
 	}
 	if !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan = %+v", plan)
@@ -209,6 +211,26 @@ func TestDeleteMachine_TakesWhatItOwnsAndDetachesItsAlerts(t *testing.T) {
 	}
 	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE machine_id IS NULL AND object_name = 'vps-paris-1'`); got != 1 {
 		t.Fatalf("l'alerte doit rester, détachée et nommée : %d", got)
+	}
+	requireIncidentKeptWithoutTargets(t, db, "i1")
+}
+
+// insertTestIncident pose un incident ouvert qui vise l'objet donné, par sa
+// colonne de incident_targets.
+func insertTestIncident(t *testing.T, db *DB, id, column, objectID string) {
+	t.Helper()
+	exec(t, db, `INSERT INTO incidents (id, title, impact, status, created_at, updated_at) VALUES (?, 'Panne', 'down', 'investigating', 1, 1)`, id)
+	exec(t, db, `INSERT INTO incident_targets (incident_id, `+column+`) VALUES (?, ?)`, id, objectID)
+}
+
+// Un objet retiré emporte le lien, jamais l'incident.
+func requireIncidentKeptWithoutTargets(t *testing.T, db *DB, id string) {
+	t.Helper()
+	if got := count(t, db, `SELECT COUNT(*) FROM incidents WHERE id = ?`, id); got != 1 {
+		t.Fatal("l'incident doit rester")
+	}
+	if got := count(t, db, `SELECT COUNT(*) FROM incident_targets WHERE incident_id = ?`, id); got != 0 {
+		t.Fatalf("le lien doit partir avec l'objet : %d", got)
 	}
 }
 
@@ -249,6 +271,7 @@ func TestDeleteProbe_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, probe_id, opened_at, updated_at)
 		VALUES ('probe_down', 'danger', 'resolved', 'probe', 'p1', 'site-p1', 'p1', 1, 1)`)
 	insertTestComponent(t, db, "c1", status.Member{Kind: status.KindProbe, ID: "p1"})
+	insertTestIncident(t, db, "i1", "probe_id", "p1")
 
 	if err := db.DeleteProbe(ctx, "p1"); !errors.Is(err, probe.ErrShownOnStatus) {
 		t.Fatalf("attendu %v, obtenu %v", probe.ErrShownOnStatus, err)
@@ -257,7 +280,7 @@ func TestDeleteProbe_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 	plan, err := db.ProbeDeletionPlan(ctx, "p1")
 	want := deletion.Plan{
 		Removes:  []deletion.Count{{Kind: deletion.KindProbeResults, Count: 2}, {Kind: deletion.KindProbeDays, Count: 1}},
-		Detaches: []deletion.Count{{Kind: deletion.KindAlerts, Count: 1}},
+		Detaches: []deletion.Count{{Kind: deletion.KindAlerts, Count: 1}, {Kind: deletion.KindIncidentLinks, Count: 1}},
 	}
 	if err != nil || !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan = %+v %v", plan, err)
@@ -271,6 +294,7 @@ func TestDeleteProbe_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 	if got := count(t, db, `SELECT COUNT(*) FROM alerts WHERE probe_id IS NULL`); got != 1 {
 		t.Fatalf("l'alerte doit rester, détachée : %d", got)
 	}
+	requireIncidentKeptWithoutTargets(t, db, "i1")
 	if err := db.DeleteProbe(ctx, "p1"); !errors.Is(err, probe.ErrNotFound) {
 		t.Fatalf("supprimée deux fois: %v", err)
 	}
@@ -285,19 +309,24 @@ func TestDeleteHeartbeat_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 	exec(t, db, `INSERT INTO heartbeat_pings (heartbeat_id, kind, received_at) VALUES ('h1', 'finish', 1)`)
 	exec(t, db, `INSERT INTO heartbeat_runs (heartbeat_id, outcome) VALUES ('h1', 'success'), ('h1', 'failure')`)
 	insertTestComponent(t, db, "c1", status.Member{Kind: status.KindHeartbeat, ID: "h1"})
+	insertTestIncident(t, db, "i1", "heartbeat_id", "h1")
 
 	if err := db.DeleteHeartbeat(ctx, "h1"); !errors.Is(err, heartbeat.ErrShownOnStatus) {
 		t.Fatalf("attendu %v, obtenu %v", heartbeat.ErrShownOnStatus, err)
 	}
 	exec(t, db, `DELETE FROM status_components WHERE id = 'c1'`)
 	plan, err := db.HeartbeatDeletionPlan(ctx, "h1")
-	want := deletion.Plan{Removes: []deletion.Count{{Kind: deletion.KindHeartbeatPings, Count: 1}, {Kind: deletion.KindHeartbeatRuns, Count: 2}}}
+	want := deletion.Plan{
+		Removes:  []deletion.Count{{Kind: deletion.KindHeartbeatPings, Count: 1}, {Kind: deletion.KindHeartbeatRuns, Count: 2}},
+		Detaches: []deletion.Count{{Kind: deletion.KindIncidentLinks, Count: 1}},
+	}
 	if err != nil || !reflect.DeepEqual(plan, want) {
 		t.Fatalf("plan = %+v %v", plan, err)
 	}
 	if err := db.DeleteHeartbeat(ctx, "h1"); err != nil {
 		t.Fatal(err)
 	}
+	requireIncidentKeptWithoutTargets(t, db, "i1")
 	if got := count(t, db, `SELECT COUNT(*) FROM heartbeat_pings`) + count(t, db, `SELECT COUNT(*) FROM heartbeat_runs`); got != 0 {
 		t.Fatalf("l'historique doit partir avec la tâche : %d ligne(s)", got)
 	}
@@ -306,7 +335,8 @@ func TestDeleteHeartbeat_TakesItsHistoryUnlessAComponentShowsIt(t *testing.T) {
 // Un service emporte ses unités, ses fenêtres pour taire et ses liens de
 // projet, ses conteneurs redeviennent non déclarés et ses alertes restent,
 // détachées ; un projet ne retire que ses liens ; un composant emporte ses
-// membres, l'incident qui le citait reste.
+// membres sans toucher aux incidents ; l'incident qui visait le service reste,
+// détaché.
 func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *testing.T) {
 	ctx := context.Background()
 	db := deletionBench(t)
@@ -318,14 +348,14 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 	exec(t, db, `INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name, machine_id, service_id, container_id, opened_at, updated_at)
 		VALUES ('service_down', 'danger', 'open', 'container', 'local:abc', 'whoami', 'local', 'svc_0123456789abcdef', 'local:abc', 1, 1)`)
 	insertTestComponent(t, db, "c1", status.Member{Kind: status.KindMachine, ID: "m1"})
-	exec(t, db, `INSERT INTO incidents (id, title, impact, status, created_at, updated_at) VALUES ('i1', 'Panne', 'down', 'investigating', 1, 1)`)
-	exec(t, db, `INSERT INTO incident_components (incident_id, component_id) VALUES ('i1', 'c1')`)
+	insertTestIncident(t, db, "i1", "service_id", "svc_0123456789abcdef")
 
 	service, err := db.DeclaredServiceDeletionPlan(ctx, "svc_0123456789abcdef")
 	wantService := deletion.Plan{
 		Removes: []deletion.Count{{Kind: deletion.KindUnits, Count: 1}, {Kind: deletion.KindSilences, Count: 1}},
 		Detaches: []deletion.Count{
 			{Kind: deletion.KindProjectLinks, Count: 1}, {Kind: deletion.KindContainers, Count: 1}, {Kind: deletion.KindAlerts, Count: 1},
+			{Kind: deletion.KindIncidentLinks, Count: 1},
 		},
 	}
 	if err != nil || !reflect.DeepEqual(service, wantService) {
@@ -336,10 +366,7 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 		t.Fatalf("projet = %+v %v", project, err)
 	}
 	component, err := db.ComponentDeletionPlan(ctx, "c1")
-	wantComponent := deletion.Plan{
-		Removes:  []deletion.Count{{Kind: deletion.KindMembers, Count: 1}},
-		Detaches: []deletion.Count{{Kind: deletion.KindIncidentLinks, Count: 1}},
-	}
+	wantComponent := deletion.Plan{Removes: []deletion.Count{{Kind: deletion.KindMembers, Count: 1}}}
 	if err != nil || !reflect.DeepEqual(component, wantComponent) {
 		t.Fatalf("composant = %+v %v", component, err)
 	}
@@ -359,14 +386,12 @@ func TestDeletionPlans_OfServiceProjectAndComponentSayWhatGoesAndWhatStays(t *te
 	if _, err := db.GetProject(ctx, "prj_0000000000000001"); err != nil {
 		t.Fatalf("le projet doit rester: %v", err)
 	}
+	requireIncidentKeptWithoutTargets(t, db, "i1")
 	if err := db.DeleteComponent(ctx, "c1"); err != nil {
 		t.Fatal(err)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM incidents WHERE id = 'i1'`); got != 1 {
-		t.Fatal("l'incident doit rester")
-	}
-	if got := count(t, db, `SELECT COUNT(*) FROM status_component_members`) + count(t, db, `SELECT COUNT(*) FROM incident_components`); got != 0 {
-		t.Fatalf("les membres et les liens d'incident partent avec le composant : %d", got)
+	if got := count(t, db, `SELECT COUNT(*) FROM status_component_members`); got != 0 {
+		t.Fatalf("les membres partent avec le composant : %d", got)
 	}
 	if _, err := db.GetDeclaredService(ctx, "svc_0123456789abcdef"); !errors.Is(err, directory.ErrNotFound) {
 		t.Fatalf("service supprimé: %v", err)

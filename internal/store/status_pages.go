@@ -142,7 +142,7 @@ func (db *DB) CountPages(ctx context.Context) (int, error) {
 }
 
 // PageDeletionPlan : une page ne retient rien ; elle emporte ses composants
-// et leurs membres, les incidents qui les citaient s'en détachent.
+// et leurs membres.
 func (db *DB) PageDeletionPlan(ctx context.Context, id string) (deletion.Plan, error) {
 	return readPlan(ctx, db.sql, id, nil,
 		[]planQuery{
@@ -150,8 +150,5 @@ func (db *DB) PageDeletionPlan(ctx context.Context, id string) (deletion.Plan, e
 			{deletion.KindMembers, `SELECT COUNT(*) FROM status_component_members
 				WHERE component_id IN (SELECT id FROM status_components WHERE page_id = ?)`},
 		},
-		[]planQuery{
-			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_components
-				WHERE component_id IN (SELECT id FROM status_components WHERE page_id = ?)`},
-		})
+		nil)
 }

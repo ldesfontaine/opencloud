@@ -127,6 +127,7 @@ func (e *Engine) CreateMute(ctx context.Context, definition MuteDefinition) (Mut
 	mute := Mute{
 		Kind: definition.Kind, Target: target, Reason: strings.TrimSpace(definition.Reason),
 		StartsAt: startsAt, EndsAt: endsAt, CreatedBy: audit.ActorFrom(ctx), CreatedAt: now,
+		Announce: definition.Announce, PublicTitle: strings.TrimSpace(definition.PublicTitle),
 	}
 	id, err := e.store.InsertMute(ctx, mute)
 	if err != nil {

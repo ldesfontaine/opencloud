@@ -22,9 +22,9 @@ func incidentEvent(action audit.Action, written Incident) audit.Event {
 	return audit.Event{
 		Action: action, ObjectID: written.ID, ObjectName: written.Title,
 		Details: audit.Details{
-			"impact":     string(written.Impact),
-			"status":     string(written.Status),
-			"components": strconv.Itoa(len(written.Components)),
+			"impact":  string(written.Impact),
+			"status":  string(written.Status),
+			"targets": strconv.Itoa(len(written.Targets)),
 		},
 	}
 }

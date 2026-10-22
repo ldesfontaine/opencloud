@@ -66,6 +66,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE machine_id = ?`},
+			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_targets WHERE machine_id = ?`},
 		})
 }
 
@@ -91,6 +92,7 @@ func declaredServiceDeletionPlan(ctx context.Context, db planQuerier, id string)
 			{deletion.KindContainers, `SELECT COUNT(*) FROM containers
 				WHERE unit_id IN (SELECT id FROM service_units WHERE service_id = ?)`},
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE service_id = ?`},
+			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_targets WHERE service_id = ?`},
 		})
 }
 
@@ -131,6 +133,7 @@ func probeDeletionPlan(ctx context.Context, db planQuerier, id string) (deletion
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE probe_id = ?`},
+			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_targets WHERE probe_id = ?`},
 		})
 }
 
@@ -152,19 +155,18 @@ func heartbeatDeletionPlan(ctx context.Context, db planQuerier, id string) (dele
 		},
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE heartbeat_id = ?`},
+			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_targets WHERE heartbeat_id = ?`},
 		})
 }
 
 // ComponentDeletionPlan : un composant ne retient rien ; il emporte ses
-// membres, les incidents qui le citaient restent.
+// membres. Les incidents visent des objets, ils n'en retiennent aucun.
 func (db *DB) ComponentDeletionPlan(ctx context.Context, id string) (deletion.Plan, error) {
 	return readPlan(ctx, db.sql, id, nil,
 		[]planQuery{
 			{deletion.KindMembers, `SELECT COUNT(*) FROM status_component_members WHERE component_id = ?`},
 		},
-		[]planQuery{
-			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_components WHERE component_id = ?`},
-		})
+		nil)
 }
 
 // readPlan lit un plan : ce qui retient, ce qui part, ce qui se détache. Un

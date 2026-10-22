@@ -124,7 +124,7 @@ func (b *bench) seed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cloud, err := b.status.CreateComponent(ctx, status.ComponentDefinition{PageID: b.pageID, Name: "Nuage", Members: []status.MemberRef{
+	_, err = b.status.CreateComponent(ctx, status.ComponentDefinition{PageID: b.pageID, Name: "Nuage", Members: []status.MemberRef{
 		{Kind: status.KindMachine, ID: servertest.RemoteID},
 		{Kind: status.KindHeartbeat, ID: job.ID},
 		{Kind: status.KindProbe, ID: site.ID},
@@ -134,7 +134,7 @@ func (b *bench) seed(t *testing.T) {
 	}
 	opened, err := b.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Le nuage ne répond plus", Impact: status.ImpactDown, Status: status.StatusInvestigating,
-		Message: "Nous regardons.", ComponentIDs: []string{cloud.ID},
+		Message: "Nous regardons.", Targets: []status.MemberRef{{Kind: status.KindMachine, ID: servertest.RemoteID}},
 	})
 	if err != nil {
 		t.Fatal(err)

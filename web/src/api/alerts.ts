@@ -156,6 +156,10 @@ export interface Mute {
   created_by_kind: string;
   created_by_name: string;
   created_at: string;
+  // Annoncé, le silence se montre en maintenance sur les pages de statut,
+  // sous ce titre public ; sinon il reste interne.
+  announce: boolean;
+  public_title: string;
 }
 
 export interface MutesResponse {
@@ -186,6 +190,8 @@ export interface MuteRequest {
   reason: string;
   starts_at: string | null;
   duration_minutes: number;
+  announce: boolean;
+  public_title: string;
 }
 
 // Les identifiants d'alerte, de canal et de silence sont des entiers ; une

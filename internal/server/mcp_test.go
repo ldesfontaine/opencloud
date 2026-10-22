@@ -379,7 +379,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	server.seedContainers(t)
 	cloudID := server.seedGaps(t)
 	probeID := server.seedProbes(t, cloudID)
-	componentID, incidentID := server.seedStatus(t, cloudID, jobID, probeID)
+	_, incidentID := server.seedStatus(t, cloudID, jobID, probeID)
 	_, alertID := server.seedAlerts(t)
 	session := connectMCP(t, server.mcpServerAs(mcp.ScopeWrite))
 	ctx := context.Background()
@@ -416,7 +416,7 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	}
 
 	text, isError = callTool(t, session, "open_incident", map[string]any{
-		"title": "Base lente", "impact": "degraded", "status": "investigating", "message": "On regarde.", "component_ids": []string{componentID},
+		"title": "Base lente", "impact": "degraded", "status": "investigating", "message": "On regarde.", "targets": []map[string]string{{"kind": "machine", "id": remoteID}},
 	})
 	if isError || !strings.Contains(text, `"impact":"degraded"`) {
 		t.Fatalf("open incident: %s", text)
@@ -425,10 +425,10 @@ func TestMCP_WriteToolsGoThroughTheComponents(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &opened); err != nil {
 		t.Fatal(err)
 	}
-	if text, _ = callTool(t, session, "open_incident", map[string]any{"title": "x", "impact": "meteor", "status": "investigating", "component_ids": []string{componentID}}); toolErrorCode(t, text) != "incident.impact_invalid" {
+	if text, _ = callTool(t, session, "open_incident", map[string]any{"title": "x", "impact": "meteor", "status": "investigating", "targets": []map[string]string{{"kind": "machine", "id": remoteID}}}); toolErrorCode(t, text) != "incident.impact_invalid" {
 		t.Fatalf("bad impact: %s", text)
 	}
-	if text, _ = callTool(t, session, "open_incident", map[string]any{"title": "x", "impact": "maintenance", "status": "scheduled", "component_ids": []string{componentID}, "starts_at": "hier"}); toolErrorCode(t, text) != "incident.window_invalid" {
+	if text, _ = callTool(t, session, "open_incident", map[string]any{"title": "x", "impact": "maintenance", "status": "scheduled", "targets": []map[string]string{{"kind": "machine", "id": remoteID}}, "starts_at": "hier"}); toolErrorCode(t, text) != "incident.window_invalid" {
 		t.Fatalf("bad instant: %s", text)
 	}
 	if text, isError = callTool(t, session, "add_incident_update", map[string]any{"incident_id": opened.ID, "status": "resolved", "message": "Réparé."}); isError || !strings.Contains(text, `"status":"resolved"`) {

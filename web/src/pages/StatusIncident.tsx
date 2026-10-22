@@ -3,11 +3,12 @@ import { useNavigate, useParams } from "react-router";
 
 import { addIncidentUpdate, deleteIncident, editIncident, useIncident, useStatusComponents, useStatusPages, type Incident } from "../api/status";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
-import { Checkbox, Checks, EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { EnumSelect, Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
 import { useNow } from "../hooks/useNow";
@@ -23,15 +24,14 @@ import {
   incidentUpdateFormOf,
   incidentUpdateRequestOf,
   saysNothing,
-  toggleComponent,
   updateStatusesFor,
 } from "../lib/status";
 import { ago, formatClock } from "../lib/time";
 import "./StatusAdmin.scss";
 
 // La page d'un incident : ses faits, son fil, le formulaire pour y
-// ajouter une entrée, et la correction du titre, des composants et de
-// la fenêtre.
+// ajouter une entrée, et la correction du titre, des cibles et de la
+// fenêtre.
 export function StatusIncidentPage() {
   const { id = "" } = useParams();
   const incident = useIncident(id);
@@ -44,6 +44,10 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const resolved = incident.status === "resolved";
+  const components = useStatusComponents(null).data?.components ?? [];
+  const pages = useStatusPages().data?.pages ?? [];
+  // Les composants que les cibles touchent, avec leur page dès qu'il y en a plusieurs.
+  const shownOn = incident.components.map((touched) => componentChoiceLabel(components.find((component) => component.id === touched.id) ?? { name: touched.name, page_id: "" }, pages));
 
   const action = useAction();
 
@@ -79,8 +83,6 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
             <Pill tone={incidentTones[incident.status]}>{t(`incident.status_${incident.status}`)}</Pill>
             <Pill tone={impactTones[incident.impact]}>{t(`incident.impact_${incident.impact}`)}</Pill>
             <span className="meta">
-              <span>{incident.components.map((component) => component.name).join(", ")}</span>
-              <span className="sep" />
               <span>{t("incident.opened_at", formatClock(incident.created_at))}</span>
               {incident.resolved_at !== null && (
                 <>
@@ -101,6 +103,8 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
               )}
             </span>
           </span>
+          <KeyValue label={t("incident.field_targets")} value={listOrDash(incident.targets.map((target) => target.name))} />
+          <KeyValue label={t("incident.field_shown_on")} value={listOrDash(shownOn)} />
         </CardBody>
       </Card>
       {editing && (
@@ -138,6 +142,11 @@ function IncidentView({ incident, reload }: { incident: Incident; reload: () => 
       </div>
     </>
   );
+}
+
+// Une liste de noms sur une ligne, ou un tiret quand il n'y en a pas.
+function listOrDash(names: string[]): string {
+  return names.length === 0 ? "—" : names.join(", ");
 }
 
 // Une entrée de plus au fil : le statut qu'elle donne, un message ;
@@ -184,15 +193,14 @@ function UpdateForm({ incident, reload }: { incident: Incident; reload: () => vo
   );
 }
 
-// Corriger ce qui se corrige : le titre, les composants, la fenêtre.
+// Corriger ce qui se corrige : le titre, les cibles, la fenêtre.
 function EditForm({ incident, done, cancel }: { incident: Incident; done: () => void; cancel: () => void }) {
   const t = useT();
-  const components = useStatusComponents(null);
-  const pages = useStatusPages().data?.pages ?? [];
   const form = useForm(incidentEditFormOf(incident));
   const { values, change } = form;
   const action = useAction();
   const maintenance = incident.impact === "maintenance";
+  const known = new Map(incident.targets.map((target) => [`${target.kind}:${target.id}`, target.name]));
 
   const save = () => {
     const body = incidentEditRequestOf(values, incident.impact);
@@ -209,7 +217,7 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
           submitLabel={t("incident.save")}
           submitIcon="check"
           busy={action.busy}
-          canSubmit={values.componentIDs.length > 0}
+          canSubmit={values.targets.length > 0}
           cancelLabel={t("incident.cancel")}
           onCancel={cancel}
         />
@@ -228,17 +236,15 @@ function EditForm({ incident, done, cancel }: { incident: Incident; done: () => 
           </Field>
         </div>
       )}
-      <Field label={t("incident.components_label")} help={t("incident.components_help")}>
-        <Checks>
-          {(components.data?.components ?? []).map((component) => (
-            <Checkbox
-              key={component.id}
-              label={componentChoiceLabel(component, pages)}
-              checked={values.componentIDs.includes(component.id)}
-              onChange={() => change("componentIDs", toggleComponent(values.componentIDs, component.id))}
-            />
-          ))}
-        </Checks>
+      <Field label={t("incident.targets_label")} help={t("incident.targets_help")}>
+        <ObjectPicker
+          value={values.targets}
+          onChange={(targets) => change("targets", targets)}
+          labelKeyPrefix="component.kind_"
+          label={t("incident.targets_label")}
+          addLabel={t("incident.add_target")}
+          nameOf={(choice) => known.get(`${choice.kind}:${choice.id}`) ?? t("component.missing")}
+        />
       </Field>
     </FormCard>
   );

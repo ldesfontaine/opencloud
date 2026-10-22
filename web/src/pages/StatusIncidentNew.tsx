@@ -1,27 +1,24 @@
 import { useNavigate } from "react-router";
 
-import { createIncident, useStatusComponents, useStatusPages } from "../api/status";
-import { Note } from "../components/Card";
-import { Checkbox, Checks, EnumSelect, Field, Input, Textarea } from "../components/Field";
+import { createIncident } from "../api/status";
+import { EnumSelect, Field, Input, Textarea } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
+import { ObjectPicker } from "../components/ObjectPicker";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { componentChoiceLabel, emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, openingStatuses, toggleComponent } from "../lib/status";
+import { emptyIncidentForm, incidentImpacts, incidentKinds, incidentRequestOf, openingStatuses } from "../lib/status";
 
 // Ouvrir un incident ou planifier une maintenance : un titre, un impact,
-// un premier message, les composants touchés, et pour une maintenance sa
+// un premier message, les objets touchés, et pour une maintenance sa
 // fenêtre. Le serveur valide et répond par la clé du refus.
 export function StatusIncidentNew() {
   const t = useT();
   const navigate = useNavigate();
-  const components = useStatusComponents(null);
-  const pages = useStatusPages().data?.pages ?? [];
   const form = useForm(emptyIncidentForm());
   const { values, change } = form;
   const action = useAction();
-  const list = components.data?.components ?? [];
 
   const save = () => {
     const body = incidentRequestOf(values);
@@ -42,7 +39,7 @@ export function StatusIncidentNew() {
             submitLabel={values.kind === "maintenance" ? t("incident.schedule") : t("incident.open")}
             submitIcon="plus"
             busy={action.busy}
-            canSubmit={values.componentIDs.length > 0}
+            canSubmit={values.targets.length > 0}
             cancelLabel={t("incident.cancel")}
             cancelTo="/page-statut/incidents"
           />
@@ -77,21 +74,15 @@ export function StatusIncidentNew() {
         <Field label={t("incident.message_label")} htmlFor="incident-message" help={t("incident.message_help")}>
           <Textarea id="incident-message" value={values.message} onChange={(event) => change("message", event.target.value)} maxLength={2000} rows={3} />
         </Field>
-        <Field label={t("incident.components_label")} help={t("incident.components_help")}>
-          {list.length === 0 ? (
-            <Note tone="warn">{t("statuspage.components_empty_text")}</Note>
-          ) : (
-            <Checks>
-              {list.map((component) => (
-                <Checkbox
-                  key={component.id}
-                  label={componentChoiceLabel(component, pages)}
-                  checked={values.componentIDs.includes(component.id)}
-                  onChange={() => change("componentIDs", toggleComponent(values.componentIDs, component.id))}
-                />
-              ))}
-            </Checks>
-          )}
+        <Field label={t("incident.targets_label")} help={t("incident.targets_help")}>
+          <ObjectPicker
+            value={values.targets}
+            onChange={(targets) => change("targets", targets)}
+            labelKeyPrefix="component.kind_"
+            label={t("incident.targets_label")}
+            addLabel={t("incident.add_target")}
+            nameOf={() => t("component.missing")}
+          />
         </Field>
       </FormCard>
     </>

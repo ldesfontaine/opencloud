@@ -54,9 +54,9 @@ func TestListComponents_AttachesTheMembersOfEachComponent(t *testing.T) {
 	}
 }
 
-// Les composants et le fil de chaque incident reviennent à leur incident,
-// le filtre de la liste s'applique aux parties comme aux incidents, et un
-// incident sans composant a des listes vides, jamais nulles.
+// Les cibles et le fil de chaque incident reviennent à leur incident, le
+// filtre de la liste s'applique aux parties comme aux incidents, et un
+// incident sans cible a des listes vides, jamais nulles.
 func TestListIncidents_AttachesThePartsOfEachIncident(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
@@ -65,7 +65,7 @@ func TestListIncidents_AttachesThePartsOfEachIncident(t *testing.T) {
 	old := status.Incident{
 		ID: "i-old", Title: "Réglée", Impact: status.ImpactDegraded, Status: status.StatusResolved,
 		CreatedAt: incidentNow.Add(-3 * time.Hour), UpdatedAt: resolvedAt, ResolvedAt: resolvedAt,
-		Components: []status.ComponentRef{{ID: "c2"}, {ID: "c1"}},
+		Targets: []status.Target{{Kind: status.KindMachine, ID: "m2"}, {Kind: status.KindMachine, ID: "m1"}},
 		Updates: []status.Update{
 			{Status: status.StatusInvestigating, Message: "Début.", CreatedAt: incidentNow.Add(-3 * time.Hour)},
 			{Status: status.StatusResolved, Message: "Fin.", CreatedAt: resolvedAt},
@@ -74,7 +74,7 @@ func TestListIncidents_AttachesThePartsOfEachIncident(t *testing.T) {
 	if err := db.InsertIncident(ctx, old); err != nil {
 		t.Fatal(err)
 	}
-	bare := status.Incident{ID: "i-bare", Title: "Sans composant", Impact: status.ImpactDown, Status: status.StatusMonitoring, CreatedAt: incidentNow.Add(time.Minute), UpdatedAt: incidentNow.Add(time.Minute)}
+	bare := status.Incident{ID: "i-bare", Title: "Sans cible", Impact: status.ImpactDown, Status: status.StatusMonitoring, CreatedAt: incidentNow.Add(time.Minute), UpdatedAt: incidentNow.Add(time.Minute)}
 	if err := db.InsertIncident(ctx, bare); err != nil {
 		t.Fatal(err)
 	}
@@ -87,14 +87,14 @@ func TestListIncidents_AttachesThePartsOfEachIncident(t *testing.T) {
 	if len(all) != 3 || all[0].ID != "i-bare" || all[1].ID != open.ID || all[2].ID != "i-old" {
 		t.Fatalf("ordre = %+v", all)
 	}
-	if all[0].Components == nil || len(all[0].Components) != 0 || all[0].Updates == nil || len(all[0].Updates) != 0 {
+	if all[0].Targets == nil || len(all[0].Targets) != 0 || all[0].Updates == nil || len(all[0].Updates) != 0 {
 		t.Fatalf("sans partie, les listes doivent être vides et non nulles : %#v", all[0])
 	}
-	if len(all[1].Components) != 1 || all[1].Components[0].Name != "c1" || len(all[1].Updates) != 1 {
+	if len(all[1].Targets) != 1 || all[1].Targets[0].ID != "m1" || len(all[1].Updates) != 1 {
 		t.Fatalf("parties de l'incident ouvert = %+v", all[1])
 	}
-	// Les composants dans l'ordre de la page, le fil du plus récent au plus ancien.
-	if got := all[2]; len(got.Components) != 2 || got.Components[0].ID != "c1" || got.Components[1].ID != "c2" ||
+	// Les cibles dans l'ordre écrit, le fil du plus récent au plus ancien.
+	if got := all[2]; len(got.Targets) != 2 || got.Targets[0].ID != "m2" || got.Targets[1].ID != "m1" ||
 		len(got.Updates) != 2 || got.Updates[0].Message != "Fin." || got.Updates[1].Message != "Début." {
 		t.Fatalf("parties de l'incident réglé = %+v", got)
 	}
@@ -105,7 +105,7 @@ func TestListIncidents_AttachesThePartsOfEachIncident(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recent) != 2 || len(recent[1].Components) != 1 || len(recent[1].Updates) != 1 {
+	if len(recent) != 2 || len(recent[1].Targets) != 1 || len(recent[1].Updates) != 1 {
 		t.Fatalf("fenêtre = %+v", recent)
 	}
 }
