@@ -5,6 +5,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -120,6 +121,9 @@ type SignalRequest struct {
 	Images   *update.Report    `json:"images,omitempty"`
 	// Ce que l'agent a fait des ordres reçus : refusés, acceptés, faits.
 	Actions *ActionReport `json:"actions,omitempty"`
+	// Les clés SSH autorisées de la machine, relevées en lecture seule : le
+	// dernier relevé, envoyé quand il change et à chaque ouverture du flux.
+	SSHKeys *sshkeys.Report `json:"ssh_keys,omitempty"`
 }
 
 // Les sections du signal, dans l'ordre où le serveur les écrit, et la clé
@@ -131,11 +135,12 @@ const (
 	SectionProbes   = "probes"
 	SectionImages   = "images"
 	SectionActions  = "actions"
+	SectionSSHKeys  = "ssh_keys"
 )
 
 // SignalSections rend les sections dans l'ordre où le serveur les écrit.
 func SignalSections() []string {
-	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions}
+	return []string{SectionReadings, SectionServices, SectionProbes, SectionImages, SectionActions, SectionSSHKeys}
 }
 
 // SectionRefusal rend la clé d'erreur d'une section refusée.

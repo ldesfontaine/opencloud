@@ -25,6 +25,7 @@ const (
 	KindContainers       Kind = "containers"
 	KindContainerEvents  Kind = "container_events"
 	KindImageChecks      Kind = "image_checks"
+	KindSSHKeys          Kind = "ssh_keys"
 	KindIgnoredKeys      Kind = "ignored_keys"
 	KindSilences         Kind = "silences"
 	KindProbeResults     Kind = "probe_results"
@@ -43,7 +44,7 @@ func Kinds() []Kind {
 	return []Kind{
 		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations,
 		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
-		KindContainerEvents, KindImageChecks, KindIgnoredKeys, KindSilences,
+		KindContainerEvents, KindImageChecks, KindSSHKeys, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,
 		KindUnits, KindMembers, KindAlerts, KindProjectLinks, KindIncidentLinks,
 	}

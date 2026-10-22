@@ -10,6 +10,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -35,6 +36,8 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 		}, `{"readings":[{"sampled_at":"2026-09-12T12:00:00Z","cpu_percent":0,"cpu_cores":0,"load_1":0,"mem_used":0,"mem_total":0,"swap_used":0,"swap_total":0,"disk_used":0,"disk_total":0,"net_rx_per_second":0,"net_tx_per_second":0}],"services":{"complete":true},"probes":{},"images":{}}`},
 		{"actions section", SignalRequest{Actions: &ActionReport{Results: []ActionResult{{RunID: "r", State: ActionRefused, Reason: ReasonReplayed}}}},
 			`{"actions":{"results":[{"run_id":"r","state":"refused","reason":"replayed"}]}}`},
+		{"ssh keys section", SignalRequest{SSHKeys: &sshkeys.Report{Accounts: []sshkeys.Account{{Name: "root", State: sshkeys.StateNone, Keys: []sshkeys.Key{}}}}},
+			`{"ssh_keys":{"accounts":[{"name":"root","uid":0,"state":"none","truncated":false,"ignored":0,"keys":[]}],"truncated":false}}`},
 		{"order body", OrderBody{RunID: "r", MachineID: "m", AgentID: "a", Kind: KindAgentPing, NotAfter: 1, Seq: 2},
 			`{"run_id":"r","machine_id":"m","agent_id":"a","kind":"agent.ping","not_after":1,"seq":2}`},
 		{"signed order", SignedOrder{Body: []byte("{}"), Signature: []byte{1}, Key: "SHA256:x"}, `{"body":"e30=","signature":"AQ==","key":"SHA256:x"}`},
@@ -54,7 +57,7 @@ func TestWire_JSONLabelsAreFrozen(t *testing.T) {
 // Le serveur écrit les sections dans cet ordre, et un agent lit « bad_services »
 // pour la section des conteneurs : clés figées.
 func TestSignalSections_KeepTheirOrderAndRefusalKeys(t *testing.T) {
-	want := []string{"readings", "services", "probes", "images", "actions"}
+	want := []string{"readings", "services", "probes", "images", "actions", "ssh_keys"}
 	got := SignalSections()
 	if len(got) != len(want) {
 		t.Fatalf("sections %v", got)

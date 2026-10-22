@@ -32,6 +32,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
@@ -208,6 +209,8 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	backups.SetWatcher(bus)
 	backups.SetAuditor(journal)
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
+	sshKeys := sshkeys.New(db, logger)
+	sshKeys.SetClock(func() time.Time { return testNow })
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -228,6 +231,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		APITokens:  apiTokens,
 		Auth:       operator,
 		Actions:    actions,
+		SSHKeys:    sshKeys,
 		Backups:    backups,
 		Deploy:     deployer,
 		Live:       bus,

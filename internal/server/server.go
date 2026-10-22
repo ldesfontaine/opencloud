@@ -37,6 +37,7 @@ import (
 	pingapi "github.com/ldesfontaine/opencloud/internal/server/ping" // ping : l'aide des tests du même nom
 	"github.com/ldesfontaine/opencloud/internal/server/public"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/web"
@@ -268,6 +269,14 @@ type ActionService interface {
 	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 
+// Ce que le serveur attend du composant sshkeys : le relevé d'une machine et
+// la matrice des machines. Le signal de l'agent l'écrit (agentapi).
+type SSHKeysService interface {
+	Record(ctx context.Context, machineID string, report sshkeys.Report) error
+	Machine(ctx context.Context, machineID string) (sshkeys.Snapshot, error)
+	Matrix(ctx context.Context) ([]sshkeys.Snapshot, error)
+}
+
 // Ce que le serveur attend du composant backup : les gestes de la page
 // Sauvegardes. Le dernier ordre du plan se lit par le Reader.
 type Backups interface {
@@ -310,6 +319,7 @@ type Server struct {
 	mcpURL     string
 	auth       AuthService
 	actions    ActionService
+	sshKeys    SSHKeysService
 	backups    Backups
 	deploy     Deployer
 	live       Live
@@ -372,6 +382,8 @@ type Options struct {
 	Auth AuthService
 	// Actions envoie les ordres signés aux agents ; voir api_actions.go.
 	Actions ActionService
+	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
+	SSHKeys SSHKeysService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
@@ -432,6 +444,7 @@ func New(opts Options) (*Server, error) {
 		mcpURL:         opts.MCPURL,
 		auth:           opts.Auth,
 		actions:        opts.Actions,
+		sshKeys:        opts.SSHKeys,
 		backups:        opts.Backups,
 		deploy:         opts.Deploy,
 		live:           opts.Live,
@@ -456,6 +469,7 @@ func New(opts Options) (*Server, error) {
 		Probes:        opts.Probes,
 		Updates:       opts.Updates,
 		Actions:       opts.Actions,
+		SSHKeys:       opts.SSHKeys,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})

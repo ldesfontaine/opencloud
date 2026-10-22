@@ -22,6 +22,8 @@ GET /api/resources
 GET /api/machines/{id}/containers
 GET /api/machines/{id}/network
 GET /api/machines/{id}/probes
+GET /api/machines/{id}/ssh-keys
+GET /api/ssh-keys
 GET /api/network
 GET /api/containers
 GET /api/containers/{id}

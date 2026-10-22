@@ -28,6 +28,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/wait"
 )
@@ -75,6 +76,10 @@ type Options struct {
 	// de <état>/bin/ ; nil vaut os.Executable. Non exporté : seuls les tests
 	// du paquet le remplacent, la commande ne peut pas le poser.
 	executable func() (string, error)
+	// readSSHKeys relève les clés SSH autorisées de la machine ; nil vaut la
+	// lecture de la vraie machine. Non exporté : seuls les tests du paquet le
+	// remplacent (ils ne lisent pas les comptes de l'hôte).
+	readSSHKeys func() (sshkeys.Report, bool)
 	// RootDir est la racine des services déployés (-root-dir), pour le premier
 	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
 	RootDir string
@@ -175,8 +180,15 @@ func Run(ctx context.Context, opts Options) error {
 		stop()
 	}
 	go orders.worker.run(ctx)
+	// Les clés SSH autorisées : relevées en lecture seule, à part du flux.
+	collectSSHKeys := opts.readSSHKeys
+	if collectSSHKeys == nil {
+		collectSSHKeys = readSSHKeys
+	}
+	sshReported := &sshReports{}
+	go sshKeysLoop(ctx, collectSSHKeys, sshReported, sshKeysPeriod, opts.Logger)
 	err = keepConnected(ctx, client, identity, &pending{
-		readings: readings, reports: observed, results: checked, images: constated, actions: actions,
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported,
 		logs: watcher, probes: prober, updates: updater, orders: orders,
 	}, catalogs.For(identity.Language), opts)
 	if updated.Load() {
@@ -194,6 +206,7 @@ type pending struct {
 	results  *results
 	images   *images
 	actions  *actionResults
+	sshKeys  *sshReports
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
@@ -356,6 +369,7 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 	pending.reports.markReplayed()
 	pending.results.markReplayed()
 	pending.images.markReplayed()
+	pending.sshKeys.markReplayed()
 
 	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
@@ -397,6 +411,7 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			probes:     pending.results.take(),
 			images:     pending.images.take(),
 			actions:    pending.actions.take(),
+			sshKeys:    pending.sshKeys.take(),
 		}
 		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
@@ -433,10 +448,11 @@ type signalBatch struct {
 	probes     *probe.Report
 	images     *update.Report
 	actions    *agentwire.ActionReport
+	sshKeys    *sshkeys.Report
 }
 
 func (b signalBatch) request() agentwire.SignalRequest {
-	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions}
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -469,6 +485,8 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.images.restore(b.images)
 	case agentwire.SectionActions:
 		pending.actions.restore(b.actions)
+	case agentwire.SectionSSHKeys:
+		pending.sshKeys.restore(b.sshKeys)
 	}
 }
 

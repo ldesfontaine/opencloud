@@ -26,6 +26,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -39,6 +40,7 @@ import (
 type components struct {
 	db          *store.DB
 	actions     *action.Service
+	sshKeys     *sshkeys.Service
 	backups     *backup.Service
 	deployer    *deploy.Service
 	logger      *slog.Logger
@@ -132,6 +134,8 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	} else {
 		logger.Info("no release key embedded: agent updates are off")
 	}
+	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
+	sshKeys := sshkeys.New(db, logger)
 	// La sauvegarde de la base part par ces ordres. Le dépôt des colis
 	// (SetParcels) et la boucle sont à serve seul.
 	backups := backup.New(db, machines, stateDir, logger)
@@ -155,7 +159,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
 		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
-		support: support, manifests: manifests, actions: actions, backups: backups, deployer: deployer,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, backups: backups, deployer: deployer,
 	}, nil
 }
 
@@ -182,6 +186,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		APITokens:      c.apiTokens,
 		Auth:           c.operator,
 		Actions:        c.actions,
+		SSHKeys:        c.sshKeys,
 		Backups:        c.backups,
 		Deploy:         c.deployer,
 		PublicURL:      cfg.PublicURL,

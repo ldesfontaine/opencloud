@@ -134,6 +134,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -3296,6 +3297,91 @@ légitime ; ses entrées de plus de dix minutes sont balayées au passage.
 Derrière Traefik sans `trusted_proxies`, tous les agents partagent un seul
 seau.
 
+## Comment les clés SSH se relèvent
+
+C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
+les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
+machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
+et toutes ensemble (page « Clés SSH » sous Administration, une ligne par
+empreinte, une colonne par machine). **Aucune écriture** sur une machine : ni
+fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
+droit nouveau.
+
+**Quels comptes.** `/etc/passwd`, lisible de tous : root et les comptes
+d'utilisateur (uid d'au moins 1000, hors `nobody`), avec un nom sûr
+(`^[A-Za-z0-9._@][A-Za-z0-9._@-]{0,63}$`) et un dossier personnel absolu et
+propre. 64 comptes au plus ; au-delà, le relevé dit qu'il est tronqué. Un
+compte sans dossier personnel, ou dont le dossier n'existe pas, est « aucun
+fichier ».
+
+**Quels fichiers.** Les deux que sshd lit par défaut (`AuthorizedKeysFile`) :
+`~/.ssh/authorized_keys` et `~/.ssh/authorized_keys2`. Un `AuthorizedKeysFile`
+personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus.
+
+**Comment un dossier d'inconnu se lit.** Le dossier personnel est le terrain de
+son utilisateur : il y pose des liens, des fichiers énormes, des tubes. L'agent
+le lit comme sshd le ferait avec `StrictModes`, et un peu plus prudemment :
+
+1. le dossier personnel est ouvert par `os.OpenRoot` : rien de ce qui est lu
+   dessous ne sort du dossier, un lien symbolique qui mène ailleurs échoue ;
+2. `~/.ssh` doit être un vrai dossier (pas un lien), au compte ou à root, que ni
+   le groupe ni les autres ne modifient (`mode & 0o022 == 0`), sinon l'état est
+   `unsafe` ;
+3. chaque fichier est jugé par `Lstat` **avant** d'être ouvert (un tube ouvert en
+   lecture bloquerait l'agent) : régulier, d'un seul nom (un lien dur passe
+   `O_NOFOLLOW` : là où `protected_hardlinks` est coupé, un compte poserait
+   dans son `~/.ssh` un second nom de `/etc/shadow`, à root et fermé aux
+   autres ; sshd le lirait, l'agent non), mêmes règles de propriétaire et de
+   droits, au plus 256 Kio (`too_large` au-delà) ;
+4. il est ouvert avec `O_NOFOLLOW|O_NONBLOCK`, puis **rejugé sur le
+   descripteur** (`fstat`) : un fichier échangé entre le jugement et l'ouverture
+   ne passe pas ;
+5. la lecture est bornée à 256 Kio.
+
+**Ce qui sort.** Seulement, pour chaque clé : le fichier, l'**empreinte SHA256**,
+le type, la taille en bits, un **commentaire** nettoyé (UTF-8 valide, sans
+caractère de contrôle ni de mise en forme, 64 octets au plus, coupé sur une
+limite de caractère) et les **noms d'options reconnus** (`command`, `from`,
+`restrict`… : une liste fermée de 22 noms sshd, et `other` pour tout autre). La
+valeur d'une option (`command="…"`, `from="…"`) **ne sort jamais** : un
+`command=` peut porter un secret. Une ligne qui n'est pas une clé d'un des huit
+types connus, ou de plus de 16 Kio, est comptée dans « lignes ignorées » et
+rien d'autre. Une même clé deux fois dans un fichier n'est qu'une, avec la
+réunion de ses options. 64 clés par compte, 512 par machine (un signal pèse au
+plus 1 Mio) : au-delà, « tronqué ».
+
+**L'état d'un compte** résume ses deux fichiers par le plus grave : `denied`
+(illisible pour le compte de l'agent), `unsafe` (lien, fichier spécial, droits ou
+propriétaire que sshd refuserait, fichier à plusieurs liens durs), `too_large`, puis `read`, ou `none` s'il n'y a
+aucun fichier. Un compte `denied` n'est pas un compte sans clé : la page dit
+« Illisible pour le compte de l'agent (opencloud-agent) », et, une fois par
+machine, que sous un compte dédié l'agent ne lit pas les clés des autres
+comptes alors qu'en root il les lit toutes.
+
+**Comment ça voyage.** L'agent relève au démarrage puis toutes les dix minutes.
+Le relevé part dans le signal, section `ssh_keys`, **seulement s'il a changé**,
+et une fois à chaque ouverture du flux (le serveur garde un reflet : un flux
+neuf le lui redonne) ; un signal qui échoue le remet à livrer. Un agent plus
+ancien n'envoie rien : la fiche dit « pas encore relevé ». Le serveur ne fait
+pas confiance au relevé : il en vérifie chaque borne (comptes, clés, noms,
+états, fichiers, types, empreintes, options, commentaires) et **refuse le tout**
+s'il sort de ce qu'un agent peut avoir lu (`bad_ssh_keys` dans l'en-tête des
+sections refusées ; le reste du signal passe). Un relevé retenu remplace
+l'ancien dans une transaction et prévient le direct (sujet `machines`).
+
+**L'API** : `GET /api/machines/{id}/ssh-keys` (404 si la machine n'existe pas ;
+un relevé vide et sans date tant que l'agent n'a rien dit) et
+`GET /api/ssh-keys` (toutes les machines, par nom). Lecture seule, pour
+l'opérateur seul : **aucun jeton d'API** ne les lit (des noms de comptes et des
+empreintes ; la liste fermée de « Comment un agent IA lit openCloud » ne change
+pas).
+
+**Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
+sur la ligne, rien de plus. Dans la matrice, une cellule dit les comptes de la
+machine qui acceptent la clé ; « — » quand la machine est relevée sans cette
+clé ; « ? » quand elle ne l'est pas, ou qu'un de ses comptes n'a pas pu être
+lu (l'absence n'y prouve rien).
+
 ## Comment une suppression se décide
 
 **Entre objets déclarés, `restrict`** (`migrations/001_schema.sql`) : une suppression ne retire jamais en silence un autre objet
@@ -3736,6 +3822,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment la base est sauvegardée »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
+| Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |

@@ -21,6 +21,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -141,6 +142,8 @@ func closedKeyLists() []composedKeys {
 		{prefix: "ai_agent.state_", values: names(mcpcheck.States())},
 		{prefix: "ai_agent.hint_", values: without(names(mcpcheck.States()), string(mcpcheck.StateReachable))},
 		// Le plan d'une suppression : ce qui retient, part ou se détache, compté.
+		// L'état de lecture des clés SSH d'un compte.
+		{prefix: "ssh.state_", values: names(sshkeys.States())},
 		{prefix: "deletion.kind_", values: names(deletion.Kinds())},
 		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},
 		// Les droits d'un agent : le front remplace le point par « _ ».

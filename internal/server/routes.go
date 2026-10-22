@@ -51,6 +51,8 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/containers", s.listMachineContainers},
 		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
 		{"GET", "/api/machines/{id}/probes", s.listMachineProbes},
+		{"GET", "/api/machines/{id}/ssh-keys", s.getMachineSSHKeys},
+		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
 		{"GET", "/api/containers/{id}", s.getContainer},

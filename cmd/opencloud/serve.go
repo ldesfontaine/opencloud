@@ -123,6 +123,7 @@ func runServe(args []string) error {
 	parts.support.SetWatcher(bus)
 	parts.manifests.SetWatcher(bus)
 	parts.actions.SetWatcher(bus)
+	parts.sshKeys.SetWatcher(bus)
 	parts.actions.SetKey(serverKey)
 	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
 	// démarrage de serve.

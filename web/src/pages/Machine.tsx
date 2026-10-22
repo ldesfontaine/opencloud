@@ -14,6 +14,7 @@ import { CertificateList } from "../components/Certificate";
 import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { MachineHead, Tabs } from "../components/MachineHead";
+import { MachineSSHKeys } from "../components/MachineSSHKeys";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
@@ -89,6 +90,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <MachineContainers machineID={current.id} />
       ) : tab === "reseau" ? (
         <NetworkView machineID={current.id} />
+      ) : tab === "ssh" ? (
+        <MachineSSHKeys machine={current} />
       ) : tab === "journaux" ? (
         <MachineLogs machineID={current.id} />
       ) : (

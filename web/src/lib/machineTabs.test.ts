@@ -4,7 +4,7 @@ import { machineTabs, renamedMachineTabs, resolveMachineTab, unreleasedMachineTa
 
 test("aucun onglet affiché ne mène à un écran pas encore livré", () => {
   const shown = machineTabs.map((tab) => tab.slug);
-  expect(shown).toEqual(["", "services", "disponibilite", "reseau", "journaux"]);
+  expect(shown).toEqual(["", "services", "disponibilite", "reseau", "ssh", "journaux"]);
   for (const slug of unreleasedMachineTabs) {
     expect(shown).not.toContain(slug);
   }
@@ -13,6 +13,7 @@ test("aucun onglet affiché ne mène à un écran pas encore livré", () => {
 test("resolveMachineTab renvoie un onglet pas encore livré au résumé, et l'inconnu à la page introuvable", () => {
   expect(resolveMachineTab("reseau")).toBe("shown");
   expect(resolveMachineTab("journaux")).toBe("shown");
+  expect(resolveMachineTab("ssh")).toBe("shown");
   expect(resolveMachineTab("sauvegardes")).toBe("summary");
   expect(resolveMachineTab("reglages")).toBe("summary");
   expect(resolveMachineTab("nimporte")).toBe("unknown");
