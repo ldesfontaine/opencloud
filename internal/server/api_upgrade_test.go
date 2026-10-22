@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -190,5 +193,100 @@ func TestUpgrade_RefusesWithoutTheRightOrBeforeTheFirstDeployment(t *testing.T) 
 	got = callAPI(fresh.Server, http.MethodPost, "/api/directory/units/"+freshUnit+"/actions/upgrade", map[string]any{"version": "16.5"})
 	if got.Code != http.StatusConflict || errorCode(t, got) != "deploy.not_deployed" || fresh.versionOf(t, freshUnit) != "16.4" {
 		t.Fatalf("before the first deployment: %d %s", got.Code, got.Body.String())
+	}
+}
+
+// Un tag hostile n'arrive pas jusqu'au compose : celui que l'agent rapporte
+// (un registre piégé) ne devient pas une offre, et celui que la requête
+// porte, différent de l'offre, est refusé sans rien écrire.
+func TestUpgrade_AHostileTagIsNeverOfferedNorWritten(t *testing.T) {
+	server := newTestServer(t)
+	_, unitID, session := upgradeSetup(t, server, "observe,docker.deploy,docker.update")
+	hostile := []string{
+		"16.5$x", "16.5${POSTGRES_PASSWORD}", "16.5#x", "16.5\nprivileged: true", "16.5:x", "evil.example/postgres:16.5",
+		"16.5@sha256:" + strings.Repeat("0", 64), "latest",
+	}
+	for _, tag := range hostile {
+		checks := update.Report{Results: []update.Result{{
+			Image: "postgres:16.4", CheckedAt: testNow, Outcome: update.OutcomeOK, NewerTag: tag,
+		}}}
+		if got := server.agentPost(session.Token, "/agent/signal", agentwire.SignalRequest{Images: &checks}); got.Code != http.StatusNoContent {
+			t.Fatalf("signal %q: %d %s", tag, got.Code, got.Body.String())
+		}
+		offered, ok, err := server.directory.OfferedVersion(context.Background(), unitID)
+		if err != nil || ok {
+			t.Fatalf("%q reported by the agent became an offer: %q %v", tag, offered, err)
+		}
+		got := callAPI(server.Server, http.MethodPost, "/api/directory/units/"+unitID+"/actions/upgrade", map[string]any{"version": tag})
+		if got.Code != http.StatusConflict || errorCode(t, got) != "deploy.version_not_offered" {
+			t.Fatalf("%q: %d %s", tag, got.Code, got.Body.String())
+		}
+		if server.versionOf(t, unitID) != "16.4" || server.updateOrders(t) != 0 {
+			t.Fatalf("%q wrote or sent", tag)
+		}
+	}
+}
+
+// failingSender : l'ordre ne part pas (la machine tombe entre l'écriture et
+// l'envoi).
+type failingSender struct{}
+
+func (failingSender) SendForService(context.Context, action.ServiceOrder) (action.Run, error) {
+	return action.Run{}, action.ErrMachineOffline
+}
+
+// L'envoi échoue après l'écriture : la version déclarée reste la nouvelle,
+// l'écart de l'annuaire montre l'unité divergente (le conteneur tourne
+// toujours l'ancien tag), et le service se redéploie : le plan propose
+// « Redéployer » avec le compose du nouveau tag, et l'ordre part.
+func TestUpgrade_AFailedSendLeavesADivergedUnitToRedeploy(t *testing.T) {
+	server := newTestServer(t)
+	serviceID, unitID, _ := upgradeSetup(t, server, "observe,docker.deploy,docker.update")
+	broken := deploy.New(server.db, server.directory, server.machines, server.db, failingSender{}, slog.New(slog.DiscardHandler))
+
+	if _, err := broken.Upgrade(context.Background(), unitID, "16.5"); !errors.Is(err, action.ErrMachineOffline) {
+		t.Fatalf("upgrade: %v", err)
+	}
+	if got := server.versionOf(t, unitID); got != "16.5" {
+		t.Fatalf("declared version %q", got)
+	}
+
+	var gaps struct {
+		Services []struct {
+			ServiceID string `json:"service_id"`
+			Units     []struct {
+				UnitID     string `json:"unit_id"`
+				State      string `json:"state"`
+				Containers []struct {
+					Verdict string `json:"verdict"`
+					Reason  string `json:"reason"`
+				} `json:"containers"`
+			} `json:"units"`
+		} `json:"services"`
+	}
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/gaps", nil), &gaps)
+	diverged := false
+	for _, service := range gaps.Services {
+		for _, unit := range service.Units {
+			if unit.UnitID == unitID {
+				diverged = unit.State == string(directory.GapDiverged) && len(unit.Containers) == 1 &&
+					unit.Containers[0].Reason == string(directory.ReasonTagDiffers)
+			}
+		}
+	}
+	if !diverged {
+		t.Fatalf("the unit must read diverged (tag differs): %+v", gaps)
+	}
+
+	var plan deployPlanJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/directory/services/"+serviceID+"/deploy-plan", nil), &plan)
+	if !plan.Deployed || plan.Right != "ok" || !strings.Contains(plan.Compose, "image: postgres:16.5\n") {
+		t.Fatalf("plan: deployed %v right %q\n%s", plan.Deployed, plan.Right, plan.Compose)
+	}
+	if got := callAPI(server.Server, http.MethodPost, "/api/directory/services/"+serviceID+"/actions/redeploy", map[string]any{}); got.Code != http.StatusCreated {
+		t.Fatalf("redeploy: %d %s", got.Code, got.Body.String())
+	}
+	if server.updateOrders(t) != 1 {
+		t.Fatalf("the redeployment must leave")
 	}
 }

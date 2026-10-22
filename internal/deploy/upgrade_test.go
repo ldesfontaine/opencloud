@@ -147,9 +147,31 @@ func TestUpgrade_EachRefusalWritesNothing(t *testing.T) {
 		{name: "a space too much", unit: dbUnitID, version: "16.5 ", want: deploy.ErrVersionNotOffered},
 		{name: "another case", unit: dbUnitID, version: "V16.5", want: deploy.ErrVersionNotOffered},
 		{
-			name: "tag the compose refuses", unit: dbUnitID, version: "16.5 --privileged", want: directory.ErrImageInvalid,
+			name: "tag the compose refuses", unit: dbUnitID, version: "16.5 --privileged", want: directory.ErrVersionInvalid,
 			change: func(w *world, _ *fakeMachines, _ *fakeRuns) { w.offered = "16.5 --privileged" },
 		},
+	}
+	// Un tag hostile que l'annuaire aurait offert (registre piégé, ligne
+	// ancienne) : refusé avant le rendu, même égal à l'offre. « : » et « / »
+	// passeraient le motif du compose, qui les lit comme le nom de l'image.
+	for _, hostile := range []string{
+		"16.5$x", "16.5${POSTGRES_PASSWORD}", "16.5#x", "16.5\nprivileged: true", "16.5:x", "evil.example/x:1",
+		"16.5@sha256:" + strings.Repeat("0", 64), "latest", "LATEST", ".16", "-16", strings.Repeat("1", 129),
+	} {
+		want := directory.ErrVersionInvalid
+		if strings.EqualFold(hostile, "latest") {
+			want = directory.ErrVersionLatest
+		}
+		cases = append(cases, struct {
+			name    string
+			unit    string
+			version string
+			change  func(*world, *fakeMachines, *fakeRuns)
+			want    error
+		}{
+			name: "hostile " + hostile, unit: dbUnitID, version: hostile, want: want,
+			change: func(w *world, _ *fakeMachines, _ *fakeRuns) { w.offered = hostile },
+		})
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

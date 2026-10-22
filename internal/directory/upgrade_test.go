@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,9 @@ func TestSetUnitVersion_WritesAuditsAndTellsTheMachine(t *testing.T) {
 	}{
 		{app, "", directory.ErrVersionInvalid},
 		{app, "29 0 5", directory.ErrVersionInvalid},
+		{app, "29.0.5$x", directory.ErrVersionInvalid},
+		{app, "29.0.5:x", directory.ErrVersionInvalid},
+		{app, "evil.example/x", directory.ErrVersionInvalid},
 		{app, "latest", directory.ErrVersionLatest},
 		{binary.Units[0].ID, "2.0", directory.ErrUnitNotContainer},
 		{"unit_inconnue", "2.0", directory.ErrUnitNotFound},
@@ -182,5 +186,52 @@ func TestSetUnitVersion_WritesAuditsAndTellsTheMachine(t *testing.T) {
 	read, _ = b.db.GetDeclaredService(ctx, created.ID)
 	if read.Units[0].Version != "29.0.5" {
 		t.Fatalf("un refus a écrit: %+v", read.Units)
+	}
+}
+
+// Le tag vient du registre par l'agent : un tag qui n'a pas la forme d'une
+// version (un « $ » que Compose interpolerait, un « : » ou un « / » qui
+// changerait l'image, latest, trop long) n'est jamais offert, même posé tel
+// quel dans la base.
+func TestOfferedVersion_NeverOffersAHostileTag(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	created := mustCreate(t, b, composeDefinition(remoteID))
+	app := created.Units[0].ID
+	for _, hostile := range []string{
+		"29.0.5$x", "29.0.5#x", "29.0.5\nprivileged: true", "29.0.5:x", "evil.example/nextcloud:29.0.5",
+		"29.0.5@sha256:" + strings.Repeat("0", 64), "latest", "-29.0.5", strings.Repeat("9", 129),
+	} {
+		reportApp(t, b, update.Check{CheckedAt: testNow, NewerTag: hostile, Kind: update.KindPatch})
+		if version, ok, err := b.directory.OfferedVersion(ctx, app); err != nil || ok || version != "" {
+			t.Fatalf("%q offert: %q %v %v", hostile, version, ok, err)
+		}
+	}
+}
+
+// Un conteneur rattaché à l'unité qui tourne une autre image que celle
+// qu'elle déclare (un écart « image différente ») ne lui donne pas son tag :
+// il nommerait une version d'un autre dépôt.
+func TestOfferedVersion_OnlyFromTheDeclaredImage(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	created := mustCreate(t, b, composeDefinition(remoteID))
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID1, "nextcloud-app-1", "nextcloud", "app", "evil.example/nextcloud:29.0.4"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+	check := update.Check{MachineID: remoteID, Image: "evil.example/nextcloud:29.0.4", CheckedAt: testNow, Outcome: update.OutcomeOK, NewerTag: "29.0.5", Kind: update.KindPatch}
+	if err := b.db.ApplyImageChecks(ctx, []update.Check{check}); err != nil {
+		t.Fatal(err)
+	}
+	if version, ok, err := b.directory.OfferedVersion(ctx, created.Units[0].ID); err != nil || ok {
+		t.Fatalf("offre d'une autre image: %q %v %v", version, ok, err)
+	}
+	// Le même conteneur, sur l'image déclarée : l'offre revient (le refus
+	// d'avant tenait bien à l'image, pas au rattachement).
+	reportApp(t, b, update.Check{CheckedAt: testNow, NewerTag: "29.0.5", Kind: update.KindPatch})
+	if version, ok, err := b.directory.OfferedVersion(ctx, created.Units[0].ID); err != nil || !ok || version != "29.0.5" {
+		t.Fatalf("image déclarée: %q %v %v", version, ok, err)
 	}
 }

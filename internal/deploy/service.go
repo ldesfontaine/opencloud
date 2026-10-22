@@ -184,6 +184,11 @@ func (s *Service) Upgrade(ctx context.Context, unitID, version string) (action.R
 	if !isOffered || version != offered {
 		return action.Run{}, ErrVersionNotOffered
 	}
+	// La forme d'un tag, jugée ici avant le rendu : le motif du compose admet
+	// « : » et « / » dans le nom de l'image, pas l'annuaire dans une version.
+	if err := directory.CheckVersion(version); err != nil {
+		return action.Run{}, err
+	}
 	// Le compose de la nouvelle version se rend d'abord : un tag que le rendu
 	// refuse ne doit pas avoir été écrit.
 	if _, _, err := Render(withVersion(plan.Service, unitID, version)); err != nil {

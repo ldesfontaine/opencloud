@@ -716,6 +716,10 @@ version déclarée de l'unité puis redéploie son service.
   **égale** au `newer_tag` du constat le plus récent parmi les conteneurs
   rattachés à l'unité (`Directory.OfferedVersion`), sinon 409
   `deploy.version_not_offered`. Une unité `hold` ou `ignore` n'a pas d'offre.
+  Seuls comptent les conteneurs qui tournent l'image déclarée (même registre,
+  même dépôt) ; un tag venu du registre qui n'a pas la forme d'une version de
+  l'annuaire (« $ », « # », « : », « / », « @ », retour, `latest`, plus de 128
+  caractères) n'est jamais offert.
   Pour une autre version, ou une empreinte changée sous le même tag : modifier
   le service, puis « Redéployer » (deux gestes, comme avant).
 - **Tout se vérifie avant d'écrire, et un refus n'écrit rien** : l'unité
@@ -725,7 +729,10 @@ version déclarée de l'unité puis redéploie son service.
   `docker.update` (409 `deploy.right_missing`) ; la machine est en ligne (409
   `action.machine_offline`) ; l'unité n'épingle pas d'empreinte (409
   `deploy.unit_pinned_digest` : l'empreinte appartient à l'ancien tag,
-  l'opérateur la retire à la main) ; la version est offerte ; et le
+  l'opérateur la retire à la main) ; la version est offerte ; elle a la forme
+  d'une version de l'annuaire (422 `directory.version_invalid` ou
+  `directory.version_latest`, jugé **avant** le rendu : le motif du compose
+  lirait un « : » ou un « / » comme une partie du nom de l'image) ; et le
   `compose.yml` de la nouvelle version **se rend** (un tag que le rendu refuse,
   `directory.image_invalid`, n'est jamais écrit).
 - **Puis, dans cet ordre** : `Directory.SetUnitVersion` (le composant de
