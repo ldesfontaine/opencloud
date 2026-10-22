@@ -33,9 +33,10 @@ type Runs interface {
 	// LastServiceRun rend le dernier ordre de ces genres, quel que soit son
 	// état.
 	LastServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error)
-	// LastWrittenServiceRun rend le dernier qui a écrit le dossier du service
-	// sur la machine.
-	LastWrittenServiceRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error)
+	// LastFolderRun rend le dernier qui a dit quelque chose du dossier du
+	// service sur la machine (le réussi, le Compose en échec, le coupé, le
+	// refusé faute de dossier).
+	LastFolderRun(ctx context.Context, serviceID string, kinds []agentwire.Kind) (action.Run, bool, error)
 }
 
 // Sender envoie un ordre signé à l'agent d'une machine : le composant action.
@@ -81,10 +82,11 @@ func (s *Service) Plan(ctx context.Context, serviceID string) (Plan, error) {
 	if !target.Agent.IsActive() {
 		return Plan{}, ErrNoAgent
 	}
-	_, deployed, err := s.runs.LastWrittenServiceRun(ctx, serviceID, deploymentKinds())
+	folder, found, err := s.runs.LastFolderRun(ctx, serviceID, deploymentKinds())
 	if err != nil {
 		return Plan{}, fmt.Errorf("read deployments: %w", err)
 	}
+	deployed := found && folderExists(folder)
 	last, hasLast, err := s.runs.LastServiceRun(ctx, serviceID, deploymentKinds())
 	if err != nil {
 		return Plan{}, fmt.Errorf("read last deployment: %w", err)
@@ -193,4 +195,11 @@ func secretOf(env *string) (json.RawMessage, error) {
 		return nil, ErrEnvTooLarge
 	}
 	return secret, nil
+}
+
+// folderExists dit ce que le dernier constat de l'agent dit du dossier : seul
+// un refus faute de dossier dit qu'il n'existe pas. Un coupé (timeout) a pu
+// l'écrire, et l'agent ne retire pas un dossier qu'il n'a pas fini.
+func folderExists(run action.Run) bool {
+	return !(run.State == action.StateRefused && run.Reason == agentwire.ReasonServiceDirMissing)
 }

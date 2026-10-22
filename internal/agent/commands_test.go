@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -38,10 +39,11 @@ type fakeProber struct {
 	assignments []probe.Assignment
 }
 
-func (p *fakeProber) Assign(assignment probe.Assignment) {
+func (p *fakeProber) Assign(assignment probe.Assignment) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.assignments = append(p.assignments, assignment)
+	return 0
 }
 
 func (p *fakeProber) last() probe.Assignment {
@@ -205,5 +207,40 @@ func TestCommandRunner_AssignsTheProbeSet(t *testing.T) {
 	runner.handle(string(agentwire.KindImages), "{pas du json")
 	if len(updater.assignments) != 1 || !updater.assignments[0].Now || updater.assignments[0].Excluded[0] != "portfolio:latest" {
 		t.Fatalf("exclusions reçues: %+v", updater.assignments)
+	}
+}
+
+type discardSink struct{}
+
+func (discardSink) Deliver(probe.Report) {}
+
+// Le jeu de sondes n'est pas signé : l'agent le rejuge, écarte ce que le
+// serveur lui-même refuserait, et le dit dans son journal avec le compte.
+func TestCommandRunner_RejudgesTheProbeSetItReceives(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var journal bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&journal, nil))
+	prober := probe.NewRunner(discardSink{}, probe.NewChecker(nil), logger)
+	runner := newCommandRunner(ctx, nil, "session-1", &fakeLogs{}, prober, &fakeUpdater{}, nil, logger)
+
+	payload, err := json.Marshal(probe.Assignment{Probes: []probe.Task{
+		{ID: "meta", Kind: probe.KindHTTP, Target: "http://169.254.169.254/latest/meta-data?token=s3cr3t", IntervalSeconds: 60},
+		{ID: "delete", Kind: probe.KindHTTP, Target: "https://a.fr/", IntervalSeconds: 60, Method: "DELETE"},
+		{ID: "ok", Kind: probe.KindHTTP, Target: "https://a.fr/", IntervalSeconds: 60},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.handle(string(agentwire.KindProbes), string(payload))
+
+	text := journal.String()
+	for _, want := range []string{"probes assigned", "count=3", "refused=2", "probe refused by the agent", "probe.target_forbidden", "probe.method_invalid"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("le journal ne dit pas %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "s3cr3t") {
+		t.Fatalf("le journal porte la requête de la cible:\n%s", text)
 	}
 }
