@@ -36,6 +36,11 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/containers")).toEqual(["containers"]);
   });
 
+  it("rereads the SSH keys with the machines", () => {
+    expect(topicsOf("/api/ssh-keys")).toEqual(["machines"]);
+    expect(topicsOf("/api/machines/m1/ssh-keys")).toEqual(["machines"]);
+  });
+
   it("rereads the orders of a machine on their own topic", () => {
     expect(topicsOf("/api/actions?machine=m1&limit=10")).toEqual(["actions"]);
   });

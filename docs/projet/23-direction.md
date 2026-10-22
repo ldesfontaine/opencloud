@@ -307,7 +307,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur. **Fait** (22/10) : `release import`, `agent.update`, vérifié deux fois (serveur, puis agent avec sa clé), lien `bin/current` basculé, succès constaté au retour | oui |
 | 6 | #125 | appliquer une mise à jour d'image validée. **Fait** (22/10, première version) : passer au tag plus récent d'un service déployé, en un geste ; pas de retour arrière | oui |
 | 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/`. **Fait** (première version, 21/10) : déployer et redéployer un service Compose déclaré ; pas de retrait, pas de modules | oui |
-| 8 | #152 | clés SSH distribuées | oui |
+| 8 | #152 | clés SSH distribuées. **Étape 1 faite** (22/10) : relevé en lecture seule des `authorized_keys` de chaque compte, affiché par machine et en matrice ; l'écriture (`ssh.keys`) reste à décider | non pour l'étape 1, oui ensuite |
 | 9 | à ouvrir | modules et dépendances ; catalogue | — |
 
 Rien ne passe à l'étape 5 tant que 2 et 3 ne sont pas fermées. Les contrôles
@@ -328,7 +328,7 @@ donné avant la décision.
 | 6 | Version `latest` autorisée au déploiement ? | jamais ; avec avertissement | jamais | Jamais écrite : « dernière version » écrit le numéro du jour, épinglé. openCloud propose les montées, ne les applique jamais seul |
 | 7 | Volumes | bind mounts ; volumes nommés ; au choix | bind mounts seulement | Bind mounts seulement, un dossier par service : `compose.yml`, `.env`, conf ; `data/` = données. Sauvegarde d'un service : `data/` + `.env`, chiffrés |
 | 8 | Docker seulement pour déployer ? | oui ; aussi des binaires | oui | Oui, dans un premier temps ; les binaires restent supervisés |
-| 9 | Liste de droits de départ | la liste du thème 5 ; autre | la liste du thème 5 | **Prise le 21 octobre 2026** : `observe` (implicite, toujours), `agent.update`, `docker.deploy`, `docker.update`, `backup.receive` (un chemin), `files.write` (des chemins). `ssh.keys` attend #152. Stockés et affichés (migration `030_agents.sql`). **Faite** : appliqués par l'agent (#146, `action.RightOf`) |
+| 9 | Liste de droits de départ | la liste du thème 5 ; autre | la liste du thème 5 | **Prise le 21 octobre 2026** : `observe` (implicite, toujours), `agent.update`, `docker.deploy`, `docker.update`, `backup.receive` (un chemin), `files.write` (des chemins). `ssh.keys` attend #152 : **étape 1 faite (22/10)**, relevé en lecture seule ; l'écriture (`ssh.keys`) reste à décider. Stockés et affichés (migration `030_agents.sql`). **Faite** : appliqués par l'agent (#146, `action.RightOf`) |
 | 10 | Droits dans le fichier de l'agent ou dans l'interface ? | fichier ; interface ; les deux | fichier, l'interface ne fait que les lire | Cochés dans l'interface à l'installation, écrits dans le fichier de l'agent. Qui les change ensuite : **prise le 21 octobre 2026** : relancer la ligne d'installation, c'est-à-dire ré-enrôler avec d'autres droits ; pas de changement signé en v1. **Faite** (#146) : fiche › Changer les droits |
 | 11 | Rétention locale de l'agent | SQLite 24 h ; tampon mémoire ; rien | SQLite 24 h | SQLite 24 h, rejeu à la reconnexion |
 | 12 | Sauvegarde de la base | copie locale ; copie + poussée vers un agent ; rien | copie locale d'abord, poussée ensuite | Pas de copie locale : envoi vers une destination choisie (machine avec agent, plus tard stockage externe). Sans destination, l'interface le dit |

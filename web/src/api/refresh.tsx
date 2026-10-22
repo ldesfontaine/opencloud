@@ -106,7 +106,8 @@ export function topicsOf(path: string): readonly Topic[] {
   if (/^\/api\/machines\/[^/?]+\/agent-update/.test(path)) {
     return ["machines", "actions"];
   }
-  if (path.startsWith("/api/machines")) {
+  // Le relevé des clés SSH se publie avec les machines.
+  if (path.startsWith("/api/machines") || path.startsWith("/api/ssh-keys")) {
     return ["machines"];
   }
   if (path.startsWith("/api/jobs")) {

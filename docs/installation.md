@@ -976,6 +976,11 @@ lance `/var/lib/opencloud-agent/bin/current agent -state
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
+Il relève aussi, **en lecture seule**, les clés SSH autorisées des comptes de la
+machine (`~/.ssh/authorized_keys`, toutes les dix minutes) : sous un compte
+dédié, il ne lit pas celles des autres comptes, et ne doit pas recevoir
+`CAP_DAC_READ_SEARCH` pour cela (voir « Comment les clés SSH se relèvent »).
+
 **Un droit qui écrit ailleurs que dans l'état** (« Recevoir des sauvegardes »,
 « Déployer » et « Mettre à jour un service Docker ») demande un fichier de
 plus : l'unité n'écrit que dans son état (`ProtectSystem=strict`), le dossier

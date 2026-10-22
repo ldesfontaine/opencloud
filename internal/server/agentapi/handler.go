@@ -13,6 +13,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -72,6 +73,12 @@ type ActionService interface {
 	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 
+// Ce que l'agent attend du composant sshkeys : le signal écrit le relevé des
+// clés SSH autorisées de sa machine.
+type SSHKeysService interface {
+	Record(ctx context.Context, machineID string, report sshkeys.Report) error
+}
+
 type Options struct {
 	Logger     *slog.Logger
 	Machines   MachineService
@@ -80,6 +87,7 @@ type Options struct {
 	Probes     ProbeService
 	Updates    UpdateService
 	Actions    ActionService
+	SSHKeys    SSHKeysService
 	// ClientAddress rend l'adresse du client telle que le serveur la résout,
 	// mandataires de confiance compris : la règle vit à la racine.
 	ClientAddress func(r *http.Request) string
@@ -95,6 +103,7 @@ type Handler struct {
 	probes        ProbeService
 	updates       UpdateService
 	actions       ActionService
+	sshKeys       SSHKeysService
 	clientAddress func(r *http.Request) string
 	sourceLimit   *ratelimit.BySource
 	signalLimit   *ratelimit.Limiter
@@ -110,6 +119,7 @@ func New(opts Options) *Handler {
 		probes:        opts.Probes,
 		updates:       opts.Updates,
 		actions:       opts.Actions,
+		sshKeys:       opts.SSHKeys,
 		clientAddress: opts.ClientAddress,
 		sourceLimit:   ratelimit.NewBySource(perSourceRate, perSourceBurst, sourceIdle),
 		signalLimit:   ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),

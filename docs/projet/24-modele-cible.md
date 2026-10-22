@@ -1398,3 +1398,20 @@ une tâche est surveillée » (#128, option 1 amendée). Ce que le code a tranch
 | **La série se coupe sur `missed` sans le compter comme un échec**, dans le front (`currentStreak`) ; le serveur ne calcule toujours aucune série | Une série d'échecs ne compte que de vraies exécutions : quatre codes non nuls sont quatre échecs, un trou n'en est pas un | Les 20 exécutions rendues bornent la vue : un `missed` au-delà ne se voit pas, la phrase dit « au moins » |
 | **La phrase de tête dit une durée** (« Repartie il y a 10 min après 5 h sans signal »), pas un compte | Les revues du 12/10 : « 4 réussites de suite » enjambait un trou de plusieurs heures. Une durée dit ce que l'opérateur veut savoir | Le trou va du dernier signal d'avant (réussite ou échec : un échec est un signal) à la réussite d'après : il comprend un intervalle normal. Choix de rédaction, à valider (P7) |
 | **« Passage signalé » pour une réussite sans code de sortie** | Le ping nu part même si la commande d'avant a échoué : il atteste que le cron a tourné, pas que la tâche a réussi | Un mot de plus à connaître dans la liste des exécutions |
+
+## 27. Ce que le relevé des clés SSH a fixé
+
+Migration `011_ssh_keys.sql` : `ssh_reports` (une ligne par machine), `ssh_accounts`
+(`state` borné à `read`, `none`, `denied`, `unsafe`, `too_large`) et `ssh_keys`
+(clé `(machine, compte, fichier, empreinte)`), toutes en cascade depuis la
+machine. Le fonctionnement est dans `22-fonctionnement.md`, « Comment les clés SSH
+se relèvent » (#152, étape 1, lecture seule). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Rien ne sort d'un fichier que l'empreinte, le type, la taille, un commentaire borné et des noms d'option** (décision 1, *à valider par Lucas*) | Un `authorized_keys` est un fichier d'inconnu : une option `command=` y porte parfois un secret. Ce qui n'a pas de forme fermée ne sort pas | On ne voit pas la valeur d'un `from=` : « restreinte à des adresses » se lit, pas lesquelles |
+| **Le serveur refuse un relevé hors bornes en entier** (décision 4) | Un pair peut mentir : mieux vaut garder l'ancien relevé qu'un relevé à moitié cru | Un seul champ hors borne fait perdre le relevé de ce passage ; l'agent le redit à la prochaine période, la section refusée se lit dans l'en-tête |
+| **512 clés par machine, 64 par compte, 64 comptes** (décision 5) | Un signal pèse au plus 1 Mio : 64 comptes de 64 clés n'y tiennent pas. Chaque borne vit à un seul endroit (`internal/sshkeys`), lue par l'agent et par le serveur | Un compte très fourni est tronqué, et le relevé le dit ; il n'y a pas de page suivante |
+| **Un relevé remplace l'ancien en entier** (décision 6) | Une clé retirée d'une machine doit disparaître sans règle de purge ; la clé primaire `(machine, compte, fichier, empreinte)` suffit | Pas d'historique : on ne sait pas depuis quand une clé est là, ni quand elle est partie |
+| **Les trois tables restent dans `internal/store`**, un fichier de plus (`sshkeys.go`) (décision 7) | Le store porte déjà toutes les tables, une par domaine ; un paquet de plus n'aurait rien isolé | `internal/store` compte une table de plus de l'écosystème : 52 tables (51 et `schema_migrations`) |
+

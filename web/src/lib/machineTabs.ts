@@ -10,6 +10,7 @@ export const machineTabs: Tab[] = [
   { slug: "services", key: "tab.services" },
   { slug: "disponibilite", key: "tab.availability" },
   { slug: "reseau", key: "tab.network" },
+  { slug: "ssh", key: "tab.ssh" },
   { slug: "journaux", key: "tab.logs" },
 ];
 
