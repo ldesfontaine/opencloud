@@ -55,7 +55,7 @@ trusted_proxies = ["127.0.0.1/32", "::1/128"]
 # démarrage. Vide (défaut) : l'adresse du pair seule décide.
 # forward_secret_file = "/etc/opencloud/forward.secret"
 
-# Mode forward : les identités que le mandataire peut transmettre et
+# Mode forward : les identités que le SSO peut transmettre et
 # qu'openCloud admet, une seconde serrure derrière le SSO. Une autre identité
 # répond 403 (et un WARN qui la nomme). Vide ou absent (défaut) : toute
 # identité transmise est admise. Comparaison exacte, majuscules comprises :

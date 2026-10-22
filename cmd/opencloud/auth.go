@@ -22,7 +22,7 @@ import (
 const authUsage = `Usage : {command} auth <status|disable> [-config chemin]
 
   status    dit si l'interface est protégée, par quel identifiant ou
-            derrière quel en-tête d'identité du mandataire, et quelles
+            derrière quel en-tête d'identité du SSO, et quelles
             identités forward_users admet
   disable   coupe l'authentification de l'interface (mot de passe oublié) :
             elle revient à sa première configuration ; serve la suit à la
@@ -115,7 +115,7 @@ func printAuthStatus(ctx context.Context, access *auth.Service, forwardUsers []s
 		_, err = fmt.Fprintln(out, "mode : none — aucun compte, l'interface attend sa première configuration")
 		return err
 	case auth.ModeForward:
-		_, err = fmt.Fprintf(out, "mode : forward — derrière un mandataire d'authentification\nen-tête d'identité : %s\nidentités admises : %s\nactivée le : %s\n",
+		_, err = fmt.Fprintf(out, "mode : forward — derrière un SSO en amont\nen-tête d'identité : %s\nidentités admises : %s\nactivée le : %s\n",
 			state.Header, describeForwardUsers(forwardUsers), enabledAt)
 		return err
 	}
@@ -128,7 +128,7 @@ func printAuthStatus(ctx context.Context, access *auth.Service, forwardUsers []s
 // faute de casse se voie, ou la phrase qui dit qu'il n'y a pas de liste.
 func describeForwardUsers(users []string) string {
 	if len(users) == 0 {
-		return "toute identité transmise par le mandataire"
+		return "toute identité transmise par le SSO"
 	}
 	quoted := make([]string, len(users))
 	for index, user := range users {

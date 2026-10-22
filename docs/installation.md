@@ -281,8 +281,8 @@ commenté : [`installation/config.toml`](installation/config.toml).
 | `state_dir` | `/var/lib/opencloud` | La base `opencloud.db` (et `-wal`, `-shm`), réglages de l'interface compris, et le cache `lifecycle.json`. Créé en `0700` s'il manque |
 | `public_url` | vide | L'adresse publique, par exemple `https://opencloud.example.org`. Voir ci-dessous |
 | `trusted_proxies` | `[]` | Les mandataires dont les en-têtes `X-Forwarded-*` sont crus, en CIDR |
-| `forward_secret_file` | vide | Mode `forward` : le fichier d'une ligne qui porte le secret partagé avec le mandataire (32 caractères au moins, illisible pour les autres comptes). Illisible, trop court ou trop ouvert, il arrête le démarrage. Voir [Derrière un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie) |
-| `forward_users` | vide | Mode `forward` : les identités admises, par exemple `["lucas"]` ; toute autre répond `403`. Vide : toute identité que le mandataire transmet. Voir [Qui peut entrer](#qui-peut-entrer) |
+| `forward_secret_file` | vide | Mode `forward` : le fichier d'une ligne qui porte le secret partagé avec le mandataire (32 caractères au moins, illisible pour les autres comptes). Illisible, trop court ou trop ouvert, il arrête le démarrage. Voir [Derrière un SSO qui authentifie](#derrière-un-sso-qui-authentifie) |
+| `forward_users` | vide | Mode `forward` : les identités admises, par exemple `["lucas"]` ; toute autre répond `403`. Vide : toute identité que le SSO transmet. Voir [Qui peut entrer](#qui-peut-entrer) |
 | `log_level` | `info` | `debug`, `info`, `warn` ou `error`. En `debug`, une ligne par requête HTTP |
 
 Une clé inconnue est signalée au démarrage (`unknown key ["…"] ignored`)
@@ -340,7 +340,7 @@ que le noyau donne à **tout processus de la machine**, un autre service, une
 application compromise, un conteneur en `network_mode: host`. Pour
 `X-Forwarded-*`, un processus local choisit l'adresse que voient le journal
 et les limiteurs. Pour l'identité du mode `forward`, ça ouvre tout : voir
-[`forward_secret_file`](#derrière-un-mandataire-qui-authentifie).
+[`forward_secret_file`](#derrière-un-sso-qui-authentifie).
 
 ## Traefik
 
@@ -443,7 +443,7 @@ configuration : l'interface, l'API, le direct et les journaux
 répondent `401` (`auth.setup_required`) tant que le compte n'existe pas. La
 page de statut, les pings et les agents gardent leur propre accès ; un jeton
 d'API lit l'API sans identifiants (voir [Brancher un agent IA](#brancher-un-agent-ia)). Deux modes : identifiant et mot de passe (HTTP Basic,
-ci-dessous), ou [un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie)
+ci-dessous), ou [un SSO qui authentifie](#derrière-un-sso-qui-authentifie)
 (Authelia). Le compte créé, le navigateur est connecté et l'interface s'ouvre.
 
 **Le premier qui ouvre l'adresse crée le compte.** Créez-le avant de publier
@@ -493,7 +493,7 @@ de secours. Rouvrez l'adresse (par le tunnel SSH, pour la même raison qu'au
 premier démarrage) et recréez le compte. Désactiver depuis Paramètres fait
 de même.
 
-### Derrière un mandataire qui authentifie
+### Derrière un SSO qui authentifie
 
 Quand un SSO garde déjà l'accès (Authelia en `forwardAuth` de Traefik), le
 mode `forward` lui délègue tout : comptes, second facteur, déconnexion.
@@ -515,7 +515,7 @@ Le secret partagé ferme ce cas, et il est recommandé dans tous les autres.
 | `trusted_proxies` = l'adresse du mandataire **seul**, en `/32` (par exemple `["172.30.0.2/32"]`), pas le sous-réseau | Tout pair de cette liste est cru sur parole : avec un `/24`, un voisin du réseau écrirait l'en-tête lui-même |
 | Le mandataire **écrase** l'en-tête envoyé par le client | Sinon un visiteur envoie `Remote-User: admin`. Traefik `forwardAuth` avec `authResponseHeaders: ["Remote-User"]` remplace la valeur du client par celle d'Authelia |
 | Deux Traefik en chaîne : `trusted_proxies` vise celui qui joint openCloud, l'en-tête est nettoyé par celui qui appelle Authelia | Le second ne doit être joignable que par le premier : sinon on le contourne, en-tête forgé compris |
-| Choisir « Mandataire » sur l'écran de première configuration, ouvert **à travers** le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête, et le secret s'il est configuré, depuis un pair de confiance. On ne peut pas s'enfermer dehors. Derrière Authelia, l'écran lui-même est déjà gardé : pas de course au premier venu |
+| Choisir « SSO en amont » sur l'écran de première configuration, ouvert **à travers** le mandataire | Garde-fou : openCloud refuse l'activation (`auth.forward_header_missing`) si la requête ne porte pas déjà l'en-tête, et le secret s'il est configuré, depuis un pair de confiance. On ne peut pas s'enfermer dehors. Derrière Authelia, l'écran lui-même est déjà gardé : pas de course au premier venu |
 
 **Le secret** : créez-le avant d'activer, lisible par le compte du service
 et pas par les autres, puis déclarez-le.
@@ -567,9 +567,9 @@ http:
 ```
 
 **Activer** : ouvrez openCloud par son nom public, connectez-vous à
-Authelia, puis, sur l'écran de première configuration, Mode « Mandataire
-d'authentification ». Une installation qui a déjà un compte Basic y revient
-par Paramètres → Accès à l'interface → Désactiver (ou `opencloud auth
+Authelia, puis, sur l'écran de première configuration, Mode « SSO en amont
+(Authelia, Authentik…) ». Une installation qui a déjà un compte Basic y revient
+par Paramètres → Accès → Zone de danger → Désactiver (ou `opencloud auth
 disable`). Le corps de l'API est
 `{"mode":"forward","header":"Remote-User"}` sur
 `POST /api/auth/actions/enable`. Comme en Basic, activer révoque tous les
@@ -577,7 +577,7 @@ jetons d'API.
 
 **Installation déjà en `forward` sans secret** : openCloud ne coupe pas
 l'accès, mais écrit un `WARN` à chaque démarrage et la page Paramètres →
-Accès à l'interface affiche un avertissement tant que `trusted_proxies`
+Accès affiche un avertissement tant que `trusted_proxies`
 couvre la boucle locale. Posez le secret, redémarrez : l'avertissement
 disparaît.
 
@@ -597,7 +597,7 @@ systemctl restart opencloud   # la liste est relue au démarrage seulement
 
 | Cas | Réponse |
 | --- | --- |
-| Liste absente ou vide | Toute identité transmise par le mandataire entre, comme avant |
+| Liste absente ou vide | Toute identité transmise par le SSO entre, comme avant |
 | Identité dans la liste | Entre |
 | Identité hors liste | `403` (page : une ligne qui nomme l'identité reçue ; API : `auth.forward_forbidden`) et un `WARN` `identity not in forward_users` dans le journal |
 | Pair hors `trusted_proxies`, secret faux, en-tête absent ou en double | `401`, comme avant : la liste ne remplace aucun de ces contrôles, et ces refus ne disent rien d'elle |
@@ -622,7 +622,7 @@ l'interface revient à sa première configuration, mais réactiver le mode
 identité que le SSO laisse passer peut créer le compte.
 
 La contrepartie : retirer quelqu'un de la liste ne révoque pas les jetons
-d'API qu'il a tirés (Paramètres → Jetons d'API), et les groupes d'Authelia
+d'API qu'il a tirés (Paramètres → Agent IA → Jetons d'API), et les groupes d'Authelia
 (`Remote-Groups`) ne sont pas lus.
 
 **Vérifier** que le contournement est fermé :
@@ -655,7 +655,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: lucas' \
 # 200
 ```
 
-**Mandataire en panne ou mal réglé** : la même commande de secours rouvre
+**SSO ou mandataire en panne ou mal réglé** : la même commande de secours rouvre
 l'accès.
 
 ```sh
@@ -678,7 +678,7 @@ publie aucun SPF et ne gère aucune réputation d'envoi. Qu'un message arrive
 en boîte de réception plutôt qu'en indésirables dépend du relais et du
 domaine de l'expéditeur, pas d'openCloud.
 
-**Paramètres → Envoi d'e-mails** : serveur, port, chiffrement, identifiant,
+**Paramètres → E-mails** : serveur, port, chiffrement, identifiant,
 mot de passe, adresse d'expéditeur, puis « Envoyer un e-mail de test » vers
 une adresse saisie. Ensuite **Alertes → Canaux → Ajouter un canal**, format
 « E-mail », jusqu'à 10 destinataires.
@@ -722,7 +722,7 @@ client MCP. Chaque personne s'y connecte par l'IdP OIDC de l'opérateur
 | Un nom, `mcp.example.org`, routé par Traefik vers mcp-maison | claude.ai le joint en HTTPS |
 | Le port 3000 libre sur l'hôte de `listen` | mcp-maison écoute à côté d'openCloud |
 
-**1. Le jeton.** Paramètres → **Jetons d'API** → nom « mcp-maison », échéance →
+**1. Le jeton.** Paramètres → **Agent IA** → **Jetons d'API** → nom « mcp-maison », échéance →
 **Créer**. Trois lignes s'affichent une fois : `MCP_HOST`, `OPENCLOUD_URL`
 (tirés de `listen` : mcp-maison joint openCloud en direct, jamais par Traefik
 ni le SSO, qui arrêterait le jeton) et `OPENCLOUD_TOKEN`.
@@ -760,7 +760,7 @@ install -o 1000 -g 1000 -m 0640 /dev/null data/mcp/permissions.yaml
 Le `.env` :
 
 ```sh
-# Les trois lignes d'openCloud (Paramètres → Jetons d'API), montrées une fois
+# Les trois lignes d'openCloud (Paramètres → Agent IA → Jetons d'API), montrées une fois
 MCP_HOST=127.0.0.1
 OPENCLOUD_URL=http://127.0.0.1:8080
 OPENCLOUD_TOKEN=
@@ -1849,7 +1849,7 @@ Elle écrit une clé neuve et **efface ce que l'ancienne chiffrait** :
 
 | Ce qui est perdu | Ce qu'il faut faire |
 | --- | --- |
-| Le mot de passe du relais d'e-mails | Le ressaisir sous Paramètres → Envoi d'e-mails |
+| Le mot de passe du relais d'e-mails | Le ressaisir sous Paramètres → E-mails |
 | L'URL et le secret des canaux d'alerte (webhook, Matrix) | Les canaux sont **désactivés** et vidés : ressaisir l'URL et le secret de chacun, puis le réactiver. Un canal e-mail reste actif mais n'envoie rien tant que le mot de passe du relais n'est pas ressaisi |
 | Le jeton de chaque tâche | Chaque tâche reçoit un **nouveau jeton** : l'ancienne URL de ping ne répond plus, remplacez-la dans les crons |
 
@@ -1979,8 +1979,8 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | `serve: listen tcp …: bind: address already in use` | Un autre processus tient le port | `ss -ltnp` ; changer `listen` |
 | Le serveur refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |
 | « secret.key est lisible par d'autres comptes » | Le fichier a un mode plus large que `0600` | `chmod 600 /var/lib/opencloud/secret.key`, propriétaire le compte du service |
-| Paramètres → Agent IA : « Sans ses outils openCloud » ; `groupe "opencloud" non chargé` au journal de mcp-maison | `OPENCLOUD_URL` ou `OPENCLOUD_TOKEN` du `.env` de mcp-maison manque ou est refusé | Recopier les lignes de Paramètres → Jetons d'API (un jeton neuf au besoin), puis `docker compose up -d` |
-| mcp-maison : `401 api_token.invalid` | Le jeton est révoqué, échu, ou recréé à la création du compte | Un jeton neuf sous Paramètres → Jetons d'API, dans le `.env` |
+| Paramètres → Agent IA : « Sans ses outils openCloud » ; `groupe "opencloud" non chargé` au journal de mcp-maison | `OPENCLOUD_URL` ou `OPENCLOUD_TOKEN` du `.env` de mcp-maison manque ou est refusé | Recopier les lignes de Paramètres → Agent IA → Jetons d'API (un jeton neuf au besoin), puis `docker compose up -d` |
+| mcp-maison : `401 api_token.invalid` | Le jeton est révoqué, échu, ou recréé à la création du compte | Un jeton neuf sous Paramètres → Agent IA → Jetons d'API, dans le `.env` |
 | mcp-maison : `403 bad_host` | `OPENCLOUD_URL` vise un nom que `public_url` ne reconnaît pas | Mettre l'adresse IP de `listen` dans `OPENCLOUD_URL` |
 | mcp-maison : `groupe "opencloud" non chargé : OPENCLOUD_URL: https:// attendu (http:// : boucle locale ou IP privée seulement)` | `OPENCLOUD_URL` en `http://` sur un nom ou une IP publique | `OPENCLOUD_URL=http://<l'IP de listen>:<port>` (boucle locale ou IP privée), ou `https://` |
 | Mode `forward` : toute l'interface répond `401 {"error":"api_token.invalid"}` | Le mandataire transmet un `Authorization: Bearer` à openCloud (oauth2-proxy avec `--pass-authorization-header` ou `--set-authorization-header`) : un Bearer est jugé comme un jeton d'API, avant l'en-tête d'identité | Ne pas transmettre `Authorization` à openCloud ; seul l'en-tête d'identité compte |

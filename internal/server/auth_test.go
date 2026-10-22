@@ -591,8 +591,8 @@ func TestAuthForward_RefusedPageSaysToGoThroughTheProxy(t *testing.T) {
 	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	cases := map[string]string{
-		"fr-FR,fr;q=0.9": "Accès refusé : passez par le mandataire d'authentification. Pour rouvrir l'accès : opencloud auth disable -config <chemin de la config>",
-		"en-US,en;q=0.9": "Access denied: go through the authentication proxy. To reopen access: opencloud auth disable -config <config path>",
+		"fr-FR,fr;q=0.9": "Accès refusé : passez par le SSO. Pour rouvrir l'accès : opencloud auth disable -config <chemin de la config>",
+		"en-US,en;q=0.9": "Access denied: go through the SSO. To reopen access: opencloud auth disable -config <config path>",
 	}
 	for acceptLanguage, want := range cases {
 		request := httptest.NewRequest(http.MethodGet, "/machines", nil)

@@ -284,7 +284,7 @@ func TestAuthCommand_StatusSaysWhoForwardUsersAdmits(t *testing.T) {
 	configPath, stateDir := writeConfig(t)
 	enableForwardIn(t, stateDir)
 
-	if got := authStatusWith(t, configPath); !strings.Contains(got, "identités admises : toute identité transmise par le mandataire") {
+	if got := authStatusWith(t, configPath); !strings.Contains(got, "identités admises : toute identité transmise par le SSO") {
 		t.Fatalf("no list: %q", got)
 	}
 
