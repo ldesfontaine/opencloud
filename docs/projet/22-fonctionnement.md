@@ -80,7 +80,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 
 | Flux | D'où à où | Chiffrement | Qui prouve quoi |
 | --- | --- | --- | --- |
-| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut) que d'un pair de `trusted_proxies` qui porte aussi le secret partagé (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
+| Interface | navigateur → Traefik | TLS de Traefik | L'opérateur, par HTTP Basic, avec le compte créé à la première configuration (mode `basic`) : identifiant et mot de passe, renvoyés par le navigateur à chaque requête, `/api/events` et les flux de journaux compris. En mode `forward`, le mandataire qui authentifie (Authelia derrière Traefik) : openCloud ne croit l'en-tête d'identité (`Remote-User` par défaut), présent une seule fois, que d'un pair de `trusted_proxies` qui porte aussi le secret partagé quand il est configuré (`forward_secret_file`, en-tête `X-OpenCloud-Proxy-Secret`), et répond `401` à tout le reste ; c'est au mandataire d'écraser l'en-tête envoyé par le client. Une identité ainsi prouvée mais absente d'une liste `forward_users` non vide reçoit `403 auth.forward_forbidden`. Un jeton d'API (`Authorization: Bearer`) remplace l'un et l'autre mode, sur sa liste fermée de lectures (« Comment un agent IA lit openCloud »). Mode `none` (installation neuve, ou après `opencloud auth disable`) : aucun compte, le serveur ne sert que la première configuration et répond `401 auth.setup_required` au reste ; le premier qui atteint le port crée le compte (« Comment l'opérateur entre dans l'interface »). Le front charge la page, puis parle à `/api/…` en JSON |
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
@@ -2646,6 +2646,44 @@ requête : `none` (par défaut), `basic` et `forward`.
   il ne protège pas d'un compte qui lit `forward_secret_file` ou la
   configuration de Traefik.
 
+  **La seconde serrure : `forward_users`.** Le mandataire dit *qui* est
+  l'utilisateur ; il n'a pas à dire si openCloud l'admet. La clé
+  `forward_users = ["lucas"]` de `config.toml` (relue au démarrage seulement,
+  comme `trusted_proxies` : ce qui garde la porte ne se change pas par cette
+  porte) est une liste blanche. `checkForward` la juge **après** le pair, le
+  secret et l'en-tête unique : une requête qui échoue à l'un d'eux reste un
+  `401` et n'apprend rien sur la liste. Une identité non vide qui n'y figure
+  pas répond `403 auth.forward_forbidden` (JSON pour l'API, une ligne de texte
+  qui nomme l'identité pour une page, jamais en cache) et un `WARN` « identity
+  not in forward_users » (identité tronquée à 64 caractères, sans caractère de
+  contrôle, pair, chemin). Un seul point : tout ce que garde `requireOperator`
+  (le front, `/api/…`, `/api/events`, les flux de journaux) passe par lui.
+  - **Liste absente ou vide : toute identité que le mandataire transmet.**
+    C'est le comportement d'avant, aucune installation ne casse.
+  - **Comparaison exacte, casse comprise**, sur l'identité déjà rognée des
+    espaces en bord (`lucas ` vaut `lucas`, `Lucas` ne le vaut pas) :
+    Authelia transmet l'identifiant tel qu'il le déclare. Une faute de casse
+    dans `config.toml` ferme la porte ; le `WARN` dit l'identité reçue.
+  - **Une liste fausse arrête `serve`** (et `opencloud auth status`) :
+    entrée vide, espace en bord, caractère de contrôle, plus de 64 caractères,
+    plus de 64 entrées, doublon.
+  - **Activer le mode `forward`** depuis une identité que la liste refuserait
+    est refusé (`422 auth.forward_user_not_listed`) : même garde-fou que
+    l'en-tête absent, on ne s'enferme pas en activant.
+  - **Une liste posée après l'activation** peut, elle, enfermer l'opérateur :
+    la sortie est de corriger `config.toml` et de redémarrer `serve`.
+    `opencloud auth disable` n'en sort pas (réactiver depuis une identité hors
+    liste reste refusé) et ouvre la première configuration à toute identité
+    que le SSO laisse passer.
+  - **Un jeton d'API n'est pas une identité du mandataire** : il est jugé
+    avant le mode (« Comment un agent IA lit openCloud ») et la liste ne le
+    juge pas. Retirer quelqu'un de la liste ne révoque donc pas les jetons
+    qu'il a tirés (Paramètres → Jetons d'API).
+  - **Le journal d'audit** nomme l'acteur par l'identité transmise
+    (`operatorName`, 64 caractères au plus), sous le genre `operator` ; la
+    liste ne le change pas.
+  - Hors périmètre : les groupes (`Remote-Groups`).
+
 Gardé : le front, tout `/api/…`, `/api/events` et les flux de journaux (en mode
 `none`, tout cela sauf les routes de la première configuration). Un Bearer de
 jeton d'API n'y fait pas exception : il lit les 25 routes de la liste fermée, et
@@ -2725,9 +2763,10 @@ toutes les 5 min, sans goroutine.
 
 L'API : `GET /api/auth` (mode, identifiant — en `forward`, l'identité de
 la requête —, en-tête en `forward`, `forward_insecure` quand le mode
-`forward` n'a pas de secret sur une boucle locale de confiance, date
-d'activation, longueur minimale ;
-jamais l'empreinte), `POST /api/auth/actions/enable`
+`forward` n'a pas de secret sur une boucle locale de confiance,
+`allowed_users` — la liste de `forward_users`, triée, en `forward` seulement ;
+`null` quand elle est vide et dans les autres modes —, date d'activation,
+longueur minimale ; jamais l'empreinte), `POST /api/auth/actions/enable`
 `{username,password}` ou `{mode:"forward",header}`,
 `POST /api/auth/actions/disable` (l'installation revient à sa première
 configuration), `PUT /api/auth/password` `{password}`
@@ -2740,7 +2779,9 @@ auth.forward_header_missing`) si la requête qui active ne porte pas déjà
 l'en-tête, non vide, depuis un pair de confiance, et le secret s'il est
 configuré ; on ne peut donc pas s'enfermer dehors depuis l'interface. Elle
 l'est aussi (`422 auth.forward_secret_required`) tant que le secret manque
-et que la boucle locale est de confiance. Mot de passe perdu ou mandataire en
+et que la boucle locale est de confiance, et (`422
+auth.forward_user_not_listed`) si l'identité qui active n'est pas dans une
+liste `forward_users` non vide. Mot de passe perdu ou mandataire en
 panne : `opencloud auth disable -config …` sous le compte du service, que
 `serve` suit à la requête suivante sans redémarrer. **C'est voulu : la
 commande ramène à la première configuration**, et le premier qui atteint
@@ -2748,7 +2789,8 @@ le port recrée le compte ; les jetons d'API tirés sous l'ancien compte restent
 jusqu'à cette activation, qui les révoque. La commande écrit dans la base
 directement (pas par la socket de commande) : qui peut la lancer lit déjà
 `state_dir`. `opencloud auth status` dit le mode et l'identifiant, ou
-l'en-tête en `forward`.
+l'en-tête et les identités admises en `forward` (la liste de `config.toml`
+telle que la commande la lit, que `serve` ait été redémarré ou non).
 
 ## Comment un agent IA lit openCloud
 

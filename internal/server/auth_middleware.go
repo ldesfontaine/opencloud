@@ -62,6 +62,15 @@ const codeAuthStateChanged = "auth.state_changed"
 // configuration.
 const codeSetupRequired = "auth.setup_required"
 
+// codeForwardForbidden est le refus d'une identité du mandataire absente de
+// forward_users. Son texte ne nomme pas l'identité : le front qui le lit ne
+// la connaît pas. La page, elle, la nomme (forwardForbiddenPage).
+const codeForwardForbidden = "auth.forward_forbidden"
+
+// forwardForbiddenPage est le texte du même refus pour une page, qui dit
+// l'identité reçue (%s).
+const forwardForbiddenPage = "auth.forward_forbidden_identity"
+
 // Les routes de l'opérateur qu'une installation sans compte (mode none) sert
 // à qui atteint le port : le front, sa session et ses catalogues pour
 // s'afficher dans la langue réglée, l'état de l'accès, et la création du
@@ -345,7 +354,8 @@ func identityFrom(ctx context.Context) string {
 // Quand un secret est configuré, il faut en plus que la requête le porte :
 // l'adresse d'un pair de boucle locale est celle de tous les processus de la
 // machine, pas la preuve de passer par le mandataire.
-// Il répond lui-même 401 quand il refuse.
+// Il répond lui-même quand il refuse : 401 si le mandataire n'a rien prouvé,
+// 403 si l'identité prouvée n'est pas dans forward_users.
 func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth.State) (string, bool) {
 	if !s.trustsPeer(r) {
 		s.logger.Warn("interface authentication refused: peer is not a trusted proxy", "peer", httpx.PeerHost(r), "path", r.URL.Path)
@@ -370,7 +380,32 @@ func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}
+	// Après le pair, le secret et l'en-tête : une requête qui échoue à l'un
+	// d'eux reste un 401, et ne dit pas quelles identités sont admises.
+	if !s.admitsForwardUser(identity) {
+		s.logger.Warn("interface authentication refused: identity not in forward_users", "identity", printable(identity, auth.MaxUsernameLength), "peer", httpx.PeerHost(r), "path", r.URL.Path)
+		s.writeForwardForbidden(w, r, identity)
+		return "", false
+	}
 	return identity, true
+}
+
+// forwardUserSet range la liste blanche pour la recherche. Une entrée vide
+// reste dans l'ensemble : elle ne correspond à aucune identité (celle-ci est
+// non vide quand on la compare), et la liste ne devient jamais « vide » par
+// erreur, ce qui ouvrirait la porte à tous.
+func forwardUserSet(users []string) map[string]bool {
+	set := make(map[string]bool, len(users))
+	for _, user := range users {
+		set[user] = true
+	}
+	return set
+}
+
+// admitsForwardUser : sans liste, tout le monde ; avec une liste, seulement
+// ses entrées, comparées telles quelles, casse comprise.
+func (s *Server) admitsForwardUser(identity string) bool {
+	return len(s.forwardUsers) == 0 || s.forwardUsers[identity]
 }
 
 // trustedIdentity rend l'identité posée par un mandataire de confiance, ou
@@ -426,6 +461,20 @@ func (s *Server) writeForwardUnauthorized(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cache-Control", "no-store")
 	catalog := s.catalogs.For(browserLanguage(r))
 	http.Error(w, catalog.Get("auth.forward_unauthorized"), http.StatusUnauthorized)
+}
+
+// Le refus d'une identité que le mandataire a authentifiée mais que la liste
+// forward_users n'admet pas : 403, pas 401, le mandataire n'y peut rien. La
+// page dit l'identité reçue : c'est le remède à une faute de casse dans la
+// configuration.
+func (s *Server) writeForwardForbidden(w http.ResponseWriter, r *http.Request, identity string) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		s.writeAPIError(w, http.StatusForbidden, codeForwardForbidden)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	catalog := s.catalogs.For(browserLanguage(r))
+	http.Error(w, catalog.Format(forwardForbiddenPage, printable(identity, auth.MaxUsernameLength)), http.StatusForbidden)
 }
 
 // La langue du navigateur, faute de session : le français s'il le demande

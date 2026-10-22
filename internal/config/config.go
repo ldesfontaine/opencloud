@@ -8,10 +8,14 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 )
 
@@ -19,6 +23,9 @@ const (
 	DefaultPath     = brand.ConfigPath
 	defaultListen   = "127.0.0.1:8080"
 	defaultStateDir = brand.StateDir
+	// Une liste d'identités se lit à l'œil : au-delà, c'est un annuaire, et
+	// c'est au mandataire de le tenir.
+	maxForwardUsers = 64
 )
 
 type Config struct {
@@ -43,6 +50,10 @@ type Config struct {
 	// porte ce secret dans l'en-tête X-OpenCloud-Proxy-Secret. Vide : l'adresse
 	// du pair seule, ce qu'une boucle locale de confiance ne prouve pas.
 	ForwardSecretFile string `toml:"forward_secret_file"`
+	// Identités que le mandataire peut transmettre et qu'openCloud admet, en
+	// mode forward : une seconde serrure derrière le SSO. Comparaison exacte,
+	// casse comprise. Vide : toute identité transmise est admise.
+	ForwardUsers []string `toml:"forward_users"`
 }
 
 func Default() Config {
@@ -152,6 +163,52 @@ func validate(cfg Config) error {
 	checker := validator.New(validator.WithRequiredStructEnabled())
 	if err := checker.Struct(cfg); err != nil {
 		return fmt.Errorf("validate config: %w", err)
+	}
+	if err := validateForwardUsers(cfg.ForwardUsers); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
+	return nil
+}
+
+// validateForwardUsers refuse toute liste que l'opérateur n'a pas pu vouloir.
+// Une entrée vide ou à espaces en bord ne correspondrait jamais à une identité
+// (le serveur rogne celle qu'il reçoit) : la laisser passer fermerait la porte
+// à tous sans que rien ne le dise. Les doublons sont refusés pour la même
+// raison : une liste qu'on relit doit dire ce qu'elle fait.
+func validateForwardUsers(users []string) error {
+	if len(users) > maxForwardUsers {
+		return fmt.Errorf("forward_users: %d entries, at most %d", len(users), maxForwardUsers)
+	}
+	seen := make(map[string]bool, len(users))
+	for _, user := range users {
+		if err := validateForwardUser(user); err != nil {
+			return fmt.Errorf("forward_users: entry %q: %w", user, err)
+		}
+		if seen[user] {
+			return fmt.Errorf("forward_users: entry %q listed twice", user)
+		}
+		seen[user] = true
+	}
+	return nil
+}
+
+func validateForwardUser(user string) error {
+	if user == "" {
+		return errors.New("empty")
+	}
+	if !utf8.ValidString(user) {
+		return errors.New("not valid UTF-8")
+	}
+	if utf8.RuneCountInString(user) > auth.MaxUsernameLength {
+		return fmt.Errorf("longer than %d characters", auth.MaxUsernameLength)
+	}
+	if strings.TrimSpace(user) != user {
+		return errors.New("leading or trailing space")
+	}
+	for _, character := range user {
+		if unicode.IsControl(character) {
+			return errors.New("control character")
+		}
 	}
 	return nil
 }

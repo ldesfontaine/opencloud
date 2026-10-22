@@ -187,6 +187,7 @@ func (c *components) serverOptions(cfg config.Config) server.Options {
 		PublicURL:      cfg.PublicURL,
 		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),
+		ForwardUsers:   cfg.ForwardUsers,
 		MCPURL:         cfg.MCPURL,
 	}
 }
