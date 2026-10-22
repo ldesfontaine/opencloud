@@ -1,0 +1,183 @@
+// Une carte de réglages empile ses lignes, ses blocs et ses formulaires ;
+// un trait sépare chaque enfant du précédent, la carte ne fait que porter
+// la classe. Les formulaires la prennent aussi : leurs lignes s'empilent de
+// même.
+.setting-stack {
+  display: flex;
+  flex-direction: column;
+
+  // Les pieds grisés suivent les coins de la carte plutôt que d'avoir les leurs.
+  &.card {
+    overflow: hidden;
+  }
+
+  > * + * {
+    border-top: 1px solid var(--line);
+  }
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 24px;
+  row-gap: 12px;
+  padding: 16px 20px;
+}
+
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-label {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.setting-description {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+// Les petites valeurs ont de petits champs.
+.setting-short .setting-control {
+  width: 104px;
+}
+
+.setting-medium .setting-control {
+  width: 280px;
+}
+
+.setting-wide .setting-control {
+  width: 360px;
+}
+
+.setting-block-row {
+  grid-template-columns: minmax(0, 1fr);
+
+  .setting-control {
+    justify-content: flex-start;
+  }
+}
+
+.setting-block {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.setting-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--surface-2);
+}
+
+.setting-foot-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.setting-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.setting-danger {
+  display: flex;
+  flex-direction: column;
+
+  .setting-danger-title {
+    padding: 14px 20px 0;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--danger);
+  }
+
+  .setting-row {
+    padding-top: 10px;
+  }
+}
+
+// Une carte à deux sujets (l'agent IA : mcp-maison, puis les jetons) : le
+// titre du second, sous un trait.
+.setting-subhead {
+  padding: 16px 20px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .secondary {
+    max-width: 70ch;
+  }
+}
+
+// Sous 860 px : le contrôle passe sous le texte, à 44 px (règle des champs
+// et des boutons) ; une petite valeur garde son petit champ.
+@media (max-width: 860px) {
+  .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+
+  .setting-control {
+    justify-content: flex-start;
+  }
+
+  .setting-medium .setting-control,
+  .setting-wide .setting-control {
+    width: 100%;
+  }
+
+  .setting-block,
+  .setting-subhead {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .setting-foot {
+    padding: 12px 16px;
+  }
+
+  .setting-danger .setting-danger-title {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+// Dans une ligne en bloc : le champ prend la place qui reste, jusqu'à une
+// largeur de lecture ; le bloc à copier remplit la ligne.
+.setting-control .setting-grow {
+  flex: 1 1 240px;
+  width: auto;
+  max-width: 360px;
+}
+
+.setting-control .token-box {
+  flex: 1 1 auto;
+}

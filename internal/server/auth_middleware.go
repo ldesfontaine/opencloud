@@ -452,7 +452,7 @@ func (s *Server) hasProxySecret(r *http.Request) bool {
 }
 
 // Le refus du mode forward, sans défi Basic : le navigateur n'a rien à
-// demander, c'est le mandataire qui authentifie.
+// demander, c'est le SSO en amont qui authentifie.
 func (s *Server) writeForwardUnauthorized(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		s.writeAPIError(w, http.StatusUnauthorized, codeUnauthorized)

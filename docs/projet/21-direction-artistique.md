@@ -117,6 +117,34 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   les empreintes et le suivi d'une image) se replie sous son en-tête, chevron
   à droite, et passe sous l'état. Ouverte et en premier tant que la chose
   reste à installer ; repliée ensuite.
+- **Page de réglages** (Paramètres) : des sections ancrées, toutes dans la
+  page, une colonne de 880 px au plus avec sa navigation à côté (collante
+  au-dessus de 1100 px, une rangée d'onglets-ancres sous 1100 px, qui défile).
+  L'ensemble se centre : le vide d'un grand écran se partage. Ancres sans
+  accent (`#acces`, `#fin-de-support`).
+  - **`SectionHead`** : l'étiquette de section en capitales, une phrase qui dit
+    ce qu'on y règle, à droite l'état de la section (pastille) quand elle en
+    a un. Une section = un `SectionHead` puis une seule `Card`.
+  - **`SettingRow`** : l'étiquette et sa description (une ligne, discrète) à
+    gauche, le contrôle à droite ; empilée sous 860 px, contrôles de 44 px. Le
+    contrôle a la taille de sa valeur (`width` : `short` 104 px pour un
+    pourcentage ou un port, `medium` 280 px, `wide` 360 px). `block` : le
+    contrôle passe sous le texte, pour une note ou un bloc à copier. Les
+    lignes, blocs (`SettingBlock`) et formulaires d'une carte s'empilent,
+    séparés par un trait.
+  - **Pied de carte** (`SettingFoot`) : à gauche ce qui se dit en passant
+    (« Enregistré », la portée du réglage), à droite l'**unique bouton
+    principal** de la section ; « Enregistrer » y reste désactivé tant que la
+    saisie n'a pas bougé par rapport à ce que le serveur a gardé. Ce qui
+    détruit ou ferme (désactiver l'accès) va à part, sous un trait, dans une
+    **zone de danger** (`DangerZone`), en bouton `danger` secondaire.
+  - **`ConfirmInline`** : la confirmation d'une action d'une ligne. Le bouton se
+    replie en « question [Confirmer] [Annuler] » à sa place, le focus sur
+    « Annuler », Échap annule et rend le focus au bouton. Employée sous
+    Paramètres seulement pour l'instant (désactiver l'accès, révoquer un
+    jeton) ; les autres pages passent encore par `window.confirm`
+    (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
+    plan de suppression, qu'il faut lire avant de confirmer.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de
