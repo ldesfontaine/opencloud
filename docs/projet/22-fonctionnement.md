@@ -83,7 +83,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Interface | Traefik → openCloud | En clair, sur `127.0.0.1` de la même machine | Toute écriture de l'API exige `Content-Type: application/json`, même sans corps, et un `Sec-Fetch-Site` présent doit valoir `same-origin` ou `none`. Toute requête sous `/api/…` exige un `Host` reconnu (hôte de `public_url`, `localhost`, IP littérale, hôte de `listen`), contre le DNS rebinding : sinon `403 bad_host`. Pas de cookie, mais le navigateur joint aussi les identifiants Basic à une requête partie d'une page tierce : c'est cette garde qui l'arrête |
 | Direct | navigateur → `/api/events`, une connexion par onglet | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire, comme l'interface ; refusé en mode `none` (`401 auth.setup_required`). Le flux ne dit que « les machines ont changé », « les tâches ont changé », jamais lesquelles. Plafond de 64 onglets, comptés par le serveur et non par les abonnés du bus (la page de statut y est abonnée aussi), `503` au-delà |
 | Agent | machine → Traefik | TLS de Traefik, ou empreinte épinglée par `-pin` si pas de domaine | Ed25519 : l'agent signe un aléa qu'il tire, l'identifiant de sa machine et l'heure (protocole 2), openCloud vérifie avec la clé enrôlée. Le signal porte les mesures de la machine et ce que son Docker a montré, dans un débit borné par machine ; les journaux d'un conteneur remontent par `POST /agent/logs/…`, jeton de session |
-| Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse des **commandes d'observation** (« suis les journaux du conteneur X », « arrête », le jeu de sondes, les images à ne pas interroger) : des lectures, **non signées**, que l'agent ne reçoit que du serveur qui tient son flux, jamais une entrée du navigateur. Les **ordres** voyagent dans une enveloppe **signée Ed25519 par la clé du serveur** (`server.key`), que l'agent vérifie avec la clé épinglée à l'enrôlement avant d'en lire un champ : qui tient le flux sans la clé (un mandataire, un faux serveur) peut couper ou retarder un ordre, pas en fabriquer ; un ordre périmé ou rejoué est refusé (« Comment un ordre part et revient ») |
+| Agent, sens retour | openCloud → machine, sur le flux ouvert | Le même flux | Le serveur pousse des **commandes d'observation** (« suis les journaux du conteneur X », « arrête », le jeu de sondes, les images à ne pas interroger) : des lectures, **non signées**, que l'agent ne reçoit que du serveur qui tient son flux. Elles ne sont pas crues pour autant : l'agent rejuge le jeu de sondes et n'ouvre que le journal d'un conteneur qu'il a lui-même rapporté (« Comment une cible est sondée », « Comment les conteneurs sont suivis »). Les **ordres** voyagent dans une enveloppe **signée Ed25519 par la clé du serveur** (`server.key`), que l'agent vérifie avec la clé épinglée à l'enrôlement avant d'en lire un champ : qui tient le flux sans la clé (un mandataire, un faux serveur) peut couper ou retarder un ordre, pas en fabriquer ; un ordre périmé ou rejoué est refusé (« Comment un ordre part et revient ») |
 | Sauvegarde, le départ | `serve` → agent d'une autre machine : l'ordre signé `backup.receive` sur le flux, puis `GET /agent/parcels/{colis}/{nom}` sous le jeton de session de l'agent | TLS de Traefik ; le fichier est **déjà** chiffré (age, pour la clé publique de sauvegarde) avant de quitter `serve` | L'ordre est signé par `server.key` et porte la taille et le SHA-256 de chaque fichier : l'agent ne garde que ce qui correspond. Le colis ne se sert qu'à la machine pour laquelle il est écrit (`404` sinon), 30 requêtes par minute et par machine |
 | Sauvegarde, au repos | la destination, sur la machine d'un agent | age : X25519 et ChaCha20-Poly1305 pour l'archive ; la clé privée, déposée à côté, est scellée par scrypt avec la phrase de passe de l'opérateur | Seule la phrase ouvre la clé, seule la clé ouvre l'archive. L'agent n'a ni l'une ni l'autre : il vérifie la somme et l'en-tête `age-encryption.org/v1`, il ne déchiffre jamais |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le mandataire. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, suivis des onglets et tirages uniques compris |
@@ -629,8 +629,8 @@ L'état du service se lit comme avant, par le rapport des conteneurs
 
 | | |
 | --- | --- |
-| Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus |
-| Qui décide « Déployer » ou « Redéployer » | Le dernier ordre de ce service qui a **écrit le dossier** sur la machine (`action_runs.service_id`) : réussi, ou échoué en `compose_failed` (Compose a échoué après l'écriture, le dossier est là). `deployed` du plan est vrai alors. Un refus de l'agent, un échec avant l'écriture ou un ordre expiré ne comptent pas |
+| Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus. Un dossier qu'openCloud ne sait pas avoir écrit se retire à la main |
+| Qui décide « Déployer » ou « Redéployer » | **Le dernier constat de l'agent sur le dossier** (`action_runs.service_id`) : parmi les ordres de ce service, le plus récent qui dit quelque chose du dossier. Réussi, `compose_failed` (Compose a échoué après l'écriture) et `timeout` (accepté puis plus de nouvelles : le dossier a pu être écrit, l'agent ne retire pas un dossier qu'il n'a pas fini) disent « déployé » ; `service_dir_missing` (l'agent a regardé) dit « pas déployé ». Le reste ne compte pas : un refus d'avant l'écriture, un ordre expiré, et `service_dir_exists`, pour ne jamais proposer « Redéployer » par-dessus un dossier qu'openCloud ne sait pas avoir écrit. Un déploiement coupé se reprend donc en un geste au plus : « Redéployer », et si le dossier n'existait pas, l'agent répond `service_dir_missing` et « Déployer » revient |
 | Le `compose.yml` | **Généré**, jamais saisi, déterministe : le même annuaire donne le même texte. Il est **réécrit à chaque** (re)déploiement : une retouche faite à la main sur la machine est perdue |
 | Le dossier de données | Un champ de l'unité, `data_path` (chemin absolu **dans le conteneur**, facultatif, un par unité) : `./data/<unité>:<data_path>`. Jamais de volume nommé. L'agent crée `data/<unité>` en `0755`, root ; l'UID du conteneur reste à régler à la main. `data_path` s'exporte et s'applique (`data_path:` sous l'unité) |
 | Le `.env` | **Write-only** : facultatif, 64 Kio au plus, UTF-8 sans octet nul, saisi dans la boîte de confirmation, signé dans `OrderBody.Secret` (`{"env": "…"}`), écrit par l'agent en `0600`. Jamais stocké, jamais journalisé : l'audit dit `env: sent`, `action_runs.params` dit `"env_sent": true`. Absent au déploiement : aucun `.env`. Vide au redéploiement : celui de la machine reste. Pas de relecture dans cette version |
@@ -1037,6 +1037,26 @@ leurs récepteurs). Le genre d'objet d'une alerte de conteneur est
    4 Mio reçus (`MaxFetchLogBytes`) : il rend ce qu'il a gardé et dit à
    l'agent d'arrêter (`logs_stop`). Le coût : sur un agent qui déborde, la
    réponse est la fin de ce qui est arrivé d'abord, sans avertissement.
+   **L'agent ne croit pas non plus la demande.** `logs` n'est pas signée :
+   l'agent n'ouvre que le journal d'un conteneur qu'il a **lui-même rapporté**.
+   Le veilleur garde l'ensemble des identifiants de son dernier inventaire
+   complet, complété par les conteneurs qu'un événement lui a fait inspecter
+   et amputé de ceux qui sont détruits ou introuvables. Un identifiant qui
+   n'est pas 64 hexadécimaux minuscules, ou qui n'est pas dans l'ensemble,
+   est refusé **avant tout appel à Docker** : un lot unique `service.logs_not_found`
+   (clé figée, le front sait l'afficher). Sans cela, un serveur compromis
+   lirait le journal de n'importe quel conteneur de la machine, même ceux que
+   l'agent n'a jamais montrés. Le nombre de lignes est borné par la même règle
+   que celle du serveur (`container.ClampLogTail` : 100 par défaut, 500 au
+   plus) : un `tail` à zéro ou démesuré ne livre plus tout le journal. **Juste
+   après le démarrage**, avant le premier inventaire, l'ensemble est vide :
+   une demande attend l'inventaire, 10 s au plus, puis répond
+   `service.logs_failed` si Docker ne l'a pas donné. Le journal de l'agent dit
+   chaque ouverture (`INFO logs opened` : identifiant de requête, douze
+   premiers caractères du conteneur, suivi ou non) et chaque refus
+   (`WARN logs refused`, mêmes champs et la raison : `not_a_docker_id`,
+   `not_inventoried`, `inventory_pending`, `busy`). Rien ne remonte au serveur
+   (un champ de rapport de plus serait un changement de protocole).
 9. La purge, au départ puis une fois par jour, efface les transitions de
    plus de 90 jours, les fiches archivées depuis plus de 30 jours (leurs
    transitions et mesures partent avec) et les mesures de plus de 48 h. Les
@@ -1659,6 +1679,18 @@ offrir. Il ne tire rien et ne relance rien : il fabrique la commande, et
 c'est l'opérateur qui la joue. Ce que le module d'origine faisait de plus,
 les CVE, le changelog, le score de risque, n'a pas été repris.
 
+L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
+(IPv6 entre crochets) ou `localhost`, avec un port facultatif. Tout autre
+caractère (`$`, accolade, guillemet, espace, `_`…) est refusé dès la
+déclaration (`directory.image_invalid`), parce qu'un tel hôte serait interpolé
+par Compose s'il arrivait jusqu'au `compose.yml`. Une image déjà enregistrée
+avec un hôte refusé reste en base : l'écart dit « Image illisible » pour son
+unité (sans erreur ni ligne de journal), et la fiche ne se modifie plus, par
+le formulaire ou un `apply` qui la change, tant qu'on n'a pas corrigé l'image ;
+le déploiement, lui, refusait déjà ce que Compose interpolerait. La
+surveillance des images lit ce que Docker écrit, que cette règle ne refuse
+pas.
+
 1. **L'agent de chaque machine interroge lui-même** les registres de ses
    images : il a le trousseau Docker de la machine, et un registre privé
    joignable seulement depuis elle. La machine openCloud le fait par son
@@ -1912,6 +1944,32 @@ création est refusée (`probe.service_invalid`, 422), jamais en erreur
 interne. Le lien est en `restrict` : le service ne se supprime pas tant qu'une
 sonde le vise. La sonde qui sonde de l'extérieur un service d'une autre
 machine est le cas courant.
+
+**Ce que l'agent rejuge.** La commande `probes` n'est pas signée : l'agent ne
+fait pas confiance au jeu reçu plus qu'à un formulaire. Avant de l'appliquer,
+il rejoue sur chaque tâche les bornes que le serveur applique à la création
+(`probe.Task.Validate`, qui partage avec `Definition.Validate` la méthode, le
+code et le texte attendus) : un genre `http` ou `tcp` ; une cible lisible, de
+512 caractères au plus, sans espace ni saut de ligne, **sans identifiants** et
+sans IP littérale interdite (lien-local, métadonnées) ; un intervalle de 30 s
+à 24 h ; un délai de 1 s à 30 s ; une méthode `GET`, `HEAD` ou `POST` en
+majuscules ; un code attendu lisible ; un texte attendu de 200 caractères au
+plus. Un zéro vaut le défaut, comme avant (le serveur envoie toujours ces
+champs remplis). Il écarte aussi un identifiant vide, de plus de 64
+caractères ou déjà vu, et tout ce qui dépasse 64 sondes, dans l'ordre reçu.
+Aucune résolution de nom dans ce contrôle : un nom qui résout vers une
+adresse interdite reste refusé à la composition (point 4). Ce que l'agent
+écarte, il le dit : un `WARN probe refused by the agent` par tâche (identifiant,
+genre, **hôte** de la cible, jamais la cible entière, une URL pouvant porter
+un jeton, et la raison, la clé de l'erreur du serveur), huit au plus puis un
+compte ; `INFO probes assigned` porte `count` (reçues) et `refused`
+(écartées). Rien ne remonte au serveur, un champ de rapport de plus étant un
+changement de protocole : la sonde écartée ne reçoit plus d'essai (« Nouveau »
+si elle n'en a jamais eu, sinon son dernier état), et le journal de l'agent
+dit pourquoi. **Les adresses privées restent ouvertes**
+(boucle locale, RFC 1918, CGNAT) : un serveur compromis peut encore faire sonder
+le réseau local d'une machine, et ce qu'on y gagne en confort contre ce qu'on
+y perd en sécurité est la décision attendue de Lucas (#146).
 
 **La cible n'accepte pas d'identifiants.** `https://user:mot@hôte`, ou
 `https://user@hôte`, est refusé à la création, à l'édition et par le fichier
@@ -3264,24 +3322,40 @@ posé la clé de signature.
 
 | Acteur | Ce qu'il fait |
 | --- | --- |
-| GitHub Actions (`release.yml`) | Contrôle le tag, construit deux fois, signe, vérifie, atteste, publie |
-| Le binaire qui vient d'être construit | `release sign` signe `SHA256SUMS` ; `release verify` relit le résultat avec sa propre clé embarquée |
+| GitHub Actions, job `build` (`release.yml`) | Contrôle le tag, teste, construit deux fois (npm compris). **Aucun secret, aucun droit d'écriture** ; dépose les fichiers dans l'artefact `dist-release` (un jour) |
+| GitHub Actions, job `sign` | Sous l'environnement protégé `release` (relecteur, tags `v*`), seul à lire `RELEASE_SIGNING_KEY`. Recompile un **signataire** depuis le tag, sans npm ; vérifie les fichiers reçus ; signe, vérifie, atteste, publie |
+| Le signataire | Le binaire que `sign` construit lui-même (`opencloud`, sans front) : `release sign` signe `SHA256SUMS` ; `release verify` relit chaque binaire publié avec sa propre clé embarquée |
 | `internal/release` | Lit et écrit les signatures minisign, lit les sommes, vérifie un fichier. Ne télécharge rien, ne connaît ni le serveur ni l'agent |
 | L'opérateur | `release verify <fichier>`, ou `minisign` et `gh attestation verify` sans faire confiance au binaire |
 
 | # | Décision | Contrepartie |
 | --- | --- | --- |
 | 1 | Format **minisign**, écrit en Go (`crypto/ed25519` et `blake2b` de `golang.org/x/crypto`, aucune dépendance de plus) ; seul l'algorithme pré-haché `ED` est accepté, l'ancien `Ed` est refusé | Environ 200 lignes de format à maintenir ; n'importe qui vérifie avec l'outil `minisign` officiel |
-| 2 | Clé **privée** au format d'openCloud (identifiant de 8 octets suivi de la graine, en base64, non chiffrée) ; signature et clé **publique** au format minisign exact | Elle vit dans un secret du dépôt et dans le coffre de Lucas ; ce n'est pas un fichier de `minisign -G` |
-| 3 | Le binaire qui vient d'être construit signe : aucun outil téléchargé dans le job, la clé passe par une variable d'environnement, jamais par `argv` | Le job dépend du code qu'il publie ; la vérification qui suit le rend visible |
+| 2 | Clé **privée** au format d'openCloud (identifiant de 8 octets suivi de la graine, en base64, non chiffrée) ; signature et clé **publique** au format minisign exact | Elle vit dans un secret de l'environnement `release` et dans le coffre de Lucas ; ce n'est pas un fichier de `minisign -G` |
+| 3 | Un **signataire recompilé depuis le tag, sans npm**, signe ; le binaire publié n'est jamais exécuté dans le job qui tient la clé. Aucun outil téléchargé, la clé passe par une variable d'environnement posée sur cette seule étape, jamais par `argv` | Une minute de compilation de plus ; le binaire publié n'est pas celui qui signe, c'est le signataire qui le vérifie. Un script npm piégé dans `build` pourrait modifier les sources Go avant la compilation : il pourrait fausser le binaire publié (une ruse déterministe passe la reproductibilité), pas le signataire, qui ne dépend que du tag et de `go.sum` : `sign` compile **sans le cache Go** (celui que `build` enregistre sort d'un runner où npm a tourné, et `go` ne revérifie ni `GOCACHE` ni `GOMODCACHE`) |
 | 4 | Le **commentaire de confiance** (signé) porte la version : `timestamp:<unix>\tfile:SHA256SUMS\tversion:vX.Y.Z`. Le serveur et l'agent lisent la version là, jamais dans un nom de fichier | Une version ne se lit que dans un fichier signé |
 | 5 | **Clé publique embarquée** (`release.TrustedPublicKey`), vide tant que Lucas n'a pas généré la paire : `release verify` refuse (code 2) et le job échoue | Rien ne se publie sans clé ; changer la clé, c'est ne plus reconnaître les versions signées par l'ancienne |
-| 6 | **Immuable** : le job échoue si la release du tag existe, plus aucun `gh release delete`. Réglages du dépôt à poser par Lucas : ruleset de tags `v*` et « Releases immuables » | Ces deux réglages ne s'automatisent pas ici |
+| 6 | **Immuable** : `build` puis `sign` (le second contrôle est celui qui compte pour la course) échouent si la release du tag existe, plus aucun `gh release delete`. Réglages du dépôt à poser par Lucas : ruleset de tags `v*`, « Releases immuables », environnement `release` | Ces réglages ne s'automatisent pas ici |
 | 7 | Le tag doit être **sur `main`** (`git merge-base --is-ancestor`) ; plus de `workflow_dispatch` | Une version attend que `dev` ait rejoint `main` |
 | 8 | **Reproductible** : le job reconstruit, sans le cache de compilation de Go, et exige les mêmes sommes (`-trimpath`, `CGO_ENABLED=0`, version et commit par `ldflags`, front reconstruit depuis le verrou) | Un build qui dépend de l'horloge ou du chemin fait échouer la publication |
 | 9 | **Attestation de provenance** GitHub sur les sommes (`gh attestation verify <binaire> -R ldesfontaine/opencloud`) | Une action de plus à suivre (épinglée par SHA, comme les autres) |
 | 10 | `release verify <fichier>` cherche `SHA256SUMS` et `SHA256SUMS.minisig` à côté du fichier, vérifie la signature avec la clé embarquée, puis la somme du fichier sous son **nom de base** | Un fichier renommé n'est pas retrouvé : le refus le dit |
 | 11 | La `v0.0.1` existante reste telle quelle, non signée | La vérification par signature commence à la première version taguée |
+| 12 | `web/.npmrc` pose `ignore-scripts=true` : npm n'exécute aucun script d'installation, au build comme sur le poste | Un futur paquet qui en exige un fait échouer le build ; on l'autorise nommément (`npm rebuild <paquet>`) |
+
+**Ce que le contrôle de `sign` prouve, et ce qu'il ne prouve pas.** Avant de
+signer, `sign` exige que `sha256sum --strict -c SHA256SUMS` passe, que le
+dossier reçu contienne exactement `SHA256SUMS` et les deux binaires, et que
+`SHA256SUMS` ne liste qu'eux. Cela prouve le
+**transfert** : ce que `sign` signe est ce que `build` a listé, rien en plus,
+rien d'abîmé. Cela ne prouve pas l'innocence du build, qui a exécuté du code
+npm : un `build` piégé aurait listé ses propres sommes. La clé, elle, ne
+rencontre jamais ce code (signataire recompilé depuis le tag, sans npm ; aucun
+binaire publié exécuté dans `sign`). Le reste est couvert en partie :
+la reproductibilité attrape un build qui varie, pas une ruse déterministe ;
+l'attestation dit que le binaire sort de ce workflow et de ce tag, pas qu'il
+est sain. Ni l'un ni l'autre ne remplace le relecteur de l'environnement
+`release`, qui approuve chaque exécution de `sign` avant que la clé serve.
 
 **Ce que vérifie `release verify`**, dans l'ordre, et refuse au premier écart
 (code 2, rien n'est affiché sur la sortie standard) :

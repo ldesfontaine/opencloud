@@ -209,7 +209,7 @@ type fakeMachines struct{ status machine.Status }
 func (f fakeMachines) Get(context.Context, string) (machine.Status, error) { return f.status, nil }
 
 // fakeRuns tient les ordres déjà envoyés pour le service.
-type fakeRuns struct{ written, last *action.Run }
+type fakeRuns struct{ folder, last *action.Run }
 
 func (f fakeRuns) LastServiceRun(context.Context, string, []agentwire.Kind) (action.Run, bool, error) {
 	if f.last == nil {
@@ -218,11 +218,11 @@ func (f fakeRuns) LastServiceRun(context.Context, string, []agentwire.Kind) (act
 	return *f.last, true, nil
 }
 
-func (f fakeRuns) LastWrittenServiceRun(context.Context, string, []agentwire.Kind) (action.Run, bool, error) {
-	if f.written == nil {
+func (f fakeRuns) LastFolderRun(context.Context, string, []agentwire.Kind) (action.Run, bool, error) {
+	if f.folder == nil {
 		return action.Run{}, false, nil
 	}
-	return *f.written, true, nil
+	return *f.folder, true, nil
 }
 
 type fakeSender struct {
@@ -283,7 +283,7 @@ func TestPlan_SaysWhereTheServiceGoesAndWhatItWillBe(t *testing.T) {
 	}
 
 	// Une fois déployé, le droit qui compte est celui du redéploiement.
-	b = newBench("observe,docker.deploy", fakeRuns{written: succeededRun(), last: succeededRun()})
+	b = newBench("observe,docker.deploy", fakeRuns{folder: succeededRun(), last: succeededRun()})
 	plan, err = b.service.Plan(context.Background(), serviceID)
 	if err != nil || !plan.Deployed || plan.Right != deploy.RightMissing || plan.LastRun == nil {
 		t.Fatalf("plan %+v %v", plan, err)
@@ -294,6 +294,35 @@ func TestPlan_SaysWhereTheServiceGoesAndWhatItWillBe(t *testing.T) {
 	b.machines.status.Agent.ReportedAt = time.Time{}
 	if plan, err = b.service.Plan(context.Background(), serviceID); err != nil || plan.Right != deploy.RightUnknown {
 		t.Fatalf("plan %+v %v", plan, err)
+	}
+}
+
+// Un déploiement coupé (l'agent a accepté puis n'a plus donné de nouvelles)
+// a pu écrire le dossier : le service ne se coince pas, il se redéploie.
+func TestPlan_ATimedOutDeploymentOffersRedeploy(t *testing.T) {
+	timedOut := &action.Run{ID: "cut", Kind: agentwire.KindDockerDeploy, State: action.StateFailed, Reason: action.ReasonTimeout}
+	b := newBench("observe,docker.update", fakeRuns{folder: timedOut, last: timedOut})
+	plan, err := b.service.Plan(context.Background(), serviceID)
+	if err != nil || !plan.Deployed || plan.Right != deploy.RightOK {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	b = newBench("observe,docker.deploy", fakeRuns{folder: timedOut, last: timedOut})
+	if plan, err = b.service.Plan(context.Background(), serviceID); err != nil || plan.Right != deploy.RightMissing {
+		t.Fatalf("the right is the redeploy's: %+v %v", plan, err)
+	}
+}
+
+// Un redéploiement que l'agent a refusé faute de dossier remet « Déployer » :
+// un geste de plus, jamais de blocage.
+func TestPlan_ARedeployThatFoundNoFolderOffersDeployAgain(t *testing.T) {
+	missing := &action.Run{ID: "none", Kind: agentwire.KindDockerUpdate, State: action.StateRefused, Reason: agentwire.ReasonServiceDirMissing}
+	b := newBench("observe,docker.deploy", fakeRuns{folder: missing, last: missing})
+	plan, err := b.service.Plan(context.Background(), serviceID)
+	if err != nil || plan.Deployed || plan.Right != deploy.RightOK {
+		t.Fatalf("plan %+v %v", plan, err)
+	}
+	if _, err := b.service.Deploy(context.Background(), serviceID, nil); err != nil {
+		t.Fatalf("deploy again: %v", err)
 	}
 }
 
@@ -410,7 +439,7 @@ func TestDeploy_RefusesASecondDeploy_AndRedeployBeforeTheFirst(t *testing.T) {
 	if _, err := fresh.service.Redeploy(ctx, serviceID, nil); !errors.Is(err, deploy.ErrNotDeployed) {
 		t.Fatalf("redeploy before the first deploy: %v", err)
 	}
-	done := newBench("observe,docker.deploy,docker.update", fakeRuns{written: succeededRun()})
+	done := newBench("observe,docker.deploy,docker.update", fakeRuns{folder: succeededRun()})
 	if _, err := done.service.Deploy(ctx, serviceID, nil); !errors.Is(err, deploy.ErrAlreadyDeployed) {
 		t.Fatalf("second deploy: %v", err)
 	}
@@ -429,7 +458,7 @@ func TestDeploy_RefusesWhenTheAgentLacksTheRight(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	// Redéployer exige docker.update, pas docker.deploy.
-	b = newBench("observe,docker.deploy", fakeRuns{written: succeededRun()})
+	b = newBench("observe,docker.deploy", fakeRuns{folder: succeededRun()})
 	if _, err := b.service.Redeploy(context.Background(), serviceID, nil); !errors.Is(err, deploy.ErrRightMissing) {
 		t.Fatalf("got %v", err)
 	}

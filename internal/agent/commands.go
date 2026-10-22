@@ -65,8 +65,9 @@ func (r *commandRunner) handle(name, data string) {
 		r.stopLogs(command.Logs.ID)
 	case agentwire.KindProbes:
 		// Le jeu de sondes remplace le précédent : ce qui n'y est plus s'arrête.
-		r.logger.Info("probes assigned", "count", len(command.Probes.Probes))
-		r.probes.Assign(*command.Probes)
+		// L'agent rejuge le jeu : ce qu'il écarte, il le dit dans son journal.
+		refused := r.probes.Assign(*command.Probes)
+		r.logger.Info("probes assigned", "count", len(command.Probes.Probes), "refused", refused)
 	case agentwire.KindImages:
 		// Les exclusions remplacent les précédentes ; « maintenant » lance un
 		// passage complet.
