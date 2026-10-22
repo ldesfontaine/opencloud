@@ -56,6 +56,10 @@ type Identity struct {
 	// (-root-dir). Vide chez un agent d'avant le déploiement : la racine par
 	// défaut. Redite au serveur à chaque ouverture du flux.
 	RootDir string `json:"root_dir,omitempty"`
+	// L'état est mal gardé (CheckStateDir) : seuls les droits d'observer
+	// s'appliquent, ceux du fichier restent sur le disque. Non exporté, donc
+	// jamais écrit : l'état corrigé, un redémarrage les rend.
+	narrowed bool
 }
 
 // Root rend la racine des services que cet agent écrit.
@@ -76,8 +80,12 @@ func (id Identity) ServerKeyFingerprint() string {
 }
 
 // Capabilities rend les droits du fichier ; une liste illisible (fichier
-// modifié à la main) vaut observe seul, le plus étroit.
+// modifié à la main) vaut observe seul, le plus étroit, comme un état mal
+// gardé.
 func (id Identity) Capabilities() []machine.Capability {
+	if id.narrowed {
+		return []machine.Capability{{Name: machine.CapabilityObserve}}
+	}
 	capabilities, err := machine.ParseCapabilities(strings.Join(id.Rights, ","))
 	if err != nil {
 		return []machine.Capability{{Name: machine.CapabilityObserve}}

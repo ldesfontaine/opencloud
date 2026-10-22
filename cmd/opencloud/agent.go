@@ -95,6 +95,10 @@ func runAgent(args []string) error {
 	}
 	defer root.Close()
 
+	// Un état mal gardé ne coupe pas l'agent : il ne garde que observe, et
+	// l'écart se lit sur la fiche de la machine.
+	unsafeState := agent.CheckStateDir(*stateDir)
+
 	enrollmentToken, err := enrollmentTokenFor(root, *server, os.Stdin, os.Stderr, stdinIsTerminal(), catalogs.For(code))
 	if err != nil {
 		return explainAgentError(err, root, code, catalogs)
@@ -108,6 +112,7 @@ func runAgent(args []string) error {
 	releaseKey, keyErr := release.TrustedKey()
 	err = agent.Run(ctx, agent.Options{
 		StateDir:     root,
+		UnsafeState:  unsafeState,
 		Server:       *server,
 		Token:        enrollmentToken,
 		Pin:          *pin,
