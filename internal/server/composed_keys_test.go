@@ -152,6 +152,8 @@ func closedKeyLists() []composedKeys {
 		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered, action.ReasonTimeout)},
 		// La fiche d'une machine dit pourquoi son agent n'a pas de mise à jour à recevoir.
 		{prefix: "machine.agent_update_reason_", values: action.OfferReasons()},
+		// Pourquoi un droit coché n'est pas exerçable : une phrase par raison.
+		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
 	}
 }
 

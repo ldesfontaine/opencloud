@@ -1049,3 +1049,33 @@ func TestRecord_ProbeRevisedBetweenReadAndWrite_TellsTheAlerterNothing(t *testin
 		t.Fatalf("l'état remis à zéro a été écrasé: %+v", after)
 	}
 }
+
+// Un agent ne peut refuser que ses propres sondes : un essai
+// « refusée par l'agent » (ou tout autre) qui nomme la sonde d'une autre
+// machine est ignoré, rien ne s'écrit et l'état ne bouge pas.
+func TestRecord_AnAgentCannotRefuseAnotherMachinesProbe(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow.Add(-time.Minute), probe.OutcomeUp)
+
+	forged := probe.Report{Results: []probe.Result{
+		{ProbeID: created.ID, CheckedAt: testNow, Outcome: probe.OutcomeDown, Reason: probe.ReasonAgentRefused},
+	}}
+	if err := fixture.service.Record(context.Background(), remoteMachineID, forged); err != nil {
+		t.Fatalf("le rapport d'une autre machine est ignoré, pas refusé: %v", err)
+	}
+	after := fixture.get(t, created.ID)
+	if after.Status != probe.StatusUp || after.ConsecutiveFailures != 0 || after.LastReason != probe.ReasonNone {
+		t.Fatalf("l'agent d'une autre machine a touché la sonde: %+v", after)
+	}
+	if got := fixture.countResults(t, created.ID); got != 1 {
+		t.Fatalf("attendu le seul essai de sa machine, obtenu %d", got)
+	}
+
+	// Sa propre machine, elle, la fait tomber avec cette raison.
+	fixture.recordResult(t, forged.Results[0])
+	if after := fixture.get(t, created.ID); after.LastReason != probe.ReasonAgentRefused || after.ConsecutiveFailures != 1 {
+		t.Fatalf("l'essai de sa machine doit s'écrire: %+v", after)
+	}
+}

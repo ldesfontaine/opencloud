@@ -26,6 +26,31 @@ func TestCapabilities_ParseNormalizesAndFormatsBack(t *testing.T) {
 	}
 }
 
+// probe.lan se range juste après observe, quel que soit l'ordre où on l'écrit,
+// et ne prend aucun chemin.
+func TestCapabilities_ProbeLANComesRightAfterObserveAndTakesNoPath(t *testing.T) {
+	parsed, err := ParseCapabilities("docker.update, probe.lan,agent.update")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := FormatCapabilities(parsed); got != "observe,probe.lan,agent.update,docker.update" {
+		t.Fatalf("formatted %q", got)
+	}
+	if !HasCapability(parsed, CapabilityProbeLAN) {
+		t.Fatal("probe.lan is lost")
+	}
+	if names := CapabilityNames(); names[0] != CapabilityObserve || names[1] != CapabilityProbeLAN {
+		t.Fatalf("display order %v", names)
+	}
+	if _, err := ParseCapabilities("probe.lan=/x"); !errors.Is(err, ErrCapabilityScope) {
+		t.Fatalf("a path on probe.lan: %v", err)
+	}
+	without, err := ParseCapabilities("agent.update")
+	if err != nil || HasCapability(without, CapabilityProbeLAN) {
+		t.Fatalf("probe.lan must be opt-in at the parser: %+v %v", without, err)
+	}
+}
+
 func TestCapabilities_RefuseUnknownRightsBadPathsAndWrongScopes(t *testing.T) {
 	cases := map[string]error{
 		"shell.exec":                             ErrCapabilityUnknown,

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -91,7 +92,7 @@ func runAgent(args []string) error {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
 	if err != nil {
-		return err
+		return explainStateDirError(err, *stateDir, agent.CurrentAccount(), catalogs.For(code))
 	}
 	defer root.Close()
 
@@ -138,6 +139,18 @@ func runAgent(args []string) error {
 		return &exitStatus{code: updatedExitCode}
 	}
 	return explainAgentError(err, root, code, catalogs)
+}
+
+// explainStateDirError dit à l'opérateur, en un refus (code 2), que le compte de
+// l'agent n'a pas son dossier d'état, avec la commande qui le lui donne : un
+// agent lancé sous un compte sans privilège sur un dossier de root ne doit pas
+// finir sur « permission denied » seul. Toute autre erreur passe telle quelle.
+func explainStateDirError(err error, path string, account machine.Account, text lang.Catalog) error {
+	if !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	label := agent.AccountLabel(account)
+	return &refusal{message: text.Format("agent.state_denied", label, path, label, path)}
 }
 
 func flagIsSet(flags *flag.FlagSet, name string) bool {

@@ -2,10 +2,12 @@ package agentwire
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -85,6 +87,22 @@ func TestWire_HeaderNamesAreFrozen(t *testing.T) {
 	for got, name := range want {
 		if got != name {
 			t.Errorf("header %q, want %q", got, name)
+		}
+	}
+}
+
+// Les raisons d'indisponibilité d'un droit sont des raisons de refus : le
+// front les traduit par les clés d'un refus. machine ne peut pas importer
+// agentwire, la liste y est écrite à la main : elle se garde ici.
+func TestUnavailableReasons_AreRefusalReasons(t *testing.T) {
+	for _, reason := range machine.UnavailableReasons() {
+		if !slices.Contains(RefusalReasons(), reason) {
+			t.Errorf("%q n'est pas une raison de refus connue", reason)
+		}
+	}
+	for _, reason := range []string{ReasonDockerDenied, ReasonDockerMissing, ReasonPathDenied, ReasonPathUnwritable, ReasonNotSelfUpdatable} {
+		if !slices.Contains(machine.UnavailableReasons(), reason) {
+			t.Errorf("%q manque à la liste des indisponibilités", reason)
 		}
 	}
 }

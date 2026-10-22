@@ -3,13 +3,18 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/agent"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 // failingReader échoue le test si l'entrée est lue.
@@ -142,5 +147,62 @@ func TestReadEnrollmentToken_StopsAtTheBound(t *testing.T) {
 	token, err := readEnrollmentToken(in)
 	if err != nil || len(token) != maxTokenLine || in.read > maxTokenLine {
 		t.Fatalf("token of %d bytes, %d bytes read, err %v", len(token), in.read, err)
+	}
+}
+
+// Un état que le compte de l'agent ne peut pas ouvrir est un refus lisible
+// (code 2, systemd ne relance pas), qui nomme le compte, le dossier et la
+// commande qui le règle. Toute autre erreur reste une erreur.
+func TestExplainStateDirError_APermissionRefusalNamesTheAccountAndTheFolder(t *testing.T) {
+	text := testCatalog(t)
+	account := machine.Account{UID: 998, Name: "opencloud-agent"}
+	failure := fmt.Errorf("create state dir: %w", &fs.PathError{Op: "mkdir", Path: "/var/lib/opencloud-agent", Err: syscall.EACCES})
+
+	var refused *refusal
+	if !errors.As(explainStateDirError(failure, "/var/lib/opencloud-agent", account, text), &refused) {
+		t.Fatal("a permission failure is a refusal")
+	}
+	for _, want := range []string{"opencloud-agent", "/var/lib/opencloud-agent", "chown -R opencloud-agent /var/lib/opencloud-agent"} {
+		if !strings.Contains(refused.message, want) {
+			t.Errorf("the message lacks %q:\n%s", want, refused.message)
+		}
+	}
+	if strings.Contains(refused.message, "%!") || strings.Contains(refused.message, "[agent.") {
+		t.Errorf("the message is not formatted: %s", refused.message)
+	}
+
+	// Un compte sans nom lisible se nomme par son uid : chown l'accepte aussi.
+	unnamed := explainStateDirError(failure, "/var/lib/opencloud-agent", machine.Account{UID: 4000}, text)
+	if !errors.As(unnamed, &refused) || !strings.Contains(refused.message, "chown -R 4000 /var/lib/opencloud-agent") {
+		t.Errorf("an account without a name: %v", unnamed)
+	}
+
+	// Une autre erreur ne devient pas un refus.
+	other := fmt.Errorf("open state dir: %w", errors.New("input/output error"))
+	if got := explainStateDirError(other, "/var/lib/opencloud-agent", account, text); got != other {
+		t.Errorf("another failure was rewritten: %v", got)
+	}
+}
+
+// Sur le disque : un dossier d'état dans un parent fermé au compte qui lance
+// le test. Impossible en root, qui ouvre tout.
+func TestOpenStateDir_AClosedParentIsAPermissionError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root opens any folder")
+	}
+	closed := t.TempDir()
+	if err := os.Chmod(closed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o700) })
+	state := filepath.Join(closed, "state")
+	_, err := openStateDir(state)
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("got %v", err)
+	}
+	// Et la commande elle-même sort sur le refus lisible, pas sur l'erreur brute.
+	var refused *refusal
+	if err := runAgent([]string{"-state", state}); !errors.As(err, &refused) || !strings.Contains(refused.message, state) {
+		t.Fatalf("the command ended with %v", err)
 	}
 }

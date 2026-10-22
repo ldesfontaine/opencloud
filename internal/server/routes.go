@@ -67,6 +67,7 @@ func (s *Server) routes() []route {
 		{"POST", "/api/directory/services/{id}/actions/deploy", s.deployService},
 		{"POST", "/api/directory/services/{id}/actions/redeploy", s.redeployService},
 		{"PUT", "/api/directory/units/{id}/update-policy", s.setUnitUpdatePolicy},
+		{"POST", "/api/directory/units/{id}/actions/upgrade", s.upgradeUnit},
 		{"GET", "/api/directory/projects", s.listProjects},
 		{"POST", "/api/directory/projects", s.createProject},
 		{"GET", "/api/directory/projects/{id}", s.getProject},

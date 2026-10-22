@@ -60,6 +60,15 @@ func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	if !strings.HasSuffix(command, " -rights observe,agent.update,files.write=/opt/site:/srv/workspace") {
 		t.Fatalf("rights missing or misplaced: %q", command)
 	}
+	// Le droit coché par défaut dans le formulaire s'écrit dans la ligne : seul
+	// observe seul s'omet.
+	local, err := machine.ParseCapabilities("probe.lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command := installCommand("https://x", "oc_abc", lang.French, local); !strings.HasSuffix(command, " -rights observe,probe.lan") {
+		t.Fatalf("probe.lan missing: %q", command)
+	}
 }
 
 func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.T) {
@@ -230,7 +239,7 @@ func TestAPI_RevokeAgent_KeepsTheMachineAndSaysTheAgentIsRevoked(t *testing.T) {
 }
 
 // La ligne de l'agent de la machine openCloud s'offre tant qu'elle n'a
-// jamais eu d'agent : la même tant qu'elle attend, observe seul ; 409 une
+// jamais eu d'agent : la même tant qu'elle attend, avec observe et probe.lan ; 409 une
 // fois qu'un agent l'a eue.
 func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.T) {
 	server := newTestServer(t)
@@ -245,7 +254,7 @@ func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.
 	var first, second tokenResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &first)
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &second)
-	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || strings.Contains(first.Command, "-rights") || first.Command != second.Command {
+	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || !strings.HasSuffix(first.Command, " -rights observe,probe.lan") || first.Command != second.Command {
 		t.Fatalf("offers %+v %+v", first, second)
 	}
 }

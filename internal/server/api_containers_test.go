@@ -320,7 +320,7 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
 	// Une session sans boucle de flux : personne ne vide la file.
-	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "")
+	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

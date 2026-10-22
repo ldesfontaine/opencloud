@@ -43,27 +43,56 @@ func readNote(t *testing.T, program, name string) string {
 func TestExecCompose_ReplacesTheEnvironment(t *testing.T) {
 	t.Setenv("OPENCLOUD_TEST_SECRET", "ne-doit-pas-passer")
 	program := fakeDocker(t, "echo 2.29.7\n")
-	version, err := execCompose{path: program}.Version(context.Background())
+	compose := execCompose{path: program, environment: composeEnvironment("/home/opencloud", "")}
+	version, err := compose.Version(context.Background())
 	if err != nil || version != "2.29.7" {
 		t.Fatalf("version %q %v", version, err)
 	}
 	if got := readNote(t, program, "args"); got != "compose\nversion\n--short\n" {
 		t.Errorf("version arguments %q", got)
 	}
-	assertComposeEnvironment(t, readNote(t, program, "env"))
+	assertComposeEnvironment(t, readNote(t, program, "env"), "HOME=/home/opencloud")
 
-	if _, err := (execCompose{path: program}).Up(context.Background(), "/srv/workspace/nextcloud", "nextcloud"); err != nil {
+	if _, err := compose.Up(context.Background(), "/srv/workspace/nextcloud", "nextcloud"); err != nil {
 		t.Fatal(err)
 	}
-	assertComposeEnvironment(t, readNote(t, program, "env"))
+	assertComposeEnvironment(t, readNote(t, program, "env"), "HOME=/home/opencloud")
 }
 
-func assertComposeEnvironment(t *testing.T, env string) {
+// Sans dossier personnel connu, Compose n'a pas de HOME : il ne cherche pas
+// les identifiants d'un autre compte, et l'environnement de l'agent ne passe pas
+// non plus (un Env nul serait hérité).
+func TestExecCompose_WithoutAHomeHasNoHome(t *testing.T) {
+	t.Setenv("OPENCLOUD_TEST_SECRET", "ne-doit-pas-passer")
+	t.Setenv("HOME", "/home/someone-else")
+	program := fakeDocker(t, "echo 2.29.7\n")
+	for name, compose := range map[string]execCompose{
+		"empty home":        {path: program, environment: composeEnvironment("", "")},
+		"environment unset": {path: program},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := compose.Version(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			env := readNote(t, program, "env")
+			assertComposeEnvironment(t, env, "")
+			if strings.Contains(env, "HOME=") {
+				t.Errorf("a HOME was passed:\n%s", env)
+			}
+		})
+	}
+}
+
+func assertComposeEnvironment(t *testing.T, env, home string) {
 	t.Helper()
 	// Le shell de test ajoute ses propres variables (PWD, SHLVL, _) : on
 	// vérifie ce qui compte, que les trois voulues sont là et que rien de
 	// l'agent n'est passé.
-	for _, want := range []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "HOME=/root"} {
+	wanted := []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
+	if home != "" {
+		wanted = append(wanted, home)
+	}
+	for _, want := range wanted {
 		if !strings.Contains(env, want+"\n") {
 			t.Errorf("the environment lacks %s:\n%s", want, env)
 		}

@@ -237,6 +237,16 @@ func validateImage(image string, kind UnitKind) error {
 	return nil
 }
 
+// CheckVersion juge une version qu'un geste exige (passer à un tag) : la
+// forme d'un tag, jamais vide, jamais latest. Le déploiement l'appelle avant
+// de rendre le compose ; l'annuaire, avant d'offrir et d'écrire.
+func CheckVersion(version string) error {
+	if version == "" {
+		return ErrVersionInvalid
+	}
+	return validateVersion(version)
+}
+
 // « latest » ne dit pas quelle version tourne : la déclaration ne
 // permettrait plus de savoir si elle est à jour.
 func validateVersion(version string) error {

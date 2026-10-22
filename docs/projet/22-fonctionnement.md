@@ -7,7 +7,8 @@
 > agent comme les autres, puis les ordres signés envoyés aux agents et les
 > droits appliqués par l'agent (#146), puis la sortie du MCP vers mcp-maison
 > (#224), puis le README et « Ce qui manque encore » remis d'accord avec le
-> code (sauvegardes, déploiement, mise à jour des agents), 22 octobre 2026.
+> code (sauvegardes, déploiement, mise à jour des agents), puis l'agent qui dit
+> son compte et refuse ce que ce compte ne peut pas faire, 22 octobre 2026.
 
 ## Les acteurs
 
@@ -122,7 +123,7 @@ dit comment. Une migration de plus part de `002`.
 
 | Où | Fichier | Contenu | Protection |
 | --- | --- | --- | --- |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq` ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les machines (`machines` : nom, hôte, adresse, système), leurs agents (`agents` : clé publique Ed25519, version, racine `/srv/workspace`, date d'enrôlement, dernier signe de vie, révocation, l'empreinte de la clé du serveur que l'agent dit avoir épinglée `server_key_fingerprint`, le dernier rang d'ordre donné `last_order_seq`, le compte sous lequel il tourne `run_as_uid` et `run_as_name` (nuls tant qu'il ne l'a pas dit) ; un seul actif par machine, l'index `agents_one_active` le tient), les droits que chaque agent rapporte de son fichier (`agent_capabilities` : droit, chemins, instant du rapport, et `unavailable`, la raison pour laquelle son compte ne peut pas l'exercer, vide s'il le peut), les jetons d'enrôlement (avec les droits demandés, `requested_capabilities`, et l'agent qui l'a consommé, `agent_id`) | Jetons stockés hachés : une copie de la base n'enrôle personne. Un jeton vaut **1 h** et sert une fois (`machine.TokenLifetime`) ; au démarrage, `serve` efface les jetons périmés jamais servis et les consommés depuis plus de 90 jours, **sauf celui d'un agent actif** : il dit ce qui était demandé, contre quoi se lit ce que l'agent rapporte. La clé publique n'est pas un secret. Une machine retirée emporte ses agents et leurs droits (cascade) |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les tâches surveillées et leur jeton de ping, **chiffré** (AES-256-GCM, clé du serveur, lié à sa ligne) : la page doit le réafficher. Pour le retrouver à chaque ping, la colonne `token_lookup` garde son SHA-256 ; le chiffré est dans `token_sealed` | Une copie de la base seule ne livre pas les URL de ping ; elle donne l'empreinte, qui ne remonte pas au jeton (128 bits tirés au hasard). Qui a la base **et** `secret.key` les lit. Le jeton se régénère depuis la page de la tâche : l'ancienne URL cesse aussitôt de répondre, sans recréer la tâche. La machine d'une tâche, facultative, est en `restrict` : une machine à laquelle une tâche est rattachée ne se retire pas (409 `machine.has_heartbeats`), on détache la tâche d'abord |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les pings bruts (forme, source, méthode, corps tronqué à 10 Kio, **en clair**) et les exécutions (début, fin, durée, code, issue dont « manquée » : un retard sans exécution) | Purgés : pings après 7 jours, exécutions après 90 jours |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ressources mesurées par machine : le brut toutes les 10 s dans `machine_samples`, ses volumes dans `machine_disks`, les moyennes par heure et par jour dans `machine_rollups` (une ligne par machine, granularité `hour` ou `day` et seau) | Purgés : brut et volumes après 48 h, horaire après 90 jours, journalier après un an. La machine retirée emporte tout |
@@ -223,7 +224,13 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    l'identifiant de la machine (précédé de sa longueur) et l'heure. Il ouvre
    un flux qui reste ouvert, et redit sa version, son système et ses droits
    (en-tête `OpenCloud-Agent-Rights`) : la version et le signe de vie se
-   notent sur l'agent, l'adresse et le système sur la machine. En ligne,
+   notent sur l'agent, l'adresse et le système sur la machine. Il dit aussi
+   sous quel compte il tourne (`OpenCloud-Agent-Account: <uid>:<nom>`, noté
+   dans `agents.run_as_uid` et `run_as_name`) et, s'il y en a, les droits
+   cochés que ce compte ne peut pas exercer (`OpenCloud-Agent-Unavailable:
+   <droit>=<raison>,…`, noté dans `agent_capabilities.unavailable`) ; l'un et
+   l'autre sont jugés par le serveur avec des bornes (« Les droits d'un
+   agent »), et un agent plus ancien n'en envoie aucun. En ligne,
    c'est ce flux. « Vu il y a », c'est le dernier signal, envoyé toutes les
    30 s. **La preuve ne demande rien au serveur avant elle** (protocole 2,
    #146) : il n'y a plus de défi à demander. Le serveur accepte une heure à
@@ -282,6 +289,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
+| `probe.lan` | — | Que les sondes de l'agent composent vers **le réseau local** (boucle locale, adresses privées, partagée `100.64.0.0/10`, « Comment une cible est sondée »). **Coché par défaut** à l'émission d'un jeton (formulaire) et pour l'agent de la machine openCloud, décochable. Premier droit qu'**aucun ordre n'exige** (`action.RightOf` n'en a pas) : c'est une borne de l'observation, appliquée par l'agent à ses propres sondes. Un agent enrôlé avant ne l'a pas : ses sondes du réseau local tombent « Hors ligne » jusqu'à **Changer les droits** (on ne coche rien à la place de l'opérateur) |
 | `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire |
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
@@ -318,8 +326,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   Un ordre dont le droit n'y est pas est refusé, `right_missing:<droit>`
   (« Comment un ordre part et revient »), sans prendre son rang ; le refus
   revient par le signal et s'inscrit au journal d'audit (`action.refused`,
-  sous l'agent). Un fichier illisible vaut `observe` seul, le plus étroit.
-  `backup.receive` se juge chemin par chemin : l'ordre nomme un dossier,
+  sous l'agent). Un fichier illisible vaut `observe` seul, le plus étroit,
+  **sans `probe.lan`** : le réseau local se ferme aussi. `backup.receive` se juge chemin par chemin : l'ordre nomme un dossier,
   l'agent le refuse (`path_outside_right`) s'il n'est pas celui du droit ou
   l'un de ses sous-dossiers (`machine.CoversPath` : `/srv/backups2` n'est
   pas couvert par `/srv/backups`) ; sous le chemin du droit, un lien
@@ -330,6 +338,48 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   des services est celle de l'agent (`-root-dir`), et l'unité doit l'autoriser
   aussi. `files.write` se jugera comme `backup.receive` avec l'ordre qui nomme
   un chemin ; aucun n'existe encore.
+- **Un droit coché peut être indisponible** (#146, décision 2 du 22 octobre
+  2026). L'agent n'est pas forcément root : sous un compte dédié, il peut ne
+  pas ouvrir la socket de Docker, ne pas posséder le dossier d'un droit. Il
+  juge donc chaque droit coché (sauf `observe`) **avant chaque ouverture du
+  flux**, et le dit : `OpenCloud-Agent-Unavailable: docker.deploy=docker_denied,…`,
+  absent quand tout est réalisable. Il pose les mêmes questions **au moment
+  d'un ordre**, avant d'écrire quoi que ce soit, et le refuse (`refused`) avec
+  la même raison, lisible sur le run. Les raisons forment une liste fermée :
+
+  | Raison | Quand | Droits concernés |
+  | --- | --- | --- |
+  | `docker_denied` | la socket de Docker refuse le compte (`EACCES`) | `docker.deploy`, `docker.update` |
+  | `docker_missing` | pas de `/usr/bin/docker`, ou pas de socket | `docker.deploy`, `docker.update` |
+  | `path_denied` | le dossier du droit (la racine des services pour Docker, ou son plus proche parent s'il manque) n'est pas au compte : `access(2)` rend `EACCES` | `docker.*`, `backup.receive`, `files.write` |
+  | `path_unwritable` | `EROFS`, ou ce qui n'est pas un dossier : l'unité ne l'ouvre pas (`ReadWritePaths`) | idem |
+  | `not_self_updatable` | l'agent ne tourne pas depuis `<état>/bin/` | `agent.update` |
+
+  `agent.update` demande en plus que le compte écrive dans `<état>/bin/` : sinon
+  `path_denied` avant de télécharger quoi que ce soit. `access(2)` juge l'uid
+  réel, égal à l'effectif sous systemd et sous `sudo -u` ; c'est un
+  pré-contrôle lisible, l'écriture reste confinée par `os.Root` et peut encore
+  échouer. Docker arrêté (la socket existe, rien n'écoute) n'est **pas** un
+  droit indisponible : `compose up` le dira. **Le serveur affiche, il ne
+  refuse pas d'avance** : le plan de déploiement et la destination de
+  sauvegarde passent à `unavailable` avec leur raison (`right_reason`), l'offre
+  de mise à jour de l'agent porte la raison `right_unavailable` tout en restant
+  disponible, et le bouton reste actif. Le rapport date de l'ouverture du flux,
+  et un dossier rendu ou un groupe ajouté depuis le rendrait faux dans l'autre
+  sens : c'est l'agent qui a le dernier mot. Les raisons n'entrent ni dans la
+  forme texte des droits ni dans leur comparaison (`SameCapabilities`) : une
+  raison n'est pas un écart. Côté serveur, le texte d'un pair est borné : un
+  compte (`<uid>:<nom>`) dont l'uid n'est pas un entier décimal de 0 à
+  4294967295 sans signe ni zéro en tête (sauf `0`), ou dont le nom n'est pas
+  vide ou `^[a-z_][a-z0-9_-]{0,31}$`, n'est pas gardé (`WARN agent account
+  unreadable`) ; des droits indisponibles qui nomment `observe` ou un droit
+  inconnu, une raison hors liste, un doublon, un élément vide ou plus de
+  2048 octets sont ignorés **en entier** (`WARN agent unavailable rights
+  unreadable`), les raisons précédentes s'effacent. Dans les deux cas le flux
+  s'ouvre quand même. La fiche de la machine montre le compte (« root » avec
+  une ligne qui le dit, ou le nom et l'uid ; « pas encore rapporté » pour un
+  agent plus ancien) et, dans une note, les droits cochés que ce compte ne peut
+  pas exercer.
 - **Un état mal gardé n'applique que `observe`** (#235, décisions 3 et 4 du
   22 octobre 2026). Au démarrage, après l'avoir ouvert, la commande juge
   l'état (`agent.CheckStateDir`) : elle suit son chemin comme le noyau, depuis
@@ -392,7 +442,7 @@ toujours eue : c'est par lui qu'elle garde son historique.
 
 | Étape | Ce qui se passe |
 | --- | --- |
-| Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` seul, nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
+| Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` et `probe.lan` (ses sondes visent d'abord ses propres services), nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
 | Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec le rappel d'activer `opencloud-agent.service`. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
@@ -564,7 +614,7 @@ ici ; le `data/` et le `.env` d'un service déployé ne sont pas emportés (« C
 | La phrase | 16 caractères au moins (runes, espaces de bord retirés), 1024 au plus. Saisie deux fois dans le navigateur, **une** reçue par le serveur, le temps de sceller la clé ; **jamais écrite**. Perdue, aucune sauvegarde ne se relit |
 | Une paire à la fois | `POST /api/backups/keyring` refuse si elle existe (`409 backup.keyring_exists`), sauf `replace: true`. Remplacer ne rend rien illisible : chaque sauvegarde a sa clé scellée à côté d'elle, nommée par empreinte |
 | Pas de copie locale | L'instantané en clair n'existe que le temps de l'emballer, dans `outgoing/<colis>/`, et il est effacé **avant** l'envoi. L'archive chiffrée y reste jusqu'au téléchargement par l'agent, le temps que son ordre peut vivre au plus (un peu plus d'une heure), puis part ; `serve` vide `outgoing/` au démarrage |
-| Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
+| Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`, puis `path_denied` ou `path_unwritable` si son compte ne peut pas écrire le dossier, avant d'accepter l'ordre ; la vue dit alors `unavailable`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
 | Quand | Un **plan** (`database`, `daily`) : la boucle de 15 minutes lance la sauvegarde à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. « Sauvegarder maintenant » la lance tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
 | Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes |
 
@@ -693,7 +743,10 @@ droits sans celui du geste (409 `deploy.right_missing`) ; « Déployer » sur un
 service déjà déployé (409 `deploy.already_deployed`) et « Redéployer » sur un
 service qui ne l'est pas (409 `deploy.not_deployed`) ; une machine sans agent
 actif (409 `deploy.no_agent`). Tant que l'agent n'a pas rapporté ses droits,
-l'ordre part et l'agent juge.
+l'ordre part et l'agent juge. Un droit coché que le compte de
+l'agent ne peut pas exercer n'est pas refusé d'avance non plus : le plan dit
+`unavailable` et sa raison (`right_reason`), l'ordre part, et l'agent le refuse
+avant d'écrire (`docker_denied`, `path_denied`…, « Les droits d'un agent »).
 
 **L'interface** : la carte **Déploiement** de la fiche d'un service Compose
 montre le dossier, les unités qui montent un dossier de données, le
@@ -706,6 +759,50 @@ Routes : `GET /api/directory/services/{id}/deploy-plan`, `POST
 `service_id` des ordres (`GET /api/actions`) nomme le service visé. Le corps
 d'un déploiement a sa propre borne (256 Kio) : un `.env` de 64 Kio écrit en
 JSON dépasse celle d'un formulaire.
+
+**Passer à la version proposée** (`POST /api/directory/units/{id}/actions/upgrade`,
+corps `{"version": "<tag>"}`, `201` avec l'ordre, comme `redeploy`) : depuis
+la carte « Mise à jour de l'image » d'un conteneur, un geste change la
+version déclarée de l'unité puis redéploie son service.
+
+- **La version est celle que l'agent propose, rien d'autre.** Elle doit être
+  **égale** au `newer_tag` du constat le plus récent parmi les conteneurs
+  rattachés à l'unité (`Directory.OfferedVersion`), sinon 409
+  `deploy.version_not_offered`. Une unité `hold` ou `ignore` n'a pas d'offre.
+  Seuls comptent les conteneurs qui tournent l'image déclarée (même registre,
+  même dépôt) ; un tag venu du registre qui n'a pas la forme d'une version de
+  l'annuaire (« $ », « # », « : », « / », « @ », retour, `latest`, plus de 128
+  caractères) n'est jamais offert.
+  Pour une autre version, ou une empreinte changée sous le même tag : modifier
+  le service, puis « Redéployer » (deux gestes, comme avant).
+- **Tout se vérifie avant d'écrire, et un refus n'écrit rien** : l'unité
+  existe (404 `directory.unit_not_found`) et est un conteneur (422
+  `directory.unit_not_container`) ; le service est déployé (409
+  `deploy.not_deployed`) ; l'agent n'a pas rapporté son droit sans
+  `docker.update` (409 `deploy.right_missing`) ; la machine est en ligne (409
+  `action.machine_offline`) ; l'unité n'épingle pas d'empreinte (409
+  `deploy.unit_pinned_digest` : l'empreinte appartient à l'ancien tag,
+  l'opérateur la retire à la main) ; la version est offerte ; elle a la forme
+  d'une version de l'annuaire (422 `directory.version_invalid` ou
+  `directory.version_latest`, jugé **avant** le rendu : le motif du compose
+  lirait un « : » ou un « / » comme une partie du nom de l'image) ; et le
+  `compose.yml` de la nouvelle version **se rend** (un tag que le rendu refuse,
+  `directory.image_invalid`, n'est jamais écrit).
+- **Puis, dans cet ordre** : `Directory.SetUnitVersion` (le composant de
+  l'annuaire : une transaction pour la version et la date du service, puis le
+  rapprochement, les images à ne plus interroger et le direct, comme pour toute
+  écriture de l'annuaire) ; ensuite `Redeploy` (`docker.update`, `.env` de la
+  machine inchangé).
+- **Pas de transaction entre l'annuaire et l'ordre** : si l'envoi échoue après
+  l'écriture (la machine tombe entre les deux), la version reste changée et
+  l'erreur revient à l'opérateur, qui redéploie. C'est le découpage des deux
+  gestes d'avant, en plus court.
+- **Au journal** : `service.update` sur le service, avec `unit`,
+  `version_before`, `version_after` et `via: upgrade`, puis le `action.order`
+  habituel du redéploiement.
+- **Pas de retour arrière automatique** : un service qui ne redevient pas sain
+  reste sur la nouvelle version ; revenir, c'est redéclarer l'ancienne et
+  redéployer.
 
 **Ce qui ne se fait pas.**
 
@@ -1710,9 +1807,9 @@ Docker ne connaît aucun verbe qui écrit.
 openCloud dit quand l'image d'un service a quelque chose de plus récent à
 offrir. La comparaison ne tire rien et ne relance rien. Pour un service
 qu'openCloud n'a pas déployé, il fabrique la commande, et c'est l'opérateur
-qui la joue ; pour un service qu'il a déployé, la nouvelle version se déclare
-dans l'annuaire, puis « Redéployer » réécrit le `compose.yml` et relance
-Compose (« Comment un service se déploie »). Ce que le module d'origine
+qui la joue ; pour un service qu'il a déployé, un bouton « Passer à `<tag>` »
+change la version dans l'annuaire puis redéploie, en un geste (point 5 et
+« Comment un service se déploie »). Ce que le module d'origine
 faisait de plus, les CVE, le changelog, le score de risque, n'a pas été repris.
 
 L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
@@ -1773,6 +1870,20 @@ pas.
    la fiche dit de le recréer avec ses options, qu'openCloud ne connaît
    pas. Une rétrogradation est impossible par construction : seul un tag
    strictement plus récent est nommé.
+   **Sur un service qu'openCloud a déployé**, la ligne à copier laisse la
+   place au bouton **« Passer à `<tag>` »** (le compose est réécrit par le
+   serveur, pas édité à la main). Il paraît quand les quatre conditions
+   tiennent : le conteneur est rattaché à une unité déclarée, un ordre a déjà
+   écrit le dossier du service (le plan de déploiement dit `deployed`), le
+   constat propose un **tag** plus récent, et la politique de l'unité est
+   `watch`. Une empreinte changée sous le même tag (`digest`) n'a pas de
+   bouton : `--pull missing` ne la tirerait pas ; elle garde la ligne à
+   copier. Un clic ouvre une confirmation **dans la carte** (pas de boîte) :
+   l'unité, la version, le service, la machine, « le compose est réécrit,
+   l'`.env` reste, pas de retour arrière automatique » ; puis l'ordre se suit
+   sur le service (« Comment un service se déploie »). Le bouton est grisé
+   tant que l'agent n'a pas le droit `docker.update` ou qu'un ordre du
+   service est en route.
 6. **La politique se règle sur l'unité de l'annuaire**, pas sur la fiche :
    `watch` (par défaut), `hold` (vérifié, ni montré ni compté), `ignore` (le
    registre n'est jamais interrogé). Tous les conteneurs rattachés à l'unité
@@ -1926,10 +2037,21 @@ propose la première machine de la liste.
    (dont `169.254.169.254`, celle des métadonnées d'hébergeur, qui livre
    les identifiants de l'instance) et les deux adresses de métadonnées qui
    n'en sont pas, `fd00:ec2::254` (AWS en IPv6) et `100.100.100.200`
-   (Alibaba Cloud), puis compose vers l'adresse retenue :
+   (Alibaba Cloud), **toujours**, puis compose vers l'adresse retenue :
    ce que le nom répondrait au deuxième appel ne change pas la
-   destination. La boucle locale et les adresses privées restent ouvertes,
-   c'est l'usage voulu.
+   destination. **Le réseau local dépend du droit `probe.lan`** de l'agent
+   (`egress.DialWith`) : boucle locale, adresses privées (RFC 1918 et
+   `fc00::/7`), `fec0::/10`, partagée `100.64.0.0/10` (Tailscale), adresse non
+   spécifiée (`0.0.0.0`, `::`, que Linux compose vers la boucle) et leurs
+   formes IPv4 écrites en IPv6 (`::ffff:10.0.0.1`). Le droit est lu une fois,
+   au démarrage de l'agent, et passé au vérificateur de sondes, qui l'applique
+   à **toute** composition : la requête, chaque redirection suivie, le TCP et
+   la poignée de main TLS (y compris la poignée de main nue d'une chaîne
+   refusée). Sans lui, chaque adresse résolue du réseau local est sautée ; s'il
+   ne reste rien, l'essai est « Hors ligne » avec le motif `lan` : un nom DNS
+   qui résout vers une adresse privée est refusé comme cette adresse. Le
+   serveur, lui, garde le réseau local ouvert pour ce qu'il compose
+   (alertes, e-mail, registres : un ntfy du réseau local est l'usage voulu).
 5. Une sonde HTTP envoie un GET, HEAD ou POST — jamais une méthode qui
    écrit —, lit au plus 64 Kio du corps, et juge le code reçu puis le
    texte attendu. Une sonde TCP ouvre la connexion et la referme.
@@ -1973,7 +2095,7 @@ pourcentage ; le navigateur divise, et affiche un tiret quand la fenêtre
 est vide, jamais un zéro qui ferait croire à une panne. Les motifs d'échec
 voyagent en un mot d'une liste fermée (`timeout`, `refused`, `dns`,
 `unreachable`, `address`, `status`, `body`, `redirect`, `tls_untrusted`,
-`tls_expired`, `tls_hostname`), que le front traduit : le navigateur ne lit
+`tls_expired`, `tls_hostname`, `lan`, `agent_refused`), que le front traduit : le navigateur ne lit
 jamais le texte d'une erreur Go.
 
 Une machine porte 64 sondes au plus ; au-delà, la création est refusée avec
@@ -2006,13 +2128,19 @@ adresse interdite reste refusé à la composition (point 4). Ce que l'agent
 genre, **hôte** de la cible, jamais la cible entière, une URL pouvant porter
 un jeton, et la raison, la clé de l'erreur du serveur), huit au plus puis un
 compte ; `INFO probes assigned` porte `count` (reçues) et `refused`
-(écartées). Rien ne remonte au serveur, un champ de rapport de plus étant un
-changement de protocole : la sonde écartée ne reçoit plus d'essai (« Nouveau »
-si elle n'en a jamais eu, sinon son dernier état), et le journal de l'agent
-dit pourquoi. **Les adresses privées restent ouvertes**
-(boucle locale, RFC 1918, CGNAT) : un serveur compromis peut encore faire sonder
-le réseau local d'une machine, et ce qu'on y gagne en confort contre ce qu'on
-y perd en sécurité est la décision attendue de Lucas (#146).
+(écartées). **Un refus se lit sur la sonde** : pour chaque tâche écartée dont
+l'identifiant a la forme d'un identifiant (ni vide, ni de plus de 64
+caractères, ni celui d'une tâche gardée, ni déjà vu), l'agent livre **un
+essai ordinaire** « Hors ligne », motif `agent_refused`, daté de
+l'assignation, **une fois par assignation** (pas à chaque intervalle), au plus
+64 : un serveur qui pousse dix mille tâches fausses n'en fait pas dix mille.
+Le serveur l'écrit comme n'importe quel essai (aucun champ de protocole de
+plus) : la sonde passe « Hors ligne · refusée par l'agent », l'alerte de sonde
+suit les règles de seuils, et le journal de l'agent dit pourquoi. **Le réseau
+local** n'est plus ouvert d'office : il suit le droit `probe.lan` (point 4).
+Reste qu'**avec** le droit, un serveur compromis peut faire sonder le réseau
+local de la machine ; c'est le prix du droit, que l'opérateur décoche pour
+les machines où il ne le veut pas.
 
 **La cible n'accepte pas d'identifiants.** `https://user:mot@hôte`, ou
 `https://user@hôte`, est refusé à la création, à l'édition et par le fichier
@@ -3396,7 +3524,9 @@ pas de clé de version embarquée, ou une version illisible), `no_agent`,
 `arch_unknown`, `same_version`, `newer_agent`, `no_release` (rien d'importé pour
 cette version et cette architecture), `release_invalid` (importée mais qui ne se
 revérifie plus : l'import est à refaire). Sauf `same_version`, chaque raison a sa
-phrase (`machine.agent_update_reason_*`). L'envoi,
+phrase (`machine.agent_update_reason_*`). Une offre **disponible** peut porter
+`right_unavailable` : l'agent a dit que son compte ne peut pas exercer
+`agent.update`, l'offre reste faite et c'est l'agent qui refusera. L'envoi,
 `POST /api/machines/{id}/actions/update-agent`, refuse avec les mêmes motifs :
 `404` machine inconnue, `409 machine.no_agent`, `409 action.machine_offline`,
 `409 action.right_missing`, sinon `409 action.update_unavailable`.
@@ -3583,7 +3713,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Une sauvegarde en échec n'alerte pas | Elle se lit sur la page Sauvegardes (état du dernier ordre, `last_error`) ; aucune alerte ne s'ouvre, aucun canal n'est prévenu | À décider |
 | Pas d'onglets machine Sauvegardes, Réglages | Onglets masqués tant qu'ils ne sont pas livrés ; leurs adresses mènent au résumé de la machine. La page Sauvegardes existe, sous Administration, mais pas rangée par machine. L'onglet Journaux est un raccourci vers la fiche de chaque service, pas une vue unifiée des journaux de la machine | Une par une, sur décision |
 | Pas d'abonnement à la page de statut | Un visiteur revient voir ; rien ne le prévient | Avec un canal e-mail, plus tard |
-| Appliquer une mise à jour | Pour un service **déployé par openCloud** : la nouvelle version se déclare dans l'annuaire, puis « Redéployer » ; deux gestes, pas de bouton qui les fasse ensemble, et aucun retour arrière si le service ne redevient pas sain. Pour les autres, openCloud montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | À décider (issue #125) |
+| Appliquer une mise à jour : ce qui reste | Pour un service **déployé par openCloud**, le tag plus récent se prend d'un geste (« Passer à »). Restent : **aucun retour arrière** si le service ne redevient pas sain ; une **empreinte changée sous le même tag** (aucun bouton : `--pull missing` ne la tirerait pas) ; une **autre version** que celle proposée (modifier le service, puis « Redéployer ») ; un service dont une unité épingle une empreinte (à retirer à la main). Pour les services **qu'openCloud n'a pas déployés**, il montre la ligne `image:` à changer et fabrique la commande ; l'opérateur les applique, et openCloud ne le sait qu'au passage suivant, quand le constat ne nomme plus rien (décidé le 12 octobre 2026, issue #125) | Le retour arrière : à décider (issue à part) |
 | Une image en retard se voit jusqu'à 24 h après | La cadence tient le quota du Hub ; « Vérifier maintenant » raccourcit à la demande | À décider, avec un écran de réglages |
 | Pas d'assistant d'identifiants | Un registre dont les identifiants passent par `credHelpers` ou `credsStore` répond « refusé » ; seuls les `auths` en clair du `config.json` sont lus | À décider |
 | Dix mille tags au plus | Un dépôt qui en publie plus est lu jusqu'à la dixième page ; un tag plus récent au-delà n'est pas vu | À décider |

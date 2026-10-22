@@ -9,13 +9,14 @@ import (
 )
 
 // La sonde compose par la garde de sortie : elle résout elle-même, écarte
-// le lien-local, et compose sur l'adresse retenue.
+// le lien-local (et le réseau local sans le droit probe.lan), et compose sur
+// l'adresse retenue.
 
 // inspectTLS ouvre une poignée de main nue pour savoir si l'hôte répond et
 // lire la chaîne qu'il présente. La requête n'est jamais rejouée : rien de
 // ce qu'elle portait ne part vers un pair dont la chaîne est refusée.
-func inspectTLS(ctx context.Context, address Address, timeout time.Duration) (tls.ConnectionState, error) {
-	raw, err := egress.Dial(ctx, "tcp", address.String(), timeout)
+func inspectTLS(ctx context.Context, address Address, timeout time.Duration, allowPrivate bool) (tls.ConnectionState, error) {
+	raw, err := egress.DialWith(ctx, "tcp", address.String(), timeout, allowPrivate)
 	if err != nil {
 		return tls.ConnectionState{}, err
 	}

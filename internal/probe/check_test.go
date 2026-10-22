@@ -17,7 +17,7 @@ var checkNow = time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 // check sonde avec le magasin du système seul : une machine sans autorité
 // interne ajoutée, le cas de presque toutes.
 func check(task Task, now time.Time) Result {
-	return NewChecker(nil).Check(context.Background(), task, now)
+	return NewChecker(nil, true).Check(context.Background(), task, now)
 }
 
 func httpTask(target string) Task {

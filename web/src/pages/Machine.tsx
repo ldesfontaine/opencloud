@@ -28,7 +28,7 @@ import { useT } from "../i18n/context";
 import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
 import { lifecycleHasDetails } from "../lib/lifecycle";
-import { describeCapability, tokenPageState } from "../lib/machines";
+import { describeAccount, describeCapability, tokenPageState, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 import "./Machine.scss";
@@ -128,6 +128,8 @@ function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent 
       </Card>
     );
   }
+  const account = describeAccount(agent.run_as);
+  const unavailable = agent.revoked_at === null && agent.reported_at !== null ? unavailableRights(t, agent) : [];
   return (
     <Card>
       <CardHeader title={t("machine.agent_title")} />
@@ -136,6 +138,8 @@ function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent 
         <KeyValue label={t("machine.field_agent")} value={agent.version} mono />
         {agent.revoked_at === null && <AgentUpdate machineID={machineID} />}
         <KeyValue label={t("machine.field_agent_enrolled")} value={formatWhen(agent.enrolled_at, now)} />
+        <KeyValue label={t("machine.agent_account")} value={account ?? t("machine.agent_account_unreported")} mono={account !== null} />
+        {agent.run_as?.uid === 0 && <p className="secondary">{t("machine.agent_account_root_note")}</p>}
         <KeyValue
           label={t("machine.agent_rights")}
           value={agent.reported_at === null ? t("machine.agent_rights_unreported") : agent.capabilities.map((capability) => describeCapability(t, capability)).join(" · ")}
@@ -144,6 +148,16 @@ function AgentCard({ machineID, agent, now }: { machineID: string; agent: Agent 
           <KeyValue label={t("machine.agent_rights_requested")} value={agent.requested.map((capability) => describeCapability(t, capability)).join(" · ")} />
         )}
         {agent.capabilities_differ && <Note tone="warn">{t("machine.agent_rights_differ")}</Note>}
+        {unavailable.length > 0 && (
+          <Note tone="warn">
+            <strong>{t("machine.agent_rights_unavailable")}</strong>
+            <ul>
+              {unavailable.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Note>
+        )}
         <p className="secondary">{t("machine.agent_rights_note")}</p>
         {agent.revoked_at === null && (
           <div>
@@ -183,6 +197,7 @@ function AgentUpdate({ machineID }: { machineID: string }) {
             {t("machine.agent_update", current.target)}
           </Button>
         </div>
+        {current.reason === "right_unavailable" && <p className="secondary">{t("machine.agent_update_reason_right_unavailable")}</p>}
       </>
     );
   }

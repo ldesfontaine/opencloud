@@ -66,6 +66,7 @@ func newDockerBench(t *testing.T) *dockerBench {
 	}
 	b.tools = dockerTools{
 		compose:    b.compose,
+		checks:     allowAll(),
 		freeBytes:  func(string) (uint64, error) { return b.free, nil },
 		writeFiles: writeServiceFiles,
 	}

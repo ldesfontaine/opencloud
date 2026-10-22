@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ldesfontaine/opencloud/internal/action"
@@ -26,10 +27,13 @@ type deployPlanJSON struct {
 	// Vrai quand un déploiement a écrit le dossier : le geste est alors
 	// « redéployer ».
 	Deployed bool `json:"deployed"`
-	// Le droit du prochain geste : ok, missing ou unknown.
-	Right    string   `json:"right"`
-	Compose  string   `json:"compose"`
-	DataDirs []string `json:"data_dirs"`
+	// Le droit du prochain geste : ok, missing, unavailable ou unknown. Avec
+	// unavailable, right_reason dit pourquoi le compte de l'agent ne peut pas
+	// l'exercer ; le geste reste permis, l'agent refusera avec la raison.
+	Right       string   `json:"right"`
+	RightReason string   `json:"right_reason,omitempty"`
+	Compose     string   `json:"compose"`
+	DataDirs    []string `json:"data_dirs"`
 	// Le dernier ordre de déploiement du service, null s'il n'y en a pas ou
 	// plus.
 	LastRun *actionRunJSON `json:"last_run"`
@@ -42,11 +46,16 @@ type deployRequest struct {
 	Env *string `json:"env"`
 }
 
+// Passer une unité à la version que l'agent propose : le tag, rien d'autre.
+type unitUpgradeRequest struct {
+	Version string `json:"version"`
+}
+
 func deployPlanToJSON(plan deploy.Plan) deployPlanJSON {
 	out := deployPlanJSON{
 		ServiceID: plan.Service.ID, MachineID: plan.Service.MachineID, MachineName: plan.MachineName,
 		RootDir: plan.RootDir, Path: plan.Path, Deployed: plan.Deployed, Right: string(plan.Right),
-		Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs),
+		RightReason: plan.RightReason, Compose: plan.Compose, DataDirs: orEmpty(plan.DataDirs),
 	}
 	if plan.LastRun != nil {
 		converted := actionRunToJSON(*plan.LastRun)
@@ -61,6 +70,7 @@ type Deployer interface {
 	Plan(ctx context.Context, serviceID string) (deploy.Plan, error)
 	Deploy(ctx context.Context, serviceID string, env *string) (action.Run, error)
 	Redeploy(ctx context.Context, serviceID string, env *string) (action.Run, error)
+	Upgrade(ctx context.Context, unitID, version string) (action.Run, error)
 }
 
 // getDeployPlan montre ce que le prochain déploiement ferait, sans rien
@@ -81,6 +91,24 @@ func (s *Server) deployService(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) redeployService(w http.ResponseWriter, r *http.Request) {
 	s.sendDeployment(w, r, s.deploy.Redeploy)
+}
+
+// upgradeUnit change la version déclarée d'une unité et redéploie son service
+// en un geste. Comme un redéploiement, la réponse est l'ordre.
+func (s *Server) upgradeUnit(w http.ResponseWriter, r *http.Request) {
+	var request unitUpgradeRequest
+	if !s.readAPI(w, r, &request) {
+		return
+	}
+	run, err := s.deploy.Upgrade(r.Context(), r.PathValue("id"), request.Version)
+	if errors.Is(err, directory.ErrUnitNotFound) {
+		s.apiRefuse(w, http.StatusNotFound, "directory.unit_not_found")
+		return
+	}
+	if s.failed(w, r, err, directory.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
 
 func (s *Server) sendDeployment(w http.ResponseWriter, r *http.Request, send func(context.Context, string, *string) (action.Run, error)) {

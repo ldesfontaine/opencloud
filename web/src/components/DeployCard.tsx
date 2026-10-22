@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { reasonText, stateTones } from "./ActionsCard";
+import { inFlightStates } from "../api/actions";
 import { deployService, useDeployPlan, type DeployPlan } from "../api/directory";
 import { useAction } from "../hooks/useAction";
 import { useNow } from "../hooks/useNow";
@@ -14,9 +15,6 @@ import { Textarea, Field } from "./Field";
 import { Pill } from "./Pill";
 import "./DeployCard.scss";
 
-// Un ordre de déploiement encore en route : un second ne part pas avant lui.
-const inFlight = new Set(["queued", "sent", "accepted"]);
-
 // Déployer un service d'origine Compose : le plan (où, quoi), le dernier
 // ordre et son état, et le geste. Le compose.yml est celui que le serveur
 // génère de l'annuaire, montré tel qu'il sera écrit ; l'.env se tape à la
@@ -26,7 +24,7 @@ export function DeployCard({ serviceID }: { serviceID: string }) {
   const plan = useDeployPlan(serviceID);
   const [asking, setAsking] = useState(false);
   const data = plan.data;
-  const running = data?.last_run != null && inFlight.has(data.last_run.state);
+  const running = data?.last_run != null && inFlightStates.has(data.last_run.state);
   const blocked = data === null || data.right === "missing" || running;
   return (
     <Card>
@@ -57,6 +55,7 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
   return (
     <>
       {plan.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+      {plan.right === "unavailable" && <Note tone="warn">{t("deploy.right_unavailable", reasonText(t, plan.right_reason ?? ""))}</Note>}
       <KeyValue label={t("deploy.plan_path")} value={plan.path} mono />
       <KeyValue
         label={t("deploy.plan_units")}

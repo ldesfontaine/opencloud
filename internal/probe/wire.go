@@ -171,6 +171,33 @@ func judgeTask(task Task, seen map[string]bool, keptCount int) string {
 	return ""
 }
 
+// refusedResults fait d'une tâche écartée un essai hors ligne « refusée par
+// l'agent », une fois par assignation. Seul un identifiant que le serveur a
+// pu envoyer et qui a la forme d'un identifiant revient : jamais un
+// identifiant vide ou trop long (le serveur refuserait tout le rapport),
+// jamais celui d'une tâche gardée (un doublon ne doit pas mettre hors ligne
+// une sonde qui tourne), jamais deux fois le même. Au plus
+// MaxProbesPerMachine essais : un serveur qui pousse dix mille tâches
+// fausses n'en fait pas dix mille.
+func refusedResults(kept []Task, dropped []Dropped, now time.Time) []Result {
+	taken := make(map[string]bool, len(kept))
+	for _, task := range kept {
+		taken[task.ID] = true
+	}
+	var results []Result
+	for _, task := range dropped {
+		if task.Reason == DroppedIDInvalid || task.Reason == DroppedIDRepeated || taken[task.ID] {
+			continue
+		}
+		if len(results) >= MaxProbesPerMachine {
+			break
+		}
+		taken[task.ID] = true
+		results = append(results, Result{ProbeID: task.ID, CheckedAt: now, Outcome: OutcomeDown, Reason: ReasonAgentRefused})
+	}
+	return results
+}
+
 func newDropped(task Task, reason string) Dropped {
 	// Une cible illisible n'a pas d'hôte à montrer.
 	address, _ := ParseTarget(task.Kind, task.Target)

@@ -68,7 +68,7 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.session, err = b.machines.Connect(context.Background(), enrolled.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/autre")
+	b.session, err = b.machines.Connect(context.Background(), enrolled.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/autre", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,6 +77,47 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	}
 	if len(b.commands.orders) != 0 {
 		t.Fatalf("orders were sent: %+v", b.commands.kinds)
+	}
+}
+
+// Le droit est coché mais le compte de l'agent ne peut pas l'exercer : la page
+// le dit avec la raison, et la sauvegarde part quand même. Le rapport date de
+// l'ouverture du flux ; l'agent refusera au moment de l'ordre, avec sa raison.
+func TestRun_ShowsAnUnavailableRightButStillSendsTheOrder(t *testing.T) {
+	b := newBench(t, rights)
+	b.ready()
+	enrolled, err := b.machines.Get(context.Background(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.machines.Disconnect(b.session)
+	b.session, err = b.machines.Connect(context.Background(), enrolled.Machine, "192.0.2.1", "v0.0.1", rights, "998:opencloud-agent", "backup.receive=path_denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	overview, err := b.backups.Overview(context.Background())
+	if err != nil || len(overview.Destinations) != 1 {
+		t.Fatalf("overview %+v %v", overview, err)
+	}
+	if view := overview.Destinations[0]; view.Right != backup.RightUnavailable || view.RightReason != "path_denied" {
+		t.Fatalf("destination %+v", view)
+	}
+	run, err := b.backups.RunNow(operator())
+	if err != nil || run.State.IsFinished() || len(b.commands.orders) == 0 {
+		t.Fatalf("an unavailable right must not stop the order: %+v %v", run, err)
+	}
+	// Une destination créée alors que le droit est indisponible se crée aussi.
+	if _, err := b.backups.CreateDestination(operator(), backup.DestinationDefinition{Name: "store-2", MachineID: machineID, Path: "/srv/backups/autre"}); err != nil {
+		t.Fatalf("creating a destination under an unavailable right: %v", err)
+	}
+	// Le droit absent reste « missing », la raison ne le change pas.
+	b.machines.Disconnect(b.session)
+	b.session, err = b.machines.Connect(context.Background(), enrolled.Machine, "192.0.2.1", "v0.0.1", "backup.receive=/srv/autre", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview, err = b.backups.Overview(context.Background()); err != nil || overview.Destinations[0].Right != backup.RightMissing || overview.Destinations[0].RightReason != "" {
+		t.Fatalf("overview %+v %v", overview, err)
 	}
 }
 
