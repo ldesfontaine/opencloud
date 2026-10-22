@@ -6,7 +6,8 @@
 > séparés des machines (droits, révocation), la machine openCloud avec un
 > agent comme les autres, puis les ordres signés envoyés aux agents et les
 > droits appliqués par l'agent (#146), puis la sortie du MCP vers mcp-maison
-> (#224), 21 octobre 2026.
+> (#224), puis le README et « Ce qui manque encore » remis d'accord avec le
+> code (sauvegardes, déploiement, mise à jour des agents), 22 octobre 2026.
 
 ## Les acteurs
 
@@ -1675,9 +1676,12 @@ Docker ne connaît aucun verbe qui écrit.
 ## Comment une image est comparée à son registre
 
 openCloud dit quand l'image d'un service a quelque chose de plus récent à
-offrir. Il ne tire rien et ne relance rien : il fabrique la commande, et
-c'est l'opérateur qui la joue. Ce que le module d'origine faisait de plus,
-les CVE, le changelog, le score de risque, n'a pas été repris.
+offrir. La comparaison ne tire rien et ne relance rien. Pour un service
+qu'openCloud n'a pas déployé, il fabrique la commande, et c'est l'opérateur
+qui la joue ; pour un service qu'il a déployé, la nouvelle version se déclare
+dans l'annuaire, puis « Redéployer » réécrit le `compose.yml` et relance
+Compose (« Comment un service se déploie »). Ce que le module d'origine
+faisait de plus, les CVE, le changelog, le score de risque, n'a pas été repris.
 
 L'hôte d'une image se juge comme Docker le lit : un nom, une adresse IP
 (IPv6 entre crochets) ou `localhost`, avec un port facultatif. Tout autre
@@ -2449,7 +2453,7 @@ liste vit dans `internal/alert`.
 | Certificat expiré | `probe` | échéance passée | renouvelé | danger |
 | Certificat non vérifié | `probe` | agrafe « révoqué », nom qui ne correspond pas, ou chaîne refusée d'un certificat pas encore expiré | chaîne et nom valides | attention |
 | Disque presque plein | `resource`, par volume, à chaque lecture | **85 %** par défaut, réglable ; aggravée à **95 %** par défaut, réglable | sous le seuil d'attention **moins 5 points** (80 % par défaut), ou volume disparu | attention → danger |
-| Sauvegarde en échec | aucune | **à venir** avec les sauvegardes | | |
+| Sauvegarde en échec | aucune | **aucune alerte** : l'échec se lit sur la page Sauvegardes (`last_error` du plan, ou l'état du dernier ordre `backup.receive`), aucun canal n'est prévenu | | |
 
 **L'anti-rebond des services.** Un conteneur en boucle de redémarrage
 (mémoire épuisée, tué, code d'erreur) n'ouvre et ne résout plus une alerte
@@ -3462,11 +3466,11 @@ refusés avant d'envoyer quoi que ce soit.
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |
-| Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se télécharge ou se compile, et se copie à la main. Une version signée se vérifie (`release verify`), mais aucune n'est publiée tant que la clé de version n'est pas posée : la `v0.0.1` est non signée. Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
+| Téléchargement du binaire | La commande d'installation suppose le binaire présent : il se télécharge ou se compile, et se copie à la main. Une version signée se vérifie (`release verify`), mais aucune n'est publiée tant que la clé de version n'est pas posée : la `v0.0.1` est non signée et n'embarque pas la clé, donc la première version signée s'installe à la main, serveur et agents (`agent.update` refuse sans clé). Des unités systemd d'exemple sont dans `docs/installation/`, non testées sous systemd | À part, avec `make release` |
 | Spool côté agent | Une coupure de plus d'une heure, ou un redémarrage de l'agent, perd des mesures : un trou dans l'historique | Avec les premiers événements à rejouer |
 | Pas d'historique par volume | Les graphes et la vue d'ensemble montrent la somme des volumes ; le détail par volume n'existe que pour la valeur courante | À décider |
 | L'annuaire ne voit qu'une partie du réel | Le rattachement se fait par label, par le projet Compose ou par le nom du conteneur ; un label ne crée jamais rien, et la découverte qui proposerait des services toute seule n'est pas construite (`ProposeAll` n'en est que le socle). Un binaire reste « non observé ». L'écart n'est ni sur l'accueil ni dans une alerte ; une machine hors ligne garde son dernier inventaire. L'origine `deployed` est réservée et refusée | La découverte, plus tard |
-| Alertes et historique pas encore sur l'annuaire | Une alerte reste sur le **conteneur** (une par conteneur et par type ; `service_id` la rattache au service déclaré, pour la fiche et pour le silence) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau. Les transitions et les mesures restent sur le conteneur aussi, et l'historique d'un service déclaré est celui de la fiche courante. Les sondes, les membres de composants, les silences et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
+| Alertes et historique pas encore sur l'annuaire | Une alerte reste sur le **conteneur** (une par conteneur et par type ; `service_id` la rattache au service déclaré, pour la fiche et pour le silence) : recréer un conteneur ferme l'alerte de l'ancien et en ouvre une pour le nouveau. Les transitions et les mesures restent sur le conteneur aussi, et l'historique d'un service déclaré est celui de la fiche courante. Les sondes, les membres de composants, un silence posé sur le service et la politique de mise à jour suivent le service déclaré | Annuaire 5/6 et suivantes |
 | Les tâches ne se rattachent pas encore à un service | Une tâche surveillée (`heartbeats`) n'a pas de `service_id` : un composant l'affiche seule, et la fiche d'un service déclaré ne la liste pas | Annuaire 5/6 et suivantes |
 | Le fichier de l'annuaire ne s'applique que par la commande | `opencloud apply` écrit l'annuaire à partir d'un fichier, l'interface n'en applique pas : elle montre le journal et le plan de chaque passage. Hors du fichier : les canaux, les pages de statut, les réglages, les sauvegardes, les composants de statut. L'export n'est pas une sauvegarde : il ne contient ni historique, ni secret, ni jeton | Annuaire 4c (appliquer depuis l'interface) si l'usage le demande ; le reste à décider |
 | Un apply n'est pas une transaction | Un refus au milieu laisse les premiers changements écrits (le journal le dit, la relance reprend). Deux services qui s'échangent leurs noms ne s'appliquent qu'en deux fois | Par conception : chaque objet passe par le geste de son domaine, pour que les agents et les alertes suivent |
@@ -3475,9 +3479,9 @@ refusés avant d'envoyer quoi que ce soit.
 | La machine openCloud ne se voit pas sans son agent | Tant que la ligne de la première configuration n'a pas été jouée (elle vaut 1 h), ou que son agent est révoqué ou retiré : ni mesures, ni conteneurs, ni sondes, ni images pour elle ; ses sondes attendent | Installer l'agent : première configuration, ou fiche › Ré-enrôler (ou Ajouter une machine, jouée sur elle) |
 | Alerte sur le processeur ou la mémoire | Seul le disque alerte ; une machine saturée se voit en jauge, personne n'est prévenu | À décider |
 | Seuils fixes, hors disque | 2 min, 3 redémarrages en 10 min, 30 et 7 jours : constantes du produit, sans réglage ; seuls ceux du disque se règlent sous Paramètres | À décider |
-| Pas de Telegram | Un canal est un webhook ou un e-mail ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
+| Pas de Telegram | Un canal est un webhook, un e-mail ou un salon Matrix ; un récepteur sans URL entrante passe par un relais (ntfy, Gotify) | Plus tard |
 | L'e-mail dépend d'un relais | openCloud ne signe rien (DKIM, SPF) et ne gère aucune réputation : la délivrabilité est celle du relais choisi, ses quotas aussi | Voulu |
-| Une livraison échouée pendant 24 h est abandonnée | Après trois essais tout de suite, puis un essai de plus en plus espacé (5 s, 30 s, 2 min, 10 min, 30 min, 1 h), un récepteur en panne plus de 24 h ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
+| Une livraison échouée pendant 24 h est abandonnée | Trois essais rapprochés (tout de suite, puis 5 s et 30 s après), puis à 2 min, 10 min, 30 min, puis toutes les heures : un récepteur en panne plus de 24 h ne reçoit pas l'alerte ; la fiche de l'alerte le montre | À décider |
 | La clé des secrets est à côté de la base | `secret.key` vit sous `state_dir`, lisible par le compte du service : le chiffrement protège une copie de la base seule, pas qui lit tout le dossier. `opencloud secrets rotate` la change, serveur arrêté. Une clé perdue fait perdre les secrets, `opencloud secrets forget` repart à neuf | À décider (la sauvegarde chiffrée par `age` emporte `secret.key` sous la phrase, elle ne déplace pas la clé) |
 | Pas de « vérifier maintenant » | Un correctif se voit au prochain essai, dans les 30 s à 24 h de l'intervalle. La création, elle, sonde tout de suite | À décider, par une commande sur le flux de l'agent |
 | Pas d'incident compté par jour | La barre dit qu'un jour a eu des échecs, pas combien de fois la cible est tombée ; l'historique des alertes résolues le dit sur 90 jours | À décider |
