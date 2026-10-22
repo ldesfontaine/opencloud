@@ -169,6 +169,8 @@ const container = shape<ContainerJSON>("Container", {
   }),
   lifecycle: optional(lifecycle),
   state: value,
+  observed: value,
+  machine_last_seen_at: value,
   exit_code: value,
   oom_killed: value,
   killed: value,
@@ -430,7 +432,7 @@ const mutes = shape<MutesResponse>("MutesResponse", {
 const counts = shape<Counts>("Counts", {
   machines: shape("Counts.machines", { total: value, online: value }),
   jobs: shape("Counts.jobs", { total: value, attention: value }),
-  containers: shape("Counts.containers", { total: value, attention: value, updates: value }),
+  containers: shape("Counts.containers", { total: value, attention: value, unknown: value, updates: value }),
   probes: shape("Counts.probes", { total: value, attention: value }),
   certificates: shape("CertificateCounts", { total: value, expiring: value, expired: value, soonest_expires_at: value }),
   status: shape("Counts.status", { open_incidents: value }),
@@ -494,6 +496,7 @@ const gaps = shape<GapsResponse>("GapsResponse", {
   services: shape<ServiceGapJSON>("ServiceGap", {
     service_id: value,
     state: value,
+    observed: value,
     weak: value,
     units: shape<UnitGapJSON>("UnitGap", {
       unit_id: value,

@@ -85,6 +85,50 @@ func TestMachine_LostAfterTheDelay_BackOnConnect_GoneOnRemove(t *testing.T) {
 	}
 }
 
+// Une machine coupée à chaud garde son flux ouvert : l'alerte s'ouvre sur
+// l'âge du dernier signal, se résout quand les signaux reprennent sur ce même
+// flux, et dix passages de plus, flux ouvert et signaux réguliers, n'ajoutent
+// rien : ni alerte, ni livraison, ni changement publié.
+func TestMachine_LostOnAnOpenStream_BackWhenSignalsResume_ThenQuiet(t *testing.T) {
+	f := newFixture(t)
+	f.channel(t, "ops", alert.SeverityAttention, true)
+	ctx := context.Background()
+	if err := f.machines.Revoke(ctx, machine.LocalID); err != nil {
+		t.Fatal(err)
+	}
+	enrolled := f.enrollRemote(t)
+	session, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.advance(machine.LostAfter + 10*time.Second)
+	if err := f.machines.CheckLost(ctx); err != nil || f.kinds(t) != "machine_lost:danger" {
+		t.Fatalf("flux ouvert, signal de plus de 2 min : %q, %v", f.kinds(t), err)
+	}
+	if _, err := f.machines.Signal(ctx, session.Token); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.machines.CheckLost(ctx); err != nil || f.kinds(t) != "" {
+		t.Fatalf("signaux repris : %q, %v", f.kinds(t), err)
+	}
+	changes := f.watcher.changes.Load()
+	for range 10 {
+		f.advance(30 * time.Second)
+		if _, err := f.machines.Signal(ctx, session.Token); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.machines.CheckLost(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.kinds(t) != "" || len(f.open(t, alert.StatusResolved)) != 1 || f.sender.events() != "opened:ops,resolved:ops" {
+		t.Fatalf("après dix passages : ouvertes %q, résolues %d, livraisons %q", f.kinds(t), len(f.open(t, alert.StatusResolved)), f.sender.events())
+	}
+	if got := f.watcher.changes.Load(); got != changes {
+		t.Fatalf("dix passages sans rien de neuf publient %d changements", got-changes)
+	}
+}
+
 // --- Services ---
 
 func inspection(state container.State, exitCode int, health container.Health) *container.Observed {

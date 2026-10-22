@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Container, Transition } from "../api/containers";
 import type { Translate } from "../i18n/context";
-import { containerNeedsAttention, filterContainers, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle, transitionPassage } from "./containers";
+import { containerNeedsAttention, displayedState, filterContainers, lastStateText, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle, transitionPassage } from "./containers";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -25,6 +25,36 @@ test("containerPill dérive la pastille des faits", () => {
   expect(containerPill({ state: "created", exit_code: 0, health: "" }).key).toBe("created");
 });
 
+// Une machine qui ne signale plus : l'état connu est celui d'avant son silence.
+const lost = { observed: false, machine_last_seen_at: "2026-09-19T07:00:00Z" } as const;
+
+test("displayedState dit « inconnu », neutre, dès que le serveur dit la machine non observée", () => {
+  const running = { state: "running", exit_code: 0, health: "" } as const;
+  const crashed = { state: "exited", exit_code: 1, health: "" } as const;
+  expect(displayedState({ ...running, observed: false })).toEqual({ key: "unknown", tone: "neutral" });
+  expect(displayedState({ ...crashed, observed: false })).toEqual({ key: "unknown", tone: "neutral" });
+  expect(displayedState({ ...running, observed: true })).toEqual({ key: "active", tone: "ok" });
+  expect(displayedState({ ...crashed, observed: true })).toEqual({ key: "failing", tone: "danger" });
+  // Sans le fait (une transition, un fait passé) : l'état se lit tel quel.
+  expect(displayedState(running)).toEqual({ key: "active", tone: "ok" });
+  // containerPill ne lit que les faits : c'est le « dernier état ».
+  expect(containerPill({ ...running, observed: false })).toEqual({ key: "active", tone: "ok" });
+});
+
+test("lastStateText dit le dernier état et depuis quand la machine s'est tue", () => {
+  const now = Date.parse("2026-09-19T12:00:00Z");
+  const running = { state: "running", exit_code: 0, health: "" } as const;
+  expect(lastStateText(t, { ...running, ...lost }, now)).toBe("container.last_state:container.state_active:time.hours:5");
+  expect(lastStateText(t, { ...running, observed: true, machine_last_seen_at: "2026-09-19T11:59:00Z" }, now)).toBeNull();
+  expect(lastStateText(t, { ...running, observed: false, machine_last_seen_at: null }, now)).toBeNull();
+  expect(lastStateText(t, { state: "exited", exit_code: 1, health: "", ...lost }, now)).toBe("container.last_state:container.state_failing:time.hours:5");
+});
+
+test("containerNeedsAttention ne compte pas un conteneur dont la machine ne répond plus", () => {
+  expect(containerNeedsAttention({ state: "exited", exit_code: 1, health: "", ...lost })).toBe(false);
+  expect(containerNeedsAttention({ state: "exited", exit_code: 1, health: "", observed: true })).toBe(true);
+});
+
 test("containerNeedsAttention suit la règle du serveur", () => {
   expect(containerNeedsAttention({ state: "exited", exit_code: 1, health: "" })).toBe(true);
   expect(containerNeedsAttention({ state: "exited", exit_code: 137, health: "" })).toBe(false);
@@ -40,6 +70,13 @@ test("matchesFilter sépare actifs et arrêtés", () => {
   expect(matchesFilter({ state: "exited" }, "active")).toBe(false);
   expect(matchesFilter({ state: "paused" }, "stopped")).toBe(true);
   expect(matchesFilter({ state: "exited" }, "all")).toBe(true);
+});
+
+test("matchesFilter : un conteneur d'état inconnu n'est ni actif ni arrêté, seul « Tous » le garde", () => {
+  expect(matchesFilter({ state: "running", observed: false }, "all")).toBe(true);
+  expect(matchesFilter({ state: "running", observed: false }, "active")).toBe(false);
+  expect(matchesFilter({ state: "exited", observed: false }, "stopped")).toBe(false);
+  expect(matchesFilter({ state: "running", observed: true }, "active")).toBe(true);
 });
 
 test("filterContainers garde tout, les actifs ou les arrêtés selon le filtre, sans toucher à la liste reçue", () => {
@@ -66,10 +103,17 @@ test("formatPublishedPorts écrit les ports publiés comme la planche", () => {
 });
 
 test("servicesSubtitle compte", () => {
-  expect(servicesSubtitle(t, 0, 0)).toBe("services.subtitle_none");
-  expect(servicesSubtitle(t, 1, 1)).toBe("services.subtitle_one_attention");
-  expect(servicesSubtitle(t, 6, 0)).toBe("services.subtitle_ok:6");
-  expect(servicesSubtitle(t, 6, 2)).toBe("services.subtitle_attention:6:2");
+  expect(servicesSubtitle(t, 0, 0, 0)).toBe("services.subtitle_none");
+  expect(servicesSubtitle(t, 1, 0, 0)).toBe("services.subtitle_one");
+  expect(servicesSubtitle(t, 1, 1, 0)).toBe("services.subtitle_one_attention");
+  expect(servicesSubtitle(t, 6, 0, 0)).toBe("services.subtitle_ok:6");
+  expect(servicesSubtitle(t, 6, 2, 0)).toBe("services.subtitle_attention:6:2");
+});
+
+test("servicesSubtitle ne dit pas « tous actifs » de conteneurs dont l'état est inconnu", () => {
+  expect(servicesSubtitle(t, 1, 0, 1)).toBe("services.subtitle_one_unknown");
+  expect(servicesSubtitle(t, 6, 0, 2)).toBe("services.subtitle_unknown:6:2");
+  expect(servicesSubtitle(t, 6, 1, 2)).toBe("services.subtitle_attention_unknown:6:1:2");
 });
 
 test("imageBase et containerIcon lisent le nom de l'image", () => {
@@ -99,6 +143,12 @@ test("nodeTone met l'attention d'un constat sur un container sain, jamais sur un
   expect(nodeTone({ state: "running", exit_code: 0, health: "", exposure: warn })).toBe("warn");
   expect(nodeTone({ state: "exited", exit_code: 1, health: "", exposure: warn })).toBe("danger");
   expect(nodeTone({ state: "running", exit_code: 0, health: "", exposure: [{ kind: "port_public", level: "info", port: 80, protocol: "tcp" }] })).toBe("ok");
+});
+
+test("nodeTone : un nœud inconnu reste neutre, même avec un constat d'exposition", () => {
+  const warn = [{ kind: "database_port_public" as const, level: "warn" as const, port: 6379, protocol: "tcp" }];
+  expect(nodeTone({ state: "running", exit_code: 0, health: "", exposure: warn, observed: false })).toBe("neutral");
+  expect(nodeTone({ state: "exited", exit_code: 1, health: "", exposure: [], observed: false })).toBe("neutral");
 });
 
 test("findingText passe le port au catalogue", () => {

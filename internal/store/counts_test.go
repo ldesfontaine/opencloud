@@ -62,14 +62,15 @@ func TestCountContainers_MatchesNeedsAttention(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	declaredOnLocal(t, db)
+	seedAgent(t, db, machine.LocalID, countsNow, false)
 	cases := attentionCases()
 	if err := db.ApplyChanges(ctx, container.Changes{MachineID: machine.LocalID, Now: countsNow, Containers: cases}); err != nil {
 		t.Fatal(err)
 	}
 
-	total, attention, err := db.CountContainers(ctx)
-	if err != nil {
-		t.Fatal(err)
+	total, attention, unknown, err := db.CountContainers(ctx, machine.ObservedSince(countsNow))
+	if err != nil || unknown != 0 {
+		t.Fatalf("inconnus %d, %v", unknown, err)
 	}
 
 	wantTotal, wantAttention := 0, 0
@@ -87,6 +88,84 @@ func TestCountContainers_MatchesNeedsAttention(t *testing.T) {
 	}
 	if wantAttention != 6 {
 		t.Fatalf("le jeu doit couvrir six cas à traiter, pas %d", wantAttention)
+	}
+}
+
+// seedAgent pose l'agent d'une machine déjà inscrite, vu à l'instant donné
+// (zéro : jamais vu), révoqué ou non.
+func seedAgent(t *testing.T, db *DB, machineID string, seen time.Time, revoked bool) {
+	t.Helper()
+	var lastSeen, revokedAt any
+	if !seen.IsZero() {
+		lastSeen = seen.Unix()
+	}
+	if revoked {
+		revokedAt = countsNow.Unix()
+	}
+	exec(t, db, `INSERT INTO agents (id, machine_id, public_key, enrolled_at, last_seen_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"agt_"+machineID, machineID, make([]byte, 32), countsNow.Unix(), lastSeen, revokedAt)
+}
+
+// Un conteneur en échec qui compte à traiter, sur la machine donnée.
+func crashedOn(machineID string) container.Container {
+	item := countTestContainer("crashed", "a")
+	item.ID, item.MachineID = container.ID(machineID, "crashed"), machineID
+	item.State, item.ExitCode = container.StateExited, 1
+	return item
+}
+
+// Un conteneur dont la machine n'est pas observée (signal trop vieux, agent
+// révoqué, pas d'agent) reste compté au total, jamais à traiter : son état
+// n'est plus connu, l'alerte « machine perdue » le dit. La borne est incluse,
+// comme machine.Observed ; le SQL et la règle en Go comptent pareil.
+func TestCountContainers_SkipsMachinesThatAreNotObserved(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	since := machine.ObservedSince(countsNow)
+	machines := []struct {
+		id      string
+		seen    time.Time
+		revoked bool
+		noAgent bool
+	}{
+		{id: "fresh", seen: countsNow},
+		{id: "edge", seen: since},
+		{id: "just-lost", seen: since.Add(-time.Second)},
+		{id: "stale", seen: countsNow.Add(-5 * time.Hour)},
+		{id: "never-seen"},
+		{id: "revoked", seen: countsNow, revoked: true},
+		{id: "no-agent", noAgent: true},
+	}
+	wantAttention := 0
+	for _, m := range machines {
+		exec(t, db, `INSERT INTO machines (id, name, hostname, created_at) VALUES (?, ?, 'host', ?)`, m.id, m.id, countsNow.Unix())
+		if !m.noAgent {
+			seedAgent(t, db, m.id, m.seen, m.revoked)
+		}
+		if err := db.ApplyChanges(ctx, container.Changes{MachineID: m.id, Now: countsNow, Containers: []container.Container{crashedOn(m.id)}}); err != nil {
+			t.Fatal(err)
+		}
+		status := machine.Status{Machine: machine.Machine{LastSeenAt: m.seen}}
+		if !m.noAgent {
+			status.Agent = machine.Agent{ID: "agt_" + m.id}
+			if m.revoked {
+				status.Agent.RevokedAt = countsNow
+			}
+		}
+		if machine.Observed(status, countsNow) {
+			wantAttention++
+		}
+	}
+
+	total, attention, unknown, err := db.CountContainers(ctx, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != len(machines) || attention != wantAttention || wantAttention != 2 {
+		t.Fatalf("total %d (attendu %d), à traiter %d (attendu %d, soit 2 : fresh et edge)", total, len(machines), attention, wantAttention)
+	}
+	if unknown != total-wantAttention {
+		t.Fatalf("inconnus %d, attendu %d : chaque machine non observée", unknown, total-wantAttention)
 	}
 }
 

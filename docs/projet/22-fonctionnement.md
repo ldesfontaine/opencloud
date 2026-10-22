@@ -1056,6 +1056,31 @@ figées), et les types d'alerte `service_*` (des noms que lisent les canaux et
 leurs récepteurs). Le genre d'objet d'une alerte de conteneur est
 `container`.
 
+**Observé ou inconnu.** Une fiche dit le dernier état que l'agent a rapporté ;
+rien ne dit qu'il est encore vrai si la machine s'est tue. Le serveur calcule
+donc, à la lecture et à un seul endroit (`machine.Observed`), si la machine
+est **observée** : son agent est actif et son **dernier signal** (envoyé toutes
+les 30 s) date de `machine.LostAfter` (2 min) au plus. C'est le signal qui
+juge, pas le flux ouvert : une VM coupée à chaud garde son flux ouvert jusqu'au
+délai de la connexion, ses signaux cessent tout de suite. Rien n'est écrit en
+base. Chaque conteneur, chaque écart de service déclaré (`/api/directory/gaps`)
+et la topologie rendent `observed` ; un conteneur rend aussi
+`machine_last_seen_at`, le dernier signal de sa machine.
+
+| Où | Machine non observée |
+| --- | --- |
+| Pastille | « Inconnu », neutre ; dessous « Dernier état : Actif, il y a 5 h » ; « actif depuis » disparaît |
+| Filtres | « Actifs » et « Arrêtés » ne le gardent pas, « Tous » oui |
+| Compteurs | compté au total, **jamais « à traiter »**, à part dans `unknown` (`/api/counts`) : la tuile de la vue d'ensemble dit « N d'état inconnu », jamais « Tous actifs » (le SQL joint l'agent actif et son dernier signal ; un test de parité tient le SQL et `machine.Observed`) ; l'alerte « machine perdue » porte l'information |
+| Graphe | nœud neutre, même avec un constat d'exposition |
+| Annuaire | l'écart d'un service de cette machine se lit « Inconnu » |
+| Alertes | aucune alerte neuve ; celles déjà ouvertes restent telles quelles |
+
+Une machine sans agent actif (jamais enrôlée, révoquée) est non observée ; elle
+n'est jamais « perdue ». Pas encore « Inconnu » : **Docker muet sur une machine
+en ligne** (voir « Ce qui manque encore »). La pastille « En ligne » de la
+machine suit toujours le flux, pas cette règle.
+
 1. L'agent sonde la socket Docker au départ puis toutes les 60 s tant
    qu'elle ne répond pas, en lecture seule, API Engine épinglée à `1.41`
    (Docker 20.10, celui de Debian 12) ; un démon plus vieux est refusé. Il
@@ -2323,6 +2348,11 @@ adresse inconnue répond `404` comme tout chemin inconnu.
    pire l'emporte. Un objet qui ne dit rien de la cible ne compte pas ;
    un composant dont aucun objet ne compte est **caché du public** et
    signalé à l'opérateur.
+   Un service dont la machine n'est pas observée (voir « Comment les
+   conteneurs sont suivis ») vaut **Panne** et **compte** : sinon un composant
+   fait de ces seuls services disparaîtrait de la page pendant la panne.
+   **Parade** à une fausse panne publique (lien openCloud ↔ machine coupé,
+   machine saine) : un incident, ou une sonde membre du composant.
 3. **L'état global** d'une page est le pire de ses composants visibles. Sans composant,
    la page dit « rien à afficher », jamais « tout fonctionne » à vide.
 4. **Un incident** est ce que l'opérateur dit au public : un titre, un
@@ -2632,7 +2662,7 @@ liste vit dans `internal/alert`.
 
 | Alerte | Source | S'ouvre quand | Se résout quand | Gravité |
 | --- | --- | --- | --- | --- |
-| Machine perdue | `machine`, toutes les 15 s | flux fermé et dernier signal de plus de **2 min**, la machine openCloud comprise ; jamais une machine sans agent actif (révoqué, ou en attente de son agent) | l'agent rouvre son flux | danger |
+| Machine perdue | `machine`, toutes les 15 s | dernier signal de plus de **2 min** (`machine.Observed`), **flux ouvert ou non** : une machine coupée à chaud garde son flux ; la machine openCloud comprise ; jamais une machine sans agent actif (révoqué, ou en attente de son agent) | l'agent rouvre son flux, ou ses signaux reprennent sur le flux resté ouvert (le passage de 15 s la résout) | danger |
 | Service arrêté sans qu'on l'ait demandé | `container`, après chaque rapport | état final `exited` avec un code hors 0, 137 et 143, ou tué faute de mémoire (motif `oom` : « arrêté par manque de mémoire »), ou tué en SIGKILL sans arrêt demandé (motif `killed` : « arrêté brutalement (signal KILL), sans arrêt demandé » ; chercher un `docker kill`, un `kill -9` sur l'hôte, un outil d'administration), ou `dead`. Un `docker stop` dont le délai expire (137) et le 143 (SIGTERM) restent des arrêts demandés | il tourne de nouveau depuis **2 min**, ou devient « redémarrage non demandé » s'il a été relancé (la même alerte) ; fiche archivée | danger |
 | Service défaillant | `container` | `running` avec santé `unhealthy` | santé revenue depuis **2 min**, ou arrêt ; un échec qui revient avant reprend la même alerte | attention |
 | Redémarrage non demandé | `container` | un arrêt non demandé suivi d'un `start`, dans le rapport ou depuis le précédent, ou un passage par `restarting` | **10 min** sans nouveau redémarrage ; un nouvel arrêt la repasse en « arrêté » sans en ouvrir une autre | attention |
@@ -3702,6 +3732,7 @@ refusés avant d'envoyer quoi que ce soit.
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | Le groupe `docker` équivaut à root | Le compte dédié de l'agent (`opencloud-agent`, décision 2 du 22 octobre 2026) est dans le groupe `docker` quand la machine a Docker, et la socket de Docker lance un conteneur privilégié qui monte `/` : sur une machine avec Docker, le compte dédié protège des erreurs et d'une compromission maladroite (pas de réécriture directe de `/etc`, `/usr`, des comptes), pas d'un attaquant décidé. Sans Docker, c'est un compte sans privilège. Root reste possible (drop-in `root.conf`), au prix de la machine entière | Un observateur non privilégié et un exécuteur root étroit : seulement si l'usage le demande (décision 2) |
+| Docker muet sur une machine en ligne | La machine signale, mais Docker ne répond plus (ou l'agent dit « Docker absent ») : ses conteneurs gardent leur dernier état, pas encore « Inconnu » | Après #136 point 1 (issue de suite : 12 min, ou tout de suite si l'agent dit « Docker absent ») |
 | Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment la base est sauvegardée »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |

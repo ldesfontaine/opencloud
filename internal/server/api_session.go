@@ -7,6 +7,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 )
@@ -89,7 +90,10 @@ type jobCounts struct {
 type containerCounts struct {
 	Total     int `json:"total"`
 	Attention int `json:"attention"`
-	Updates   int `json:"updates"`
+	// Ceux dont la machine ne signale plus (machine.Observed) : ni actifs ni
+	// à traiter, la vue d'ensemble ne dit pas « tous actifs » d'eux.
+	Unknown int `json:"unknown"`
+	Updates int `json:"updates"`
 }
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +169,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	if err != nil {
 		return countsResponse{}, err
 	}
-	containers, failing, err := s.reader.CountContainers(ctx)
+	containers, failing, unknown, err := s.reader.CountContainers(ctx, machine.ObservedSince(s.now()))
 	if err != nil {
 		return countsResponse{}, err
 	}
@@ -192,7 +196,7 @@ func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	return countsResponse{
 		Machines:     machineCounts{Total: total, Online: online},
 		Jobs:         jobCounts{Total: jobs, Attention: attention},
-		Containers:   containerCounts{Total: containers, Attention: failing, Updates: updates},
+		Containers:   containerCounts{Total: containers, Attention: failing, Unknown: unknown, Updates: updates},
 		Probes:       jobCounts{Total: probes, Attention: down},
 		Certificates: certificatesToJSON(certificates),
 		Status:       statusCounts{OpenIncidents: openIncidents},

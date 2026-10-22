@@ -274,6 +274,19 @@ func (ts *testServer) enroll(t *testing.T, name, id string) (machine.Machine, ed
 	return storetest.EnrollMachineWithKey(t, ts.machines, id, name)
 }
 
+// signaledAt donne à l'agent de la machine son dernier signal à l'instant
+// donné : testNow la rend observée, cinq heures plus tôt la perdue.
+func (ts *testServer) signaledAt(t *testing.T, machineID string, at time.Time) {
+	t.Helper()
+	found, err := ts.machines.Get(context.Background(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.db.TouchAgent(context.Background(), found.Agent.ID, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // L'identifiant de la machine distante des tests, fixe pour des rendus figés.
 const remoteID = servertest.RemoteID
 

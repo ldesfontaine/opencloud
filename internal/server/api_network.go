@@ -90,12 +90,13 @@ func (s *Server) networkOf(ctx context.Context, machineStatus machine.Status) (n
 	if err != nil {
 		return networkResponse{}, err
 	}
+	view := s.machineViewOf(machineStatus)
 	response := networkResponse{
 		MachineID: machineStatus.ID, MachineName: machineStatus.Name, Online: machineStatus.Online,
 		Containers: make([]containerJSON, 0, len(topology.Containers)), Groups: []groupJSON{}, Edges: httpx.ConvertAll(topology.Edges, edgeToJSON),
 	}
 	for _, item := range topology.Containers {
-		response.Containers = append(response.Containers, containerToJSON(item, machineStatus.Name, currents[item.ID], checks))
+		response.Containers = append(response.Containers, containerToJSON(item, view, currents[item.ID], checks))
 	}
 	for _, group := range topology.Groups {
 		response.Groups = append(response.Groups, groupJSON{NetworkID: group.NetworkID, Name: group.Name, Internal: group.Internal, Members: group.Members})

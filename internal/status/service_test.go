@@ -55,6 +55,9 @@ func newFixture(t *testing.T) *fixture {
 	f.machines = machine.New(db, machine.NewSessions(), logger)
 	f.machines.SetClock(clock)
 	storetest.EnsureLocalMachine(t, f.machines)
+	// Les conteneurs du banc sont rapportés par l'agent de la machine
+	// openCloud : il vient de signaler, la machine est observée.
+	f.seen(t, machine.LocalID)
 	f.heartbeats = heartbeat.New(db, logger)
 	f.heartbeats.SetClock(clock)
 	f.services = container.New(db, logger)
@@ -75,6 +78,21 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.pageID = page.ID
 	return f
+}
+
+// seen donne un signe de vie à l'agent de la machine, à l'heure du banc,
+// sans laisser de flux ouvert : en ligne, jamais ; observée, oui.
+func (f *fixture) seen(t *testing.T, machineID string) {
+	t.Helper()
+	found, err := f.machines.Get(context.Background(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := f.machines.Connect(context.Background(), found.Machine, "192.0.2.1", "v0.0.1", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.machines.Disconnect(session)
 }
 
 func (f *fixture) component(t *testing.T, name string, members ...status.MemberRef) status.Component {

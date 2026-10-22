@@ -11,7 +11,7 @@ import { ProjectsTab } from "../components/ProjectsTab";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
 import { ServicesTabs } from "../components/ServicesTabs";
 import { useT } from "../i18n/context";
-import { containerNeedsAttention, engineNote, filterContainers, servicesSubtitle, type Filter } from "../lib/containers";
+import { containerNeedsAttention, displayedState, engineNote, filterContainers, servicesSubtitle, type Filter } from "../lib/containers";
 
 // La page Services, sous trois onglets : l'annuaire que l'opérateur déclare
 // (par défaut : c'est lui qui porte les liens), les conteneurs que Docker
@@ -36,6 +36,7 @@ function ContainersTab() {
   const [filter, setFilter] = useState<Filter>("all");
   const all = containers.data?.containers ?? [];
   const attention = all.filter(containerNeedsAttention).length;
+  const unknown = all.filter((container) => displayedState(container).key === "unknown").length;
   const byMachine = machineID === "" ? all : all.filter((container) => container.machine_id === machineID);
   const shown = filterContainers(byMachine, filter);
   const engine = containers.data?.engines.find((candidate) => candidate.machine_id === machineID);
@@ -44,7 +45,7 @@ function ContainersTab() {
     <>
       <PageHead
         title={t("nav.services")}
-        subtitle={containers.data ? servicesSubtitle(t, all.length, attention) : ""}
+        subtitle={containers.data ? servicesSubtitle(t, all.length, attention, unknown) : ""}
         actions={
           <MachineSelect
             icon="server"

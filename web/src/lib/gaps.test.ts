@@ -57,7 +57,7 @@ test("gapTone teinte chaque état de l'écart", () => {
 });
 
 test("gapsByService indexe par service et supporte l'absence de réponse", () => {
-  const gaps: GapsResponse = { services: [{ service_id: "svc_1", state: "conform", weak: false, units: [] }], undeclared: [] };
+  const gaps: GapsResponse = { services: [{ service_id: "svc_1", state: "conform", observed: true, weak: false, units: [] }], undeclared: [] };
   expect(gapsByService(gaps).get("svc_1")?.state).toBe("conform");
   expect(gapsByService(gaps).get("svc_2")).toBeUndefined();
   expect(gapsByService(null).size).toBe(0);

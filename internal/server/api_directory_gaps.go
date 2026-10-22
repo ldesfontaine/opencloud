@@ -14,10 +14,13 @@ import (
 // et par conteneur rattaché. Des faits, jamais un libellé : le front en fait
 // une pastille.
 type serviceGapJSON struct {
-	ServiceID string        `json:"service_id"`
-	State     string        `json:"state"`
-	Weak      bool          `json:"weak"`
-	Units     []unitGapJSON `json:"units"`
+	ServiceID string `json:"service_id"`
+	State     string `json:"state"`
+	// Faux : la machine du service ne signale plus (machine.Observed), l'écart
+	// est calculé sur ce qu'elle montrait avant de se taire.
+	Observed bool          `json:"observed"`
+	Weak     bool          `json:"weak"`
+	Units    []unitGapJSON `json:"units"`
 }
 
 type unitGapJSON struct {
@@ -123,7 +126,7 @@ func serviceGapToJSON(gap directory.ServiceGap) serviceGapJSON {
 	return converted
 }
 
-func undeclaredToJSON(group directory.Undeclared, machineNames map[string]string) undeclaredJSON {
+func undeclaredToJSON(group directory.Undeclared, machines map[string]machineView) undeclaredJSON {
 	containers := make([]undeclaredContainer, 0, len(group.Containers))
 	for _, found := range group.Containers {
 		containers = append(containers, undeclaredContainer{
@@ -132,7 +135,7 @@ func undeclaredToJSON(group directory.Undeclared, machineNames map[string]string
 		})
 	}
 	return undeclaredJSON{
-		MachineID: group.MachineID, MachineName: machineNames[group.MachineID], KeyKind: string(group.Key.Kind), KeyValue: group.Key.Value,
+		MachineID: group.MachineID, MachineName: machines[group.MachineID].name, KeyKind: string(group.Key.Kind), KeyValue: group.Key.Value,
 		Ignored: group.Ignored, ServiceID: group.ServiceID, Adoptable: group.Adoptable, Containers: containers,
 	}
 }
@@ -148,14 +151,20 @@ func (s *Server) gapsOf(ctx context.Context, filter directory.Filter) (gapsRespo
 }
 
 func (s *Server) gapsResponseOf(ctx context.Context, report directory.GapReport) (gapsResponse, error) {
-	names, err := s.machineNames(ctx)
+	machines, err := s.machineViews(ctx)
 	if err != nil {
 		return gapsResponse{}, err
 	}
-	return gapsResponse{
+	response := gapsResponse{
 		Services:   httpx.ConvertAll(report.Services, serviceGapToJSON),
-		Undeclared: httpx.ConvertAll(report.Undeclared, func(group directory.Undeclared) undeclaredJSON { return undeclaredToJSON(group, names) }),
-	}, nil
+		Undeclared: httpx.ConvertAll(report.Undeclared, func(group directory.Undeclared) undeclaredJSON { return undeclaredToJSON(group, machines) }),
+	}
+	// Declared suit l'ordre de Services : l'écart d'un service est observé
+	// ou non selon la machine qui le porte.
+	for i, declared := range report.Declared {
+		response.Services[i].Observed = machines[declared.MachineID].observed
+	}
+	return response, nil
 }
 
 func (s *Server) getDirectoryGaps(w http.ResponseWriter, r *http.Request) {
