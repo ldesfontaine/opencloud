@@ -47,3 +47,16 @@ func ignoredKeyEvent(action audit.Action, key IgnoredKey) audit.Event {
 		Details: audit.Details{"machine_id": key.MachineID, "kind": string(key.Kind)},
 	}
 }
+
+// unitVersionEvent : une version changée est une mise à jour du service ; le
+// geste « passer à » le dit dans via, l'unité et les deux versions dans les
+// détails.
+func unitVersionEvent(unit Unit, owner Service, version string) audit.Event {
+	return audit.Event{
+		Action: audit.ServiceUpdate, ObjectID: owner.ID, ObjectName: owner.Name,
+		Details: audit.Details{
+			"machine_id": owner.MachineID, "unit": unit.Name,
+			"version_before": unit.Version, "version_after": version, "via": "upgrade",
+		},
+	}
+}

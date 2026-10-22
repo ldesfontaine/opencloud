@@ -359,6 +359,12 @@ export async function deployService(id: string, redeploy: boolean, env: string |
   return api.post<ActionRun>(`${servicePath(id)}/actions/${redeploy ? "redeploy" : "deploy"}`, { env });
 }
 
+// Change la version déclarée de l'unité, puis redéploie son service : un
+// geste. La version est celle que l'agent propose, rien d'autre.
+export async function upgradeUnit(unitID: string, version: string): Promise<ActionRun> {
+  return api.post<ActionRun>(`${directoryPath}/units/${segment(unitID)}/actions/upgrade`, { version });
+}
+
 export async function ignoreObservation(key: IgnoreKey): Promise<void> {
   return api.post(ignoredPath, key);
 }

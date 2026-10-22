@@ -33,6 +33,9 @@ type Store interface {
 	// SetUnitUpdatePolicy écrit la politique de l'unité et rien d'autre ;
 	// ErrUnitNotFound si elle n'existe plus.
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) error
+	// SetUnitVersion écrit la version de l'unité, date son service, et rien
+	// d'autre ; ErrUnitNotFound si elle n'existe plus.
+	SetUnitVersion(ctx context.Context, unitID, version string, at time.Time) error
 	InsertProject(ctx context.Context, project Project) error
 	UpdateProject(ctx context.Context, project Project) error
 	GetProject(ctx context.Context, id string) (Project, error)

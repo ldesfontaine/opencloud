@@ -38,6 +38,7 @@ GET /api/directory/services/{id}/deploy-plan
 POST /api/directory/services/{id}/actions/deploy
 POST /api/directory/services/{id}/actions/redeploy
 PUT /api/directory/units/{id}/update-policy
+POST /api/directory/units/{id}/actions/upgrade
 GET /api/directory/projects
 POST /api/directory/projects
 GET /api/directory/projects/{id}

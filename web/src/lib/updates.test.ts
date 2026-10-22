@@ -1,8 +1,9 @@
 import { expect, test } from "vitest";
 
 import type { ImageCheck } from "../api/containers";
+import type { ContainerDirectory } from "../api/directory";
 import type { Translate } from "../i18n/context";
-import { checkText, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel } from "./updates";
+import { checkText, imageLineChange, needsComposeEdit, shortDigest, updateAvailable, updateLabel, upgradeOffer, upgradeServiceID } from "./updates";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -51,4 +52,41 @@ test("imageLineChange donne la ligne image avant et après, sous Compose seuleme
 
 test("shortDigest coupe comme Docker", () => {
   expect(shortDigest("sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc")).toBe("d9e853e87e55");
+});
+
+const declared: ContainerDirectory = {
+  declared: true, service_id: "svc_1", service_name: "nextcloud", unit_id: "unt_1", unit_name: "db", match_level: "compose",
+  weak: false, key_kind: "compose_project", key_value: "nextcloud", ignored: false,
+  label_service: "", label_unit: "", label_problem: "", label_machine_name: "",
+};
+const minor = check({ kind: "minor", newer_tag: "16.5", target: "postgres:16.5" });
+const deployed = { deployed: true };
+
+test("upgradeOffer propose le tag plus récent d'un service déployé, suivi et déclaré", () => {
+  const container = { update_policy: "watch" as const, image_check: minor };
+  expect(upgradeServiceID(container, declared)).toBe("svc_1");
+  expect(upgradeOffer(container, declared, deployed)).toEqual({ version: "16.5" });
+});
+
+test("upgradeOffer se tait quand une des quatre conditions manque", () => {
+  const container = { update_policy: "watch" as const, image_check: minor };
+  // Pas déclaré : la ligne à copier reste.
+  expect(upgradeOffer(container, { ...declared, declared: false }, deployed)).toBeNull();
+  expect(upgradeOffer(container, null, deployed)).toBeNull();
+  // Déclaré mais jamais déployé par openCloud, ou plan pas encore lu.
+  expect(upgradeOffer(container, declared, { deployed: false })).toBeNull();
+  expect(upgradeOffer(container, declared, null)).toBeNull();
+  // Épinglé ou exclu : la mise à jour ne se montre pas.
+  expect(upgradeOffer({ ...container, update_policy: "hold" }, declared, deployed)).toBeNull();
+  expect(upgradeOffer({ ...container, update_policy: "ignore" }, declared, deployed)).toBeNull();
+  // Rien de plus récent, ou une image reconstruite sous le même tag.
+  expect(upgradeOffer({ ...container, image_check: check({}) }, declared, deployed)).toBeNull();
+  expect(upgradeOffer({ ...container, image_check: check({ kind: "digest" }) }, declared, deployed)).toBeNull();
+  expect(upgradeOffer({ ...container, image_check: null }, declared, deployed)).toBeNull();
+});
+
+test("upgradeServiceID ne demande pas le plan quand rien n'est offert", () => {
+  expect(upgradeServiceID({ update_policy: "hold", image_check: minor }, declared)).toBeNull();
+  expect(upgradeServiceID({ update_policy: "watch", image_check: check({ kind: "digest" }) }, declared)).toBeNull();
+  expect(upgradeServiceID({ update_policy: "watch", image_check: minor }, null)).toBeNull();
 });

@@ -138,7 +138,7 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	backups.SetSender(actions)
 	backups.SetAuditor(journal)
 	// Le déploiement des services déclarés part par les mêmes ordres signés.
-	deployer := deploy.New(db, machines, db, actions, logger)
+	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. La machine openCloud lit endoflife.date une fois par jour,
 	// deux au plus, pour les produits des images présentes et les systèmes

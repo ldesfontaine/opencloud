@@ -132,6 +132,8 @@ var (
 
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
+	// Une unité binaire n'a pas d'image à faire passer à une autre version.
+	ErrUnitNotContainer = refusal.Invalid("directory.unit_not_container", "only a container unit changes version through its image")
 	// ErrServiceLinked : des sondes ou des composants de statut visent le
 	// service. Le refus porte le plan (deletion.RefusedError), avec la liste.
 	ErrServiceLinked = refusal.Conflict("directory.service_linked", "declared service is still watched or shown")
