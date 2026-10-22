@@ -211,6 +211,31 @@ func TestAlertsAPI_ChannelsAndMutesGoThroughTheComponent(t *testing.T) {
 	}
 }
 
+// receives_audit se crée, se relit, se modifie, comme le reste du canal.
+func TestAlertsAPI_ChannelReceivesAuditRoundTrips(t *testing.T) {
+	server := newTestServer(t)
+	var channel channelJSON
+	recorder := callAPI(server.Server, http.MethodPost, "/api/alerts/channels", map[string]any{
+		"name": "journal", "url": "https://hooks.example.org/journal", "format": "json", "min_severity": "attention", "receives_audit": true, "enabled": true,
+	})
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusCreated || !channel.ReceivesAudit {
+		t.Fatalf("create: %d %+v", recorder.Code, channel)
+	}
+	var read channelJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/channels/"+itoa(channel.ID), nil), &read)
+	if !read.ReceivesAudit {
+		t.Fatalf("read: %+v", read)
+	}
+	recorder = callAPI(server.Server, http.MethodPut, "/api/alerts/channels/"+itoa(channel.ID), map[string]any{
+		"name": "journal", "url": "https://hooks.example.org/journal", "format": "json", "min_severity": "attention", "receives_audit": false, "enabled": true,
+	})
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusOK || channel.ReceivesAudit {
+		t.Fatalf("update: %d %+v", recorder.Code, channel)
+	}
+}
+
 // Toute écriture du moteur publie « alerts » : l'onglet relit.
 func TestAlertsAPI_ChangesReachTheLive(t *testing.T) {
 	server := newTestServer(t)

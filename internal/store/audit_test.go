@@ -28,7 +28,7 @@ func TestAuditEvents_AppendThenListByPageAndObject(t *testing.T) {
 		auditEvent(audit.ObjectProbe, audit.ProbePause, "p2", at),
 		auditEvent(audit.ObjectChannel, audit.ChannelCreate, "1", at),
 	} {
-		if err := db.InsertAuditEvent(ctx, event); err != nil {
+		if _, err := db.InsertAuditEvent(ctx, event); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -73,7 +73,7 @@ func TestAuditEvents_PurgeRemovesOnlyTheOlder(t *testing.T) {
 		auditEvent(audit.ObjectProbe, audit.ProbeDelete, "old", now.Add(-audit.Retention-time.Hour)),
 		auditEvent(audit.ObjectProbe, audit.ProbeDelete, "kept", now.Add(-time.Hour)),
 	} {
-		if err := db.InsertAuditEvent(ctx, event); err != nil {
+		if _, err := db.InsertAuditEvent(ctx, event); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -105,7 +105,7 @@ func TestAuditEvents_AreAppendOnlyAndOutliveTheirApply(t *testing.T) {
 	}
 	event := auditEvent(audit.ObjectProject, audit.ProjectCreate, "prj_1", at)
 	event.ApplyID = apply.ID
-	if err := db.InsertAuditEvent(ctx, event); err != nil {
+	if _, err := db.InsertAuditEvent(ctx, event); err != nil {
 		t.Fatal(err)
 	}
 	_, err := db.sql.ExecContext(ctx, `UPDATE audit_events SET actor_name = 'mallory'`)

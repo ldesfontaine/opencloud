@@ -228,6 +228,7 @@ statut pour la maintenance.
 (identité de l'opérateur, ou MCP, ou règle), quoi, quand, sur quelle machine,
 paramètres sans secret, résultat, journal d'exécution. Stocké dans la base,
 **et** envoyé sur un canal « audit » : une base effacée n'efface pas la trace.
+**Fait** (21/10) : le journal part vers les canaux qui le reçoivent (« Recevoir le journal »).
 
 Côté alertes, trois notions : **alerte, acquitter, taire**. « Taire »
 remplace silence et maintenance : une fenêtre début-fin, sur un objet de

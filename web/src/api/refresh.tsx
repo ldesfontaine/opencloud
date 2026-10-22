@@ -73,7 +73,8 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/status")) {
     return ["status"];
   }
-  if (path.startsWith("/api/alerts")) {
+  // L'état de l'envoi du journal suit les canaux : en cocher un le change.
+  if (path.startsWith("/api/alerts") || path.startsWith("/api/audit/forwarding")) {
     return ["alerts"];
   }
   // Les ordres et leur état ; la clé que l'agent a épinglée se lit sur la

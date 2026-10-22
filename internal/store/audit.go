@@ -13,26 +13,48 @@ import (
 var _ audit.Store = (*DB)(nil)
 
 // InsertAuditEvent ajoute une ligne au journal ; rien ne la modifie ensuite.
-func (db *DB) InsertAuditEvent(ctx context.Context, event audit.Event) error {
+// Elle réserve dans la même transaction une livraison par canal qui reçoit
+// le journal : une coupure ne laisse jamais un événement sans ses envois.
+func (db *DB) InsertAuditEvent(ctx context.Context, event audit.Event) (int64, error) {
 	details, err := encodeAuditDetails(event.Details)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, err = db.sql.ExecContext(ctx, `
-		INSERT INTO audit_events (at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.At.Unix(), string(event.Actor.Kind), event.Actor.Name, string(event.Action),
-		string(event.ObjectKind), event.ObjectID, event.ObjectName, details, nullableString(event.ApplyID))
+	var id int64
+	err = db.inTx(ctx, "insert audit event", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO audit_events (at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			event.At.Unix(), string(event.Actor.Kind), event.Actor.Name, string(event.Action),
+			string(event.ObjectKind), event.ObjectID, event.ObjectName, details, nullableString(event.ApplyID))
+		if err != nil {
+			return fmt.Errorf("insert audit event: %w", err)
+		}
+		if id, err = result.LastInsertId(); err != nil {
+			return fmt.Errorf("read audit event id: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO audit_deliveries (audit_id, channel_id, status, attempts, reason, code, created_at, updated_at)
+			SELECT ?, id, 'pending', 0, '', 0, ?, ?
+			FROM alert_channels WHERE enabled = 1 AND receives_audit = 1`,
+			id, event.At.Unix(), event.At.Unix())
+		if err != nil {
+			return fmt.Errorf("reserve audit deliveries: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("insert audit event: %w", err)
+		return 0, err
 	}
-	return nil
+	return id, nil
 }
+
+const auditEventColumns = `id, at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id`
 
 // ListAuditEvents rend une page du journal, du plus récent au plus ancien.
 func (db *DB) ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error) {
 	rows, err := db.sql.QueryContext(ctx, `
-		SELECT id, at, actor_kind, actor_name, action, object_kind, object_id, object_name, details, apply_id
+		SELECT `+auditEventColumns+`
 		FROM audit_events
 		WHERE (? = 0 OR id < ?)
 		  AND (? = '' OR object_kind = ?)

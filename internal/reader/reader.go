@@ -80,6 +80,10 @@ type Reader interface {
 	// ListAuditEvents rend une page du journal, du plus récent au plus ancien.
 	ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error)
 
+	// CountAuditForwarding dit combien de canaux reçoivent le journal et
+	// combien de ses livraisons sont en échec.
+	CountAuditForwarding(ctx context.Context) (channels int, failing int, err error)
+
 	// ListActionRuns rend les ordres envoyés aux agents, d'une machine ou de
 	// toutes, du plus récent au plus ancien, avec leur sortie.
 	ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error)

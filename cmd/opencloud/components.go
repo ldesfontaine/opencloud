@@ -110,6 +110,9 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	declared.SetAuditor(journal)
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
+	// Le journal part aussi vers les canaux qui le reçoivent ; sans notifieur
+	// (mcp), les livraisons attendent le prochain serve.
+	journal.SetForwarder(alerts)
 	access.SetAuditor(journal)
 	operator.SetAuditor(journal)
 	// Les ordres aux agents : écrits, journalisés, puis signés par la clé du

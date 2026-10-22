@@ -210,7 +210,7 @@ func scanAlert(row scanner) (alert.Alert, error) {
 
 // --- Canaux ---
 
-const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at`
+const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at`
 
 // InsertChannel crée le canal en deux temps dans une transaction : le chiffré
 // de l'URL et du secret est lié à l'id de la ligne, qui n'existe qu'après
@@ -219,10 +219,10 @@ func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, 
 	var id int64
 	err := db.inTx(ctx, "channel insert", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
-		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at)
-		VALUES (?, '', ?, ?, '', ?, ?, ?, ?)`,
+		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at)
+		VALUES (?, '', ?, ?, '', ?, ?, ?, ?, ?)`,
 			channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
-			channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
+			channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.CreatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert channel: %w", err)
 		}
@@ -278,8 +278,8 @@ func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
 		return fmt.Errorf("seal channel secret: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, enabled = ? WHERE id = ?`,
-		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
+		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, receives_audit = ?, enabled = ? WHERE id = ?`,
+		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.ID)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -298,7 +298,7 @@ func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 	var channel alert.Channel
 	var createdAt int64
 	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Destination, &channel.Secret, &channel.MinSeverity,
-		&channel.NotifyResolve, &channel.Enabled, &createdAt)
+		&channel.NotifyResolve, &channel.ReceivesAudit, &channel.Enabled, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Channel{}, alert.ErrNotFound
 	}

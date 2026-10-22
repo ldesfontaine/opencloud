@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // Job est tout ce qu'il faut pour livrer : la ligne réservée, l'alerte
@@ -15,6 +17,8 @@ type Job struct {
 	Channel  Channel
 	// Held : pour un résumé, ce que la limite a retenu.
 	Held Held
+	// Audit : pour une livraison du journal, l'événement.
+	Audit audit.Event
 }
 
 // deliver réserve une livraison par canal qui veut cet événement, puis la
@@ -120,7 +124,7 @@ func (e *Engine) Requeue(ctx context.Context) error {
 	if len(pending) > 0 {
 		e.logger.Info("alert deliveries requeued", "count", len(pending))
 	}
-	return nil
+	return e.requeueAudit(ctx)
 }
 
 // retryDue rejoue les livraisons en échec dont l'essai suivant est échu :
@@ -129,6 +133,7 @@ func (e *Engine) retryDue(ctx context.Context, now time.Time) {
 	if e.sender == nil {
 		return
 	}
+	e.retryDueAudit(ctx, now)
 	due, err := e.store.ListDueDeliveries(ctx, now)
 	if err != nil {
 		e.fail(ctx, "list due deliveries", err)

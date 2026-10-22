@@ -11,10 +11,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/mcp"
@@ -320,4 +322,55 @@ func TestAudit_ReadMatchesGolden(t *testing.T) {
 		t.Fatalf("status %d: %s", got.Code, got.Body.String())
 	}
 	compareGolden(t, filepath.Join("testdata", "audit.golden.json"), normalize(got.Body.String()))
+}
+
+// La page du journal sait combien de canaux le reçoivent et combien de ses
+// envois échouent. Le serveur de test ne branche pas l'envoi : les
+// livraisons réservées restent en attente, rien ne part ni n'échoue seul.
+func TestAPI_AuditForwarding_CountsChannelsAndFailures(t *testing.T) {
+	server := newTestServer(t)
+	var none auditForwardingJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/audit/forwarding", nil), &none)
+	if none.Channels != 0 || none.Failing != 0 {
+		t.Fatalf("before any channel: %+v", none)
+	}
+
+	var channel channelJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/alerts/channels", map[string]any{
+		"name": "journal", "url": "http://127.0.0.1:9/hook", "format": "json", "min_severity": "attention", "receives_audit": true, "enabled": true,
+	}), &channel)
+	if !channel.ReceivesAudit {
+		t.Fatalf("the channel must read back as receiving the audit log: %+v", channel)
+	}
+	recorder := callAPI(server.Server, http.MethodGet, "/api/audit/forwarding", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	compareGolden(t, filepath.Join("testdata", "audit_forwarding.golden.json"), normalize(recorder.Body.String()))
+
+	// Un geste de plus réserve une livraison ; la noter en échec la compte.
+	callAPI(server.Server, http.MethodPost, "/api/directory/projects", projectRequest{Name: "client-a"})
+	pending, err := server.db.ListPendingAuditDeliveries(context.Background())
+	if err != nil || len(pending) == 0 {
+		t.Fatalf("pending deliveries: %v, %v", pending, err)
+	}
+	failed := pending[0]
+	failed.Status = alert.DeliveryFailed
+	failed.UpdatedAt = testNow
+	failed.NextAttemptAt = testNow.Add(5 * time.Second)
+	if err := server.db.UpdateAuditDelivery(context.Background(), failed); err != nil {
+		t.Fatal(err)
+	}
+	var failing auditForwardingJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/audit/forwarding", nil), &failing)
+	if failing.Channels != 1 || failing.Failing != 1 {
+		t.Fatalf("after a failure: %+v", failing)
+	}
+}
+
+func TestAudit_ForwardingRequiresTheOperator(t *testing.T) {
+	server := newTestServer(t)
+	if got := callAs(server.Server, http.MethodGet, "/api/audit/forwarding", "", ""); got.Code != http.StatusUnauthorized {
+		t.Fatalf("without credentials: %d", got.Code)
+	}
 }

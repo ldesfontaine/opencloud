@@ -63,6 +63,7 @@ function ChannelRow({ channel }: { channel: Channel }) {
           <Link className="svc" to={`/alertes/canaux/${channel.id}`}>
             <Subject icon="bell">{channel.name}</Subject>
           </Link>
+          {channel.receives_audit && <Pill tone="neutral">{t("channel.receives_audit_pill")}</Pill>}
           {/* Un e-mail n'a pas d'URL : la ligne montre ses destinataires. */}
           <span className="secondary mono channel-url">{channel.format === "email" ? channel.destination : channel.url}</span>
         </span>

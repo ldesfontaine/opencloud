@@ -86,6 +86,7 @@ type channelJSON struct {
 	HasSecret     bool   `json:"has_secret"`
 	MinSeverity   string `json:"min_severity"`
 	NotifyResolve bool   `json:"notify_resolve"`
+	ReceivesAudit bool   `json:"receives_audit"`
 	Enabled       bool   `json:"enabled"`
 	// Plain : l'URL est en http, le canal parle en clair ; l'interface l'écrit.
 	Plain     bool      `json:"plain"`
@@ -105,6 +106,7 @@ type channelRequest struct {
 	ClearSecret   bool   `json:"clear_secret"`
 	MinSeverity   string `json:"min_severity"`
 	NotifyResolve bool   `json:"notify_resolve"`
+	ReceivesAudit bool   `json:"receives_audit"`
 	Enabled       bool   `json:"enabled"`
 }
 
@@ -164,7 +166,7 @@ func alertToJSON(found alert.Alert) alertJSON {
 func channelToJSON(channel alert.Channel) channelJSON {
 	return channelJSON{
 		ID: channel.ID, Name: channel.Name, URL: channel.URL, Format: string(channel.Format), Destination: channel.Destination, HasSecret: channel.HasSecret,
-		MinSeverity: string(channel.MinSeverity), NotifyResolve: channel.NotifyResolve, Enabled: channel.Enabled,
+		MinSeverity: string(channel.MinSeverity), NotifyResolve: channel.NotifyResolve, ReceivesAudit: channel.ReceivesAudit, Enabled: channel.Enabled,
 		Plain: channel.IsPlain(), CreatedAt: channel.CreatedAt.UTC(),
 	}
 }
@@ -295,7 +297,7 @@ func (s *Server) getChannel(w http.ResponseWriter, r *http.Request) {
 func channelDefinition(request channelRequest) alert.ChannelDefinition {
 	return alert.ChannelDefinition{
 		Name: request.Name, URL: request.URL, Format: alert.Format(request.Format), Destination: request.Destination, Secret: request.Secret, ClearSecret: request.ClearSecret,
-		MinSeverity: alert.Severity(request.MinSeverity), NotifyResolve: request.NotifyResolve, Enabled: request.Enabled,
+		MinSeverity: alert.Severity(request.MinSeverity), NotifyResolve: request.NotifyResolve, ReceivesAudit: request.ReceivesAudit, Enabled: request.Enabled,
 	}
 }
 
