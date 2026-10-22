@@ -213,3 +213,16 @@ func TestRunner_AssignRefusalsAreBounded(t *testing.T) {
 		seen[result.ProbeID] = true
 	}
 }
+
+// La garde juge l'adresse que la sonde compose : un mandataire HTTP pris dans
+// l'environnement (HTTPS_PROXY de l'unité) composerait vers lui-même et
+// joindrait la cible à la place de l'agent, réseau local compris. Le client
+// des sondes n'en prend aucun, et chaque saut ouvre sa propre connexion.
+func TestCheck_ClientTakesNoProxyAndRedialsEachHop(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://192.0.2.1:3128")
+	t.Setenv("HTTPS_PROXY", "http://192.0.2.1:3128")
+	transport, ok := NewChecker(nil, false).newClient(httpTask("http://a.fr/"), time.Second).Transport.(*http.Transport)
+	if !ok || transport.Proxy != nil || !transport.DisableKeepAlives || transport.DialTLSContext != nil || transport.DialContext == nil {
+		t.Fatalf("transport %+v", transport)
+	}
+}
