@@ -1,0 +1,51 @@
+// La fiche d'un conteneur : détails et historique côte à côte, chacun à sa
+// hauteur. Seule couleur : les traits, en --line, défini dans les deux
+// thèmes.
+.container-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  // Sans cela, la carte courte s'étire à la hauteur de la longue.
+  align-items: start;
+}
+
+.container-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 24px;
+}
+
+.container-history-text {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+// Le pli fait suite à la liste : un trait au-dessus, et les lignes repliées
+// reprennent la marge des autres (le corps du pli la rend par une marge
+// négative), sous un trait comme toute ligne de liste.
+.container-history-more {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+
+  // En bloc, le libellé n'hérite pas de l'interligne du texte autour : le
+  // pli fermé garde la même marge en haut et en bas.
+  .fold > summary {
+    display: flex;
+    width: fit-content;
+  }
+
+  .fold-body {
+    margin: 12px -20px -12px;
+    padding-top: 0;
+    border-top: 1px solid var(--line);
+    gap: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .container-facts,
+  .container-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
