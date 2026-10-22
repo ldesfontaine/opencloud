@@ -88,7 +88,7 @@ func (f *fixture) seen(t *testing.T, machineID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := f.machines.Connect(context.Background(), found.Machine, "192.0.2.1", "v0.0.1", "")
+	session, err := f.machines.Connect(context.Background(), found.Machine, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

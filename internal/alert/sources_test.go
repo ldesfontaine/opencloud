@@ -97,7 +97,7 @@ func TestMachine_LostOnAnOpenStream_BackWhenSignalsResume_ThenQuiet(t *testing.T
 		t.Fatal(err)
 	}
 	enrolled := f.enrollRemote(t)
-	session, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", "")
+	session, err := f.machines.Connect(ctx, enrolled, "51.15.20.114", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

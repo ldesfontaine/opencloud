@@ -51,7 +51,7 @@ func TestCheckLost_JudgesTheLastSignalNotTheOpenStream(t *testing.T) {
 	alerts := &lostAlerter{}
 	h.service.SetAlerter(alerts)
 	enrolled, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.1", "")
+	session, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
