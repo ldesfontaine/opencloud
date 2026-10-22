@@ -117,7 +117,7 @@ func TestCleanComment(t *testing.T) {
 		"lucas@pc":                         "lucas@pc",
 		"  bords  ":                        "bords",
 		"\x1b[31mrouge\x1b[0m":             "[31mrouge[0m",
-		"a‮b":                              "ab",
+		"a\u202eb":                         "ab",
 		"a\x00b\x7fc\nd\te":                "abcde",
 		"a\xffb":                           "ab",
 		strings.Repeat("a", 100):           strings.Repeat("a", MaxCommentBytes),

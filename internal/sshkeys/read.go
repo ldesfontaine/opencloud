@@ -209,7 +209,7 @@ func (r reader) readFile(dir Dir, file string, uid uint32) fileResult {
 	if err != nil {
 		return fileResult{state: stateOfError(err)}
 	}
-	if !info.Mode().IsRegular() || !r.isTrusted(info, uid) {
+	if !isSingleRegularFile(info) || !r.isTrusted(info, uid) {
 		return fileResult{state: StateUnsafe}
 	}
 	if info.Size() > MaxFileBytes {
@@ -224,7 +224,7 @@ func (r reader) readFile(dir Dir, file string, uid uint32) fileResult {
 	}
 	defer handle.Close()
 	opened, err := handle.Stat()
-	if err != nil || !opened.Mode().IsRegular() || !r.isTrusted(opened, uid) {
+	if err != nil || !isSingleRegularFile(opened) || !r.isTrusted(opened, uid) {
 		return fileResult{state: StateUnsafe}
 	}
 	content, err := io.ReadAll(io.LimitReader(handle, MaxFileBytes+1))
@@ -236,6 +236,21 @@ func (r reader) readFile(dir Dir, file string, uid uint32) fileResult {
 	}
 	keys, ignored := parseKeys(file, content)
 	return fileResult{state: StateRead, keys: keys, ignored: ignored}
+}
+
+// isSingleRegularFile : un fichier régulier qui n'a qu'un nom. Un lien dur ne
+// se voit pas comme un lien symbolique (O_NOFOLLOW ne l'arrête pas) : là où
+// protected_hardlinks est coupé, un compte peut poser dans son ~/.ssh un
+// second nom de /etc/shadow, au propriétaire root et sans droit d'écriture
+// pour les autres. sshd le lirait ; l'agent, qui peut tourner en root, non.
+func isSingleRegularFile(info fs.FileInfo) bool {
+	if !info.Mode().IsRegular() {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	// Sans stat (un faux des tests), le propriétaire inconnu refuse déjà en
+	// production : seul le nombre de noms reste invérifiable.
+	return !ok || stat.Nlink == 1
 }
 
 func (r reader) isTrusted(info fs.FileInfo, accountUID uint32) bool {

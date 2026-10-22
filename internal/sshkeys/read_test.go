@@ -258,6 +258,41 @@ func TestRead_AuthorizedKeysIsASymlink_NothingIsRead(t *testing.T) {
 	}
 }
 
+// Un lien dur n'est pas un lien symbolique : O_NOFOLLOW ne l'arrête pas, et
+// un second nom de /etc/shadow appartient à root, sans droit d'écriture pour
+// les autres. Sans protected_hardlinks, un compte peut en poser un dans son
+// ~/.ssh : l'agent root ne doit rien en lire, pas même le nombre de lignes.
+func TestRead_AuthorizedKeysIsAHardLinkToAFakeShadow_NothingLeaves(t *testing.T) {
+	etc := t.TempDir()
+	shadow := filepath.Join(etc, "shadow")
+	// Un faux shadow, et même une vraie clé dedans : rien n'en sort.
+	line, fingerprint := publicKeyLine(t, "", "commentaire-du-shadow")
+	writeFile(t, shadow, "root:$6$faux-sel$faux-condensat-du-shadow:19000:0:99999:7:::\n"+line+"\n", 0o640)
+	home := newHome(t)
+	for _, file := range Files() {
+		if err := os.Link(shadow, authorized(home, file)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ownedByRoot := func(fs.FileInfo) (uint32, bool) { return 0, true }
+
+	report := testReader(ownedByRoot).read(strings.NewReader(passwdOf(home)))
+
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"shadow", "faux", "19000", fingerprint} {
+		if strings.Contains(string(encoded), leaked) {
+			t.Fatalf("%q est sorti du faux shadow : %s", leaked, encoded)
+		}
+	}
+	account := readLucas(t, testReader(ownedByRoot), home)
+	if account.State != StateUnsafe || len(account.Keys) != 0 || account.Ignored != 0 {
+		t.Fatalf("compte : %+v", account)
+	}
+}
+
 func TestRead_FileWritableByOthers_IsUnsafe(t *testing.T) {
 	for _, mode := range []os.FileMode{0o666, 0o662, 0o664, 0o620} {
 		t.Run(mode.String(), func(t *testing.T) {
@@ -481,7 +516,7 @@ func TestRead_HugeLine_IsIgnoredAndTheNextKeyIsRead(t *testing.T) {
 
 func TestRead_Comment_IsCleanedAndBounded(t *testing.T) {
 	home := newHome(t)
-	hostile := "\x1b[31mrouge\x1b[0m‮gnp.exe " + strings.Repeat("é", 200)
+	hostile := "\x1b[31mrouge\x1b[0m\u202egnp.exe " + strings.Repeat("é", 200)
 	line, _ := publicKeyLine(t, "", hostile)
 	writeFile(t, authorized(home, "authorized_keys"), line+"\n", 0o600)
 
@@ -495,7 +530,7 @@ func TestRead_Comment_IsCleanedAndBounded(t *testing.T) {
 		t.Fatalf("commentaire %q (%d octets)", comment, len(comment))
 	}
 	for _, character := range comment {
-		if character < ' ' || character == 0x7f || character == '‮' || character == '�' {
+		if character < ' ' || character == 0x7f || character == '\u202e' || character == '�' {
 			t.Fatalf("caractère %U dans %q", character, comment)
 		}
 	}

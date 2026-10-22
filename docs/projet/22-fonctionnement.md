@@ -3274,7 +3274,10 @@ le lit comme sshd le ferait avec `StrictModes`, et un peu plus prudemment :
    le groupe ni les autres ne modifient (`mode & 0o022 == 0`), sinon l'état est
    `unsafe` ;
 3. chaque fichier est jugé par `Lstat` **avant** d'être ouvert (un tube ouvert en
-   lecture bloquerait l'agent) : régulier, mêmes règles de propriétaire et de
+   lecture bloquerait l'agent) : régulier, d'un seul nom (un lien dur passe
+   `O_NOFOLLOW` : là où `protected_hardlinks` est coupé, un compte poserait
+   dans son `~/.ssh` un second nom de `/etc/shadow`, à root et fermé aux
+   autres ; sshd le lirait, l'agent non), mêmes règles de propriétaire et de
    droits, au plus 256 Kio (`too_large` au-delà) ;
 4. il est ouvert avec `O_NOFOLLOW|O_NONBLOCK`, puis **rejugé sur le
    descripteur** (`fstat`) : un fichier échangé entre le jugement et l'ouverture
@@ -3295,7 +3298,7 @@ plus 1 Mio) : au-delà, « tronqué ».
 
 **L'état d'un compte** résume ses deux fichiers par le plus grave : `denied`
 (illisible pour le compte de l'agent), `unsafe` (lien, fichier spécial, droits ou
-propriétaire que sshd refuserait), `too_large`, puis `read`, ou `none` s'il n'y a
+propriétaire que sshd refuserait, fichier à plusieurs liens durs), `too_large`, puis `read`, ou `none` s'il n'y a
 aucun fichier. Un compte `denied` n'est pas un compte sans clé : la page dit
 « Illisible pour le compte de l'agent (opencloud-agent) », et, une fois par
 machine, que sous un compte dédié l'agent ne lit pas les clés des autres
@@ -3314,8 +3317,10 @@ l'ancien dans une transaction et prévient le direct (sujet `machines`).
 
 **L'API** : `GET /api/machines/{id}/ssh-keys` (404 si la machine n'existe pas ;
 un relevé vide et sans date tant que l'agent n'a rien dit) et
-`GET /api/ssh-keys` (toutes les machines, par nom). Lecture seule, comme le
-reste de l'API de lecture.
+`GET /api/ssh-keys` (toutes les machines, par nom). Lecture seule, pour
+l'opérateur seul : **aucun jeton d'API** ne les lit (des noms de comptes et des
+empreintes ; la liste fermée de « Comment un agent IA lit openCloud » ne change
+pas).
 
 **Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
 sur la ligne, rien de plus. Dans la matrice, une cellule dit les comptes de la
