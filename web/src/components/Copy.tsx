@@ -18,11 +18,12 @@ export function CopyButton({ text, ghost = false }: { text: string; ghost?: bool
   );
 }
 
-// Un texte en mono avec son bouton pour le copier.
-export function TokenBox({ value }: { value: string }) {
+// Un texte en mono avec son bouton pour le copier. `lines` : plusieurs
+// commandes, une par ligne, que le bloc fait défiler plutôt que de les couper.
+export function TokenBox({ value, lines = false }: { value: string; lines?: boolean }) {
   return (
     <div className="token-box">
-      <code className="mono">{value}</code>
+      {lines ? <pre className="mono">{value}</pre> : <code className="mono">{value}</code>}
       <CopyButton text={value} />
     </div>
   );

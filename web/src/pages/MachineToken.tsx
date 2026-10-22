@@ -40,6 +40,12 @@ export function MachineToken() {
             <TokenBox value={token.token} />
           </div>
           <div className="field">
+            <span className="field-label">{t("machine.prepare_label")}</span>
+            <TokenBox value={token.preparation} lines />
+            <span className="field-help">{t("machine.prepare_help")}</span>
+          </div>
+          <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
+          <div className="field">
             <span className="field-label">{t("machine.command_label")}</span>
             <TokenBox value={token.command} />
           </div>
