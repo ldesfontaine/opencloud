@@ -3,14 +3,15 @@ import { expect, test } from "vitest";
 import type { AuthState } from "../api/auth";
 import { accessLabel, isForwardInsecure, needsFirstSetup, passwordFormError } from "./auth";
 
-const unconfigured: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12 };
-const basic: AuthState = { mode: "basic", username: "lucas", enabled_at: "2026-10-10T08:00:00Z", password_min_length: 12 };
+const unconfigured: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12, allowed_users: null };
+const basic: AuthState = { mode: "basic", username: "lucas", enabled_at: "2026-10-10T08:00:00Z", password_min_length: 12, allowed_users: null };
 const forward: AuthState = {
   mode: "forward",
   username: "marie",
   header: "Remote-User",
   enabled_at: "2026-10-11T08:00:00Z",
   password_min_length: 12,
+  allowed_users: ["marie"],
 };
 
 test("accessLabel dit l'identifiant quand l'accès est protégé", () => {

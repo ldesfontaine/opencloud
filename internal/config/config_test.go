@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,5 +129,84 @@ func TestParse_ForwardSecretFile_IsAPathNotTheSecret(t *testing.T) {
 	}
 	if Default().ForwardSecretFile != "" {
 		t.Fatal("no secret by default")
+	}
+}
+
+func TestParse_ForwardUsers_AbsentOrEmptyMeansEveryone(t *testing.T) {
+	for _, content := range []string{"", "forward_users = []\n"} {
+		cfg, _, err := Parse([]byte(content))
+		if err != nil {
+			t.Fatalf("%q: %v", content, err)
+		}
+		if len(cfg.ForwardUsers) != 0 {
+			t.Fatalf("%q: got %v", content, cfg.ForwardUsers)
+		}
+	}
+}
+
+func TestParse_ForwardUsers_KeepsTheEntriesAsWritten(t *testing.T) {
+	// Deux entrées qui ne diffèrent que par la casse sont deux identités.
+	cfg, _, err := Parse([]byte("forward_users = [\"lucas\", \"Lucas\", \"léa@example.org\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.ForwardUsers, "|"); got != "lucas|Lucas|léa@example.org" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestParse_ForwardUsers_AFalseListStopsTheStart(t *testing.T) {
+	cases := []struct{ name, entries string }{
+		{"empty entry", `""`},
+		{"empty entry next to a good one", `"lucas", ""`},
+		{"leading space", `" lucas"`},
+		{"trailing space", `"lucas "`},
+		{"only spaces", `"   "`},
+		{"trailing tab", `"lucas\t"`},
+		{"no-break space at the edge", `"lucas "`},
+		{"newline inside", `"lu\ncas"`},
+		{"NUL inside", `"lu\u0000cas"`},
+		{"escape inside", `"lu\u001bcas"`},
+		{"twice", `"lucas", "lucas"`},
+		{"twice, apart", `"lucas", "lea", "lucas"`},
+		{"too long", `"` + strings.Repeat("a", 65) + `"`},
+		{"too long in characters, not bytes", `"` + strings.Repeat("é", 65) + `"`},
+	}
+	for _, tc := range cases {
+		if _, _, err := Parse([]byte("forward_users = [" + tc.entries + "]\n")); err == nil {
+			t.Errorf("%s: the list must be refused", tc.name)
+		}
+	}
+}
+
+func TestParse_ForwardUsers_TheLimitsAreInclusive(t *testing.T) {
+	longest := strings.Repeat("é", 64)
+	if _, _, err := Parse([]byte("forward_users = [\"" + longest + "\"]\n")); err != nil {
+		t.Fatalf("64 characters: %v", err)
+	}
+	entries := func(count int) string {
+		quoted := make([]string, count)
+		for index := range quoted {
+			quoted[index] = fmt.Sprintf("%q", fmt.Sprintf("user-%02d", index))
+		}
+		return "forward_users = [" + strings.Join(quoted, ", ") + "]\n"
+	}
+	if _, _, err := Parse([]byte(entries(64))); err != nil {
+		t.Fatalf("64 entries: %v", err)
+	}
+	if _, _, err := Parse([]byte(entries(65))); err == nil {
+		t.Fatal("65 entries must be refused")
+	}
+}
+
+// Le message nomme l'entrée fautive, sans laisser un caractère de contrôle
+// y passer tel quel.
+func TestParse_ForwardUsers_TheErrorNamesTheEntryWithoutControlCharacters(t *testing.T) {
+	_, _, err := Parse([]byte("forward_users = [\"lu\\ncas\"]\n"))
+	if err == nil {
+		t.Fatal("must be refused")
+	}
+	if strings.ContainsRune(err.Error(), '\n') || !strings.Contains(err.Error(), "forward_users") {
+		t.Fatalf("got %q", err)
 	}
 }
