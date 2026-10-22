@@ -2,6 +2,7 @@ package registry
 
 import (
 	"errors"
+	"net"
 	"regexp"
 	"strings"
 )
@@ -23,7 +24,12 @@ var (
 	repositoryPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 	tagPattern        = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 	digestPattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	// Un nom DNS : des étiquettes de 63 caractères au plus, sans tiret à
+	// chaque bout. Une IPv4 y passe (que des chiffres et des points).
+	registryNamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
 )
+
+const maxRegistryNameLength = 253
 
 // Reference est une image telle que le registre la nomme : l'hôte à
 // joindre, le dépôt complet et le tag. Digest est posé quand l'image est
@@ -86,11 +92,59 @@ func splitRegistry(name string) (string, string) {
 	return host, rest
 }
 
+// isRegistryHost : un hôte de registre se lit comme Docker le lit : un nom,
+// une IP, un port. Rien d'autre n'y entre : un « $ » ou une accolade seraient
+// interpolés par Compose s'ils arrivaient jusqu'au fichier.
 func isRegistryHost(host string) bool {
-	if host == "" || strings.ContainsAny(host, "/@ ") {
+	name, port, ok := splitPort(host)
+	if !ok || (port != "" && !isPort(port)) {
 		return false
 	}
-	return !strings.HasPrefix(host, ":") && !strings.HasSuffix(host, ":")
+	if strings.HasPrefix(name, "[") {
+		ip := strings.TrimSuffix(strings.TrimPrefix(name, "["), "]")
+		return strings.HasSuffix(name, "]") && strings.Contains(ip, ":") && net.ParseIP(ip) != nil
+	}
+	return name == "localhost" || (len(name) <= maxRegistryNameLength && registryNamePattern.MatchString(name))
+}
+
+// splitPort sépare le port facultatif : ce qui suit le dernier « : » hors
+// crochets. Faux si un « : » final n'est suivi de rien.
+func splitPort(host string) (string, string, bool) {
+	rest := host
+	if strings.HasPrefix(host, "[") {
+		end := strings.Index(host, "]")
+		if end < 0 {
+			return "", "", false
+		}
+		rest = host[end+1:]
+		if rest == "" {
+			return host, "", true
+		}
+		if !strings.HasPrefix(rest, ":") {
+			return "", "", false
+		}
+		return host[:end+1], rest[1:], rest != ":"
+	}
+	index := strings.LastIndex(host, ":")
+	if index < 0 {
+		return host, "", true
+	}
+	return host[:index], host[index+1:], index+1 < len(host)
+}
+
+// isPort : un à cinq chiffres, de 1 à 65535, sans signe.
+func isPort(port string) bool {
+	if len(port) == 0 || len(port) > 5 {
+		return false
+	}
+	value := 0
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+		value = value*10 + int(digit-'0')
+	}
+	return value >= 1 && value <= 65535
 }
 
 // Familiar rend le nom tel que Docker l'écrit dans RepoDigests : sans
