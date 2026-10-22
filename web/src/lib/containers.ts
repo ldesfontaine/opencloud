@@ -214,3 +214,27 @@ export function transitionTitle(t: Translate, transition: Transition): string {
   }
   return t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
 }
+
+// Le passage d'une transition : « Arrêté → Actif », « en bonne santé → en
+// mauvaise santé ». Sans état d'avant connu (découverte, disparition,
+// destruction) ou sans changement lisible, le titre seul. Le code de sortie
+// d'une transition est celui de l'état d'après : l'état d'avant se lit sans.
+export function transitionPassage(t: Translate, transition: Transition): string {
+  const title = transitionTitle(t, transition);
+  if (transition.new_state === "" || (transition.previous_state === "" && transition.previous_health === "")) {
+    return title;
+  }
+  let before = "";
+  let after = "";
+  if (transition.previous_state !== "" && transition.previous_state !== transition.new_state) {
+    before = t(`container.state_${containerPill({ state: transition.previous_state, exit_code: 0, health: transition.previous_health }).key}`);
+    after = t(`container.state_${containerPill({ state: transition.new_state, exit_code: transition.exit_code ?? 0, health: transition.new_health, oom_killed: transition.oom_killed, killed: transition.killed }).key}`);
+  } else if (transition.previous_health !== "" && transition.previous_health !== transition.new_health) {
+    before = t(`container.health_${transition.previous_health}`);
+    after = t(`container.health_${transition.new_health || "healthy"}`);
+  }
+  if (before === "" || before === after) {
+    return title;
+  }
+  return `${before} → ${after}`;
+}

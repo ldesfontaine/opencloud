@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { Container } from "../api/containers";
 import { useI18n } from "../i18n/context";
 import { formatPublishedPorts, type Filter } from "../lib/containers";
-import { formatBytes, formatDecimal } from "../lib/units";
+import { formatBytes, formatCPU } from "../lib/units";
 import { updateAvailable, updateLabel } from "../lib/updates";
 import { Pill, ContainerPill } from "./Pill";
 import { Subject, Table } from "./Table";
@@ -41,7 +41,7 @@ export function ContainerTable({ containers, withMachine }: { containers: Contai
           <th className="wide-only">{t("services.col_image")}</th>
           <th>{t("services.col_state")}</th>
           <th className="wide-only">{t("services.col_exposure")}</th>
-          <th className="th-num wide-only">{t("services.col_cpu")}</th>
+          <th className="th-num wide-only" title={t("services.col_cpu_help")}>{t("services.col_cpu")}</th>
           <th className="th-num th-end wide-only">{t("services.col_memory")}</th>
         </tr>
       </thead>
@@ -79,7 +79,7 @@ export function ContainerTable({ containers, withMachine }: { containers: Contai
                 <ContainerPill container={container} />
               </td>
               <td className="num wide-only">{ports !== "" ? ports : <span className="muted">{t("container.internal")}</span>}</td>
-              <td className="num td-num wide-only">{container.current ? `${formatDecimal(language, container.current.cpu_percent, 0)} %` : "–"}</td>
+              <td className="num td-num wide-only">{container.current ? formatCPU(language, container.current.cpu_percent) : "–"}</td>
               <td className="num td-num td-end wide-only">{container.current ? formatBytes(t, language, container.current.mem_used) : "–"}</td>
             </tr>
           );

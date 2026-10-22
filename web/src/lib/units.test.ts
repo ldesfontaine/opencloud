@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { bytesIn, formatBytes, formatRate, meterTone, percentOf } from "./units";
+import { bytesIn, formatBytes, formatCPU, formatRate, meterTone, percentOf } from "./units";
 
 const french: Record<string, string> = {
   "unit.b": "o",
@@ -52,4 +52,15 @@ test("meterTone suit les seuils réglés quand on les donne", () => {
   expect(meterTone(69, thresholds)).toBeUndefined();
   expect(meterTone(70, thresholds)).toBe("warn");
   expect(meterTone(80, thresholds)).toBe("danger");
+});
+
+test("formatCPU garde une décimale sous 10 % et ne dit jamais 0 % d'une mesure non nulle", () => {
+  expect(formatCPU("fr", 0)).toBe("0 %");
+  expect(formatCPU("fr", 0.04)).toBe("< 0,1 %");
+  expect(formatCPU("fr", 0.3)).toBe("0,3 %");
+  // L'arrondi est celui d'Intl : 9,96 s'écrit 10,0, accepté tel quel.
+  expect(formatCPU("fr", 9.96)).toBe("10,0 %");
+  expect(formatCPU("fr", 12.4)).toBe("12 %");
+  expect(formatCPU("fr", 150.2)).toBe("150 %");
+  expect(formatCPU("en", 0.3)).toBe("0.3 %");
 });

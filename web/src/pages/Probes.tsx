@@ -25,6 +25,7 @@ export function Probes() {
           </Button>
         }
       />
+      {probes.data && list.length > 0 && <p className="secondary">{t("probes.intro")}</p>}
       {probes.error && <Failure error={probes.error} />}
       {probes.data && list.length === 0 && (
         <EmptyCard icon="globe" title={t("probes.empty_title")} text={t("probes.empty_text")} />
