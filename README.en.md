@@ -57,12 +57,17 @@ Open <http://127.0.0.1:8080> and **create the account** on the first-setup
 screen (username, password of 12 characters or more); the interface then
 opens. Lost password: `opencloud auth disable -config dev/config.toml` brings
 back the first-setup screen. To add a machine: **Machines → Add a machine**, then paste
-the displayed command on it as root
-(`printf '%s\n' 'oc_…' | sudo opencloud agent -server https://…`). The
+the displayed commands on it as root: the preparation (the dedicated `opencloud-agent`
+account, its folder, its binary), then the install line
+(`printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://…`).
+The agent runs under that account, in the `docker` group when the machine has Docker:
+**the `docker` group is equivalent to root** (the socket starts a container that mounts `/`);
+the dedicated account guards against mistakes, not against a determined attacker.
+Staying root is possible, through a documented drop-in. The
 openCloud machine has an agent too, like any machine: `serve` observes nothing
 of it, and without that agent it does not show. After you create the account,
 the first-setup screen displays the line that installs it (observe right only);
-paste it on that machine, as root. It shows once and lasts 1 h: after that,
+paste it, and the preparation above it, on that machine, as root. It shows once and lasts 1 h: after that,
 "Add a machine", played on it, gives a new one (or Re-enroll, on its page).
 
 Server installation with Debian, systemd and Traefik, updates, backups:

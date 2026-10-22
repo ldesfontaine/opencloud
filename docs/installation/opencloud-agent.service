@@ -1,7 +1,8 @@
 # /etc/systemd/system/opencloud-agent.service — l'agent d'une machine, la
 # machine openCloud comprise : une seule disposition pour toutes.
 # À activer APRÈS le premier lancement (enrôlement : -server, jeton sur l'entrée
-# standard).
+# standard), et après la préparation que l'interface donne (le compte
+# opencloud-agent, son dossier, son binaire).
 [Unit]
 Description=openCloud (agent)
 Documentation=https://github.com/ldesfontaine/opencloud/blob/dev/docs/installation.md
@@ -10,7 +11,23 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# root : l'agent lit /proc, chaque volume monté et la socket Docker.
+# Un compte dédié, sans shell. Ce que cela donne :
+# - sans Docker : un vrai compte sans privilège. Il mesure, sonde, lit /proc ;
+#   il n'écrit que son état et les dossiers de ses droits. Il ne lit pas ce
+#   qu'un compte non root ne lit pas.
+# - avec Docker : le compte est dans le groupe docker (usermod -aG docker, fait
+#   par la préparation). systemd en lit les groupes au démarrage, d'où pas de
+#   SupplementaryGroups= ici : un groupe absent empêcherait l'unité de démarrer
+#   sur une machine sans Docker. Le groupe docker ÉQUIVAUT À ROOT : la socket
+#   lance un conteneur privilégié qui monte « / ». Ce compte protège des
+#   erreurs et de la plupart des compromissions, pas d'un attaquant décidé.
+# Pour garder root : un drop-in /etc/systemd/system/opencloud-agent.service.d/root.conf
+#   [Service]
+#   User=
+#   Group=
+# (voir « Garder l'agent en root » dans installation.md).
+User=opencloud-agent
+Group=opencloud-agent
 # -state doit être celui du premier lancement. Ajoutez ici -allow-plain,
 # -ca-file ou -docker-socket s'ils servaient au premier lancement : ils ne
 # sont pas retenus. -server, -pin et -lang le sont, inutile de les
@@ -19,30 +36,35 @@ Type=simple
 # quand openCloud lui envoie une mise à jour (agent.update). Sur la machine
 # openCloud comme ailleurs.
 ExecStart=/var/lib/opencloud-agent/bin/current agent -state /var/lib/opencloud-agent
-# L'état est à root (0700), hors de /var/lib/opencloud, dont le compte du
-# serveur est propriétaire sur la machine openCloud. systemd le crée et le
-# rend inscriptible sous ProtectSystem=strict. L'agent juge ce dossier et
-# ceux au-dessus au démarrage : si l'un appartient à un autre compte ou lui
-# est ouvert en écriture, il refuse ses droits d'écriture et ne garde que
-# observe (journal : « state dir is not safe »).
+# L'état est à l'utilisateur de l'unité (0700), hors de /var/lib/opencloud, dont
+# le compte du serveur est propriétaire sur la machine openCloud. systemd le
+# crée au nom de User=, le rend inscriptible sous ProtectSystem=strict, et
+# reprend le propriétaire de tout ce qu'il contient s'il diffère : c'est voulu,
+# un retour de root au compte dédié (ou l'inverse) repasse tout d'un coup.
+# L'agent juge ce dossier et ceux au-dessus au démarrage : si l'un appartient
+# à un autre compte que root ou le sien, ou lui est ouvert en écriture, il
+# refuse ses droits d'écriture et ne garde que observe (journal : « state dir
+# is not safe »).
 StateDirectory=opencloud-agent
 StateDirectoryMode=0700
 # Code 3 : « mis à jour, relance-moi » ; on-failure le relance.
 Restart=on-failure
 RestartSec=10
-# Code 2 : refus (machine retirée, identité refusée, pas enrôlée). Relancer
-# n'y changerait rien ; il faut un nouveau jeton.
+# Code 2 : refus (machine retirée, identité refusée, pas enrôlée, état que le
+# compte ne possède pas). Relancer n'y changerait rien ; il faut un nouveau
+# jeton, ou corriger le propriétaire.
 RestartPreventExitStatus=2
-# Durcissement : root reste root, mais un agent compromis ne réécrit ni le
-# système ni les comptes. Il lit /proc, les volumes, /root/.docker (les
-# identifiants des registres) et la socket Docker ; il n'écrit que dans
-# son état (StateDirectory ci-dessus).
+# Durcissement : un agent compromis ne réécrit ni le système ni les comptes.
+# Il lit /proc, les volumes et, s'il a Docker, la socket ; il n'écrit que
+# dans son état (StateDirectory ci-dessus, aussi son dossier personnel, où
+# docker et compose rangent leur configuration).
 NoNewPrivileges=true
 ProtectSystem=strict
 # Un droit qui écrit ailleurs (backup.receive=/srv/backups) demande un
-# dossier créé d'avance (install -d -m 0700 /srv/backups : systemd refuse
-# de démarrer sur un ReadWritePaths absent) et un drop-in, pas une édition
-# de ce fichier :
+# dossier créé d'avance au nom du compte (la préparation de l'interface le
+# fait : install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups ;
+# systemd refuse de démarrer sur un ReadWritePaths absent) et un drop-in, pas
+# une édition de ce fichier :
 # /etc/systemd/system/opencloud-agent.service.d/droits.conf
 #   [Service]
 #   ReadWritePaths=/srv/backups

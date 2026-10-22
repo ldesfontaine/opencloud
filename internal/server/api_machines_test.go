@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
 // Le jeton d'enrôlement est lisible de tous les comptes de la machine dès
@@ -32,7 +34,7 @@ func TestInstallCommand_KeepsTheTokenOutOfEveryExecutedArgv(t *testing.T) {
 			if !piped || builtin != "printf '%s\\n' '"+token+"'" {
 				t.Fatalf("the token must only follow printf: %q", command)
 			}
-			if strings.Contains(executed, token) || strings.Contains(executed, "-token") || !strings.HasPrefix(executed, "sudo opencloud agent -server https://opencloud.example.org") {
+			if strings.Contains(executed, token) || strings.Contains(executed, "-token") || !strings.HasPrefix(executed, "sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org") {
 				t.Fatalf("the executed command must carry no token: %q", executed)
 			}
 		}
@@ -71,6 +73,84 @@ func TestInstallCommand_CarriesTheCheckedRights(t *testing.T) {
 	}
 }
 
+// La préparation : une ligne par dossier où un droit coché écrit, aucune pour
+// observe seul ; le binaire vient de /tmp pour une machine ordinaire et du
+// serveur pour la machine openCloud.
+func TestInstallPreparation_PreparesTheAccountAndOneFolderPerCheckedRight(t *testing.T) {
+	observeOnly := []machine.Capability{{Name: machine.CapabilityObserve}}
+	plain := installPreparation(observeOnly, "v0.0.1", false)
+	want := strings.Join([]string{
+		"useradd --system --home-dir /var/lib/opencloud-agent --shell /usr/sbin/nologin opencloud-agent",
+		"getent group docker >/dev/null && usermod -aG docker opencloud-agent",
+		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /var/lib/opencloud-agent /var/lib/opencloud-agent/bin",
+		"install -m 0755 -o opencloud-agent -g opencloud-agent /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1 && ln -sfn opencloud-v0.0.1 /var/lib/opencloud-agent/bin/current",
+	}, "\n")
+	if plain != want {
+		t.Fatalf("observe alone prepares the account only:\n%s", plain)
+	}
+
+	rights, err := machine.ParseCapabilities("observe,docker.deploy,docker.update,backup.receive=/srv/backups,files.write=/opt/site:/srv/workspace,agent.update,probe.lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(installPreparation(rights, "v0.0.1", false), "\n")
+	folders := lines[4:]
+	wantFolders := []string{
+		"install -d -m 0755 -o opencloud-agent -g opencloud-agent /srv/workspace # docker.deploy, docker.update, files.write",
+		"install -d -m 0700 -o opencloud-agent -g opencloud-agent /srv/backups # backup.receive",
+		"install -d -m 0755 -o opencloud-agent -g opencloud-agent /opt/site # files.write",
+	}
+	// Un dossier demandé par deux droits n'est préparé qu'une fois.
+	if len(folders) != len(wantFolders) {
+		t.Fatalf("folders:\n%s", strings.Join(folders, "\n"))
+	}
+	for _, line := range wantFolders {
+		if !slices.Contains(folders, line) {
+			t.Errorf("missing %q in\n%s", line, strings.Join(folders, "\n"))
+		}
+	}
+
+	if local := installPreparation(observeOnly, "v0.0.1", true); !strings.Contains(local, " /usr/local/bin/opencloud /var/lib/opencloud-agent/bin/opencloud-v0.0.1") || strings.Contains(local, "/tmp/") {
+		t.Fatalf("the openCloud machine installs the binary of the server:\n%s", local)
+	}
+}
+
+// Les lignes se collent dans un shell root : rien d'autre que ce qui est
+// prévu n'y passe, et le jeton n'y paraît jamais, même quand les droits portent
+// les chemins les plus larges que le serveur accepte.
+func TestInstallPreparation_CarriesNoShellSyntaxBeyondWhatItWrites(t *testing.T) {
+	rights, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/back_ups-2.0,files.write=/a/b.c:/d_e/f-g:/srv/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := machine.NewToken("vps", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, local := range []bool{false, true} {
+		preparation := installPreparation(rights, "v0.0.1", local)
+		if strings.Contains(preparation, token) || strings.Contains(preparation, "oc_") {
+			t.Fatalf("the token must never be in the preparation:\n%s", preparation)
+		}
+		for number, line := range strings.Split(preparation, "\n") {
+			code, comment, _ := strings.Cut(line, " # ")
+			// Du code : des mots, des options, des chemins, « && » entre deux
+			// commandes ; la seule redirection est celle de getent.
+			for _, forbidden := range []string{"$", "`", ";", "|", "(", ")", "'", "\"", "\\", "<", "{", "}", "*", "?", "!", "~"} {
+				if strings.Contains(strings.ReplaceAll(code, ">/dev/null", ""), forbidden) {
+					t.Errorf("line %d: %q has %q", number, line, forbidden)
+				}
+			}
+			if strings.Count(strings.ReplaceAll(code, "&&", ""), "&") != 0 || strings.Contains(strings.ReplaceAll(code, ">/dev/null", ""), ">") {
+				t.Errorf("line %d: %q has a stray & or >", number, line)
+			}
+			if !regexp.MustCompile(`^[A-Za-z0-9., -]*$`).MatchString(comment) {
+				t.Errorf("line %d: comment %q", number, comment)
+			}
+		}
+	}
+}
+
 func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.T) {
 	server := newTestServer(t)
 	recorder := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", tokenRequest{Name: "vps-paris-1"})
@@ -79,8 +159,11 @@ func TestAPI_CreateMachineToken_ShowsTheTokenOnceAndListsItAsPending(t *testing.
 	}
 	var response tokenResponse
 	decodeAPI(t, recorder, &response)
-	if !tokenValue.MatchString(response.Token) || response.Command != "printf '%s\\n' '"+response.Token+"' | sudo opencloud agent -server http://example.com" || response.URLLocal {
+	if !tokenValue.MatchString(response.Token) || response.Command != "printf '%s\\n' '"+response.Token+"' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server http://example.com" || response.URLLocal {
 		t.Fatalf("token response %+v", response)
+	}
+	if !strings.Contains(response.Preparation, " /tmp/opencloud /var/lib/opencloud-agent/bin/opencloud-"+version.Number()) || strings.Contains(response.Preparation, response.Token) {
+		t.Fatalf("preparation %q", response.Preparation)
 	}
 	pending, err := server.machines.PendingTokens(context.Background())
 	if err != nil || len(pending) != 1 || pending[0].Name != "vps-paris-1" {
@@ -146,8 +229,15 @@ func TestAPI_Reenroll_IssuesATokenForTheSameMachine(t *testing.T) {
 	if len(pending) != 1 || pending[0].MachineID != remoteID {
 		t.Fatalf("pending %+v", pending)
 	}
-	if got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/reenroll", nil); got.Code != http.StatusCreated {
+	got := callAPI(server.Server, http.MethodPost, "/api/machines/local/actions/reenroll", nil)
+	if got.Code != http.StatusCreated {
 		t.Fatalf("reenroll local: %d", got.Code)
+	}
+	// La machine openCloud prend le binaire du serveur, une autre celui de /tmp.
+	var local tokenResponse
+	decodeAPI(t, got, &local)
+	if !strings.Contains(local.Preparation, " /usr/local/bin/opencloud ") || !strings.Contains(response.Preparation, " /tmp/opencloud ") {
+		t.Fatalf("binaries: %q / %q", local.Preparation, response.Preparation)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/machines/nope/actions/reenroll", nil); got.Code != http.StatusNotFound {
 		t.Fatalf("reenroll unknown: %d", got.Code)
@@ -256,5 +346,8 @@ func TestAPI_OfferLocalEnrollment_UntilTheOpenCloudMachineHasAnAgent(t *testing.
 	decodeAPI(t, callAPI(server.Server, http.MethodPost, "/api/machines/local-enrollment", nil), &second)
 	if first.Name != "opencloud-host" || !tokenValue.MatchString(first.Token) || !strings.HasSuffix(first.Command, " -rights observe,probe.lan") || first.Command != second.Command {
 		t.Fatalf("offers %+v %+v", first, second)
+	}
+	if !strings.Contains(first.Preparation, " /usr/local/bin/opencloud ") || first.Preparation != second.Preparation {
+		t.Fatalf("the openCloud machine installs the binary of the server: %q", first.Preparation)
 	}
 }

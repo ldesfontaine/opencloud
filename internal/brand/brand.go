@@ -20,9 +20,10 @@ const (
 	ConfigDir  = "/etc/" + ID
 	ConfigPath = ConfigDir + "/config.toml"
 	StateDir   = "/var/lib/" + ID
-	// L'état de l'agent (root, 0700). Hors de StateDir : sur la machine
-	// openCloud, StateDir appartient au compte du serveur, qui pourrait
-	// renommer un dossier dessous et en poser un autre.
+	// L'état de l'agent (au compte de l'agent, root si on le lui demande,
+	// 0700). Hors de StateDir : sur la machine openCloud, StateDir appartient
+	// au compte du serveur, qui pourrait renommer un dossier dessous et en
+	// poser un autre.
 	AgentStateDir = "/var/lib/" + ID + "-agent"
 	// La racine des services déployés, un dossier par projet Compose ; réglable
 	// par -root-dir au premier lancement de l'agent.
@@ -49,6 +50,10 @@ const (
 	AgentBinDir       = "bin"
 	AgentCurrentLink  = "current"
 	AgentBinaryPrefix = ID + "-"
+	// Le binaire que la ligne d'installation et l'unité lancent. Ce n'est pas
+	// /usr/local/bin/opencloud : ce lien, root le lancerait, et le compte de
+	// l'agent peut remplacer ce qu'il vise.
+	AgentCurrentPath = AgentStateDir + "/" + AgentBinDir + "/" + AgentCurrentLink
 	// Le nom d'une sauvegarde est ce préfixe, un instant UTC et « .tar.age » ;
 	// la clé scellée qui l'accompagne porte le second préfixe et l'empreinte.
 	BackupFilePrefix    = ID + "-"
@@ -82,6 +87,11 @@ const LabelPrefix = ID + "."
 // AgentUnit est l'unité de l'agent : la page d'un droit qui écrit hors de
 // l'état dit à l'opérateur laquelle compléter (ReadWritePaths).
 const AgentUnit = ID + "-agent.service"
+
+// AgentAccount est le compte système sous lequel l'installation recommandée
+// lance l'agent : propriétaire de son état et des dossiers où ses droits
+// écrivent. Son dossier personnel est AgentStateDir.
+const AgentAccount = ID + "-agent"
 
 // ServerUnit est l'unité du serveur : la restauration dit de la démarrer.
 const ServerUnit = ID + ".service"
