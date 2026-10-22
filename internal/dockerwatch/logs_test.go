@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -229,5 +230,56 @@ func TestOpenLogs_WithoutAnInventoryIsUnavailable(t *testing.T) {
 	}
 	if !strings.Contains(journal.String(), "inventory_pending") {
 		t.Fatalf("journal:\n%s", journal.String())
+	}
+}
+
+// knowingSink vérifie, à chaque rapport livré, que le veilleur connaît déjà
+// chaque conteneur qu'il décrit : le serveur ne peut demander que le journal
+// d'un conteneur qu'il a reçu, il ne doit jamais l'apprendre avant l'agent.
+type knowingSink struct {
+	*recordingSink
+	watcher *Watcher
+	mu      sync.Mutex
+	unknown []string
+}
+
+func (s *knowingSink) Deliver(report container.Report) {
+	var described []string
+	for _, observed := range report.Inventory {
+		described = append(described, observed.ContainerID)
+	}
+	for _, event := range report.Events {
+		if event.Container != nil {
+			described = append(described, event.Container.ContainerID)
+		}
+	}
+	for _, id := range described {
+		if !s.watcher.isKnown(id) {
+			s.mu.Lock()
+			s.unknown = append(s.unknown, id)
+			s.mu.Unlock()
+		}
+	}
+	s.recordingSink.Deliver(report)
+}
+
+// Aucune fenêtre où le serveur connaît un conteneur que l'agent refuserait :
+// l'inventaire et l'événement inscrivent avant de livrer.
+func TestRun_KnowsEveryContainerBeforeReportingIt(t *testing.T) {
+	sink := &knowingSink{recordingSink: newSink()}
+	watcher := newWatcher(serve(t, newDaemon(t, false).mux), sink)
+	sink.watcher = watcher
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go watcher.Run(ctx)
+
+	sink.waitFor(t, "inventory", func(r container.Report) bool { return r.Complete && len(r.Inventory) > 0 })
+	sink.waitFor(t, "network connect", func(r container.Report) bool {
+		return len(r.Events) == 1 && r.Events[0].ContainerID == networkedID && r.Events[0].Container != nil
+	})
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if len(sink.unknown) != 0 {
+		t.Fatalf("rapportés avant d'être connus: %v", sink.unknown)
 	}
 }

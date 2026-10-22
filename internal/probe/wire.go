@@ -108,6 +108,8 @@ const (
 	DroppedIDInvalid  = "task.id_invalid"
 	DroppedIDRepeated = "task.id_repeated"
 	DroppedOverLimit  = "task.over_limit"
+	// Filet : une erreur de Validate qui ne porterait pas de clé de refus.
+	DroppedInvalid = "task.invalid"
 )
 
 // Ce que Dropped garde d'une tâche écartée : assez pour la reconnaître dans
@@ -153,8 +155,12 @@ func judgeTask(task Task, seen map[string]bool, keptCount int) string {
 		return DroppedIDInvalid
 	}
 	if err := task.Validate(); err != nil {
-		key, _ := refusal.KeyOf(err)
-		return key
+		// Une erreur sans clé écarte quand même : une raison vide vaudrait
+		// « gardée ».
+		if key, ok := refusal.KeyOf(err); ok && key != "" {
+			return key
+		}
+		return DroppedInvalid
 	}
 	if seen[task.ID] {
 		return DroppedIDRepeated

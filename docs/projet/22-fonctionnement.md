@@ -1932,8 +1932,9 @@ genre, **hôte** de la cible, jamais la cible entière, une URL pouvant porter
 un jeton, et la raison, la clé de l'erreur du serveur), huit au plus puis un
 compte ; `INFO probes assigned` porte `count` (reçues) et `refused`
 (écartées). Rien ne remonte au serveur, un champ de rapport de plus étant un
-changement de protocole : la sonde écartée reste « Nouveau », sans essai, et
-le journal de l'agent dit pourquoi. **Les adresses privées restent ouvertes**
+changement de protocole : la sonde écartée ne reçoit plus d'essai (« Nouveau »
+si elle n'en a jamais eu, sinon son dernier état), et le journal de l'agent
+dit pourquoi. **Les adresses privées restent ouvertes**
 (boucle locale, RFC 1918, CGNAT) : un serveur compromis peut encore faire sonder
 le réseau local d'une machine, et ce qu'on y gagne en confort contre ce qu'on
 y perd en sécurité est la décision attendue de Lucas (#146).
