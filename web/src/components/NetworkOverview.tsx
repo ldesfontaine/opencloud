@@ -14,6 +14,8 @@ import "./NetworkOverview.scss";
 
 const nameLimit = 14;
 const internetSubtitleLimit = 20;
+// La pastille de l'icône (24 px) est centrée dans le nœud compact.
+const nodeIconY = (compactHeight - 24) / 2;
 
 // Le réseau de la vue d'ensemble : toutes les machines dans un seul dessin,
 // sans zoom, mis à l'échelle de la carte en largeur et en hauteur, les
@@ -106,11 +108,11 @@ export function NetworkOverview() {
                 >
                   <title>{`${container.name} · ${container.image}`}</title>
                   <rect className="frame" width={compactWidth} height={compactHeight} rx="10" />
-                  <rect className="ico" x="8" y="8" width="24" height="24" rx="7" />
-                  <svg className="icon" x="13" y="13" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect className="ico" x="8" y={nodeIconY} width="24" height="24" rx="7" />
+                  <svg className="icon" x="13" y={nodeIconY + 5} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
                     {iconPaths(containerIcon(container))}
                   </svg>
-                  <text className="name" x="40" y="25">
+                  <text className="name" x="40" y={compactHeight / 2 + 5}>
                     {container.name.length > nameLimit ? `${container.name.slice(0, nameLimit - 1)}…` : container.name}
                   </text>
                   <circle className={`dot ${nodeTone(container)}`} cx={compactWidth - 14} cy={compactHeight / 2} r="3.5" />

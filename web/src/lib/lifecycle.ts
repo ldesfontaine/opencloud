@@ -51,6 +51,15 @@ export function lifecycleText(t: Translate, lifecycle: Lifecycle, language: stri
   }
 }
 
+// Le support a-t-il autre chose à dire que son état et sa phrase : la dernière
+// version de la branche, les branches plus récentes, une lecture trop vieille,
+// la lecture et sa source ? Une machine le met sous son historique ; sans cela,
+// la ligne de son en-tête dit tout.
+export function lifecycleHasDetails(lifecycle: Lifecycle): boolean {
+  const isKnown = lifecycle.status === "maintained" || lifecycle.status === "eol";
+  return (isKnown && lifecycle.latest !== "") || lifecycle.newer.length > 0 || lifecycle.is_stale || lifecycle.fetched_at !== null;
+}
+
 // Une branche maintenue au-dessus de celle qui tourne : sa dernière
 // version, et jusqu'à quand elle est maintenue.
 export function newerLine(t: Translate, newer: NewerCycle, language: string): string {

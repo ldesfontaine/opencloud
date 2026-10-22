@@ -15,6 +15,7 @@ import {
   mutePathOf,
   muteStateOf,
   muteTargets,
+  mostUrgentAlert,
   objectPath,
   stateOf,
 } from "./alerts";
@@ -103,7 +104,7 @@ describe("stateOf", () => {
 
 describe("objectPath", () => {
   it("mène à la fiche de l'objet, un volume à sa machine", () => {
-    expect(objectPath({ kind: "probe", id: "p1", name: "site" }, "")).toBe("/domaines/p1");
+    expect(objectPath({ kind: "probe", id: "p1", name: "site" }, "")).toBe("/disponibilite/p1");
     expect(objectPath({ kind: "volume", id: "m1:/", name: "/" }, "m1")).toBe("/machines/m1");
     expect(objectPath({ kind: "volume", id: "m1:/", name: "/" }, "")).toBeNull();
   });
@@ -240,5 +241,38 @@ describe("channelFormOf et channelRequestOf", () => {
   it("ne donnent pas le journal à un nouveau canal : il se coche", () => {
     expect(channelRequestOf(emptyChannelForm).receives_audit).toBe(false);
     expect(channelRequestOf({ ...emptyChannelForm, receivesAudit: true }).receives_audit).toBe(true);
+  });
+});
+
+describe("mostUrgentAlert", () => {
+  const acknowledged = "2026-09-22T09:30:00Z";
+
+  it("ne rend rien sans alerte ouverte", () => {
+    expect(mostUrgentAlert([])).toBeNull();
+    expect(mostUrgentAlert([alert({ status: "resolved", resolved_at: "2026-09-22T09:40:00Z" })])).toBeNull();
+  });
+
+  it("une alerte non acquittée passe avant une acquittée, même plus grave", () => {
+    const grave = alert({ id: 1, severity: "danger", acknowledged_at: acknowledged });
+    const open = alert({ id: 2, severity: "attention" });
+    expect(mostUrgentAlert([grave, open])?.id).toBe(2);
+  });
+
+  it("à acquittement égal, la plus grave passe avant, même plus ancienne", () => {
+    const old = alert({ id: 1, severity: "danger", opened_at: "2026-09-20T09:00:00Z" });
+    const recent = alert({ id: 2, severity: "attention", opened_at: "2026-09-22T09:00:00Z" });
+    expect(mostUrgentAlert([recent, old])?.id).toBe(1);
+  });
+
+  it("à égalité de tout, la plus récente", () => {
+    const old = alert({ id: 1, opened_at: "2026-09-20T09:00:00Z" });
+    const recent = alert({ id: 2, opened_at: "2026-09-22T09:00:00Z" });
+    expect(mostUrgentAlert([old, recent])?.id).toBe(2);
+    expect(mostUrgentAlert([recent, old])?.id).toBe(2);
+  });
+
+  it("une résolue n'est jamais la plus urgente", () => {
+    const resolved = alert({ id: 1, severity: "danger", status: "resolved", resolved_at: "2026-09-22T09:40:00Z" });
+    expect(mostUrgentAlert([resolved, alert({ id: 2, acknowledged_at: acknowledged })])?.id).toBe(2);
   });
 });

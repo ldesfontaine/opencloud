@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 
 import { Layout } from "./components/Layout";
+import { renamedProbePath } from "./lib/probes";
 import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
@@ -44,6 +45,14 @@ function ContainerRedirect() {
   return <Navigate replace to={{ pathname: `/services/conteneurs/${encodeURIComponent(id)}`, search: location.search, hash: location.hash }} />;
 }
 
+// La page des sondes s'appelait « Domaines » (/domaines) avant « Disponibilité » :
+// un lien d'avant mène à la nouvelle adresse (/domaines/p1/modifier?x devient
+// /disponibilite/p1/modifier?x).
+function ProbesRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={{ pathname: renamedProbePath(location.pathname), search: location.search, hash: location.hash }} />;
+}
+
 // La page de démonstration du système visuel ne sert qu'en développement :
 // Vite remplace import.meta.env.DEV par false au build, et l'import
 // dynamique sort la page du bundle de production.
@@ -78,10 +87,12 @@ export function App() {
         <Route path="services/conteneurs/:id" element={<ContainerPage />} />
         {/* L'ancienne adresse d'une fiche de conteneur, gardée pour les liens déjà partagés. */}
         <Route path="services/:id" element={<ContainerRedirect />} />
-        <Route path="domaines" element={<Probes />} />
-        <Route path="domaines/nouvelle" element={<ProbeForm />} />
-        <Route path="domaines/:id/modifier" element={<ProbeForm />} />
-        <Route path="domaines/:id" element={<ProbePage />} />
+        <Route path="disponibilite" element={<Probes />} />
+        <Route path="disponibilite/nouvelle" element={<ProbeForm />} />
+        <Route path="disponibilite/:id/modifier" element={<ProbeForm />} />
+        <Route path="disponibilite/:id" element={<ProbePage />} />
+        {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
+        <Route path="domaines/*" element={<ProbesRedirect />} />
         <Route path="sauvegardes" element={<Backups />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobForm />} />

@@ -12,16 +12,47 @@ import "./SupportBlock.scss";
 // commande. La source est nommée et liée : c'est elle qui le dit, pas
 // openCloud.
 export function SupportBlock({ lifecycle, subject }: { lifecycle: Lifecycle; subject: Subject }) {
+  const { t } = useI18n();
+  return (
+    <div className="support">
+      <span className="support-title">{subject === "system" ? t("lifecycle.title_system") : t("lifecycle.title")}</span>
+      <SupportState lifecycle={lifecycle} subject={subject} />
+      <SupportDetails lifecycle={lifecycle} />
+    </div>
+  );
+}
+
+// L'état du support et sa phrase : ce que l'en-tête d'une machine garde du
+// bloc. La phrase n'est dite qu'ici (SupportDetails n'en a que le détail) :
+// trop longue, elle passe à la ligne, elle ne se coupe pas.
+export function SupportLine({ lifecycle, subject }: { lifecycle: Lifecycle; subject: Subject }) {
+  const { t, language } = useI18n();
+  return (
+    <div className="support-line">
+      <Pill tone={lifecycleTones[lifecycle.status]}>{t(`lifecycle.status_${lifecycle.status}`)}</Pill>
+      <span>{lifecycleText(t, lifecycle, language, subject)}</span>
+    </div>
+  );
+}
+
+function SupportState({ lifecycle, subject }: { lifecycle: Lifecycle; subject: Subject }) {
+  const { t, language } = useI18n();
+  return (
+    <div className="support-state">
+      <Pill tone={lifecycleTones[lifecycle.status]}>{t(`lifecycle.status_${lifecycle.status}`)}</Pill>
+      <span>{lifecycleText(t, lifecycle, language, subject)}</span>
+    </div>
+  );
+}
+
+// Le reste du support : la dernière version de la branche, les branches
+// maintenues au-dessus, la lecture trop vieille, et d'où vient la date.
+export function SupportDetails({ lifecycle }: { lifecycle: Lifecycle }) {
   const { t, language } = useI18n();
   const now = useNow();
   const isKnown = lifecycle.status === "maintained" || lifecycle.status === "eol";
   return (
-    <div className="support">
-      <span className="support-title">{subject === "system" ? t("lifecycle.title_system") : t("lifecycle.title")}</span>
-      <div className="support-state">
-        <Pill tone={lifecycleTones[lifecycle.status]}>{t(`lifecycle.status_${lifecycle.status}`)}</Pill>
-        <span>{lifecycleText(t, lifecycle, language, subject)}</span>
-      </div>
+    <>
       {isKnown && lifecycle.latest !== "" && <span>{t("lifecycle.latest", lifecycle.cycle, lifecycle.latest)}</span>}
       {lifecycle.newer.length > 0 && (
         <div className="support-newer">
@@ -45,6 +76,6 @@ export function SupportBlock({ lifecycle, subject }: { lifecycle: Lifecycle; sub
           )}
         </span>
       )}
-    </div>
+    </>
   );
 }

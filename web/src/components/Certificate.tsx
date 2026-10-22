@@ -4,6 +4,7 @@ import type { Certificate, Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { certificateNote, read, type CertificateReading } from "../lib/certificates";
+import { probePath } from "../lib/probes";
 import { Card, CardBody, CardHeader, Empty } from "./Card";
 import { Pill } from "./Pill";
 import "./Certificate.scss";
@@ -37,7 +38,7 @@ export function TrustPill({ reading }: { reading: CertificateReading }) {
   return null;
 }
 
-// Le bloc « Domaines et certificats » d'une machine : un domaine par
+// Le bloc « Certificats » de l'onglet Disponibilité d'une machine : une cible par
 // ligne, sa note, et ce qui lui reste. Les sondes sans certificat n'y sont
 // pas — elles sont déjà dans le tableau au-dessus.
 export function CertificateList({ probes }: { probes: Probe[] }) {
@@ -60,7 +61,7 @@ export function CertificateList({ probes }: { probes: Probe[] }) {
             return (
               <div className="kv" key={probe.id}>
                 <span className="svc">
-                  <Link className="mono" to={`/domaines/${probe.id}`}>
+                  <Link className="mono" to={probePath(probe.id)}>
                     {certificate.subject !== "" ? certificate.subject : probe.name}
                   </Link>
                   <span className="secondary">{certificateNote(t, certificate, reading, now)}</span>

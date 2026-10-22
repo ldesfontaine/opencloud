@@ -14,7 +14,7 @@ import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { emptyProbeForm, probeFormOf, probeKinds, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../lib/probes";
+import { emptyProbeForm, probeFormOf, probeKinds, probeListPath, probePath, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../lib/probes";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier une sonde : l'opérateur dit ce qu'il faut joindre, tous
@@ -74,7 +74,7 @@ export function ProbeForm() {
     const body = probeRequestOf(values);
     action.run(() => saveProbe(id, body), {
       topic: "all",
-      onDone: (saved) => void navigate(`/domaines/${saved.id}`),
+      onDone: (saved) => void navigate(probePath(saved.id)),
     });
   };
 
@@ -95,7 +95,7 @@ export function ProbeForm() {
             busy={action.busy}
             canSubmit={form.isFilled}
             cancelLabel={t("probe.cancel")}
-            cancelTo={isEditing ? `/domaines/${id}` : "/domaines"}
+            cancelTo={isEditing ? probePath(id) : probeListPath}
           />
         }
       >
