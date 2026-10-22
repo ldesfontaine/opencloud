@@ -35,43 +35,62 @@ func (b *lockedBuffer) String() string {
 	return b.text.String()
 }
 
-// node est un dossier de la chaîne factice : son propriétaire et son mode.
+// node est une entrée de la chaîne factice : son propriétaire, son mode, et
+// la cible d'un lien.
 type node struct {
-	uid  uint32
-	mode fs.FileMode
+	uid    uint32
+	mode   fs.FileMode
+	target string
 }
 
-// fakeStat rend un stat sur une chaîne qu'on écrit à la main : les tests de
-// la règle ne dépendent ni du compte qui les lance ni du disque.
-func fakeStat(chain map[string]node) func(string) (uint32, fs.FileMode, error) {
-	return func(path string) (uint32, fs.FileMode, error) {
+// fakeFS rend un stat et un readlink sur une chaîne qu'on écrit à la main :
+// les tests de la règle ne dépendent ni du compte qui les lance ni du disque.
+func fakeFS(chain map[string]node) (func(string) (uint32, fs.FileMode, error), func(string) (string, error)) {
+	stat := func(path string) (uint32, fs.FileMode, error) {
 		found, ok := chain[path]
 		if !ok {
 			return 0, 0, errors.New("stat " + path + ": no such file or directory")
 		}
 		return found.uid, found.mode, nil
 	}
+	readlink := func(path string) (string, error) {
+		found, ok := chain[path]
+		if !ok || found.mode&fs.ModeSymlink == 0 {
+			return "", errors.New("readlink " + path + ": invalid argument")
+		}
+		return found.target, nil
+	}
+	return stat, readlink
+}
+
+// check juge path sur la chaîne factice.
+func check(path string, chain map[string]node, euid uint32) (string, error) {
+	stat, readlink := fakeFS(chain)
+	return checkChain(path, stat, readlink, euid)
 }
 
 const (
 	dir0755 = fs.ModeDir | 0o755
 	dir0700 = fs.ModeDir | 0o700
+	link    = fs.ModeSymlink | 0o777
 )
 
 // safeChain est la disposition voulue : tout à root, l'état en 0700.
 func safeChain() map[string]node {
 	return map[string]node{
-		"/":                        {0, dir0755},
-		"/var":                     {0, dir0755},
-		"/var/lib":                 {0, dir0755},
-		"/var/lib/opencloud-agent": {0, dir0700},
-		"/var/lib/opencloud":       {999, dir0755},
-		"/var/lib/opencloud/agent": {0, dir0700},
-		"/tmp":                     {0, fs.ModeDir | fs.ModeSticky | 0o777},
-		"/tmp/state":               {1000, dir0700},
-		"/home":                    {0, dir0755},
-		"/home/agent":              {1000, dir0755},
-		"/home/agent/state":        {1000, dir0700},
+		"/":                        {0, dir0755, ""},
+		"/var":                     {0, dir0755, ""},
+		"/var/lib":                 {0, dir0755, ""},
+		"/var/lib/opencloud-agent": {0, dir0700, ""},
+		"/var/lib/opencloud":       {999, dir0755, ""},
+		"/var/lib/opencloud/agent": {0, dir0700, ""},
+		"/tmp":                     {0, fs.ModeDir | fs.ModeSticky | 0o777, ""},
+		"/tmp/state":               {1000, dir0700, ""},
+		"/home":                    {0, dir0755, ""},
+		"/home/agent":              {1000, dir0755, ""},
+		"/home/agent/state":        {1000, dir0700, ""},
+		"/srv":                     {0, dir0755, ""},
+		"/srv/state":               {0, dir0700, ""},
 	}
 }
 
@@ -86,16 +105,22 @@ func requireUnsafe(t *testing.T, err error, wantPath string, wantUID uint32) {
 	}
 }
 
-func TestCheckChain_RootOwnedStateUnderRootDirsIsAccepted(t *testing.T) {
-	if err := checkChain("/var/lib/opencloud-agent", fakeStat(safeChain()), 0); err != nil {
-		t.Fatal(err)
+func requireSafe(t *testing.T, path string, chain map[string]node, euid uint32, wantResolved string) {
+	t.Helper()
+	resolved, err := check(path, chain, euid)
+	if err != nil || resolved != wantResolved {
+		t.Fatalf("%s: resolved %q, %v; want %s", path, resolved, err, wantResolved)
 	}
+}
+
+func TestCheckChain_RootOwnedStateUnderRootDirsIsAccepted(t *testing.T) {
+	requireSafe(t, "/var/lib/opencloud-agent", safeChain(), 0, "/var/lib/opencloud-agent")
 }
 
 // Le cas qui a fait le chantier : l'état est à root, mais le dossier du
 // serveur au-dessus appartient à son compte, qui peut y renommer un dossier.
 func TestCheckChain_ParentOwnedByAnotherAccountIsRefusedAndNamed(t *testing.T) {
-	err := checkChain("/var/lib/opencloud/agent", fakeStat(safeChain()), 0)
+	_, err := check("/var/lib/opencloud/agent", safeChain(), 0)
 	requireUnsafe(t, err, "/var/lib/opencloud", 999)
 	if message := err.Error(); !strings.Contains(message, "/var/lib/opencloud is owned by uid 999") {
 		t.Fatalf("message %q", message)
@@ -110,73 +135,121 @@ func TestCheckChain_ParentWritableByGroupOrOthersIsRefused(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			chain := safeChain()
-			chain["/var/lib"] = node{0, mode}
-			requireUnsafe(t, checkChain("/var/lib/opencloud-agent", fakeStat(chain), 0), "/var/lib", 0)
+			chain["/var/lib"] = node{0, mode, ""}
+			_, err := check("/var/lib/opencloud-agent", chain, 0)
+			requireUnsafe(t, err, "/var/lib", 0)
 		})
 	}
 }
 
 func TestCheckChain_StickyParentIsAccepted_ButNotTheStateDirItself(t *testing.T) {
 	// /tmp en 1777 : personne n'y renomme le dossier d'un autre.
-	if err := checkChain("/tmp/state", fakeStat(safeChain()), 1000); err != nil {
-		t.Fatalf("sticky parent: %v", err)
-	}
+	requireSafe(t, "/tmp/state", safeChain(), 1000, "/tmp/state")
 	// Un dossier d'état 1777 laisserait d'autres comptes y poser des fichiers.
 	chain := safeChain()
-	chain["/tmp/state"] = node{1000, fs.ModeDir | fs.ModeSticky | 0o777}
-	requireUnsafe(t, checkChain("/tmp/state", fakeStat(chain), 1000), "/tmp/state", 1000)
+	chain["/tmp/state"] = node{1000, fs.ModeDir | fs.ModeSticky | 0o777, ""}
+	_, err := check("/tmp/state", chain, 1000)
+	requireUnsafe(t, err, "/tmp/state", 1000)
+	// Pareil quand l'arrivée n'est atteinte que par « .. ».
+	_, err = check("/tmp/state/..", safeChain(), 1000)
+	requireUnsafe(t, err, "/tmp", 0)
 }
 
 // Le bit collant ne remplace pas le propriétaire : un /tmp à un autre compte
 // est refusé.
 func TestCheckChain_StickyParentOfAnotherAccountIsStillRefused(t *testing.T) {
 	chain := safeChain()
-	chain["/tmp"] = node{999, fs.ModeDir | fs.ModeSticky | 0o777}
-	requireUnsafe(t, checkChain("/tmp/state", fakeStat(chain), 1000), "/tmp", 999)
+	chain["/tmp"] = node{999, fs.ModeDir | fs.ModeSticky | 0o777, ""}
+	_, err := check("/tmp/state", chain, 1000)
+	requireUnsafe(t, err, "/tmp", 999)
 }
 
 func TestCheckChain_StateOwnedByTheAgentAccountUnderRootDirsIsAccepted(t *testing.T) {
-	if err := checkChain("/home/agent/state", fakeStat(safeChain()), 1000); err != nil {
-		t.Fatal(err)
-	}
-	// Le même état, vu par un agent d'un autre compte : refusé.
-	requireUnsafe(t, checkChain("/home/agent/state", fakeStat(safeChain()), 1001), "/home/agent/state", 1000)
+	requireSafe(t, "/home/agent/state", safeChain(), 1000, "/home/agent/state")
+	// Le même état, vu par un agent d'un autre compte : refusé dès le
+	// premier dossier qui n'est pas à lui.
+	_, err := check("/home/agent/state", safeChain(), 1001)
+	requireUnsafe(t, err, "/home/agent", 1000)
 }
 
 func TestCheckChain_StateDirWithGroupAccessIsRefused(t *testing.T) {
 	chain := safeChain()
-	chain["/var/lib/opencloud-agent"] = node{0, fs.ModeDir | 0o770}
-	requireUnsafe(t, checkChain("/var/lib/opencloud-agent", fakeStat(chain), 0), "/var/lib/opencloud-agent", 0)
+	chain["/var/lib/opencloud-agent"] = node{0, fs.ModeDir | 0o770, ""}
+	_, err := check("/var/lib/opencloud-agent", chain, 0)
+	requireUnsafe(t, err, "/var/lib/opencloud-agent", 0)
 }
 
 func TestCheckChain_StatFailureOnAParentIsARefusal(t *testing.T) {
 	chain := safeChain()
 	delete(chain, "/var/lib")
-	err := checkChain("/var/lib/opencloud-agent", fakeStat(chain), 0)
+	_, err := check("/var/lib/opencloud-agent", chain, 0)
 	var unsafe *UnsafeStateError
 	if err == nil || errors.As(err, &unsafe) || !strings.Contains(err.Error(), "/var/lib") {
 		t.Fatalf("got %v", err)
 	}
 }
 
-func TestCheckChain_RelativeOrUncleanPathIsRefused(t *testing.T) {
-	for _, path := range []string{"var/lib/opencloud-agent", "./state", "/var/lib/../lib/opencloud-agent", "/var/lib/opencloud-agent/"} {
-		if err := checkChain(path, fakeStat(safeChain()), 0); err == nil {
+func TestCheckChain_RelativePathIsRefused(t *testing.T) {
+	for _, path := range []string{"var/lib/opencloud-agent", "./state", ""} {
+		if _, err := check(path, safeChain(), 0); err == nil {
 			t.Fatalf("%q accepted", path)
 		}
 	}
+	// Un chemin absolu mais pas propre se suit comme le noyau le suit.
+	requireSafe(t, "/var/./lib//opencloud-agent/", safeChain(), 0, "/var/lib/opencloud-agent")
 }
 
-// Un lien symbolique de la chaîne donnée a toujours le mode 0777 : seul son
-// propriétaire compte ici, sa cible est jugée par la chaîne résolue.
-func TestCheckChain_SymlinkOnTheChainIsJudgedByItsOwnerOnly(t *testing.T) {
+// Un lien symbolique a toujours le mode 0777 : seul son propriétaire compte,
+// sa cible est suivie et jugée.
+func TestCheckChain_SymlinkIsJudgedByItsOwnerAndFollowed(t *testing.T) {
 	chain := safeChain()
-	chain["/var/run"] = node{0, fs.ModeSymlink | 0o777}
-	if err := checkChain("/var/run", fakeStat(chain), 0); err != nil {
-		t.Fatalf("root-owned link: %v", err)
+	chain["/var/lib/opencloud-agent"] = node{0, link, "/srv/state"}
+	requireSafe(t, "/var/lib/opencloud-agent", chain, 0, "/srv/state")
+	chain["/var/lib/opencloud-agent"] = node{999, link, "/srv/state"}
+	_, err := check("/var/lib/opencloud-agent", chain, 0)
+	requireUnsafe(t, err, "/var/lib/opencloud-agent", 999)
+	// Un lien relatif part du dossier qui le contient.
+	chain["/var/lib/opencloud-agent"] = node{0, link, "../../srv/state"}
+	requireSafe(t, "/var/lib/opencloud-agent", chain, 0, "/srv/state")
+}
+
+// Un lien sûr vers un état rangé sous le dossier d'un autre compte : le
+// chemin donné est irréprochable, pas la cible.
+func TestCheckChain_TargetUnderAnotherAccountIsRefused(t *testing.T) {
+	chain := safeChain()
+	chain["/var/lib/opencloud-agent"] = node{0, link, "/var/lib/opencloud/agent"}
+	_, err := check("/var/lib/opencloud-agent", chain, 0)
+	requireUnsafe(t, err, "/var/lib/opencloud", 999)
+}
+
+// Le trou d'un jugement « chemin donné + chemin résolu » : un dossier qu'on
+// ne traverse qu'entre deux liens. Son propriétaire choisit où mène le
+// second ; aujourd'hui vers un état sûr, demain vers le sien.
+func TestCheckChain_DirCrossedBetweenTwoLinksIsJudged(t *testing.T) {
+	chain := safeChain()
+	chain["/var/lib/opencloud-agent"] = node{0, link, "/var/lib/opencloud/hop/state"}
+	chain["/var/lib/opencloud/hop"] = node{999, link, "/srv"}
+	_, err := check("/var/lib/opencloud-agent", chain, 0)
+	requireUnsafe(t, err, "/var/lib/opencloud", 999)
+}
+
+// « .. » après un lien remonte depuis sa cible, comme le noyau ; un
+// nettoyage à la lettre jugerait un autre dossier que celui ouvert.
+func TestCheckChain_DotDotAfterALinkClimbsFromItsTarget(t *testing.T) {
+	chain := safeChain()
+	chain["/var/lib/up"] = node{0, link, "/var/lib/opencloud/agent"}
+	chain["/var/lib/agent"] = node{0, dir0700, ""}
+	_, err := check("/var/lib/up/../agent", chain, 0)
+	requireUnsafe(t, err, "/var/lib/opencloud", 999)
+}
+
+func TestCheckChain_LinkLoopIsARefusal(t *testing.T) {
+	chain := safeChain()
+	chain["/srv/a"] = node{0, link, "b"}
+	chain["/srv/b"] = node{0, link, "a"}
+	if _, err := check("/srv/a", chain, 0); err == nil || !strings.Contains(err.Error(), "too many links") {
+		t.Fatalf("got %v", err)
 	}
-	chain["/var/run"] = node{999, fs.ModeSymlink | 0o777}
-	requireUnsafe(t, checkChain("/var/run", fakeStat(chain), 0), "/var/run", 999)
 }
 
 // Sur disque, sans root : des dossiers du compte qui lance le test, dont on
@@ -225,22 +298,38 @@ func insideBase(path, root string) bool {
 	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
+// checkOpened ouvre l'état comme la commande, puis le juge.
+func checkOpened(t *testing.T, path string) error {
+	t.Helper()
+	opened, err := os.OpenRoot(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	return CheckStateDir(opened, path)
+}
+
 func TestCheckStateDir_OnDisk(t *testing.T) {
 	root := base(t)
 	safe := mkdir(t, filepath.Join(root, "safe"), 0o700)
-	if refused := refusedAt(t, CheckStateDir(safe)); insideBase(refused, root) {
+	if refused := refusedAt(t, checkOpened(t, safe)); insideBase(refused, root) {
 		t.Fatalf("a private dir under a private dir is refused at %s", refused)
 	}
 	open := mkdir(t, filepath.Join(root, "open"), 0o777)
 	inOpen := mkdir(t, filepath.Join(open, "state"), 0o700)
-	if refused := refusedAt(t, CheckStateDir(inOpen)); refused != open {
+	if refused := refusedAt(t, checkOpened(t, inOpen)); refused != open {
 		t.Fatalf("state under a 0777 dir: refused at %q, want %s", refused, open)
 	}
 	shared := mkdir(t, filepath.Join(root, "shared"), 0o770)
-	if refused := refusedAt(t, CheckStateDir(shared)); refused != shared {
+	if refused := refusedAt(t, checkOpened(t, shared)); refused != shared {
 		t.Fatalf("state with group write: refused at %q, want %s", refused, shared)
 	}
-	if err := CheckStateDir(filepath.Join(root, "missing")); err == nil {
+	opened, err := os.OpenRoot(safe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	if err := CheckStateDir(opened, filepath.Join(root, "missing")); err == nil {
 		t.Fatal("a missing state dir is not safe")
 	}
 }
@@ -252,10 +341,10 @@ func TestCheckStateDir_RelativePathIsMadeAbsolute(t *testing.T) {
 	mkdir(t, filepath.Join(open, "state"), 0o700)
 	mkdir(t, filepath.Join(root, "safe"), 0o700)
 	t.Chdir(root)
-	if refused := refusedAt(t, CheckStateDir("open/state")); refused != open {
+	if refused := refusedAt(t, checkOpened(t, "open/state")); refused != open {
 		t.Fatalf("refused at %q, want %s", refused, open)
 	}
-	if refused := refusedAt(t, CheckStateDir("safe")); insideBase(refused, root) {
+	if refused := refusedAt(t, checkOpened(t, "safe")); insideBase(refused, root) {
 		t.Fatalf("refused at %s", refused)
 	}
 }
@@ -271,7 +360,7 @@ func TestCheckStateDir_ResolvedPathIsJudgedToo(t *testing.T) {
 	if err := os.Symlink(private, filepath.Join(open, "state")); err != nil {
 		t.Fatal(err)
 	}
-	if refused := refusedAt(t, CheckStateDir(filepath.Join(open, "state"))); refused != open {
+	if refused := refusedAt(t, checkOpened(t, filepath.Join(open, "state"))); refused != open {
 		t.Fatalf("given path: refused at %q, want %s", refused, open)
 	}
 
@@ -282,8 +371,61 @@ func TestCheckStateDir_ResolvedPathIsJudgedToo(t *testing.T) {
 	if err := os.Symlink(inOpen, link); err != nil {
 		t.Fatal(err)
 	}
-	if refused := refusedAt(t, CheckStateDir(link)); refused != open {
+	if refused := refusedAt(t, checkOpened(t, link)); refused != open {
 		t.Fatalf("resolved path: refused at %q, want %s", refused, open)
+	}
+}
+
+// Ouvert, puis remplacé avant d'être jugé : le chemin désigne maintenant un
+// dossier sûr, mais l'agent garderait celui qu'il a ouvert.
+func TestCheckStateDir_SwappedAfterOpeningIsRefused(t *testing.T) {
+	root := base(t)
+	state := mkdir(t, filepath.Join(root, "state"), 0o700)
+	opened, err := os.OpenRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	if refused := refusedAt(t, CheckStateDir(opened, state)); insideBase(refused, root) {
+		t.Fatalf("before the swap: refused at %s", refused)
+	}
+	if err := os.Rename(state, filepath.Join(root, "planted")); err != nil {
+		t.Fatal(err)
+	}
+	mkdir(t, state, 0o700)
+	err = CheckStateDir(opened, state)
+	if err == nil || !strings.Contains(err.Error(), "changed between its opening and its check") {
+		t.Fatalf("swapped state: %v", err)
+	}
+}
+
+// Un dossier sûr ne suffit pas : identity.json, qui porte les droits, est
+// jugé aussi (un état déplacé à la main garde les fichiers de qui l'avait
+// remplacé).
+func TestCheckStateDir_IdentityFileIsJudged(t *testing.T) {
+	root := base(t)
+	state := mkdir(t, filepath.Join(root, "state"), 0o700)
+	identity := filepath.Join(state, identityFile)
+	if err := os.WriteFile(identity, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if refused := refusedAt(t, checkOpened(t, state)); insideBase(refused, root) {
+		t.Fatalf("a private identity is refused at %s", refused)
+	}
+	if err := os.Chmod(identity, 0o620); err != nil {
+		t.Fatal(err)
+	}
+	if refused := refusedAt(t, checkOpened(t, state)); refused != identity {
+		t.Fatalf("group-writable identity: refused at %q, want %s", refused, identity)
+	}
+	if err := os.Remove(identity); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "elsewhere.json"), identity); err != nil {
+		t.Fatal(err)
+	}
+	if refused := refusedAt(t, checkOpened(t, state)); refused != identity {
+		t.Fatalf("identity as a link: refused at %q, want %s", refused, identity)
 	}
 }
 

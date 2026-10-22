@@ -330,15 +330,21 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   aussi. `files.write` se jugera comme `backup.receive` avec l'ordre qui nomme
   un chemin ; aucun n'existe encore.
 - **Un état mal gardé n'applique que `observe`** (#235, décisions 3 et 4 du
-  22 octobre 2026). Au démarrage, la commande juge le dossier d'état et chacun
-  de ses parents jusqu'à `/`, sur le chemin donné et sur le chemin résolu
-  (`agent.CheckStateDir`) : chacun doit appartenir à root ou au compte de
-  l'agent, et n'être inscriptible ni par le groupe ni par les autres. Seul
-  passe un parent à bit collant (`/tmp`) ; le dossier d'état lui-même n'a
-  pas cette exception. Un seul qui échoue, ou un `stat` en erreur, et l'agent
-  écrit `WARN state dir is not safe, writing rights are off` (chemin,
-  propriétaire, mode), **rapporte `observe` seul** et refuse tout ordre qui
-  écrit (`right_missing`) ; il ne s'arrête pas, la supervision continue, et la
+  22 octobre 2026). Au démarrage, après l'avoir ouvert, la commande juge
+  l'état (`agent.CheckStateDir`) : elle suit son chemin comme le noyau, depuis
+  `/`, et chaque dossier traversé, ceux où mène un lien compris, doit
+  appartenir à root ou au compte de l'agent et n'être inscriptible ni par le
+  groupe ni par les autres (un lien : son propriétaire seulement). Seul passe
+  un dossier traversé à bit collant (`/tmp`) ; le dossier d'état lui-même n'a
+  pas cette exception. Le dossier ouvert doit être celui que le chemin
+  désigne au moment du jugement, et `identity.json` un fichier à root (ou à
+  l'agent) que les autres ne peuvent pas modifier. Un seul qui échoue, ou un
+  `stat` en erreur, et l'agent écrit `WARN state dir is not safe, writing
+  rights are off` (chemin, propriétaire, mode), **rapporte `observe` seul** et
+  refuse tout ordre qui écrit (`right_missing`). `agent.server_key`, qui ne
+  demande que `observe`, passe encore : qui peut écrire l'état n'a pas besoin
+  de lui pour changer la clé épinglée (`24`, §24). Il ne s'arrête pas, la
+  supervision continue, et la
   fiche montre l'écart « droits rapportés ≠ cochés ». Le fichier n'est pas
   touché : l'état corrigé, un redémarrage rend les droits. Un agent d'avant,
   sur la machine openCloud et non déplacé, perd ainsi ses droits d'écriture

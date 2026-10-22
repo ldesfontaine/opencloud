@@ -96,8 +96,9 @@ func runAgent(args []string) error {
 	defer root.Close()
 
 	// Un état mal gardé ne coupe pas l'agent : il ne garde que observe, et
-	// l'écart se lit sur la fiche de la machine.
-	unsafeState := agent.CheckStateDir(*stateDir)
+	// l'écart se lit sur la fiche de la machine. Jugé après l'ouverture : le
+	// dossier ouvert doit être celui que le chemin désigne.
+	unsafeState := agent.CheckStateDir(root, *stateDir)
 
 	enrollmentToken, err := enrollmentTokenFor(root, *server, os.Stdin, os.Stderr, stdinIsTerminal(), catalogs.For(code))
 	if err != nil {

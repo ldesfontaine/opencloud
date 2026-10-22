@@ -1171,11 +1171,21 @@ Si le compte `opencloud` du serveur a pu être compromis avant le déplacement,
 ne gardez pas l'ancien état : ré-enrôlez la machine (fiche › **Ré-enrôler**).
 
 ```sh
+systemctl cat opencloud-agent | grep '^ExecStart='   # notez les options de la ligne
 systemctl stop opencloud-agent
-mv /var/lib/opencloud/agent /var/lib/opencloud-agent
-chown root:root /var/lib/opencloud-agent && chmod 0700 /var/lib/opencloud-agent
-ls -l /var/lib/opencloud-agent                # identity.json, à root
+test -d /var/lib/opencloud/agent && test ! -L /var/lib/opencloud/agent && test ! -e /var/lib/opencloud-agent \
+  && mv /var/lib/opencloud/agent /var/lib/opencloud-agent \
+  && chown root:root /var/lib/opencloud-agent && chmod 0700 /var/lib/opencloud-agent
+find /var/lib/opencloud-agent ! -user root     # ne doit rien afficher
 ```
+
+Les `test` arrêtent la ligne si l'ancien état est un lien (`chown` et `chmod`
+suivraient sa cible, qu'un autre compte aurait choisie) ou si le nouveau
+existe déjà (`mv` rangerait l'ancien dedans). `find` ne doit rien afficher :
+un fichier qui n'est pas à root veut dire que l'état a été remplacé. Dans les
+deux cas, ne gardez pas l'ancien état : ré-enrôlez la machine. L'agent le
+refuserait de toute façon (`identity.json` d'un autre compte : `state dir is
+not safe`).
 
 Puis le binaire de l'agent, `v0.0.1` étant ce que `opencloud version` affiche.
 Les liens de `bin/` sont relatifs : ils ont suivi le déplacement.
@@ -1211,15 +1221,18 @@ chemin), puis le redémarrage :
 
 ```sh
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
+# Les options notées au début (-allow-plain, -ca-file, -docker-socket), en fin de ligne, par exemple :
+sed -i 's|^ExecStart=.*|& -ca-file /etc/ssl/ca-interne.pem|' /etc/systemd/system/opencloud-agent.service
+systemctl cat opencloud-agent | grep '^ExecStart='   # le nouveau chemin, et les mêmes options qu'avant
 systemctl daemon-reload && systemctl start opencloud-agent
 journalctl -u opencloud-agent -n 20
 ```
 
 Le journal doit dire `identity loaded` et `connected`, et **pas** `state dir
-is not safe`. Si l'ancienne unité portait des options (`-allow-plain`,
-`-ca-file`, `-docker-socket`), reportez-les sur la ligne `ExecStart` de la
-nouvelle ; un autre drop-in qui redéfinit `ExecStart=` (`systemctl cat
-opencloud-agent`) se corrige de la même façon. Les drop-ins `droits.conf`
+is not safe`. Sans option sur l'ancienne ligne, sautez le `sed`. Un autre
+drop-in qui redéfinit `ExecStart=` (le `grep` en montre alors plusieurs) se
+corrige de la même façon : son chemin devient
+`/var/lib/opencloud-agent/bin/current … -state /var/lib/opencloud-agent`. Les drop-ins `droits.conf`
 (`ReadWritePaths=` d'un droit qui écrit ailleurs) restent valables. Ailleurs
 que sur la machine openCloud, `/var/lib/opencloud` est maintenant vide :
 `rmdir /var/lib/opencloud` (il refuse s'il reste quelque chose).
