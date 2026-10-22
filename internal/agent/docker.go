@@ -40,7 +40,7 @@ const (
 	envFileName     = ".env"
 	dataDirName     = "data"
 	// Les dossiers du service sont lisibles de tous ; le compose aussi ; l'.env
-	// est à root seul.
+	// n'est lisible que du compte de l'agent.
 	serviceDirMode  = 0o755
 	composeFileMode = 0o644
 	envFileMode     = 0o600
@@ -51,10 +51,17 @@ const (
 	composeTailLines  = agentwire.MaxOutputLines - agentSummaryLines
 )
 
-// L'environnement de Compose est remplacé, pas hérité : le PATH minimal, une
-// langue fixe, et le HOME de root, où Docker garde les identifiants des
-// registres.
-var composeEnvironment = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "HOME=/root"}
+// composeEnvironment est l'environnement de Compose, remplacé et non hérité : le
+// PATH minimal, une langue fixe, et le HOME du compte de l'agent, où Docker
+// garde les identifiants des registres. Sans dossier personnel connu, pas de
+// HOME : Compose ne trouve pas d'identifiants, il ne cherche pas ceux d'un autre.
+func composeEnvironment(home string) []string {
+	environment := []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
+	if home != "" {
+		environment = append(environment, "HOME="+home)
+	}
+	return environment
+}
 
 // Compose 2.24 est la première version qui sait ignorer un env_file absent
 // (required: false).
@@ -76,9 +83,13 @@ type composeRunner interface {
 }
 
 // dockerTools est ce que le déploiement de l'agent touche hors du dossier du
-// service : Compose et le disque.
+// service : Compose, le disque, et ce que la machine laisse faire au compte de
+// l'agent.
 type dockerTools struct {
 	compose composeRunner
+	// checks juge la socket de Docker et la racine des services, avant toute
+	// écriture.
+	checks hostChecks
 	// freeBytes rend l'espace libre sous un chemin, même s'il n'existe pas
 	// encore.
 	freeBytes func(path string) (uint64, error)
@@ -87,8 +98,11 @@ type dockerTools struct {
 	writeFiles func(dir *os.Root, job dockerJob) ([]agentwire.OutputLine, error)
 }
 
-func newDockerTools() dockerTools {
-	return dockerTools{compose: execCompose{path: dockerBinary}, freeBytes: freeBytesUnder, writeFiles: writeServiceFiles}
+func newDockerTools(checks hostChecks) dockerTools {
+	return dockerTools{
+		compose: execCompose{path: dockerBinary, environment: composeEnvironment(homeDir())},
+		checks:  checks, freeBytes: freeBytesUnder, writeFiles: writeServiceFiles,
+	}
 }
 
 // dockerJob est un déploiement jugé : tout ce que l'exécution lira de
@@ -163,6 +177,11 @@ func (t dockerTools) deployService(ctx context.Context, job dockerJob) ([]agentw
 	if !machine.ValidCapabilityPath(job.root) {
 		return nil, failWith(agentwire.ReasonPathUnwritable, fmt.Errorf("services root %q is not a clean absolute path", job.root))
 	}
+	// Avant tout : le compte de l'agent a-t-il la socket et la racine ? Sinon
+	// rien n'est ouvert ni écrit, et la raison se lit sur le run.
+	if err := t.checkAccount(ctx, job.root); err != nil {
+		return nil, err
+	}
 	base, err := judgeRoot(job.root)
 	if err != nil {
 		return nil, err
@@ -184,6 +203,21 @@ func (t dockerTools) deployService(ctx context.Context, job dockerJob) ([]agentw
 		defer base.Close()
 	}
 	return t.writeAndUp(ctx, base, job, summary)
+}
+
+// checkAccount refuse un ordre que le compte de l'agent ne peut pas exercer :
+// la socket de Docker lui est fermée (docker_denied), le programme manque
+// (docker_missing), la racine des services n'est pas à lui (path_denied) ou
+// l'unité ne l'ouvre pas (path_unwritable). Les mêmes questions que le rapport
+// des droits indisponibles.
+func (t dockerTools) checkAccount(ctx context.Context, root string) error {
+	if reason := t.checks.docker(ctx); reason != "" {
+		return refuseWith(reason, errors.New("docker is not usable by the agent account"))
+	}
+	if reason := t.checks.writable(root); reason != "" {
+		return refuseWith(reason, fmt.Errorf("%s cannot be written by the agent account", root))
+	}
+	return nil
 }
 
 // judgeRoot ouvre la racine : nil si elle n'existe pas encore (elle sera
@@ -521,10 +555,18 @@ func redactLines(lines []agentwire.OutputLine, secrets []string) []agentwire.Out
 // qui échoue, ou une écriture qui manque, est « échoué ».
 func dockerResultOf(runID string, output []agentwire.OutputLine, err error) agentwire.ActionResult {
 	result := resultOf(runID, output, err)
-	if result.State == agentwire.ActionFailed && isRefusedBeforeWriting(result.Reason) {
+	if result.State == agentwire.ActionFailed && (isRefusedBeforeWriting(result.Reason) || isUntouched(err)) {
 		result.State = agentwire.ActionRefused
 	}
 	return result
+}
+
+// isUntouched : l'échec dit lui-même que rien n'a été écrit (refuseWith). C'est
+// le cas de path_unwritable jugé avant toute écriture, que le même mot, venu
+// d'une écriture ratée, ne doit pas faire passer pour un refus.
+func isUntouched(err error) bool {
+	var failed *orderError
+	return errors.As(err, &failed) && failed.untouched
 }
 
 func isRefusedBeforeWriting(reason string) bool {
@@ -540,12 +582,23 @@ func isRefusedBeforeWriting(reason string) bool {
 // execCompose lance le vrai Docker.
 type execCompose struct {
 	path string
+	// L'environnement de Compose (composeEnvironment).
+	environment []string
+}
+
+// env rend l'environnement de Compose. Un environnement jamais fixé n'est pas
+// celui de l'agent (exec hérite d'un Env nul) : il tombe sur le minimum, sans HOME.
+func (c execCompose) env() []string {
+	if c.environment == nil {
+		return composeEnvironment("")
+	}
+	return c.environment
 }
 
 func (c execCompose) Version(ctx context.Context) (string, error) {
 	// bounded: le programme est une constante de l'agent, les arguments sont fixes.
 	command := exec.CommandContext(ctx, c.path, "compose", "version", "--short") // #nosec G204 -- bounded: chemin constant, arguments constants.
-	command.Env = composeEnvironment
+	command.Env = c.env()
 	var out bytes.Buffer
 	command.Stdout = &out
 	if err := command.Run(); err != nil {
@@ -568,7 +621,7 @@ func (c execCompose) Up(ctx context.Context, dir, project string) ([]agentwire.O
 	// des fichiers, jamais des arguments.
 	command := exec.CommandContext(ctx, c.path, "compose", "--project-directory", dir, // #nosec G204 -- bounded: chemin constant, dir = racine de l'agent + projet jugé.
 		"-f", path.Join(dir, composeFileName), "-p", project, "up", "-d", "--remove-orphans", "--pull", "missing")
-	command.Env = composeEnvironment
+	command.Env = c.env()
 	command.WaitDelay = 5 * time.Second
 	tail := newLineTail(composeTailLines)
 	command.Stdout = tail.writer("stdout")
@@ -678,8 +731,9 @@ func cleanLine(line string) string {
 	return line[:cut]
 }
 
-// freeBytesUnder rend l'espace que root peut encore écrire sous ce chemin, ou
-// sous son plus proche dossier existant s'il n'existe pas encore.
+// freeBytesUnder rend l'espace qu'un compte sans privilège peut écrire sous ce
+// chemin (Bavail, pas Bfree : la réserve de root n'en est pas), ou sous son plus
+// proche dossier existant s'il n'existe pas encore.
 func freeBytesUnder(target string) (uint64, error) {
 	for {
 		var stat syscall.Statfs_t

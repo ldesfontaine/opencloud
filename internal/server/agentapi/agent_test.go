@@ -387,3 +387,67 @@ func TestAgentStream_StoresTheReportedRightsThenRefusesTheRevokedAgent(t *testin
 		t.Fatalf("revoked agent: %d %s", refused.StatusCode, body)
 	}
 }
+
+// L'agent redit le compte sous lequel il tourne et les droits que ce compte ne
+// peut pas exercer. Le texte vient d'un pair : un en-tête illisible ne refuse
+// pas le flux et ne laisse rien derrière lui.
+func TestAgentStream_StoresTheAccountAndUnavailableRightsAndIgnoresForgedOnes(t *testing.T) {
+	server := newBench(t)
+	enrolled, private := server.enroll(t, "vps-paris-1", remoteID)
+	live := httptest.NewServer(server)
+	defer live.Close()
+
+	open := func(account, unavailable string) machine.Status {
+		t.Helper()
+		request := servertest.SignedStreamRequest(t, live.URL, enrolled.ID, private, servertest.NewNonce(t))
+		request.Header.Set(agentwire.HeaderAgentRights, "observe,agent.update,docker.deploy")
+		if account != "" {
+			request.Header.Set(agentwire.HeaderAgentAccount, account)
+		}
+		if unavailable != "" {
+			request.Header.Set(agentwire.HeaderAgentUnavailable, unavailable)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		resp, err := live.Client().Do(request.WithContext(ctx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("stream with %q / %q: %d", account, unavailable, resp.StatusCode)
+		}
+		status, err := server.machines.Get(context.Background(), enrolled.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+
+	status := open("998:opencloud-agent", "docker.deploy=docker_denied")
+	if status.Agent.RunAs == nil || status.Agent.RunAs.UID != 998 || status.Agent.RunAs.Name != "opencloud-agent" {
+		t.Fatalf("account %+v", status.Agent.RunAs)
+	}
+	if status.Agent.UnavailableReason(machine.CapabilityDockerDeploy) != agentwire.ReasonDockerDenied {
+		t.Fatalf("reasons %+v", status.Agent.Unavailable)
+	}
+
+	// Falsifiés : le compte reste celui d'avant, les raisons s'effacent, le
+	// flux s'ouvre.
+	forged := []struct{ account, unavailable string }{
+		{"-1:root", "docker.deploy=../../etc/passwd"},
+		{"0:Root", "shell.exec=docker_denied"},
+		{"4294967296:x", "docker.deploy=docker_denied,docker.deploy=docker_denied"},
+		{"007:x", "docker.deploy"},
+		{"998:" + strings.Repeat("a", 33), strings.Repeat("a", 3000)},
+	}
+	for _, c := range forged {
+		status = open(c.account, c.unavailable)
+		if status.Agent.RunAs == nil || status.Agent.RunAs.UID != 998 || status.Agent.RunAs.Name != "opencloud-agent" {
+			t.Errorf("forged account %q replaced the stored one: %+v", c.account, status.Agent.RunAs)
+		}
+		if len(status.Agent.Unavailable) != 0 {
+			t.Errorf("forged reasons %q were stored: %+v", c.unavailable, status.Agent.Unavailable)
+		}
+	}
+}

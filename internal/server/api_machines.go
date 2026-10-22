@@ -32,24 +32,41 @@ type machineJSON struct {
 // L'agent d'une machine : ce qu'il rapporte de son fichier, ce que son
 // jeton demandait, et s'ils diffèrent. L'agent applique ceux de son fichier.
 type agentJSON struct {
-	ID           string           `json:"id"`
-	Version      string           `json:"version"`
-	EnrolledAt   time.Time        `json:"enrolled_at"`
-	RevokedAt    *time.Time       `json:"revoked_at"`
-	Capabilities []capabilityJSON `json:"capabilities"`
-	ReportedAt   *time.Time       `json:"reported_at"`
-	Requested    []capabilityJSON `json:"requested"`
+	ID           string                   `json:"id"`
+	Version      string                   `json:"version"`
+	EnrolledAt   time.Time                `json:"enrolled_at"`
+	RevokedAt    *time.Time               `json:"revoked_at"`
+	Capabilities []reportedCapabilityJSON `json:"capabilities"`
+	ReportedAt   *time.Time               `json:"reported_at"`
+	Requested    []capabilityJSON         `json:"requested"`
 	// Le fichier de l'agent ne dit pas ce que le jeton demandait.
 	CapabilitiesDiffer bool `json:"capabilities_differ"`
 	// L'empreinte de la clé du serveur que l'agent dit avoir épinglée ; vide
 	// tant qu'il n'a rien dit. Différente de GET /api/agents/server-key :
 	// l'agent refuserait les ordres de ce serveur.
 	ServerKeyFingerprint string `json:"server_key_fingerprint"`
+	// Le compte sous lequel l'agent dit tourner ; null tant qu'il ne l'a pas
+	// dit (un agent d'avant).
+	RunAs *accountJSON `json:"run_as"`
 }
 
 type capabilityJSON struct {
 	Name  string   `json:"name"`
 	Paths []string `json:"paths"`
+}
+
+// Un droit tel que l'agent le rapporte : unavailable dit pourquoi son compte
+// ne peut pas l'exercer sur la machine, vide s'il le peut. Le droit demandé
+// par un jeton n'a pas ce champ.
+type reportedCapabilityJSON struct {
+	Name        string   `json:"name"`
+	Paths       []string `json:"paths"`
+	Unavailable string   `json:"unavailable"`
+}
+
+type accountJSON struct {
+	UID  int64  `json:"uid"`
+	Name string `json:"name"`
 }
 
 type pendingTokenJSON struct {
@@ -109,13 +126,31 @@ func agentToJSON(agent machine.Agent) *agentJSON {
 		Version:            agent.Version,
 		EnrolledAt:         agent.EnrolledAt.UTC(),
 		RevokedAt:          httpx.TimeOrNil(agent.RevokedAt),
-		Capabilities:       httpx.ConvertAll(agent.Capabilities, capabilityToJSON),
+		Capabilities:       reportedCapabilitiesToJSON(agent),
 		ReportedAt:         httpx.TimeOrNil(agent.ReportedAt),
 		Requested:          httpx.ConvertAll(agent.Requested, capabilityToJSON),
 		CapabilitiesDiffer: agent.CapabilitiesDiffer(),
 
 		ServerKeyFingerprint: agent.ServerKeyFingerprint,
+		RunAs:                accountToJSON(agent.RunAs),
 	}
+}
+
+func accountToJSON(account *machine.Account) *accountJSON {
+	if account == nil {
+		return nil
+	}
+	return &accountJSON{UID: account.UID, Name: account.Name}
+}
+
+func reportedCapabilitiesToJSON(agent machine.Agent) []reportedCapabilityJSON {
+	reported := make([]reportedCapabilityJSON, 0, len(agent.Capabilities))
+	for _, capability := range agent.Capabilities {
+		reported = append(reported, reportedCapabilityJSON{
+			Name: capability.Name, Paths: orEmpty(capability.Paths), Unavailable: agent.UnavailableReason(capability.Name),
+		})
+	}
+	return reported
 }
 
 func capabilityToJSON(capability machine.Capability) capabilityJSON {

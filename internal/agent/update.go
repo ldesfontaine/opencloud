@@ -104,6 +104,25 @@ func (u *selfUpdater) isSelfUpdatable() bool {
 	return filepath.Dir(real) == realBinDir
 }
 
+// unavailableReason dit pourquoi cet agent ne peut pas se mettre à jour, vide
+// s'il le peut : il ne tourne pas depuis son dossier bin/ (not_self_updatable),
+// ou son compte ne peut pas y écrire (judgeBin). Le dossier se juge une fois
+// ses liens suivis, comme isSelfUpdatable le compare.
+func (u *selfUpdater) unavailableReason(judgeBin func(path string) string) string {
+	if !u.isSelfUpdatable() {
+		return agentwire.ReasonNotSelfUpdatable
+	}
+	binDir, err := u.binDir()
+	if err != nil {
+		return agentwire.ReasonPathUnwritable
+	}
+	realBinDir, err := filepath.EvalSymlinks(binDir)
+	if err != nil {
+		return agentwire.ReasonPathUnwritable
+	}
+	return judgeBin(realBinDir)
+}
+
 // readAgentUpdate lit les paramètres de agent.update : une version, un colis
 // de trois fichiers (sommes, signature, un binaire d'architecture), chacun
 // avec sa taille et sa somme. Ce que l'ordre ne dit pas comme il faut est
@@ -386,14 +405,17 @@ func (c *cappedBuffer) String() string {
 }
 
 // acceptAgentUpdate juge agent.update : un agent qui ne tourne pas depuis son
-// dossier bin/ le refuse d'emblée, et l'ordre mal formé échoue ; sinon il est
-// accepté et la mise à jour se fait à son tour dans le worker. Réussie, elle ne
-// rapporte rien : l'agent s'arrête, et c'est son retour avec la nouvelle
-// version que le serveur prend pour la fin de l'ordre.
+// dossier bin/, ou dont le compte n'y écrit pas, le refuse d'emblée, et l'ordre
+// mal formé échoue ; sinon il est accepté et la mise à jour se fait à son tour
+// dans le worker. Réussie, elle ne rapporte rien : l'agent s'arrête, et c'est
+// son retour avec la nouvelle version que le serveur prend pour la fin de
+// l'ordre.
 func (r *orderRunner) acceptAgentUpdate(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
-	if !r.updater.isSelfUpdatable() {
-		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotSelfUpdatable)
-		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotSelfUpdatable}, nil
+	// Le compte de l'agent doit pouvoir écrire dans bin/ : refusé avant de
+	// télécharger quoi que ce soit.
+	if reason := r.checks.agentUpdate(); reason != "" {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
+		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
 	}
 	params, readable := readAgentUpdate(body)
 	if !readable {

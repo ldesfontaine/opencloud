@@ -20,7 +20,7 @@ const deployEnvLine = "POSTGRES_PASSWORD=cle-de-test-0001" // gitleaks:allow
 func deploySetup(t *testing.T, server *testServer, rights string) (serviceID string) {
 	t.Helper()
 	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
-	session, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights)
+	session, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", rights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

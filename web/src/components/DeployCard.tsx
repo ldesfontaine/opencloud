@@ -57,6 +57,7 @@ function PlanBody({ plan }: { plan: DeployPlan }) {
   return (
     <>
       {plan.right === "missing" && <Note tone="warn">{t("deploy.right_missing")}</Note>}
+      {plan.right === "unavailable" && <Note tone="warn">{t("deploy.right_unavailable", reasonText(t, plan.right_reason ?? ""))}</Note>}
       <KeyValue label={t("deploy.plan_path")} value={plan.path} mono />
       <KeyValue
         label={t("deploy.plan_units")}

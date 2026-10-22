@@ -84,18 +84,24 @@ type PlanDefinition struct {
 }
 
 // RightState dit si l'agent d'une destination peut écrire dans son dossier :
-// « unknown » tant qu'il n'a pas rapporté ses droits.
+// « unknown » tant qu'il n'a pas rapporté ses droits. « unavailable » : il a le
+// droit, mais son compte ne peut pas l'exercer (DestinationView.RightReason
+// dit pourquoi) ; le serveur l'affiche sans refuser l'envoi, l'agent refuse au
+// moment de l'ordre, avec la raison.
 type RightState string
 
 const (
-	RightOK      RightState = "ok"
-	RightMissing RightState = "missing"
-	RightUnknown RightState = "unknown"
+	RightOK          RightState = "ok"
+	RightMissing     RightState = "missing"
+	RightUnavailable RightState = "unavailable"
+	RightUnknown     RightState = "unknown"
 )
 
 type DestinationView struct {
 	Destination
 	Right RightState
+	// Avec « unavailable », la raison que l'agent a rapportée.
+	RightReason string
 }
 
 // Overview est ce que la page montre : ce qui existe et ce qui manque.

@@ -103,7 +103,7 @@ func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (action.Run
 	if !target.Online {
 		return action.Run{}, ErrMachineOffline
 	}
-	if rightOf(target, destination.Path) == RightMissing {
+	if right, _ := rightOf(target, destination.Path); right == RightMissing {
 		return action.Run{}, ErrRightMissing
 	}
 

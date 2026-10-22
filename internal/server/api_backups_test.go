@@ -52,7 +52,7 @@ func backupSetup(t *testing.T, server *testServer) (destinationID string) {
 		}
 	}
 	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
-	if _, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups"); err != nil {
+	if _, err := server.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", "backup.receive=/srv/backups", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := callAPI(server.Server, http.MethodPost, "/api/backups/keyring", map[string]any{"passphrase": backupPassphrase}); got.Code != http.StatusCreated {

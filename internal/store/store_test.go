@@ -499,6 +499,77 @@ func TestRecordConnection_ReplacesTheReportedRights(t *testing.T) {
 	}
 }
 
+// Le compte et les raisons d'indisponibilité suivent le rapport : le compte se
+// remplace s'il est redit et reste sinon, les raisons sont remplacées avec les
+// droits (jamais gardées pour un droit que le rapport ne porte plus).
+func TestRecordConnection_KeepsTheAccountAndReplacesTheReasons(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	now := time.Unix(1_800_000_000, 0)
+	token := issueToken(t, db, "account", "", now)
+	enrolled, err := db.Enroll(ctx, machine.HashToken(token), candidate(t), newAgent(t, now), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enrolled.Agent.RunAs != nil || enrolled.Agent.Unavailable != nil {
+		t.Fatalf("a fresh agent has said nothing: %+v", enrolled.Agent)
+	}
+	rights, err := machine.ParseCapabilities("agent.update,docker.deploy,backup.receive=/srv/backups")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connect := func(connection machine.Connection, at time.Time) machine.Agent {
+		t.Helper()
+		connection.MachineID, connection.AgentID, connection.At = enrolled.ID, enrolled.Agent.ID, at
+		if err := db.RecordConnection(ctx, connection); err != nil {
+			t.Fatal(err)
+		}
+		got, err := db.GetMachine(ctx, enrolled.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Agent
+	}
+	first := connect(machine.Connection{
+		Capabilities: rights, Account: &machine.Account{UID: 998, Name: "opencloud-agent"},
+		Unavailable: map[string]string{machine.CapabilityDockerDeploy: "docker_denied", machine.CapabilityBackupReceive: "path_denied"},
+	}, now.Add(time.Minute))
+	if first.RunAs == nil || *first.RunAs != (machine.Account{UID: 998, Name: "opencloud-agent"}) {
+		t.Fatalf("account %+v", first.RunAs)
+	}
+	if first.UnavailableReason(machine.CapabilityDockerDeploy) != "docker_denied" || first.UnavailableReason(machine.CapabilityBackupReceive) != "path_denied" ||
+		first.UnavailableReason(machine.CapabilityAgentUpdate) != "" || first.UnavailableReason(machine.CapabilityObserve) != "" {
+		t.Fatalf("reasons %+v", first.Unavailable)
+	}
+	// Le compte sans nom lisible s'écrit par son uid.
+	if nameless := connect(machine.Connection{Account: &machine.Account{UID: 4294967295}}, now.Add(2*time.Minute)); nameless.RunAs == nil || nameless.RunAs.UID != 4294967295 || nameless.RunAs.Name != "" {
+		t.Fatalf("nameless account %+v", nameless.RunAs)
+	}
+	// Un rapport de droits sans raison efface les raisons ; le compte, non dit,
+	// reste.
+	second := connect(machine.Connection{Capabilities: rights}, now.Add(3*time.Minute))
+	if len(second.Unavailable) != 0 || second.RunAs == nil || second.RunAs.UID != 4294967295 {
+		t.Fatalf("second report %+v / %+v", second.Unavailable, second.RunAs)
+	}
+	// Un agent d'avant, qui ne rapporte rien, ne touche ni droits ni raisons.
+	connect(machine.Connection{Capabilities: rights, Unavailable: map[string]string{machine.CapabilityDockerDeploy: "docker_missing"}}, now.Add(4*time.Minute))
+	silent := connect(machine.Connection{}, now.Add(5*time.Minute))
+	if silent.UnavailableReason(machine.CapabilityDockerDeploy) != "docker_missing" || len(silent.Capabilities) != 4 {
+		t.Fatalf("a connection without a report must leave the last one: %+v / %+v", silent.Unavailable, silent.Capabilities)
+	}
+	// Une raison pour un droit que le rapport ne porte pas n'a pas de ligne.
+	onlyObserve, _ := machine.ParseCapabilities("")
+	reported := connect(machine.Connection{Capabilities: onlyObserve, Unavailable: map[string]string{machine.CapabilityFilesWrite: "path_denied"}}, now.Add(6*time.Minute))
+	if len(reported.Unavailable) != 0 {
+		t.Fatalf("a reason for a right the report lacks was kept: %+v", reported.Unavailable)
+	}
+	// Le uid hors de ses bornes est refusé par la base elle-même.
+	_, err = db.sql.ExecContext(ctx, `UPDATE agents SET run_as_uid = -1 WHERE id = ?`, enrolled.Agent.ID)
+	if err == nil {
+		t.Fatal("the database must refuse a negative uid")
+	}
+}
+
 // Révoquer pose revoked_at sur l'agent actif et annule les jetons de
 // ré-enrôlement en attente ; un jeton d'une autre machine reste.
 func TestRevokeAgent_CancelsThePendingReenrollTokens(t *testing.T) {
