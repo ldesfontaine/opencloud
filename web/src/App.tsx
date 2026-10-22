@@ -10,6 +10,7 @@ import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
+import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
 import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
@@ -113,6 +114,7 @@ export function App() {
         <Route path="alertes/silences/nouveau" element={<AlertMuteNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Settings />} />
+        <Route path="cles-ssh" element={<SSHKeyMatrix />} />
         <Route path="journal" element={<Audit />} />
         {VisualSystem && (
           <Route

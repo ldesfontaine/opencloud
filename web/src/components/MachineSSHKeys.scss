@@ -1,0 +1,14 @@
+// L'onglet des clés SSH d'une machine : des cartes empilées, une par compte.
+
+.ssh-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// L'uid et la pastille d'état, à droite de l'en-tête d'un compte.
+.ssh-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}

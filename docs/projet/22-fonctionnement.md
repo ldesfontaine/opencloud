@@ -17,7 +17,7 @@
 | L'opérateur | L'opérateur, dans un navigateur | Le front React, chargé une fois avec la page, qui lit l'API JSON et affiche. Tant qu'aucun compte n'existe, l'écran de première configuration à la place de l'interface : il crée le compte, puis l'interface s'ouvre |
 | La machine openCloud | Le VPS où openCloud est installé | `opencloud serve` : l'API, le front embarqué, la base. **Et son agent, `opencloud agent`, comme toute machine** : `serve` n'observe rien de sa propre machine. La ligne qui l'installe s'affiche dès la première configuration (« La machine openCloud ») |
 | La commande locale | `opencloud export` et `opencloud apply`, lancées sur la machine openCloud, sous le compte du service ou en root | Rien de son côté : elles parlent au `serve` qui tourne par la socket `state_dir/control.sock`. `export` écrit ce qu'il répond ; `apply` lit un fichier, montre le plan que le serveur en tire, demande confirmation, puis lui demande de l'écrire. Elles n'ouvrent pas la base |
-| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
+| Une machine | Un VPS, une VM, un NAS, que openCloud gère sans l'héberger | `opencloud agent` : le démon qui parle à openCloud, mesure la machine et veille son Docker, **sous un compte dédié (`opencloud-agent`), root sur demande**. Un agent à la fois par machine ; ses droits sont cochés à l'installation, écrits dans son fichier, rapportés à chaque connexion et **appliqués** : un ordre hors de ses droits est refusé. Il exécute les **ordres signés** par la clé du serveur qu'il a épinglée à l'enrôlement, et refuse tout autre : `agent.ping` (ne change rien), `agent.server_key` (reçoit la clé neuve du serveur), `agent.update` (se met à jour), `backup.receive` et `backup.prune` (reçoit la sauvegarde chiffrée, garde les plus récentes), `docker.deploy` et `docker.update` (déploie ou redéploie un service Compose déclaré). La liste est fermée (`agentwire.OrderKinds`) |
 | Docker | Le démon de conteneurs d'une machine, s'il y en a un | Les services et leurs réseaux : pour observer, l'agent le lit par sa socket, en lecture seule. Il ne lui écrit que par `docker compose up`, pour déployer un service déclaré, avec le droit `docker.deploy` ou `docker.update` (« Comment un service se déploie ») |
 | Traefik | Le proxy de la machine openCloud | Termine TLS et transmet à openCloud sur la boucle locale |
 | Une tâche | Un cron, une sauvegarde, un script, n'importe où | Un `curl` sur son URL de ping quand elle démarre ou finit |
@@ -90,7 +90,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Sauvegarde, au repos | la destination, sur la machine d'un agent | age : X25519 et ChaCha20-Poly1305 pour l'archive ; la clé privée, déposée à côté, est scellée par scrypt avec la phrase de passe de l'opérateur | Seule la phrase ouvre la clé, seule la clé ouvre l'archive. L'agent n'a ni l'une ni l'autre : il vérifie la somme et l'en-tête `age-encryption.org/v1`, il ne déchiffre jamais |
 | Journaux | navigateur → `/api/containers/{id}/logs/stream` | TLS de Traefik | L'opérateur, par HTTP Basic ou par le SSO. En mode `none`, refusé comme le reste de l'interface (`401 auth.setup_required`). Une seconde connexion par onglet ; seize lectures de journaux en tout, suivis des onglets et tirages uniques compris |
 | Sonde | machine qui sonde → la cible | Celui de la cible : TLS si la sonde est en `https://` ou si une sonde TCP demande la poignée de main, rien sinon | Personne : une sonde n'est pas authentifiée, elle regarde du dehors comme n'importe qui. Un certificat refusé rend l'essai **dégradé**, jamais hors ligne, et la requête n'est pas rejouée. La chaîne est jugée par la machine qui sonde, avec les autorités qu'elle connaît |
-| Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : l'agent est root. `opencloud serve` ne lit plus la socket : il n'a besoin ni de root ni du groupe `docker`. Le client ne connaît aucun verbe qui écrit |
+| Docker | agent → `/var/run/docker.sock` | Aucun : une socket Unix de la machine | Les droits Unix : le compte de l'agent est dans le groupe `docker` (ou l'agent est root), ce qui **équivaut à root** (« Ce qui manque encore »). `opencloud serve` ne lit plus la socket : il n'a besoin ni de root ni du groupe `docker`. Le client ne connaît aucun verbe qui écrit |
 | Agent | Traefik → openCloud | En clair, boucle locale | `X-Forwarded-*` cru seulement depuis `trusted_proxies`. `X-Forwarded-For` se lit de la droite : la source est la dernière entrée qui n'est pas un mandataire de confiance, ce que le client écrit à gauche ne compte pas |
 | Agent en dev | machine → `http://127.0.0.1` | Aucun, et c'est accepté : rien ne sort de la machine | Idem |
 | Agent sur un LAN | machine → `http://192.168.…` | **Refusé** par l'agent, sauf `-allow-plain` | Réservé à un réseau déjà chiffré, WireGuard par exemple |
@@ -134,6 +134,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les ordres envoyés aux agents : `action_runs` (identifiant, genre `action`, paramètres sans secret `params`, machine et agent en `set null` avec `machine_name` recopié, état, `refusal_reason`, `not_after`, rang `seq` unique par agent, `requested_by` recopié de l'acteur, `requested_at`, `finished_at`) et leur sortie, `run_logs` (rang, instant, flux, ligne ; 64 lignes au plus par run), partie avec son run (`cascade`). Écrit **avant** que l'ordre ne parte (« Comment un ordre part et revient ») | Un run survit à sa machine et à son agent : c'est une trace. Purgé à 90 jours (`action.Retention`) avec sa sortie, par la boucle des ordres. La sortie est ce que l'agent a écrit : rien n'y est masqué |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -149,7 +150,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `outgoing/<colis>/` | Les colis des ordres longs : l'instantané de la base (`VACUUM INTO`) le temps de l'emballer, puis l'archive chiffrée jusqu'à son téléchargement par l'agent, **la vie de son ordre au plus** (`action.ParcelLifetime` : 2 min pour être pris, une heure pour finir). Vidé au démarrage de `serve`. Aucune sauvegarde n'est gardée sur cette machine | `0700`, `0600`, même disque et mêmes droits que la base ; l'instantané en clair est effacé avant l'envoi |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
-| Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (root, `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
+| Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
 
 **Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
 `settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
@@ -181,8 +182,26 @@ qu'à l'écran qui le montre une fois, puis chez le client qui le garde
    (« Les droits d'un agent », plus bas). openCloud tire un jeton, en garde
    l'empreinte et les droits demandés, affiche le clair une seule fois avec la
    commande à coller.
-2. Sur la machine : `printf '%s\n' 'oc_…' | sudo opencloud agent -server https://… -rights observe,…`
-   (`-rights` n'y est que si un droit dépasse `observe`).
+2. Sur la machine, en deux temps. D'abord la **préparation**, que le serveur
+   fabrique (`installPreparation`) et rend avec le jeton (`preparation`), à
+   jouer une fois en root : le compte `opencloud-agent` (`useradd --system`, sans
+   shell, son dossier personnel est l'état de l'agent), le groupe `docker` s'il
+   existe, l'état à ce compte, puis **sous le compte** (`runuser`) `bin/` et le
+   binaire (`/tmp/opencloud` copié par l'opérateur, `/usr/local/bin/opencloud`
+   pour la machine openCloud) posé dans `bin/` sous la version du serveur avec
+   son lien `current`, puis un `install -d` au nom du compte par dossier où un
+   droit coché écrit (la racine des services, le dossier de `backup.receive`,
+   ceux de `files.write`), précédé de `test ! -L` ; un dossier sous un autre
+   dossier du compte se crée sous le compte. Root n'agit ainsi sur aucun nom
+   que le compte contrôle : la ligne se rejoue sur une machine déjà préparée,
+   et `install -d` suit un lien. Ensuite la
+   ligne : `printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://… -rights observe,…`
+   (`-rights` n'y est que si un droit dépasse `observe`). Le binaire est celui de
+   l'état, jamais un lien `/usr/local/bin/opencloud` : root le lancerait, et le
+   compte de l'agent peut remplacer ce qu'il vise. Ni la préparation ni la
+   ligne ne portent d'autre texte que des constantes et des chemins de droits
+   (`ValidCapabilityPath` : lettres, chiffres, `. _ - /`) ; la préparation ne
+   porte jamais le jeton.
    Le jeton entre par l'entrée standard de l'agent, lue seulement quand
    il n'a pas d'identité et reçoit `-server` (invite « Jeton
    d'enrôlement : » sur un terminal ; entrée vide ou fermée : refus, code 2).
@@ -339,8 +358,10 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   aussi. `files.write` se jugera comme `backup.receive` avec l'ordre qui nomme
   un chemin ; aucun n'existe encore.
 - **Un droit coché peut être indisponible** (#146, décision 2 du 22 octobre
-  2026). L'agent n'est pas forcément root : sous un compte dédié, il peut ne
-  pas ouvrir la socket de Docker, ne pas posséder le dossier d'un droit. Il
+  2026). L'agent n'est pas root par défaut : sous le compte dédié, il peut ne
+  pas ouvrir la socket de Docker (compte absent du groupe `docker`), ne pas
+  posséder le dossier d'un droit (la préparation ne l'a pas créé, ou une machine
+  passée de root à ce compte n'a pas eu son `chown`). Il
   juge donc chaque droit coché (sauf `observe`) **avant chaque ouverture du
   flux**, et le dit : `OpenCloud-Agent-Unavailable: docker.deploy=docker_denied,…`,
   absent quand tout est réalisable. Il pose les mêmes questions **au moment
@@ -443,7 +464,7 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | Étape | Ce qui se passe |
 | --- | --- |
 | Premier démarrage | Tant que la machine openCloud n'a **jamais** eu d'agent (pas de ligne `local`, ou une ligne sans agent), `serve` émet le jeton de son agent (`OfferLocalEnrollment`) : `observe` et `probe.lan` (ses sondes visent d'abord ses propres services), nommé d'après le nom d'hôte (sans le domaine ; un nom d'hôte qui ne fait pas un nom de machine laisse `opencloud`), un jeton de ré-enrôlement si la ligne existe. Le clair ne vit qu'en mémoire. Le journal dit, en `INFO` et dans la langue de l'interface, qu'un jeton attend pour cette machine et où trouver la ligne ; **jamais le jeton** |
-| Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec le rappel d'activer `opencloud-agent.service`. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
+| Première configuration | Le compte créé, l'écran montre la ligne d'installation de l'agent de cette machine (`POST /api/machines/local-enrollment` : le jeton déjà émis s'il attend encore, un neuf sinon), avec la préparation de la machine au-dessus d'elle (le compte `opencloud-agent`, son état, le binaire pris de `/usr/local/bin/opencloud`, sans lien dans `/usr/local/bin`) et le rappel d'activer `opencloud-agent.service` : la même installation que les autres machines. « Ouvrir l'interface » passe à la suite. Si la ligne ne s'obtient pas, l'interface s'ouvre directement |
 | Ensuite | `409 machine.local_enrolled` dès que la machine a, ou a eu, un agent : un agent révoqué ne se réinstalle pas de lui-même. La ligne se redonne par la fiche › **Ré-enrôler**, ou par Ajouter une machine, jouée sur elle (l'empreinte la rattache à `local`) |
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
@@ -619,7 +640,8 @@ ici ; le `data/` et le `.env` d'un service déployé ne sont pas emportés (« C
 | Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes |
 
 **Ce que fait l'agent.** `backup.receive` est le premier ordre qui **écrit
-sur une machine** : l'agent reste root, ce sont ses droits et un `os.Root`
+sur une machine** : l'agent n'écrit que ce que son compte possède (ou tout, s'il est
+root), et ce sont ses droits et un `os.Root`
 ouvert sur le **chemin du droit** qui le bornent : le sous-dossier demandé
 s'ouvre sous lui, un lien symbolique sur le chemin est refusé
 (`path_outside_right`), et aucune écriture ne sort du droit, liens compris. Il crée le dossier s'il manque (`0700`), télécharge chaque fichier
@@ -683,12 +705,12 @@ L'état du service se lit comme avant, par le rapport des conteneurs
 | Deux ordres | `docker.deploy` (le dossier du service ne doit **pas** exister : `service_dir_exists`) et `docker.update` (il doit exister : `service_dir_missing`), avec le droit homonyme. Ordres longs : acceptés tout de suite, exécutés par le worker, une heure au plus. Un dossier qu'openCloud ne sait pas avoir écrit se retire à la main |
 | Qui décide « Déployer » ou « Redéployer » | **Le dernier constat de l'agent sur le dossier** (`action_runs.service_id`) : parmi les ordres de ce service, le plus récent qui dit quelque chose du dossier. Réussi, `compose_failed` (Compose a échoué après l'écriture) et `timeout` (accepté puis plus de nouvelles : le dossier a pu être écrit, l'agent ne retire pas un dossier qu'il n'a pas fini) disent « déployé » ; `service_dir_missing` (l'agent a regardé) dit « pas déployé ». Le reste ne compte pas : un refus d'avant l'écriture, un ordre expiré, et `service_dir_exists`, pour ne jamais proposer « Redéployer » par-dessus un dossier qu'openCloud ne sait pas avoir écrit. Un déploiement coupé se reprend donc en un geste au plus : « Redéployer », et si le dossier n'existait pas, l'agent répond `service_dir_missing` et « Déployer » revient |
 | Le `compose.yml` | **Généré**, jamais saisi, déterministe : le même annuaire donne le même texte. Il est **réécrit à chaque** (re)déploiement : une retouche faite à la main sur la machine est perdue |
-| Le dossier de données | Un champ de l'unité, `data_path` (chemin absolu **dans le conteneur**, facultatif, un par unité) : `./data/<unité>:<data_path>`. Jamais de volume nommé. L'agent crée `data/<unité>` en `0755`, root ; l'UID du conteneur reste à régler à la main. `data_path` s'exporte et s'applique (`data_path:` sous l'unité) |
+| Le dossier de données | Un champ de l'unité, `data_path` (chemin absolu **dans le conteneur**, facultatif, un par unité) : `./data/<unité>:<data_path>`. Jamais de volume nommé. L'agent crée `data/<unité>` en `0755`, au compte de l'agent ; l'UID du conteneur reste à régler à la main. `data_path` s'exporte et s'applique (`data_path:` sous l'unité) |
 | Le `.env` | **Write-only** : facultatif, 64 Kio au plus, UTF-8 sans octet nul, saisi dans la boîte de confirmation, signé dans `OrderBody.Secret` (`{"env": "…"}`), écrit par l'agent en `0600`. Jamais stocké, jamais journalisé : l'audit dit `env: sent`, `action_runs.params` dit `"env_sent": true`. Absent au déploiement : aucun `.env`. Vide au redéploiement : celui de la machine reste. Pas de relecture dans cette version |
 | La racine | Celle de l'agent : `-root-dir` au premier lancement (défaut `/srv/workspace`, `brand.WorkspaceRoot`), gardée dans `identity.json`, redite à chaque ouverture du flux (`OpenCloud-Agent-Root`) et notée dans `agents.root_dir`. **L'ordre ne porte que le nom du projet** : l'agent calcule le chemin lui-même. Racine absente : créée `0755` avec le fichier témoin `.opencloud` ; existante, non vide et sans témoin : `root_not_ours` |
 | Ce que l'agent vérifie | Dans l'ordre : le nom du projet et ceux des unités (rejugés par les mêmes expressions que l'annuaire) ; le `compose.yml` lui-même (`agentwire.CheckCompose`) : l'agent le relit, en tire image, ports et dossier de données, le **rend à nouveau** par le même code que le serveur (`agentwire.RenderCompose`, chaque valeur rejugée) et compare les octets ; un fichier qui diffère (une clé de plus comme `privileged`, `network_mode`, `cap_add`, `pid`, un montage autre que `./data/<unité>:<chemin>`, une ancre, une balise, un commentaire, un `$` que Compose interpolerait, un autre projet ou service, des dossiers de données qui ne sont pas ceux de l'ordre) est refusé `bad_order` avant d'être accepté : un ordre signé ne fait pas monter l'hôte ; la racine, le dossier (existe ou non selon l'ordre ; un lien symbolique est refusé), `/usr/bin/docker` exécutable (`docker_missing`), `docker compose version --short` au moins 2.24.0 (`compose_too_old`), au moins 2 Gio libres sous la racine (`disk_full`) |
 | Ce que l'agent écrit | Par un `os.Root` ouvert sur la racine, jamais en suivant un lien : `compose.yml` en `0644`, `.env` en `0600`, chacun atomique (fichier temporaire exclusif, `fsync`, renommage, `fsync` du dossier). Un premier déploiement refusé ou échoué avant Compose retire le dossier qu'il vient de créer ; après `compose_failed`, il reste |
-| Ce que l'agent lance | `/usr/bin/docker compose --project-directory <dossier> -f <dossier>/compose.yml -p <projet> up -d --remove-orphans --pull missing`, programme constant, arguments en liste (jamais de shell ; le projet ne commence jamais par `-`), `-p` pour qu'un `COMPOSE_PROJECT_NAME` posé dans l'`.env` ne fasse pas viser (ni nettoyer par `--remove-orphans`) un autre projet, environnement **remplacé** (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`, `HOME=/root` pour les identifiants des registres), dix minutes au plus |
+| Ce que l'agent lance | `/usr/bin/docker compose --project-directory <dossier> -f <dossier>/compose.yml -p <projet> up -d --remove-orphans --pull missing`, programme constant, arguments en liste (jamais de shell ; le projet ne commence jamais par `-`), `-p` pour qu'un `COMPOSE_PROJECT_NAME` posé dans l'`.env` ne fasse pas viser (ni nettoyer par `--remove-orphans`) un autre projet, environnement **remplacé** (`PATH=/usr/sbin:/usr/bin:/sbin:/bin`, `LC_ALL=C`, `HOME` du compte de l'agent, `/root` pour root, pour les identifiants des registres), dix minutes au plus |
 | La sortie | Les 58 dernières lignes de Compose (stdout et stderr entrelacés, 4 Kio par ligne, caractères de contrôle retirés), **les valeurs de l'`.env` masquées** (`[.env]`, celui de l'ordre ou, au redéploiement sans `.env`, celui de la machine ; une valeur de moins de 6 octets ne l'est pas, une valeur coupée par la borne de 4 Kio peut l'être à moitié) : Compose cite une ligne de l'`.env` dans ses erreurs de syntaxe ; plus au plus 6 lignes de l'agent : un résultat porte 64 lignes au plus, au-delà le serveur écarterait toute la section. Elle va dans `run_logs` et s'affiche sous le dernier ordre. Code de sortie ≠ 0 : `failed`, raison `compose_failed` ; un prérequis manquant : `refused` (après `accepted`), avec sa raison |
 
 Le fichier généré pour un service `nextcloud` de deux unités, dont la première
@@ -817,8 +839,11 @@ version déclarée de l'unité puis redéploie son service.
 - **Pas de relecture de l'`.env`**, ni de modification sans le remplacer.
 - **L'unité systemd** de l'agent doit autoriser la racine
   (`ReadWritePaths=/srv/workspace`) : la page du jeton donne le fichier quand
-  `docker.deploy` ou `docker.update` est coché. L'agent reste root (décision
-  2) : ce sont les premiers ordres qui lancent un programme.
+  `docker.deploy` ou `docker.update` est coché. Le dossier est celui que la
+  préparation a créé au nom du compte de l'agent (`path_denied` sinon). Le
+  compte dédié est dans le groupe `docker`, qui équivaut à root (décision 2,
+  « Ce qui manque encore ») : ce sont les premiers ordres qui lancent un
+  programme.
 
 **Au journal** : les deux `action.order` de chaque geste, avec `service_id`
 et `env: sent` quand un `.env` part. Jamais le contenu de l'`.env`.
@@ -3272,6 +3297,91 @@ légitime ; ses entrées de plus de dix minutes sont balayées au passage.
 Derrière Traefik sans `trusted_proxies`, tous les agents partagent un seul
 seau.
 
+## Comment les clés SSH se relèvent
+
+C'est la première étape de #152 : **lire**, jamais écrire. L'agent inventorie
+les fichiers `authorized_keys` et `authorized_keys2` de chaque compte de sa
+machine ; openCloud les affiche, par machine (onglet « Clés SSH » de la fiche)
+et toutes ensemble (page « Clés SSH » sous Administration, une ligne par
+empreinte, une colonne par machine). **Aucune écriture** sur une machine : ni
+fichier, ni dossier, ni ordre. Le droit est `observe`, toujours acquis ; aucun
+droit nouveau.
+
+**Quels comptes.** `/etc/passwd`, lisible de tous : root et les comptes
+d'utilisateur (uid d'au moins 1000, hors `nobody`), avec un nom sûr
+(`^[A-Za-z0-9._@][A-Za-z0-9._@-]{0,63}$`) et un dossier personnel absolu et
+propre. 64 comptes au plus ; au-delà, le relevé dit qu'il est tronqué. Un
+compte sans dossier personnel, ou dont le dossier n'existe pas, est « aucun
+fichier ».
+
+**Quels fichiers.** Les deux que sshd lit par défaut (`AuthorizedKeysFile`) :
+`~/.ssh/authorized_keys` et `~/.ssh/authorized_keys2`. Un `AuthorizedKeysFile`
+personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus.
+
+**Comment un dossier d'inconnu se lit.** Le dossier personnel est le terrain de
+son utilisateur : il y pose des liens, des fichiers énormes, des tubes. L'agent
+le lit comme sshd le ferait avec `StrictModes`, et un peu plus prudemment :
+
+1. le dossier personnel est ouvert par `os.OpenRoot` : rien de ce qui est lu
+   dessous ne sort du dossier, un lien symbolique qui mène ailleurs échoue ;
+2. `~/.ssh` doit être un vrai dossier (pas un lien), au compte ou à root, que ni
+   le groupe ni les autres ne modifient (`mode & 0o022 == 0`), sinon l'état est
+   `unsafe` ;
+3. chaque fichier est jugé par `Lstat` **avant** d'être ouvert (un tube ouvert en
+   lecture bloquerait l'agent) : régulier, d'un seul nom (un lien dur passe
+   `O_NOFOLLOW` : là où `protected_hardlinks` est coupé, un compte poserait
+   dans son `~/.ssh` un second nom de `/etc/shadow`, à root et fermé aux
+   autres ; sshd le lirait, l'agent non), mêmes règles de propriétaire et de
+   droits, au plus 256 Kio (`too_large` au-delà) ;
+4. il est ouvert avec `O_NOFOLLOW|O_NONBLOCK`, puis **rejugé sur le
+   descripteur** (`fstat`) : un fichier échangé entre le jugement et l'ouverture
+   ne passe pas ;
+5. la lecture est bornée à 256 Kio.
+
+**Ce qui sort.** Seulement, pour chaque clé : le fichier, l'**empreinte SHA256**,
+le type, la taille en bits, un **commentaire** nettoyé (UTF-8 valide, sans
+caractère de contrôle ni de mise en forme, 64 octets au plus, coupé sur une
+limite de caractère) et les **noms d'options reconnus** (`command`, `from`,
+`restrict`… : une liste fermée de 22 noms sshd, et `other` pour tout autre). La
+valeur d'une option (`command="…"`, `from="…"`) **ne sort jamais** : un
+`command=` peut porter un secret. Une ligne qui n'est pas une clé d'un des huit
+types connus, ou de plus de 16 Kio, est comptée dans « lignes ignorées » et
+rien d'autre. Une même clé deux fois dans un fichier n'est qu'une, avec la
+réunion de ses options. 64 clés par compte, 512 par machine (un signal pèse au
+plus 1 Mio) : au-delà, « tronqué ».
+
+**L'état d'un compte** résume ses deux fichiers par le plus grave : `denied`
+(illisible pour le compte de l'agent), `unsafe` (lien, fichier spécial, droits ou
+propriétaire que sshd refuserait, fichier à plusieurs liens durs), `too_large`, puis `read`, ou `none` s'il n'y a
+aucun fichier. Un compte `denied` n'est pas un compte sans clé : la page dit
+« Illisible pour le compte de l'agent (opencloud-agent) », et, une fois par
+machine, que sous un compte dédié l'agent ne lit pas les clés des autres
+comptes alors qu'en root il les lit toutes.
+
+**Comment ça voyage.** L'agent relève au démarrage puis toutes les dix minutes.
+Le relevé part dans le signal, section `ssh_keys`, **seulement s'il a changé**,
+et une fois à chaque ouverture du flux (le serveur garde un reflet : un flux
+neuf le lui redonne) ; un signal qui échoue le remet à livrer. Un agent plus
+ancien n'envoie rien : la fiche dit « pas encore relevé ». Le serveur ne fait
+pas confiance au relevé : il en vérifie chaque borne (comptes, clés, noms,
+états, fichiers, types, empreintes, options, commentaires) et **refuse le tout**
+s'il sort de ce qu'un agent peut avoir lu (`bad_ssh_keys` dans l'en-tête des
+sections refusées ; le reste du signal passe). Un relevé retenu remplace
+l'ancien dans une transaction et prévient le direct (sujet `machines`).
+
+**L'API** : `GET /api/machines/{id}/ssh-keys` (404 si la machine n'existe pas ;
+un relevé vide et sans date tant que l'agent n'a rien dit) et
+`GET /api/ssh-keys` (toutes les machines, par nom). Lecture seule, pour
+l'opérateur seul : **aucun jeton d'API** ne les lit (des noms de comptes et des
+empreintes ; la liste fermée de « Comment un agent IA lit openCloud » ne change
+pas).
+
+**Une clé est dite faible** quand elle est DSA, ou RSA sous 3072 bits : un mot
+sur la ligne, rien de plus. Dans la matrice, une cellule dit les comptes de la
+machine qui acceptent la clé ; « — » quand la machine est relevée sans cette
+clé ; « ? » quand elle ne l'est pas, ou qu'un de ses comptes n'a pas pu être
+lu (l'absence n'y prouve rien).
+
 ## Comment une suppression se décide
 
 **Entre objets déclarés, `restrict`** (`migrations/001_schema.sql`) : une suppression ne retire jamais en silence un autre objet
@@ -3707,11 +3817,12 @@ refusés avant d'envoyer quoi que ce soit.
 | Manque | Conséquence aujourd'hui | Quand |
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
-| L'agent reste root | Ses droits bornent ce qu'un ordre demande, pas ce que le processus peut faire : un agent compromis sur sa machine a la machine | Décision 2 : un observateur non privilégié et un exécuteur root étroit, à décider |
+| Le groupe `docker` équivaut à root | Le compte dédié de l'agent (`opencloud-agent`, décision 2 du 22 octobre 2026) est dans le groupe `docker` quand la machine a Docker, et la socket de Docker lance un conteneur privilégié qui monte `/` : sur une machine avec Docker, le compte dédié protège des erreurs et d'une compromission maladroite (pas de réécriture directe de `/etc`, `/usr`, des comptes), pas d'un attaquant décidé. Sans Docker, c'est un compte sans privilège. Root reste possible (drop-in `root.conf`), au prix de la machine entière | Un observateur non privilégié et un exécuteur root étroit : seulement si l'usage le demande (décision 2) |
 | Docker muet sur une machine en ligne | La machine signale, mais Docker ne répond plus (ou l'agent dit « Docker absent ») : ses conteneurs gardent leur dernier état, pas encore « Inconnu » | Après #136 point 1 (issue de suite : 12 min, ou tout de suite si l'agent dit « Docker absent ») |
 | Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment la base est sauvegardée »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
+| Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
 | Un jeton d'API ne fait que lire | mcp-maison ne peut ni acquitter, ni mettre en pause, ni ouvrir un incident : la liste fermée ne compte aucune écriture, et l'acteur `api` n'écrit encore rien au journal | Avec les actions de l'API (#153, étape 5) |
 | Les journaux de conteneur partent chez le fournisseur du modèle | Ce qu'un agent IA lit par mcp-maison, journaux de conteneur compris, quitte la machine, comme tout ce qu'il lit ; c'est le choix de l'opérateur qui crée un jeton et branche mcp-maison | Par conception |
 | TLS servi par openCloud lui-même | Sans Traefik ni domaine, il faut `-pin` sur un certificat tiers | À part |

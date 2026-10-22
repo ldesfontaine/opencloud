@@ -159,6 +159,11 @@ func (b *Bus) ActionsChanged(string) {
 	b.Publish(TopicActions)
 }
 
+// Un relevé de clés SSH se lit avec la machine : même sujet.
+func (b *Bus) SSHKeysChanged(string) {
+	b.Publish(TopicMachines)
+}
+
 func (b *Bus) BackupsChanged() {
 	b.Publish(TopicBackups)
 }

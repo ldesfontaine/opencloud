@@ -349,7 +349,7 @@ func (c *Client) Signal(ctx context.Context, session string, sent agentwire.Sign
 }
 
 func isEmptySignal(sent agentwire.SignalRequest) bool {
-	return len(sent.Readings) == 0 && sent.Services == nil && sent.Probes == nil && sent.Images == nil && sent.Actions == nil
+	return len(sent.Readings) == 0 && sent.Services == nil && sent.Probes == nil && sent.Images == nil && sent.Actions == nil && sent.SSHKeys == nil
 }
 
 // PostLogs livre un lot de journal pour une requête du serveur.

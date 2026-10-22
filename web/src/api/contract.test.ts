@@ -16,6 +16,7 @@ import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
+import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
 import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPagesResponse } from "./status";
@@ -236,6 +237,21 @@ const network = shape<NetworkResponse>("NetworkResponse", {
   containers: container,
   groups: shape("Group", { network_id: value, name: value, internal: value, members: value }),
   edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), source: optional(value) }),
+});
+
+const sshReport = shape<SSHReport>("SSHReport", {
+  machine_id: value,
+  machine_name: value,
+  reported_at: value,
+  truncated: value,
+  accounts: shape("SSHAccount", {
+    name: value,
+    uid: value,
+    state: value,
+    truncated: value,
+    ignored: value,
+    keys: shape("SSHKey", { file: value, fingerprint: value, type: value, bits: value, comment: value, options: value }),
+  }),
 });
 
 type ProbeJSON = ProbesResponse["probes"][number];
@@ -830,6 +846,8 @@ const contract: Record<string, Shape<unknown>> = {
   "remote_resources.golden.json": current,
   "resources.golden.json": shape<ResourcesResponse>("ResourcesResponse", { machines: current }),
   "session.golden.json": session,
+  "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
+  "ssh_keys_machine.golden.json": sshReport,
   "settings_ai_agent.golden.json": mcpCheck,
   "status_component.golden.json": statusComponent,
   "status_components.golden.json": shape<StatusComponentsResponse>("StatusComponentsResponse", {

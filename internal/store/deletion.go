@@ -60,6 +60,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 			{deletion.KindContainerEvents, `SELECT COUNT(*) FROM container_events
 				WHERE container_id IN (SELECT id FROM containers WHERE machine_id = ?)`},
 			{deletion.KindImageChecks, `SELECT COUNT(*) FROM image_checks WHERE machine_id = ?`},
+			{deletion.KindSSHKeys, `SELECT COUNT(*) FROM ssh_keys WHERE machine_id = ?`},
 			{deletion.KindIgnoredKeys, `SELECT COUNT(*) FROM ignored_keys WHERE machine_id = ?`},
 			// Celles de la machine, et celles de ses conteneurs, qui partent avec eux.
 			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes, (SELECT ? AS id) AS gone

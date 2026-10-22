@@ -136,7 +136,7 @@ func startAgentWith(t *testing.T, ctx context.Context, server *fakeServer, logs 
 	if configure != nil {
 		configure(client, orders)
 	}
-	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: actions, orders: orders}
+	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: actions, sshKeys: &sshReports{}, orders: orders}
 	done := make(chan error, 1)
 	go func() { done <- keepConnected(ctx, client, identity, waiting, catalogs.For(lang.French), opts) }()
 	return done
