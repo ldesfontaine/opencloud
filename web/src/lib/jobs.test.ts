@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 
 import type { Job, JobStatus, Run, RunOutcome } from "../api/jobs";
 import type { Translate } from "../i18n/context";
-import { awaitsFirstPing, currentStreak, isSignaled, jobFact, jobFormOf, jobRequestOf, jobsSubtitle, jobTones, lastSuccessText, outcomeKey, runHistoryLimit, runTones } from "./jobs";
+import { awaitsFirstPing, currentStreak, exitCodeTone, isSignaled, jobFact, jobFormOf, jobRequestOf, jobsSubtitle, jobTones, lastSuccessText, outcomeKey, runHistoryLimit, runTones } from "./jobs";
 
 // Un faux catalogue : la clé et ses arguments, pour lire ce qui est demandé.
 const t: Translate = (key, ...args) => [key, ...args].join(":");
@@ -236,4 +236,11 @@ test("jobsSubtitle compte les tâches et ce qui demande attention", () => {
   expect(jobsSubtitle(t, 1, 1)).toBe("jobs.subtitle_one_attention");
   expect(jobsSubtitle(t, 6, 0)).toBe("jobs.subtitle_ok:6");
   expect(jobsSubtitle(t, 6, 2)).toBe("jobs.subtitle_attention:6:2");
+});
+
+test("exitCodeTone ne signale qu'un code non nul", () => {
+  expect(exitCodeTone(0)).toBe("neutral");
+  expect(exitCodeTone(1)).toBe("danger");
+  expect(exitCodeTone(137)).toBe("danger");
+  expect(exitCodeTone(-1)).toBe("danger");
 });

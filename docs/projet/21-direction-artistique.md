@@ -75,7 +75,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 | Marge de page | 28 px haut et bas, 32 px côtés |
 | Carte | rayon 14, trait 1 px, padding 20 |
 | Contrôle (bouton, champ, sélecteur) | hauteur 36, rayon 8 ; petit : 30, rayon 7 |
-| Pastille d'état | hauteur 24, rayon 999, point 6 px |
+| Pastille d'état | hauteur 24, rayon 999, point 6 px ; petite (`small`) : 17, texte 11 px, point 5 px, pour un pied de tuile ou le titre d'une ligne de liste, sans les faire grandir |
 | Barre latérale | 232 px, item 34 px de haut, rayon 8 |
 | Sous 860 px | barre latérale en tiroir (280 px au plus, derrière un voile `--scrim`), en-tête de 56 px ; contrôle 44, petit 40 ; marge de page 20 / 16 |
 | Icônes | trait 1,6 ; 16 px en ligne, 18 px dans le graphe |
@@ -87,7 +87,13 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   compteurs en mono à droite (rouge quand il y a une alerte), en bas le
   commutateur clair/sombre puis le compte.
 - **En-tête de page** : titre, sous-titre d'une phrase, actions à droite. Une
-  seule action principale par écran.
+  seule action principale par écran. La vue d'ensemble n'a pas de sous-titre
+  tant qu'elle montre des machines : la tuile Machines dit déjà le compte.
+- **Onglets** : un lien par onglet, le courant souligné. Quand la barre déborde
+  (un téléphone), un fondu au bord cache ce qui reste hors de vue : à droite
+  tant que la fin n'est pas atteinte, à gauche une fois défilée, par
+  `mask-image` ; l'onglet courant est amené dans la vue au chargement. Rien ne
+  change quand tout tient.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
   les onglets livrés : Résumé, Services, Disponibilité, Réseau,
@@ -106,7 +112,12 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   Une tuile compacte qui remplace une jauge garde sa couleur : le contexte passe
   en attention ou en danger aux mêmes seuils.
   Sur la vue d'ensemble, la tuile Alertes est la plus large et son contexte
-  porte la plus urgente, tronquée, le texte entier en info-bulle.
+  porte la plus urgente, tronquée, le texte entier en info-bulle. Le contexte
+  d'une tuile qui dit un fait à traiter (« 2 à traiter », « 1 expire dans 5
+  jours », « 1 à acquitter ») le dit en petite pastille au ton du fait ; ce
+  qui va bien reste du texte neutre. Même règle pour l'échéance d'un
+  certificat (pastille dès le seuil d'attention, texte discret avant) et le
+  code de sortie d'une exécution (danger si non nul, neutre à 0).
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en

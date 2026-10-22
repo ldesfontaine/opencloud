@@ -20,6 +20,35 @@
   &.nodot::before {
     display: none;
   }
+
+  // Une valeur en mono dans une pastille prend sa taille.
+  .mono {
+    font-size: inherit;
+  }
+}
+
+// La petite : la hauteur d'une ligne de 12 px, pour un pied de tuile ou un
+// titre de ligne, sans l'étirer. Centrée sur le texte voisin ; le pied d'une
+// tuile la cale en haut (Card.scss), son interligne étant plus serré.
+.pill-sm {
+  height: 17px;
+  padding: 0 7px;
+  gap: 5px;
+  font-size: 11px;
+  vertical-align: middle;
+  max-width: 100%;
+
+  &::before {
+    width: 5px;
+    height: 5px;
+    flex: none;
+  }
+
+  .pill-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .pill-ok {
@@ -72,13 +101,4 @@
   &.neutral {
     background: var(--line-strong);
   }
-}
-
-// Le dernier résultat d'une tâche : code et durée, teintés.
-.result-ok {
-  color: var(--ok);
-}
-
-.result-danger {
-  color: var(--danger);
 }

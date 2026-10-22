@@ -129,7 +129,8 @@
       font-weight: 500;
     }
 
-    span {
+    // Le contexte sous le fait, discret ; une pastille dans le fait garde les siens.
+    span:not(.pill, .pill *) {
       font-size: 12px;
       color: var(--muted);
     }

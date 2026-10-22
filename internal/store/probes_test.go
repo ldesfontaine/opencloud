@@ -253,3 +253,129 @@ func TestProbeCertificate_IsNotWrittenForARevisedProbe(t *testing.T) {
 		t.Fatalf("le certificat d'un essai d'avant l'édition s'est écrit : %d ligne(s)", got)
 	}
 }
+
+func seedProbeDay(t *testing.T, db *DB, day time.Time, total, success int) {
+	t.Helper()
+	exec(t, db, `INSERT INTO probe_days (probe_id, day, total, success, degraded, duration_ms) VALUES ('p1', ?, ?, ?, 0, 10)`,
+		day.Unix(), total, success)
+}
+
+func seedProbeResult(t *testing.T, db *DB, at time.Time, outcome probe.Outcome) {
+	t.Helper()
+	exec(t, db, `INSERT INTO probe_results (probe_id, checked_at, outcome, duration_ms) VALUES ('p1', ?, ?, 10)`,
+		at.Unix(), string(outcome))
+}
+
+func day(d int, hour int) time.Time {
+	return time.Date(2026, 10, d, hour, 0, 0, 0, time.UTC)
+}
+
+// countWindow compte la fenêtre de n jours comme Uptimes : depuis minuit,
+// n jours avant now.
+func countWindow(t *testing.T, db *DB, days int, now time.Time) (total, success int) {
+	t.Helper()
+	at := now.AddDate(0, 0, -days)
+	from := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
+	total, success, err := db.CountProbeWindow(context.Background(), "p1", from, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return total, success
+}
+
+// Le brut d'aujourd'hui, que le rollup n'a pas encore repris, compte : avec
+// probeTestNow (le 18 à midi), le brut couvre entièrement les jours du 12 au
+// 18, l'agrégat seul dit le 11.
+func TestCountProbeWindow_AddsTheRawNotYetRolledUp(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeDay(t, db, day(11, 0), 10, 9)
+	seedProbeResult(t, db, day(16, 8), probe.OutcomeUp)
+	seedProbeDay(t, db, day(16, 0), 1, 1)
+	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
+	seedProbeResult(t, db, probeTestNow.Add(-2*time.Hour), probe.OutcomeDown)
+	seedProbeResult(t, db, probeTestNow.Add(-3*time.Hour), probe.OutcomeDegraded)
+
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 14 || success != 12 {
+		t.Fatalf("attendu 14 essais dont 12 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// L'agrégat s'arrête à J-2 : le brut de J-1 et de J compte, les deux jours.
+func TestCountProbeWindow_CountsEveryRawDayAfterTheLastAggregatedOne(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeResult(t, db, day(16, 8), probe.OutcomeUp)
+	seedProbeDay(t, db, day(16, 0), 1, 1)
+	seedProbeResult(t, db, day(17, 8), probe.OutcomeDown)
+	seedProbeResult(t, db, day(17, 9), probe.OutcomeUp)
+	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
+
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 4 || success != 3 {
+		t.Fatalf("attendu 4 essais dont 3 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Un jour agrégé dont le brut existe encore (sept jours de rétention) ne se
+// compte qu'une fois, même quand son agrégat est en retard sur son brut.
+func TestCountProbeWindow_NeverCountsADayTwice(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeDay(t, db, day(17, 0), 1, 1)
+	seedProbeDay(t, db, day(18, 0), 1, 1)
+	seedProbeResult(t, db, day(17, 8), probe.OutcomeUp)
+	seedProbeResult(t, db, day(17, 9), probe.OutcomeDown)
+	seedProbeResult(t, db, probeTestNow.Add(-2*time.Hour), probe.OutcomeUp)
+	seedProbeResult(t, db, probeTestNow.Add(-time.Hour), probe.OutcomeUp)
+
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 4 || success != 3 {
+		t.Fatalf("attendu 4 essais dont 3 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Le rollup a écrit le 17 à 23 h 57 puis ne passe plus (minuit, ou un
+// rollup en panne plusieurs jours) : l'agrégat partiel n'est pas lu, le brut
+// du 17 compte en entier.
+func TestCountProbeWindow_IgnoresAPartialAggregateWhenTheRollupLags(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeResult(t, db, day(17, 22), probe.OutcomeUp)
+	seedProbeDay(t, db, day(17, 0), 1, 1)
+	seedProbeResult(t, db, time.Date(2026, 10, 17, 23, 58, 0, 0, time.UTC), probe.OutcomeDown)
+	seedProbeResult(t, db, day(18, 0), probe.OutcomeUp)
+
+	afterMidnight := time.Date(2026, 10, 18, 0, 2, 0, 0, time.UTC)
+	if total, success := countWindow(t, db, 7, afterMidnight); total != 3 || success != 2 {
+		t.Fatalf("après minuit : attendu 3 essais dont 2 réussis, obtenu %d dont %d", total, success)
+	}
+	if total, success := countWindow(t, db, 7, day(20, 12)); total != 3 || success != 2 {
+		t.Fatalf("rollup arrêté : attendu 3 essais dont 2 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Les jours que le brut ne couvre plus viennent de l'agrégat, sans le reste
+// de brut que la purge n'a pas encore effacé.
+func TestCountProbeWindow_ReadsOlderDaysFromTheAggregateOnly(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	seedProbeDay(t, db, time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC), 100, 90)
+	seedProbeDay(t, db, day(11, 0), 10, 9)
+	seedProbeResult(t, db, day(11, 20), probe.OutcomeDown)
+	seedProbeResult(t, db, day(12, 1), probe.OutcomeUp)
+
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 11 || success != 10 {
+		t.Fatalf("7 jours : attendu 11 essais dont 10 réussis, obtenu %d dont %d", total, success)
+	}
+	if total, success := countWindow(t, db, 30, probeTestNow); total != 111 || success != 100 {
+		t.Fatalf("30 jours : attendu 111 essais dont 100 réussis, obtenu %d dont %d", total, success)
+	}
+}
+
+// Rien dans la fenêtre : 0 sur 0, pas d'erreur.
+func TestCountProbeWindow_SaysNothingWithoutData(t *testing.T) {
+	db := openTestDB(t)
+	insertProbeOnLocalMachine(t, db)
+	if total, success := countWindow(t, db, 7, probeTestNow); total != 0 || success != 0 {
+		t.Fatalf("attendu 0 sur 0, obtenu %d sur %d", success, total)
+	}
+}

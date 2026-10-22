@@ -7,14 +7,22 @@ import { certificateNote, read, type CertificateReading } from "../lib/certifica
 import { probePath } from "../lib/probes";
 import { Card, CardBody, CardHeader, Empty } from "./Card";
 import { Pill } from "./Pill";
-import "./Certificate.scss";
 
-// Ce qui reste, en jours, dans le ton de son urgence. Un certificat expiré
-// dit depuis combien de temps plutôt qu'un nombre négatif.
-export function Remaining({ reading }: { reading: CertificateReading }) {
+// Ce qui reste, en jours. Un certificat sain reste discret, en texte ; dès
+// qu'il approche de sa fin, l'échéance se lit en pastille, au ton du seuil.
+// Un certificat expiré dit depuis combien de temps plutôt qu'un nombre
+// négatif. `plain` : la pastille d'état est juste à côté et dit déjà le ton.
+export function Remaining({ reading, plain = false }: { reading: CertificateReading; plain?: boolean }) {
   const t = useT();
   const text = reading.days < 0 ? t("cert.expired_days", -reading.days) : t("cert.days", reading.days);
-  return <span className={`mono nowrap cert-days ${reading.tone === "ok" ? "secondary" : reading.tone}`}>{text}</span>;
+  if (plain || reading.tone === "ok") {
+    return <span className="mono nowrap secondary">{text}</span>;
+  }
+  return (
+    <Pill tone={reading.tone} small>
+      <span className="mono">{text}</span>
+    </Pill>
+  );
 }
 
 // L'état d'un certificat, dans le vocabulaire de la direction artistique.

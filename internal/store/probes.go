@@ -354,16 +354,34 @@ func (db *DB) CountProbeResults(ctx context.Context, probeID string, from, to ti
 	return total, success, nil
 }
 
-// CountDays additionne les jours d'une fenêtre : c'est pour cela que
-// l'agrégat garde des comptes et non un pourcentage.
-func (db *DB) CountProbeDays(ctx context.Context, probeID string, from time.Time) (total, success int, err error) {
+// CountProbeWindow compte une fenêtre de plusieurs jours : l'agrégat pour
+// les jours que le brut ne couvre plus en entier, le brut pour tous les
+// suivants, jusqu'à maintenant. La frontière est le premier jour que la
+// rétention du brut couvre entièrement, celui où Rollup commence : un jour
+// avant elle a été agrégé quand il était entier, un jour après a tout son
+// brut. Elle ne dépend donc pas du retard du rollup (le jour courant, le
+// jour d'hier juste après minuit, un rollup en panne) : pas de trou, et pas
+// de double compte, un jour n'étant lu que d'un côté. L'agrégat garde des
+// comptes et non un pourcentage pour que cette addition soit juste.
+func (db *DB) CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error) {
+	now = now.UTC()
+	cutoff := now.Add(-probe.ResultRetention)
+	rawFrom := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
+	if rawFrom.Before(from) {
+		rawFrom = from
+	}
 	err = db.sql.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(total), 0), COALESCE(SUM(success), 0) FROM probe_days
-		WHERE probe_id = ? AND day >= ?`, probeID, from.Unix()).Scan(&total, &success)
+		WHERE probe_id = ? AND day >= ? AND day < ?`,
+		probeID, from.Unix(), rawFrom.Unix()).Scan(&total, &success)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count probe days: %w", err)
 	}
-	return total, success, nil
+	rawTotal, rawSuccess, err := db.CountProbeResults(ctx, probeID, rawFrom, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	return total + rawTotal, success + rawSuccess, nil
 }
 
 // RollupDay réécrit un jour entier depuis le brut, en une instruction :

@@ -218,7 +218,7 @@ function IncidentBlock({ incident, language, t }: { incident: PublicIncident; la
         <p className="status-window mono">{t("status.window", formatInstant(incident.starts_at, language), formatInstant(incident.ends_at, language))}</p>
       )}
       <p className="status-affects">
-        {t("status.impact")} <span className={`impact-${statusStateTones[incident.impact]}`}>{t(`status.state_${incident.impact}`)}</span>
+        {t("status.impact")} <span className={`pill pill-sm pill-${statusStateTones[incident.impact]}`}>{t(`status.state_${incident.impact}`)}</span>
         {" · "}
         {t("status.affects")} <b>{incident.components.join(", ")}</b>
       </p>

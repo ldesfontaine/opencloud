@@ -42,7 +42,7 @@ export function read(certificate: Certificate, thresholds: CertificateThresholds
   const days = daysUntil(certificate.not_after, now);
   return {
     state: stateOf(days, thresholds),
-    tone: toneOf(days, thresholds),
+    tone: certificateTone(days, thresholds),
     days,
     // Une chaîne refusée sur un certificat expiré n'apprend rien : c'est
     // l'échéance qui l'explique, et elle se dit déjà. Le nom, lui, reste
@@ -62,7 +62,7 @@ function stateOf(days: number, thresholds: CertificateThresholds): CertificateSt
 // Le ton de l'échéance, et rien d'autre. Une chaîne qu'on ne peut pas
 // vérifier ne la rend pas fausse : elle se dit à côté, par sa propre
 // pastille, jamais en teintant celle-ci.
-function toneOf(days: number, thresholds: CertificateThresholds): Tone {
+export function certificateTone(days: number, thresholds: CertificateThresholds): Tone {
   if (days <= thresholds.danger) {
     return "danger";
   }
