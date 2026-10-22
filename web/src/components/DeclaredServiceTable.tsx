@@ -87,5 +87,5 @@ export function DeclaredServiceTable({
 }
 
 function GapCell({ gap }: { gap: ServiceGap | undefined }) {
-  return gap ? <GapPill state={gap.state} weak={gap.weak} /> : <span className="muted">—</span>;
+  return gap ? <GapPill state={gap.state} weak={gap.weak} observed={gap.observed} /> : <span className="muted">—</span>;
 }

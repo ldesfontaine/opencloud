@@ -24,6 +24,8 @@ function container(id: string, name: string, extra: Partial<Container> = {}): Co
     declared_service_id: "",
     image_check: null,
     state: "running",
+    observed: true,
+    machine_last_seen_at: "2026-09-19T09:00:00Z",
     exit_code: 0,
     oom_killed: false,
     killed: false,

@@ -122,6 +122,8 @@ export function Overview() {
               foot={
                 counts.data && counts.data.containers.attention > 0 ? (
                   <b className="danger">{t("overview.services_attention", counts.data.containers.attention)}</b>
+                ) : counts.data && counts.data.containers.unknown > 0 ? (
+                  t("overview.services_unknown", counts.data.containers.unknown)
                 ) : counts.data && counts.data.containers.updates > 0 ? (
                   <b className="accent">
                     {counts.data.containers.updates === 1 ? t("overview.service_update") : t("overview.services_updates", counts.data.containers.updates)}

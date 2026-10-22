@@ -78,6 +78,12 @@ export interface Container {
   // fin de support est activée sous Paramètres.
   lifecycle?: Lifecycle;
   state: ContainerState;
+  // Faux : la machine ne signale plus depuis plus de deux minutes, « state »
+  // est le dernier état connu, plus l'état actuel (lib/containers, displayedState).
+  observed: boolean;
+  // Le dernier signal de la machine, d'où se lit « dernier état, il y a » ;
+  // nul tant que son agent n'en a donné aucun.
+  machine_last_seen_at: string | null;
   exit_code: number;
   // Tué par le noyau faute de mémoire : 137 comme un docker stop, mais pas demandé.
   oom_killed: boolean;

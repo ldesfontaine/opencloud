@@ -60,7 +60,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
         <CardBody gap={16}>
           <span className="machine-state">
             <NaturePill nature={service.nature} />
-            {gap && <GapPill state={gap.state} weak={gap.weak} />}
+            {gap && <GapPill state={gap.state} weak={gap.weak} observed={gap.observed} />}
             <span className="meta">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
               <span className="sep" />
@@ -175,7 +175,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
 // L'état d'une unité, ou un tiret tant que l'écart n'est pas lu.
 function unitGap(gap: ServiceGap | undefined, unitID: string) {
   const unit = gap?.units.find((candidate) => candidate.unit_id === unitID);
-  return unit ? <GapPill state={unit.state} weak={unit.weak} /> : <span className="muted">—</span>;
+  return unit ? <GapPill state={unit.state} weak={unit.weak} observed={gap?.observed ?? true} /> : <span className="muted">—</span>;
 }
 
 // Les conteneurs que les machines montrent pour ce service, avec le verdict
@@ -208,7 +208,7 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
                 <td className="mono wide-only">{container.image}</td>
                 <td>
                   <span className="stack">
-                    <GapPill state={container.verdict} weak={container.match_level === "name"} />
+                    <GapPill state={container.verdict} weak={container.match_level === "name"} observed={gap?.observed ?? true} />
                     <span className="secondary">
                       {container.reason !== "" && `${t(`gap.reason_${container.reason}`)} · `}
                       {container.match_level !== "" && t(`gap.level_${container.match_level}`)}

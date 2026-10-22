@@ -30,9 +30,11 @@ type Reader interface {
 	ListContainers(ctx context.Context, machineID string) ([]container.Container, error)
 	GetContainer(ctx context.Context, id string) (container.Container, error)
 	ListEngines(ctx context.Context) ([]container.Engine, error)
-	// CountContainers compte les conteneurs vivants et ceux qui demandent
-	// attention (container.NeedsAttention, écrit en SQL).
-	CountContainers(ctx context.Context) (total, attention int, err error)
+	// CountContainers compte les conteneurs vivants ; parmi ceux dont la
+	// machine est observée depuis observedSince (machine.ObservedSince), ceux
+	// qui demandent attention (container.NeedsAttention, écrit en SQL) ; et
+	// ceux dont la machine ne l'est pas (état inconnu).
+	CountContainers(ctx context.Context, observedSince time.Time) (total, attention, unknown int, err error)
 	// CountContainerUpdates compte les conteneurs vivants qui ont une mise à
 	// jour et dont l'unité veut la voir (politique « watch »).
 	CountContainerUpdates(ctx context.Context) (int, error)

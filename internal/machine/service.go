@@ -17,8 +17,9 @@ import (
 const (
 	TokenLifetime = time.Hour
 	maxClockSkew  = 5 * time.Minute
-	// Une machine sans flux est perdue passé ce délai depuis son dernier
-	// signal : quatre signaux manqués, pas un hoquet de réseau.
+	// Une machine est perdue passé ce délai depuis son dernier signal :
+	// quatre signaux manqués, pas un hoquet de réseau. Observed en tire
+	// aussi l'état « inconnu » de ses services.
 	LostAfter       = 2 * time.Minute
 	lostCheckPeriod = 15 * time.Second
 )
@@ -274,10 +275,11 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-// CheckLost signale au moteur des alertes chaque machine sans flux dont
-// le dernier signal date de plus de LostAfter. Sans état en mémoire :
-// le moteur déduplique, et une machine tombée pendant que le serveur
-// était éteint est vue au premier passage.
+// CheckLost signale au moteur des alertes chaque machine non observée :
+// son dernier signal date de plus de LostAfter, même si son flux paraît
+// encore ouvert. Sans état en mémoire : le moteur déduplique, et une
+// machine tombée pendant que le serveur était éteint est vue au premier
+// passage.
 func (s *Service) CheckLost(ctx context.Context) error {
 	if s.alerter == nil {
 		return nil
@@ -286,14 +288,18 @@ func (s *Service) CheckLost(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	limit := s.now().Add(-LostAfter)
+	now := s.now()
 	for _, status := range statuses {
-		if status.Online || status.LastSeenAt.After(limit) {
-			continue
-		}
 		// Sans agent actif, rien à perdre : la machine attend son agent, ou
 		// l'opérateur l'a révoqué.
 		if !status.Agent.IsActive() {
+			continue
+		}
+		if Observed(status, now) {
+			// Un flux resté ouvert pendant que les signaux manquaient : la
+			// machine revient sans se reconnecter, l'alerte ne se résoudrait
+			// pas à la connexion.
+			s.alerter.MachineBack(ctx, status.ID)
 			continue
 		}
 		s.alerter.MachineLost(ctx, status.Machine)

@@ -26,9 +26,14 @@ func machineState(status machine.Status) (State, bool) {
 // Un conteneur arrêté est une panne, quelle que soit la façon dont il s'est
 // arrêté : pour le visiteur, il ne répond pas. Un conteneur qui redémarre ou
 // démarre est dégradé. Un conteneur créé sans avoir tourné ne compte pas ;
-// un conteneur disparu est une panne, tant que sa fiche existe.
-func containerState(found container.Container) (State, bool) {
-	if !found.ArchivedAt.IsZero() {
+// un conteneur disparu est une panne, tant que sa fiche existe. Celui dont la
+// machine ne signale plus (observed faux) est une panne aussi, et elle
+// compte : sinon un composant fait de ces seuls services disparaîtrait de la
+// page publique pendant la panne. Si c'est le lien entre openCloud et la
+// machine qui est coupé, la machine saine passe pour tombée : un incident, ou
+// une sonde membre du composant, dit la vérité.
+func containerState(found container.Container, observed bool) (State, bool) {
+	if !found.ArchivedAt.IsZero() || !observed {
 		return StateDown, true
 	}
 	switch found.State {
@@ -54,14 +59,15 @@ func containerState(found container.Container) (State, bool) {
 // prix de ne plus dépendre de l'identifiant Docker. Une unité dont les
 // conteneurs sont tous « créés sans avoir tourné » ne compte pas, comme eux.
 // Un binaire ne compte pas : aucun agent ne le regarde encore. Un service
-// sans unité qui compte n'apporte rien.
-func declaredServiceState(found directory.Service, containersByUnit map[string][]container.Container) (State, bool) {
+// sans unité qui compte n'apporte rien. Observed dit si la machine du service
+// signale encore (machine.Observed).
+func declaredServiceState(found directory.Service, containersByUnit map[string][]container.Container, observed bool) (State, bool) {
 	states := make([]State, 0, len(found.Units))
 	for _, unit := range found.Units {
 		if unit.Kind != directory.UnitContainer {
 			continue
 		}
-		if state, counts := unitState(containersByUnit[unit.ID]); counts {
+		if state, counts := unitState(containersByUnit[unit.ID], observed); counts {
 			states = append(states, state)
 		}
 	}
@@ -71,13 +77,13 @@ func declaredServiceState(found directory.Service, containersByUnit map[string][
 	return Worst(states), true
 }
 
-func unitState(containers []container.Container) (State, bool) {
+func unitState(containers []container.Container, observed bool) (State, bool) {
 	if len(containers) == 0 {
 		return StateDown, true
 	}
 	states := make([]State, 0, len(containers))
 	for _, item := range containers {
-		if state, counts := containerState(item); counts {
+		if state, counts := containerState(item, observed); counts {
 			states = append(states, state)
 		}
 	}
@@ -131,6 +137,13 @@ type facts struct {
 	now              time.Time
 }
 
+// observed dit si la machine signale encore ; une machine inconnue ne le
+// fait pas.
+func (f facts) observed(machineID string) bool {
+	found, ok := f.machines[machineID]
+	return ok && machine.Observed(found, f.now)
+}
+
 // fill donne à chaque membre son nom et ce qu'il apporte.
 func (f facts) fill(member *Member) {
 	member.Present = true
@@ -153,7 +166,7 @@ func (f facts) fill(member *Member) {
 		if found.Title != "" {
 			member.Name = found.Title
 		}
-		member.State, member.Counts = declaredServiceState(found, f.containersByUnit)
+		member.State, member.Counts = declaredServiceState(found, f.containersByUnit, f.observed(found.MachineID))
 	case KindHeartbeat:
 		found, ok := f.heartbeats[member.ID]
 		if !ok {

@@ -19,7 +19,8 @@ export interface Counts {
   machines: { total: number; online: number };
   jobs: { total: number; attention: number };
   // Les conteneurs qui vont mal, et ceux qui ont une image plus récente.
-  containers: { total: number; attention: number; updates: number };
+  // unknown : ceux dont la machine ne signale plus, ni actifs ni à traiter.
+  containers: { total: number; attention: number; unknown: number; updates: number };
   probes: { total: number; attention: number };
   certificates: CertificateCounts;
   // Les incidents ouverts sur la page de statut.

@@ -122,6 +122,9 @@ interface UnitGap {
 export interface ServiceGap {
   service_id: string;
   state: GapState;
+  // Faux : la machine du service ne signale plus, l'écart est celui d'avant
+  // son silence.
+  observed: boolean;
   weak: boolean;
   units: UnitGap[];
 }

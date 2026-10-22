@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import type { JobStatus } from "../api/jobs";
 import type { ProbeStatus } from "../api/probes";
 import { useT } from "../i18n/context";
-import { containerPill, type PillFacts } from "../lib/containers";
+import { displayedState, type PillFacts } from "../lib/containers";
 import { jobTones } from "../lib/jobs";
 import { probeTones } from "../lib/probes";
 import type { Tone } from "../lib/tone";
@@ -31,10 +31,10 @@ export function JobPill({ status }: { status: JobStatus }) {
 
 // Pastille d'un conteneur : Actif, Démarre, Défaillant, Manque de mémoire,
 // Redémarre, En pause, Arrêté ; dérivée des faits, jamais envoyée par le
-// serveur.
+// serveur. Inconnu, en neutre, quand la machine ne signale plus.
 export function ContainerPill({ container }: { container: PillFacts }) {
   const t = useT();
-  const pill = containerPill(container);
+  const pill = displayedState(container);
   return <Pill tone={pill.tone}>{t(`container.state_${pill.key}`)}</Pill>;
 }
 
