@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import type { Lifecycle } from "../api/lifecycle";
 import type { LifecycleSettings } from "../api/settings";
 import type { Translate } from "../i18n/context";
-import { formatDay, lifecycleText, lifecycleTones, newerLine, readingText } from "./lifecycle";
+import { formatDay, lifecycleHasDetails, lifecycleText, lifecycleTones, newerLine, readingText } from "./lifecycle";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -72,4 +72,15 @@ test("readingText dit la dernière lecture, ou qu'elle a échoué", () => {
   expect(failedFirst.startsWith("lifecycle.reading_failed_first:")).toBe(true);
   const failed = readingText(t, settings({ is_failing: true, last_attempt_at: "2026-10-12T08:50:00Z", fetched_at: "2026-10-11T06:00:00Z" }), now);
   expect(failed.startsWith("lifecycle.reading_failed:")).toBe(true);
+});
+
+test("lifecycleHasDetails : une carte sous l'historique seulement s'il y a plus que la ligne de l'en-tête", () => {
+  const bare = { latest: "", newer: [], is_stale: false, fetched_at: null };
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "pending" }))).toBe(false);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "unknown_product" }))).toBe(false);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "maintained", latest: "12.13" }))).toBe(true);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "unknown_version", latest: "12.13" }))).toBe(false);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "eol", newer: [{ cycle: "13", latest: "", eol_from: "" }] }))).toBe(true);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "unknown_product", is_stale: true }))).toBe(true);
+  expect(lifecycleHasDetails(lifecycle({ ...bare, status: "maintained", fetched_at: "2026-10-12T06:00:00Z" }))).toBe(true);
 });

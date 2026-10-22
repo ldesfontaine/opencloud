@@ -1,0 +1,9 @@
+// La fiche d'une machine : 16 px entre ses blocs, pour cette page seulement
+// (.content, global, garde ses 24 px). En-tête, tuiles et historique doivent
+// tenir sur un écran de portable (#141).
+.machine-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}

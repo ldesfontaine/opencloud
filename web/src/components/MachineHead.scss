@@ -5,6 +5,11 @@
   flex-wrap: wrap;
 }
 
+// La ligne du support prend toute la largeur : elle passe sous le reste.
+.machine-head .support-line {
+  flex: 1 0 100%;
+}
+
 .machine-state {
   display: inline-flex;
   align-items: center;

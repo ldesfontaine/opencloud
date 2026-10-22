@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Probe, ProbeDay } from "../api/probes";
-import { dayKeys, dayTone, emptyProbeForm, probeFormOf, probeNeedsAttention, probeRequestOf, probeSuggestionOf, uptimeOfDays, uptimePercent } from "./probes";
+import { dayKeys, dayTone, editProbePath, emptyProbeForm, newProbePath, probeFormOf, probeListPath, probeNeedsAttention, probePath, probeRequestOf, probeSuggestionOf, renamedProbePath, uptimeOfDays, uptimePercent } from "./probes";
 
 function day(date: string, total: number, success: number, degraded = 0): ProbeDay {
   return { day: date, total, success, degraded, duration_ms: 12 };
@@ -165,5 +165,25 @@ describe("probeSuggestionOf", () => {
 
   it("ne devine pas de cible sans port publié, mais garde la machine", () => {
     expect(probeSuggestionOf(service, { machine_id: "machine-2", ports: [] })).toEqual({ name: "Nextcloud", machineID: "machine-2" });
+  });
+});
+
+describe("les adresses de la page Disponibilité", () => {
+  it("un seul endroit les construit", () => {
+    expect(probeListPath).toBe("/disponibilite");
+    expect(probePath("p1")).toBe("/disponibilite/p1");
+    expect(editProbePath("p1")).toBe("/disponibilite/p1/modifier");
+    expect(newProbePath()).toBe("/disponibilite/nouvelle");
+  });
+
+  it("newProbePath garde ce qu'on sait déjà de la sonde, encodé", () => {
+    expect(newProbePath({ service: "s1", container: "m1:abc" })).toBe("/disponibilite/nouvelle?service=s1&container=m1%3Aabc");
+  });
+
+  it("l'ancienne adresse /domaines/* mène à la nouvelle, le reste du chemin gardé", () => {
+    expect(renamedProbePath("/domaines")).toBe("/disponibilite");
+    expect(renamedProbePath("/domaines/nouvelle")).toBe("/disponibilite/nouvelle");
+    expect(renamedProbePath("/domaines/p1")).toBe("/disponibilite/p1");
+    expect(renamedProbePath("/domaines/p1/modifier")).toBe("/disponibilite/p1/modifier");
   });
 });

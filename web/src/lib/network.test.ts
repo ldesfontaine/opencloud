@@ -4,7 +4,7 @@ import type { Container } from "../api/containers";
 import type { NetworkResponse } from "../api/network";
 import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
-import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewGraphFloor, overviewGraphMaxHeight, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
+import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewCompactGap, overviewFramePadding, overviewGraphFloor, overviewGraphMaxHeight, overviewMargin, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
@@ -166,11 +166,11 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
   const web = byID.get("web")!;
   const db = byID.get("db")!;
   expect(web.public).toBe(true);
-  expect(web.x).toBe(vps.x + 14);
-  expect(db.x).toBe(web.x + compactWidth + 8);
+  expect(web.x).toBe(vps.x + overviewFramePadding.left);
+  expect(db.x).toBe(web.x + compactWidth + overviewCompactGap);
   // Cinq conteneurs sans route publique : deux lignes (quatre colonnes au
   // plus), réparties trois et deux ; le cinquième sous le deuxième.
-  expect(byID.get("s4")!.y).toBe(byID.get("s1")!.y + compactHeight + 8);
+  expect(byID.get("s4")!.y).toBe(byID.get("s1")!.y + compactHeight + overviewCompactGap);
   expect(byID.get("s4")!.x).toBe(byID.get("s1")!.x);
   expect(byID.get("s5")!.x).toBe(byID.get("s2")!.x);
   expect(layout.edges).toHaveLength(1);
@@ -186,8 +186,8 @@ test("layoutOverview ne cadre pas une machine seule et accepte une machine vide"
   const empty = layoutOverview({ machines: [{ ...response, containers: [], edges: [] }] });
   expect(empty.machines[0]!.empty).toBe(true);
   expect(empty.nodes).toHaveLength(0);
-  // Le nœud Internet et ses marges de 12 px, au moins.
-  expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 24);
+  // Le nœud Internet et ses marges, au moins.
+  expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 2 * overviewMargin);
 });
 
 test("probesOf rend les sondes du service déclaré, et rien pour un conteneur non déclaré", () => {
@@ -289,7 +289,7 @@ test("layoutOverview : chaque conteneur reste dans le cadre de sa machine", () =
   inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0), overviewMachine("d", 14, 1)] }));
   inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0)] }, 2));
   const narrow = layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 1, 0)] });
-  expect(narrow.machines[0]!.width).toBe(14 + 2 * compactWidth + 8 + 14);
+  expect(narrow.machines[0]!.width).toBe(overviewFramePadding.left + 2 * compactWidth + overviewCompactGap + overviewFramePadding.right);
 });
 
 test("layoutOverview range les cadres en grille, alignés, sans chevauchement", () => {
@@ -361,8 +361,8 @@ test("fitOverview ne passe jamais sous le plancher pour ranger côte à côte", 
 });
 
 test("fitOverview garde le plus grand texte quand plusieurs rangements tiennent", () => {
-  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1)] };
-  // 1 624 px (un écran 1920) : empilés, il faudrait réduire ; côte à côte, l'échelle 1 tient.
+  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1), overviewMachine("d", 4, 1)] };
+  // 1 624 px (un écran 1920) : empilés, quatre cadres demandent de réduire ; côte à côte, l'échelle 1 tient.
   const fitted = fitOverview(response, 1624, 240, 10 / 11);
   expect(fitted.scale).toBe(1);
   expect(fitted.layout.perRow).toBeGreaterThan(1);
