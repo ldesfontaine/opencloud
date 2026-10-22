@@ -52,14 +52,32 @@ func (r *Runner) Run(ctx context.Context) {
 
 // Assign remplace le jeu de sondes : ce qui n'y est plus s'arrête, ce qui
 // a changé repart, ce qui est identique continue. Un jeu reçu avant le
-// démarrage attend celui-ci.
-func (r *Runner) Assign(assignment Assignment) {
+// démarrage attend celui-ci. Le jeu se nettoie d'abord (Sanitize) ; Assign
+// rend le nombre de tâches écartées, dites une à une dans le journal.
+func (r *Runner) Assign(assignment Assignment) int {
+	kept, dropped := Sanitize(assignment.Probes)
+	r.logDropped(dropped)
 	r.mu.Lock()
-	r.wanted = assignment.Probes
+	r.wanted = kept
 	started := r.ctx != nil
 	r.mu.Unlock()
 	if started {
-		r.apply(assignment.Probes)
+		r.apply(kept)
+	}
+	return len(dropped)
+}
+
+// maxDroppedLogged borne le journal : un serveur qui pousse mille tâches
+// fausses ne remplit pas le disque de l'agent.
+const maxDroppedLogged = 8
+
+func (r *Runner) logDropped(dropped []Dropped) {
+	for _, task := range dropped[:min(len(dropped), maxDroppedLogged)] {
+		r.logger.Warn("probe refused by the agent", "probe_id", task.ID, "kind", string(task.Kind),
+			"host", task.Host, "reason", task.Reason)
+	}
+	if more := len(dropped) - maxDroppedLogged; more > 0 {
+		r.logger.Warn("probes refused by the agent", "more", more)
 	}
 }
 

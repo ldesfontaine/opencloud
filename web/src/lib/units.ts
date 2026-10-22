@@ -69,6 +69,19 @@ export function formatDecimal(locale: string, value: number, digits = 1): string
   return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
 }
 
+// Le processeur d'un conteneur, en % d'un cœur comme docker stats : une
+// décimale sous 10 %, aucune au-dessus ; une mesure non nulle sous 0,1 %
+// s'écrit « < 0,1 % », jamais « 0 % ».
+export function formatCPU(locale: string, percent: number): string {
+  if (percent <= 0) {
+    return `${formatDecimal(locale, 0, 0)} %`;
+  }
+  if (percent < 0.1) {
+    return `< ${formatDecimal(locale, 0.1, 1)} %`;
+  }
+  return `${formatDecimal(locale, percent, percent < 10 ? 1 : 0)} %`;
+}
+
 // Une jauge passe en attention à 85 %, en danger à 95 % : le seuil de la
 // planche « Machine ». Le disque prend les seuils réglés de son alerte.
 const defaultThresholds = { attention: 85, danger: 95 };

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -19,25 +20,84 @@ const (
 	LogsUnavailable = "service.logs_failed"
 )
 
+// containerIDPattern est un identifiant Docker complet : 64 hexadécimaux
+// minuscules. Rien d'autre ne part vers l'API (un chemin, un nom, un
+// identifiant tronqué ne passent pas).
+var containerIDPattern = regexp.MustCompile("^[0-9a-f]{64}$")
+
+// inventoryWait est combien une demande de journal attend le premier
+// inventaire, juste après le démarrage de l'agent. Variable pour les tests.
+var inventoryWait = 10 * time.Second
+
+// logIDPrefix est ce que le journal de l'agent garde d'un identifiant de
+// conteneur : de quoi le reconnaître, pas de quoi le forger.
+const logIDPrefix = 12
+
 // OpenLogs sert un journal par lots : toutes les secondes ou dès 64 lignes.
 // Le canal se ferme après le lot final, Done ou Error. Au-delà de quatre
-// suivis, refusé tout de suite.
+// suivis, refusé tout de suite. La commande n'est pas signée : seul le
+// journal d'un conteneur que l'agent a lui-même rapporté s'ouvre, et le
+// refus tombe avant tout appel à Docker.
 func (w *Watcher) OpenLogs(ctx context.Context, request container.LogRequest) (<-chan container.LogBatch, error) {
 	batches := make(chan container.LogBatch, batchBacklog)
-	if !w.takeFollow() {
-		batches <- container.LogBatch{Error: LogsBusy}
+	refuse := func(code, reason string) (<-chan container.LogBatch, error) {
+		w.logger.Warn("logs refused", "request", clip(request.ID, logIDPrefix*3), "container", clip(request.ContainerID, logIDPrefix),
+			"follow", request.Follow, "reason", reason)
+		batches <- container.LogBatch{Error: code}
 		close(batches)
 		return batches, nil
 	}
-	reader, err := w.client.Logs(ctx, request.ContainerID, dockerapi.LogsOptions{Tail: request.Tail, Follow: request.Follow})
+	if !containerIDPattern.MatchString(request.ContainerID) {
+		return refuse(LogsNotFound, "not_a_docker_id")
+	}
+	if !w.awaitInventory(ctx) {
+		return refuse(LogsUnavailable, "inventory_pending")
+	}
+	if !w.isKnown(request.ContainerID) {
+		return refuse(LogsNotFound, "not_inventoried")
+	}
+	if !w.takeFollow() {
+		return refuse(LogsBusy, "busy")
+	}
+	reader, err := w.client.Logs(ctx, request.ContainerID, dockerapi.LogsOptions{Tail: container.ClampLogTail(request.Tail), Follow: request.Follow})
 	if err != nil {
 		w.releaseFollow()
 		batches <- container.LogBatch{Error: logsError(err)}
 		close(batches)
 		return batches, nil
 	}
+	w.logger.Info("logs opened", "request", clip(request.ID, logIDPrefix*3), "container", clip(request.ContainerID, logIDPrefix), "follow", request.Follow)
 	go w.pump(ctx, reader, batches)
 	return batches, nil
+}
+
+// awaitInventory attend le premier inventaire : avant lui, l'agent n'a rien
+// rapporté, et un conteneur bien réel serait refusé. Faux si Docker ne l'a
+// pas donné à temps.
+func (w *Watcher) awaitInventory(ctx context.Context) bool {
+	select {
+	case <-w.firstInventory:
+		return true
+	default:
+	}
+	timer := time.NewTimer(inventoryWait)
+	defer timer.Stop()
+	select {
+	case <-w.firstInventory:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// clip garde le début d'une valeur venue du serveur, pour le journal.
+func clip(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit]
 }
 
 func (w *Watcher) takeFollow() bool {

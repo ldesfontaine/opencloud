@@ -466,17 +466,24 @@ func (d Definition) Validate() error {
 	if d.Kind != KindHTTP {
 		return nil
 	}
+	return validateHTTPCheck(d.Method, d.ExpectedStatus, d.ExpectedBody)
+}
+
+// validateHTTPCheck juge ce qui est propre à une sonde HTTP : la méthode,
+// le code attendu et le texte attendu. Le serveur la joue à la création,
+// l'agent à la réception (Task.Validate) : une seule règle, deux lecteurs.
+func validateHTTPCheck(method, expectedStatus, expectedBody string) error {
 	// Une sonde n'écrit pas : seules les méthodes sans effet attendu sont
 	// ouvertes, plus POST que réclament certains points de santé.
-	switch d.Method {
+	switch method {
 	case "GET", "HEAD", "POST":
 	default:
 		return ErrMethodInvalid
 	}
-	if !isStatusPattern(d.ExpectedStatus) {
+	if !isStatusPattern(expectedStatus) {
 		return ErrStatusInvalid
 	}
-	if utf8.RuneCountInString(d.ExpectedBody) > MaxBodyLength {
+	if utf8.RuneCountInString(expectedBody) > MaxBodyLength {
 		return ErrBodyInvalid
 	}
 	return nil

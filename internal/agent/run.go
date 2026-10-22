@@ -51,6 +51,9 @@ const (
 
 type Options struct {
 	StateDir *os.Root
+	// UnsafeState est posé par la commande quand CheckStateDir refuse ; l'agent
+	// n'a alors que observe.
+	UnsafeState error
 	// Server et Token ne servent qu'au premier démarrage, pour s'enrôler.
 	Server string
 	Token  string
@@ -106,6 +109,12 @@ func Run(ctx context.Context, opts Options) error {
 	identity, err := loadOrEnroll(ctx, opts)
 	if err != nil {
 		return err
+	}
+	// Avant tout ce qui lit les droits : le flux les rapporte, le juge des
+	// ordres les applique, et tous deux reçoivent cette identité.
+	if opts.UnsafeState != nil {
+		identity.narrowed = true
+		opts.Logger.Warn("state dir is not safe, writing rights are off", "error", opts.UnsafeState.Error())
 	}
 	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {

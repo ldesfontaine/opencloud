@@ -1,8 +1,8 @@
 import { expect, test } from "vitest";
 
-import type { Container } from "../api/containers";
+import type { Container, Transition } from "../api/containers";
 import type { Translate } from "../i18n/context";
-import { containerNeedsAttention, filterContainers, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle } from "./containers";
+import { containerNeedsAttention, filterContainers, findingText, formatBinding, formatBindings, formatPublishedPorts, imageBase, matchesFilter, nodeSubtitle, nodeTone, containerIcon, containerPill, servicesSubtitle, transitionPassage } from "./containers";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -104,4 +104,40 @@ test("nodeTone met l'attention d'un constat sur un container sain, jamais sur un
 test("findingText passe le port au catalogue", () => {
   expect(findingText(t, { kind: "privileged", level: "warn" })).toBe("network.exposure_privileged");
   expect(findingText(t, { kind: "port_public", level: "info", port: 80, protocol: "tcp" })).toBe("network.exposure_port_public:80/tcp");
+});
+
+const transition: Transition = {
+  id: 1,
+  at: "2026-10-22T08:00:00Z",
+  action: "start",
+  previous_state: "exited",
+  new_state: "running",
+  previous_health: "",
+  new_health: "",
+  exit_code: null,
+  oom_killed: false,
+  killed: false,
+  replayed: false,
+  snippet: "",
+};
+
+test("transitionPassage dit le passage d'un état à l'autre", () => {
+  expect(transitionPassage(t, transition)).toBe("container.state_stopped → container.state_active");
+});
+
+test("transitionPassage dit le passage d'une santé à l'autre", () => {
+  const health = { ...transition, action: "health_status", previous_state: "running", previous_health: "healthy", new_health: "unhealthy" } as const;
+  expect(transitionPassage(t, health)).toBe("container.health_healthy → container.health_unhealthy");
+});
+
+test("transitionPassage garde le titre seul sans état d'avant", () => {
+  const seen = { ...transition, action: "inventory", previous_state: "" } as const;
+  expect(transitionPassage(t, seen)).toBe("container.transition_seen");
+  const gone = { ...transition, action: "gone", new_state: "" } as const;
+  expect(transitionPassage(t, gone)).toBe("container.transition_gone");
+});
+
+test("transitionPassage garde le titre d'une destruction", () => {
+  const destroyed = { ...transition, action: "destroy", previous_state: "exited", new_state: "" } as const;
+  expect(transitionPassage(t, destroyed)).toBe("container.transition_destroyed");
 });

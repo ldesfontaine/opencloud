@@ -217,7 +217,7 @@ func (t *Tracker) FollowLogs(ctx context.Context, containerID string, tail int) 
 	if err != nil {
 		return nil, err
 	}
-	return t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail), Follow: true})
+	return t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: ClampLogTail(tail), Follow: true})
 }
 
 // FetchLogs tire les dernières lignes en un coup ; passé le délai, la
@@ -229,7 +229,7 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, LogFetchTimeout)
 	defer cancel()
-	batches, err := t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail)})
+	batches, err := t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: ClampLogTail(tail)})
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 	// la mémoire du serveur pendant les 15 s. Passé MaxFetchLogBytes reçus, la
 	// demande est coupée (le contexte annulé dit à l'agent d'arrêter) et ce
 	// qui est gardé est rendu.
-	limit := clampTail(tail)
+	limit := ClampLogTail(tail)
 	lines := []LogLine{}
 	received := 0
 	for {
@@ -292,7 +292,9 @@ func (e *LogsError) Is(target error) bool {
 	return target == ErrLogsFailed
 }
 
-func clampTail(tail int) int {
+// ClampLogTail borne le nombre de lignes demandé : le serveur et l'agent
+// bornent la même chose.
+func ClampLogTail(tail int) int {
 	if tail <= 0 {
 		return DefaultLogTail
 	}

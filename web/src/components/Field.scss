@@ -67,12 +67,21 @@
   select {
     appearance: none;
     border: 0;
-    background: transparent;
+    // Un fond opaque : la liste native hérite de ce fond, et un fond
+    // transparent la laisse blanche sur du texte clair en thème sombre.
+    background-color: var(--surface);
+    color-scheme: inherit;
     height: 100%;
     padding: 0 24px 0 0;
     font-weight: 500;
     color: var(--ink);
     cursor: pointer;
+
+    option,
+    optgroup {
+      background-color: var(--surface);
+      color: var(--ink);
+    }
 
     &:focus {
       outline: none;

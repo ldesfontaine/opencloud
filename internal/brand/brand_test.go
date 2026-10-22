@@ -14,7 +14,7 @@ func TestValues_AreFrozen(t *testing.T) {
 		"ConfigDir":               {ConfigDir, "/etc/opencloud"},
 		"ConfigPath":              {ConfigPath, "/etc/opencloud/config.toml"},
 		"StateDir":                {StateDir, "/var/lib/opencloud"},
-		"AgentStateDir":           {AgentStateDir, "/var/lib/opencloud/agent"},
+		"AgentStateDir":           {AgentStateDir, "/var/lib/opencloud-agent"},
 		"DatabaseFile":            {DatabaseFile, "opencloud.db"},
 		"SecretKeyFile":           {SecretKeyFile, "secret.key"},
 		"ServerKeyFile":           {ServerKeyFile, "server.key"},
