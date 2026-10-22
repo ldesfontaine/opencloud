@@ -16,7 +16,7 @@ import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
-import { probeTones, uptimePercent } from "../lib/probes";
+import { editProbePath, probeListPath, probeTones, uptimePercent } from "../lib/probes";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 
@@ -242,7 +242,7 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   return (
     <>
       <Failure error={action.error} />
-      <Button icon="settings" to={`/domaines/${probe.id}/modifier`}>
+      <Button icon="settings" to={editProbePath(probe.id)}>
         {t("probe.edit")}
       </Button>
       {probe.status === "paused" ? (
@@ -264,7 +264,7 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
           loadPlan={() => fetchProbeDeletePlan(probe.id)}
           perform={() => deleteProbe(probe.id)}
           topic="all"
-          onDone={() => void navigate("/domaines")}
+          onDone={() => void navigate(probeListPath)}
           onClose={() => setRemoving(false)}
         />
       )}

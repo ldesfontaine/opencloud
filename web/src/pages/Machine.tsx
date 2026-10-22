@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 
 import { updateAgent, useAgentUpdateOffer } from "../api/actions";
 import { useMachineContainers } from "../api/containers";
+import type { Lifecycle } from "../api/lifecycle";
 import { deleteMachine, fetchMachineDeletePlan, reenrollMachine, revokeAgent, useMachines, type Agent, type Machine } from "../api/machines";
 import { useMachineProbes } from "../api/probes";
 import { useMachineResources } from "../api/resources";
@@ -16,29 +17,35 @@ import { MachineHead, Tabs } from "../components/MachineHead";
 import { NetworkView } from "../components/NetworkView";
 import { PageHead } from "../components/PageHead";
 import { ProbeTable } from "../components/ProbeTable";
-import { ResourceHistory, ResourceStats } from "../components/Resources";
+import { DiskVolumesCard, ResourceHistory, ResourceStats } from "../components/Resources";
 import { ContainerFilter, ContainerTable } from "../components/ContainerTable";
-import { SupportBlock } from "../components/SupportBlock";
+import { SupportDetails } from "../components/SupportBlock";
 import { ContainerPill } from "../components/Pill";
 import { Subject, Table } from "../components/Table";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { resolveMachineTab } from "../lib/machineTabs";
+import { renamedMachineTabs, resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
-import { describeAccount, describeCapability, machineSeen, tokenPageState, unavailableRights } from "../lib/machines";
+import { lifecycleHasDetails } from "../lib/lifecycle";
+import { describeAccount, describeCapability, tokenPageState, unavailableRights } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
+import "./Machine.scss";
 
 // La page d'une machine : l'en-tête de la direction artistique, les
 // onglets, le résumé avec ses quatre chiffres clés et l'historique, les
-// services, les domaines, le réseau, le raccourci des journaux. Un onglet pas encore livré renvoie au
+// services, la disponibilité, le réseau, le raccourci des journaux. Un onglet pas encore livré renvoie au
 // résumé.
 export function MachinePage() {
   const { id = "", tab = "" } = useParams();
+  const location = useLocation();
   const resolved = resolveMachineTab(tab);
   if (resolved === "summary") {
     return <Navigate to={`/machines/${id}`} replace />;
+  }
+  if (resolved === "renamed") {
+    return <Navigate to={{ pathname: `/machines/${id}/${renamedMachineTabs[tab]}`, search: location.search, hash: location.hash }} replace />;
   }
   return <KnownMachinePage id={id} tab={tab} known={resolved === "shown"} />;
 }
@@ -55,15 +62,16 @@ function KnownMachinePage({ id, tab, known }: { id: string; tab: string; known: 
   return <MachineView current={current} all={machines.data.machines} tab={tab} />;
 }
 
+// 16 px entre les blocs de la page (.content, global, garde ses 24 px) : en
+// tête, tuiles et historique tiennent sur un écran de portable (#141).
 function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; tab: string }) {
-  const t = useT();
   const now = useNow();
   const resources = useMachineResources(tab === "" ? current.id : null);
   return (
-    <>
+    <div className="machine-page">
       <PageHead title={current.name} actions={<Actions machine={current} />} />
       <Card>
-        <CardBody gap={16}>
+        <CardBody gap={12}>
           <MachineHead current={current} all={all} />
           <Tabs machineID={current.id} />
         </CardBody>
@@ -72,15 +80,8 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
         <>
           <ResourceStats current={resources.data} />
           <ResourceHistory machineID={current.id} />
-          <Card>
-            <CardHeader title={t("tab.summary")} />
-            <CardBody gap={10}>
-              <KeyValue label={t("machine.field_address")} value={current.address} mono />
-              <KeyValue label={t("machine.field_os")} value={current.os} />
-              <KeyValue label={t("machine.field_seen")} value={machineSeen(t, current, now)} />
-              {current.lifecycle !== undefined && <SupportBlock lifecycle={current.lifecycle} subject="system" />}
-            </CardBody>
-          </Card>
+          <DiskVolumesCard current={resources.data} />
+          {current.lifecycle !== undefined && lifecycleHasDetails(current.lifecycle) && <SystemSupport lifecycle={current.lifecycle} />}
           <AgentCard machineID={current.id} agent={current.agent} now={now} />
           <ActionsCard machineID={current.id} agent={current.agent} online={current.online} />
         </>
@@ -93,7 +94,21 @@ function MachineView({ current, all, tab }: { current: Machine; all: Machine[]; 
       ) : (
         <MachineProbes machineID={current.id} />
       )}
-    </>
+    </div>
+  );
+}
+
+// Le détail du support du système : l'état et sa phrase sont dans l'en-tête,
+// la carte garde le reste (branches, lecture, source).
+function SystemSupport({ lifecycle }: { lifecycle: Lifecycle }) {
+  const t = useT();
+  return (
+    <Card>
+      <CardHeader title={t("lifecycle.title_system")} />
+      <CardBody gap={8}>
+        <SupportDetails lifecycle={lifecycle} />
+      </CardBody>
+    </Card>
   );
 }
 
@@ -192,7 +207,7 @@ function AgentUpdate({ machineID }: { machineID: string }) {
   return <p className="secondary">{t(`machine.agent_update_reason_${current.reason}`, current.target, current.arch)}</p>;
 }
 
-// L'onglet Domaines et certificats : les sondes que cette machine exécute,
+// L'onglet Disponibilité : les sondes que cette machine exécute,
 // puis les certificats qu'elles ont vus, avec ce qu'il leur reste.
 function MachineProbes({ machineID }: { machineID: string }) {
   const t = useT();

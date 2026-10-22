@@ -337,7 +337,10 @@ type Server struct {
 	// Le secret que le mandataire pose dans brand.ProxySecretHeader ; vide :
 	// aucun n'est configuré, l'adresse du pair seule décide (voir auth.go).
 	forwardSecret string
-	listen        string
+	// Les identités admises en mode forward ; vide : toute identité que le
+	// mandataire transmet. Construit une fois, jamais modifié.
+	forwardUsers map[string]bool
+	listen       string
 	// Le front compilé, embarqué : voir spa.go.
 	app     fs.FS
 	handler http.Handler
@@ -384,6 +387,9 @@ type Options struct {
 	// ForwardSecret est le secret partagé avec le mandataire du mode forward,
 	// lu par proxysecret.Load ; vide : aucun.
 	ForwardSecret string
+	// ForwardUsers est la liste blanche du mode forward (config.toml) ; vide :
+	// toute identité transmise est admise.
+	ForwardUsers []string
 	// Listen est l'adresse d'écoute : son hôte est un Host reconnu.
 	Listen string
 	// Clock remplace l'horloge, pour les tests ; nil = time.Now.
@@ -434,6 +440,7 @@ func New(opts Options) (*Server, error) {
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		forwardSecret:  opts.ForwardSecret,
+		forwardUsers:   forwardUserSet(opts.ForwardUsers),
 		listen:         opts.Listen,
 		app:            app,
 		clock:          opts.Clock,

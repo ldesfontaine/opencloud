@@ -30,7 +30,10 @@ interface Props {
 
 const margin = { top: 12, right: 12, bottom: 22, left: 52 };
 const gridLines = 3;
-const timeTicks = 4;
+// Un repère de l'axe du temps demande ≈ 70 px (l'heure fait 33 px) : un graphe
+// étroit, quatre par rangée sur un portable, en garde moins.
+const tickSpacing = 70;
+const maxTimeTicks = 4;
 
 // Un graphe d'aire en SVG, dans les jetons : rien d'importé, rien en ligne.
 // Les positions sont des attributs, jamais un style, pour rester dans la CSP.
@@ -42,6 +45,7 @@ export function Chart({ series, from, to, stepMs, max, format, height = 160 }: P
 
   const plotWidth = Math.max(0, width - margin.left - margin.right);
   const plotHeight = height - margin.top - margin.bottom;
+  const timeTicks = Math.min(maxTimeTicks, Math.max(2, Math.floor(plotWidth / tickSpacing)));
   const top = scaleTop(series, max);
   const x = (at: number) => margin.left + ((at - from) / (to - from)) * plotWidth;
   const y = (value: number) => margin.top + plotHeight - (Math.min(value, top) / top) * plotHeight;

@@ -8,6 +8,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useI18n, useT } from "../i18n/context";
 import { accessLabel } from "../lib/auth";
 import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
+import { probeListPath } from "../lib/probes";
 import { Icon, Mark, type IconName } from "./Icon";
 import "./Layout.scss";
 
@@ -148,7 +149,7 @@ const viewEntries: NavEntry[] = [
   { key: "overview", label: "nav.overview", href: "/", icon: "grid" },
   { key: "machines", label: "nav.machines", href: "/machines", icon: "server" },
   { key: "services", label: "nav.services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
-  { key: "domains", label: "nav.domains", href: "/domaines", icon: "globe" },
+  { key: "availability", label: "nav.availability", href: probeListPath, icon: "globe" },
   { key: "jobs", label: "nav.jobs", href: "/taches", icon: "clock" },
   { key: "statuspage", label: "nav.statuspage", href: "/page-statut", icon: "eye" },
   { key: "alerts", label: "nav.alerts", href: "/alertes", icon: "bell" },
@@ -248,7 +249,7 @@ function counter(key: string, counts: Counts | null): Counter | null {
   if (key === "services" && counts.containers.total > 0) {
     return { value: counts.containers.total, hot: counts.containers.attention > 0 };
   }
-  if (key === "domains" && counts.probes.total > 0) {
+  if (key === "availability" && counts.probes.total > 0) {
     return { value: counts.probes.total, hot: counts.probes.attention > 0 };
   }
   if (key === "statuspage" && counts.status.open_incidents > 0) {

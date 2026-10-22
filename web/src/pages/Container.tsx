@@ -17,6 +17,7 @@ import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
 import { findingText, formatBindings, containerPill, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
+import { newProbePath } from "../lib/probes";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
 import { formatBytes, formatCPU } from "../lib/units";
 import "./Container.scss";
@@ -62,7 +63,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
           // Une sonde vise le service déclaré : sans lui, il n'y a rien à
           // surveiller, et le chemin est d'abord d'adopter le conteneur.
           container.declared_service_id !== "" ? (
-            <Button icon="globe" to={`/domaines/nouvelle?service=${container.declared_service_id}&container=${container.id}`}>
+            <Button icon="globe" to={newProbePath({ service: container.declared_service_id, container: container.id })}>
               {t("probe.watch_service")}
             </Button>
           ) : (

@@ -142,6 +142,20 @@ export function VisualSystem() {
                   </>
                 }
               />
+              <Stat
+                compact
+                wideFoot
+                icon="disk"
+                label={t("visual.stats.disk")}
+                value="69"
+                unit={t("visual.stats.disk_unit")}
+                foot={
+                  <>
+                    <b>86 %</b>
+                    {t("visual.stats.disk_foot")}
+                  </>
+                }
+              />
             </div>
           </section>
 
@@ -334,7 +348,7 @@ export function VisualSystem() {
                     <span className="n">6</span>
                   </span>
                   <span className="tab">
-                    {t("tab.domains")}
+                    {t("tab.availability")}
                     <span className="n">5</span>
                   </span>
                   <span className="tab">{t("tab.network")}</span>

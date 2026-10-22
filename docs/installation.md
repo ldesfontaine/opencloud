@@ -256,6 +256,7 @@ commenté : [`installation/config.toml`](installation/config.toml).
 | `public_url` | vide | L'adresse publique, par exemple `https://opencloud.example.org`. Voir ci-dessous |
 | `trusted_proxies` | `[]` | Les mandataires dont les en-têtes `X-Forwarded-*` sont crus, en CIDR |
 | `forward_secret_file` | vide | Mode `forward` : le fichier d'une ligne qui porte le secret partagé avec le mandataire (32 caractères au moins, illisible pour les autres comptes). Illisible, trop court ou trop ouvert, il arrête le démarrage. Voir [Derrière un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie) |
+| `forward_users` | vide | Mode `forward` : les identités admises, par exemple `["lucas"]` ; toute autre répond `403`. Vide : toute identité que le mandataire transmet. Voir [Qui peut entrer](#qui-peut-entrer) |
 | `log_level` | `info` | `debug`, `info`, `warn` ou `error`. En `debug`, une ligne par requête HTTP |
 
 Une clé inconnue est signalée au démarrage (`unknown key ["…"] ignored`)
@@ -554,6 +555,50 @@ Accès à l'interface affiche un avertissement tant que `trusted_proxies`
 couvre la boucle locale. Posez le secret, redémarrez : l'avertissement
 disparaît.
 
+#### Qui peut entrer
+
+Le SSO dit qui est l'utilisateur ; `forward_users` dit lesquels openCloud
+admet, une seconde serrure derrière les règles d'Authelia :
+
+```toml
+# /etc/opencloud/config.toml
+forward_users = ["lucas"]
+```
+
+```sh
+systemctl restart opencloud   # la liste est relue au démarrage seulement
+```
+
+| Cas | Réponse |
+| --- | --- |
+| Liste absente ou vide | Toute identité transmise par le mandataire entre, comme avant |
+| Identité dans la liste | Entre |
+| Identité hors liste | `403` (page : une ligne qui nomme l'identité reçue ; API : `auth.forward_forbidden`) et un `WARN` `identity not in forward_users` dans le journal |
+| Pair hors `trusted_proxies`, secret faux, en-tête absent ou en double | `401`, comme avant : la liste ne remplace aucun de ces contrôles, et ces refus ne disent rien d'elle |
+
+La comparaison est **exacte, majuscules comprises** (`Lucas` n'est pas
+`lucas`) : Authelia transmet l'identifiant tel qu'il le déclare. Une faute
+de casse dans la liste ferme la porte, et le `WARN` dit l'identité reçue, qui
+est le remède. Les espaces en bord de l'en-tête sont retirés avant la
+comparaison. Une liste fausse (entrée vide, espace en bord, doublon, plus
+de 64 entrées ou de 64 caractères) arrête le démarrage avec la ligne en
+cause. Activer le mode `forward` depuis une identité hors liste est refusé
+(`auth.forward_user_not_listed`) : on ne s'enferme pas en activant.
+`opencloud auth status` affiche la liste que la commande lit.
+
+**Enfermé dehors par la liste** (une liste posée après l'activation, sans
+votre identité ou avec une faute de casse) : la sortie est la même que
+l'entrée. La page `403` et le `WARN` disent l'identité reçue ; corrigez
+`forward_users` dans `/etc/opencloud/config.toml` (ou videz-la), puis
+`systemctl restart opencloud`. `opencloud auth disable` n'en sort **pas** :
+l'interface revient à sa première configuration, mais réactiver le mode
+`forward` depuis une identité hors liste reste refusé, et en attendant toute
+identité que le SSO laisse passer peut créer le compte.
+
+La contrepartie : retirer quelqu'un de la liste ne révoque pas les jetons
+d'API qu'il a tirés (Paramètres → Jetons d'API), et les groupes d'Authelia
+(`Remote-Groups`) ne sont pas lus.
+
 **Vérifier** que le contournement est fermé :
 
 ```sh
@@ -569,6 +614,19 @@ docker run --rm --network <réseau> curlimages/curl -s -o /dev/null -w '%{http_c
 # 401
 # par le nom public, sans session Authelia, en-tête forgé : redirigé vers Authelia, jamais 200
 curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: admin' https://opencloud.example.org/api/machines
+```
+
+Avec `forward_users`, une identité hors liste est refusée en `403`, une
+identité listée passe. Depuis la machine openCloud, avec le secret (adaptez
+l'adresse et le secret) :
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: intrus' \
+  -H "X-OpenCloud-Proxy-Secret: $(cat /etc/opencloud/forward.secret)" http://127.0.0.1:8080/api/machines
+# 403
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Remote-User: lucas' \
+  -H "X-OpenCloud-Proxy-Secret: $(cat /etc/opencloud/forward.secret)" http://127.0.0.1:8080/api/machines
+# 200
 ```
 
 **Mandataire en panne ou mal réglé** : la même commande de secours rouvre

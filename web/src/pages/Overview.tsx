@@ -6,35 +6,42 @@ import { useCounts, type Counts } from "../api/counts";
 import { useMachines } from "../api/machines";
 import { useCurrentResources } from "../api/resources";
 import { Button } from "../components/Button";
-import { Card, EmptyCard, Stat } from "../components/Card";
-import { List } from "../components/Table";
+import { EmptyCard, Stat } from "../components/Card";
 import { Failure } from "../components/Failure";
 import { NetworkOverview } from "../components/NetworkOverview";
 import { PageHead } from "../components/PageHead";
 import { OnlinePill } from "../components/Pill";
 import { MachineMeters } from "../components/Resources";
 import { useNow } from "../hooks/useNow";
-import { useCertificateThresholds, useT } from "../i18n/context";
+import { useCertificateThresholds, useDiskThresholds, useT } from "../i18n/context";
+import { describeAlert, mostUrgentAlert } from "../lib/alerts";
 import { daysUntil } from "../lib/certificates";
 import { machineSeen, machinesSubtitle } from "../lib/machines";
-import { AlertRow } from "./alerts/AlertRow";
 import "./Overview.scss";
 
-const alertsShown = 3;
-
-// La tuile Alertes : le nombre d'ouvertes, et ce qui reste à acquitter. Elle
-// mène à la liste, et remplace l'ancienne rangée qui s'affichait même à zéro.
+// La tuile Alertes : le nombre d'ouvertes, puis en pied, sur une ligne
+// tronquée, ce qui reste à acquitter et la plus urgente (son fait et sa
+// machine ; le texte entier est en infobulle). La liste des alertes ne tient
+// plus sur cette page (#141) : la tuile mène à elle.
 function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
   const t = useT();
+  const now = useNow();
+  const disks = useDiskThresholds();
   const counts = alerts?.counts;
   let foot: ReactNode = "–";
-  if (counts) {
+  if (alerts && counts) {
     if (counts.open === 0) {
       foot = t("alerts.overview_none");
-    } else if (counts.unacknowledged > 0) {
-      foot = <b className="danger">{t("overview.alerts_unacknowledged", counts.unacknowledged)}</b>;
     } else {
-      foot = t("overview.alerts_acknowledged");
+      const lead = counts.unacknowledged > 0 ? t("overview.alerts_unacknowledged", counts.unacknowledged) : t("overview.alerts_acknowledged");
+      const urgent = mostUrgentAlert(alerts.alerts);
+      const urgentText = urgent === null ? "" : t("overview.alerts_top", describeAlert(t, urgent, now, disks).fact, urgent.machine_name !== "" ? urgent.machine_name : urgent.object.name);
+      foot = (
+        <span title={urgentText === "" ? lead : `${lead} · ${urgentText}`}>
+          {counts.unacknowledged > 0 ? <b className="danger">{lead}</b> : lead}
+          {urgentText !== "" && ` · ${urgentText}`}
+        </span>
+      );
     }
   }
   return (
@@ -44,35 +51,11 @@ function AlertsTile({ alerts }: { alerts: AlertsResponse | null }) {
   );
 }
 
-// Les trois premières alertes ouvertes avec leur fait et leur cause, le reste
-// par le lien. Sans alerte ouverte il n'y a rien à lister : la tuile le dit.
-function AlertsList({ alerts }: { alerts: AlertsResponse | null }) {
-  const t = useT();
-  if (!alerts || alerts.counts.open === 0) {
-    return null;
-  }
-  return (
-    <div className="overview-block overview-alerts">
-      <div className="overview-head">
-        <span className="card-t">{t("alerts.title")}</span>
-        <Link to="/alertes">{t("alerts.overview_see_all")}</Link>
-      </div>
-      <Card>
-        <List>
-          {alerts.alerts.slice(0, alertsShown).map((alert) => (
-            <AlertRow key={alert.id} alert={alert} compact />
-          ))}
-        </List>
-      </Card>
-    </div>
-  );
-}
-
-// Le pied de la carte Domaines dit une chose à la fois, la plus pressante :
+// Le pied de la carte Disponibilité dit une chose à la fois, la plus pressante :
 // une sonde hors ligne, puis un certificat déjà expiré, puis un qui
 // approche de sa fin, puis que tout va bien. Un seul fait, celui qui
 // appelle une action.
-function DomainsFoot({ counts }: { counts: Counts }) {
+function AvailabilityFoot({ counts }: { counts: Counts }) {
   const t = useT();
   const now = useNow();
   const thresholds = useCertificateThresholds();
@@ -98,8 +81,8 @@ function DomainsFoot({ counts }: { counts: Counts }) {
 }
 
 // La vue d'ensemble tient sur un écran de portable : une bande de cinq
-// tuiles (machines, conteneurs, sondes, tâches, alertes), les alertes
-// ouvertes s'il y en a, le réseau de toutes les machines mis à l'échelle,
+// tuiles (machines, conteneurs, disponibilité, tâches, alertes dont la plus
+// urgente), le réseau de toutes les machines mis à l'échelle,
 // puis une rangée de cartes de machine serrées avec leurs trois jauges ;
 // sans machine, elle invite à en ajouter une.
 export function Overview() {
@@ -151,9 +134,9 @@ export function Overview() {
             <Stat
               compact
               icon="globe"
-              label={t("nav.domains")}
+              label={t("nav.availability")}
               value={counts.data?.probes.total ?? "–"}
-              foot={counts.data ? <DomainsFoot counts={counts.data} /> : "–"}
+              foot={counts.data ? <AvailabilityFoot counts={counts.data} /> : "–"}
             />
             <Stat
               compact
@@ -170,7 +153,6 @@ export function Overview() {
             />
             <AlertsTile alerts={alerts.data} />
           </div>
-          <AlertsList alerts={alerts.data} />
           <div className="overview-block">
             <div className="overview-head">
               <span className="card-t">{t("tab.network")}</span>

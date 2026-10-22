@@ -15,6 +15,34 @@ export const probeTones: Record<ProbeStatus, Tone> = {
   paused: "neutral",
 };
 
+// Où vit chaque écran des sondes. Un seul endroit construit ces adresses : la
+// page s'appelait « Domaines » (/domaines) avant de s'appeler « Disponibilité »
+// (#145), et le prochain renommage ne doit toucher qu'ici.
+export const probeListPath = "/disponibilite";
+const retiredProbeListPath = "/domaines";
+
+export function probePath(id: string): string {
+  return `${probeListPath}/${encodeURIComponent(id)}`;
+}
+
+export function editProbePath(id: string): string {
+  return `${probePath(id)}/modifier`;
+}
+
+// Le formulaire d'une sonde neuve, avec ce qu'on sait déjà d'elle (le service
+// ou le conteneur d'où l'on vient).
+export function newProbePath(query: Record<string, string> = {}): string {
+  const search = new URLSearchParams(query).toString();
+  return `${probeListPath}/nouvelle${search === "" ? "" : `?${search}`}`;
+}
+
+// L'ancienne adresse d'un écran des sondes mène à la nouvelle : un lien gardé
+// ou partagé avant le renommage suit. La query et l'ancre sont gardées par
+// l'appelant.
+export function renamedProbePath(pathname: string): string {
+  return probeListPath + pathname.slice(retiredProbeListPath.length);
+}
+
 export const attentionProbeStatuses: ReadonlySet<ProbeStatus> = new Set<ProbeStatus>(["down"]);
 
 export function probeNeedsAttention(probe: Pick<Probe, "status">): boolean {

@@ -26,6 +26,7 @@ import { Pill } from "../components/Pill";
 import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { probePath } from "../lib/probes";
 import { formatClock } from "../lib/time";
 import { AlertRow } from "./alerts/AlertRow";
 
@@ -266,7 +267,7 @@ function LinksCard({ links }: { links: ServiceLinks }) {
           <span className="secondary">{t("directory.links_none")}</span>
         ) : (
           <>
-            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => `/domaines/${object.id}`} />
+            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
             <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => `/page-statut/composants/${object.id}`} />
           </>
         )}

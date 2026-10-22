@@ -248,3 +248,88 @@ func TestWarnIfForwardUnproven_SpeaksOnlyForForwardWithLoopbackAndNoSecret(t *te
 		t.Fatal("a non-loopback proxy keeps its previous behavior")
 	}
 }
+
+// enableForwardIn active le mode forward dans la base de l'état, comme serve.
+func enableForwardIn(t *testing.T, stateDir string) {
+	t.Helper()
+	root, err := openStateDir(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	db, err := store.Open(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	service, err := auth.New(db, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.EnableForward(context.Background(), auth.State{Mode: auth.ModeNone}, auth.DefaultForwardHeader); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func authStatusWith(t *testing.T, configPath string) string {
+	t.Helper()
+	var out bytes.Buffer
+	if err := authCommand([]string{"status", "-config", configPath}, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.String()
+}
+
+func TestAuthCommand_StatusSaysWhoForwardUsersAdmits(t *testing.T) {
+	configPath, stateDir := writeConfig(t)
+	enableForwardIn(t, stateDir)
+
+	if got := authStatusWith(t, configPath); !strings.Contains(got, "identités admises : toute identité transmise par le mandataire") {
+		t.Fatalf("no list: %q", got)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withList := string(content) + "forward_users = [\"lucas\", \"Léa\"]\n"
+	if err := os.WriteFile(configPath, []byte(withList), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Entre guillemets : une faute de casse se voit.
+	if got := authStatusWith(t, configPath); !strings.Contains(got, `identités admises : "lucas", "Léa"`) {
+		t.Fatalf("with a list: %q", got)
+	}
+}
+
+// En basic, la liste ne sert à rien : l'afficher laisserait croire qu'elle garde.
+func TestAuthCommand_StatusDoesNotShowForwardUsersOutsideForwardMode(t *testing.T) {
+	configPath, stateDir := writeConfig(t)
+	enableIn(t, stateDir)
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, append(content, []byte("forward_users = [\"lucas\"]\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := authStatusWith(t, configPath); strings.Contains(got, "identités admises") {
+		t.Fatalf("basic mode: %q", got)
+	}
+}
+
+// Une liste fausse arrête aussi la commande, comme serve.
+func TestAuthCommand_AFalseForwardUsersListIsRefused(t *testing.T) {
+	configPath, _ := writeConfig(t)
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, append(content, []byte("forward_users = [\"lucas\", \"lucas\"]\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := authCommand([]string{"status", "-config", configPath}, &out); err == nil {
+		t.Fatal("a list with a duplicate must be refused")
+	}
+}
