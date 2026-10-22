@@ -20,15 +20,14 @@ type exception struct {
 }
 
 var exceptions = map[exception]string{
-	{"internal/alert/payload.go", "alert.open_in_opencloud"}:         "clé de catalogue : les clés ne changent pas avec le nom",
-	{"internal/server/mcp_tools_read.go", mcpMachineIDSchemaLiteral}: "étiquette jsonschema : une étiquette de champ ne se construit pas",
+	{"internal/alert/payload.go", "alert.open_in_opencloud"}:          "clé de catalogue : les clés ne changent pas avec le nom",
+	{"internal/server/api_tokens.go", `json:"opencloud_url"`}:         "clé JSON de l'API, lue par le front ; elle nomme la variable OPENCLOUD_URL du .env de mcp-maison",
+	{"internal/server/api_settings_mcp.go", `json:"opencloud_tools"`}: "clé JSON de l'API, lue par le front ; elle compte les outils du groupe opencloud de mcp-maison",
 }
-
-const mcpMachineIDSchemaLiteral = "json:\"machine_id\" jsonschema:\"Machine id, or 'local' for the openCloud host itself\""
 
 // Les préfixes de jetons ne s'écrivent pas non plus ailleurs : un littéral
 // « oc_ » hors de ce paquet est un schéma de jeton copié.
-var tokenSchemes = []string{"oc_", "ocs_", "occ_", "oca_", "ocr_", "ock_"}
+var tokenSchemes = []string{"oc_", "ock_"}
 
 // Le nom du produit s'écrit dans ce paquet et nulle part ailleurs : aucun
 // littéral du code Go de production ne le contient, ni ne vaut un schéma de

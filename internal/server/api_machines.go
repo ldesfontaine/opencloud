@@ -141,9 +141,14 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	pending, err := s.machines.PendingTokens(r.Context())
-	if s.failed(w, r, err, nil) {
-		return
+	// Les jetons d'enrôlement en attente sont des autorités : un jeton d'API
+	// n'en voit aucun.
+	var pending []machine.Token
+	if _, byToken := apiTokenFrom(r.Context()); !byToken {
+		pending, err = s.machines.PendingTokens(r.Context())
+		if s.failed(w, r, err, nil) {
+			return
+		}
 	}
 	withLifecycle, err := s.lifecycleEnabled(r.Context())
 	if s.failed(w, r, err, nil) {

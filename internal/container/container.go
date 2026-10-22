@@ -382,7 +382,7 @@ var (
 	ErrLogBatchTooLarge  = errors.New("log batch too large")
 )
 
-// Ce processus ne tient pas les flux des agents (opencloud mcp) : la
+// Ce processus ne tient pas les flux des agents (une commande hors ligne) : la
 // machine n'est pas forcément hors ligne, on ne peut simplement pas lui
 // parler d'ici.
 var ErrLogsUnavailableLocally = errors.New("logs unavailable in this process")

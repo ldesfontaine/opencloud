@@ -22,8 +22,8 @@ import (
 // elle n'y reste que le temps d'être emballée.
 const snapshotName = "snapshot.db"
 
-// ErrNotWired : le composant est construit sans de quoi envoyer (la
-// commande mcp) ; une sauvegarde ne part pas d'ici.
+// ErrNotWired : le composant est construit sans de quoi envoyer (une
+// commande hors ligne) ; une sauvegarde ne part pas d'ici.
 var ErrNotWired = errors.New("backup: nothing wired to send an order")
 
 // RunNow lance la sauvegarde tout de suite. Un refus avant l'ordre se rend à

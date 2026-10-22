@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -21,11 +22,9 @@ type route struct {
 // authentification : le jeton est le secret (paquet ping). Sous /statut, la
 // page publique et ses routes, sans authentification et limitées en débit
 // (paquet public). Ces trois paquets déclarent leurs routes, montées ici à
-// leur place. Sous /oauth et /mcp, et les deux métadonnées well-known, ce qu'un
-// agent IA appelle, par Bearer, fermé tant que MCP n'est pas activé. Tout
-// le reste est le front, servi par spa.go. Ce qui revient à l'opérateur
-// passe par son authentification, ou attend la première configuration tant
-// qu'aucun compte n'existe : voir auth_middleware.go.
+// leur place. Tout le reste est le front, servi par spa.go. Ce qui revient à
+// l'opérateur passe par son authentification, ou attend la première
+// configuration tant qu'aucun compte n'existe : voir auth_middleware.go.
 func (s *Server) routes() []route {
 	routes := []route{
 		{"GET", "/api/session", s.session},
@@ -128,17 +127,10 @@ func (s *Server) routes() []route {
 		{"POST", "/api/alerts/actions/acknowledge", s.acknowledgeAlerts},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
-		{"GET", "/api/mcp", s.getMCP},
-		{"POST", "/api/mcp/actions/enable", s.grantsAuthority(s.enableMCP)},
-		{"POST", "/api/mcp/actions/disable", s.disableMCP},
-		{"POST", "/api/mcp/actions/regenerate-secret", s.grantsAuthority(s.regenerateMCPSecret)},
-		{"PUT", "/api/mcp/redirect-uris", s.grantsAuthority(s.setMCPRedirectURIs)},
-		{"POST", "/api/mcp/tokens", s.grantsAuthority(s.createMCPToken)},
-		{"DELETE", "/api/mcp/tokens/{id}", s.revokeMCPToken},
-		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
-		{"GET", "/api/mcp/consents/{id}", s.getMCPConsent},
-		{"POST", "/api/mcp/consents/{id}/actions/allow", s.grantsAuthority(s.allowMCPConsent)},
-		{"POST", "/api/mcp/consents/{id}/actions/deny", s.denyMCPConsent},
+		{"GET", "/api/settings/api-tokens", s.listAPITokens},
+		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
+		{"DELETE", "/api/settings/api-tokens/{id}", s.revokeAPIToken},
+		{"GET", "/api/settings/mcp", s.getMCPCheck},
 		{"GET", "/api/settings/disk", s.getDiskSettings},
 		{"PUT", "/api/settings/disk", s.setDiskSettings},
 		{"GET", "/api/settings/lifecycle", s.getLifecycleSettings},
@@ -169,22 +161,34 @@ func (s *Server) routes() []route {
 	s.agent.Routes(add)
 	s.pings.Routes(add)
 	s.public.Routes(add)
-	return append(routes, []route{
-		{"GET", "/.well-known/oauth-authorization-server", s.oauthServerMetadata},
-		{"GET", "/.well-known/oauth-protected-resource", s.oauthResourceMetadata},
-		{"GET", "/.well-known/oauth-protected-resource/mcp", s.oauthResourceMetadata},
-		{"GET", mcpAuthorizePath, s.grantsAuthority(s.oauthAuthorize)},
-		{"POST", "/oauth/token", s.oauthToken},
-		{anyMethod, "/mcp", s.serveMCP},
-		{anyMethod, "/", s.serveApp},
-	}...)
+	return append(routes, route{anyMethod, "/", s.serveApp})
+}
+
+// Les lectures qu'un jeton d'API ouvre : ce que mcp-maison sert à un agent
+// IA. Toute autre route, écriture ou réglage, lui répond 403 ; les secrets
+// des réponses sont masqués pour lui (apiTokenFrom).
+var apiTokenRoutes = []string{
+	"GET /api/session", "GET /api/counts",
+	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
+	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
+	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
+	"GET /api/jobs", "GET /api/jobs/{id}",
+	"GET /api/probes", "GET /api/probes/{id}",
+	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
+	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
+	"GET /api/audit", "GET /api/actions",
+}
+
+// isAPITokenRoute dit si un jeton d'API ouvre la route.
+func isAPITokenRoute(method, pattern string) bool {
+	return slices.Contains(apiTokenRoutes, method+" "+pattern)
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
 // et les routes de l'agent, des pings et de la page publique n'en ont pas
-// besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un navigateur appelle
-// avec l'état d'openCloud, /api et l'autorisation OAuth, exige en plus un
-// Host reconnu, jugé avant tout le reste, authentification comprise.
+// besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un
+// navigateur appelle avec l'état d'openCloud, /api, exige en plus un Host
+// reconnu, jugé avant tout le reste, authentification comprise.
 func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, route := range s.routes() {
@@ -194,9 +198,9 @@ func (s *Server) mux() *http.ServeMux {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern))
+			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), isAPITokenRoute(route.method, route.pattern))
 		}
-		if isAPI || route.pattern == mcpAuthorizePath {
+		if isAPI {
 			handler = s.requireKnownHost(handler)
 		}
 		pattern := route.pattern

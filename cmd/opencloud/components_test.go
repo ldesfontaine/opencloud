@@ -11,7 +11,7 @@ import (
 )
 
 // Le câblage commun suffit à construire un serveur, une fois le direct
-// posé : c'est ce que font serve et mcp.
+// posé : c'est ce que fait serve.
 func TestBuildComponents_ServerStarts(t *testing.T) {
 	root, db := storetest.OpenWithStateDir(t)
 	cfg := config.Default()
@@ -19,7 +19,7 @@ func TestBuildComponents_ServerStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := parts.serverOptions(cfg, config.DefaultPath)
+	options := parts.serverOptions(cfg)
 	options.Live = live.New()
 	options.PublicLive = live.New()
 	if _, err := server.New(options); err != nil {
@@ -27,18 +27,19 @@ func TestBuildComponents_ServerStarts(t *testing.T) {
 	}
 }
 
-// serve et mcp prennent leurs options du serveur au même endroit : chaque
-// composant y est posé, et il ne reste à l'appelant que le direct et le
+// serve prend ses options du serveur à un seul endroit : chaque composant y
+// est posé, et il ne reste à l'appelant que le direct et le
 // secret du mandataire. Un composant ajouté au serveur sans passer par
 // buildComponents se voit ici.
 func TestBuildComponents_OptionsLeaveOnlyLiveToCaller(t *testing.T) {
 	root, db := storetest.OpenWithStateDir(t)
 	cfg := config.Default()
+	cfg.MCPURL = "http://127.0.0.1:3000"
 	parts, err := buildComponents(cfg, root, db, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := parts.serverOptions(cfg, config.DefaultPath)
+	options := parts.serverOptions(cfg)
 	posed := map[string]bool{
 		"Logger":     options.Logger != nil,
 		"Reader":     options.Reader != nil,
@@ -55,11 +56,11 @@ func TestBuildComponents_OptionsLeaveOnlyLiveToCaller(t *testing.T) {
 		"Status":     options.Status != nil,
 		"Alerts":     options.Alerts != nil,
 		"Notifier":   options.Notifier != nil,
-		"MCP":        options.MCP != nil,
+		"APITokens":  options.APITokens != nil,
 		"Auth":       options.Auth != nil,
 		"Version":    options.Version != "",
 		"Listen":     options.Listen == cfg.Listen,
-		"ConfigPath": options.ConfigPath == config.DefaultPath,
+		"MCPURL":     options.MCPURL == cfg.MCPURL,
 	}
 	for name, isPosed := range posed {
 		if !isPosed {

@@ -7,7 +7,7 @@
 **openCloud is self-hosted monitoring**: your machines, their Docker
 containers (read-only), HTTP/TCP probes and their certificates, scheduled jobs
 by ping, alerts through signed webhooks, a public status page, detected image
-updates, and an MCP server for AI agents. One Go binary, with SQLite and the
+updates, and a read-only API token for an AI agent, through mcp-maison. One Go binary, with SQLite and the
 web interface embedded.
 
 > **Maturity.** Version `v0.0.1`, pre-release. Linux amd64 and arm64
@@ -29,7 +29,7 @@ web interface embedded.
 | Compares each image to its registry and builds the update command | Apply the update: you run it |
 | Sends alerts as signed webhooks (Discord, Slack, Mattermost, ntfy, JSON), by e-mail through your SMTP relay, or to a Matrix room | SMS |
 | Publishes a status page under `/statut` | Multiple accounts or a second factor of its own: behind a proxy (Authelia), `forward` mode delegates them to your SSO |
-| Serves MCP: 16 read tools, 9 writes the interface already has | Any action on a machine through MCP, any secret returned |
+| Gives an AI agent a read-only API token, for mcp-maison | Any write or action on a machine through that token, any secret returned |
 
 openCloud **observes; it never acts on a machine**. The interface is
 available in English and French (FR/EN switch at the bottom of the sidebar).

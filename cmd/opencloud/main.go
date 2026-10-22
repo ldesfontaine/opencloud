@@ -15,7 +15,6 @@ const usage = `Usage : {command} <commande> [options]
 Commandes :
   serve     démarre le serveur web (option -config)
   agent     tourne sur une machine gérée (options -server -lang -pin -allow-plain -state ; jeton d'enrôlement sur l'entrée standard)
-  mcp       parle MCP sur stdin/stdout à un client IA local, en lecture seule (option -config)
   auth      status | disable : état de l'authentification de l'interface,
             ou la couper en cas de mot de passe oublié (option -config)
   export    écrit l'annuaire dans un fichier YAML, par le serveur qui tourne
@@ -53,8 +52,6 @@ func main() {
 		err = runServe(os.Args[2:])
 	case "agent":
 		err = runAgent(os.Args[2:])
-	case "mcp":
-		err = runMCP(os.Args[2:])
 	case "auth":
 		err = runAuth(os.Args[2:])
 	case "export":

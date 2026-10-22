@@ -7,10 +7,13 @@ export function verbOf(action: string): string {
   return dot < 0 ? action : action.slice(dot + 1);
 }
 
-// actorLabel : la sorte d'acteur, puis son nom quand il en a un.
-export function actorLabel(t: Translate, event: Pick<AuditEvent, "actor_kind" | "actor_name">): string {
+// actorLabel : la sorte d'acteur, puis son nom quand il en a un, puis pour
+// qui un jeton d'API a agi quand mcp-maison le dit (on_behalf_of, indicatif).
+export function actorLabel(t: Translate, event: Pick<AuditEvent, "actor_kind" | "actor_name" | "details">): string {
   const kind = t(`audit.actor_${event.actor_kind}`);
-  return event.actor_name === "" ? kind : `${kind} · ${event.actor_name}`;
+  const named = event.actor_name === "" ? kind : `${kind} · ${event.actor_name}`;
+  const onBehalfOf = event.details.on_behalf_of;
+  return onBehalfOf === undefined || onBehalfOf === "" ? named : `${named} · ${t("audit.on_behalf_of", onBehalfOf)}`;
 }
 
 // objectLabel : le nom recopié, sinon l'identifiant, sinon rien.

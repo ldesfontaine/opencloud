@@ -196,6 +196,12 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		Runs:     httpx.ConvertAll(runs, runToJSON),
 		Pings:    httpx.ConvertAll(pings, pingToJSON),
 	}
+	// L'adresse de ping suffit à faire passer la tâche pour faite : un jeton
+	// d'API ne la voit pas, ni les extraits qui la contiennent.
+	if _, byToken := apiTokenFrom(r.Context()); byToken {
+		response.PingURL = ""
+		response.Snippets = []snippetJSON{}
+	}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

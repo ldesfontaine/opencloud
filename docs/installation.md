@@ -26,7 +26,7 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 6. [Traefik](#traefik)
 7. [Authentification](#authentification)
 8. [Envoi d'e-mails](#envoi-de-mails)
-9. [Brancher un agent IA (MCP)](#brancher-un-agent-ia-mcp)
+9. [Brancher un agent IA](#brancher-un-agent-ia)
 10. [Ajouter une machine](#ajouter-une-machine)
 11. [Mettre à jour](#mettre-à-jour)
 12. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
@@ -42,6 +42,7 @@ Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 | [`opencloud-agent.service`](installation/opencloud-agent.service) | `/etc/systemd/system/` de chaque machine, la machine openCloud comprise : l'agent |
 | [`traefik-opencloud.yml`](installation/traefik-opencloud.yml) | Le dossier de configuration dynamique de Traefik |
 | [`compose.traefik.yml`](installation/compose.traefik.yml) | Extrait Compose d'un Traefik en conteneur qui joint openCloud sur l'hôte |
+| [`compose.mcp-maison.yml`](installation/compose.mcp-maison.yml) | `/srv/workspace/mcp-maison/compose.yml`, mcp-maison pour [brancher un agent IA](#brancher-un-agent-ia) |
 
 ## Prérequis
 
@@ -144,7 +145,6 @@ Les sous-commandes :
 | `opencloud secrets rotate -config <chemin>` | Change la clé de chiffrement et rescelle chaque secret avec la neuve, serveur arrêté, voir [Faire tourner les clés](#faire-tourner-les-clés) |
 | `opencloud secrets rotate-server-key -config <chemin>` | Tire une clé neuve pour signer les ordres ; la précédente reste valable le temps que chaque agent reçoive la neuve |
 | `opencloud secrets finish-server-key [-force] -config <chemin>` | Retire la clé précédente une fois chaque agent passé à la neuve |
-| `opencloud mcp -config <chemin>` | MCP sur stdin/stdout pour un client IA local, en lecture seule ; lit `secret.key`, ne la crée jamais |
 | `opencloud export [-config <chemin>] [-o <fichier>] [-propose]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), avec `-propose` y ajoute ce que les conteneurs non déclarés laissent deviner, voir [Exporter l'annuaire](#exporter-lannuaire) |
 | `opencloud apply [-config <chemin>] [-prune] [-yes] [-dry-run] <fichier>` | Applique un fichier YAML à l'annuaire, après avoir montré le plan et demandé confirmation, voir [Appliquer un fichier](#appliquer-un-fichier) |
 | `opencloud version` | La version et le commit |
@@ -228,7 +228,7 @@ Le détail : [Ajouter une machine](#ajouter-une-machine).
 Le compte dédié limite ce que le processus touche ; il ne lit rien de la
 machine.
 
-**Les commandes `auth`, `secrets` et `mcp` se lancent sous le compte du service** :
+**Les commandes `auth` et `secrets` se lancent sous le compte du service** :
 
 ```sh
 runuser -u opencloud -- opencloud auth status -config /etc/opencloud/config.toml
@@ -266,13 +266,13 @@ Le journal est en JSON sur stderr, donc dans `journalctl`.
 Elle sert à deux choses.
 
 1. **Écrire les adresses** : la commande d'installation d'une machine, l'URL
-   de ping d'une tâche, l'adresse MCP. Vide, openCloud les déduit de la
+   de ping d'une tâche. Vide, openCloud les déduit de la
    requête (et de `X-Forwarded-Host` / `-Proto` d'un mandataire de
    confiance). Si l'adresse paraît locale, la page du jeton le dit :
    « L'adresse d'openCloud paraît locale : une machine distante ne la
    joindra pas. Renseignez public_url dans la configuration. »
-2. **Reconnaître le nom de l'interface.** Toute requête sur `/api/…` et
-   `/oauth/authorize` doit arriver avec un `Host` connu : l'hôte de
+2. **Reconnaître le nom de l'interface.** Toute requête sur `/api/…` doit
+   arriver avec un `Host` connu : l'hôte de
    `public_url`, `localhost`, une adresse IP, ou l'hôte de `listen`.
    Derrière un mandataire de confiance, `X-Forwarded-Host` est jugé aussi.
    Sinon : `403 {"error":"bad_host"}`, et le journal dit
@@ -281,8 +281,8 @@ Elle sert à deux choses.
    l'interface par un nom de domaine impose de déclarer ce nom dans
    `public_url`**. La page s'affiche, mais l'API refuse.
 
-Un seul nom est reconnu. La page de statut, les pings, les agents et `/mcp`
-ne sont pas soumis à cette garde.
+Un seul nom est reconnu. La page de statut, les pings et les agents ne sont
+pas soumis à cette garde.
 
 ### `trusted_proxies`
 
@@ -314,7 +314,7 @@ et les limiteurs. Pour l'identité du mode `forward`, ça ouvre tout : voir
 ## Traefik
 
 openCloud écoute en HTTP ; Traefik termine TLS devant lui. Un seul routeur
-suffit : interface, API, agents, pings, statut et MCP passent par le même
+suffit : interface, API, agents, pings et statut passent par le même
 nom et le même port. Vérifié avec Traefik v3.5.3, en mode host et en
 conteneur : interface, API, agent, pings, statut et flux en direct passent,
 et openCloud voit la vraie adresse des clients. Un essai antérieur avec
@@ -376,7 +376,7 @@ Pour un Traefik en conteneur ([extrait Compose](installation/compose.traefik.yml
 ### Les flux en direct
 
 `/agent/stream`, `/api/events`, `/api/containers/{id}/logs/stream`,
-`/statut/<page>/api/events` et `/mcp` sont des flux SSE : une réponse qui dure des
+`/statut/<page>/api/events` sont des flux SSE : une réponse qui dure des
 heures. Traefik les laisse passer par défaut. **N'ajoutez pas** de
 middleware `buffering` sur ce routeur ; `compress`, s'il est là, ne doit
 pas toucher `text/event-stream`. Les délais de Traefik (`readTimeout`,
@@ -394,9 +394,6 @@ préférez-la. Si vous mettez malgré tout un middleware `basicAuth` devant,
 | `/agent/…` | L'agent de chaque machine | Sa clé Ed25519 |
 | `/ping/…` | Vos tâches planifiées | Le jeton dans l'URL |
 | `/statut`, `/statut/…` | Le public : chaque page de statut vit sous ce préfixe, à `/statut/<adresse>` | Aucune, par conception |
-| `/mcp` | Un agent IA | Un Bearer OAuth ou un jeton d'API |
-| `/oauth/token` | Un agent IA | Le secret du client |
-| `/.well-known/…` | Un agent IA | Aucune : des métadonnées |
 
 Routez le **préfixe** `/statut` entier vers openCloud, pas une page : chaque
 page de statut a son adresse dessous (`/statut/client-a`, `/statut/docs`…),
@@ -411,10 +408,10 @@ porte les deux.
 
 **Premier démarrage : ouvrez l'adresse, créez le compte.** Une installation
 neuve n'a pas de compte, et ne sert rien d'autre que l'écran de première
-configuration : l'interface, l'API, le direct, les journaux et
-`/oauth/authorize` répondent `401` (`auth.setup_required`) tant que le compte
-n'existe pas. La page de statut, les pings, les agents et MCP gardent leur
-propre accès. Deux modes : identifiant et mot de passe (HTTP Basic,
+configuration : l'interface, l'API, le direct et les journaux
+répondent `401` (`auth.setup_required`) tant que le compte n'existe pas. La
+page de statut, les pings et les agents gardent leur propre accès ; un jeton
+d'API lit l'API sans identifiants (voir [Brancher un agent IA](#brancher-un-agent-ia)). Deux modes : identifiant et mot de passe (HTTP Basic,
 ci-dessous), ou [un mandataire qui authentifie](#derrière-un-mandataire-qui-authentifie)
 (Authelia). Le compte créé, le navigateur est connecté et l'interface s'ouvre.
 
@@ -440,11 +437,11 @@ curl -X POST -H 'Content-Type: application/json' \
 | Identifiant | 1 à 64 caractères, sans `:` |
 | Mot de passe | 12 caractères au moins, 72 octets au plus ; haché en bcrypt |
 | Échecs | 10 d'un coup, puis un toutes les 6 s par adresse (en IPv6, par /64), `429` au-delà. La vérification lente fait la queue derrière neuf autres au plus : file pleine, `429` aussitôt |
-| Effet | Immédiat, sans redémarrage. Créer le compte révoque tous les jetons MCP (jetons d'API et sessions OAuth) : il n'y en a qu'après un `auth disable`, recréez ceux qui servent |
+| Effet | Immédiat, sans redémarrage. Créer le compte révoque tous les jetons d'API : il n'y en a qu'après un `auth disable`, recréez ceux qui servent |
 
 Ce qui reste ouvert : la liste du [tableau ci-dessus](#une-authentification-basic-au-niveau-de-traefik).
-Le reste — l'interface, `/api/…`, le direct, les journaux,
-`/oauth/authorize` — demande les identifiants. Une fois activée, l'API se
+Le reste — l'interface, `/api/…`, le direct, les journaux — demande les
+identifiants, ou un jeton d'API pour les lectures qu'il ouvre. Une fois activée, l'API se
 lit avec `curl -u admin:… https://…/api/machines`.
 
 **Pas de déconnexion** : avec Basic, le navigateur garde les identifiants
@@ -545,7 +542,7 @@ par Paramètres → Accès à l'interface → Désactiver (ou `opencloud auth
 disable`). Le corps de l'API est
 `{"mode":"forward","header":"Remote-User"}` sur
 `POST /api/auth/actions/enable`. Comme en Basic, activer révoque tous les
-jetons MCP.
+jetons d'API.
 
 **Installation déjà en `forward` sans secret** : openCloud ne coupe pas
 l'accès, mais écrit un `WARN` à chaque démarrage et la page Paramètres →
@@ -622,34 +619,171 @@ autres secrets saisis dans l'interface (voir
 [Sauvegarder et restaurer](#sauvegarder-et-restaurer)) : `opencloud.db` est
 sous `state_dir`, en `0700` ; l'interface et l'API ne le réaffichent jamais.
 
-## Brancher un agent IA (MCP)
+## Brancher un agent IA
 
-**Paramètres → Agent IA (MCP) → Activer.** L'agent lit openCloud (machines,
-services, tâches, sondes, alertes, page de statut, journaux de conteneurs) ;
-il n'écrit rien pendant la refonte et n'agit jamais sur une machine. Trois
-façons de le brancher, selon le client :
+openCloud ne parle pas MCP lui-même. **mcp-maison**, un serveur MCP à part,
+tourne sur la machine openCloud dans Docker, lit l'API avec un **jeton d'API
+en lecture**, et sert ses outils à Claude (claude.ai, Claude Code) ou à tout
+client MCP. Chaque personne s'y connecte par l'IdP OIDC de l'opérateur
+(Authelia, Authentik, Keycloak, GitLab). openCloud marche sans lui.
 
-| Client | Comment | Ce qu'il lui faut |
+| Il faut | Pourquoi |
+| --- | --- |
+| Docker Compose 2.24 ou plus sur la machine openCloud | mcp-maison est une image épinglée |
+| Un IdP OIDC | La seule identité que mcp-maison accepte en production |
+| Un nom, `mcp.example.org`, routé par Traefik vers mcp-maison | claude.ai le joint en HTTPS |
+| Le port 3000 libre sur l'hôte de `listen` | mcp-maison écoute à côté d'openCloud |
+
+**1. Le jeton.** Paramètres → **Jetons d'API** → nom « mcp-maison », échéance →
+**Créer**. Trois lignes s'affichent une fois : `MCP_HOST`, `OPENCLOUD_URL`
+(tirés de `listen` : mcp-maison joint openCloud en direct, jamais par Traefik
+ni le SSO, qui arrêterait le jeton) et `OPENCLOUD_TOKEN`.
+
+**2. L'application chez l'IdP.** Retour `https://mcp.example.org/oauth/callback`,
+client confidentiel, scopes `openid profile email`. Avec Authelia
+(`identity_providers.oidc.clients`) :
+
+```yaml
+- client_id: 'mcp-maison'
+  client_name: 'mcp-maison'
+  client_secret: '<empreinte : authelia crypto hash generate pbkdf2>'
+  public: false
+  authorization_policy: 'two_factor'
+  consent_mode: 'explicit'
+  redirect_uris: ['https://mcp.example.org/oauth/callback']
+  scopes: ['openid', 'profile', 'email']
+  token_endpoint_auth_method: 'client_secret_post'
+```
+
+`client_secret_post` : mcp-maison envoie le secret dans le corps.
+
+**3. Les fichiers**, en root :
+
+```sh
+install -d -m 0750 /srv/workspace/mcp-maison
+cd /srv/workspace/mcp-maison
+install -m 0644 <dépôt>/docs/installation/compose.mcp-maison.yml compose.yml
+install -d -o 1000 -g 1000 -m 0750 data/mcp
+install -m 0600 /dev/null .env && "${EDITOR:-nano}" .env
+install -o 1000 -g 1000 -m 0640 /dev/null data/mcp/permissions.yaml
+"${EDITOR:-nano}" data/mcp/permissions.yaml
+```
+
+Le `.env` :
+
+```sh
+# Les trois lignes d'openCloud (Paramètres → Jetons d'API), montrées une fois
+MCP_HOST=127.0.0.1
+OPENCLOUD_URL=http://127.0.0.1:8080
+OPENCLOUD_TOKEN=
+# mcp-maison derrière Traefik, sous son propre nom
+MCP_PUBLIC_URL=https://mcp.example.org
+ALLOWED_HOSTS=mcp.example.org
+TRUST_PROXY=1
+# L'application déclarée chez l'IdP, retour ${MCP_PUBLIC_URL}/oauth/callback
+OIDC_ISSUER=https://auth.example.org
+OIDC_CLIENT_ID=mcp-maison
+OIDC_CLIENT_SECRET=
+```
+
+Les droits, `data/mcp/permissions.yaml` (sans ce fichier : `ping` et `whoami`
+seulement) :
+
+```yaml
+# Droits de mcp-maison (docs/droits.md de mcp-maison).
+everyone: [core:ping, core:whoami]
+users:
+  # L'identifiant chez l'IdP (whoami le montre). Authelia ne laisse pas une
+  # personne changer le sien ; ailleurs, préférez groups.
+  admin: [opencloud:read, core:audit]
+```
+
+**L'image est épinglée.** `compose.mcp-maison.yml` nomme une version de
+mcp-maison, `ghcr.io/ldesfontaine/mcp-maison:v0.1.0`, et une ligne de
+commentaire demande d'y ajouter son empreinte (`@sha256:…`) dès que la
+version est publiée : `docker buildx imagetools inspect
+ghcr.io/ldesfontaine/mcp-maison:v0.1.0` la donne. Une version se change en
+changeant cette ligne, rien d'autre.
+
+**Tant qu'aucune version n'est publiée** (mcp-maison#3 : aucun tag au
+22 octobre 2026), `docker compose up` ne trouve pas l'image ; le paquet doit
+aussi être public pour un `docker pull` sans identifiants (mcp-maison#4).
+Construisez-la depuis le commit vérifié avec cette version d'openCloud, puis
+faites pointer la ligne `image:` dessus. Le dépôt de mcp-maison est privé
+aujourd'hui : le clone demande un accès (`gh auth login`, ou un jeton) :
+
+```sh
+git clone https://github.com/ldesfontaine/mcp-maison.git /srv/workspace/mcp-maison/src
+git -C /srv/workspace/mcp-maison/src checkout 3f24e6a
+docker build -t mcp-maison:3f24e6a /srv/workspace/mcp-maison/src
+sed -i 's|^\( *image:\).*|\1 mcp-maison:3f24e6a|' compose.yml
+```
+
+**4. Lancer, vérifier.**
+
+```sh
+docker compose up -d && docker compose ps     # mcp : healthy
+curl -s http://127.0.0.1:3000/health           # des outils opencloud_*, skippedGroups vide
+```
+
+Dans `/etc/opencloud/config.toml` : `mcp_url = "http://127.0.0.1:3000"` (l'hôte
+de `MCP_HOST`), puis `systemctl restart opencloud`. Paramètres → **Agent IA** →
+**Vérifier** : « Joignable », la version, le nombre d'outils. Sous **Jetons
+d'API**, le jeton montre son dernier usage.
+
+**5. Traefik → mcp-maison**, comme openCloud, par le provider `file`, **sans
+middleware SSO** : Claude doit atteindre `/mcp`, `/.well-known/…`,
+`/register`, `/authorize`, `/token`, `/revoke`, `/oauth/callback`.
+
+| `listen` d'openCloud | `MCP_HOST` | URL du service Traefik |
 | --- | --- | --- |
-| Un client en ligne de commande ou un script (Claude Code distant, Codex, Cursor, Hermes, `mcp-remote`, l'inspecteur MCP) | Un **jeton d'API** en `Authorization: Bearer` | L'adresse `https://…/mcp` et un jeton créé sous **Jetons d'API** (montré une fois, échéance 30, 90 ou 365 jours, ou sans) |
-| Un connecteur web (claude.ai et les applications qui l'exigent) | **OAuth**, avec votre consentement | L'adresse `https://…/mcp`, l'identifiant `opencloud` et le **secret du client** ; l'adresse de retour du connecteur déclarée sous **Adresses de retour** (pour Claude : `https://claude.ai/api/mcp/auth_callback`) |
-| Un client sur la machine openCloud (Claude Code, Claude Desktop) | `opencloud mcp` sur stdin/stdout, sans réseau | La commande affichée sous **Client local**, lancée sous le compte du service |
+| `127.0.0.1:8080` (Traefik en mode host) | `127.0.0.1` | `http://127.0.0.1:3000` |
+| `172.17.0.1:8080` (Traefik en conteneur) | `172.17.0.1` | `http://host.docker.internal:3000` |
+| L'IP privée de la machine (Traefik sur une autre machine) | cette IP | `http://<cette IP>:3000` |
 
-Avec OAuth, le connecteur ouvre votre navigateur sur openCloud. Après vos
-identifiants, une **page de consentement** montre le client, l'adresse de
-retour exacte, ce que l'autorisation donne et sa durée (un accès d'une heure,
-renouvelé seul jusqu'à trente jours sans usage) ; **Autoriser** renvoie le
-connecteur avec son code, **Refuser** avec `access_denied`. N'autorisez que
-la connexion que vous venez de lancer, et refusez si l'adresse de retour ne
-vous dit rien. La demande vaut dix minutes ; un redémarrage d'openCloud
-l'oublie, il suffit de relancer la connexion depuis le client. L'accès est
-en lecture : un client qui demande l'écriture reçoit la lecture tant
-qu'elle est désactivée.
+**Aujourd'hui, seule la première ligne marche.** mcp-maison n'accepte
+`OPENCLOUD_URL` en `http://` que sur la boucle locale (`localhost`,
+`127.0.0.1`, `[::1]`) ; une autre adresse en `http://` lui fait ignorer son
+groupe `opencloud` (`groupe "opencloud" non chargé : … https:// attendu` à son
+journal, « Sans ses outils openCloud » sous Paramètres → Agent IA). Les deux
+autres lignes attendent mcp-maison#4 (`http://` sur une adresse privée).
+D'ici là, mettez openCloud sur la boucle locale (`listen = "127.0.0.1:8080"`)
+et Traefik en mode host, ou attendez.
 
-Les sessions OAuth se lisent et se coupent sous **Sessions OAuth** (portée,
-date d'autorisation, dernier usage) ; les jetons d'API se révoquent sous
-**Jetons d'API**. Le consentement, le refus et chaque révocation s'inscrivent
-au journal (**Administration → Journal**).
+Le routeur, dans la configuration dynamique de Traefik (comme
+[`traefik-opencloud.yml`](installation/traefik-opencloud.yml), sans
+`middlewares` ni `buffering` : `/mcp` est un flux) :
+
+```yaml
+http:
+  routers:
+    mcp-maison:
+      rule: "Host(`mcp.example.org`)"
+      entryPoints: ["websecure"]
+      service: mcp-maison
+      tls:
+        certResolver: letsencrypt
+  services:
+    mcp-maison:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3000"   # la colonne de droite ci-dessus
+```
+
+**6. Claude.** claude.ai : Paramètres → Connecteurs → ajouter un connecteur
+personnalisé, `https://mcp.example.org/mcp`, sans identifiant ni secret.
+Claude Code : `claude mcp add --transport http opencloud https://mcp.example.org/mcp`,
+puis `/mcp` pour se connecter.
+
+**Ce que l'agent lit.** Machines, services, tâches, sondes, alertes, pages de
+statut, journal d'audit, et les **journaux bruts des conteneurs**, qui partent
+chez le fournisseur du modèle et peuvent contenir des secrets. Un jeton d'API
+ne fait que lire : 25 lectures de l'API, rien d'autre (`403
+api_token.route_forbidden`), les secrets d'openCloud masqués (URL de ping,
+jetons d'enrôlement, chemin d'un webhook, mot de passe d'une cible de sonde).
+Il n'écrit rien et n'agit sur aucune machine. Le détail, les refus et le
+journal d'audit :
+[22-fonctionnement.md](projet/22-fonctionnement.md#comment-un-agent-ia-lit-opencloud).
 
 ## Ajouter une machine
 
@@ -993,6 +1127,10 @@ page Machines affiche la version de chaque agent ; tant qu'elle reste
 `v0.0.1`, elle ne distingue pas deux builds. `opencloud version` sur la
 machine donne le commit.
 
+**mcp-maison** se met à jour à part : remplacez la ligne `image:` de son
+`compose.yml` par celle du `compose.mcp-maison.yml` de la nouvelle version
+d'openCloud, puis `docker compose pull && docker compose up -d`.
+
 ## Sauvegarder et restaurer
 
 **La sauvegarde intégrée.** Administration → **Sauvegardes** envoie chaque
@@ -1030,16 +1168,17 @@ déploiement.
 
 | Où | Quoi | Perte |
 | --- | --- | --- |
-| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), MCP et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Alertes › Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
+| Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Alertes › Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
 | Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping (voir [Clé perdue](#clé-perdue)) |
 | Serveur, `state_dir` | `server.key` | La clé qui signe les ordres aux agents, tirée au premier démarrage : chaque agent a épinglé sa moitié publique. Sans elle, `serve` en tire une neuve et **chaque agent refuse les ordres** (`bad_signature`) jusqu'à son ré-enrôlement ; l'observation continue. Qui l'a commande toutes les machines : même soin que `secret.key` |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud/agent/identity.json` | Sa clé : il faudra ré-enrôler |
+| La machine openCloud, si mcp-maison y est | `/srv/workspace/mcp-maison/` : `.env`, `data/mcp/` | Le `.env` (jeton d'API, secret de l'application chez l'IdP), les droits, la base OAuth et le journal de mcp-maison : on les refait, mais chaque personne se reconnecte |
 
 **La base chiffre ses secrets** : les jetons de ping, l'URL et le secret des
 canaux d'alerte (un webhook Discord, Slack ou ntfy porte son jeton dans
 l'URL) et le mot de passe du relais d'e-mails sont chiffrés (AES-256-GCM) avec
-la clé de `secret.key`. Les jetons d'enrôlement, les jetons MCP et le mot de
+la clé de `secret.key`. Les jetons d'enrôlement, les jetons d'API et le mot de
 passe de l'interface y sont hachés. Une copie de `opencloud.db` seule ne livre
 donc plus ces secrets.
 
@@ -1391,6 +1530,10 @@ userdel opencloud
 # et le fichier openCloud de la configuration dynamique de Traefik
 ```
 
+**mcp-maison**, s'il est installé : `cd /srv/workspace/mcp-maison && docker compose down`,
+puis `rm -r /srv/workspace/mcp-maison`. Les jetons d'API s'en vont avec la base ;
+l'application déclarée chez l'IdP se retire chez lui.
+
 ## Dépannage
 
 Les messages sont ceux que le binaire écrit, tels quels.
@@ -1416,9 +1559,13 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Agent : « Enrôlement refusé : cette machine est la machine openCloud, et elle a déjà un agent actif. » | Une ligne d'Ajouter une machine jouée sur la machine openCloud, qui a déjà son agent | Ré-enrôler la machine openCloud depuis sa fiche ; le jeton sert à une autre machine |
 | `serve: listen tcp 172.17.0.1:8080: bind: cannot assign requested address` | `docker0` pas encore là au démarrage | L'unité redémarre seule ; vérifier `After=docker.service` |
 | `serve: listen tcp …: bind: address already in use` | Un autre processus tient le port | `ss -ltnp` ; changer `listen` |
-| Le serveur ou `opencloud mcp` refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |
+| Le serveur refuse de démarrer : « opencloud.db contient des secrets chiffrés mais secret.key est absent de state_dir… » | La clé n'a pas été restaurée avec la base | La poser (voir Restaurer) ; perdue : voir [Clé perdue](#clé-perdue) |
 | « secret.key est lisible par d'autres comptes » | Le fichier a un mode plus large que `0600` | `chmod 600 /var/lib/opencloud/secret.key`, propriétaire le compte du service |
-| `opencloud mcp` : « secret.key absent : démarrez serve une fois, ou restaurez la clé » | `mcp` ne crée jamais la clé | Démarrer le serveur une fois, ou restaurer la clé |
+| Paramètres → Agent IA : « Sans ses outils openCloud » ; `groupe "opencloud" non chargé` au journal de mcp-maison | `OPENCLOUD_URL` ou `OPENCLOUD_TOKEN` du `.env` de mcp-maison manque ou est refusé | Recopier les lignes de Paramètres → Jetons d'API (un jeton neuf au besoin), puis `docker compose up -d` |
+| mcp-maison : `401 api_token.invalid` | Le jeton est révoqué, échu, ou recréé à la création du compte | Un jeton neuf sous Paramètres → Jetons d'API, dans le `.env` |
+| mcp-maison : `403 bad_host` | `OPENCLOUD_URL` vise un nom que `public_url` ne reconnaît pas | Mettre l'adresse IP de `listen` dans `OPENCLOUD_URL` |
+| mcp-maison : `groupe "opencloud" non chargé : OPENCLOUD_URL: https:// attendu (http:// seulement en boucle locale)` | `OPENCLOUD_URL` en `http://` sur une adresse qui n'est pas la boucle locale (`172.17.0.1`, une IP privée) | `listen` sur `127.0.0.1` et `OPENCLOUD_URL=http://127.0.0.1:<port>`, ou attendre mcp-maison#4 |
+| Mode `forward` : toute l'interface répond `401 {"error":"api_token.invalid"}` | Le mandataire transmet un `Authorization: Bearer` à openCloud (oauth2-proxy avec `--pass-authorization-header` ou `--set-authorization-header`) : un Bearer est jugé comme un jeton d'API, avant l'en-tête d'identité | Ne pas transmettre `Authorization` à openCloud ; seul l'en-tête d'identité compte |
 | Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs ; ou file de vérification pleine (des tentatives anonymes en cours) | Attendre `Retry-After` et réessayer ; mot de passe perdu : `opencloud auth disable` |
 | `sudo: command not found` | Debian minimal, installé sans `sudo` | En root, retirer `sudo` ; sous le compte du service, `runuser -u opencloud -- …` |
 | Tous les utilisateurs bloqués ensemble en `429` | `trusted_proxies` absent : tout le monde a l'adresse de Traefik | Déclarer Traefik dans `trusted_proxies` |

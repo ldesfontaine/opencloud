@@ -229,8 +229,8 @@ func TestRecord_RefusesAReportOutsideTheProtocol(t *testing.T) {
 	}
 }
 
-// Sans clé, rien ne part : la commande mcp, qui ne la charge pas, n'envoie
-// aucun ordre.
+// Sans clé, rien ne part : une commande hors ligne, qui ne la charge pas,
+// n'envoie aucun ordre.
 func TestPing_WithoutAKeySendsNothing(t *testing.T) {
 	b := newBench(t)
 	b.service.SetKey(nil)

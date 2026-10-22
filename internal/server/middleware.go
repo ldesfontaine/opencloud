@@ -129,9 +129,8 @@ func (s *Server) logRequest(next http.Handler) http.Handler {
 }
 
 // loggedPath tait ce qui est un secret dans l'adresse : le jeton d'un
-// ping, qui suffit à faire passer une tâche pour faite, et la requête de
-// l'autorisation OAuth, qui porte state et le défi PKCE. Le reste du
-// chemin garde ce qu'il faut pour suivre une requête.
+// ping, qui suffit à faire passer une tâche pour faite. Le reste du chemin
+// garde ce qu'il faut pour suivre une requête.
 func loggedPath(r *http.Request) string {
 	path := r.URL.Path
 	if rest, ok := strings.CutPrefix(path, pingPrefix); ok {
@@ -140,9 +139,6 @@ func loggedPath(r *http.Request) string {
 			return pingPrefix + redacted + "/" + after
 		}
 		return pingPrefix + redacted
-	}
-	if path == mcpAuthorizePath && r.URL.RawQuery != "" {
-		return path + "?" + redacted
 	}
 	return path
 }

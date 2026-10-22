@@ -24,16 +24,11 @@ type authResponse struct {
 	PasswordMinLength int `json:"password_min_length"`
 }
 
-// Activer l'authentification révoque tous les jetons MCP : la réponse dit
+// Activer l'authentification révoque tous les jetons d'API : la réponse dit
 // combien sont tombés, l'interface le montre.
 type authEnableResponse struct {
 	authResponse
-	MCPRevoked mcpRevokedJSON `json:"mcp_revoked"`
-}
-
-type mcpRevokedJSON struct {
-	APITokens int `json:"api_tokens"`
-	Sessions  int `json:"sessions"`
+	APITokensRevoked int `json:"api_tokens_revoked"`
 }
 
 // Mode vide vaut basic : le corps d'avant, {username,password}, reste bon.
@@ -92,17 +87,17 @@ func (s *Server) enableAuth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Un jeton MCP tiré sous un accès d'avant (laissé par la commande de
+	// Un jeton d'API tiré sous un accès d'avant (laissé par la commande de
 	// secours) ne survit pas à l'activation. Après elle, et non avant, pour
-	// qu'un rafraîchissement OAuth glissé entre les deux tombe aussi.
-	revoked, err := s.mcp.RevokeAll(r.Context())
+	// qu'un jeton créé entre les deux tombe aussi.
+	revoked, err := s.apiTokens.RevokeAll(r.Context())
 	if err != nil {
 		s.apiInternalError(w, r, err)
 		return
 	}
 	s.writeAPI(w, http.StatusOK, authEnableResponse{
-		authResponse: authToJSON(state, identity),
-		MCPRevoked:   mcpRevokedJSON{APITokens: revoked.APITokens, Sessions: revoked.Sessions},
+		authResponse:     authToJSON(state, identity),
+		APITokensRevoked: revoked,
 	})
 }
 

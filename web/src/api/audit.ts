@@ -4,7 +4,8 @@ import { useResource, type Resource } from "../hooks/useResource";
 // seule, sans sujet du direct : la page relit à la demande. L'acteur, le
 // verbe et la sorte d'objet se traduisent sous audit.*.
 
-type AuditActorKind = "operator" | "mcp" | "cli" | "rule" | "agent" | "unknown";
+// « mcp » : les lignes d'avant le 21 octobre 2026, lues et jamais écrites.
+type AuditActorKind = "operator" | "api" | "cli" | "rule" | "agent" | "unknown" | "mcp";
 
 export interface AuditEvent {
   id: number;

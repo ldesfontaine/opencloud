@@ -11,7 +11,7 @@ import (
 var _ audit.Forwarder = (*Engine)(nil)
 
 // ForwardAuditEvent envoie l'événement aux canaux dont la livraison a été
-// réservée avec lui ; sans notifieur (la commande mcp), elles attendent le
+// réservée avec lui ; sans notifieur (une commande hors ligne), elles attendent le
 // prochain démarrage. Il ne prend ni e.mu ni creatingChannel : les gestes du
 // moteur journalisent en les tenant, et Enqueue ne bloque jamais. auditMu,
 // lui, ne couvre que des lectures du store.
@@ -53,7 +53,7 @@ func (e *Engine) claimAudit(id int64) {
 
 // requeueAudit rejoue au démarrage les livraisons du journal restées en
 // attente : celles qu'une coupure a laissées, et celles qu'une commande sans
-// notifieur (mcp, secrets rotate) a réservées. Celles que ForwardAuditEvent
+// notifieur (secrets rotate) a réservées. Celles que ForwardAuditEvent
 // a déjà confiées depuis le démarrage sont sautées ; les siennes restent
 // notées, pour qu'il les saute à son tour.
 func (e *Engine) requeueAudit(ctx context.Context) error {

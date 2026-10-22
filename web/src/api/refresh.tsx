@@ -107,7 +107,7 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/jobs")) {
     return ["jobs"];
   }
-  // Un chemin inconnu (l'accès, les réglages, le MCP) n'a pas de sujet.
+  // Un chemin inconnu (l'accès, les réglages, les jetons d'API) n'a pas de sujet.
   return [];
 }
 

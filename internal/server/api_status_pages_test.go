@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
 // Une page se crée, se lit, se modifie et se supprime par l'API ; sa
@@ -100,34 +99,5 @@ func TestStatusPagesAPI_Refuses(t *testing.T) {
 	recorder = callAPI(server.Server, http.MethodPost, "/api/status/components", map[string]any{"name": "Site", "members": []any{}})
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "component.page_invalid" {
 		t.Fatalf("component without a page: %d %s", recorder.Code, recorder.Body.String())
-	}
-}
-
-// L'outil MCP prend la seule page sans qu'on la nomme ; à deux pages, il
-// demande laquelle, et un slug inconnu est not_found.
-func TestMCP_GetStatusPageNeedsThePageWhenThereAreSeveral(t *testing.T) {
-	server := newTestServer(t)
-	session := connectMCP(t, server.mcpServer)
-	if text, isError := callTool(t, session, "get_status_page", nil); !isError || text != `{"error":"`+codeStatusPageRequired+`"}` {
-		t.Fatalf("no page: %v %s", isError, text)
-	}
-	ctx := context.Background()
-	if _, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "a"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, isError := callTool(t, session, "get_status_page", nil); isError {
-		t.Fatal("the only page must be taken")
-	}
-	if _, err := server.status.CreatePage(ctx, status.PageDefinition{Slug: "b"}); err != nil {
-		t.Fatal(err)
-	}
-	if text, isError := callTool(t, session, "get_status_page", nil); !isError || text != `{"error":"`+codeStatusPageRequired+`"}` {
-		t.Fatalf("two pages: %v %s", isError, text)
-	}
-	if _, isError := callTool(t, session, "get_status_page", map[string]any{"page": "b"}); isError {
-		t.Fatal("a named page must answer")
-	}
-	if text, isError := callTool(t, session, "list_incidents", map[string]any{"page": "nope"}); !isError || text != `{"error":"`+codeNotFound+`"}` {
-		t.Fatalf("unknown page: %v %s", isError, text)
 	}
 }

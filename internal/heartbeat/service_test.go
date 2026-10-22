@@ -170,8 +170,8 @@ func TestCreate_RejectsBadDefinitions(t *testing.T) {
 	}
 }
 
-// Le contrôle vit dans le composant : le fichier et les outils MCP qui
-// créent une tâche sans passer par l'API sont tenus de même.
+// Le contrôle vit dans le composant : le fichier, qui crée une tâche sans
+// passer par l'API, est tenu de même.
 func TestCreate_UnknownMachineRefused(t *testing.T) {
 	f := newFixture(t)
 	definition := heartbeat.Definition{Name: "job", MachineID: "inconnue", Interval: time.Hour}

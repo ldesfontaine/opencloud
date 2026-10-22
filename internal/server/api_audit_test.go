@@ -13,13 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/auth"
-	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/ldesfontaine/opencloud/internal/alert"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 )
 
 // callAsOperator joue une requête JSON comme le front, sous les
@@ -131,19 +127,15 @@ func TestAudit_OperatorGesturesAreJournaledUnderTheirIdentityWithoutSecrets(t *t
 		Host: "smtp.exemple.fr", Port: 587, TLS: "starttls", Username: "ops", Password: mailPassword, From: "ops@exemple.fr",
 	}), http.StatusOK)
 
-	enabled := callAsOperator(server.Server, http.MethodPost, "/api/mcp/actions/enable", testPassword, emptyRequest{})
-	expect(enabled, http.StatusCreated)
-	var clientSecret mcpSecretResponse
-	decodeAPI(t, enabled, &clientSecret)
-	token := callAsOperator(server.Server, http.MethodPost, "/api/mcp/tokens", testPassword, mcpTokenRequest{Name: "inspecteur"})
+	token := callAsOperator(server.Server, http.MethodPost, "/api/settings/api-tokens", testPassword, apiTokenRequest{Name: "inspecteur"})
 	expect(token, http.StatusCreated)
-	var apiToken mcpTokenResponse
+	var apiToken apiTokenCreated
 	decodeAPI(t, token, &apiToken)
 	enrollment := callAsOperator(server.Server, http.MethodPost, "/api/machines/tokens", testPassword, tokenRequest{Name: "vps-lyon-2"})
 	expect(enrollment, http.StatusCreated)
 	var enrollmentToken tokenResponse
 	decodeAPI(t, enrollment, &enrollmentToken)
-	secrets = append(secrets, clientSecret.Secret, apiToken.Token, enrollmentToken.Token)
+	secrets = append(secrets, apiToken.Token, enrollmentToken.Token)
 
 	expect(callAsOperator(server.Server, http.MethodPut, "/api/auth/password", testPassword, authPasswordRequest{Password: newPassword}), http.StatusOK)
 
@@ -169,7 +161,7 @@ func TestAudit_OperatorGesturesAreJournaledUnderTheirIdentityWithoutSecrets(t *t
 	}
 	want := []audit.Action{
 		audit.ChannelCreate, audit.ChannelUpdate, audit.HeartbeatCreate, audit.HeartbeatRegenerateToken,
-		audit.ProbeCreate, audit.ProjectCreate, audit.SettingsUpdate, audit.MCPEnable, audit.MCPTokenCreate,
+		audit.ProbeCreate, audit.ProjectCreate, audit.SettingsUpdate, audit.APITokenCreate,
 		audit.EnrollmentTokenCreate, audit.AuthChangePassword,
 	}
 	if !slices.Equal(actions, want) {
@@ -225,6 +217,17 @@ func TestAudit_PagesFiltersAndRefusesABadQuery(t *testing.T) {
 	}
 }
 
+// L'histoire d'un ancien jeton du MCP reste suivable : ses sortes d'objet
+// sont refusées nulle part, même si plus rien ne les écrit.
+func TestAudit_LegacyObjectKindsCanStillBeFollowed(t *testing.T) {
+	server := newTestServer(t)
+	for _, kind := range audit.LegacyObjectKinds() {
+		if got := callAPI(server.Server, http.MethodGet, "/api/audit?object_kind="+string(kind), nil); got.Code != http.StatusOK {
+			t.Errorf("%s: %d %s", kind, got.Code, got.Body.String())
+		}
+	}
+}
+
 // Un geste appelé sans acteur dans son contexte n'est pas tu : il est écrit
 // sous « unknown », et c'est ce que le journal montre.
 func TestAudit_GestureWithoutActorIsJournaledAsUnknown(t *testing.T) {
@@ -236,50 +239,6 @@ func TestAudit_GestureWithoutActorIsJournaledAsUnknown(t *testing.T) {
 	events := server.auditSince(t, mark)
 	if len(events) != 1 || events[0].Actor.Kind != audit.ActorUnknown {
 		t.Fatalf("events: %+v", events)
-	}
-}
-
-// Une écriture MCP est journalisée sous le jeton qui l'a faite.
-func TestAudit_MCPWriteIsJournaledUnderItsToken(t *testing.T) {
-	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
-	probeID := server.seedProbes(t, server.seedGaps(t))
-	mark := server.latestAuditID(t)
-	tools := server.newMCPServer(false)
-	tools.AddReceivingMiddleware(func(next gomcp.MethodHandler) gomcp.MethodHandler {
-		return func(ctx context.Context, method string, request gomcp.Request) (gomcp.Result, error) {
-			if call, ok := request.(*gomcp.CallToolRequest); ok {
-				call.Extra = &gomcp.RequestExtra{TokenInfo: &auth.TokenInfo{
-					Scopes: []string{string(mcp.ScopeWrite)},
-					Extra:  map[string]any{"token_id": "tok0000000000001", "kind": string(mcp.KindAPI)},
-				}}
-			}
-			return next(ctx, method, request)
-		}
-	})
-	session := connectMCP(t, tools)
-	if text, isError := callTool(t, session, "pause_probe", map[string]any{"probe_id": probeID}); isError {
-		t.Fatalf("pause_probe: %s", text)
-	}
-	events := server.auditSince(t, mark)
-	if len(events) != 1 || events[0].Action != audit.ProbePause || events[0].Actor != audit.MCP("tok0000000000001") {
-		t.Fatalf("events: %+v", events)
-	}
-}
-
-// Une autorisation OAuth est nommée par sa famille, pas par son jeton
-// d'accès, qui change toutes les heures.
-func TestMCPActorName_NamesTheTokenOrTheFamily(t *testing.T) {
-	api := &auth.TokenInfo{Extra: map[string]any{"token_id": "tok", "family_id": "", "kind": string(mcp.KindAPI)}}
-	oauth := &auth.TokenInfo{Extra: map[string]any{"token_id": "tok", "family_id": "fam", "kind": string(mcp.KindAccess)}}
-	if got := mcpActorName(api); got != "tok" {
-		t.Errorf("api token: %q", got)
-	}
-	if got := mcpActorName(oauth); got != "fam" {
-		t.Errorf("oauth: %q", got)
-	}
-	if got := mcpActorName(nil); got != "" {
-		t.Errorf("no token: %q", got)
 	}
 }
 
@@ -299,9 +258,9 @@ func TestAudit_UnverifiedBasicHeaderNamesNobody(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("enable: %d %s", recorder.Code, recorder.Body.String())
 	}
-	// L'activation révoque aussi les jetons MCP : deux gestes, le même acteur.
+	// L'activation révoque aussi les jetons d'API : deux gestes, le même acteur.
 	events := server.auditSince(t, mark)
-	if len(events) != 2 || events[0].Action != audit.AuthEnable || events[0].Details["username"] != "lucas" || events[1].Action != audit.MCPTokenRevoke {
+	if len(events) != 2 || events[0].Action != audit.AuthEnable || events[0].Details["username"] != "lucas" || events[1].Action != audit.APITokenRevoke {
 		t.Fatalf("events: %+v", events)
 	}
 	for _, event := range events {
@@ -373,4 +332,19 @@ func TestAudit_ForwardingRequiresTheOperator(t *testing.T) {
 	if got := callAs(server.Server, http.MethodGet, "/api/audit/forwarding", "", ""); got.Code != http.StatusUnauthorized {
 		t.Fatalf("without credentials: %d", got.Code)
 	}
+}
+
+// seedAudit pose les deux derniers événements du journal, à identifiants
+// fixes : la page rendue est figée sur eux.
+func (ts *testServer) seedAudit(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	ts.journal.Record(audit.WithActor(ctx, audit.Operator("lucas")), audit.Event{
+		Action: audit.ProbePause, ObjectID: "5ec0be5ec0be5ec0", ObjectName: "api interne",
+		Details: audit.Details{"kind": "http", "machine_id": remoteID},
+	})
+	ts.journal.Record(audit.WithActor(ctx, audit.API("tok0000000000001", "")), audit.Event{
+		Action: audit.MuteCreate, ObjectID: "1", ObjectName: "vps-paris-1",
+		Details: audit.Details{"target_kind": "machine", "reason": "maintenance"},
+	})
 }

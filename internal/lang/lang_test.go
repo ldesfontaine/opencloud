@@ -114,22 +114,22 @@ func diff(want, got []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// La carte MCP de Paramètres ne promet pas « jamais un secret » : les
-// journaux de conteneur sont bruts.
-func TestLoad_MCPCardAdmitsRawLogs(t *testing.T) {
+// La carte de l'agent IA, sous Paramètres, ne promet pas « jamais un secret » :
+// les journaux de conteneur sont bruts.
+func TestLoad_AIAgentCardAdmitsRawLogs(t *testing.T) {
 	catalogs, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for code, catalog := range catalogs {
-		for _, key := range []string{"mcp.intro", "mcp.tools", "mcp.never"} {
+		for _, key := range []string{"ai_agent.intro", "ai_agent.never"} {
 			text := strings.ToLower(catalog.Get(key))
 			if strings.Contains(text, "jamais un secret") || strings.Contains(text, "never a secret") {
 				t.Errorf("%s %s: promises no secret: %s", code, key, text)
 			}
 		}
-		if intro := catalog.Get("mcp.intro"); !strings.Contains(strings.ToLower(intro), map[Code]string{"fr": "journaux", "en": "logs"}[code]) {
-			t.Errorf("%s mcp.intro does not mention container logs: %s", code, intro)
+		if intro := catalog.Get("ai_agent.intro"); !strings.Contains(strings.ToLower(intro), map[Code]string{"fr": "journaux", "en": "logs"}[code]) {
+			t.Errorf("%s ai_agent.intro does not mention container logs: %s", code, intro)
 		}
 	}
 }

@@ -50,8 +50,6 @@ const (
 
 	// Le nom de la machine qui héberge le serveur, dans la base.
 	LocalMachineName = ID
-	// Le nom sous lequel un client IA enregistre le serveur MCP.
-	MCPServerKey = ID
 	// Préfixe des identifiants de transaction envoyés à Matrix.
 	MatrixTransactionPrefix = ID + "-"
 )
@@ -126,17 +124,9 @@ const (
 const (
 	TokenPrefix           = "oc"
 	EnrollmentTokenScheme = TokenPrefix + "_"  // #nosec G101 -- un préfixe, pas un secret.
-	MCPSecretScheme       = TokenPrefix + "s_" // #nosec G101
-	MCPCodeScheme         = TokenPrefix + "c_" // #nosec G101
-	MCPAccessScheme       = TokenPrefix + "a_" // #nosec G101
-	MCPRefreshScheme      = TokenPrefix + "r_" // #nosec G101
-	MCPAPIScheme          = TokenPrefix + "k_" // #nosec G101
+	APITokenScheme        = TokenPrefix + "k_" // #nosec G101 -- un préfixe, pas un secret.
 )
 
-const (
-	// Début de l'empreinte de l'identifiant d'une machine, pour reconnaître
-	// un agent installé sur la machine du serveur.
-	HostFingerprintPrefix = "opencloud-host:"
-	// Le seul client OAuth du serveur MCP.
-	OAuthClientID = "opencloud"
-)
+// Début de l'empreinte de l'identifiant d'une machine, pour reconnaître
+// un agent installé sur la machine du serveur.
+const HostFingerprintPrefix = "opencloud-host:"

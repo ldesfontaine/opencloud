@@ -42,10 +42,9 @@ const secretsUsage = `Usage : {command} secrets <sous-commande> [-config chemin]
 
 // openSecrets donne à la base la clé du serveur, puis vérifie qu'elle ouvre
 // chaque secret : une base qui ne s'ouvre pas avec elle est refusée dès le
-// démarrage, pas à la première alerte. serve peut créer la clé ; mcp ne la
-// crée jamais : il lit la base d'un serveur qui existe déjà.
-func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) error {
-	keyring, err := loadOrCreateKey(ctx, stateDir, db, logger, mayCreate)
+// démarrage, pas à la première alerte.
+func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) error {
+	keyring, err := loadOrCreateKey(ctx, stateDir, db, logger)
 	if err != nil {
 		return err
 	}
@@ -53,10 +52,10 @@ func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *s
 	return verifySecrets(ctx, db)
 }
 
-func loadOrCreateKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) (*seal.Keyring, error) {
+func loadOrCreateKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) (*seal.Keyring, error) {
 	keyring, err := loadKey(stateDir)
 	if errors.Is(err, seal.ErrNoKey) {
-		return createKey(ctx, stateDir, db, logger, mayCreate)
+		return createKey(ctx, stateDir, db, logger)
 	}
 	return keyring, err
 }
@@ -80,10 +79,7 @@ func loadKey(stateDir *os.Root) (*seal.Keyring, error) {
 
 // createKey ne crée la clé que sur une base qui n'a aucun chiffré : sinon la
 // neuve chiffrerait les écritures suivantes et la base mêlerait deux clés.
-func createKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) (*seal.Keyring, error) {
-	if !mayCreate {
-		return nil, &refusal{message: fmt.Sprintf("%s absent : démarrez serve une fois, ou restaurez la clé", brand.SecretKeyFile)}
-	}
+func createKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) (*seal.Keyring, error) {
 	hasSealed, err := db.HasSealedSecrets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check sealed secrets: %w", err)

@@ -18,8 +18,8 @@ import (
 const (
 	defaultTransitions = 50
 	maxTransitions     = 500
-	// Les lectures de journaux en cours, en tout : suivis des onglets,
-	// tirages uniques et outil MCP. Chaque suivi est une seconde connexion,
+	// Les lectures de journaux en cours, en tout : suivis des onglets
+	// et tirages uniques. Chaque suivi est une seconde connexion,
 	// hors du plafond du direct.
 	maxLogStreams = 16
 	// Le code que l'agent rend aussi (dockerwatch.LogsBusy) : un agent déjà
@@ -177,7 +177,7 @@ func (s *Server) writeContainers(w http.ResponseWriter, r *http.Request, machine
 
 // containerListOf assemble la liste des conteneurs d'une machine, ou de
 // toutes quand machineID est vide, avec l'état du Docker de chacune ; l'API
-// et l'outil MCP la rendent telle quelle, l'outil la pagine après.
+// la rend telle quelle.
 func (s *Server) containerListOf(ctx context.Context, machineID string) (containersResponse, error) {
 	containers, err := s.containers.List(ctx, machineID)
 	if err != nil {
@@ -223,8 +223,8 @@ func (s *Server) getContainer(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// containerResponseOf assemble la fiche d'un conteneur ; l'API et l'outil MCP
-// la rendent telle quelle.
+// containerResponseOf assemble la fiche d'un conteneur ; l'API la rend telle
+// quelle.
 func (s *Server) containerResponseOf(ctx context.Context, item container.Container) (containerResponse, error) {
 	names, err := s.machineNames(ctx)
 	if err != nil {

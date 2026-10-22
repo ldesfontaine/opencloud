@@ -13,7 +13,7 @@ cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
 internal/reader/             # l'interface Reader : les lectures de la base sans règle, partagées (types seulement)
 internal/agentwire/          # le protocole agent ↔ serveur entier : en-têtes, corps JSON, sections du signal, liste fermée de ce que le serveur pousse, enveloppe signée des ordres
-internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
+internal/server/             # la couche HTTP : montage, middlewares, API JSON, front servi
 internal/server/agentapi/    # les routes /agent/… : enrôlement, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron
 internal/server/public/      # la page de statut publique sous /statut : page, instantané, chaînes, direct
@@ -173,15 +173,15 @@ binaire par plateforme.
 
 | Couche | Paquets | Ce qu'elle fait | Jamais |
 | --- | --- | --- | --- |
-| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et `mcp` | Une règle métier |
-| HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
+| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et les commandes qui en ont besoin | Une règle métier |
+| HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
-| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration, les colis), `backup` (la sauvegarde de la base : la paire de clés, l'archive chiffrée, le plan ; il envoie par `action`, sans connaître le serveur ni le store) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `apitoken`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration, les colis), `backup` (la sauvegarde de la base : la paire de clés, l'archive chiffrée, le plan ; il envoie par `action`, sans connaître le serveur ni le store) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
 | Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
 | Protocole agent | `internal/agentwire` | Le protocole entier, figé par les agents installés : en-têtes, corps, sections du signal ; la liste fermée de ce que le serveur pousse (`Kind`, `Command` typée, plus d'`any` sur le fil) et l'enveloppe des ordres (`OrderBody`, `SignedOrder`) ; les octets que les deux côtés signent ou comparent (`OrderSigningBytes`, `KeyFingerprint`) ; sa version (`ProtocolVersion`, l'en-tête `OpenCloud-Agent-Protocol`) et ses bornes (`MaxEventBytes`, `MaxEventLineBytes`, `EventDataLine`). Un changement que les agents installés ne liraient pas passe la version : le serveur refuse l'autre (`426`), jamais en silence. La preuve de l'agent (`machine.SignedPayload`) reste dans `machine`, que `agentwire` importe Un domaine ne nomme jamais un événement : il déclare son commandeur typé (`container.Commander.RequestLogs`), le serveur l'encode | Une règle, un appel |
-| Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config`, `audit`, `release` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation; `audit` : l'acteur dans le contexte et le `Recorder` du journal d'audit, que tous les composants, `server`, `store` et `reader` importent : un outil, sinon un composant qui l'importe et qu'il nommerait ferait un cycle ; `release` : la signature minisign des versions et la vérification d'un fichier contre elle ; la clé publique embarquée | Importer un composant |
+| Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `mcpcheck`, `config`, `audit`, `release` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation; `audit` : l'acteur dans le contexte et le `Recorder` du journal d'audit, que tous les composants, `server`, `store` et `reader` importent : un outil, sinon un composant qui l'importe et qu'il nommerait ferait un cycle ; `release` : la signature minisign des versions et la vérification d'un fichier contre elle ; la clé publique embarquée | Importer un composant |
 | Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
 
 Qui peut importer qui :
@@ -210,7 +210,7 @@ deux (Go le refuse) : l'un déclare une interface et reçoit l'autre par un
 | Geste | Par où | Exemple |
 | --- | --- | --- |
 | Lire pour dériver : un état, un compte, un écart | La base, par le `reader.Reader` reçu au câblage ; une lecture propre à sa règle, que lui seul fait, reste dans son `Store` | `status` lit `ListProbes`, `ListContainers`, `LoadSettings` par son `reader` ; `probe.Store` a `DeclaredServiceExists`, `update.Store` a `ListContainers` |
-| Lire ce qu'un composant montre sans rien y ajouter | Le `Reader`, directement : le composant ne relaie pas | Le serveur et MCP lisent `ListProbes`, `GetHeartbeat`, `CountAlerts` par `s.reader` |
+| Lire ce qu'un composant montre sans rien y ajouter | Le `Reader`, directement : le composant ne relaie pas | Le serveur lit `ListProbes`, `GetHeartbeat`, `CountAlerts` par `s.reader` |
 | Lire ce qui porte une règle | Le composant | `machine.List` (en ligne ou non), `container.Tracker.List` (les vivants), `probe.Days` (la fenêtre), `alert.Engine.List` (la borne) |
 | Écrire | **Toujours le composant du domaine**, par une interface déclarée chez celui qui écrit | `status` écrit le titre de la page par `settings.SetStatusPage` ; `manifest` applique par les gestes de `directory`, `probe` et `heartbeat` |
 
@@ -243,12 +243,12 @@ nouveau suit le même ordre, de haut en bas du fichier :
   s'emploie plus. Le journal d'audit est un outil : il se reçoit tel quel,
   `SetAuditor(*audit.Recorder)`, sans interface déclarée, et un `*Recorder`
   nil ne fait rien. L'acteur ne passe pas en argument : il est dans le
-  contexte (`audit.WithActor`), posé par qui le connaît (`server`, MCP, la
+  contexte (`audit.WithActor`), posé par qui le connaît (`server`, la
   commande, `serve`, `agentapi`).
 - **L'existence se vérifie dans le composant**, avant toute écriture : la
   machine et le service d'une sonde, la machine d'une tâche quand elle en a
-  une. Sans cela la clé étrangère refuse en erreur brute, et MCP ou
-  `opencloud apply`, qui appellent le composant sans handler, passeraient
+  une. Sans cela la clé étrangère refuse en erreur brute, et
+  `opencloud apply`, qui appelle le composant sans handler, passerait
   sans contrôle. Ordre des refus, celui que l'API a toujours rendu : l'objet
   modifié (404), la machine, la définition, puis le service.
 - **Compter puis insérer** (un plafond) se tient sous un verrou du composant
@@ -305,7 +305,7 @@ Petit, nommé, à cette échelle.
 - **Toute règle métier refuse par `refusal.*`** : le domaine déclare sa clé
   avec l'erreur, `refusal.Invalid` ou `refusal.Conflict`
   (`internal/refusal`). Elle se traduit une seule fois : le serveur par
-  `s.failed`, MCP par `s.toolFailed`, le fichier de l'annuaire par
+  `s.failed`, le fichier de l'annuaire par
   `refusal.KeyOf`. Jamais d'`errors.Is` qui choisit une clé dans un handler.
 - `s.apiRefuse` n'est que pour ce que le handler juge lui-même : un
   paramètre de requête, un en-tête, une limite du serveur. Les quelques refus
@@ -407,8 +407,8 @@ pings (`/ping/`) ne changent pas.
   Aucune logique métier. Le serveur rend des **faits** (instants ISO en
   UTC, durées en secondes), jamais du texte formaté : « vu il y a 12 s » se
   calcule dans le navigateur.
-- **Une lecture, une forme** pour l'API et MCP : les assembleurs vivent dans
-  `server` et servent les deux (`probeListOf`, `containerListOf`,
+- **Une lecture, une forme** pour l'API : les assembleurs vivent dans
+  `server` et servent l'interface comme un jeton d'API (`probeListOf`, `containerListOf`,
   `probeResponseOf`, `containerResponseOf`, `gapsResponseOf`,
   `alertResponseOf`). Une liste se convertit par `httpx.ConvertAll(alerts,
   alertToJSON)`, jamais `null` ; `orEmpty` pour une liste déjà faite,
@@ -428,7 +428,7 @@ pings (`/ping/`) ne changent pas.
   `Sec-Fetch-Site` absent ne suffit pas à refuser. Refus : `403 bad_origin`.
   C'est ce qui remplace le jeton anti-CSRF des formulaires, et ce qui vaut
   tant qu'il n'y a pas d'authentification.
-- Toute requête sous `/api/` et sur `/oauth/authorize` exige un `Host`
+- Toute requête sous `/api/` exige un `Host`
   reconnu : l'hôte de `public_url`, `localhost`, une IP littérale (v4 ou v6,
   avec ou sans port), l'hôte de `listen` ; derrière un mandataire de
   `trusted_proxies`, `X-Forwarded-Host` est jugé de même. Refus :

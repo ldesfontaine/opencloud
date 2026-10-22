@@ -9,9 +9,14 @@ import (
 
 // withOperatorActor pose l'opérateur dans le contexte, une fois la requête
 // admise par requireOperator : chaque geste qu'elle appelle le journalise
-// sous son identité, sans que les signatures aient à la porter.
+// sous son identité, sans que les signatures aient à la porter. Une requête
+// admise par jeton d'API a déjà son acteur (admitAPIToken).
 func (s *Server) withOperatorActor(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if _, byToken := apiTokenFrom(r.Context()); byToken {
+			next(w, r)
+			return
+		}
 		next(w, r.WithContext(audit.WithActor(r.Context(), audit.Operator(operatorName(r)))))
 	}
 }

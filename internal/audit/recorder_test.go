@@ -107,6 +107,63 @@ func TestRecord_DropsAPassphraseDetail(t *testing.T) {
 	}
 }
 
+// « Pour qui » mcp-maison appelle va dans les détails de la ligne, posé après
+// le nettoyage : un geste qui y glisse sa propre valeur est écrasé, et sans
+// « pour qui » le détail n'existe pas.
+func TestRecord_OnBehalfOfLandsInDetailsAndCannotBeForged(t *testing.T) {
+	recorder, db, _ := newRecorder(t)
+	ctx := audit.WithActor(context.Background(), audit.API("tok1", "alice@example.org"))
+	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p1", Details: audit.Details{"on_behalf_of": "mallory", "kind": "http"}})
+	recorder.Record(ctx, audit.Event{Action: audit.ProbePause, ObjectID: "p2"})
+	recorder.Record(audit.WithActor(context.Background(), audit.API("tok1", "")), audit.Event{Action: audit.ProbePause, ObjectID: "p3", Details: audit.Details{"on_behalf_of": "mallory"}})
+	recorder.Record(audit.WithActor(context.Background(), audit.Operator("lucas")), audit.Event{Action: audit.ProbePause, ObjectID: "p4"})
+	byObject := map[string]audit.Event{}
+	for _, event := range listAll(t, db) {
+		byObject[event.ObjectID] = event
+	}
+	if got := byObject["p1"]; got.Details["on_behalf_of"] != "alice@example.org" || got.Details["kind"] != "http" || got.Actor.Kind != audit.ActorAPI || got.Actor.Name != "tok1" {
+		t.Fatalf("p1: %+v", got)
+	}
+	if got := byObject["p2"].Details["on_behalf_of"]; got != "alice@example.org" {
+		t.Fatalf("p2 on_behalf_of %q", got)
+	}
+	// Sans « pour qui » déclaré par l'acteur, une valeur glissée par le geste
+	// n'est pas écrite non plus : seul l'acteur la pose.
+	if _, found := byObject["p3"].Details["on_behalf_of"]; found {
+		t.Fatalf("p3 forged: %+v", byObject["p3"])
+	}
+	if _, found := byObject["p4"].Details["on_behalf_of"]; found {
+		t.Fatalf("p4: %+v", byObject["p4"])
+	}
+}
+
+// Les actions que le MCP interne écrivait ne sont plus écrites : elles sont
+// lues, et chacune nomme une sorte d'objet ancienne, traduite.
+func TestLegacyActions_NameALegacyKindAndAreNotWritten(t *testing.T) {
+	written := audit.Actions()
+	for _, action := range audit.LegacyActions() {
+		if slices.Contains(written, action) {
+			t.Errorf("%s is both written and legacy", action)
+		}
+		if !slices.Contains(audit.LegacyObjectKinds(), action.ObjectKind()) {
+			t.Errorf("%s: kind %q is not a legacy kind", action, action.ObjectKind())
+		}
+		if !slices.Contains(audit.Verbs(), action.Verb()) {
+			t.Errorf("%s: verb %q is not translatable", action, action.Verb())
+		}
+	}
+	for _, kind := range audit.LegacyObjectKinds() {
+		if slices.Contains(audit.ObjectKinds(), kind) {
+			t.Errorf("object kind %q is both written and legacy", kind)
+		}
+	}
+	for _, kind := range audit.LegacyActorKinds() {
+		if slices.Contains(audit.ActorKinds(), kind) {
+			t.Errorf("actor kind %q is both written and legacy", kind)
+		}
+	}
+}
+
 func TestRecord_NilRecorderDoesNothing(t *testing.T) {
 	var recorder *audit.Recorder
 	recorder.Record(context.Background(), audit.Event{Action: audit.ProbeCreate})

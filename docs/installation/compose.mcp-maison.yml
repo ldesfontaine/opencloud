@@ -1,0 +1,41 @@
+# mcp-maison, le serveur MCP qui lit openCloud par son API avec un jeton
+# d'API en lecture. À poser en /srv/workspace/mcp-maison/compose.yml, à côté
+# de son .env et de data/mcp/ (installation.md, « Brancher un agent IA »).
+# La version est épinglée par son tag, et par son empreinte dès qu'elle est
+# publiée (voir image) : changer de version, c'est changer la ligne image,
+# rien d'autre.
+name: mcp-maison
+services:
+  mcp:
+    # Aucune image n'est encore publiée : dès que mcp-maison publie v0.1.0,
+    # ajoutez son empreinte à la fin de la ligne, @sha256:<empreinte>
+    # (docker buildx imagetools inspect ghcr.io/ldesfontaine/mcp-maison:v0.1.0).
+    # Un tag seul peut être déplacé ; le tag et l'empreinte ensemble, non.
+    image: ghcr.io/ldesfontaine/mcp-maison:v0.1.0
+    container_name: mcp-maison
+    restart: unless-stopped
+    # Le réseau de l'hôte : mcp-maison écoute à côté d'openCloud, sur l'hôte
+    # de `listen` (MCP_HOST), et le joint en direct, jamais par Traefik ni
+    # par le SSO, qui arrêterait le Bearer.
+    network_mode: host
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: ${MCP_HOST:?MCP_HOST manque dans .env (Paramètres, Jetons d'API)}
+      PORT: 3000
+      DATABASE_PATH: /app/data/mcp-maison.db
+      AUDIT_LOG_PATH: /app/data/audit.jsonl
+      PERMISSIONS_FILE: /app/data/permissions.yaml
+      TOOL_GROUPS: core,opencloud
+    # Un seul dossier, écrit par l'uid 1000 du conteneur : la base OAuth, le
+    # journal, les droits.
+    volumes:
+      - ./data/mcp:/app/data
+    # Celui de l'image vise 127.0.0.1, faux quand MCP_HOST est une autre
+    # adresse (mcp-maison#4).
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://${MCP_HOST}:3000/health"]
+      interval: 30s
+      timeout: 3s
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]

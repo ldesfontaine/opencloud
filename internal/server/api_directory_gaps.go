@@ -137,8 +137,8 @@ func undeclaredToJSON(group directory.Undeclared, machineNames map[string]string
 	}
 }
 
-// gapsOf calcule l'écart d'un filtre et le met en JSON ; l'API et l'outil
-// MCP le rendent tel quel.
+// gapsOf calcule l'écart d'un filtre et le met en JSON ; l'API le rend tel
+// quel.
 func (s *Server) gapsOf(ctx context.Context, filter directory.Filter) (gapsResponse, error) {
 	report, err := s.directory.Gaps(ctx, filter)
 	if err != nil {

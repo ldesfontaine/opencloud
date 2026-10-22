@@ -17,7 +17,7 @@ function recordFetch(): RequestInit[] {
 
 test("une écriture sans corps part en JSON avec {}", async () => {
   const calls = recordFetch();
-  await api.post("/api/mcp/actions/enable");
+  await api.post("/api/settings/api-tokens");
   await api.delete("/api/jobs/x");
   for (const init of calls) {
     expect(init.headers).toEqual({ "Content-Type": "application/json" });

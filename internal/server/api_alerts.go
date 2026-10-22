@@ -228,8 +228,8 @@ func (s *Server) getAlert(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, alertResponseOf(found, deliveries))
 }
 
-// alertResponseOf assemble la fiche d'une alerte ; l'API et l'outil MCP la
-// rendent telle quelle.
+// alertResponseOf assemble la fiche d'une alerte ; l'API la rend telle
+// quelle.
 func alertResponseOf(found alert.Alert, deliveries []alert.Delivery) alertResponse {
 	response := alertResponse{Alert: alertToJSON(found), Deliveries: make([]deliveryJSON, 0, len(deliveries))}
 	for _, delivery := range deliveries {
@@ -285,6 +285,14 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := channelsResponse{Channels: httpx.ConvertAll(channels, channelToJSON)}
+	// Un jeton d'API ne voit de l'adresse d'un canal que son origine (le
+	// chemin d'un webhook est son jeton), et ni adresses ni salon.
+	if _, byToken := apiTokenFrom(r.Context()); byToken {
+		for index := range response.Channels {
+			response.Channels[index].URL = originOf(response.Channels[index].URL)
+			response.Channels[index].Destination = ""
+		}
+	}
 	s.writeAPI(w, http.StatusOK, response)
 }
 

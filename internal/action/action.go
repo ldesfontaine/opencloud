@@ -151,8 +151,8 @@ var (
 	// ErrReportInvalid : la section actions d'un signal sort de ce qu'un
 	// agent peut rapporter.
 	ErrReportInvalid = errors.New("action report invalid")
-	// ErrNoServerKey : le serveur n'a pas de clé pour signer (la commande
-	// mcp, qui n'envoie rien).
+	// ErrNoServerKey : le serveur n'a pas de clé pour signer (une commande
+	// hors ligne, qui n'envoie rien).
 	ErrNoServerKey = errors.New("no server key to sign orders")
 	// ErrSecretTooLarge : le secret d'un ordre dépasse ce qu'un agent lit.
 	ErrSecretTooLarge = errors.New("order secret larger than an agent reads")
