@@ -64,6 +64,18 @@ func closeOpenRun(before Heartbeat, now time.Time, outcome Outcome) *Run {
 	return &Run{HeartbeatID: before.ID, CompletedAt: now, Outcome: outcome}
 }
 
+// missedRun inscrit le retard dans l'historique, une fois par épisode : le
+// serveur ne passe une tâche en retard qu'une fois par trou. Une exécution
+// ouverte est déjà close en dépassement ; y ajouter « missed » compterait
+// l'échéance deux fois. La ligne est close à l'échéance, pas à l'instant du
+// contrôle : la boucle passe toutes les quelques secondes, l'échéance est le fait.
+func missedRun(before Heartbeat) *Run {
+	if !before.RunStartedAt.IsZero() {
+		return nil
+	}
+	return &Run{HeartbeatID: before.ID, CompletedAt: before.NextDeadlineAt, Outcome: OutcomeMissed}
+}
+
 // Alerter reçoit ce qui mérite une alerte : le moteur des alertes s'y
 // branche ; nil est toléré.
 type Alerter interface {
@@ -531,7 +543,7 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 		after.NextDeadlineAt = time.Time{}
 		after.RunStartedAt = time.Time{}
 		expired = true
-		return &Transition{Heartbeat: after, CloseRun: closeOpenRun(current, now, OutcomeTimeout)}
+		return &Transition{Heartbeat: after, CloseRun: closeOpenRun(current, now, OutcomeTimeout), NewRun: missedRun(current)}
 	})
 	if err != nil || !expired {
 		return err

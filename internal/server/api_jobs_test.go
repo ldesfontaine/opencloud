@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 )
@@ -86,6 +87,27 @@ func TestAPI_GetJob_CarriesThePingURLAndTheSnippets(t *testing.T) {
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/jobs/"+job.ID, nil), &response)
 	if response.PingURL != "https://cloud.exemple.fr/ping/"+job.Token || response.URLLocal {
 		t.Fatalf("with public_url: %+v", response)
+	}
+}
+
+// Un retard s'écrit dans l'historique : l'API rend l'exécution « missed »
+// telle quelle, sans début, sans durée, sans code, close à l'échéance.
+func TestAPI_GetJob_ShowsAMissedRunAfterALateness(t *testing.T) {
+	server := newTestServer(t)
+	job := server.createJob(t, "job")
+	server.heartbeats.SetClock(func() time.Time { return testNow.Add(time.Hour) })
+	if err := server.heartbeats.CheckDeadlines(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var response jobResponse
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/jobs/"+job.ID, nil), &response)
+	if len(response.Runs) != 1 {
+		t.Fatalf("runs %+v", response.Runs)
+	}
+	run := response.Runs[0]
+	if run.Outcome != "missed" || run.StartedAt != nil || run.DurationMs != nil || run.ExitCode != nil ||
+		run.CompletedAt == nil || !run.CompletedAt.Equal(job.NextDeadlineAt) {
+		t.Fatalf("run %+v, deadline %v", run, job.NextDeadlineAt)
 	}
 }
 
