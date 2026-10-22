@@ -31,6 +31,13 @@ const (
 	// La socket de commande, dans state_dir : serve y sert les routes du
 	// fichier de l'annuaire à la commande locale, sans rien ouvrir au réseau.
 	ControlSocketFile = "control.sock"
+	// Le dossier des colis à destination des agents, dans state_dir : vidé au
+	// démarrage, rien n'y reste plus de quelques heures.
+	OutgoingDir = "outgoing"
+	// Le nom d'une sauvegarde est ce préfixe, un instant UTC et « .tar.age » ;
+	// la clé scellée qui l'accompagne porte le second préfixe et l'empreinte.
+	BackupFilePrefix    = ID + "-"
+	BackupKeyFilePrefix = ID + "-key-"
 
 	// Le nom de la machine qui héberge le serveur, dans la base.
 	LocalMachineName = ID
@@ -59,13 +66,16 @@ const SecretKeyIDDomain = ID + "-key-id\x00"
 // lus et retombent aux niveaux Compose et nom.
 const LabelPrefix = ID + "."
 
-// Réservées : pas encore lues, posées pour que le nom n'ait pas à être
-// réécrit le jour où elles servent.
-const (
-	WorkspaceMarker = "." + ID
-	ServerUnit      = ID + ".service"
-	AgentUnit       = ID + "-agent.service"
-)
+// AgentUnit est l'unité de l'agent : la page d'un droit qui écrit hors de
+// l'état dit à l'opérateur laquelle compléter (ReadWritePaths).
+const AgentUnit = ID + "-agent.service"
+
+// ServerUnit est l'unité du serveur : la restauration dit de la démarrer.
+const ServerUnit = ID + ".service"
+
+// Réservée : pas encore lue, posée pour que le nom n'ait pas à être réécrit
+// le jour où elle sert.
+const WorkspaceMarker = "." + ID
 
 // Command est le nom du binaire. Littéral et non dérivé de ID : il suit le
 // répertoire cmd/opencloud et le Makefile, qu'un changement de ID ne

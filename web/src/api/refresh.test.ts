@@ -40,6 +40,10 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/audit?before=40")).toEqual([]);
   });
 
+  it("rereads the backups when either their own topic or the orders change", () => {
+    expect(topicsOf("/api/backups")).toEqual(["backups", "actions"]);
+  });
+
   it("keeps the observed containers on the containers topic", () => {
     expect(topicsOf("/api/machines/m1/containers")).toEqual(["containers"]);
   });

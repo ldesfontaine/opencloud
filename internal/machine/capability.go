@@ -90,7 +90,7 @@ func normalizePaths(capability Capability) ([]string, error) {
 	slices.Sort(paths)
 	paths = slices.Compact(paths)
 	for _, candidate := range paths {
-		if !isCapabilityPath(candidate) {
+		if !ValidCapabilityPath(candidate) {
 			return nil, ErrCapabilityPath
 		}
 	}
@@ -112,10 +112,40 @@ func normalizePaths(capability Capability) ([]string, error) {
 	return paths, nil
 }
 
-// Un chemin absolu, déjà propre, jamais la racine : « / » voudrait dire
-// toute la machine.
-func isCapabilityPath(candidate string) bool {
+// ValidCapabilityPath : un chemin absolu, déjà propre, jamais la racine :
+// « / » voudrait dire toute la machine.
+func ValidCapabilityPath(candidate string) bool {
 	return capabilityPathPattern.MatchString(candidate) && path.Clean(candidate) == candidate
+}
+
+// CoversPath dit si un droit borné couvre ce chemin : le chemin du droit, ou
+// un dossier dessous. Le préfixe se compare avec son séparateur,
+// « /srv/backups2 » n'est pas sous « /srv/backups ». Le chemin demandé doit
+// être propre : « /srv/backups/../etc » ne l'est pas.
+func CoversPath(capabilities []Capability, name, candidate string) bool {
+	_, covered := CoveringPath(capabilities, name, candidate)
+	return covered
+}
+
+// CoveringPath rend le chemin du droit qui couvre candidate (le plus long
+// s'il y en a plusieurs) : l'agent ouvre sa racine là, pour qu'un lien posé
+// dessous ne fasse pas sortir l'écriture du droit.
+func CoveringPath(capabilities []Capability, name, candidate string) (string, bool) {
+	if !ValidCapabilityPath(candidate) {
+		return "", false
+	}
+	covering := ""
+	for _, capability := range capabilities {
+		if capability.Name != name {
+			continue
+		}
+		for _, granted := range capability.Paths {
+			if (candidate == granted || strings.HasPrefix(candidate, granted+"/")) && len(granted) > len(covering) {
+				covering = granted
+			}
+		}
+	}
+	return covering, covering != ""
 }
 
 // FormatCapabilities écrit une liste déjà normalisée sous sa forme texte.

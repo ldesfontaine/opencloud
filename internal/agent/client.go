@@ -345,6 +345,28 @@ func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch 
 	return nil
 }
 
+// GetParcel ouvre un fichier d'un colis que le serveur a préparé pour cette
+// machine, sous le jeton de session du flux. Pas de délai propre : un fichier
+// se compte en dizaines de Mio, le contexte de l'appelant borne la durée. Le
+// corps est à fermer ; la taille est celle que le serveur annonce, l'ordre
+// signé fait foi.
+func (c *Client) GetParcel(ctx context.Context, session, parcel, name string) (io.ReadCloser, int64, error) {
+	request, err := c.newRequest(ctx, http.MethodGet, agentwire.ParcelPath(parcel, name), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+session)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get parcel: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		return nil, 0, fmt.Errorf("get parcel: %w", serverError(response))
+	}
+	return response.Body, response.ContentLength, nil
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, payload, into any) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()

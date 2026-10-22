@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
@@ -123,6 +124,15 @@ func runServe(args []string) error {
 	parts.manifests.SetWatcher(bus)
 	parts.actions.SetWatcher(bus)
 	parts.actions.SetKey(serverKey)
+	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
+	// démarrage, que mcp n'ouvre pas.
+	outbox, err := action.NewOutbox(stateDir)
+	if err != nil {
+		return err
+	}
+	parts.actions.SetOutbox(outbox)
+	parts.backups.SetParcels(outbox)
+	parts.backups.SetWatcher(bus)
 
 	// serve n'observe rien de sa propre machine : c'est l'agent installé sur
 	// elle, comme sur les autres. L'empreinte de la machine ne sert qu'à le
@@ -134,11 +144,12 @@ func runServe(args []string) error {
 
 	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
-	// Douze boucles de fond : les échéances, le rollup et la purge des
+	// Treize boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
 	// le moteur des alertes, le notifieur, la purge des jetons MCP, la fin
-	// de support, l'expiration et la purge des ordres. Elles finissent avant
+	// de support, l'expiration et la purge des ordres, la sauvegarde de la
+	// base. Elles finissent avant
 	// que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { parts.heartbeats.Watch(ctx) })
@@ -153,6 +164,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.access.Watch(ctx) })
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
 	runLoop(&loops, func() { parts.actions.Watch(ctx) })
+	runLoop(&loops, func() { parts.backups.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Une sonde dont la cible porte des identifiants, d'avant leur refus, ne
 	// repart pas : elle attend que l'opérateur change sa cible.

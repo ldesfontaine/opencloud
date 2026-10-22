@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -62,6 +63,9 @@ type ActionService interface {
 	ServerKey() (public []byte, fingerprint string, err error)
 	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
 	Rekey(ctx context.Context, machineID string) error
+	// OpenParcel ouvre un fichier d'un colis pour la machine qui le demande ;
+	// action.ErrParcelNotFound sinon.
+	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
 }
 
 type Options struct {
@@ -90,6 +94,7 @@ type Handler struct {
 	clientAddress func(r *http.Request) string
 	sourceLimit   *ratelimit.BySource
 	signalLimit   *ratelimit.Limiter
+	parcelLimit   *ratelimit.Limiter
 }
 
 func New(opts Options) *Handler {
@@ -104,10 +109,12 @@ func New(opts Options) *Handler {
 		clientAddress: opts.ClientAddress,
 		sourceLimit:   ratelimit.NewBySource(perSourceRate, perSourceBurst, sourceIdle),
 		signalLimit:   ratelimit.New(signalPerMachineRate, signalPerMachineBurst, signalIdle),
+		parcelLimit:   ratelimit.New(parcelPerMachineRate, parcelPerMachineBurst, parcelIdle),
 	}
 	if opts.Clock != nil {
 		handler.sourceLimit.SetClock(opts.Clock)
 		handler.signalLimit.SetClock(opts.Clock)
+		handler.parcelLimit.SetClock(opts.Clock)
 	}
 	return handler
 }
@@ -119,6 +126,7 @@ func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFu
 	add("GET", "/agent/stream", h.stream)
 	add("POST", "/agent/signal", h.signal)
 	add("POST", "/agent/logs/{request}", h.logs)
+	add("GET", agentwire.ParcelRoute+"{parcel}/{name}", h.parcel)
 	// Tout le reste, dont /agent/challenge du protocole 1 : un agent d'une
 	// autre version lit pourquoi il n'est pas servi.
 	add("*", "/agent/", h.unknown)

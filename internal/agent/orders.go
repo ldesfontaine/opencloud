@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -32,13 +33,20 @@ type orderRunner struct {
 	results  *actionResults
 	logger   *slog.Logger
 	now      func() time.Time
+	// Les ordres longs, que le juge accepte puis confie à worker ; fetch
+	// leur donne les colis du serveur.
+	worker *orderWorker
+	fetch  *fetcher
 
 	mu       sync.Mutex
 	identity Identity
 }
 
 func newOrderRunner(stateDir *os.Root, identity Identity, version string, results *actionResults, logger *slog.Logger) *orderRunner {
-	return &orderRunner{stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now}
+	return &orderRunner{
+		stateDir: stateDir, identity: identity, version: version, results: results, logger: logger, now: time.Now,
+		worker: newOrderWorker(), fetch: &fetcher{},
+	}
 }
 
 // receive juge et exécute un ordre, un à la fois : deux ordres arrivés
@@ -57,7 +65,14 @@ func (r *orderRunner) receive(data []byte) {
 		r.refuse(runIDOf(signed.Body), reason)
 		return
 	}
-	r.results.push(r.execute(body))
+	result, job := r.execute(body)
+	// « accepté » part avant que le worker ne puisse finir : la réponse
+	// finale ne le précède jamais.
+	r.results.push(result)
+	if job != nil && !r.worker.submit(job) {
+		r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonBusy)
+		r.results.push(agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBusy})
+	}
 }
 
 // judge rend le corps d'un ordre qui passe, ou la raison de son refus. Le
@@ -111,21 +126,78 @@ func (r *orderRunner) keepSeq(seq int64) bool {
 
 // execute fait ce que l'ordre demande. agent.ping ne change rien : il dit
 // que l'ordre est arrivé, vérifié, et quel agent l'a pris. agent.server_key
-// épingle la clé neuve du serveur. Un geste dont l'exécution n'est pas encore
-// écrite est refusé, même avec son droit.
-func (r *orderRunner) execute(body agentwire.OrderBody) agentwire.ActionResult {
+// épingle la clé neuve du serveur. Un ordre long (backup.receive,
+// backup.prune) est jugé ici, vite, puis accepté : le travail est rendu à
+// part, que le worker fera à son tour. Un geste dont l'exécution n'est pas
+// encore écrite est refusé, même avec son droit.
+//
+// Le secret de l'ordre (body.Secret) est signé avec lui ; seul l'exécuteur du
+// genre qui en a besoin le lit, et rien ne l'écrit.
+func (r *orderRunner) execute(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
 	switch body.Kind {
 	case agentwire.KindAgentPing:
 		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
 		return agentwire.ActionResult{
 			RunID: body.RunID, State: agentwire.ActionSucceeded,
 			Output: []agentwire.OutputLine{{Stream: "stdout", Line: "pong " + r.version}},
-		}
+		}, nil
 	case agentwire.KindServerKey:
-		return r.pinServerKey(body)
+		return r.pinServerKey(body), nil
+	case agentwire.KindBackupReceive:
+		return r.acceptBackupReceive(body)
+	case agentwire.KindBackupPrune:
+		return r.acceptBackupPrune(body)
 	}
 	r.logger.Warn("order refused", "run_id", body.RunID, "kind", string(body.Kind), "reason", agentwire.ReasonNotImplemented)
-	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}
+	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonNotImplemented}, nil
+}
+
+// coversBackupPath : le chemin est celui du droit backup.receive du fichier
+// de l'agent, ou dessous. Le droit est lu ici, sous le verrou : le worker ne
+// touche pas à l'identité.
+func (r *orderRunner) coversBackupPath() coveringPath {
+	capabilities := r.identity.Capabilities()
+	return func(path string) (string, bool) {
+		return machine.CoveringPath(capabilities, machine.CapabilityBackupReceive, path)
+	}
+}
+
+func accepted(body agentwire.OrderBody) agentwire.ActionResult {
+	return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionAccepted}
+}
+
+func (r *orderRunner) acceptBackupReceive(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
+	params, granted, refused := readBackupReceive(body, r.coversBackupPath())
+	if refused != nil {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		return *refused, nil
+	}
+	return accepted(body), func(ctx context.Context) {
+		output, err := receiveBackup(ctx, r.fetch, granted, params)
+		r.finishLong(body, output, err)
+	}
+}
+
+func (r *orderRunner) acceptBackupPrune(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
+	params, granted, refused := readBackupPrune(body, r.coversBackupPath())
+	if refused != nil {
+		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", refused.Reason)
+		return *refused, nil
+	}
+	return accepted(body), func(context.Context) {
+		output, err := pruneBackups(granted, params)
+		r.finishLong(body, output, err)
+	}
+}
+
+// finishLong rapporte la fin d'un ordre long.
+func (r *orderRunner) finishLong(body agentwire.OrderBody, output []agentwire.OutputLine, err error) {
+	if err != nil {
+		r.logger.Warn("order failed", "run_id", body.RunID, "kind", string(body.Kind), "error", err)
+	} else {
+		r.logger.Info("order executed", "run_id", body.RunID, "kind", string(body.Kind), "seq", body.Seq)
+	}
+	r.results.push(resultOf(body.RunID, output, err))
 }
 
 // pinServerKey remplace la clé du serveur épinglée par celle que l'ordre

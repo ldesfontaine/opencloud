@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 // c'est ajouter son nom ici, puis sa ligne dans initialVersions (le
 // compilateur la réclame) : l'écoute du direct suit seule.
 // Le type Topic se lit dans la liste.
-export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory", "actions"] as const;
+export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory", "actions", "backups"] as const;
 
 export type Topic = (typeof topics)[number];
 
@@ -12,7 +12,7 @@ export type Versions = Record<Topic, number>;
 
 // Un littéral typé : un sujet ajouté à topics et oublié ici ne compile pas.
 export function initialVersions(): Versions {
-  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0, actions: 0 };
+  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0, actions: 0, backups: 0 };
 }
 
 // Le compteur du sujet demandé avance d'un cran, ou tous sans argument.
@@ -81,6 +81,11 @@ export function topicsOf(path: string): readonly Topic[] {
   // machine.
   if (path.startsWith("/api/actions")) {
     return ["actions"];
+  }
+  // L'état d'une sauvegarde est celui de son dernier ordre : la page suit
+  // les deux sujets.
+  if (path.startsWith("/api/backups")) {
+    return ["backups", "actions"];
   }
   if (path.includes("/resources")) {
     return ["resources"];

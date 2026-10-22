@@ -9,6 +9,7 @@ import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
 import { Audit } from "./pages/Audit";
+import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
@@ -84,8 +85,7 @@ export function App() {
         <Route path="domaines/nouvelle" element={<ProbeForm />} />
         <Route path="domaines/:id/modifier" element={<ProbeForm />} />
         <Route path="domaines/:id" element={<ProbePage />} />
-        {/* Pas encore livrée : l'adresse mène à la vue d'ensemble. */}
-        <Route path="sauvegardes" element={<Navigate to="/" replace />} />
+        <Route path="sauvegardes" element={<Backups />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobForm />} />
         <Route path="taches/:id/modifier" element={<JobForm />} />

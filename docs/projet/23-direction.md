@@ -196,9 +196,11 @@ difficile, secrets dans les commandes. openCloud n'a jamais d'accès SSH.
 **Aujourd'hui** : tout vit sur la machine openCloud, dans `opencloud.db` :
 brut toutes les 10 s, moyennes horaires, journalières, avec leurs purges
 ([« Ce qui est stocké »](22-fonctionnement.md#ce-qui-est-stocké-et-où)).
-L'agent **ne garde rien** : flux coupé, mesures perdues. La base n'est
-sauvegardée que si l'hôte l'est (chez Lucas : `vzdump` de la VM). Les jetons de
-ping sont en clair dans la base.
+L'agent **ne garde rien** : flux coupé, mesures perdues. **Fait** (21/10) : la
+base chiffrée part chaque nuit vers un agent (page Sauvegardes ; services à
+venir avec le déploiement), voir
+[« Comment la base est sauvegardée »](22-fonctionnement.md#comment-la-base-est-sauvegardée).
+Les jetons de ping sont en clair dans la base.
 
 **Cible**
 
@@ -294,7 +296,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | préalable | #153 | réglages en base (`settings.toml` disparaît) ; nom du produit à un seul endroit ; secrets de l'interface chiffrés en base. **Fait** : #155, #156, #157 | non |
 | 1 | #153 | la direction dans la doc ; l'annuaire : services déclarés et unités, projets, nature des services ; édition sur place des sondes et des tâches ; `export` / `apply` ; vue « écart » | non |
 | 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation. **Fait** : ordres signés et journalisés, droits appliqués, protocole v2 et rotation des clés. Reste : la décision 2 (root) | non |
-| 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination | oui : la sauvegarde chiffrée, chez l'agent de destination |
+| 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination. **Fait** (21/10) : la base chiffrée part chaque nuit vers un agent ; services à venir avec le déploiement | oui : la sauvegarde chiffrée, chez l'agent de destination |
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur | oui |
 | 6 | #125 | appliquer une mise à jour d'image validée | oui |
@@ -313,7 +315,7 @@ donné avant la décision.
 | N° | Question | Options | Mon avis | Décision |
 | --- | --- | --- | --- | --- |
 | 1 | Un seul fichier de réglages ? | garder `settings.toml` + `lifecycle.json` ; tout ramener dans `config.toml` + base | tout ramener | `config.toml` = posé par l'admin avant le démarrage, lecture seule pour le serveur. Ce que l'interface change va en base ; `settings.toml` disparaît. `lifecycle.json` reste un cache, hors export |
-| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | Reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale. **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas avant le premier ordre qui écrit (étape 5) |
+| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | Reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale. **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas. `backup.receive` est le premier ordre qui écrit sur une machine (21/10) : l'agent reste root, borné par ses droits et un `os.Root` sur le chemin (à revoir avec cette décision) |
 | 3 | Édition des sondes avant tout ? | oui ; non, on recrée | oui | Oui : un `apply` modifie sur place, ne recrée jamais ; sondes, tâches, composants gardent historique et jeton |
 | 4 | Format du fichier déclaratif | YAML ; TOML | YAML, plus courant chez ceux qui écrivent des compose | YAML |
 | 5 | `apply` supprime ce qui n'est pas déclaré ? | jamais ; option explicite ; toujours | option explicite, jamais par défaut | Sur option explicite seulement, en affichant ce que la suppression emporte |

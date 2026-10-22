@@ -143,7 +143,7 @@ func closedKeyLists() []composedKeys {
 		// la raison d'un refus.
 		{prefix: "action.kind_", values: orderKindKeys()},
 		{prefix: "action.state_", values: names(action.States())},
-		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered)},
+		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered, action.ReasonTimeout)},
 	}
 }
 

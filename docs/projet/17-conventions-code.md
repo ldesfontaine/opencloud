@@ -142,6 +142,15 @@ Une version : tag `vX.Y.Z` sur `main`, build reproductible vérifié par le
 job, `SHA256SUMS` signé (minisign), attestation de provenance
 (`12-methode.md`).
 
+Une seule bibliothèque de chiffrement hors de la bibliothèque standard :
+`filippo.io/age` (BSD-3-Clause, Go pur, aucun `import "C"` ; dépendances
+`filippo.io/hpke`, `nistec`, `edwards25519`, `x/crypto`, `x/sys`, `x/term`).
+Elle chiffre la sauvegarde de la base (« Comment la base est sauvegardée »,
+`22-fonctionnement.md`). Choisie parce que le format est celui de l'outil
+`age` courant : on restaure sans openCloud. L'écrire à la main (X25519, scrypt,
+STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de
+cryptographie à maintenir et à éprouver contre les vecteurs de test.
+
 Le front demande Node ≥ 20.19 et npm. Les paquets sont épinglés à la version
 exacte dans `web/package.json` (`save-exact`), le verrou est
 versionné, la CI joue `npm ci`. Le npm 9 de Debian plante parfois pour
@@ -168,7 +177,7 @@ binaire par plateforme.
 | HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
-| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration, les colis), `backup` (la sauvegarde de la base : la paire de clés, l'archive chiffrée, le plan ; il envoie par `action`, sans connaître le serveur ni le store) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
 | Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
 | Protocole agent | `internal/agentwire` | Le protocole entier, figé par les agents installés : en-têtes, corps, sections du signal ; la liste fermée de ce que le serveur pousse (`Kind`, `Command` typée, plus d'`any` sur le fil) et l'enveloppe des ordres (`OrderBody`, `SignedOrder`) ; les octets que les deux côtés signent ou comparent (`OrderSigningBytes`, `KeyFingerprint`) ; sa version (`ProtocolVersion`, l'en-tête `OpenCloud-Agent-Protocol`) et ses bornes (`MaxEventBytes`, `MaxEventLineBytes`, `EventDataLine`). Un changement que les agents installés ne liraient pas passe la version : le serveur refuse l'autre (`426`), jamais en silence. La preuve de l'agent (`machine.SignedPayload`) reste dans `machine`, que `agentwire` importe Un domaine ne nomme jamais un événement : il déclare son commandeur typé (`container.Commander.RequestLogs`), le serveur l'encode | Une règle, un appel |

@@ -634,9 +634,9 @@ flowchart LR
 | `service_samples_hourly` | Historique long des mesures par service, sur l'identité stable | Nouvelle |
 | `ignored_keys` | « Présent non déclaré, et c'est voulu » : clé (projet Compose ou nom), jamais un id Docker | Nouvelle, faite |
 | `update_proposals` | Montée proposée (de, vers) ; jamais appliquée seule (décision 6) ; l'application est un run | Nouvelle |
-| `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | Nouvelle |
-| `backup_plans` | Une sauvegarde : la base ou un service (`data/` + `.env`), destination, rythme, nombre gardé. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | Nouvelle |
-| `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | Nouvelle |
+| `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | **Faite** (`006`, section 20) |
+| `backup_plans` | Une sauvegarde : la base ou un service (`data/` + `.env`), destination, rythme, nombre gardé. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | **Faite** (`006`, section 20) |
+| `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | **Faite** (`006`, section 20) |
 | `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée, en partie : `restrict`, service déclaré, certificat dans `probe_certificates` (schéma unique) ; `nrpe`, `warning`, `runner_machine_id` à faire |
 | `probe_certificates` | Le dernier certificat vu par une sonde : sujet, émetteur, dates, empreinte, chaîne valide, nom, agrafe OCSP. Pas d'historique | Nouvelle, faite (schéma unique : les huit `cert_*` de `probes`) |
 | `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée, en partie : `token_sealed` et `token_lookup` (schéma unique), `restrict` vers la machine ; `kind`, `service_id` à faire |
@@ -1258,3 +1258,25 @@ a tranché, et ses écarts au diagramme :
 | **Délai** : la relecture de 30 s de la page publique | Pas d'abonnement au sujet `alerts` : le moteur des alertes ne passe pas par la page |
 | **Plafond** : 64 cibles par incident, refus `incident.target_invalid` | Vide, trop, genre inconnu, identifiant vide, doublon, objet inconnu |
 | **L'impact `maintenance` des incidents et `ApplyWindows` restent** | Deux façons d'annoncer une maintenance pendant un temps. Les retirer change le formulaire d'incident et reconstruit `incidents` : décision de Lucas |
+
+## 20. Ce que la sauvegarde de la base a fixé
+
+La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`,
+`backup_plans`) et le paquet `internal/backup`. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment la base est sauvegardée ». Ce que le code a
+tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`filippo.io/age`** pour le chiffrement, plutôt que le format écrit à la main | Le format est lu par l'outil `age` courant : on restaure sans openCloud. L'écrire (X25519, scrypt, STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de cryptographie à maintenir et à éprouver. Licence BSD-3-Clause, Go pur |
+| **`public_key` devient `recipient`, `private_key_sealed` devient `identity_sealed`** | Les mots d'age. La privée est `AGE-SECRET-KEY-1…` chiffrée par un destinataire scrypt (facteur 2^18) ; l'empreinte est les 16 premiers hexadécimaux du SHA-256 de la publique |
+| **Pas de `kind` sur la destination** | Un seul genre, l'agent ; il viendra avec SFTP ou S3 |
+| **Pas de `service_id` sur le plan** | La base seule pour l'instant (`subject` vaut `database`, unique) ; les services viendront avec le déploiement, et avec eux la ligne `declared_services → backup_plans` en `cascade` |
+| **`last_attempt_at`, `last_error`, `last_run_id`**, en plus du diagramme | La nuit se joue sur « aucune tentative depuis 3 h » ; une tentative qui n'a pas pu partir (pas de clé, machine hors ligne) n'a pas d'ordre, sa raison se garde sur le plan. `last_run_id` est en `set null` : la purge des runs peut l'emporter |
+| **Pas de copie locale** : l'instantané `VACUUM INTO` vit le temps de l'emballer dans `state_dir/outgoing/<colis>/`, l'archive chiffrée y attend l'agent le temps de vie de son ordre au plus (`OrderLifetime` + `MaxRunDuration`, un peu plus d'une heure : un colis ne survit pas à son ordre), le dossier est vidé au démarrage | Une sauvegarde gardée sur la machine qu'elle protège ne protège de rien |
+| **Un colis, pas le flux** : l'ordre signé porte l'identifiant du colis et la taille et le SHA-256 de chaque fichier, l'agent les télécharge sous son jeton de session | Un événement du flux est borné à 1 Mio ; une base fait des dizaines de Mio. Le même mécanisme servira à `agent.update` |
+| **`backup.prune` est un ordre à part**, envoyé juste après `backup.receive` ; l'agent exécute ses ordres longs un à la fois, dans l'ordre du rang | L'élagage passe après la réception sans que le serveur attende la fin de l'une pour envoyer l'autre. Il ne supprime que la forme exacte `<id>-AAAAMMJJ-HHMMSS.tar.age` |
+| **Un plan, le rythme `daily`, après 3 h de l'horloge du serveur** | Une tentative par jour, DST sans surprise (une heure de l'horloge, pas une durée depuis minuit) ; « sauvegarder maintenant » pour le reste |
+| **Un run `accepted` depuis plus d'une heure passe `failed`, raison `timeout`** | Avant, un run accepté n'expirait jamais : un ordre long dont l'agent ne répond plus restait « accepté » à jamais |
+| **`OrderBody.Secret`**, signé avec l'ordre, jamais écrit dans `action_runs.params`, l'audit ou un journal | Préparé ici, servi par le déploiement (le `.env` d'un service). La colonne `params` n'a jamais à garder un secret |
+| **La phrase de passe n'est écrite nulle part** (`passphrase` rejoint les noms de détail interdits de l'audit) | Sans elle, aucune sauvegarde ne se relit : c'est à l'opérateur de la garder, ailleurs que les sauvegardes |

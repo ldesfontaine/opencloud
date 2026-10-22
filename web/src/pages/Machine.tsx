@@ -25,7 +25,7 @@ import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
 import { resolveMachineTab } from "../lib/machineTabs";
 import { engineNote, filterContainers, type Filter } from "../lib/containers";
-import { describeCapability, machineSeen } from "../lib/machines";
+import { describeCapability, machineSeen, tokenPageState } from "../lib/machines";
 import { formatWhen } from "../lib/time";
 import { NotFound } from "./NotFound";
 
@@ -263,7 +263,7 @@ function Actions({ machine }: { machine: Machine }) {
   const reenroll = () => {
     action.run(() => reenrollMachine(machine.id), {
       topic: "all",
-      onDone: (token) => void navigate("/machines/jeton", { state: token }),
+      onDone: (token) => void navigate("/machines/jeton", { state: tokenPageState(token, machine.agent?.requested ?? []) }),
     });
   };
 

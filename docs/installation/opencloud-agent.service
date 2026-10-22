@@ -28,6 +28,14 @@ RestartPreventExitStatus=2
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/opencloud/agent
+# Un droit qui écrit ailleurs (backup.receive=/srv/backups) demande un
+# dossier créé d'avance (install -d -m 0700 /srv/backups : systemd refuse
+# de démarrer sur un ReadWritePaths absent) et un drop-in, pas une édition
+# de ce fichier :
+# /etc/systemd/system/opencloud-agent.service.d/droits.conf
+#   [Service]
+#   ReadWritePaths=/srv/backups
+# puis systemctl daemon-reload && systemctl restart opencloud-agent.
 ProtectHome=read-only
 PrivateTmp=true
 UMask=0077

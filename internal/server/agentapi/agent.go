@@ -470,3 +470,47 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload any) {
 func (h *Handler) writeError(w http.ResponseWriter, status int, code string) {
 	h.writeJSON(w, status, agentError{Error: code})
 }
+
+// Un fichier de colis, pour la machine dont la session le demande : un colis
+// d'une autre machine, échu ou inconnu répond 404 sans distinguer ces cas.
+func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		h.writeError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	machineID, err := h.machines.SessionMachine(token)
+	if err != nil {
+		h.writeError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	if !h.parcelLimit.Allow(machineID) {
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
+		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
+	if h.actions == nil {
+		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+		return
+	}
+	file, size, err := h.actions.OpenParcel(machineID, r.PathValue("parcel"), r.PathValue("name"))
+	if errors.Is(err, action.ErrParcelNotFound) {
+		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+		return
+	}
+	if err != nil {
+		h.logger.Error("open parcel", "machine_id", machineID, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err := io.Copy(w, file); err != nil {
+		h.logger.Warn("send parcel", "machine_id", machineID, "error", err)
+	}
+}

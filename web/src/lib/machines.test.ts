@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, rightsFormOf, toggleRight } from "./machines";
+import { capabilitiesOf, capabilityLabelKey, describeCapability, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -44,4 +44,14 @@ test("rightsFormOf : les droits d'un agent reviennent cochés, chemins compris, 
   const values = rightsFormOf(requested);
   expect(values).toEqual({ rights: ["agent.update", "files.write"], backupPath: "", writePaths: "/opt/site, /srv/workspace" });
   expect(capabilitiesOf(values)).toEqual(requested.slice(1));
+});
+
+test("unitWritePaths : seul le droit de recevoir des sauvegardes écrit hors de l'état", () => {
+  expect(unitWritePaths([{ name: "agent.update", paths: [] }, { name: "backup.receive", paths: ["/srv/backups"] }])).toEqual(["/srv/backups"]);
+  expect(unitWritePaths([{ name: "files.write", paths: ["/srv/a"] }])).toEqual([]);
+  expect(unitWritePaths([])).toEqual([]);
+});
+
+test("unitDropIn : le fichier à poser dans le dossier drop-in de l'unité de l'agent", () => {
+  expect(unitDropIn(["/srv/backups"])).toBe("[Service]\nReadWritePaths=/srv/backups");
 });

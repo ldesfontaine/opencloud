@@ -109,15 +109,19 @@ var (
 	ErrHasProbes           = refusal.Conflict("machine.has_probes", "the machine runs probes")
 	ErrHasHeartbeats       = refusal.Conflict("machine.has_heartbeats", "heartbeats are attached to the machine")
 	ErrShownOnStatus       = refusal.Conflict("machine.shown_on_status", "a status component shows the machine")
+	// Le plan de sauvegarde la nomme comme destination : la retirer, c'est
+	// le plan qui n'a plus où envoyer.
+	ErrHasBackupDestinations = refusal.Conflict("machine.has_backup_destinations", "the machine receives backups")
 )
 
 // RefuseDeletion rend le refus du retrait que le plan retient, nil sinon.
 func RefuseDeletion(plan deletion.Plan) error {
 	return deletion.Refuse(plan, map[deletion.Kind]error{
-		deletion.KindDeclaredServices: ErrHasDeclaredServices,
-		deletion.KindProbes:           ErrHasProbes,
-		deletion.KindHeartbeats:       ErrHasHeartbeats,
-		deletion.KindComponents:       ErrShownOnStatus,
+		deletion.KindDeclaredServices:   ErrHasDeclaredServices,
+		deletion.KindProbes:             ErrHasProbes,
+		deletion.KindHeartbeats:         ErrHasHeartbeats,
+		deletion.KindComponents:         ErrShownOnStatus,
+		deletion.KindBackupDestinations: ErrHasBackupDestinations,
 	})
 }
 

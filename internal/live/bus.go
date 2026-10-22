@@ -21,6 +21,8 @@ const (
 	TopicDirectory  Topic = "directory"
 	// Les ordres envoyés aux agents et ce qu'ils deviennent.
 	TopicActions Topic = "actions"
+	// La clé, les destinations et le plan de sauvegarde de la base.
+	TopicBackups Topic = "backups"
 )
 
 // ResourcesEvery espace les publications des mesures : chaque machine en
@@ -155,6 +157,10 @@ func (b *Bus) DirectoryChanged() {
 
 func (b *Bus) ActionsChanged(string) {
 	b.Publish(TopicActions)
+}
+
+func (b *Bus) BackupsChanged() {
+	b.Publish(TopicBackups)
 }
 
 func (s *Subscription) add(topic Topic) {

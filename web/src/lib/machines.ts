@@ -1,4 +1,4 @@
-import type { Capability, Machine } from "../api/machines";
+import type { Capability, Machine, TokenResponse } from "../api/machines";
 import type { Translate } from "../i18n/context";
 import { seenAgo } from "./time";
 
@@ -42,6 +42,27 @@ export function rightsFormOf(capabilities: Capability[]): RightsValues {
     backupPath: pathsOf("backup.receive").join(", "),
     writePaths: pathsOf("files.write").join(", "),
   };
+}
+
+// Ce que la page du jeton reçoit : la réponse du serveur, et les droits que
+// le jeton porte, pour dire ce que l'unité de l'agent doit autoriser.
+export interface TokenPageState extends TokenResponse {
+  rights: Capability[];
+}
+
+export function tokenPageState(token: TokenResponse, rights: Capability[]): TokenPageState {
+  return { ...token, rights };
+}
+
+// Les dossiers où l'agent écrit pour recevoir des sauvegardes : hors de son
+// état, que son unité systemd ne laisse pas écrire sans ReadWritePaths.
+export function unitWritePaths(rights: Capability[]): string[] {
+  return rights.find((capability) => capability.name === "backup.receive")?.paths ?? [];
+}
+
+// Le fichier à poser dans le dossier drop-in de l'unité de l'agent.
+export function unitDropIn(paths: string[]): string {
+  return `[Service]\nReadWritePaths=${paths.join(" ")}`;
 }
 
 // La liste fermée du serveur (machine.CapabilityNames), dans son ordre.

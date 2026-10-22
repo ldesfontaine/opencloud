@@ -66,3 +66,39 @@ func TestAgent_CapabilitiesDifferOnlyWhenBothSidesAreKnown(t *testing.T) {
 		t.Fatal("an agent from before the rights: nothing requested, nothing to compare")
 	}
 }
+
+// Un dossier est couvert par le chemin du droit ou dessous ; un voisin dont
+// le nom commence pareil, un chemin non propre ou le droit d'un autre nom ne
+// le sont pas.
+func TestCoversPath(t *testing.T) {
+	capabilities, err := ParseCapabilities("backup.receive=/srv/backups,files.write=/srv/site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name, path string
+		want       bool
+	}{
+		{CapabilityBackupReceive, "/srv/backups", true},
+		{CapabilityBackupReceive, "/srv/backups/opencloud", true},
+		{CapabilityBackupReceive, "/srv/backups2", false},
+		{CapabilityBackupReceive, "/srv", false},
+		{CapabilityBackupReceive, "/srv/backups/../etc", false},
+		{CapabilityBackupReceive, "/srv/backups/", false},
+		{CapabilityBackupReceive, "srv/backups", false},
+		{CapabilityBackupReceive, "/srv/site", false},
+		{CapabilityFilesWrite, "/srv/site/a", true},
+		{CapabilityDockerDeploy, "/srv/backups", false},
+	}
+	for _, c := range cases {
+		if got := CoversPath(capabilities, c.name, c.path); got != c.want {
+			t.Errorf("CoversPath(%s, %q) = %t, want %t", c.name, c.path, got, c.want)
+		}
+	}
+	if CoversPath(nil, CapabilityBackupReceive, "/srv/backups") {
+		t.Error("no rights cover nothing")
+	}
+	if granted, ok := CoveringPath(capabilities, CapabilityBackupReceive, "/srv/backups/opencloud/nuit"); !ok || granted != "/srv/backups" {
+		t.Errorf("covering path %q %t", granted, ok)
+	}
+}

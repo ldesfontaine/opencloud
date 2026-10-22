@@ -52,6 +52,10 @@ const (
 	ObjectSecrets         ObjectKind = "secrets" // #nosec G101 -- un nom, pas un secret.
 	// Un ordre envoyé à un agent : l'objet est son run, nommé par sa machine.
 	ObjectAction ObjectKind = "action"
+	// La sauvegarde de la base : sa paire de clés, ses destinations, son plan.
+	ObjectBackupKeyring     ObjectKind = "backup_keyring"
+	ObjectBackupDestination ObjectKind = "backup_destination"
+	ObjectBackupPlan        ObjectKind = "backup_plan"
 )
 
 func ObjectKinds() []ObjectKind {
@@ -60,6 +64,7 @@ func ObjectKinds() []ObjectKind {
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
 		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets, ObjectAction,
+		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
 	}
 }
 
@@ -157,6 +162,17 @@ const (
 	// l'agent, avec sa raison.
 	ActionOrder   Action = "action.order"
 	ActionRefused Action = "action.refused"
+
+	// La phrase de passe n'est jamais écrite ici : seulement l'empreinte de
+	// la clé qu'elle scelle.
+	BackupKeyringCreate     Action = "backup_keyring.create"
+	BackupKeyringReplace    Action = "backup_keyring.replace"
+	BackupDestinationCreate Action = "backup_destination.create"
+	BackupDestinationDelete Action = "backup_destination.delete"
+	BackupPlanUpdate        Action = "backup_plan.update"
+	BackupPlanDelete        Action = "backup_plan.delete"
+	// Une sauvegarde lancée, par l'opérateur ou par la règle de la nuit.
+	BackupPlanRun Action = "backup_plan.run"
 )
 
 func Actions() []Action {
@@ -183,6 +199,8 @@ func Actions() []Action {
 		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
 		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
 		ActionOrder, ActionRefused,
+		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
+		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
 	}
 }
 
@@ -226,7 +244,7 @@ type Query struct {
 // par l'un d'eux (« webhook_url », « client_secret ») l'est aussi ;
 // « token_id » ou « password_changed » ne le sont pas.
 func isForbiddenDetail(name string) bool {
-	for _, forbidden := range []string{"password", "token", "secret", "url"} {
+	for _, forbidden := range []string{"password", "passphrase", "token", "secret", "url"} {
 		if name == forbidden || strings.HasSuffix(name, "_"+forbidden) {
 			return true
 		}
