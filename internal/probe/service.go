@@ -69,9 +69,9 @@ type Commander interface {
 }
 
 // Assignable reçoit le jeu de sondes : le moteur de l'agent, qui le tient de
-// sa commande.
+// sa commande. Il rend le nombre de tâches qu'il a écartées.
 type Assignable interface {
-	Assign(assignment Assignment)
+	Assign(assignment Assignment) int
 }
 
 // Watcher reçoit chaque changement visible : le direct s'y branche. nil
