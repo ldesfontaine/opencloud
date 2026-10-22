@@ -63,8 +63,7 @@ type Connection struct {
 }
 
 // Presence dit si l'agent d'une machine est joint. Le service ne sait pas
-// d'où vient la réponse : serve la lit dans les flux ouverts, opencloud mcp,
-// qui n'en tient aucun, dans le dernier signal de la base.
+// d'où vient la réponse : serve la lit dans les flux ouverts.
 type Presence interface {
 	IsOnline(machine Machine, now time.Time) bool
 }
@@ -117,12 +116,6 @@ func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
 func (s *Service) SetClock(now func() time.Time) {
 	s.now = now
-}
-
-// SetPresence remplace la façon de savoir qu'une machine est en ligne : les
-// flux ouverts par défaut.
-func (s *Service) SetPresence(presence Presence) {
-	s.presence = presence
 }
 
 func (s *Service) SetWatcher(watcher Watcher) {

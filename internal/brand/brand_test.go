@@ -20,7 +20,6 @@ func TestValues_AreFrozen(t *testing.T) {
 		"ServerKeyFile":           {ServerKeyFile, "server.key"},
 		"SecretKeyIDDomain":       {SecretKeyIDDomain, "opencloud-key-id\x00"},
 		"LocalMachineName":        {LocalMachineName, "opencloud"},
-		"MCPServerKey":            {MCPServerKey, "opencloud"},
 		"MatrixTransactionPrefix": {MatrixTransactionPrefix, "opencloud-"},
 		"OutgoingDir":             {OutgoingDir, "outgoing"},
 		"BackupFilePrefix":        {BackupFilePrefix, "opencloud-"},
@@ -41,13 +40,8 @@ func TestValues_AreFrozen(t *testing.T) {
 		"AgentProofDomain":        {AgentProofDomain, "opencloud-agent-proof/v2\x00"},
 		"TokenPrefix":             {TokenPrefix, "oc"},
 		"EnrollmentTokenScheme":   {EnrollmentTokenScheme, "oc_"},
-		"MCPSecretScheme":         {MCPSecretScheme, "ocs_"},
-		"MCPCodeScheme":           {MCPCodeScheme, "occ_"},
-		"MCPAccessScheme":         {MCPAccessScheme, "oca_"},
-		"MCPRefreshScheme":        {MCPRefreshScheme, "ocr_"},
-		"MCPAPIScheme":            {MCPAPIScheme, "ock_"},
+		"APITokenScheme":          {APITokenScheme, "ock_"},
 		"HostFingerprintPrefix":   {HostFingerprintPrefix, "opencloud-host:"},
-		"OAuthClientID":           {OAuthClientID, "opencloud"},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %q, want %q", name, pair[0], pair[1])

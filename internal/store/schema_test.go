@@ -96,11 +96,11 @@ func TestSchema_MatchesTheLegacyMigrationsAndTheTrim(t *testing.T) {
 			t.Errorf("001_schema.sql seulement : %s", line)
 		}
 	}
-	if tables := count(t, fresh, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`); tables != 51 {
-		t.Errorf("%d tables, 51 attendues (50 et schema_migrations)", tables)
+	if tables := count(t, fresh, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`); tables != 49 {
+		t.Errorf("%d tables, 49 attendues (48 et schema_migrations)", tables)
 	}
 	versions, err := fresh.AppliedVersions(context.Background())
-	if err != nil || !slices.Equal(versions, []int{1, 2, 3, 4, 5, 6}) {
+	if err != nil || !slices.Equal(versions, []int{1, 2, 3, 4, 5, 6, 8}) {
 		t.Fatalf("versions notées : %v %v", versions, err)
 	}
 }

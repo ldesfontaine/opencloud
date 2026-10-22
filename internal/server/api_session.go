@@ -155,7 +155,7 @@ func (s *Server) counts(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// countsOf assemble les compteurs ; l'API et l'outil MCP les rendent tels quels.
+// countsOf assemble les compteurs ; l'API les rend tels quels.
 func (s *Server) countsOf(ctx context.Context) (countsResponse, error) {
 	total, online, err := s.machines.Count(ctx)
 	if err != nil {

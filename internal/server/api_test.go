@@ -225,20 +225,13 @@ func (ts *testServer) seedContainers(t *testing.T) string {
 var (
 	pingToken  = regexp.MustCompile(`hb_[a-z2-7]{26}`)
 	shortID    = regexp.MustCompile(`"(id|machine_id|page_id)":"[0-9a-f]{16}"`)
-	tokenMask  = regexp.MustCompile(`oc[skar]?_[a-z2-7]{6}…`)
-	tokenValue = regexp.MustCompile(`oc[skar]?_[a-z2-7]{20,}`)
-	// Les familles de jetons MCP sont des identifiants de 16 hexadécimaux
-	// sous leur propre clé.
-	sessionID = regexp.MustCompile(`"(id|family_id)":"[0-9a-f]{16}"`)
+	tokenMask  = regexp.MustCompile(`oc[k]?_[a-z2-7]{6}…`)
+	tokenValue = regexp.MustCompile(`oc[k]?_[a-z2-7]{20,}`)
 	// Les jours d'une sonde sont rangés sous son identifiant, en clé.
 	probeKey = regexp.MustCompile(`"[0-9a-f]{16}":\[`)
 	// Les identifiants de l'annuaire et des agents sont tirés à chaque
 	// création, préfixe en tête.
 	directoryID = regexp.MustCompile(`"(svc|unit|prj|agt)_[0-9a-f]{16}"`)
-	// Le fichier de l'annuaire, rendu dans une chaîne JSON par l'outil MCP :
-	// ses identifiants y sont dans le texte, pas entre guillemets.
-	yamlInJSONDirectoryID = regexp.MustCompile(`\b(svc|prj)_[0-9a-f]{16}\b`)
-	yamlInJSONShortID     = regexp.MustCompile(`\bid: [0-9a-f]{16}\\n`)
 )
 
 // Les identifiants de tâche et de jeton, les jetons de ping et
@@ -247,11 +240,8 @@ func normalize(body string) string {
 	body = pingToken.ReplaceAllString(body, "hb_TOKEN")
 	body = shortID.ReplaceAllString(body, `"$1":"ID"`)
 	body = tokenMask.ReplaceAllString(body, "oc_MASKED…")
-	body = sessionID.ReplaceAllString(body, `"$1":"ID"`)
 	body = probeKey.ReplaceAllString(body, `"ID":[`)
 	body = directoryID.ReplaceAllString(body, `"${1}_ID"`)
-	body = yamlInJSONDirectoryID.ReplaceAllString(body, "${1}_ID")
-	body = yamlInJSONShortID.ReplaceAllString(body, `id: ID\n`)
 	return tokenValue.ReplaceAllString(body, "oc_TOKEN")
 }
 
@@ -284,6 +274,7 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 	containerID := server.seedContainers(t)
 	declaredID := server.seedGaps(t)
 	probeID := server.seedProbes(t, declaredID)
+	server.issueAPIToken(t, "mcp-maison")
 	cases := map[string]string{
 		"probes":              "/api/probes",
 		"probe":               "/api/probes/" + probeID,
@@ -309,6 +300,8 @@ func TestAPI_ReadsMatchGoldenFiles(t *testing.T) {
 		"remote_resources":    "/api/machines/" + remoteID + "/resources",
 		"history":             "/api/machines/local/resources/history?window=1h",
 		"history_hourly":      "/api/machines/local/resources/history?window=7d",
+		"api_tokens":          "/api/settings/api-tokens",
+		"settings_ai_agent":   "/api/settings/mcp",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -402,24 +395,24 @@ func TestAPI_Writes_RequireTheSameOrigin(t *testing.T) {
 func TestAPI_Writes_WithoutJSONContentType_AreRefusedEvenWithoutBody(t *testing.T) {
 	server := newTestServer(t)
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
-		request := httptest.NewRequest(method, "/api/mcp/actions/enable", nil)
+		request := httptest.NewRequest(method, "/api/settings/api-tokens", nil)
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusForbidden || errorCode(t, recorder) != codeOrigin {
 			t.Errorf("%s without type: %d %s", method, recorder.Code, recorder.Body.String())
 		}
 	}
-	plain := httptest.NewRequest(http.MethodPost, "/api/mcp/actions/enable", strings.NewReader("{}"))
+	plain := httptest.NewRequest(http.MethodPost, "/api/settings/api-tokens", strings.NewReader("{}"))
 	plain.Header.Set("Content-Type", "text/plain")
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, plain)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("text/plain: %d", recorder.Code)
 	}
-	if _, enabled, _ := server.access.Client(context.Background()); enabled {
-		t.Fatal("a refused write must not enable MCP")
+	if tokens, _ := server.apiTokens.List(context.Background()); len(tokens) != 0 {
+		t.Fatal("a refused write must not create an API token")
 	}
-	none := httptest.NewRequest(http.MethodPost, "/api/mcp/actions/enable", strings.NewReader("{}"))
+	none := httptest.NewRequest(http.MethodPost, "/api/settings/api-tokens", strings.NewReader(`{"name":"inspecteur"}`))
 	none.Header.Set("Content-Type", "application/json; charset=utf-8")
 	none.Header.Set("Sec-Fetch-Site", "none")
 	recorder = httptest.NewRecorder()
@@ -430,10 +423,9 @@ func TestAPI_Writes_WithoutJSONContentType_AreRefusedEvenWithoutBody(t *testing.
 }
 
 // Un nom qui pointe soudain sur openCloud (DNS rebinding) arrive avec un
-// Host qui n'est pas le nôtre : refusé sous /api et sur l'autorisation
-// OAuth, avec une ligne de journal qui dit quoi régler. Les autres routes
-// ne sont pas concernées.
-func TestHost_UnknownIsRefusedOnTheAPIAndTheAuthorization(t *testing.T) {
+// Host qui n'est pas le nôtre : refusé sous /api, avec une ligne de journal
+// qui dit quoi régler. Les autres routes ne sont pas concernées.
+func TestHost_UnknownIsRefusedOnTheAPI(t *testing.T) {
 	var journal bytes.Buffer
 	server := newTestServer(t)
 	server.logger = slog.New(slog.NewTextHandler(&journal, nil))
@@ -448,7 +440,7 @@ func TestHost_UnknownIsRefusedOnTheAPIAndTheAuthorization(t *testing.T) {
 			t.Errorf("%s: %d", host, recorder.Code)
 		}
 	}
-	for _, target := range []string{"/api/session", "/api/nope", "/oauth/authorize?client_id=x"} {
+	for _, target := range []string{"/api/session", "/api/nope"} {
 		request := httptest.NewRequest(http.MethodGet, target, nil)
 		request.Host = "autre.exemple"
 		recorder := httptest.NewRecorder()

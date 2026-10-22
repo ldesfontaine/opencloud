@@ -20,7 +20,7 @@ type ExportOptions struct {
 	Propose bool
 	// RedactSecrets masque le mot de passe des cibles de sonde
 	// (« https://user:…@hôte »), pour un export qui quitte l'application
-	// vers un client MCP. Le fichier d'export ne le met pas : l'apply compare
+	// vers un jeton d'API (mcp-maison). Le fichier d'export ne le met pas : l'apply compare
 	// ce mot de passe à celui du stockage, un fichier masqué le changerait en « … ».
 	RedactSecrets bool
 }

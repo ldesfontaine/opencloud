@@ -65,6 +65,15 @@ func (r *Recorder) Record(ctx context.Context, event Event) {
 	event.ApplyID = applyFrom(ctx)
 	event.ObjectKind = event.Action.ObjectKind()
 	event.Details = r.cleanDetails(event)
+	// Posé après le nettoyage, et seul l'acteur le pose : un geste ne peut
+	// pas l'usurper.
+	delete(event.Details, "on_behalf_of")
+	if event.Actor.OnBehalfOf != "" {
+		if event.Details == nil {
+			event.Details = Details{}
+		}
+		event.Details["on_behalf_of"] = event.Actor.OnBehalfOf
+	}
 	if event.Actor.Kind == ActorUnknown {
 		r.logger.Warn("audit event without actor", "action", string(event.Action), "object_id", event.ObjectID)
 	}

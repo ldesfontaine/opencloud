@@ -30,7 +30,7 @@ export function useAuth(): Resource<AuthState> {
 }
 
 // Crée le compte de la première configuration. Le serveur répond aussi
-// combien de jetons MCP sont tombés : l'écran n'en dit rien, il n'y en a qu'après
+// combien de jetons d'API sont tombés : l'écran n'en dit rien, il n'y en a qu'après
 // une commande de secours, et la documentation le dit.
 export async function enableAuth(body: AuthEnableRequest): Promise<void> {
   await api.post(`${authPath}/actions/enable`, body);

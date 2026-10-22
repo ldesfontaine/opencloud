@@ -29,6 +29,9 @@ type Config struct {
 	// Adresse à laquelle les machines joignent openCloud, mise dans la
 	// commande d'installation. Vide : déduite de la requête.
 	PublicURL string `toml:"public_url" validate:"omitempty,http_url"`
+	// Adresse de mcp-maison, le serveur MCP installé à côté : Paramètres lit
+	// son /health. Vide : openCloud ne le cherche pas et marche sans lui.
+	MCPURL string `toml:"mcp_url" validate:"omitempty,http_url"`
 	// Mandataires dont les en-têtes X-Forwarded-* sont crus, en CIDR.
 	TrustedProxies []string `toml:"trusted_proxies" validate:"dive,cidr"`
 	// Niveau du journal : debug, info, warn, error. Vide : info. En debug,

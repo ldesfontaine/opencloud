@@ -7,8 +7,7 @@
 **openCloud est une supervision auto-hébergée** : vos machines, leurs
 conteneurs Docker en lecture seule, des sondes HTTP/TCP et leurs certificats,
 vos tâches planifiées par ping, des alertes par webhook signé, une page de
-statut publique, les mises à jour d'images détectées, et un serveur MCP pour
-les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
+statut publique, les mises à jour d'images détectées, et un jeton d'API en lecture pour un agent IA, par mcp-maison. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 
 > **Maturité.** Version `v0.0.1`, pré-version. Les binaires Linux amd64 et
 > arm64 sont dans la [release v0.0.1](https://github.com/ldesfontaine/opencloud/releases/tag/v0.0.1),
@@ -30,7 +29,7 @@ les agents IA. Un seul binaire Go, avec SQLite et l'interface web embarqués.
 | Dit si la version d'un service, ou le système d'une machine, est encore maintenu, et jusqu'à quand, d'après endoflife.date | Ne cherche pas de failles (CVE). Appelle endoflife.date une à deux fois par jour ; se coupe sous Paramètres |
 | Envoie les alertes en webhook signé (Discord, Slack, Mattermost, ntfy, JSON), par e-mail via votre relais SMTP, ou dans un salon Matrix | Pas de SMS |
 | Publie une page de statut sous `/statut` | Pas de comptes multiples ni de second facteur en propre : derrière un mandataire (Authelia), le mode `forward` les délègue à votre SSO |
-| Sert MCP : 18 outils de lecture | Aucune écriture ni action sur une machine par MCP pendant la refonte, aucun secret rendu |
+| Donne à un agent IA un jeton d'API en lecture, pour mcp-maison | Aucune écriture ni action sur une machine par ce jeton, aucun secret rendu |
 
 openCloud **observe, il n'agit jamais sur une machine**. L'interface existe
 en français et en anglais (sélecteur FR/EN en bas de la barre latérale).

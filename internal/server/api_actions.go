@@ -20,7 +20,7 @@ const (
 	actionsMaxLimit     = 100
 )
 
-// Un ordre et ce qu'il est devenu, tel que le front et MCP le lisent.
+// Un ordre et ce qu'il est devenu, tel que le front le lit.
 type actionRunJSON struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -157,8 +157,7 @@ func actionQueryOf(values url.Values) (action.Query, bool) {
 	return query, true
 }
 
-// actionsPage borne la liste et l'assemble : l'API et l'outil MCP la
-// rendent telle quelle.
+// actionsPage borne la liste et l'assemble : l'API la rend telle quelle.
 func (s *Server) actionsPage(ctx context.Context, query action.Query) (actionsResponse, error) {
 	if query.Limit <= 0 {
 		query.Limit = actionsDefaultLimit

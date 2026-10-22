@@ -33,31 +33,6 @@ func TestAuthBasic_AttemptBudget_IsSharedByAnIPv6SixtyFour(t *testing.T) {
 	}
 }
 
-// Les autres limiteurs par adresse passent par la même clé ; ceux de
-// l'agent, des pings et de la page publique se testent dans leurs paquets.
-func TestLimiters_ShareOneBucketPerIPv6SixtyFour(t *testing.T) {
-	server := newFirstSetupServer(t)
-	first, second := "2001:db8:9:9::1", "2001:db8:9:9::2"
-	cases := []struct {
-		name  string
-		burst int
-		allow func(string) bool
-	}{
-		{"mcp", mcpPerSourceBurst, server.mcpLimit.Allow},
-		{"mcp token", mcpTokenBurst, server.mcpTokenLimit.Allow},
-	}
-	for _, c := range cases {
-		for i := range c.burst {
-			if !c.allow(first) {
-				t.Fatalf("%s: request %d of the burst refused", c.name, i+1)
-			}
-		}
-		if c.allow(second) {
-			t.Errorf("%s: a second address of the same /64 got its own bucket", c.name)
-		}
-	}
-}
-
 // Le verdict « file pleine » est un 429 avec Retry-After, comme le limiteur ;
 // une requête abandonnée n'est pas un mauvais mot de passe.
 type refusingAuth struct {

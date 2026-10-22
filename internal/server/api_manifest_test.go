@@ -114,7 +114,7 @@ func TestManifestAPI_ExportIsAnOperatorRoute(t *testing.T) {
 }
 
 // La socket de commande ne sert que le fichier de l'annuaire : tout le reste
-// de l'API, l'interface, les agents, les pings et MCP y répondent 404, et
+// de l'API, l'interface, les agents et les pings y répondent 404, et
 // l'authentification de l'interface n'a pas à s'y jouer (qui atteint la
 // socket peut déjà lire la base).
 func TestControlSocket_ServesOnlyTheManifest(t *testing.T) {
@@ -135,9 +135,9 @@ func TestControlSocket_ServesOnlyTheManifest(t *testing.T) {
 		t.Fatalf("the TCP side stays guarded: %d", main.Code)
 	}
 	for _, path := range []string{
-		"/api/machines", "/api/session", "/api/directory/services", "/api/probes", "/api/jobs", "/api/mcp",
+		"/api/machines", "/api/session", "/api/directory/services", "/api/probes", "/api/jobs", "/api/settings/api-tokens",
 		"/api/manifest", "/api/manifest/", "/api/manifest/unknown", "/api/events",
-		"/", "/machines", "/statut", "/mcp", "/agent/stream", "/ping/x", "/oauth/token", "/.well-known/oauth-authorization-server",
+		"/", "/machines", "/statut", "/agent/stream", "/ping/x",
 	} {
 		if got := call(http.MethodGet, path); got.Code != http.StatusNotFound {
 			t.Errorf("GET %s: %d, want 404", path, got.Code)
@@ -226,11 +226,5 @@ func TestManifestAPI_ExportTooLargeIsRefusedWithItsKey(t *testing.T) {
 	catalog := server.catalogs.For("fr")
 	if text := catalog.Get(manifest.KeyExportTooLarge); text == manifest.KeyExportTooLarge || text == "" {
 		t.Fatalf("the key has no text: %q", text)
-	}
-
-	session := connectMCP(t, server.mcpServer)
-	text, isError := callTool(t, session, "export_directory", map[string]any{})
-	if !isError || toolErrorCode(t, text) != manifest.KeyExportTooLarge {
-		t.Fatalf("%v %s", isError, text)
 	}
 }

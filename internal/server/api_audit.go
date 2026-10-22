@@ -94,12 +94,13 @@ func auditQueryOf(values url.Values) (audit.Query, bool) {
 	return query, isKnownObjectKind(query.ObjectKind)
 }
 
+// Les anciennes sortes (celles du MCP interne) restent suivables : leurs
+// lignes sont dans le journal, qui ne s'efface pas.
 func isKnownObjectKind(kind audit.ObjectKind) bool {
-	return kind == "" || slices.Contains(audit.ObjectKinds(), kind)
+	return kind == "" || slices.Contains(audit.ObjectKinds(), kind) || slices.Contains(audit.LegacyObjectKinds(), kind)
 }
 
-// auditPage borne la page et l'assemble : l'API et l'outil MCP la rendent
-// telle quelle.
+// auditPage borne la page et l'assemble : l'API la rend telle quelle.
 func (s *Server) auditPage(ctx context.Context, query audit.Query) (auditResponse, error) {
 	if query.Limit <= 0 {
 		query.Limit = auditDefaultLimit

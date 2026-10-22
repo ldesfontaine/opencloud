@@ -9,9 +9,9 @@ const (
 	// L'opérateur de l'interface, sous l'identité que l'authentification a
 	// vue (Basic ou en-tête du mandataire) ; vide sans authentification.
 	ActorOperator ActorKind = "operator"
-	// Un client MCP, nommé par l'identifiant de son jeton d'API ou de sa
-	// famille OAuth.
-	ActorMCP ActorKind = "mcp"
+	// Un jeton d'API, nommé par son identifiant ; OnBehalfOf : pour qui
+	// mcp-maison dit appeler, indicatif.
+	ActorAPI ActorKind = "api"
 	// La commande locale, par la socket ou sur la base, sous le compte
 	// système qui l'a lancée : indicatif, pas une preuve.
 	ActorCLI ActorKind = "cli"
@@ -25,21 +25,29 @@ const (
 )
 
 func ActorKinds() []ActorKind {
-	return []ActorKind{ActorOperator, ActorMCP, ActorCLI, ActorRule, ActorAgent, ActorUnknown}
+	return []ActorKind{ActorOperator, ActorAPI, ActorCLI, ActorRule, ActorAgent, ActorUnknown}
 }
 
-// Actor est qui a agi, et sous quel nom.
+// LegacyActorKinds sont les acteurs que le MCP écrivait jusqu'au 21 octobre
+// 2026 : lus, plus jamais écrits. Le journal est en ajout seul.
+func LegacyActorKinds() []ActorKind {
+	return []ActorKind{"mcp"}
+}
+
+// Actor est qui a agi, et sous quel nom. OnBehalfOf ne vit jamais en
+// colonne : le Recorder le copie dans les détails de la ligne.
 type Actor struct {
-	Kind ActorKind
-	Name string
+	Kind       ActorKind
+	Name       string
+	OnBehalfOf string
 }
 
 func Operator(identity string) Actor {
 	return Actor{Kind: ActorOperator, Name: identity}
 }
 
-func MCP(tokenID string) Actor {
-	return Actor{Kind: ActorMCP, Name: tokenID}
+func API(tokenID, onBehalfOf string) Actor {
+	return Actor{Kind: ActorAPI, Name: tokenID, OnBehalfOf: onBehalfOf}
 }
 
 func CLI(account string) Actor {

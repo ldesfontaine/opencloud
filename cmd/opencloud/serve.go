@@ -85,7 +85,7 @@ func runServe(args []string) error {
 	}
 	defer db.Close()
 	// La clé avant tout ce qui lit un secret.
-	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
+	if err := openSecrets(ctx, stateDir, db, logger); err != nil {
 		return err
 	}
 	// La clé qui signe les ordres aux agents, créée au premier démarrage.
@@ -97,8 +97,8 @@ func runServe(args []string) error {
 	if err := db.PurgeTokens(ctx, now, now.Add(-machine.ConsumedTokenRetention)); err != nil {
 		logger.Warn("purge enrollment tokens", "error", err)
 	}
-	// Les composants, branchés entre eux comme pour mcp ; tout ce qui suit
-	// n'appartient qu'à serve.
+	// Les composants, branchés entre eux ; tout ce qui suit n'appartient
+	// qu'à serve.
 	parts, err := buildComponents(cfg, stateDir, db, logger)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func runServe(args []string) error {
 	parts.actions.SetWatcher(bus)
 	parts.actions.SetKey(serverKey)
 	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
-	// démarrage, que mcp n'ouvre pas.
+	// démarrage de serve.
 	outbox, err := action.NewOutbox(stateDir)
 	if err != nil {
 		return err
@@ -147,7 +147,7 @@ func runServe(args []string) error {
 	// Treize boucles de fond : les échéances, le rollup et la purge des
 	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
 	// purge des constats d'images, la page de statut, les machines perdues,
-	// le moteur des alertes, le notifieur, la purge des jetons MCP, la fin
+	// le moteur des alertes, le notifieur, la purge des jetons d'API, la fin
 	// de support, l'expiration et la purge des ordres, la sauvegarde de la
 	// base. Elles finissent avant
 	// que la base ne se ferme.
@@ -161,7 +161,7 @@ func runServe(args []string) error {
 	runLoop(&loops, func() { parts.machines.Watch(ctx) })
 	runLoop(&loops, func() { parts.alerts.Watch(ctx) })
 	runLoop(&loops, func() { parts.notifier.Run(ctx) })
-	runLoop(&loops, func() { parts.access.Watch(ctx) })
+	runLoop(&loops, func() { parts.apiTokens.Watch(ctx) })
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
 	runLoop(&loops, func() { parts.actions.Watch(ctx) })
 	runLoop(&loops, func() { parts.backups.Watch(ctx) })
@@ -186,7 +186,7 @@ func runServe(args []string) error {
 		logger.Warn("mark interrupted applies", "error", err)
 	}
 
-	options := parts.serverOptions(cfg, *configPath)
+	options := parts.serverOptions(cfg)
 	options.Live = bus
 	options.PublicLive = publicBus
 	options.ForwardSecret = forwardSecret
@@ -286,7 +286,7 @@ func openStateDir(path string) (*os.Root, error) {
 }
 
 // newHTTPServer prépare le serveur HTTP. Les flux en direct (agents,
-// interface, journaux, statut, MCP) ne finissent qu'avec le contexte de
+// interface, journaux, statut) ne finissent qu'avec le contexte de
 // leur requête : il dérive d'un contexte de base annulé dès l'arrêt, sans
 // quoi Shutdown les attendrait jusqu'à son délai. Une requête courte en
 // cours au même instant voit aussi son contexte annulé : sa transaction

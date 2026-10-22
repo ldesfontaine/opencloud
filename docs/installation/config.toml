@@ -18,15 +18,21 @@ state_dir = "/var/lib/opencloud"
 
 # Adresse publique d'openCloud, telle que les machines et le navigateur
 # l'appellent. Elle sert à :
-#  - écrire la commande d'installation d'une machine, l'URL de ping d'une
-#    tâche et l'adresse MCP ;
+#  - écrire la commande d'installation d'une machine et l'URL de ping d'une
+#    tâche ;
 #  - reconnaître le nom sous lequel on atteint l'interface : une requête
-#    sur /api/… ou /oauth/authorize dont le Host n'est ni ce nom, ni
+#    sur /api/… dont le Host n'est ni ce nom, ni
 #    localhost, ni une IP, ni l'hôte de `listen` est refusée en
 #    403 {"error":"bad_host"} (protection contre le DNS rebinding).
 # Vide (défaut) : déduite de chaque requête, et tout nom de domaine autre
 # que localhost est refusé sur l'API. Derrière un domaine, renseignez-la.
 public_url = "https://opencloud.example.org"
+
+# Adresse de mcp-maison, le serveur MCP installé à côté d'openCloud
+# (installation.md, « Brancher un agent IA »). Paramètres → Agent IA lit son
+# /health pour dire s'il répond. Vide (défaut) : openCloud ne le cherche pas
+# et marche sans lui. L'hôte est celui de MCP_HOST, le port 3000.
+# mcp_url = "http://127.0.0.1:3000"
 
 # Mandataires dont les en-têtes X-Forwarded-For, -Host et -Proto sont crus,
 # en notation CIDR. Vide (défaut) : aucun, l'adresse vue est celle du pair.

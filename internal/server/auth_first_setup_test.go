@@ -103,18 +103,17 @@ func TestFirstSetup_PublicRoutesStayPublic(t *testing.T) {
 	if got := callAs(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: %d, want the ping's own 404", got.Code)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/.well-known/oauth-authorization-server", "", ""); got.Code == http.StatusUnauthorized {
-		t.Fatalf("well-known: %d", got.Code)
-	}
 }
 
 // Hors /api, le refus dit d'ouvrir l'interface, dans la langue du navigateur.
+// Aucune route de page n'est plus gardée en mode none (le front sert la
+// première configuration) : le refus se joue directement.
 func TestFirstSetup_RefusedPageSaysToOpenTheInterface(t *testing.T) {
 	server := newFirstSetupServer(t)
-	request := httptest.NewRequest(http.MethodGet, mcpAuthorizePath, nil)
+	request := httptest.NewRequest(http.MethodGet, "/machines", nil)
 	request.Header.Set("Accept-Language", "fr-FR,fr;q=0.9")
 	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
+	server.writeSetupRequired(recorder, request)
 	want := "Première configuration en attente : ouvrez openCloud dans le navigateur et créez le compte de l'opérateur."
 	if recorder.Code != http.StatusUnauthorized || strings.TrimSpace(recorder.Body.String()) != want {
 		t.Fatalf("status %d, body %q", recorder.Code, recorder.Body.String())

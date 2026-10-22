@@ -18,6 +18,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/status"
@@ -130,10 +131,15 @@ func closedKeyLists() []composedKeys {
 		{prefix: "manifest.note_", values: names(manifest.Notes())},
 		{prefix: "manifest.carries_", values: manifest.CarryKinds()},
 		{prefix: "manifest.carries_", suffix: "_one", values: manifest.CarryKinds()},
-		// Le journal d'audit : qui, le verbe d'une action, la sorte d'objet.
-		{prefix: "audit.actor_", values: names(audit.ActorKinds())},
+		// Le journal d'audit : qui, le verbe d'une action, la sorte d'objet ;
+		// les anciennes lignes du MCP restent lisibles.
+		{prefix: "audit.actor_", values: names(append(audit.ActorKinds(), audit.LegacyActorKinds()...))},
 		{prefix: "audit.verb_", values: audit.Verbs()},
-		{prefix: "audit.object_", values: names(audit.ObjectKinds())},
+		{prefix: "audit.object_", values: names(append(audit.ObjectKinds(), audit.LegacyObjectKinds()...))},
+		// La carte de Paramètres sur mcp-maison : ce que sa vérification a
+		// trouvé, et le conseil qui suit (aucun quand il est joignable).
+		{prefix: "ai_agent.state_", values: names(mcpcheck.States())},
+		{prefix: "ai_agent.hint_", values: without(names(mcpcheck.States()), string(mcpcheck.StateReachable))},
 		// Le plan d'une suppression : ce qui retient, part ou se détache, compté.
 		{prefix: "deletion.kind_", values: names(deletion.Kinds())},
 		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},

@@ -16,7 +16,7 @@
 | Rôle | openCloud **observe**, n'agit jamais sur une machine (README, « Fait / Ne fait pas ») | openCloud **déclare** ce qui doit exister, **compare** au réel, puis **agit** par gestes simples, un par un, chacun décidé à part |
 | But | — | L'opérateur crée une VM ou un LXC, installe l'agent par une ligne générée par openCloud, et gère tout ou presque depuis openCloud |
 | Ce qu'il n'est pas | — | Ni Coolify ni Portainer ; il ne remplace pas le SSH ; pas d'ordonnanceur ; pas de haute disponibilité. Raisonné comme un outil générique, jamais pour une infra particulière |
-| Ce qui reste | Un binaire, SQLite, front embarqué ; agent sortant, clé Ed25519 ; Docker lu, jamais écrit par la lecture ; mode `forward` derrière un SSO ; MCP à portées `read` / `write` | Tout cela reste ; le MCP passe en lecture seule pendant la refonte. L'écriture arrive **à côté** de la lecture, dans des actions typées, jamais en ouvrant la lecture |
+| Ce qui reste | Un binaire, SQLite, front embarqué ; agent sortant, clé Ed25519 ; Docker lu, jamais écrit par la lecture ; mode `forward` derrière un SSO ; un jeton d'API pour un agent IA | Tout cela reste ; le MCP sort d'openCloud (mcp-maison, à part) et le jeton d'API ne lit que. L'écriture arrive **à côté** de la lecture, dans des actions typées, jamais en ouvrant la lecture |
 | Ce qui se revoit | — | Les fonctionnalités existantes ne sont pas sacrées : le [tri](#décisions-du-tri-des-fonctionnalités) dit ce qui change |
 | Principe nouveau | — | **openCloud tombé = on ne voit plus, on n'agit plus, rien ne s'arrête.** Ce sont Docker et systemd qui gardent les services vivants, jamais openCloud |
 
@@ -88,7 +88,7 @@ statut. Le **service déclaré** en est l'objet central.
 | Page de statut | une par projet, créée à la main ; remplace la page globale | — |
 | `opencloud export` | sort l'annuaire en YAML lisible, `id` + `name`, **sans aucun secret** (marqueur « conservé ») ; peut aller dans Git | Komodo `ExportAllResourcesToToml`, Beszel `config-yaml` |
 | `opencloud apply <fichier>` | calcule le diff, **l'affiche, demande confirmation**, crée ou modifie sur place, ne recrée jamais. Ne supprime ce qui n'est pas déclaré que sur option explicite | Komodo Resource Sync (`delete` opt-in) ; piège Beszel (supprime au démarrage) |
-| Vue « écart » | par service : déclaré et absent, présent et non déclaré (adoptable d'un clic), conforme. Dans l'interface et par un outil MCP de lecture | — |
+| Vue « écart » | par service : déclaré et absent, présent et non déclaré (adoptable d'un clic), conforme. Dans l'interface et par l'API, lisible par un jeton d'API | — |
 
 **Écart et coût**
 
@@ -227,7 +227,7 @@ avec silences et maintenances à part. Le moteur d'alertes lit la page de
 statut pour la maintenance.
 
 **Cible** : dès le **premier** geste, un enregistrement par action : qui
-(identité de l'opérateur, ou MCP, ou règle), quoi, quand, sur quelle machine,
+(identité de l'opérateur, ou jeton d'API, ou règle), quoi, quand, sur quelle machine,
 paramètres sans secret, résultat, journal d'exécution. Stocké dans la base,
 **et** envoyé sur un canal « audit » : une base effacée n'efface pas la trace.
 **Fait** (21/10) : le journal part vers les canaux qui le reçoivent (« Recevoir le journal »).
@@ -351,7 +351,7 @@ Tri de l'existant fait par Lucas le 17 octobre 2026.
 
 | Fonctionnalité | Décision |
 | --- | --- |
-| Paramètres | Secrets saisis dans l'interface chiffrés en base par la clé du serveur. Paramètres = openCloud lui-même : Général, Accès, Intégrations (MCP, relais e-mail, fin de support). Les seuils vont dans la page Alertes ; la sauvegarde de la base est une sauvegarde parmi d'autres, dans la page Sauvegardes. Machine › Réglages montre ce que l'agent déclare, en lecture |
+| Paramètres | Secrets saisis dans l'interface chiffrés en base par la clé du serveur. Paramètres = openCloud lui-même : Général, Accès, Intégrations (agent IA, relais e-mail, fin de support). Les seuils vont dans la page Alertes ; la sauvegarde de la base est une sauvegarde parmi d'autres, dans la page Sauvegardes. Machine › Réglages montre ce que l'agent déclare, en lecture |
 | Authentification | Compte local créé au premier démarrage, avant tout. SSO branchable ensuite, jamais figé sur un fournisseur : forward-auth (existe) et OIDC dans openCloud (à ajouter). Journal des gestes dès le premier geste ; page de connexion avec déconnexion à la place du Basic ; comptes multiples et rôles plus tard |
 | SSO des services | Forward-auth au proxy (générique) + OIDC optionnel par modèle. Par service : tout protégé par défaut, liste de chemins ouverts pré-remplie par le modèle et modifiable, chaque chemin ouvert affiché comme public |
 | Tâches | Jeton réaffiché en clair dans l'interface, stocké chiffré en base, régénérable. Intervalle + marge, pas d'horaire cron. Édition sur place, pause qui tient, webhooks entrants comme genre de tâche |
@@ -381,7 +381,7 @@ Il peut revoir chacun.
 | Mesures | Gardées ; rétention 24 h chez l'agent (décision 11) ; interfaces virtuelles (veth, ponts) écartées ; agrégat horaire par volume ; historique long par service sur l'identité stable | Trafic compté deux fois, volume plein noyé dans la somme |
 | E-mail | Gardé, relais migré en base, mot de passe chiffré | Isolé, facultatif, c'est le canal que tout opérateur a déjà |
 | Matrix | Gardé tel quel ; le champ « secret » à double sens sera renommé avec la revue des canaux | 82 lignes, rien à gagner |
-| MCP | Lecture seule pendant la refonte ; ensuite les outils passent par la même couche de gestes que l'interface et `apply` ; `Disable` en transaction | Un seul chemin par geste, pas deux à garder alignés |
+| Jeton d'API | Lecture seule, sur une liste fermée de routes ; le MCP est un projet à part (mcp-maison) qui lit l'API. Quand l'écriture viendra, des actions typées passeront par la même couche de gestes que l'interface et `apply` | Un seul chemin par geste, pas deux à garder alignés ; openCloud ne parle plus MCP |
 | Paramètres (front) | `Settings.tsx` découpé en sous-pages | 727 lignes, cinq sujets |
 | Service déclaré | Un service = un dossier (projet Compose) avec ses unités (service Compose, conteneur, binaire) ; identifiant jamais tiré de Docker | Colle à la décision 7 : une sauvegarde, une adresse, une version épinglée par image |
 | Suppressions | `restrict` entre objets déclarés + un plan qui liste ce que la suppression emporte, puis supprime dans l'ordre ; l'historique propre part avec son objet ; alertes, exécutions et audit survivent (`set null` + nom recopié) | La base refuse toute perte silencieuse, même par un chemin oublié |

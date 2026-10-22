@@ -173,7 +173,7 @@ func TestForwardAuditEvent_AFailureIsRetriedFromTheBaseWithoutWaitingInTheWorker
 	}
 }
 
-// Sans notifieur (la commande mcp), l'événement et ses livraisons sont
+// Sans notifieur (une commande hors ligne), l'événement et ses livraisons sont
 // écrits ; le démarrage suivant les envoie, une seule fois.
 func TestRequeue_ReplaysPendingAuditDeliveries(t *testing.T) {
 	f := newFixture(t)

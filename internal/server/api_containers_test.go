@@ -289,9 +289,9 @@ func TestLogSlots_ConcurrentTakers_NeverExceedTheCeiling(t *testing.T) {
 	}
 }
 
-// Le tirage unique et l'outil MCP comptent dans les mêmes seize places que
-// les suivis : au-delà, la clé du catalogue.
-func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
+// Le tirage unique et le suivi comptent dans les mêmes seize places : au-delà,
+// la clé du catalogue.
+func TestContainerLogs_FetchAndStreamShareTheCeiling(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
@@ -305,11 +305,6 @@ func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs/stream", nil)
 	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
 		t.Fatalf("stream: %d %s", got.Code, got.Body.String())
-	}
-	session := connectMCP(t, server.mcpServer)
-	text, isError := callTool(t, session, "get_container_logs", map[string]any{"id": containerID})
-	if !isError || toolErrorCode(t, text) != codeLogsBusy {
-		t.Fatalf("tool: %v %s", isError, text)
 	}
 	server.releaseLogSlot()
 	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)

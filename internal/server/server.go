@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
@@ -29,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/reader"
@@ -305,17 +304,17 @@ type Server struct {
 	status     StatusService
 	alerts     AlertService
 	notifier   Notifier
-	mcp        MCPService
+	apiTokens  APITokenService
+	mcpCheck   *mcpcheck.Checker
+	mcpURL     string
 	auth       AuthService
 	actions    ActionService
 	backups    Backups
 	live       Live
 	logStreams atomic.Int32
-	// Les limiteurs de la racine, par source : /mcp et l'autorisation
-	// OAuth, le point de jeton, et les essais d'identifiants Basic.
-	mcpLimit      *ratelimit.BySource
-	mcpTokenLimit *ratelimit.BySource
-	authLimit     *ratelimit.BySource
+	// Le limiteur de la racine, par source : les essais d'identifiants Basic
+	// et de jetons d'API.
+	authLimit *ratelimit.BySource
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -329,12 +328,8 @@ type Server struct {
 	// Les onglets en direct de l'administration ; ceux de la page publique
 	// sont comptés dans son paquet.
 	eventTabs *ratelimit.Slots
-	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
-	mcpServer  *gomcp.Server
-	mcpHandler http.Handler
 	// La socket de commande ne sert que les routes du fichier de l'annuaire.
 	controlHandler http.Handler
-	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
 	// Le secret que le mandataire pose dans brand.ProxySecretHeader ; vide :
@@ -364,7 +359,10 @@ type Options struct {
 	Status     StatusService
 	Alerts     AlertService
 	Notifier   Notifier
-	MCP        MCPService
+	// APITokens crée et vérifie les jetons d'API ; voir api_tokens.go.
+	APITokens APITokenService
+	// MCPURL est l'adresse de mcp-maison, vide : aucun ; voir api_settings_mcp.go.
+	MCPURL string
 	// Auth garde l'interface de l'opérateur ; voir auth.go.
 	Auth AuthService
 	// Actions envoie les ordres signés aux agents ; voir api_actions.go.
@@ -384,9 +382,6 @@ type Options struct {
 	ForwardSecret string
 	// Listen est l'adresse d'écoute : son hôte est un Host reconnu.
 	Listen string
-	// ConfigPath est le fichier de configuration de ce serveur, cité dans
-	// la commande du client MCP local.
-	ConfigPath string
 	// Clock remplace l'horloge, pour les tests ; nil = time.Now.
 	Clock func() time.Time
 }
@@ -423,16 +418,14 @@ func New(opts Options) (*Server, error) {
 		status:         opts.Status,
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
-		mcp:            opts.MCP,
+		apiTokens:      opts.APITokens,
+		mcpURL:         opts.MCPURL,
 		auth:           opts.Auth,
 		actions:        opts.Actions,
 		backups:        opts.Backups,
 		live:           opts.Live,
-		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
-		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
-		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		forwardSecret:  opts.ForwardSecret,
@@ -441,8 +434,6 @@ func New(opts Options) (*Server, error) {
 		clock:          opts.Clock,
 	}
 	if opts.Clock != nil {
-		server.mcpLimit.SetClock(opts.Clock)
-		server.mcpTokenLimit.SetClock(opts.Clock)
 		server.authLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
@@ -471,8 +462,7 @@ func New(opts Options) (*Server, error) {
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
-	server.mcpServer = server.newMCPServer(mcpHTTPReadOnly)
-	server.mcpHandler = server.newMCPHandler()
+	server.mcpCheck = mcpcheck.New(opts.MCPURL, server.now)
 	server.handler = server.chain(securityHeaders(server.mux()))
 	server.controlHandler = server.chain(server.controlMux())
 	return server, nil

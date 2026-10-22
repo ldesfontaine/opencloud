@@ -20,7 +20,7 @@
 | Un service a une **nature** : application ou outil d'infra (libellé provisoire, dans les catalogues). Un outil d'infra déclare ce qu'il **fournit** : `sso`, `proxy`, `tls`, `backup-target` | C'est sur quoi les modules se branchent ; séparés dans l'interface et le catalogue | Une liste fermée dans le code, à étendre par migration de code, pas de table |
 | Un **projet** regroupe des services ; un service peut être dans plusieurs projets | Le socle (proxy, SSO) paraît sur la page de chaque site qui en dépend | Une table de liaison ; un service sans projet reste valide |
 | Le projet porte sa page de statut, limite les canaux, filtre l'interface ; plus tard les droits | Un seul regroupement pour tout | Supprimer un projet passe par un plan (page, canaux) |
-| Entre objets déclarés : `restrict`. La suppression passe par un **plan** qui liste ce qu'elle emporte, puis supprime dans l'ordre | Aucune perte silencieuse, même par MCP ou l'API | Chaque suppression écrit son plan ; plus de code qu'un `cascade` |
+| Entre objets déclarés : `restrict`. La suppression passe par un **plan** qui liste ce qu'elle emporte, puis supprime dans l'ordre | Aucune perte silencieuse, même par l'API | Chaque suppression écrit son plan ; plus de code qu'un `cascade` |
 | D'un objet vers **son propre** historique : `cascade`, chiffré dans le plan | L'historique n'a pas de sens sans son objet | Le plan le dit en nombre de lignes |
 | Alertes, exécutions, audit vers un objet : `set null` + nom recopié | La trace survit à l'objet | Une colonne de nom en double |
 | Supprimer un service de l'annuaire ne touche jamais la machine | Retirer un déploiement est une action typée à part | Les conteneurs restent et passent « présent non déclaré » |
@@ -426,7 +426,7 @@ erDiagram
     audit_events {
         INTEGER id PK
         INTEGER at
-        TEXT actor_kind "operator, mcp, cli, rule, agent, unknown"
+        TEXT actor_kind "operator, api, cli, rule, agent, unknown ; mcp avant le 21/10/2026"
         TEXT actor_name
         TEXT action
         TEXT object_kind "sans FK"
@@ -782,7 +782,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` (**fait**, `004`) ; `name` unique (clé du YAML) ; + `channel_projects` | — |
 | `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré. **Fait** (032) | Gardé |
 | `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables. **Fait** (032) | Gardé |
-| `mcp_clients`, `mcp_codes`, `mcp_tokens` | Gardées | Désactivation en une transaction ; `mcp_codes.client_id` en FK ; `mcp_codes.scope`, la portée consentie sur la page de consentement (migration 033). Les demandes qui attendent le consentement restent en mémoire, pas en base | — |
+| `mcp_clients`, `mcp_codes`, `mcp_tokens` | Supprimées ; `mcp_tokens` remplacée par `api_tokens` | Le MCP a quitté openCloud (migration `008_api_tokens.sql`, section 23). Les jetons d'API vivants sont repris en lecture ; le client OAuth, ses codes et ses jetons d'accès partent | — |
 | `auth_settings` | Transformée | Mode `none` retiré : un compte local (`accounts`) est créé au premier démarrage, avant tout ; Basic remplacé par une page de connexion (`sessions`) ; + OIDC | Compte Basic repris dans `accounts` |
 | `schema_migrations` | Gardée | Part de `001_schema.sql` (schéma unique) ; une version que le binaire n'embarque pas est refusée au démarrage | — |
 | `settings.toml` (fichier) | **Supprimé** | Vers `settings` : seuils (page Alertes), relais e-mail (mot de passe chiffré), interrupteur de fin de support ; les clés `status_*` vers la page du projet migré | Réglages repris |
@@ -938,7 +938,7 @@ settings:
 | Services : nature, fournitures, chemins ouverts, unités | Mesures, résultats, pings, alertes, runs, audit |
 | Sondes, tâches (jeton marqué « conservé ») | Incidents (historique) et fenêtres pour taire (temporaires) |
 | Pages, composants, membres | Tout secret : URL et secret des canaux, jetons, mot de passe du relais, secret OIDC, `.env` |
-| Canaux et leurs projets, destinations, plans de sauvegarde | `config.toml`, `lifecycle.json`, comptes, sessions, `auth_settings`, MCP |
+| Canaux et leurs projets, destinations, plans de sauvegarde | `config.toml`, `lifecycle.json`, comptes, sessions, `auth_settings`, jetons d'API |
 | Réglages de `settings` ; empreinte de la clé de sauvegarde en commentaire | La paire de clés de sauvegarde (créée dans l'interface, jamais par apply) |
 | Clés ignorées (`ignored_keys`) | — |
 
@@ -1112,7 +1112,7 @@ journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
 | Décision | Pourquoi |
 | --- | --- |
 | **`details`, pas `changes`** : les champs utiles du geste, à plat, en texte | Un avant/après demanderait de relire chaque objet avant chaque geste ; le plan d'un apply porte déjà le sien dans `applies.plan` |
-| **Acteurs : `operator`, `mcp`, `cli`, `rule`, `agent`, plus `unknown`** ; `system` n'existe pas | Ce que serve fait de lui-même (boucles, démarrage) est une `rule` ; la commande locale a son mot, comme dans `applies` ; `unknown` montre un geste appelé sans acteur au lieu de le taire |
+| **Acteurs : `operator`, `api`, `cli`, `rule`, `agent`, plus `unknown`** (`mcp` pour les lignes d'avant le 21 octobre 2026, lues seulement) ; `system` n'existe pas | Ce que serve fait de lui-même (boucles, démarrage) est une `rule` ; la commande locale a son mot, comme dans `applies` ; `unknown` montre un geste appelé sans acteur au lieu de le taire |
 | **L'acteur voyage dans le contexte**, posé par qui le connaît, lu par le `Recorder` | Les quelque quarante gestes gardent leur signature ; un oubli s'écrit `unknown` et se voit |
 | **Pas encore de `run_id`** | `action_runs` n'existe pas ; la colonne viendra avec elle (`ALTER TABLE … ADD COLUMN run_id TEXT REFERENCES action_runs (id) ON DELETE SET NULL`, que SQLite accepte sans reconstruire) |
 | **Pas encore d'`audit_deliveries` ni de `receives_audit`** *(fait depuis : `004`, section 18)* | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
@@ -1235,7 +1235,7 @@ au diagramme :
 | **Un seul essai dans l'ouvrier**, les suivants par la base, jusqu'à 24 h | Un `apply` de 200 objets ne doit pas retarder les alertes |
 | **Ni silence, ni limite de débit, ni seuil** | « Taire » et la limite visent les alertes ; le journal part entier |
 | **Pas de rattrapage du passé** | Un canal coché reçoit ce qui s'écrit après ; renvoyer un an de journal serait un autre geste |
-| **Sans notifieur, les livraisons attendent** (`opencloud mcp`, commandes hors ligne) | Le prochain `serve` les rejoue ; aucune écriture n'est perdue |
+| **Sans notifieur, les livraisons attendent** (commandes hors ligne) | Le prochain `serve` les rejoue ; aucune écriture n'est perdue |
 | **Identifiant de transaction Matrix préfixé `audit-`** | Deux tables, deux suites : sans le préfixe, deux livraisons pourraient s'appeler pareil et Matrix jetterait la seconde |
 | **L'état se lit au journal** (`GET /api/audit/forwarding`), sans fiche par livraison | Deux nombres suffisent à dire « aucun canal » et « des envois échouent » ; le détail est au journal du serveur |
 
@@ -1299,3 +1299,23 @@ tranché :
 | **Un agent qui ne vit pas dans `<état>/bin/` refuse** (`not_self_updatable`), avant de lire l'ordre | Remplacer un binaire hors de `bin/`, c'est le faire sans lien à rebasculer ni précédente à garder. La migration est une étape manuelle, une fois par machine. L'agent de la machine openCloud garde `/usr/local/bin/opencloud` : son état est sous `/var/lib/opencloud`, au compte du serveur, et un binaire lancé en root depuis là donnerait la machine à qui prend `serve` |
 | **`Options.ReleaseKey`** dans `agent.Options` ; le chemin de l'exécutable, champ non exporté | La clé de version passe du binaire à l'agent par ses options plutôt que par un global. Le chemin de l'exécutable ne se remplace que dans les tests du paquet : la commande ne peut pas faire croire à l'agent qu'il tourne depuis `bin/` |
 | **Offre et envoi jugent pareil** (`judgeUpdate`) : le bouton de la fiche et la route ne divergent jamais | Les raisons de l'offre sont des clés de catalogue (`machine.agent_update_reason_*`), jamais du texte du serveur |
+
+## 23. Ce que la sortie du MCP a fixé
+
+Le serveur MCP n'est plus dans openCloud : **mcp-maison**, un projet à part,
+parle MCP et lit l'API avec un jeton d'API. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment un agent IA lit openCloud ». Ce que le code
+a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`api_tokens` est reconstruite, pas renommée** (`008_api_tokens.sql`) ; `mcp_clients`, `mcp_codes` et `mcp_tokens` sont supprimées | Le jeton n'a plus de famille, de client ni de rafraîchissement : la table à garder est la moitié de l'ancienne. Un jeton vivant garde son identifiant, son empreinte et son échéance, donc celui que mcp-maison porte déjà continue de servir |
+| **Révoquer efface la ligne** | Présenté ensuite, un jeton révoqué est inconnu, comme un faux : un seul refus (`api_token.invalid`), pas de période de grâce ni d'état « révoqué » à garder |
+| **`scope` garde `write` dans le `CHECK`, le code le refuse** | Les actions de l'API (#153, étape 5) n'auront pas à reconstruire la table. D'ici là, aucun jeton `write` ne se crée et aucune écriture n'est admise |
+| **Un jeton lit une liste fermée de 25 routes `GET`**, jugée avant le mode d'accès (sauf en `none`, où le Bearer est ignoré) | La liste est la seule porte : une route ajoutée à l'API ne s'ouvre pas à un jeton sans qu'on l'y écrive. Hors liste : `403 api_token.route_forbidden` |
+| **Les secrets sont masqués pour un jeton** | Un jeton d'API ne lit ni un jeton de ping, ni une cible de sonde avec identifiants, ni une destination de canal ; l'export de l'annuaire passe par `RedactSecrets` |
+| **L'acteur d'audit est `api`**, nommé par l'identifiant du jeton ; la personne au nom de qui mcp-maison lit est dans `details.on_behalf_of` | La personne est dite par mcp-maison (en-tête `X-MCP-Maison-User`, bornée à 200 caractères) : indicative, pas une preuve. Elle vit dans `details`, posée par le `Recorder` seul : un geste ne peut pas la forger, et il n'y a pas de colonne de plus |
+| **Les lignes d'audit `mcp` restent** | Le journal est en ajout seul. Les acteurs et sortes d'objet d'avant se lisent (listes `Legacy…` de `audit/event.go`), avec un libellé « ancien », et ne s'écrivent plus |
+| **`mcp_url` vit dans `config.toml`, pas dans la base**, vide par défaut | C'est une adresse d'installation comme `listen`. Vide : la carte « Agent IA » dit `not_configured` et suggère l'adresse |
+| **Aucune table pour mcp-maison** | openCloud ne retient rien de lui : il interroge son `/health` à l'ouverture de la carte (3 s, sans suivre une redirection) et affiche ce qu'il a trouvé |
+| **Le préfixe des outils se compte par `brand.ID`** | Le nom du produit reste dans `internal/brand` ; le groupe d'outils absent se dit `group_missing` |

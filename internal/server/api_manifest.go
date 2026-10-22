@@ -41,6 +41,9 @@ func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportO
 // sert l'annuaire seul.
 func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
 	options := manifest.ExportOptions{Propose: r.URL.Query().Get("propose") == "1"}
+	// Un jeton d'API reçoit le fichier sans les secrets du manifeste.
+	_, byToken := apiTokenFrom(r.Context())
+	options.RedactSecrets = byToken
 	data, err := s.exportedDirectory(r.Context(), options)
 	if s.failed(w, r, err, nil) {
 		return

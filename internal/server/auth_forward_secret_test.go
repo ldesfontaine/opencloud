@@ -125,7 +125,7 @@ func TestAuthForwardSecret_IsRemovedFromTheRequestBeforeTheHandlers(t *testing.T
 	handler := server.requireOperator(func(_ http.ResponseWriter, r *http.Request) {
 		reached = true
 		seen = r.Header.Values(brand.ProxySecretHeader)
-	}, false)
+	}, false, false)
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/counts", nil)
 	request.RemoteAddr = net.JoinHostPort(loopbackPeer, "4000")
 	request.Header.Set(auth.DefaultForwardHeader, testUsername)

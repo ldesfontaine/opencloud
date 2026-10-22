@@ -250,8 +250,8 @@ func TestCreate_UnknownDeclaredServiceRefused(t *testing.T) {
 	}
 }
 
-// Le contrôle vit dans le composant : le fichier et les outils MCP qui
-// créent une sonde sans passer par l'API sont tenus de même.
+// Le contrôle vit dans le composant : le fichier, qui crée une sonde sans
+// passer par l'API, est tenu de même.
 func TestCreate_UnknownMachineRefused(t *testing.T) {
 	fixture := newBench(t)
 

@@ -25,7 +25,7 @@ func TestSecretsRotate_ResealsWithANewKeyAndSetsTheOldOneAside(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_rotated")
@@ -53,7 +53,7 @@ func TestSecretsRotate_ResealsWithANewKeyAndSetsTheOldOneAside(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer again.Close()
-	if err := openSecrets(ctx, root, again, logger, true); err != nil {
+	if err := openSecrets(ctx, root, again, logger); err != nil {
 		t.Fatalf("the next start must work: %v", err)
 	}
 	if _, err := again.GetHeartbeatByToken(ctx, "hb_rotated"); err != nil {
@@ -72,7 +72,7 @@ func TestSecretsRotate_ResumesAnInterruptedRotation(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_interrupted")

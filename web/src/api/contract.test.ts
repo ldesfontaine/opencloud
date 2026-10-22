@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { ActionsResponse, ActionRun, AgentUpdateOffer, RunLine } from "./actions";
+import type { APITokensState } from "./apiTokens";
 import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
 import type { AuditForwarding, AuditResponse } from "./audit";
 import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./backups";
@@ -12,7 +13,7 @@ import type { DeclaredServiceDetail, DeclaredServicesResponse, GapsResponse, Pro
 import type { JobResponse, JobsResponse } from "./jobs";
 import type { Agent, Capability, Machine, MachinesResponse } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
-import type { MCPState } from "./mcp";
+import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
@@ -585,22 +586,20 @@ const apply = shape<Apply>("Apply", {
   changes: optional(manifestChange),
 });
 
-const mcp = shape<MCPState>("MCPState", {
-  enabled: value,
-  client_id: value,
-  secret_masked: value,
-  redirect_uris: value,
-  endpoint: value,
-  issuer: value,
-  url_local: value,
-  stdio_command: value,
-  server_name: value,
-  tokens: shape("MCPToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
-  sessions: shape("MCPSession", { id: value, scope: value, started_at: value, last_used_at: value, expires_at: value }),
-  limits: shape("MCPState.limits", { tokens: value, redirect_uris: value }),
-  lifetimes: shape("MCPState.lifetimes", { access_seconds: value, refresh_seconds: value, api_token_days: value, api_token_default_days: value }),
-  tools: shape("MCPState.tools", { reads: value }),
-  enabled_at: value,
+const apiTokens = shape<APITokensState>("APITokensState", {
+  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
+  limit: value,
+  lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
+  env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
+});
+
+const mcpCheck = shape<MCPCheck>("MCPCheck", {
+  url: value,
+  state: value,
+  version: value,
+  opencloud_tools: value,
+  checked_at: value,
+  suggested_url: value,
 });
 
 const auth = shape<AuthState>("AuthState", {
@@ -765,6 +764,7 @@ const contract: Record<string, Shape<unknown>> = {
   "alert_channels.golden.json": channels,
   "alert_mutes.golden.json": mutes,
   "alerts.golden.json": alerts,
+  "api_tokens.golden.json": apiTokens,
   "audit.golden.json": audit,
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
@@ -793,7 +793,6 @@ const contract: Record<string, Shape<unknown>> = {
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
-  "mcp.golden.json": mcp,
   "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network }),
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
@@ -801,6 +800,7 @@ const contract: Record<string, Shape<unknown>> = {
   "remote_resources.golden.json": current,
   "resources.golden.json": shape<ResourcesResponse>("ResourcesResponse", { machines: current }),
   "session.golden.json": session,
+  "settings_ai_agent.golden.json": mcpCheck,
   "status_component.golden.json": statusComponent,
   "status_components.golden.json": shape<StatusComponentsResponse>("StatusComponentsResponse", {
     public_url: value,
@@ -825,9 +825,6 @@ const contract: Record<string, Shape<unknown>> = {
   "status_public.golden.json": publicStatus,
 };
 
-// Les réponses des outils MCP : un agent IA les lit, pas le navigateur.
-const mcpToolGolden = "mcp_";
-
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
   "manifest_plan.golden.json": "le plan se lit par la commande apply ; l'écran ne montre que les passages",
@@ -835,7 +832,7 @@ const notReadByFront: Record<string, string> = {
 };
 
 function isNotReadByFront(name: string): boolean {
-  return name.startsWith(mcpToolGolden) || name in notReadByFront;
+  return name in notReadByFront;
 }
 
 function isOptional(field: Field): field is Optional {

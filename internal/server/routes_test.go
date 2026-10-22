@@ -15,6 +15,7 @@ import (
 
 	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/apitoken"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/backup"
@@ -26,7 +27,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
@@ -54,7 +54,7 @@ type testServer struct {
 	status     *status.Service
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
-	access     *mcp.Service
+	apiTokens  *apitoken.Service
 	operator   *auth.Service
 	journal    *audit.Recorder
 	actions    *action.Service
@@ -85,14 +85,13 @@ func newTestServer(t *testing.T) *testServer {
 const anonymousHeader = "X-Test-Anonymous"
 
 // asOperator pose les identifiants du compte de test sur une requête qui n'en
-// porte aucun. Les routes ouvertes les ignorent, sauf /mcp et le point de
-// jeton OAuth, où Authorization est la preuve d'un agent IA : une requête
-// sans rien y reste sans rien.
+// porte aucun. Les routes ouvertes les ignorent ; une requête qui porte déjà
+// Authorization (un Bearer d'API, par exemple) garde la sienne.
 func asOperator(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		anonymous := r.Header.Get(anonymousHeader) != ""
 		r.Header.Del(anonymousHeader)
-		if !anonymous && r.Header.Get("Authorization") == "" && r.URL.Path != mcpPath && r.URL.Path != mcpTokenPath {
+		if !anonymous && r.Header.Get("Authorization") == "" {
 			r.SetBasicAuth(testUsername, testPassword)
 		}
 		next.ServeHTTP(w, r)
@@ -166,8 +165,8 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	resources.SetAlerter(alerts)
 	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
-	access := mcp.New(db, logger)
-	access.SetClock(func() time.Time { return testNow })
+	apiTokens := apitoken.New(db, logger)
+	apiTokens.SetClock(func() time.Time { return testNow })
 	operator, err := auth.New(db, logger)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +184,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	declared.SetAuditor(journal)
 	statusPage.SetAuditor(journal)
 	alerts.SetAuditor(journal)
-	access.SetAuditor(journal)
+	apiTokens.SetAuditor(journal)
 	operator.SetAuditor(journal)
 	// Les ordres, signés par une clé figée : les rendus le sont aussi.
 	actions := action.New(db, machines, logger)
@@ -224,13 +223,12 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Status:     statusPage,
 		Alerts:     alerts,
 		Notifier:   notifier,
-		MCP:        access,
+		APITokens:  apiTokens,
 		Auth:       operator,
 		Actions:    actions,
 		Backups:    backups,
 		Live:       bus,
 		PublicLive: publicBus,
-		ConfigPath: "/etc/opencloud/config.toml",
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
 		// d'écoute de ce serveur, donc un Host reconnu.
 		Listen: "example.com:80",
@@ -244,7 +242,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, backups: backups, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{actions: actions, backups: backups, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme

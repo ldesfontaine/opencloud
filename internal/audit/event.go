@@ -46,10 +46,8 @@ const (
 	ObjectAlert           ObjectKind = "alert"
 	ObjectSettings        ObjectKind = "settings"
 	ObjectAuth            ObjectKind = "auth"
-	ObjectMCP             ObjectKind = "mcp"
-	ObjectMCPToken        ObjectKind = "mcp_token" // #nosec G101 -- un nom, pas un secret.
-	ObjectMCPSession      ObjectKind = "mcp_session"
-	ObjectSecrets         ObjectKind = "secrets" // #nosec G101 -- un nom, pas un secret.
+	ObjectAPIToken        ObjectKind = "api_token" // #nosec G101 -- un nom, pas un secret.
+	ObjectSecrets         ObjectKind = "secrets"   // #nosec G101 -- un nom, pas un secret.
 	// Un ordre envoyé à un agent : l'objet est son run, nommé par sa machine.
 	ObjectAction ObjectKind = "action"
 	// La sauvegarde de la base : sa paire de clés, ses destinations, son plan.
@@ -63,9 +61,16 @@ func ObjectKinds() []ObjectKind {
 		ObjectMachine, ObjectAgent, ObjectEnrollmentToken, ObjectProject, ObjectService, ObjectUnit, ObjectIgnoredKey,
 		ObjectProbe, ObjectHeartbeat, ObjectStatusComponent, ObjectIncident, ObjectStatusPage,
 		ObjectChannel, ObjectMute, ObjectAlert, ObjectSettings, ObjectAuth,
-		ObjectMCP, ObjectMCPToken, ObjectMCPSession, ObjectSecrets, ObjectAction,
+		ObjectAPIToken, ObjectSecrets, ObjectAction,
 		ObjectBackupKeyring, ObjectBackupDestination, ObjectBackupPlan,
 	}
+}
+
+// LegacyObjectKinds sont les sortes d'objet que le MCP écrivait jusqu'au
+// 21 octobre 2026 : lues, plus jamais écrites. Le journal est en ajout seul,
+// on ne réécrit pas l'histoire, on la lit.
+func LegacyObjectKinds() []ObjectKind {
+	return []ObjectKind{"mcp", "mcp_token", "mcp_session"}
 }
 
 // Action est « sorte d'objet.verbe » : la sorte se lit dans l'action, le
@@ -139,17 +144,8 @@ const (
 	AuthDisable        Action = "auth.disable"
 	AuthChangePassword Action = "auth.change_password" // #nosec G101 -- un nom, pas un secret.
 
-	MCPEnable           Action = "mcp.enable"
-	MCPDisable          Action = "mcp.disable"
-	MCPRegenerateSecret Action = "mcp.regenerate_secret" // #nosec G101 -- un nom, pas un secret.
-	MCPSetRedirectURIs  Action = "mcp.set_redirect_uris"
-
-	MCPTokenCreate Action = "mcp_token.create" // #nosec G101 -- un nom, pas un secret.
-	MCPTokenRevoke Action = "mcp_token.revoke" // #nosec G101 -- un nom, pas un secret.
-
-	MCPSessionAuthorize Action = "mcp_session.authorize"
-	MCPSessionDeny      Action = "mcp_session.deny"
-	MCPSessionRevoke    Action = "mcp_session.revoke"
+	APITokenCreate Action = "api_token.create" // #nosec G101 -- un nom, pas un secret.
+	APITokenRevoke Action = "api_token.revoke" // #nosec G101 -- un nom, pas un secret.
 
 	SecretsForget Action = "secrets.forget" // #nosec G101 -- un nom, pas un secret.
 	// La clé de chiffrement changée, chaque secret rescellé ; la clé qui
@@ -194,13 +190,21 @@ func Actions() []Action {
 		AlertAcknowledge,
 		SettingsUpdate,
 		AuthEnable, AuthDisable, AuthChangePassword,
-		MCPEnable, MCPDisable, MCPRegenerateSecret, MCPSetRedirectURIs,
-		MCPTokenCreate, MCPTokenRevoke,
-		MCPSessionAuthorize, MCPSessionDeny, MCPSessionRevoke,
+		APITokenCreate, APITokenRevoke,
 		SecretsForget, SecretsRotate, SecretsRotateServerKey, SecretsFinishServerKey,
 		ActionOrder, ActionRefused,
 		BackupKeyringCreate, BackupKeyringReplace, BackupDestinationCreate, BackupDestinationDelete,
 		BackupPlanUpdate, BackupPlanDelete, BackupPlanRun,
+	}
+}
+
+// LegacyActions sont les actions que le MCP écrivait jusqu'au 21 octobre
+// 2026 : lues, plus jamais écrites (voir LegacyObjectKinds).
+func LegacyActions() []Action {
+	return []Action{
+		"mcp.enable", "mcp.disable", "mcp.regenerate_secret", "mcp.set_redirect_uris",
+		"mcp_token.create", "mcp_token.revoke",
+		"mcp_session.authorize", "mcp_session.deny", "mcp_session.revoke",
 	}
 }
 
@@ -217,11 +221,12 @@ func (a Action) Verb() string {
 	return verb
 }
 
-// Verbs rend chaque verbe une fois, dans l'ordre des actions.
+// Verbs rend chaque verbe une fois, dans l'ordre des actions, les anciennes
+// à la suite : une ancienne ligne se traduit encore.
 func Verbs() []string {
 	seen := map[string]bool{}
 	verbs := []string{}
-	for _, action := range Actions() {
+	for _, action := range append(Actions(), LegacyActions()...) {
 		verb := action.Verb()
 		if !seen[verb] {
 			seen[verb] = true

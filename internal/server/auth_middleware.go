@@ -20,16 +20,16 @@ import (
 )
 
 // L'accès de l'opérateur à l'interface. En mode basic, HTTP Basic garde
-// tout ce que l'opérateur appelle : le front, l'API, le direct, les flux
-// de journaux et l'autorisation OAuth, où il consent pour un agent IA. En
-// mode forward, les mêmes routes exigent l'en-tête d'identité posé par un
-// mandataire de trusted_proxies. En mode none, l'installation attend sa
-// première configuration : seules les routes qui servent à créer le compte
-// passent.
+// tout ce que l'opérateur appelle : le front, l'API, le direct et les flux
+// de journaux. En mode forward, les mêmes routes exigent l'en-tête
+// d'identité posé par un mandataire de trusted_proxies. En mode none,
+// l'installation attend sa première configuration : seules les routes qui
+// servent à créer le compte passent.
+// Un jeton d'API (Authorization: Bearer) remplace l'un et l'autre, sur une
+// liste fermée de lectures (apiTokenRoutes) : voir admitAPIToken.
 // Restent ouverts ceux qui ont leur propre preuve ou n'en ont pas
-// besoin : l'agent (sa clé), les pings (le jeton dans l'URL), la page de
-// statut (publique), /mcp (son Bearer), le point de jeton OAuth (le secret
-// du client) et les métadonnées well-known.
+// besoin : l'agent (sa clé), les pings (le jeton dans l'URL) et la page de
+// statut (publique).
 
 const (
 	authRealmHeader  = `Basic realm="` + brand.ProductName + `", charset="UTF-8"`
@@ -81,11 +81,7 @@ func isFirstSetupRoute(method, pattern string) bool {
 
 // Les préfixes qui ne passent jamais par l'authentification de
 // l'opérateur. Tout le reste, fourre-tout du front compris, y passe.
-var openRoutePrefixes = []string{"/agent/", "/ping/", "/statut", "/.well-known/"}
-
-// Les routes ouvertes exactes, à part des préfixes : /oauth/authorize,
-// sa voisine, est l'étape où l'opérateur consent, elle reste gardée.
-var openRoutePatterns = []string{mcpPath, mcpTokenPath}
+var openRoutePrefixes = []string{"/agent/", "/ping/", "/statut"}
 
 // isOperatorRoute dit si le motif de route est réservé à l'opérateur. Le
 // jugement porte sur le motif enregistré, pas sur le chemin reçu : un
@@ -96,19 +92,15 @@ func isOperatorRoute(pattern string) bool {
 			return false
 		}
 	}
-	for _, open := range openRoutePatterns {
-		if pattern == open {
-			return false
-		}
-	}
 	return true
 }
 
 // requireOperator relit le mode à chaque requête : la commande de secours
 // `opencloud auth disable` écrit dans la base, et serve la suit sans
 // redémarrer ; l'installation revient alors à sa première configuration.
-// firstSetup dit si la route reste servie tant qu'aucun compte n'existe.
-func (s *Server) requireOperator(next http.HandlerFunc, firstSetup bool) http.HandlerFunc {
+// firstSetup dit si la route reste servie tant qu'aucun compte n'existe,
+// tokenRoute si un jeton d'API l'ouvre.
+func (s *Server) requireOperator(next http.HandlerFunc, firstSetup, tokenRoute bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.isCompiledAsset(r) {
 			next(w, r)
@@ -117,6 +109,13 @@ func (s *Server) requireOperator(next http.HandlerFunc, firstSetup bool) http.Ha
 		state, err := s.auth.State(r.Context())
 		if err != nil {
 			s.apiInternalError(w, r, err)
+			return
+		}
+		// Un Bearer est jugé avant le mode : en basic comme en forward, il
+		// passe par le jeton, ni par Basic ni par l'en-tête du mandataire.
+		// En none, il est ignoré : la première configuration seule est servie.
+		if bearer, presented := bearerOf(r); presented && state.Mode != auth.ModeNone {
+			s.admitAPIToken(w, r, bearer, tokenRoute, next)
 			return
 		}
 		switch state.Mode {
@@ -207,7 +206,7 @@ func authorizingStateFrom(ctx context.Context) (auth.State, bool) {
 }
 
 // grantsAuthority garde une écriture qui accorde une autorité durable (un
-// jeton MCP, un code OAuth, le secret du client, un jeton d'enrôlement) : si
+// jeton d'API, un jeton d'enrôlement) : si
 // l'état d'authentification n'est plus celui qui a admis la requête, 409.
 //
 // L'activation révoque après avoir changé l'état : sans verrou, une écriture

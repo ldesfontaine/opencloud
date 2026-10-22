@@ -88,6 +88,24 @@ func TestParse_PublicURLAndProxies_AreValidated(t *testing.T) {
 	}
 }
 
+// mcp_url est l'adresse de mcp-maison : vide, openCloud ne le cherche pas ;
+// sinon une adresse http(s), sans quoi le démarrage la refuse.
+func TestParse_MCPURL_IsEmptyByDefaultAndMustBeAnHTTPAddress(t *testing.T) {
+	cfg, _, err := Parse([]byte(""))
+	if err != nil || cfg.MCPURL != "" {
+		t.Fatalf("default: %q %v", cfg.MCPURL, err)
+	}
+	cfg, _, err = Parse([]byte("mcp_url = \"http://127.0.0.1:3000\"\n"))
+	if err != nil || cfg.MCPURL != "http://127.0.0.1:3000" {
+		t.Fatalf("set: %q %v", cfg.MCPURL, err)
+	}
+	for _, bad := range []string{"127.0.0.1:3000", "ftp://127.0.0.1:3000", "mcp-maison"} {
+		if _, _, err := Parse([]byte("mcp_url = \"" + bad + "\"\n")); err == nil {
+			t.Errorf("mcp_url %q accepted", bad)
+		}
+	}
+}
+
 // Un mandataire déclaré par un sous-réseau est cru pour chacun de ses pairs :
 // le démarrage le dit, sans refuser la configuration.
 func TestParse_WideTrustedProxy_Warns(t *testing.T) {
