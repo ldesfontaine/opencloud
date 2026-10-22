@@ -56,7 +56,7 @@ et en-têtes qui le portent passent par un seul paquet de constantes
 | Agent installé par une **ligne générée** dans l'interface | serveur, script d'installation | `curl … \| sh`, aussi en cloud-init ; jeton à usage unique lu sur stdin ou dans un fichier, jamais en argv. Le serveur n'a jamais d'accès SSH | Moyen : le script, la page qui le génère |
 | Racine déjà occupée | script d'installation | Si le dossier existe et n'est pas vide, l'installation s'arrête et demande un autre chemin | Faible |
 | Machine openCloud avec un agent | `serve`, migration | Un seul mécanisme : le chemin intégré disparaît | Faible ; la machine garde son id et son historique, mais ne se voit plus tant que l'agent n'est pas installé. **Fait** (migration `030_agents.sql`) : l'agent s'installe dès la première configuration, l'empreinte du serveur le rattache à l'identifiant `local` |
-| Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer. Prérequis **fait** (21/10) : versions immuables, signées, vérifiées par le binaire (`22-fonctionnement.md`, « Comment une version est publiée et vérifiée ») |
+| Mise à jour d'un **agent** depuis le serveur | agent, nouvelle action | Le geste le plus utile et le moins dangereux : premier geste (décision 14) | Moyen : télécharger, vérifier la somme, remplacer, redémarrer. Prérequis **fait** (21/10) : versions immuables, signées, vérifiées par le binaire (`22-fonctionnement.md`, « Comment une version est publiée et vérifiée »). **Fait** (22/10) : l'ordre `agent.update`, la bibliothèque des versions importées, le bouton de la fiche (« Comment un agent se met à jour ») |
 | Le **serveur** ne se met jamais à jour seul | doc | Il porte la base ; une montée ratée casse tout | Nul |
 | Agent root ou non | `opencloud-agent.service` | Lire `/proc` et Docker en root est accepté aujourd'hui ; écrire dans `/srv/workspace` en root l'est moins | Reportée avant l'étape 2 (décision 2) |
 
@@ -298,7 +298,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation. **Fait** : ordres signés et journalisés, droits appliqués, protocole v2 et rotation des clés. Reste : la décision 2 (root) | non |
 | 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination. **Fait** (21/10) : la base chiffrée part chaque nuit vers un agent ; services à venir avec le déploiement | oui : la sauvegarde chiffrée, chez l'agent de destination |
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
-| 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur | oui |
+| 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur. **Fait** (22/10) : `release import`, `agent.update`, vérifié deux fois (serveur, puis agent avec sa clé), lien `bin/current` basculé, succès constaté au retour | oui |
 | 6 | #125 | appliquer une mise à jour d'image validée | oui |
 | 7 | à ouvrir | déployer un compose dans `/srv/workspace/<service>/` | oui |
 | 8 | #152 | clés SSH distribuées | oui |
@@ -328,7 +328,7 @@ donné avant la décision.
 | 12 | Sauvegarde de la base | copie locale ; copie + poussée vers un agent ; rien | copie locale d'abord, poussée ensuite | Pas de copie locale : envoi vers une destination choisie (machine avec agent, plus tard stockage externe). Sans destination, l'interface le dit |
 | 12 bis | Que contient la sauvegarde, comment se protège-t-elle ? | — | — | Elle contient la clé du serveur et est chiffrée par une paire de clés ; seule une phrase de passe est à garder de côté ([points techniques](#points-techniques-tranchés)) |
 | 13 | Jetons de ping | rester en clair ; hacher et ne plus réafficher | à voir, bas dans la liste | Réaffichés en clair dans l'interface, stockés chiffrés en base, régénérables |
-| 14 | Premier geste | mise à jour d'un agent ; mise à jour d'image ; déploiement | mise à jour d'un agent | Mise à jour d'un agent, proposée ; à terme tout se met à jour depuis openCloud |
+| 14 | Premier geste | mise à jour d'un agent ; mise à jour d'image ; déploiement | mise à jour d'un agent | Mise à jour d'un agent, proposée ; à terme tout se met à jour depuis openCloud. **Fait** (22/10) |
 | 15 | Agents entre eux | jamais ; plus tard | jamais | Jamais ; chaque agent garde sa part de l'annuaire, rien de plus. Agent relais pour un site distant : possible plus tard, pas construit |
 | 16 | Serveur de secours | non ; plus tard ; maintenant | non, l'architecture ne l'interdit pas | Non ; l'architecture ne l'interdit pas |
 | 17 | Icônes | OCI + générique + dépôt ; bibliothèque embarquée ; logos récupérés | OCI + générique + dépôt, en dernier | OCI + générique + dépôt, en dernier |

@@ -34,6 +34,15 @@ const (
 	// Le dossier des colis à destination des agents, dans state_dir : vidé au
 	// démarrage, rien n'y reste plus de quelques heures.
 	OutgoingDir = "outgoing"
+	// Les versions importées par `release import`, dans state_dir : un
+	// dossier par version, dont l'agent se met à jour sans rien télécharger
+	// d'Internet.
+	ReleasesDir = "releases"
+	// Sur chaque machine, dans l'état de l'agent : les binaires installés
+	// (AgentBinaryPrefix + version) et le lien que l'unité lance.
+	AgentBinDir       = "bin"
+	AgentCurrentLink  = "current"
+	AgentBinaryPrefix = ID + "-"
 	// Le nom d'une sauvegarde est ce préfixe, un instant UTC et « .tar.age » ;
 	// la clé scellée qui l'accompagne porte le second préfixe et l'empreinte.
 	BackupFilePrefix    = ID + "-"

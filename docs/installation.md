@@ -200,9 +200,21 @@ installez l'unité de l'agent :
 printf '%s\n' 'oc_…' | sudo opencloud agent -server https://opencloud.example.org
 # « connected » au journal : Ctrl-C, puis
 install -m 0644 docs/installation/opencloud-agent.service /etc/systemd/system/opencloud-agent.service
+# Sur cette machine seulement : l'agent garde le binaire du serveur
+mkdir -p /etc/systemd/system/opencloud-agent.service.d
+printf '[Service]\nExecStart=\nExecStart=/usr/local/bin/opencloud agent -state /var/lib/opencloud/agent\n' \
+  > /etc/systemd/system/opencloud-agent.service.d/machine-opencloud.conf
 systemctl daemon-reload
 systemctl enable --now opencloud-agent
 ```
+
+**Sur la machine openCloud, l'agent lance `/usr/local/bin/opencloud`**, pas
+le lien `bin/current` des autres machines : son état,
+`/var/lib/opencloud/agent`, est sous `/var/lib/opencloud`, qui appartient au
+compte `opencloud`. Un binaire lancé en root depuis ce dossier donnerait la
+machine à quiconque prend le serveur. Cet agent ne se met donc pas à jour
+depuis sa fiche (il refuse, `not_self_updatable`) : il change de binaire avec
+le serveur ([Mettre à jour](#mettre-à-jour)).
 
 L'agent présente l'empreinte de la machine : c'est celle du serveur, il
 devient **la machine openCloud** (identifiant `local`). La ligne vaut 1 h ;
@@ -699,8 +711,19 @@ l'interface est en anglais.
 
 ```sh
 scp bin/opencloud root@machine:/tmp/opencloud          # bin/opencloud-arm64 pour arm64
-ssh root@machine install -m 0755 /tmp/opencloud /usr/local/bin/opencloud
+ssh root@machine 'umask 077 && install -D -m 0755 /tmp/opencloud /var/lib/opencloud/agent/bin/opencloud-v0.0.1 \
+  && ln -sfn opencloud-v0.0.1 /var/lib/opencloud/agent/bin/current \
+  && ln -sfn /var/lib/opencloud/agent/bin/current /usr/local/bin/opencloud'
 ```
+
+Remplacez `v0.0.1` par la version du binaire (`/tmp/opencloud version`). Le
+binaire vit dans `bin/` de l'état de l'agent et le lien `current` désigne
+celui qui tourne : c'est ce qui permet à l'agent de se mettre à jour seul
+(voir [Mettre à jour](#mettre-à-jour)). `umask 077` crée l'état en `0700`,
+comme l'agent le ferait. `/usr/local/bin/opencloud` devient un lien vers
+`bin/current` : la commande `opencloud` suit les mises à jour. **Pas sur la
+machine openCloud** : là, l'agent lance le binaire du serveur (voir
+[Installer le serveur](#installer-le-serveur)).
 
 ### 3. Le premier lancement : l'enrôlement
 
@@ -743,8 +766,9 @@ journalctl -u opencloud-agent -f
 ```
 
 L'unité ([`opencloud-agent.service`](installation/opencloud-agent.service))
-lance `opencloud agent -state
-/var/lib/opencloud/agent`, sans `-server` ni jeton : l'agent relit son
+lance `/var/lib/opencloud/agent/bin/current agent -state
+/var/lib/opencloud/agent` (sur la machine openCloud, `/usr/local/bin/opencloud`
+par son drop-in), sans `-server` ni jeton : l'agent relit son
 identité (`identity loaded`) et se connecte. Il tourne en root : il lit
 chaque volume monté et la socket Docker.
 
@@ -764,6 +788,11 @@ systemctl restart opencloud-agent
 Le dossier doit exister avant le redémarrage : systemd refuse de démarrer
 une unité dont un `ReadWritePaths=` manque. Sans ce fichier, l'agent accepte
 l'ordre, ne peut pas écrire, et répond `path_unwritable`.
+
+**Le code de sortie 3** veut dire « mis à jour, relance-moi » : l'agent vient
+de changer de binaire (`agent.update`) et s'arrête pour que systemd le relance
+sur le nouveau. `Restart=on-failure` le relance, `RestartPreventExitStatus=2`
+ne retient que le code 2.
 
 Une coupure de réseau ou un redémarrage de `serve` ne l'arrête pas : il se
 reconnecte seul, avec un délai de 1 à 60 s, et signe à chaque fois une
@@ -844,13 +873,86 @@ runuser -u opencloud -- sqlite3 /var/lib/opencloud/opencloud.db ".backup '/var/l
 install -m 0755 opencloud /usr/local/bin/opencloud
 systemctl restart opencloud
 
-# Puis sur chaque machine, la machine openCloud comprise
-install -m 0755 opencloud /usr/local/bin/opencloud
+# Sur la machine openCloud, l'agent lance le même binaire : il suffit de le relancer
+systemctl restart opencloud-agent
+
+# Sur une autre machine, à la main (sans passer par la fiche, voir plus bas)
+umask 077 && install -D -m 0755 opencloud /var/lib/opencloud/agent/bin/opencloud-v0.0.2
+ln -sfn opencloud-v0.0.2 /var/lib/opencloud/agent/bin/current
 systemctl restart opencloud-agent
 ```
 
 `install` remplace le binaire pendant que le service tourne (vérifié ici) ;
-le nouveau prend effet au redémarrage.
+le nouveau prend effet au redémarrage. `v0.0.2` est la version installée
+(`opencloud version`). Sur une machine que l'agent met à jour seul,
+n'utilisez pas `install` sur `/usr/local/bin/opencloud` : c'est un lien vers
+`bin/current`, `install` le remplacerait par une copie qui ne suivrait plus.
+
+### Mettre à jour les agents depuis openCloud
+
+Une fois le serveur à jour, les autres machines se mettent à jour **depuis la
+fiche**, sans y entrer. Le serveur n'envoie que **sa propre version**, signée :
+
+```sh
+# Sur le serveur : télécharger la version (Télécharger, ci-dessus), la vérifier,
+# puis l'importer dans la bibliothèque de versions du serveur
+# Le dossier doit être lisible par le compte opencloud (/tmp/v0.0.2, pas /root/…)
+opencloud release verify opencloud-linux-amd64          # dans le dossier de la version
+runuser -u opencloud -- opencloud release import /tmp/v0.0.2
+```
+
+Il faut un binaire qui embarque la clé de version (la première version
+signée, pas la `v0.0.1`) : sans elle, la fiche dit que la mise à jour des
+agents est coupée (`no_releases`), et chaque machine se met à jour à la main
+comme ci-dessus.
+
+`release import <dossier>` lit le dossier d'une version publiée
+(`SHA256SUMS`, `SHA256SUMS.minisig` et les binaires `opencloud-linux-*`),
+vérifie tout avec la clé embarquée, puis le range sous `releases/` dans l'état
+d'openCloud. Il refuse le dossier entier au moindre écart (signature, binaire
+manquant ou différent de la somme signée) et ne laisse rien en route ; le
+refaire est sans effet. Il ne demande ni `serve` arrêté ni jeton, et
+s'exécute sous le compte du service pour que les fichiers lui appartiennent.
+
+Puis, pour chaque machine : Machines → la machine → Agent → **Mettre à jour
+l'agent**. Le bouton n'apparaît que si l'agent est en ligne, a le droit
+`agent.update`, et si sa version n'est pas celle du serveur ; sinon la fiche
+en donne la raison (version plus récente, rien d'importé pour cette
+architecture, droit manquant…). L'agent télécharge le binaire, **revérifie
+lui-même la signature avec sa propre clé**, l'éprouve (`opencloud version`),
+bascule le lien `bin/current`, puis s'arrête avec le code 3 : systemd le
+relance. L'ordre devient « fait » quand l'agent revient en annonçant la
+nouvelle version. Il garde la version précédente à côté.
+
+**Une fois par machine, pour un agent déjà installé**, il faut le mettre dans
+la disposition d'au-dessus : sans elle l'agent refuse l'ordre
+(`not_self_updatable`). **Pas sur la machine openCloud** : son agent garde
+`/usr/local/bin/opencloud` (voir [Installer le serveur](#installer-le-serveur) ;
+une installation d'avant y pose le drop-in `machine-opencloud.conf` et s'arrête
+là). Sur chaque autre machine, en root, `v0.0.1` étant ce que
+`opencloud version` affiche :
+
+```sh
+umask 077 && install -D -m 0755 /usr/local/bin/opencloud /var/lib/opencloud/agent/bin/opencloud-v0.0.1
+ln -sfn opencloud-v0.0.1 /var/lib/opencloud/agent/bin/current
+ln -sfn /var/lib/opencloud/agent/bin/current /usr/local/bin/opencloud
+# Seul le chemin du binaire change : les options de la ligne (-allow-plain, -ca-file…) restent
+sed -i 's|^ExecStart=/usr/local/bin/opencloud |ExecStart=/var/lib/opencloud/agent/bin/current |' /etc/systemd/system/opencloud-agent.service
+grep '^ExecStart=' /etc/systemd/system/opencloud-agent.service   # doit commencer par /var/lib/opencloud/agent/bin/current
+systemctl daemon-reload
+systemctl restart opencloud-agent
+```
+
+Un drop-in qui redéfinit `ExecStart=` (`systemctl cat opencloud-agent`) se
+change de la même façon.
+
+**Revenir en arrière** sur une machine : l'interface n'envoie pas de version
+plus ancienne (l'agent la refuserait aussi). À la main, sur la machine :
+
+```sh
+ln -sfn opencloud-v0.0.1 /var/lib/opencloud/agent/bin/current   # la précédente
+systemctl restart opencloud-agent
+```
 
 **Le niveau label demande des agents à jour ; mettez à jour le serveur d'abord, puis les agents.**
 Un agent plus ancien ne transmet pas les labels : un conteneur étiqueté reste rattaché par son projet Compose ou

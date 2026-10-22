@@ -15,7 +15,17 @@ Type=simple
 # -ca-file ou -docker-socket s'ils servaient au premier lancement : ils ne
 # sont pas retenus. -server, -pin et -lang le sont, inutile de les
 # redonner.
-ExecStart=/usr/local/bin/opencloud agent -state /var/lib/opencloud/agent
+# Le binaire est le lien bin/current de l'état : c'est lui que l'agent bascule
+# quand openCloud lui envoie une mise à jour (agent.update). Sauf sur la
+# machine openCloud : /var/lib/opencloud y appartient au compte du serveur, et
+# l'agent lance /usr/local/bin/opencloud par un drop-in (installation.md,
+# « Installer le serveur ») :
+# /etc/systemd/system/opencloud-agent.service.d/machine-opencloud.conf
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/local/bin/opencloud agent -state /var/lib/opencloud/agent
+ExecStart=/var/lib/opencloud/agent/bin/current agent -state /var/lib/opencloud/agent
+# Code 3 : « mis à jour, relance-moi » ; on-failure le relance.
 Restart=on-failure
 RestartSec=10
 # Code 2 : refus (machine retirée, identité refusée, pas enrôlée). Relancer

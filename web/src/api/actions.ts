@@ -1,7 +1,7 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 
-// Les ordres envoyés aux agents (agent.ping pour l'instant) et ce qu'ils
+// Les ordres envoyés aux agents (agent.ping, agent.update) et ce qu'ils
 // deviennent. Sujet du direct : « actions », que topicsOf devine du chemin.
 // Le genre, l'état et la raison se traduisent sous action.*.
 
@@ -74,4 +74,30 @@ export function useServerKey(): Resource<ServerKey> {
 // l'agent arrive par le direct.
 export async function pingAgent(machineID: string): Promise<ActionRun> {
   return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/ping`);
+}
+
+// Ce que la fiche d'une machine propose à son agent : la version du serveur,
+// ou pourquoi pas. reason est vide quand la mise à jour est disponible ;
+// « same_version » dit qu'il n'y a rien à dire.
+export interface AgentUpdateOffer {
+  current: string;
+  target: string;
+  arch: string;
+  available: boolean;
+  reason: string;
+}
+
+export function agentUpdatePath(machineID: string): string {
+  return `/api/machines/${segment(machineID)}/agent-update`;
+}
+
+export function useAgentUpdateOffer(machineID: string): Resource<AgentUpdateOffer> {
+  return useResource<AgentUpdateOffer>(() => agentUpdatePath(machineID));
+}
+
+// L'ordre agent.update : le serveur revérifie la version importée, l'agent la
+// revérifie, puis redémarre. L'ordre est fini quand il revient avec la
+// nouvelle version.
+export async function updateAgent(machineID: string): Promise<ActionRun> {
+  return api.post<ActionRun>(`/api/machines/${segment(machineID)}/actions/update-agent`);
 }

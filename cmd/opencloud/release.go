@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/release"
 )
@@ -25,6 +26,12 @@ const releaseUsage = `Usage : {command} release <sous-commande>
                       la signature de SHA256SUMS (cherché à côté du fichier,
                       avec SHA256SUMS.minisig), puis la somme du fichier.
                       Affiche « ok <version> <nom> sha256:<somme> »
+  import [-config F] <dossier>
+                      pour mettre à jour les agents : vérifie une version
+                      téléchargée (SHA256SUMS, sa signature et les binaires
+                      dans <dossier>) puis la copie dans state_dir/releases.
+                      Se lance au compte du serveur ; importer deux fois la
+                      même version ne change rien
   sign -key-env NOM -version vX.Y.Z <SHA256SUMS>
                       pour publier une version : signe le fichier de sommes
                       avec la clé privée lue dans la variable NOM et écrit
@@ -50,7 +57,7 @@ func releaseCommand(args []string, out io.Writer, getenv func(string) string, tr
 		return &refusal{message: "sous-commande manquante"}
 	}
 	command := args[0]
-	if !slices.Contains([]string{"verify", "sign", "keygen"}, command) {
+	if !slices.Contains([]string{"verify", "import", "sign", "keygen"}, command) {
 		fmt.Fprint(os.Stderr, strings.ReplaceAll(releaseUsage, "{command}", brand.Command))
 		return &refusal{message: "sous-commande inconnue : " + command}
 	}
@@ -61,12 +68,15 @@ func releaseCommand(args []string, out io.Writer, getenv func(string) string, tr
 	keyEnv := flags.String("key-env", "", "sign : la variable d'environnement qui porte la clé privée")
 	version := flags.String("version", "", "sign : la version, vX.Y.Z")
 	keyFile := flags.String("o", "", "keygen : le fichier où écrire la clé privée")
+	configPath := flags.String("config", config.DefaultPath, "import : le fichier de configuration, qui dit où est state_dir")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	switch command {
 	case "verify":
 		return verifyRelease(flags.Args(), *sumsPath, *signaturePath, out, trusted)
+	case "import":
+		return importRelease(flags.Args(), *configPath, out, trusted)
 	case "sign":
 		return signRelease(flags.Args(), *keyEnv, *version, getenv)
 	}
@@ -77,12 +87,9 @@ func verifyRelease(args []string, sumsPath, signaturePath string, out io.Writer,
 	if len(args) != 1 {
 		return &refusal{message: "verify attend un fichier"}
 	}
-	key, err := trusted()
-	if errors.Is(err, release.ErrNoTrustedKey) {
-		return &refusal{message: "ce binaire n'embarque pas de clé de version : il ne peut rien vérifier"}
-	}
+	key, err := embeddedKey(trusted)
 	if err != nil {
-		return fmt.Errorf("embedded release key: %w", err)
+		return err
 	}
 	file := args[0]
 	if sumsPath == "" {
@@ -97,6 +104,72 @@ func verifyRelease(args []string, sumsPath, signaturePath string, out io.Writer,
 	}
 	name := filepath.Base(file)
 	_, err = fmt.Fprintf(out, "ok %s %s sha256:%s\n", signed.Version, name, signed.Sums[name])
+	return err
+}
+
+// embeddedKey rend la clé de version du binaire, ou le refus qui dit qu'il
+// n'en a pas.
+func embeddedKey(trusted func() (release.PublicKey, error)) (release.PublicKey, error) {
+	key, err := trusted()
+	if errors.Is(err, release.ErrNoTrustedKey) {
+		return release.PublicKey{}, &refusal{message: "ce binaire n'embarque pas de clé de version : il ne peut rien vérifier"}
+	}
+	if err != nil {
+		return release.PublicKey{}, fmt.Errorf("embedded release key: %w", err)
+	}
+	return key, nil
+}
+
+// importRelease copie une version vérifiée dans la bibliothèque du serveur :
+// c'est de là que les agents la téléchargent, sans accès à Internet. Elle
+// n'ouvre pas la base, donc n'écrit pas au journal d'audit.
+func importRelease(args []string, configPath string, out io.Writer, trusted func() (release.PublicKey, error)) error {
+	if len(args) != 1 {
+		return &refusal{message: "import attend le dossier de la version"}
+	}
+	key, err := embeddedKey(trusted)
+	if err != nil {
+		return err
+	}
+	cfg, _, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	stateDir, err := openStateDir(cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	defer stateDir.Close()
+	signed, err := release.NewLibrary(stateDir, key).Import(args[0])
+	if err != nil {
+		return refuseImport(err, args[0])
+	}
+	_, err = fmt.Fprintf(out, "importé %s : %s\n", signed.Version, strings.Join(signed.BinaryNames(), ", "))
+	return err
+}
+
+// refuseImport dit à l'opérateur pourquoi la version n'est pas importée ; une
+// erreur qui n'est pas un refus de la version reste une erreur.
+func refuseImport(err error, dir string) error {
+	switch {
+	case errors.Is(err, fs.ErrPermission):
+		return &refusal{message: fmt.Sprintf("droits insuffisants (%v) : lancez la commande avec le compte qui lance le serveur, qui possède state_dir", err)}
+	case errors.Is(err, fs.ErrNotExist):
+		return &refusal{message: fmt.Sprintf("fichier introuvable (%v) : %s doit contenir %s, %s et chaque binaire que les sommes listent",
+			err, dir, brand.ReleaseSumsFile, brand.ReleaseSignatureFile)}
+	case errors.Is(err, release.ErrWrongKey):
+		return &refusal{message: "la signature n'a pas été faite par la clé de version de ce binaire : n'importez pas cette version"}
+	case errors.Is(err, release.ErrBadSignature):
+		return &refusal{message: fmt.Sprintf("la signature de %s est fausse : le fichier a été modifié ou ne vient pas du projet, n'importez pas cette version", brand.ReleaseSumsFile)}
+	case errors.Is(err, release.ErrDigestMismatch):
+		return &refusal{message: fmt.Sprintf("un binaire n'a pas la somme de la version signée (%v) : il est abîmé ou modifié, n'importez pas cette version", err)}
+	case errors.Is(err, release.ErrVersionConflict):
+		return &refusal{message: fmt.Sprintf("%v : une version ne se réécrit jamais, vérifiez que ce dossier est bien celui de la version", err)}
+	case errors.Is(err, release.ErrNothingToImport):
+		return &refusal{message: fmt.Sprintf("%s ne liste aucun binaire (%s…)", brand.ReleaseSumsFile, brand.ReleaseBinaryPrefix)}
+	case errors.Is(err, release.ErrMalformed), errors.Is(err, release.ErrLegacyAlgorithm):
+		return &refusal{message: fmt.Sprintf("%s ou %s n'est pas une signature de version lisible (%v)", brand.ReleaseSumsFile, brand.ReleaseSignatureFile, err)}
+	}
 	return err
 }
 

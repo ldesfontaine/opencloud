@@ -203,6 +203,12 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		if err := h.actions.Rekey(rekeyCtx, authenticated.ID); err != nil {
 			h.logger.Warn("rekey agent", "machine_id", authenticated.ID, "error", err)
 		}
+		// Un agent qui revient avec la version qu'un ordre agent.update visait
+		// a fini de se mettre à jour : c'est ce retour, et non l'agent qui
+		// s'arrête, qui ferme l'ordre.
+		if err := h.actions.ConfirmAgentUpdate(r.Context(), authenticated.ID, authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentVersion)); err != nil {
+			h.logger.Warn("confirm agent update", "machine_id", authenticated.ID, "error", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")

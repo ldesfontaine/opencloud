@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/release"
+	"github.com/ldesfontaine/opencloud/internal/release/releasetest"
 )
 
 const testKeyVariable = "TEST_RELEASE_SIGNING_KEY"
@@ -266,4 +267,75 @@ func TestReleaseCommand_RefusesAMissingOrUnknownSubcommand(t *testing.T) {
 	mustRefuse(t, releaseCommand(nil, &bytes.Buffer{}, nil, nil), "sous-commande manquante")
 	mustRefuse(t, releaseCommand([]string{"publish"}, &bytes.Buffer{}, nil, nil), "sous-commande inconnue")
 	mustRefuse(t, releaseCommand([]string{"verify"}, &bytes.Buffer{}, nil, func() (release.PublicKey, error) { return release.PublicKey{}, nil }), "verify attend un fichier")
+}
+
+// importFixture signe une version avec une clé de test et rend le dossier que
+// l'opérateur donnerait à `release import`.
+func importFixture(t *testing.T, version string) (dir string, key release.PublicKey, private release.PrivateKey) {
+	t.Helper()
+	key, private, err := release.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return releasetest.Write(t, private, version, releasetest.Binaries(version, "amd64", "arm64")), key, private
+}
+
+func TestReleaseImport_ThenServeOffersTheUpdate(t *testing.T) {
+	dir, key, _ := importFixture(t, "v0.0.2")
+	configPath, stateDir := writeConfig(t)
+	trusted := func() (release.PublicKey, error) { return key, nil }
+	var out bytes.Buffer
+	if err := releaseCommand([]string{"import", "-config", configPath, dir}, &out, nil, trusted); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "importé v0.0.2 : opencloud-linux-amd64, opencloud-linux-arm64\n" {
+		t.Fatalf("output %q", out.String())
+	}
+	// serve lit la bibliothèque dans le même dossier d'état : la version est là.
+	root, err := openStateDir(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	artifact, err := release.NewLibrary(root, key).Artifact(release.Version{Patch: 2}, "arm64")
+	if err != nil || artifact.Name != "opencloud-linux-arm64" {
+		t.Fatalf("artifact %+v %v", artifact, err)
+	}
+	// Une seconde fois, rien ne change et la commande réussit.
+	if err := releaseCommand([]string{"import", "-config", configPath, dir}, &bytes.Buffer{}, nil, trusted); err != nil {
+		t.Fatalf("second import: %v", err)
+	}
+}
+
+func TestReleaseImport_RefusesWhatItCannotVerify(t *testing.T) {
+	dir, key, private := importFixture(t, "v0.0.2")
+	configPath, _ := writeConfig(t)
+	trusted := func() (release.PublicKey, error) { return key, nil }
+	run := func(arguments ...string) error {
+		return releaseCommand(append([]string{"import", "-config", configPath}, arguments...), &bytes.Buffer{}, nil, trusted)
+	}
+
+	mustRefuse(t, run(), "attend le dossier")
+	mustRefuse(t, run(filepath.Join(t.TempDir(), "absent")), "introuvable")
+	mustRefuse(t, run(t.TempDir()), "introuvable")
+
+	other, _, _ := importFixture(t, "v0.0.2")
+	mustRefuse(t, run(other), "n'a pas été faite par la clé de version de ce binaire")
+
+	// Un binaire modifié après la signature.
+	if err := os.WriteFile(filepath.Join(dir, "opencloud-linux-amd64"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRefuse(t, run(dir), "n'a pas la somme de la version signée")
+
+	// Rien ne reste d'une version refusée ; une autre version avec d'autres
+	// sommes sous le même numéro est refusée après la première.
+	if err := run(releasetest.Write(t, private, "v0.0.2", releasetest.Binaries("v0.0.2", "amd64", "arm64"))); err != nil {
+		t.Fatal(err)
+	}
+	conflicting := releasetest.Write(t, private, "v0.0.2", map[string][]byte{"opencloud-linux-amd64": []byte("another")})
+	mustRefuse(t, run(conflicting), "ne se réécrit jamais")
+
+	noKey := func() (release.PublicKey, error) { return release.PublicKey{}, release.ErrNoTrustedKey }
+	mustRefuse(t, releaseCommand([]string{"import", "-config", configPath, dir}, &bytes.Buffer{}, nil, noKey), "n'embarque pas de clé de version")
 }

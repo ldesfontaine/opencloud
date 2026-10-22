@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/release"
 )
 
 const watchPeriod = 30 * time.Second
@@ -38,6 +39,9 @@ type Store interface {
 	// acceptedBefore sans le finir ; il rend les machines touchées.
 	TimeoutRuns(ctx context.Context, acceptedBefore, now time.Time) ([]string, error)
 	PurgeRuns(ctx context.Context, before time.Time) error
+	// CompleteAgentUpdates pose succeeded sur les mises à jour en attente de
+	// cet agent qui visaient cette version ; il rend les runs touchés.
+	CompleteAgentUpdates(ctx context.Context, agentID, version string, at time.Time) ([]Run, error)
 }
 
 // Machines est ce que le composant lit des machines : l'agent courant et
@@ -78,6 +82,11 @@ type Service struct {
 	auditor   *audit.Recorder
 	logger    *slog.Logger
 	now       func() time.Time
+
+	// Les versions importées et celle du serveur, que reçoivent ses agents ;
+	// nil sans bibliothèque (voir SetReleases).
+	releases      Releases
+	serverVersion release.Version
 }
 
 func New(store Store, machines Machines, logger *slog.Logger) *Service {

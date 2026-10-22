@@ -98,6 +98,39 @@ func (s *Server) pingAgent(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
 }
 
+// Ce que la fiche de la machine propose à son agent : la version du serveur,
+// ou pourquoi pas. reason est vide quand la mise à jour est disponible.
+type agentUpdateOfferJSON struct {
+	Current   string `json:"current"`
+	Target    string `json:"target"`
+	Arch      string `json:"arch"`
+	Available bool   `json:"available"`
+	Reason    string `json:"reason"`
+}
+
+// getAgentUpdate dit si l'agent de la machine peut recevoir la version du
+// serveur, et sinon pourquoi.
+func (s *Server) getAgentUpdate(w http.ResponseWriter, r *http.Request) {
+	offer, err := s.actions.OfferUpdate(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, agentUpdateOfferJSON{
+		Current: offer.Current, Target: offer.Target, Arch: offer.Arch, Available: offer.Available, Reason: offer.Reason,
+	})
+}
+
+// updateAgent envoie l'ordre agent.update : le serveur revérifie la version
+// importée, l'agent la revérifie à son tour. L'ordre est fini quand l'agent
+// revient avec la nouvelle version.
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+	run, err := s.actions.UpdateAgent(r.Context(), r.PathValue("id"))
+	if s.failed(w, r, err, machine.ErrNotFound) {
+		return
+	}
+	s.writeAPI(w, http.StatusCreated, actionRunToJSON(run))
+}
+
 // listActions rend les derniers ordres, d'une machine ou de toutes.
 func (s *Server) listActions(w http.ResponseWriter, r *http.Request) {
 	query, ok := actionQueryOf(r.URL.Query())

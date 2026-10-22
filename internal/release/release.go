@@ -121,12 +121,17 @@ func readSmallFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 	defer file.Close()
+	return readSmall(file, filepath.Base(path))
+}
+
+// readSmall lit un fichier de sommes ou de signature, borné.
+func readSmall(file io.Reader, name string) ([]byte, error) {
 	content, err := io.ReadAll(io.LimitReader(file, maxSmallFileSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+		return nil, fmt.Errorf("read %s: %w", name, err)
 	}
 	if len(content) > maxSmallFileSize {
-		return nil, fmt.Errorf("%w: %s is too long", ErrMalformed, filepath.Base(path))
+		return nil, fmt.Errorf("%w: %s is too long", ErrMalformed, name)
 	}
 	return content, nil
 }

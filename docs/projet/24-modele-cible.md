@@ -1280,3 +1280,22 @@ tranché, et ses écarts au diagramme :
 | **Un run `accepted` depuis plus d'une heure passe `failed`, raison `timeout`** | Avant, un run accepté n'expirait jamais : un ordre long dont l'agent ne répond plus restait « accepté » à jamais |
 | **`OrderBody.Secret`**, signé avec l'ordre, jamais écrit dans `action_runs.params`, l'audit ou un journal | Préparé ici, servi par le déploiement (le `.env` d'un service). La colonne `params` n'a jamais à garder un secret |
 | **La phrase de passe n'est écrite nulle part** (`passphrase` rejoint les noms de détail interdits de l'audit) | Sans elle, aucune sauvegarde ne se relit : c'est à l'opérateur de la garder, ailleurs que les sauvegardes |
+
+## 22. Ce que la mise à jour des agents a fixé
+
+Pas de migration : aucune table, aucune colonne. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment un agent se met à jour ». Ce que le code a
+tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **La version visée n'est pas une donnée** : c'est la version du serveur (`version.Number()`), la seule que `action.Service` offre. Elle ne s'écrit que dans les `params` du run | Une table « version cible par machine » n'aurait rien dit de plus que le binaire du serveur, et un second état à tenir d'accord |
+| **La bibliothèque est un dossier de `state_dir`, pas une table** : `releases/<version>/` (binaires, `SHA256SUMS`, `SHA256SUMS.minisig`), droits 0640 | Les fichiers sont déjà signés : la signature est la seule vérité, le serveur la relit à chaque envoi. Une base ne ferait que la doubler |
+| **`release import` ouvre `state_dir` seul, jamais la base** | Il s'exécute serveur arrêté ou non, sans jeton. Contrepartie : pas d'événement d'audit pour l'import ; l'ordre qui s'ensuit, lui, est journalisé |
+| **L'import est strict** : tous les binaires listés dans `SHA256SUMS` doivent être présents et de la somme signée, 256 Mio chacun ; la signature est écrite avant les sommes, les sommes en dernier | Une version à moitié importée n'existe pas (`ErrNoRelease`), l'import suivant la complète ; une version qui change de contenu sous un même numéro est refusée (`ErrVersionConflict`) |
+| **L'agent s'éprouve avant de basculer** (`<binaire> version` sous un environnement remplacé, la sortie doit nommer la version visée) | Un binaire qui ne démarre pas ne remplace jamais celui qui marche ; le lien ne bouge pas |
+| **Le succès est constaté au retour de l'agent**, pas à l'envoi : `Service.ConfirmAgentUpdate`, appelé à l'ouverture du flux avec `OpenCloud-Agent-Version`, ferme (`store.CompleteAgentUpdates`) les seuls runs de cet agent dont la version visée est celle annoncée | L'agent s'arrête avant de pouvoir rapporter quoi que ce soit ; seule sa version, entendue de lui, prouve qu'il a changé |
+| **Le code de sortie 3** (`ErrUpdated` dans `Run`, `exitStatus{3}` dans `main`) dit « relance-moi » | Pas de relance par le processus lui-même : systemd s'en charge, et son `Restart=on-failure` suffit |
+| **Un agent qui ne vit pas dans `<état>/bin/` refuse** (`not_self_updatable`), avant de lire l'ordre | Remplacer un binaire hors de `bin/`, c'est le faire sans lien à rebasculer ni précédente à garder. La migration est une étape manuelle, une fois par machine. L'agent de la machine openCloud garde `/usr/local/bin/opencloud` : son état est sous `/var/lib/opencloud`, au compte du serveur, et un binaire lancé en root depuis là donnerait la machine à qui prend `serve` |
+| **`Options.ReleaseKey`** dans `agent.Options` ; le chemin de l'exécutable, champ non exporté | La clé de version passe du binaire à l'agent par ses options plutôt que par un global. Le chemin de l'exécutable ne se remplace que dans les tests du paquet : la commande ne peut pas faire croire à l'agent qu'il tourne depuis `bin/` |
+| **Offre et envoi jugent pareil** (`judgeUpdate`) : le bouton de la fiche et la route ne divergent jamais | Les raisons de l'offre sont des clés de catalogue (`machine.agent_update_reason_*`), jamais du texte du serveur |

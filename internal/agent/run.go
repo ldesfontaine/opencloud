@@ -13,6 +13,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -24,6 +25,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
+	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -62,6 +64,14 @@ type Options struct {
 	// Rights sont les droits que la commande d'installation donne
 	// (-rights) ; l'identité les garde ensuite. Vides : observe seul.
 	Rights []machine.Capability
+	// ReleaseKey est la clé de version que ce binaire embarque ; HasReleaseKey
+	// est faux quand il n'en a pas (agent.update est alors refusé).
+	ReleaseKey    release.PublicKey
+	HasReleaseKey bool
+	// executable rend le chemin du binaire qui tourne, pour savoir s'il vient
+	// de <état>/bin/ ; nil vaut os.Executable. Non exporté : seuls les tests
+	// du paquet le remplacent, la commande ne peut pas le poser.
+	executable func() (string, error)
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
@@ -79,6 +89,11 @@ type Options struct {
 // Run enrôle l'agent si besoin, puis tient le flux ouvert jusqu'à ce que le
 // contexte s'arrête ou que le serveur refuse l'identité pour de bon.
 func Run(ctx context.Context, opts Options) error {
+	// Une mise à jour réussie arrête tout : les sondes, le veilleur Docker et
+	// le flux vivent sous ce contexte, que la bascule du lien annule.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	var updated atomic.Bool
 	if opts.SignalInterval <= 0 {
 		opts.SignalInterval = DefaultSignalInterval
 	}
@@ -129,11 +144,23 @@ func Run(ctx context.Context, opts Options) error {
 	// fois, et vivent avec l'agent comme les sondes : une coupure du flux ne
 	// les interrompt pas, seul leur téléchargement échoue.
 	orders.fetch.use(client)
+	orders.updater.key, orders.updater.hasKey = opts.ReleaseKey, opts.HasReleaseKey
+	if opts.executable != nil {
+		orders.updater.executable = opts.executable
+	}
+	orders.updater.restart = func() {
+		updated.Store(true)
+		stop()
+	}
 	go orders.worker.run(ctx)
-	return keepConnected(ctx, client, identity, &pending{
+	err = keepConnected(ctx, client, identity, &pending{
 		readings: readings, reports: observed, results: checked, images: constated, actions: actions,
 		logs: watcher, probes: prober, updates: updater, orders: orders,
 	}, catalogs.For(identity.Language), opts)
+	if updated.Load() {
+		return ErrUpdated
+	}
+	return err
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les

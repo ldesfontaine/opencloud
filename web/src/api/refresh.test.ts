@@ -35,6 +35,10 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/actions?machine=m1&limit=10")).toEqual(["actions"]);
   });
 
+  it("rereads the update offer of an agent when its machine or its orders change", () => {
+    expect(topicsOf("/api/machines/m1/agent-update")).toEqual(["machines", "actions"]);
+  });
+
   it("rereads the audit forwarding state when a channel changes, the journal itself on demand only", () => {
     expect(topicsOf("/api/audit/forwarding")).toEqual(["alerts"]);
     expect(topicsOf("/api/audit?before=40")).toEqual([]);

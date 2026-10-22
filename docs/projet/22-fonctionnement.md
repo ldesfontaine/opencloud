@@ -279,7 +279,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | Droit | Portée | Ce qu'il permet |
 | --- | --- | --- |
 | `observe` | — | Mesurer la machine, lire son Docker, lancer ses sondes : les commandes d'observation, et l'ordre `agent.ping`, qui ne change rien. Toujours là, la case est cochée et grisée |
-| `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur. Déclaré pour que le droit s'applique ; aucune route ne l'envoie encore, et un agent qui a le droit le refuse (`not_implemented`) jusqu'à #153 étape 5 |
+| `agent.update` | — | L'ordre `agent.update`, mettre à jour l'agent depuis le serveur (« Comment un agent se met à jour »). Un agent qui n'a pas le droit refuse l'ordre ; celui qui l'a le vérifie lui-même avant de changer de binaire |
 | `docker.deploy` | — | Déployer un service Compose |
 | `docker.update` | — | Mettre à jour l'image d'un service |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
@@ -385,7 +385,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 
 | | Commandes d'observation | Ordres |
 | --- | --- | --- |
-| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). Les autres gestes (`agent.update`, `docker.deploy`…) viendront avec #153 étape 5 |
+| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). Les autres gestes (`docker.deploy`…) viendront avec #153 étape 5 |
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
@@ -424,7 +424,8 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
    nomme ; une enveloppe illisible ne se rapporte pas, elle se journalise.
 6. **Il exécute** : `agent.ping` finit `succeeded`, sortie `pong <version>`.
    `agent.server_key` épingle la clé qu'il livre, sortie `pinned <empreinte>`.
-   `agent.update`, déclaré pour son droit, est refusé `not_implemented`.
+   `agent.update` télécharge, vérifie, change son binaire et s'arrête (code 3) ;
+   le run reste « accepté » jusqu'à son retour (« Comment un agent se met à jour »).
 7. **Il répond par le signal**, section `actions`, sans attendre les 30 s :
    un résultat réveille la boucle du flux. Un signal raté remet les résultats
    en tampon (32 au plus). Le serveur fait avancer le run : `accepted`, puis
@@ -472,7 +473,7 @@ colis, un colis échu (la vie de son ordre, un peu plus d'une heure), un nom abs
 parcel_not_found`, 30 requêtes par minute et par machine (`429`). Le jeton
 de session change à chaque reconnexion : un téléchargement commencé sur une
 session tombée échoue (`download_failed`), il n'est pas repris. Le même
-mécanisme servira à `agent.update`.
+mécanisme sert aussi à `agent.update`, qui y trouve le binaire et sa signature.
 
 **Le champ write-only.** `OrderBody.Secret` est **signé avec l'ordre** (64 Kio
 au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
@@ -3161,6 +3162,48 @@ cron, sans catalogue : `heartbeat.ErrExitCodeInvalid` reste une erreur nue.
 Un test relève chaque `refusal.Invalid` et `refusal.Conflict` du code et
 exige leur clé, littérale et unique, dans chaque catalogue.
 
+## Comment un agent se met à jour
+
+L'opérateur importe une version signée sur la machine openCloud, puis la fiche
+d'une machine propose « Mettre à jour l'agent » quand la version de son agent
+n'est pas celle du serveur. L'agent ne croit pas le serveur sur parole : il
+revérifie la signature avec **sa** clé embarquée avant de toucher à son binaire.
+
+| Acteur | Ce qu'il fait |
+| --- | --- |
+| L'opérateur | `opencloud release import <dossier>` (le dossier d'une version publiée : `SHA256SUMS`, `SHA256SUMS.minisig`, les binaires), puis le bouton de la fiche |
+| `release.Library` | Range la version sous `<état>/releases/<version>/` (binaires, signature, sommes) ; **revérifie à chaque envoi** la signature, la version du dossier et la somme du binaire |
+| `action.Service` | `OfferUpdate` juge l'offre, `UpdateAgent` prépare le colis et signe l'ordre, `ConfirmAgentUpdate` ferme le run au retour de l'agent |
+| L'agent (`internal/agent/update.go`) | Télécharge, vérifie, s'éprouve, bascule son lien, s'arrête avec le code 3 |
+| systemd | Relance l'agent (`Restart=on-failure` : le code 3 en est un) sur le lien `bin/current`, désormais le nouveau binaire |
+
+| # | Décision | Contrepartie |
+| --- | --- | --- |
+| 1 | **La version visée est celle du serveur** : il n'envoie que sa propre version, jamais une autre. La fiche ne propose rien quand l'agent est à la même version (`same_version`) ou plus récent (`newer_agent`) ; une version d'agent illisible compte comme plus ancienne | Pas de retour en arrière par l'interface ; il se fait à la main (installation.md) |
+| 2 | **Une bibliothèque**, `<état>/releases/<version>/` : `release import` vérifie le dossier entier (signature avec la clé embarquée, chaque binaire listé présent et de la somme signée, 256 Mio au plus), puis écrit les binaires, la signature, et **les sommes en dernier** : une coupure laisse une version absente, que l'import suivant complète. La même version importée avec d'autres sommes est refusée (`ErrVersionConflict`) | Une version se publie une fois ; importer deux fois le même dossier ne change rien |
+| 3 | **Double vérification.** Le serveur rouvre la version à chaque envoi (`Library.Artifact`) et compare la somme du fichier emprunté à celle qu'il vient de vérifier. L'agent vérifie ensuite lui-même : clé embarquée (`release_key_missing` sans elle), signature (`signature_invalid`), version signée = version demandée (`version_mismatch`), une version plus récente que la sienne, jamais la même ni une plus ancienne, et jamais par-dessus le binaire que `current` lance (`downgrade`), binaire listé dans les sommes signées et de la taille et de la somme que l'ordre a signées (`digest_mismatch`) | Un serveur compromis ne fait pas installer ce que la clé de version n'a pas signé |
+| 4 | **Le colis est celui des sauvegardes** : trois fichiers (binaire de l'architecture de la machine, `SHA256SUMS`, `SHA256SUMS.minisig`), empruntés à la bibliothèque (`ParcelWriter.Borrow`, ni copiés ni effacés), téléchargés sous le jeton de session | Un ordre qui ne part pas rend le colis (`Discard`) |
+| 5 | **Disposition de l'agent** : `<état>/bin/opencloud-<version>`, le lien `<état>/bin/current` que l'unité systemd exécute. Le nouveau binaire arrive en `.incoming-<version>`, prend ses droits d'exécution, **s'éprouve** (`<binaire> version` sous un environnement remplacé, 10 s, la sortie doit nommer la version) ; seulement ensuite `current.new` est créé puis **renommé** sur `current` (atomique, dossier synchronisé). La version courante et la précédente restent, les plus anciennes sont retirées | Un binaire qui ne s'éprouve pas est retiré, le lien ne bouge pas (`self_check_failed`) |
+| 6 | **Un agent qui ne vit pas dans `bin/`** refuse avant de lire l'ordre (`not_self_updatable`) : son exécutable, liens suivis, doit être directement dans `<état>/bin/`. Les agents déjà installés sont migrés une fois à la main (installation.md). **Sauf l'agent de la machine openCloud**, qui garde `/usr/local/bin/opencloud` (un drop-in de l'unité) et se met à jour à la main avec le serveur : son état, `/var/lib/opencloud/agent`, est sous `/var/lib/opencloud`, qui appartient au compte du serveur ; un binaire lancé en root depuis ce dossier donnerait la machine à quiconque prend `serve` | Une étape manuelle par machine, une seule ; la machine openCloud se met à jour avec son serveur, pas depuis sa fiche |
+| 7 | **L'agent s'arrête avec le code 3** une fois le lien basculé, sans rapporter de résultat : le run reste « accepté ». systemd le relance, il annonce sa version à l'ouverture du flux (`OpenCloud-Agent-Version`) | Entre l'arrêt et le retour, la fiche montre l'ordre en cours |
+| 8 | **Le succès se constate au retour** : `CompleteAgentUpdates` ferme les runs `agent.update` envoyés ou acceptés **de cet agent** dont la version visée est celle qu'il annonce, ligne de sortie `reconnected as <version>`. Une autre version annoncée ne ferme rien ; un agent qui ne revient pas laisse l'ordre expirer (`MaxRunDuration`, une heure) | Pas de « fait » sans l'avoir entendu |
+
+**Les raisons de la fiche** (`GET /api/machines/{id}/agent-update`, jugées dans
+cet ordre, la première qui tient est rendue) : `no_releases` (le serveur n'a
+pas de clé de version embarquée, ou une version illisible), `no_agent`,
+`offline`, `right_missing` (l'agent a rapporté ses droits sans `agent.update`),
+`arch_unknown`, `same_version`, `newer_agent`, `no_release` (rien d'importé pour
+cette version et cette architecture), `release_invalid` (importée mais qui ne se
+revérifie plus : l'import est à refaire). Sauf `same_version`, chaque raison a sa
+phrase (`machine.agent_update_reason_*`). L'envoi,
+`POST /api/machines/{id}/actions/update-agent`, refuse avec les mêmes motifs :
+`404` machine inconnue, `409 machine.no_agent`, `409 action.machine_offline`,
+`409 action.right_missing`, sinon `409 action.update_unavailable`.
+
+**Ce qui n'est pas journalisé.** `release import` n'ouvre pas la base : il ne
+laisse pas d'événement d'audit. L'ordre, lui, écrit `action.order` comme tous
+les autres, et un refus de l'agent `action.refused`.
+
 ## Comment une version est publiée et vérifiée
 
 Une version se publie par un **tag `vX.Y.Z` poussé sur un commit de `main`**
@@ -3203,7 +3246,7 @@ posé la clé de signature.
 5. le nom du fichier y figure et sa somme SHA-256 est celle qui est signée.
 
 En cas de succès : `ok <version> <nom> sha256:<somme>`. Cette sortie est
-stable. `agent.update` réutilisera `release.VerifyFile` (et
+stable. `agent.update` réutilise `release.VerifySums` (et
 `Version.Compare` pour refuser une version plus ancienne), pas la commande.
 Signer et vérifier ne touchent pas la base : aucun événement d'audit, aucune
 clé de catalogue (textes de commande, comme `secrets`). La clé privée ne
@@ -3288,7 +3331,7 @@ refusés avant d'envoyer quoi que ce soit.
 | --- | --- | --- |
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | L'agent reste root | Ses droits bornent ce qu'un ordre demande, pas ce que le processus peut faire : un agent compromis sur sa machine a la machine | Décision 2 : un observateur non privilégié et un exécuteur root étroit, à décider |
-| Peu d'ordres exécutés | `agent.ping` prouve le chemin (signature, journal, réponse, droits), `backup.receive` et `backup.prune` écrivent la sauvegarde ; `agent.update` est déclaré pour son droit et refusé ; déployer, mettre à jour une image viendront avec leurs gestes. `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | #153 étape 5 |
+| Peu d'ordres exécutés | `agent.ping` prouve le chemin (signature, journal, réponse, droits), `backup.receive` et `backup.prune` écrivent la sauvegarde ; `agent.update` change le binaire de l'agent ; déployer, mettre à jour une image viendront avec leurs gestes. `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | #153 étape 5 |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Pas d'enregistrement dynamique de client OAuth | Un client MCP qui exige la RFC 7591 ne se connecte pas ; Claude, Cursor et l'inspecteur acceptent l'identifiant et le secret saisis à la main | À décider, le jour où un client le demande |
@@ -3388,3 +3431,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Versions signées | Le paquet `internal/release` (minisign en Go, sommes, version, `VerifyFile`, clé publique embarquée `TrustedPublicKey`), la sous-commande `opencloud release` (`verify`, `sign`, `keygen`), le workflow `release.yml` (tag `vX.Y.Z` sur `main`, build reproductible, signature, attestation, version jamais réécrite), les constantes `Release*` de `internal/brand`. Pas de migration |
 | Incidents par objets, silences annoncés | La migration `005_incident_targets.sql` (`incident_targets` à la place de `incident_components`, chaque composant visé déplié en ses membres ; `mutes.announce` et `mutes.public_title`), la règle `touches` et les maintenances synthétiques de `internal/status` (`targets.go`, `maintenance.go`), `status.Target` et `ErrTargetInvalid` (`incident.target_invalid`), `alert.ErrMuteAnnounceInvalid` (`silence.announce_invalid`), le détache « incidents » des plans de suppression d'une machine, d'un service, d'une sonde et d'une tâche (`deletion.KindIncidentLinks`), `targets` à la place de `component_ids` dans l'API et l'outil MCP `open_incident`, le sélecteur d'objets partagé (`ObjectPicker`) du composant et de l'incident, la case « annoncer » d'un silence |
 | Sauvegarde de la base (#153, 05) | La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`, `backup_plans`), le paquet `internal/backup` (paire de clés age scellée par la phrase, archive tar chiffrée, `run`, boucle de 15 minutes, `ExtractArchive`), les ordres `backup.receive` et `backup.prune` (`agentwire`), les ordres longs de l'agent (`internal/agent/worker.go`, `backup.go`) et la fin d'un run `accepted` trop long (`timeout`), les colis (`action.Outbox`, `/agent/parcels/{colis}/{nom}`), le champ write-only `OrderBody.Secret` (`SendWithSecret`), `machine.CoversPath`, la commande `opencloud backup restore`, les routes `/api/backups…`, le sujet `backups`, la page Sauvegardes, la dépendance `filippo.io/age` |
+| Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |

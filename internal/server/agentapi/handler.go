@@ -66,6 +66,9 @@ type ActionService interface {
 	// OpenParcel ouvre un fichier d'un colis pour la machine qui le demande ;
 	// action.ErrParcelNotFound sinon.
 	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
+	// ConfirmAgentUpdate ferme la mise à jour que l'agent vient de finir : il
+	// se reconnecte avec la version visée.
+	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
 }
 
 type Options struct {
