@@ -430,7 +430,7 @@ const mutes = shape<MutesResponse>("MutesResponse", {
 const counts = shape<Counts>("Counts", {
   machines: shape("Counts.machines", { total: value, online: value }),
   jobs: shape("Counts.jobs", { total: value, attention: value }),
-  containers: shape("Counts.containers", { total: value, attention: value, updates: value }),
+  containers: shape("Counts.containers", { total: value, attention: value, unknown: value, updates: value }),
   probes: shape("Counts.probes", { total: value, attention: value }),
   certificates: shape("CertificateCounts", { total: value, expiring: value, expired: value, soonest_expires_at: value }),
   status: shape("Counts.status", { open_incidents: value }),

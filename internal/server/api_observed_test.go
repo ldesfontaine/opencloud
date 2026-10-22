@@ -33,19 +33,20 @@ func observedOf(t *testing.T, server *testServer, path string) (observed []bool,
 	return observed, lastSeen
 }
 
-func countsOfAttention(t *testing.T, server *testServer) (total, attention int) {
+func countsOfAttention(t *testing.T, server *testServer) (total, attention, unknown int) {
 	t.Helper()
 	recorder := callAPI(server.Server, http.MethodGet, "/api/counts", nil)
 	var counts struct {
 		Containers struct {
 			Total     int `json:"total"`
 			Attention int `json:"attention"`
+			Unknown   int `json:"unknown"`
 		} `json:"containers"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &counts); err != nil {
 		t.Fatal(err)
 	}
-	return counts.Containers.Total, counts.Containers.Attention
+	return counts.Containers.Total, counts.Containers.Attention, counts.Containers.Unknown
 }
 
 // Une machine qui ne signale plus rend ses conteneurs non observés, partout
@@ -100,9 +101,13 @@ func TestContainersAPI_ObservedFollowsTheLastSignalOfTheMachine(t *testing.T) {
 			if err := json.Unmarshal(recorder.Body.Bytes(), &fiche); err != nil || fiche.Container.Observed != step.observed {
 				t.Errorf("fiche : observé = %v (%v), attendu %v", fiche.Container.Observed, err, step.observed)
 			}
-			total, attention := countsOfAttention(t, server)
-			if total != 2 || attention != step.wantAttention {
-				t.Errorf("compteurs : %d au total, %d à traiter, attendu 2 et %d", total, attention, step.wantAttention)
+			wantUnknown := 0
+			if !step.observed {
+				wantUnknown = 2
+			}
+			total, attention, unknown := countsOfAttention(t, server)
+			if total != 2 || attention != step.wantAttention || unknown != wantUnknown {
+				t.Errorf("compteurs : %d au total, %d à traiter, %d inconnus, attendu 2, %d et %d", total, attention, unknown, step.wantAttention, wantUnknown)
 			}
 		})
 	}

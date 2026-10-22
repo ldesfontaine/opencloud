@@ -82,10 +82,11 @@ const containerNeedsAttention = `CASE state
 const containerObserved = `EXISTS (SELECT 1 FROM agents
 	WHERE agents.machine_id = containers.machine_id AND agents.revoked_at IS NULL AND agents.last_seen_at >= ?)`
 
-// CountContainers compte les conteneurs vivants, tous, et ceux qui demandent
+// CountContainers compte les conteneurs vivants, tous ; ceux qui demandent
 // attention parmi ceux dont la machine est observée depuis observedSince
-// (machine.ObservedSince), en une requête.
-func (db *DB) CountContainers(ctx context.Context, observedSince time.Time) (total, attention int, err error) {
+// (machine.ObservedSince) ; et ceux dont la machine ne l'est pas, d'état
+// inconnu. En une requête.
+func (db *DB) CountContainers(ctx context.Context, observedSince time.Time) (total, attention, unknown int, err error) {
 	// Les dates sont stockées à la seconde : arrondir vers le haut garde
 	// l'égalité avec machine.Observed, qui compare à la nanoseconde.
 	since := observedSince.Truncate(time.Second)
@@ -93,12 +94,13 @@ func (db *DB) CountContainers(ctx context.Context, observedSince time.Time) (tot
 		since = since.Add(time.Second)
 	}
 	err = db.sql.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(CASE WHEN `+containerObserved+` THEN `+containerNeedsAttention+` ELSE 0 END), 0)
-		FROM containers WHERE archived_at IS NULL`, since.Unix()).Scan(&total, &attention)
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN observed THEN attention ELSE 0 END), 0), COALESCE(SUM(NOT observed), 0)
+		FROM (SELECT `+containerObserved+` AS observed, `+containerNeedsAttention+` AS attention
+			FROM containers WHERE archived_at IS NULL)`, since.Unix()).Scan(&total, &attention, &unknown)
 	if err != nil {
-		return 0, 0, fmt.Errorf("count containers: %w", err)
+		return 0, 0, 0, fmt.Errorf("count containers: %w", err)
 	}
-	return total, attention, nil
+	return total, attention, unknown, nil
 }
 
 // attachNetworks lit en une requête les appartenances des fiches que la

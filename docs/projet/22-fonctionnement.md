@@ -994,7 +994,7 @@ et la topologie rendent `observed` ; un conteneur rend aussi
 | --- | --- |
 | Pastille | « Inconnu », neutre ; dessous « Dernier état : Actif, il y a 5 h » ; « actif depuis » disparaît |
 | Filtres | « Actifs » et « Arrêtés » ne le gardent pas, « Tous » oui |
-| Compteurs | compté au total, **jamais « à traiter »** (le SQL joint l'agent actif et son dernier signal ; un test de parité tient le SQL et `machine.Observed`) ; l'alerte « machine perdue » porte l'information |
+| Compteurs | compté au total, **jamais « à traiter »**, à part dans `unknown` (`/api/counts`) : la tuile de la vue d'ensemble dit « N d'état inconnu », jamais « Tous actifs » (le SQL joint l'agent actif et son dernier signal ; un test de parité tient le SQL et `machine.Observed`) ; l'alerte « machine perdue » porte l'information |
 | Graphe | nœud neutre, même avec un constat d'exposition |
 | Annuaire | l'écart d'un service de cette machine se lit « Inconnu » |
 | Alertes | aucune alerte neuve ; celles déjà ouvertes restent telles quelles |

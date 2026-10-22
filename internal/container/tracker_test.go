@@ -435,9 +435,9 @@ func TestCount_CountsLiveContainersAndThoseNeedingAttention(t *testing.T) {
 	if err := b.db.TouchAgent(context.Background(), local.Agent.ID, testNow); err != nil {
 		t.Fatal(err)
 	}
-	total, attention, err := b.db.CountContainers(context.Background(), machine.ObservedSince(testNow))
-	if err != nil || total != 3 || attention != 1 {
-		t.Fatalf("total = %d attention = %d err = %v", total, attention, err)
+	total, attention, unknown, err := b.db.CountContainers(context.Background(), machine.ObservedSince(testNow))
+	if err != nil || total != 3 || attention != 1 || unknown != 0 {
+		t.Fatalf("total = %d attention = %d unknown = %d err = %v", total, attention, unknown, err)
 	}
 }
 

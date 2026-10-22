@@ -68,9 +68,9 @@ func TestCountContainers_MatchesNeedsAttention(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	total, attention, err := db.CountContainers(ctx, machine.ObservedSince(countsNow))
-	if err != nil {
-		t.Fatal(err)
+	total, attention, unknown, err := db.CountContainers(ctx, machine.ObservedSince(countsNow))
+	if err != nil || unknown != 0 {
+		t.Fatalf("inconnus %d, %v", unknown, err)
 	}
 
 	wantTotal, wantAttention := 0, 0
@@ -157,12 +157,15 @@ func TestCountContainers_SkipsMachinesThatAreNotObserved(t *testing.T) {
 		}
 	}
 
-	total, attention, err := db.CountContainers(ctx, since)
+	total, attention, unknown, err := db.CountContainers(ctx, since)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != len(machines) || attention != wantAttention || wantAttention != 2 {
 		t.Fatalf("total %d (attendu %d), à traiter %d (attendu %d, soit 2 : fresh et edge)", total, len(machines), attention, wantAttention)
+	}
+	if unknown != total-wantAttention {
+		t.Fatalf("inconnus %d, attendu %d : chaque machine non observée", unknown, total-wantAttention)
 	}
 }
 
