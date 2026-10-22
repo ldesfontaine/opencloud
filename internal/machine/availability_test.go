@@ -111,7 +111,19 @@ func TestUnavailableReasons_AreTheClosedListTheAgentJudgesWith(t *testing.T) {
 	if len(UnavailableReasons()) != 5 {
 		t.Fatalf("five reasons, got %v", UnavailableReasons())
 	}
-	if slices.Contains(JudgedCapabilities(), CapabilityObserve) || len(JudgedCapabilities()) != len(CapabilityNames())-1 {
-		t.Errorf("every right but observe is judged: %v", JudgedCapabilities())
+	// Les droits qui écrivent, dans l'ordre des droits ; une liste écrite : un
+	// droit ajouté plus tard (probe.lan, ssh.keys) n'y entre pas tout seul.
+	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityFilesWrite}
+	if !slices.Equal(JudgedCapabilities(), want) || slices.Contains(JudgedCapabilities(), CapabilityObserve) {
+		t.Errorf("judged rights %v, want %v", JudgedCapabilities(), want)
+	}
+	order := CapabilityNames()
+	if !slices.IsSortedFunc(JudgedCapabilities(), func(a, b string) int { return slices.Index(order, a) - slices.Index(order, b) }) {
+		t.Errorf("judged rights out of the order of the rights: %v", JudgedCapabilities())
+	}
+	for _, name := range JudgedCapabilities() {
+		if !slices.Contains(order, name) {
+			t.Errorf("%q is not a right", name)
+		}
 	}
 }

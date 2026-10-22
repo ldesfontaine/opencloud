@@ -411,9 +411,14 @@ func (c *cappedBuffer) String() string {
 // son retour avec la nouvelle version que le serveur prend pour la fin de
 // l'ordre.
 func (r *orderRunner) acceptAgentUpdate(body agentwire.OrderBody) (agentwire.ActionResult, func(ctx context.Context)) {
-	// Le compte de l'agent doit pouvoir écrire dans bin/ : refusé avant de
-	// télécharger quoi que ce soit.
-	if reason := r.checks.agentUpdate(); reason != "" {
+	// Hors de bin/, jamais : la règle ne dépend pas d'un juge qu'un banc
+	// remplace. Puis le compte de l'agent doit pouvoir écrire dans bin/ :
+	// refusé avant de télécharger quoi que ce soit.
+	reason := agentwire.ReasonNotSelfUpdatable
+	if r.updater.isSelfUpdatable() {
+		reason = r.checks.agentUpdate()
+	}
+	if reason != "" {
 		r.logger.Warn("order not accepted", "run_id", body.RunID, "kind", string(body.Kind), "reason", reason)
 		return agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: reason}, nil
 	}

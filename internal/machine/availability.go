@@ -77,10 +77,11 @@ func UnavailableReasons() []string {
 }
 
 // JudgedCapabilities rend les droits dont l'agent juge s'il peut les exercer,
-// dans l'ordre de CapabilityNames : tous sauf observe, dont l'état de Docker
-// se lit déjà par le moteur.
+// dans l'ordre de CapabilityNames : ceux qui écrivent sur la machine. Pas
+// observe, dont l'état de Docker se lit déjà par le moteur, ni un droit ajouté
+// plus tard qui n'écrit rien : la liste est écrite, pas déduite.
 func JudgedCapabilities() []string {
-	return slices.DeleteFunc(CapabilityNames(), func(name string) bool { return name == CapabilityObserve })
+	return []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityFilesWrite}
 }
 
 // FormatUnavailable écrit les droits indisponibles sous la forme de l'en-tête,

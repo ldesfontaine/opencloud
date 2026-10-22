@@ -55,10 +55,15 @@ const (
 // PATH minimal, une langue fixe, et le HOME du compte de l'agent, où Docker
 // garde les identifiants des registres. Sans dossier personnel connu, pas de
 // HOME : Compose ne trouve pas d'identifiants, il ne cherche pas ceux d'un autre.
-func composeEnvironment(home string) []string {
+// Le DOCKER_CONFIG de l'agent, s'il est posé, passe aussi : Compose lit alors le
+// même trousseau que la vérification des images (registry.ConfigPath).
+func composeEnvironment(home, dockerConfig string) []string {
 	environment := []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
 	if home != "" {
 		environment = append(environment, "HOME="+home)
+	}
+	if dockerConfig != "" {
+		environment = append(environment, "DOCKER_CONFIG="+dockerConfig)
 	}
 	return environment
 }
@@ -100,7 +105,7 @@ type dockerTools struct {
 
 func newDockerTools(checks hostChecks) dockerTools {
 	return dockerTools{
-		compose: execCompose{path: dockerBinary, environment: composeEnvironment(homeDir())},
+		compose: execCompose{path: dockerBinary, environment: composeEnvironment(homeDir(), os.Getenv("DOCKER_CONFIG"))},
 		checks:  checks, freeBytes: freeBytesUnder, writeFiles: writeServiceFiles,
 	}
 }
@@ -590,7 +595,7 @@ type execCompose struct {
 // celui de l'agent (exec hérite d'un Env nul) : il tombe sur le minimum, sans HOME.
 func (c execCompose) env() []string {
 	if c.environment == nil {
-		return composeEnvironment("")
+		return composeEnvironment("", "")
 	}
 	return c.environment
 }

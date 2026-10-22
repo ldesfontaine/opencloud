@@ -250,7 +250,14 @@ func TestRun_SaysItsAccountAndWhyAnEnrolledRightCannotBeExercised(t *testing.T) 
 	}
 	options := b.options(token)
 	options.Rights = rights
-	options.DockerSocket = filepath.Join(t.TempDir(), "absent.sock")
+	// Un chemin court : au-delà de 108 octets, l'ouverture d'une socket rend
+	// EINVAL, pas ENOENT, et Docker passerait pour arrêté (TMPDIR long).
+	short, err := os.MkdirTemp("", "dk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(short) })
+	options.DockerSocket = filepath.Join(short, "absent.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

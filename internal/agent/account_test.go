@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/user"
+	"strings"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -105,12 +106,21 @@ func TestComposeEnvironment_CarriesTheHomeOfTheAccount(t *testing.T) {
 		}
 		return false
 	}
-	if environment := composeEnvironment("/var/lib/svc"); !has(environment, "HOME=/var/lib/svc") || has(environment, "HOME=/root") {
+	if environment := composeEnvironment("/var/lib/svc", ""); !has(environment, "HOME=/var/lib/svc") || has(environment, "HOME=/root") {
 		t.Errorf("environment %v", environment)
 	}
-	for _, item := range composeEnvironment("") {
+	for _, item := range composeEnvironment("", "") {
 		if len(item) >= 5 && item[:5] == "HOME=" {
 			t.Errorf("a HOME without a home: %v", item)
+		}
+	}
+	// Le trousseau de Compose est celui de la vérification des images.
+	if environment := composeEnvironment("/var/lib/svc", "/etc/opencloud/docker"); !has(environment, "DOCKER_CONFIG=/etc/opencloud/docker") {
+		t.Errorf("DOCKER_CONFIG did not reach Compose: %v", environment)
+	}
+	for _, item := range composeEnvironment("/var/lib/svc", "") {
+		if strings.HasPrefix(item, "DOCKER_CONFIG=") {
+			t.Errorf("a DOCKER_CONFIG without one: %v", item)
 		}
 	}
 }

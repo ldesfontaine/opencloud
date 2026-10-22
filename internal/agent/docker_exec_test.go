@@ -43,7 +43,7 @@ func readNote(t *testing.T, program, name string) string {
 func TestExecCompose_ReplacesTheEnvironment(t *testing.T) {
 	t.Setenv("OPENCLOUD_TEST_SECRET", "ne-doit-pas-passer")
 	program := fakeDocker(t, "echo 2.29.7\n")
-	compose := execCompose{path: program, environment: composeEnvironment("/home/opencloud")}
+	compose := execCompose{path: program, environment: composeEnvironment("/home/opencloud", "")}
 	version, err := compose.Version(context.Background())
 	if err != nil || version != "2.29.7" {
 		t.Fatalf("version %q %v", version, err)
@@ -67,7 +67,7 @@ func TestExecCompose_WithoutAHomeHasNoHome(t *testing.T) {
 	t.Setenv("HOME", "/home/someone-else")
 	program := fakeDocker(t, "echo 2.29.7\n")
 	for name, compose := range map[string]execCompose{
-		"empty home":        {path: program, environment: composeEnvironment("")},
+		"empty home":        {path: program, environment: composeEnvironment("", "")},
 		"environment unset": {path: program},
 	} {
 		t.Run(name, func(t *testing.T) {
