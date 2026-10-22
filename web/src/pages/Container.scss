@@ -1,6 +1,6 @@
 // La fiche d'un conteneur : détails et historique côte à côte, chacun à sa
-// hauteur. Les couleurs viennent des jetons (--line, --muted), définis dans
-// les deux thèmes.
+// hauteur. Seule couleur : les traits, en --line, défini dans les deux
+// thèmes.
 .container-facts {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
@@ -23,13 +23,22 @@
 
 // Le pli fait suite à la liste : un trait au-dessus, et les lignes repliées
 // reprennent la marge des autres (le corps du pli la rend par une marge
-// négative).
+// négative), sous un trait comme toute ligne de liste.
 .container-history-more {
   padding: 12px 20px;
   border-top: 1px solid var(--line);
 
+  // En bloc, le libellé n'hérite pas de l'interligne du texte autour : le
+  // pli fermé garde la même marge en haut et en bas.
+  .fold > summary {
+    display: flex;
+    width: fit-content;
+  }
+
   .fold-body {
-    margin: 0 -20px -12px;
+    margin: 12px -20px -12px;
+    padding-top: 0;
+    border-top: 1px solid var(--line);
     gap: 0;
   }
 }
