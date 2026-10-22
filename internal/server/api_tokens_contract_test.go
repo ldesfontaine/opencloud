@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -16,14 +17,19 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/status"
 )
 
-// Le contrat avec mcp-maison (main @ 3f24e6a, src/tools/opencloud) : ses
+// Le contrat avec mcp-maison (main @ 0b55aac, src/tools/opencloud) : ses
 // appels, rejoués tels qu'il les fait (client.ts : Authorization: Bearer,
 // Accept: application/json, ses deux en-têtes d'identité, le Host de
-// OPENCLOUD_URL), et les champs que tools.ts lit dans chaque réponse.
-// Un champ renommé ici casserait un outil de mcp-maison sans que rien ne le
-// dise de ce côté-ci.
+// OPENCLOUD_URL), et les champs que tools.ts, api-types.ts et shape.ts lisent
+// dans chaque réponse : les routes sont /api/session, /api/counts, machines,
+// conteneurs (et leurs journaux), l'annuaire (services, écarts, export), les
+// tâches, les sondes, le statut (pages, composants, incidents), les alertes,
+// l'audit et les actions. Un champ renommé ici casserait un outil de
+// mcp-maison sans que rien ne le dise de ce côté-ci.
 
 // mcpMaisonUser est ce que mcp-maison pose (downstream.ts, toHeaderValue) :
 // de l'ASCII imprimable, 200 caractères au plus.
@@ -49,6 +55,7 @@ func mcpMaisonCall(server *Server, bearer, path string, query url.Values) *httpt
 
 // requireFields vérifie qu'un JSON porte un chemin que mcp-maison lit.
 // « a[] » : un tableau, jamais null (l'outil y appelle map, slice ou at) ;
+// « a{} » : un objet, jamais null (l'outil y lit une clé ou y indexe) ;
 // « a? » : présent, null admis (l'outil teste avant de lire dessous) ;
 // « a » : présent.
 func requireFields(t *testing.T, where string, value any, path string) {
@@ -59,14 +66,19 @@ func requireFields(t *testing.T, where string, value any, path string) {
 		t.Errorf("%s: %q: un objet attendu, %T reçu", where, path, value)
 		return
 	}
-	key := strings.TrimSuffix(strings.TrimSuffix(head, "[]"), "?")
+	key, kind := head, ""
+	for _, suffix := range []string{"[]", "{}", "?"} {
+		if strings.HasSuffix(head, suffix) {
+			key, kind = strings.TrimSuffix(head, suffix), suffix
+		}
+	}
 	field, present := object[key]
 	if !present {
 		t.Errorf("%s: champ %q absent", where, key)
 		return
 	}
-	switch {
-	case strings.HasSuffix(head, "[]"):
+	switch kind {
+	case "[]":
 		items, isArray := field.([]any)
 		if !isArray {
 			t.Errorf("%s: %q est %T, un tableau attendu", where, key, field)
@@ -77,13 +89,54 @@ func requireFields(t *testing.T, where string, value any, path string) {
 				requireFields(t, where, item, rest)
 			}
 		}
-	case strings.HasSuffix(head, "?"):
+	case "{}":
+		if _, isObject := field.(map[string]any); !isObject {
+			t.Errorf("%s: %q est %T, un objet attendu", where, key, field)
+			return
+		}
+		if rest != "" {
+			requireFields(t, where, field, rest)
+		}
+	case "?":
 		if field != nil && rest != "" {
 			requireFields(t, where, field, rest)
 		}
 	default:
 		if rest != "" {
 			requireFields(t, where, field, rest)
+		}
+	}
+}
+
+// elementsAt rend ce qu'un chemin « a[].b[] » atteint, tableaux traversés.
+func elementsAt(value any, path string) []any {
+	head, rest, _ := strings.Cut(path, ".")
+	object, _ := value.(map[string]any)
+	field := object[strings.TrimSuffix(head, "[]")]
+	if !strings.HasSuffix(head, "[]") {
+		if rest == "" {
+			return []any{field}
+		}
+		return elementsAt(field, rest)
+	}
+	items, _ := field.([]any)
+	if rest == "" {
+		return items
+	}
+	var reached []any
+	for _, item := range items {
+		reached = append(reached, elementsAt(item, rest)...)
+	}
+	return reached
+}
+
+// requireSome dit qu'un chemin imbriqué atteint au moins un élément : sans
+// lui, requireFields ne vérifierait rien sous un tableau vide.
+func requireSome(t *testing.T, where string, body map[string]any, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		if len(elementsAt(body, path)) == 0 {
+			t.Errorf("%s: %q n'atteint rien, le banc ne vérifie rien dessous", where, path)
 		}
 	}
 }
@@ -134,7 +187,8 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	jobFields := []string{"id", "name", "machine_name", "status", "interval_seconds", "grace_seconds", "last_ping_at", "next_deadline_at", "last_exit_code", "last_duration_ms"}
 	probeFields := []string{"id", "name", "kind", "target", "machine_name", "machine_online", "service_name", "status", "last_checked_at", "last_code", "last_reason", "last_duration_ms", "certificate?.not_after", "certificate?.chain_valid", "certificate?.hostname_match"}
 	containerRow := []string{"id", "machine_name", "name", "group", "image", "state", "health", "exit_code", "restart_count", "image_check?.kind", "exposure[].kind"}
-	alertFields := []string{"id", "kind", "severity", "status", "muted", "object.kind", "object.id", "object.name", "machine_name", "details", "opened_at", "acknowledged_at", "resolved_at"}
+	// details : l'outil y lit « target » pour en masquer le mot de passe.
+	alertFields := []string{"id", "kind", "severity", "status", "muted", "object.kind", "object.id", "object.name", "machine_name", "details{}", "opened_at", "acknowledged_at", "resolved_at"}
 	prefixed := func(prefix string, fields []string) []string {
 		out := make([]string, 0, len(fields))
 		for _, field := range fields {
@@ -143,8 +197,17 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 		return out
 	}
 
-	// opencloud_overview
-	read("/api/counts", nil)
+	// opencloud_overview : { version, ...counts }. La version vient de
+	// /api/session ; un compteur nommé « version » l'écraserait.
+	session := read("/api/session", nil)
+	check("session", session, "version")
+	if _, isText := session["version"].(string); !isText {
+		t.Errorf("session: version est %T, un texte attendu", session["version"])
+	}
+	counts := read("/api/counts", nil)
+	if _, shadows := counts["version"]; shadows || len(counts) == 0 {
+		t.Errorf("counts: %v, un objet de compteurs sans « version » attendu", counts)
+	}
 
 	// opencloud_machines : liste, fiche, réseau.
 	machines := read("/api/machines", nil)
@@ -209,6 +272,19 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	requireNonEmpty(t, "services", services, "services")
 	check("services", services, prefixed("services[].", []string{"id", "machine_name", "name", "title", "nature", "compose_project", "public_url",
 		"units[].name", "units[].kind", "units[].image", "units[].version", "units[].container_name", "units[].systemd_unit"})...)
+	// L'écart se nomme par /api/directory/services : chaque service_id y est.
+	gaps := read("/api/directory/gaps", nil)
+	requireFieldsOfGaps(t, "gaps", gaps)
+	requireSome(t, "gaps", gaps, "services[].units[]", "services[].units[].containers[]", "undeclared[]", "undeclared[].containers[]")
+	known := map[any]bool{}
+	for _, id := range elementsAt(services, "services[].id") {
+		known[id] = true
+	}
+	for _, id := range elementsAt(gaps, "services[].service_id") {
+		if !known[id] {
+			t.Errorf("gaps: service %v absent de /api/directory/services, mcp-maison ne sait pas le nommer", id)
+		}
+	}
 	exported := mcpMaisonCall(server.Server, bearer, "/api/manifest/export", nil)
 	if exported.Code != http.StatusOK || !strings.HasPrefix(exported.Header().Get("Content-Type"), "application/yaml") {
 		t.Fatalf("export: %d %q", exported.Code, exported.Header().Get("Content-Type"))
@@ -229,16 +305,48 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 	// opencloud_probes : liste avec ses jours, fiche avec ses fenêtres.
 	probes := read("/api/probes", nil)
 	requireNonEmpty(t, "probes", probes, "probes")
-	check("probes", probes, append(prefixed("probes[].", probeFields), "days")...)
+	check("probes", probes, append(prefixed("probes[].", probeFields), "days{}")...)
+	// Chaque jour porte ce dont uptimeOf fait la somme.
+	days, _ := probes["days"].(map[string]any)
+	if len(days) == 0 {
+		t.Error("probes: days vide, le banc ne vérifie rien dessous")
+	}
+	for probeKey, window := range days {
+		check("probes days "+probeKey, map[string]any{"days": window}, "days[].total", "days[].success")
+	}
 	check("probe", read("/api/probes/"+url.PathEscape(probeID), nil), append(prefixed("probe.", probeFields),
 		"probe.certificate?", "uptime[].window", "uptime[].total", "uptime[].success",
 		"results[].checked_at", "results[].outcome", "results[].duration_ms", "results[].code", "results[].reason")...)
 
 	// opencloud_status : incidents d'une page, fiche et composants, liste.
+	// Un incident dont la cible n'est dans aucun composant a des composants
+	// vides : un tableau, jamais null (shapeIncidents les parcourt).
+	if _, err := server.status.OpenIncident(context.Background(), status.IncidentDefinition{
+		Title: "Disque de la machine openCloud", Impact: status.ImpactDegraded, Status: status.StatusInvestigating,
+		Targets: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	incidentFields := prefixed("incidents[].", []string{"id", "title", "impact", "status", "starts_at", "ends_at", "resolved_at",
+		"targets[].kind", "targets[].id", "targets[].name", "components[].name",
+		"updates[].status", "updates[].message", "updates[].created_at"})
 	incidents := read("/api/status/incidents", url.Values{"page": {pageID}})
 	requireNonEmpty(t, "incidents", incidents, "incidents")
-	check("incidents", incidents, prefixed("incidents[].", []string{"id", "title", "impact", "status", "starts_at", "ends_at", "resolved_at",
-		"components[].name", "updates[].status", "updates[].message", "updates[].created_at"})...)
+	requireSome(t, "incidents", incidents, "incidents[].targets[]", "incidents[].components[]", "incidents[].updates[]")
+	check("incidents", incidents, incidentFields...)
+	allIncidents := read("/api/status/incidents", nil)
+	requireNonEmpty(t, "all incidents", allIncidents, "incidents")
+	requireSome(t, "all incidents", allIncidents, "incidents[].targets[]", "incidents[].components[]", "incidents[].updates[]")
+	check("all incidents", allIncidents, incidentFields...)
+	withoutComponent := 0
+	for _, component := range elementsAt(allIncidents, "incidents[].components") {
+		if list, _ := component.([]any); len(list) == 0 {
+			withoutComponent++
+		}
+	}
+	if withoutComponent != 1 {
+		t.Errorf("all incidents: %d incident(s) sans composant, 1 attendu", withoutComponent)
+	}
 	pageFields := []string{"id", "slug", "title", "announcement", "public_url"}
 	check("page", read("/api/status/pages/"+url.PathEscape(pageID), nil), pageFields...)
 	components := read("/api/status/components", url.Values{"page": {pageID}})
@@ -288,6 +396,104 @@ func TestAPIToken_ReplaysMCPMaisonCalls(t *testing.T) {
 		if got.Code != refusal.status || errorCode(t, got) != refusal.key {
 			t.Errorf("%s: %d %s, want %d %s", refusal.path, got.Code, got.Body.String(), refusal.status, refusal.key)
 		}
+	}
+}
+
+// requireFieldsOfGaps : ce que shapeGaps (tools.ts) lit dans /api/directory/gaps,
+// et les états que api-types.ts décrit.
+func requireFieldsOfGaps(t *testing.T, where string, gaps map[string]any) {
+	t.Helper()
+	for _, path := range []string{
+		"services[].service_id", "services[].state", "services[].weak",
+		"services[].units[].name", "services[].units[].kind", "services[].units[].state", "services[].units[].weak",
+		"services[].units[].containers[].name", "services[].units[].containers[].state", "services[].units[].containers[].image",
+		"services[].units[].containers[].verdict", "services[].units[].containers[].reason",
+		"undeclared[].machine_name", "undeclared[].key_kind", "undeclared[].key_value", "undeclared[].ignored", "undeclared[].adoptable",
+		"undeclared[].containers[].name", "undeclared[].containers[].state", "undeclared[].containers[].image",
+		"undeclared[].containers[].label_problem",
+	} {
+		requireFields(t, where, gaps, path)
+	}
+	// Seul « conform » est écarté par l'outil : les autres états sont ceux de api-types.ts.
+	states := map[any]bool{"conform": true, "absent": true, "diverged": true, "unverifiable": true, "unobserved": true}
+	for _, path := range []string{"services[].state", "services[].units[].state"} {
+		for _, state := range elementsAt(gaps, path) {
+			if !states[state] {
+				t.Errorf("%s: %s = %v, hors des états que mcp-maison connaît", where, path, state)
+			}
+		}
+	}
+}
+
+// Les tableaux de /api/directory/gaps que shapeGaps parcourt ne sont jamais
+// null, de l'annuaire vide aux écarts de toute nature.
+func TestAPIToken_DirectoryGapsNeverReturnNullArrays(t *testing.T) {
+	for _, scenario := range []struct {
+		name string
+		seed func(*testing.T, *testServer)
+		// Ce que le scénario doit montrer, pour que les chemins vérifiés ne soient pas vides.
+		reached []string
+	}{
+		{"annuaire vide", func(*testing.T, *testServer) {}, nil},
+		{"conteneurs sans service déclaré", func(t *testing.T, server *testServer) {
+			server.enroll(t, "vps-paris-1", remoteID)
+			server.seedContainers(t)
+		}, []string{"undeclared[]", "undeclared[].containers[]"}},
+		{"services sans conteneur", func(t *testing.T, server *testServer) {
+			server.enroll(t, "vps-paris-1", remoteID)
+			server.seedGaps(t)
+		}, []string{"services[]", "services[].units[]"}},
+		{"écarts", func(t *testing.T, server *testServer) {
+			server.enroll(t, "vps-paris-1", remoteID)
+			server.seedContainers(t)
+			server.seedGaps(t)
+		}, []string{"services[].units[].containers[]", "undeclared[].containers[]"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			server := newTestServer(t)
+			scenario.seed(t, server)
+			bearer := server.issueAPIToken(t, "mcp-maison")
+			got := mcpMaisonCall(server.Server, bearer, "/api/directory/gaps", nil)
+			if got.Code != http.StatusOK {
+				t.Fatalf("%d %s", got.Code, got.Body.String())
+			}
+			var gaps map[string]any
+			if err := json.Unmarshal(got.Body.Bytes(), &gaps); err != nil {
+				t.Fatal(err)
+			}
+			requireFields(t, scenario.name, gaps, "services[]")
+			requireFields(t, scenario.name, gaps, "undeclared[]")
+			requireFieldsOfGaps(t, scenario.name, gaps)
+			requireSome(t, scenario.name, gaps, scenario.reached...)
+		})
+	}
+}
+
+// Le support d'un système, que opencloud_machines (fiche) lit quand la fin
+// de support est activée : lifecycle est absent sinon, et l'outil le teste.
+func TestAPIToken_MachineLifecycleIsWhatMCPMaisonReads(t *testing.T) {
+	server := newTestServer(t)
+	server.enroll(t, "vps-paris-1", remoteID)
+	if err := server.machines.NoteSystem(context.Background(), remoteID, "Debian GNU/Linux 12"); err != nil {
+		t.Fatal(err)
+	}
+	bearer := server.issueAPIToken(t, "mcp-maison")
+	if got := callAPI(server.Server, http.MethodPut, "/api/settings/lifecycle", lifecycleSettingsRequest{Enabled: true}); got.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", got.Code, got.Body.String())
+	}
+	if err := server.lifecycle.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := mcpMaisonCall(server.Server, bearer, "/api/machines/"+url.PathEscape(remoteID), nil)
+	if got.Code != http.StatusOK {
+		t.Fatalf("%d %s", got.Code, got.Body.String())
+	}
+	var detail map[string]any
+	if err := json.Unmarshal(got.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"lifecycle{}", "lifecycle.status", "lifecycle.product", "lifecycle.cycle", "lifecycle.eol_from"} {
+		requireFields(t, "machine", detail, path)
 	}
 }
 

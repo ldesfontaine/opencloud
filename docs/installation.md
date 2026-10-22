@@ -718,9 +718,9 @@ aujourd'hui : le clone demande un accès (`gh auth login`, ou un jeton) :
 
 ```sh
 git clone https://github.com/ldesfontaine/mcp-maison.git /srv/workspace/mcp-maison/src
-git -C /srv/workspace/mcp-maison/src checkout 3f24e6a
-docker build -t mcp-maison:3f24e6a /srv/workspace/mcp-maison/src
-sed -i 's|^\( *image:\).*|\1 mcp-maison:3f24e6a|' compose.yml
+git -C /srv/workspace/mcp-maison/src checkout 0b55aac
+docker build -t mcp-maison:0b55aac /srv/workspace/mcp-maison/src
+sed -i 's|^\( *image:\).*|\1 mcp-maison:0b55aac|' compose.yml
 ```
 
 **4. Lancer, vérifier.**
@@ -745,14 +745,15 @@ middleware SSO** : Claude doit atteindre `/mcp`, `/.well-known/…`,
 | `172.17.0.1:8080` (Traefik en conteneur) | `172.17.0.1` | `http://host.docker.internal:3000` |
 | L'IP privée de la machine (Traefik sur une autre machine) | cette IP | `http://<cette IP>:3000` |
 
-**Aujourd'hui, seule la première ligne marche.** mcp-maison n'accepte
-`OPENCLOUD_URL` en `http://` que sur la boucle locale (`localhost`,
-`127.0.0.1`, `[::1]`) ; une autre adresse en `http://` lui fait ignorer son
-groupe `opencloud` (`groupe "opencloud" non chargé : … https:// attendu` à son
-journal, « Sans ses outils openCloud » sous Paramètres → Agent IA). Les deux
-autres lignes attendent mcp-maison#4 (`http://` sur une adresse privée).
-D'ici là, mettez openCloud sur la boucle locale (`listen = "127.0.0.1:8080"`)
-et Traefik en mode host, ou attendez.
+mcp-maison accepte `OPENCLOUD_URL` en `http://` sur la boucle locale
+(`localhost`, `127.0.0.1`, `[::1]`) et vers une IP privée RFC 1918 (`10.0.0.0/8`,
+`172.16.0.0/12`, dont `172.17.0.1`, `192.168.0.0/16`) : les trois lignes
+marchent. Un nom ou une IP publique en `http://` lui fait ignorer son groupe
+`opencloud` (`groupe "opencloud" non chargé : … https:// attendu` à son
+journal, « Sans ses outils openCloud » sous Paramètres → Agent IA). L'hôte de
+`OPENCLOUD_URL` reste jugé par openCloud : une IP, `localhost` ou le nom de
+`public_url` ; un nom de conteneur ou `host.docker.internal` reçoivent
+`403 {"error":"bad_host"}`.
 
 Le routeur, dans la configuration dynamique de Traefik (comme
 [`traefik-opencloud.yml`](installation/traefik-opencloud.yml), sans
@@ -1671,7 +1672,7 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | Paramètres → Agent IA : « Sans ses outils openCloud » ; `groupe "opencloud" non chargé` au journal de mcp-maison | `OPENCLOUD_URL` ou `OPENCLOUD_TOKEN` du `.env` de mcp-maison manque ou est refusé | Recopier les lignes de Paramètres → Jetons d'API (un jeton neuf au besoin), puis `docker compose up -d` |
 | mcp-maison : `401 api_token.invalid` | Le jeton est révoqué, échu, ou recréé à la création du compte | Un jeton neuf sous Paramètres → Jetons d'API, dans le `.env` |
 | mcp-maison : `403 bad_host` | `OPENCLOUD_URL` vise un nom que `public_url` ne reconnaît pas | Mettre l'adresse IP de `listen` dans `OPENCLOUD_URL` |
-| mcp-maison : `groupe "opencloud" non chargé : OPENCLOUD_URL: https:// attendu (http:// seulement en boucle locale)` | `OPENCLOUD_URL` en `http://` sur une adresse qui n'est pas la boucle locale (`172.17.0.1`, une IP privée) | `listen` sur `127.0.0.1` et `OPENCLOUD_URL=http://127.0.0.1:<port>`, ou attendre mcp-maison#4 |
+| mcp-maison : `groupe "opencloud" non chargé : OPENCLOUD_URL: https:// attendu (http:// : boucle locale ou IP privée seulement)` | `OPENCLOUD_URL` en `http://` sur un nom ou une IP publique | `OPENCLOUD_URL=http://<l'IP de listen>:<port>` (boucle locale ou IP privée), ou `https://` |
 | Mode `forward` : toute l'interface répond `401 {"error":"api_token.invalid"}` | Le mandataire transmet un `Authorization: Bearer` à openCloud (oauth2-proxy avec `--pass-authorization-header` ou `--set-authorization-header`) : un Bearer est jugé comme un jeton d'API, avant l'en-tête d'identité | Ne pas transmettre `Authorization` à openCloud ; seul l'en-tête d'identité compte |
 | Le navigateur redemande le mot de passe à chaque fois, ou `429` | Mauvais identifiants, puis limite des échecs ; ou file de vérification pleine (des tentatives anonymes en cours) | Attendre `Retry-After` et réessayer ; mot de passe perdu : `opencloud auth disable` |
 | `sudo: command not found` | Debian minimal, installé sans `sudo` | En root, retirer `sudo` ; sous le compte du service, `runuser -u opencloud -- …` |
