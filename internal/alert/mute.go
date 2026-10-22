@@ -18,6 +18,9 @@ const (
 	// puis la purge l'efface.
 	MuteRetention   = 90 * 24 * time.Hour
 	MaxReasonLength = 200
+	// Le titre d'un silence annoncé est lu par le public, comme celui d'un
+	// incident.
+	MaxPublicTitleLength = 120
 )
 
 // Les refus gardent le mot que l'opérateur lit : « silence ».
@@ -26,6 +29,7 @@ var (
 	ErrMuteDurationInvalid = refusal.Invalid("silence.duration_invalid", "alert: mute duration invalid")
 	ErrMuteStartInvalid    = refusal.Invalid("silence.start_invalid", "alert: mute start too far ahead")
 	ErrMuteTargetUnknown   = refusal.Invalid("silence.target_unknown", "alert: mute target unknown")
+	ErrMuteAnnounceInvalid = refusal.Invalid("silence.announce_invalid", "alert: an announced mute needs a public title and a directory target")
 )
 
 // TargetKind est ce qu'une fenêtre tait : un objet de l'annuaire, un
@@ -66,6 +70,10 @@ type Mute struct {
 	EndsAt    time.Time
 	CreatedBy audit.Actor
 	CreatedAt time.Time
+	// Un silence annoncé paraît en public comme une maintenance, sous son
+	// titre public ; non annoncé, il reste interne.
+	Announce    bool
+	PublicTitle string
 }
 
 // MuteDefinition est ce que l'opérateur donne. Un début zéro ou passé vaut
@@ -76,6 +84,9 @@ type MuteDefinition struct {
 	Reason   string
 	StartsAt time.Time
 	Duration time.Duration
+	// Annoncer exige un titre public et une cible de l'annuaire.
+	Announce    bool
+	PublicTitle string
 }
 
 // Validate vérifie la définition ; now borne le début planifié.
@@ -99,7 +110,31 @@ func (d MuteDefinition) Validate(now time.Time) error {
 	if !utf8.ValidString(reason) || utf8.RuneCountInString(reason) > MaxReasonLength {
 		return ErrMuteInvalid
 	}
+	return d.validateAnnounce()
+}
+
+// validateAnnounce : un silence annoncé porte un titre public et vise un
+// objet que rien d'autre qu'une page de statut peut relier à un composant ;
+// sans l'annonce, pas de titre.
+func (d MuteDefinition) validateAnnounce() error {
+	title := strings.TrimSpace(d.PublicTitle)
+	if !d.Announce {
+		if title != "" {
+			return ErrMuteAnnounceInvalid
+		}
+		return nil
+	}
+	validTitle := title != "" && utf8.ValidString(title) && utf8.RuneCountInString(title) <= MaxPublicTitleLength && !strings.ContainsAny(title, "\n\r")
+	if !validTitle || !canAnnounce(d.Target.Kind) {
+		return ErrMuteAnnounceInvalid
+	}
 	return nil
+}
+
+// canAnnounce : les genres de l'annuaire que le public sait relier à un
+// composant ; ni « tout » ni un conteneur non déclaré.
+func canAnnounce(kind TargetKind) bool {
+	return kind == TargetMachine || kind == TargetService || kind == TargetProbe || kind == TargetHeartbeat
 }
 
 // Window rend la fenêtre de la définition : elle commence au plus tôt

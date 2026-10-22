@@ -6,13 +6,13 @@ import { useDeclaredServices } from "../api/directory";
 import { useJobs } from "../api/jobs";
 import { useMachines } from "../api/machines";
 import { useProbes } from "../api/probes";
-import { Field, Input, Select } from "../components/Field";
+import { Checkbox, Checks, Field, Input, Select } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
 import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { emptyMuteForm, muteRequestOf, silenceDurations } from "../lib/alerts";
+import { canAnnounce, emptyMuteForm, muteRequestOf, silenceDurations } from "../lib/alerts";
 import { nameWithMachine } from "../lib/objects";
 
 // Ce qu'on choisit dans une liste ; un conteneur non déclaré ne vient que
@@ -34,6 +34,7 @@ export function AlertMuteNew() {
     targetName: params.get("target_name") ?? "",
   });
   const { values, change } = form;
+  const announced = values.announce && canAnnounce(values);
   const action = useAction();
   const options = useTargets(values.targetKind);
   // Un conteneur non déclaré ne se choisit pas dans une liste : il vient de
@@ -45,6 +46,7 @@ export function AlertMuteNew() {
     change("targetKind", next);
     change("targetID", container?.id ?? "");
     change("targetName", container?.name ?? "");
+    change("announce", false);
   };
 
   const save = () => {
@@ -66,7 +68,7 @@ export function AlertMuteNew() {
             submitLabel={t("silence.create")}
             submitIcon="pause"
             busy={action.busy}
-            canSubmit={values.targetKind === "" || values.targetID !== ""}
+            canSubmit={(values.targetKind === "" || values.targetID !== "") && (!announced || values.publicTitle.trim() !== "")}
             cancelLabel={t("silence.cancel")}
             cancelTo="/alertes/silences"
           />
@@ -128,6 +130,19 @@ export function AlertMuteNew() {
         <Field label={t("silence.reason_label")} htmlFor="silence-reason" help={t("silence.reason_help")}>
           <Input id="silence-reason" type="text" value={values.reason} onChange={(event) => change("reason", event.target.value)} maxLength={200} autoComplete="off" />
         </Field>
+        {canAnnounce(values) && (
+          <>
+            <Checks>
+              <Checkbox label={t("silence.announce_label")} checked={values.announce} onChange={(checked) => change("announce", checked)} />
+            </Checks>
+            <p className="secondary">{t("silence.announce_help")}</p>
+            {values.announce && (
+              <Field label={t("silence.public_title_label")} htmlFor="silence-public-title">
+                <Input id="silence-public-title" type="text" value={values.publicTitle} onChange={(event) => change("publicTitle", event.target.value)} maxLength={120} autoComplete="off" />
+              </Field>
+            )}
+          </>
+        )}
       </FormCard>
     </>
   );

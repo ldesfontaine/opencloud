@@ -62,12 +62,14 @@ func muteEvent(action audit.Action, written Mute) audit.Event {
 	return audit.Event{
 		Action: action, ObjectID: strconv.FormatInt(written.ID, 10), ObjectName: written.Target.Name,
 		Details: audit.Details{
-			"kind":        string(written.Kind),
-			"target_kind": string(written.Target.Kind),
-			"target_id":   written.Target.ID,
-			"reason":      written.Reason,
-			"starts_at":   written.StartsAt.UTC().Format(time.RFC3339),
-			"ends_at":     written.EndsAt.UTC().Format(time.RFC3339),
+			"kind":         string(written.Kind),
+			"target_kind":  string(written.Target.Kind),
+			"target_id":    written.Target.ID,
+			"reason":       written.Reason,
+			"starts_at":    written.StartsAt.UTC().Format(time.RFC3339),
+			"ends_at":      written.EndsAt.UTC().Format(time.RFC3339),
+			"announce":     strconv.FormatBool(written.Announce),
+			"public_title": written.PublicTitle,
 		},
 	}
 }

@@ -104,14 +104,14 @@ func TestPage_OnePerProject_AndItHoldsTheProject(t *testing.T) {
 }
 
 // Supprimer une page emporte ses composants et leurs membres, et le plan le
-// dit ; les incidents qui les citaient restent, détachés.
+// dit ; les incidents visent des objets, ils restent tels quels.
 func TestDeletePage_CarriesItsComponentsAndThePlanSaysSo(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	site := f.probe(t, "site", probe.OutcomeUp, nil)
 	cloud := f.component(t, "Nuage", status.MemberRef{Kind: status.KindProbe, ID: site.ID}, status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID})
 	incident, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
-		Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{cloud.ID},
+		Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(cloud),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +121,7 @@ func TestDeletePage_CarriesItsComponentsAndThePlanSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantRemoves := []deletion.Count{{Kind: deletion.KindComponents, Count: 1}, {Kind: deletion.KindMembers, Count: 2}}
-	wantDetaches := []deletion.Count{{Kind: deletion.KindIncidentLinks, Count: 1}}
-	if plan.IsBlocked() || !equalCounts(plan.Removes, wantRemoves) || !equalCounts(plan.Detaches, wantDetaches) {
+	if plan.IsBlocked() || !equalCounts(plan.Removes, wantRemoves) || len(plan.Detaches) != 0 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if err := f.status.DeletePage(ctx, f.pageID); err != nil {
@@ -132,8 +131,11 @@ func TestDeletePage_CarriesItsComponentsAndThePlanSaysSo(t *testing.T) {
 		t.Fatalf("the component must leave with its page: %v", err)
 	}
 	kept, err := f.status.GetIncident(ctx, incident.ID)
-	if err != nil || len(kept.Components) != 0 {
-		t.Fatalf("the incident stays, detached: %+v %v", kept, err)
+	if err != nil || len(kept.Targets) != 1 || len(kept.Components) != 0 {
+		t.Fatalf("the incident stays on its target, shown on no page: %+v %v", kept, err)
+	}
+	if listed, err := f.status.Incidents(ctx, ""); err != nil || len(listed) != 1 {
+		t.Fatalf("the administration still lists it: %+v %v", listed, err)
 	}
 	if _, err := f.status.Snapshot(ctx, f.pageID); !errors.Is(err, status.ErrNotFound) {
 		t.Fatalf("snapshot of a deleted page: %v", err)
@@ -184,19 +186,23 @@ func TestSnapshot_IsPerPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	site := f.probe(t, "boutique", probe.OutcomeUp, nil)
 	mine := f.component(t, "Courrier", status.MemberRef{Kind: status.KindMachine, ID: machine.LocalID})
-	theirs, err := f.status.CreateComponent(ctx, status.ComponentDefinition{PageID: other.ID, Name: "Boutique", Members: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}}})
+	_, err = f.status.CreateComponent(ctx, status.ComponentDefinition{PageID: other.ID, Name: "Boutique", Members: []status.MemberRef{
+		{Kind: status.KindMachine, ID: machine.LocalID}, {Kind: status.KindProbe, ID: site.ID},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// La machine est sur les deux pages ; la sonde, sur celle de la boutique.
 	shared, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
-		Title: "Fournisseur", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{mine.ID, theirs.ID},
+		Title: "Fournisseur", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(mine),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
-		Title: "Boutique seule", Impact: status.ImpactDegraded, Status: status.StatusInvestigating, ComponentIDs: []string{theirs.ID},
+		Title: "Boutique seule", Impact: status.ImpactDegraded, Status: status.StatusInvestigating, Targets: []status.MemberRef{{Kind: status.KindProbe, ID: site.ID}},
 	}); err != nil {
 		t.Fatal(err)
 	}

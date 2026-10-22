@@ -222,8 +222,8 @@ func (db *DB) CountComponents(ctx context.Context, pageID string) (int, error) {
 
 const incidentColumns = `id, title, impact, status, starts_at, ends_at, created_at, updated_at, resolved_at`
 
-// InsertIncident écrit l'incident, ses composants et la première entrée de
-// son fil d'un coup.
+// InsertIncident écrit l'incident, ses cibles et la première entrée de son
+// fil d'un coup.
 func (db *DB) InsertIncident(ctx context.Context, incident status.Incident) error {
 	return db.inTx(ctx, "insert incident", func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `
@@ -234,7 +234,7 @@ func (db *DB) InsertIncident(ctx context.Context, incident status.Incident) erro
 		if err != nil {
 			return fmt.Errorf("insert incident: %w", err)
 		}
-		if err := insertIncidentComponents(ctx, tx, incident); err != nil {
+		if err := insertIncidentTargets(ctx, tx, incident); err != nil {
 			return err
 		}
 		for _, update := range incident.Updates {
@@ -247,7 +247,7 @@ func (db *DB) InsertIncident(ctx context.Context, incident status.Incident) erro
 }
 
 // UpdateIncident réécrit ce que l'opérateur corrige : le titre, la
-// fenêtre, les composants. Le statut et le fil passent par Transition.
+// fenêtre, les cibles. Le statut et le fil passent par Transition.
 func (db *DB) UpdateIncident(ctx context.Context, incident status.Incident) error {
 	return db.inTx(ctx, "update incident", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
@@ -259,24 +259,38 @@ func (db *DB) UpdateIncident(ctx context.Context, incident status.Incident) erro
 		if err := notFoundIfNoRow(result, status.ErrNotFound); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM incident_components WHERE incident_id = ?`, incident.ID); err != nil {
-			return fmt.Errorf("clear incident components: %w", err)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM incident_targets WHERE incident_id = ?`, incident.ID); err != nil {
+			return fmt.Errorf("clear incident targets: %w", err)
 		}
-		if err := insertIncidentComponents(ctx, tx, incident); err != nil {
+		if err := insertIncidentTargets(ctx, tx, incident); err != nil {
 			return err
 		}
 		return nil
 	})
 }
 
-func insertIncidentComponents(ctx context.Context, tx *sql.Tx, incident status.Incident) error {
-	for _, component := range incident.Components {
-		_, err := tx.ExecContext(ctx, `INSERT INTO incident_components (incident_id, component_id) VALUES (?, ?)`, incident.ID, component.ID)
+// Une requête par genre d'objet visé, comme pour les membres d'un composant.
+var targetInserts = map[status.MemberKind]string{
+	status.KindMachine:   `INSERT INTO incident_targets (incident_id, machine_id) VALUES (?, ?)`,
+	status.KindService:   `INSERT INTO incident_targets (incident_id, service_id) VALUES (?, ?)`,
+	status.KindHeartbeat: `INSERT INTO incident_targets (incident_id, heartbeat_id) VALUES (?, ?)`,
+	status.KindProbe:     `INSERT INTO incident_targets (incident_id, probe_id) VALUES (?, ?)`,
+}
+
+// insertIncidentTargets écrit chaque objet visé dans sa colonne ; un objet
+// inconnu ou donné deux fois est un refus.
+func insertIncidentTargets(ctx context.Context, tx *sql.Tx, incident status.Incident) error {
+	for _, target := range incident.Targets {
+		insert, ok := targetInserts[target.Kind]
+		if !ok {
+			return status.ErrTargetInvalid
+		}
+		_, err := tx.ExecContext(ctx, insert, incident.ID, target.ID)
 		if isConstraintViolation(err) {
-			return status.ErrComponentInvalid
+			return status.ErrTargetInvalid
 		}
 		if err != nil {
-			return fmt.Errorf("insert incident component: %w", err)
+			return fmt.Errorf("insert incident target: %w", err)
 		}
 	}
 	return nil
@@ -376,7 +390,8 @@ func scanIncident(row scanner) (status.Incident, error) {
 	return incident, nil
 }
 
-// attachIncidentParts remplit les composants touchés, avec leur nom, et le
+// attachIncidentParts remplit les objets visés, genre et identifiant
+// seulement (le nom et les composants touchés viennent du service), et le
 // fil du plus récent au plus ancien, des incidents que la clause désigne :
 // deux lectures pour la liste entière, jamais deux par incident. Sans
 // partie, les listes sont vides, jamais nil.
@@ -387,21 +402,22 @@ func (db *DB) attachIncidentParts(ctx context.Context, incidents []status.Incide
 	position := make(map[string]int, len(incidents))
 	for index, incident := range incidents {
 		position[incident.ID] = index
+		incidents[index].Targets = []status.Target{}
 		incidents[index].Components = []status.ComponentRef{}
 		incidents[index].Updates = []status.Update{}
 	}
-	componentsQuery := `SELECT ic.incident_id, c.id, c.name FROM incident_components ic JOIN status_components c ON c.id = ic.component_id ` + where + ` ORDER BY c.position, c.name, c.id` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
-	components, err := db.sql.QueryContext(ctx, componentsQuery, args...)
+	targetsQuery := `SELECT incident_id, machine_id, service_id, heartbeat_id, probe_id FROM incident_targets ` + where + ` ORDER BY rowid` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
+	targets, err := db.sql.QueryContext(ctx, targetsQuery, args...)
 	if err != nil {
-		return fmt.Errorf("list incident components: %w", err)
+		return fmt.Errorf("list incident targets: %w", err)
 	}
-	refs, err := collect(components, scanIncidentComponent)
+	found, err := collect(targets, scanIncidentTarget)
 	if err != nil {
 		return err
 	}
-	for _, ref := range refs {
-		if index, ok := position[ref.incidentID]; ok {
-			incidents[index].Components = append(incidents[index].Components, ref.ComponentRef)
+	for _, target := range found {
+		if index, ok := position[target.incidentID]; ok {
+			incidents[index].Targets = append(incidents[index].Targets, target.Target)
 		}
 	}
 	updatesQuery := `SELECT incident_id, id, status, message, created_at FROM incident_updates ` + where + ` ORDER BY created_at DESC, id DESC` // #nosec G202 -- la clause est une constante du package, les valeurs sont liées.
@@ -421,11 +437,11 @@ func (db *DB) attachIncidentParts(ctx context.Context, incidents []status.Incide
 	return nil
 }
 
-// incidentComponent et incidentUpdate portent l'incident de chaque ligne,
-// le temps de la regrouper.
-type incidentComponent struct {
+// incidentTarget et incidentUpdate portent l'incident de chaque ligne, le
+// temps de la regrouper.
+type incidentTarget struct {
 	incidentID string
-	status.ComponentRef
+	status.Target
 }
 
 type incidentUpdate struct {
@@ -433,12 +449,15 @@ type incidentUpdate struct {
 	status.Update
 }
 
-func scanIncidentComponent(row scanner) (incidentComponent, error) {
-	var ref incidentComponent
-	if err := row.Scan(&ref.incidentID, &ref.ID, &ref.Name); err != nil {
-		return incidentComponent{}, fmt.Errorf("scan incident component: %w", err)
+func scanIncidentTarget(row scanner) (incidentTarget, error) {
+	var found incidentTarget
+	var machineID, serviceID, heartbeatID, probeID sql.NullString
+	if err := row.Scan(&found.incidentID, &machineID, &serviceID, &heartbeatID, &probeID); err != nil {
+		return incidentTarget{}, fmt.Errorf("scan incident target: %w", err)
 	}
-	return ref, nil
+	member, _ := memberOf(machineID, serviceID, heartbeatID, probeID)
+	found.Kind, found.ID = member.Kind, member.ID
+	return found, nil
 }
 
 func scanIncidentUpdate(row scanner) (incidentUpdate, error) {
@@ -470,7 +489,7 @@ func (db *DB) CountOpenIncidents(ctx context.Context) (int, error) {
 }
 
 // PurgeIncidents efface les incidents résolus avant l'instant donné ; le
-// fil et les rattachements partent en cascade.
+// fil et les cibles partent en cascade.
 func (db *DB) PurgeIncidents(ctx context.Context, resolvedBefore time.Time) error {
 	if _, err := db.sql.ExecContext(ctx, `DELETE FROM incidents WHERE resolved_at IS NOT NULL AND resolved_at < ?`, resolvedBefore.Unix()); err != nil {
 		return fmt.Errorf("purge incidents: %w", err)

@@ -223,6 +223,8 @@ export interface MuteFormValues {
   startsAt: string;
   minutes: number;
   reason: string;
+  announce: boolean;
+  publicTitle: string;
 }
 
 const defaultSilenceMinutes = 60;
@@ -235,10 +237,21 @@ export const emptyMuteForm: MuteFormValues = {
   startsAt: "",
   minutes: defaultSilenceMinutes,
   reason: "",
+  announce: false,
+  publicTitle: "",
 };
+
+// Seul un objet du répertoire peut s'annoncer : une page de statut n'en
+// montre pas d'autres.
+export function canAnnounce(values: Pick<MuteFormValues, "targetKind" | "targetID">): boolean {
+  return values.targetID !== "" && announceableKinds.includes(values.targetKind);
+}
+
+const announceableKinds: readonly MuteTargetKind[] = ["machine", "service", "probe", "heartbeat"];
 
 // Un genre sans objet choisi ne vise rien : le serveur reçoit « tout ».
 export function muteRequestOf(values: MuteFormValues): MuteRequest {
+  const announced = values.announce && canAnnounce(values);
   return {
     kind: values.kind,
     target_kind: values.targetID !== "" ? values.targetKind : "",
@@ -246,6 +259,8 @@ export function muteRequestOf(values: MuteFormValues): MuteRequest {
     reason: values.reason,
     starts_at: fromLocalInput(values.startsAt),
     duration_minutes: values.minutes,
+    announce: announced,
+    public_title: announced ? values.publicTitle : "",
   };
 }
 

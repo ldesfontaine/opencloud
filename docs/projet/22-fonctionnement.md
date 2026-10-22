@@ -130,9 +130,9 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), leurs composants dans `incident_components`, leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens et ses rattachements aux incidents, l'incident reste ; la page supprimée emporte ses composants de même. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les pages de statut dans `status_pages` (adresse `slug` unique, titre, annonce en texte brut, langue, projet facultatif, une page par projet au plus, en `restrict` vers lui) ; les composants dans `status_components` (leur page, en `cascade` ; nom public, ordre), leurs objets dans `status_component_members` (quatre clés étrangères, exactement une remplie ; celle du service vise un **service déclaré**, en `restrict`), les incidents dans `incidents` (titre, impact, statut, fenêtre d'une maintenance, dates), les objets qu'ils visent dans `incident_targets` (quatre clés étrangères, exactement une remplie, en `cascade` : un lien seul, l'incident reste), leur fil dans `incident_updates`. Une maintenance ne tait aucune alerte : c'est un silence qui le fait | Les quatre clés d'un membre sont en `restrict` : une machine, un service, une sonde ou une tâche qu'un composant affiche refuse d'être supprimé tant qu'on ne l'a pas retiré du composant ; le composant supprimé emporte ses liens ; la page supprimée emporte ses composants de même. Un incident ne vise pas un composant : il vise des objets, et l'objet supprimé détache l'incident (compté dans le plan), qui garde son texte et son fil. Un projet qui a sa page refuse d'être supprimé (`project.has_status_page`). Incidents résolus purgés après un an. Tout est écrit par l'opérateur pour être lu par le public : rien de secret |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier constat sur chaque image d'une machine dans `image_checks` (issue, empreinte tirée, empreinte publiée, tag plus récent et son empreinte, type déduit) ; sur la fiche `containers`, ce que Compose dit du service (`compose_service`, `compose_dir`, `compose_file`). La politique de l'opérateur ne vit plus sur la fiche : elle est sur l'unité (`service_units.update_policy`) | Écrasé à chaque vérification ; purgé après 30 jours sans vérification ; la machine retirée emporte tout. Le dossier du projet Compose est un chemin de la machine, en clair |
-| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
+| Machine openCloud, `state_dir` | `opencloud.db` | Les alertes dans `alerts` (type, gravité, objet et son nom recopié, machine, service déclaré, détails en JSON, dates dont le début du calme, acquittement ; l'objet et le service en clés étrangères `set null`), les canaux dans `alert_channels` (**URL et secret chiffrés** — le jeton du bot pour Matrix —, format, destinataires d'un e-mail ou salon Matrix dans `destination`, gravité minimale), les livraisons dans `alert_deliveries` (événement, essais, motif, code, heure de l'essai suivant, ou retenue par la limite du canal, ou tue par un silence), les silences dans `mutes` (cible en clé étrangère, type, fenêtre, motif, auteur, et `announce` avec `public_title` quand le silence s'annonce en maintenance) | Résolues purgées après 90 jours, livraisons avec leur alerte, canaux sans purge. Silences finis depuis plus de 90 jours purgés avec les alertes (au départ, puis une fois par jour) ; une machine (avec ses conteneurs), un service déclaré, une sonde ou une tâche retirée emporte ses silences par la clé étrangère (`cascade`), une pause ou un archivage les garde ; le plan de suppression les compte. **L'URL et le secret d'un canal sont chiffrés** (AES-256-GCM, clé du serveur, liés à leur ligne) : un webhook Discord, Slack ou ntfy porte son jeton dans le chemin de l'URL, c'est un secret autant que la clé de signature. Il faut pouvoir les rejouer au récepteur, un haché ne servirait à rien ; l'API ne renvoie jamais le secret. Pour Matrix, c'est le jeton d'accès du bot : le déconnecter du compte du bot le révoque |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès d'un agent IA : le client OAuth dans `mcp_clients` (une ligne, secret **haché**, préfixe affiché, adresses de retour déclarées), les codes d'autorisation dans `mcp_codes` (hachés, dix minutes, servis une fois, avec la portée consentie), les jetons dans `mcp_tokens` (hachés ; portée `read` ou `write`, inerte pendant la refonte ; accès 1 h, rafraîchissement 30 j, API 30, 90 ou 365 j ou sans échéance au choix ; famille, dernier usage, révocation) | Rien n'est en clair : une copie de la base n'ouvre rien. Purge toutes les 15 minutes des codes et jetons échus, jetons d'API compris ; un révoqué reste jusqu'à son échéance, c'est lui qui trahit un rejeu (un jeton d'API sans échéance révoqué reste donc, inerte). Désactiver MCP efface le client et tous les jetons ; activer l'authentification de l'interface les révoque tous, efface les codes en attente et garde le client. Les demandes qui attendent le consentement ne sont **pas** en base : en mémoire de `serve`, dix minutes, 32 au plus (voir « Comment un agent IA lit openCloud ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | L'accès de l'opérateur à l'interface dans `auth_settings` (une ligne) : le mode (`none`, `basic`, `forward`), l'identifiant, l'empreinte **bcrypt** du mot de passe (coût 12), le nom de l'en-tête d'identité du mode `forward` (`forward_header`), la date d'activation | Le mot de passe n'est jamais stocké ni renvoyé ; une copie de la base donne l'identifiant, pas l'accès. L'identité transmise par le mandataire n'est jamais stockée : elle arrive avec chaque requête. `none` ne veut plus dire « ouvert » : aucun compte, l'installation attend sa première configuration. Désactiver efface identifiant, empreinte et en-tête, et y ramène |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages. `opencloud mcp` les lit dans la base, comme `serve` |
@@ -1837,14 +1837,37 @@ adresse inconnue répond `404` comme tout chemin inconnu.
    la page dit « rien à afficher », jamais « tout fonctionne » à vide.
 4. **Un incident** est ce que l'opérateur dit au public : un titre, un
    impact, un fil d'entrées datées qui portent chacune le statut qu'elles
-   donnent, et les composants touchés. **Tant qu'il est ouvert, son impact
-   remplace l'état dérivé de ses composants** : l'opérateur en sait plus
-   que la sonde, et dire « maintenance » quand la sonde dit « hors ligne »
-   est tout l'intérêt. Résolu, l'état dérivé reprend. Un incident peut
-   toucher des composants de plusieurs pages : **chaque page le montre
+   donnent, et **les objets qu'il vise** (`incident_targets`) : une machine,
+   un service déclaré, une tâche ou une sonde, jamais un composant, qui
+   n'existe que sur une page. **Un composant est touché si l'un de ses
+   membres l'est**, calculé à la lecture, jamais stocké :
+
+   | Cible \ membre | machine | service | tâche | sonde |
+   | --- | --- | --- | --- | --- |
+   | machine | la même | un service posé sur elle | une tâche rattachée à elle | une sonde de l'un de ses services |
+   | service | non | le même | non | une sonde de ce service |
+   | tâche | non | non | la même | non |
+   | sonde | non | non | non | la même |
+
+   Jamais : la machine qui **lance** une sonde ne la touche pas (une sonde qui
+   regarde de dehors reste juste), un service ne touche pas sa machine, un
+   objet disparu ne touche rien. **Tant qu'il est ouvert, son impact
+   remplace l'état dérivé des composants qu'il touche** : l'opérateur en sait
+   plus que la sonde, et dire « maintenance » quand la sonde dit « hors
+   ligne » est tout l'intérêt. Résolu, l'état dérivé reprend. Un incident
+   peut toucher des composants de plusieurs pages : **chaque page le montre
    réduit à ses propres composants**, jamais le nom de ceux d'une autre. Un
-   incident qui ne touche plus aucun composant (le sien supprimé) ne paraît
-   plus sur aucune page, et reste dans l'administration.
+   incident dont les cibles ne touchent plus aucun composant (l'objet
+   supprimé, le composant retiré) ne paraît plus sur aucune page, et reste
+   dans l'administration. **Un composant sans objet n'est touché par rien** :
+   il reste caché du public, même pendant un incident. La migration `005` a
+   déplié chaque composant que visait un incident en ses objets (machine,
+   service, tâche ou sonde, quel que soit leur genre, chacun une fois) ; un
+   incident dont les composants n'avaient aucun objet est resté **sans
+   cible** : texte et fil gardés, il ne paraît plus sur aucune page, et ne se
+   corrige qu'en lui donnant au moins un objet. Le formulaire choisit des objets, au plus 64, chacun
+   une fois (`incident.target_invalid`) ; la fiche dit les objets visés et les
+   pages touchées.
 5. **Une maintenance** est un incident d'impact « maintenance » avec une
    fenêtre. Planifiée, elle s'affiche sans rien changer ; la boucle la
    passe « en cours » à l'heure du début et la résout à l'heure de la fin,
@@ -1855,6 +1878,14 @@ adresse inconnue répond `404` comme tout chemin inconnu.
    pas les alertes** : elle dit au public ; l'opérateur pose un silence sur la
    même fenêtre (« Comment une alerte naît »). Le composant statut ne lit
    ni n'écrit aucune alerte, et le moteur des alertes ne lit pas la page.
+   **Un silence peut s'annoncer** : avec `announce` et un titre public de 1
+   à 120 caractères, il paraît sur les pages comme une maintenance
+   synthétique (`mute-<id>`, jamais écrite dans `incidents`, fil vide) :
+   planifiée avant son début, en cours dans sa fenêtre, terminée ensuite
+   (montrée 14 jours). Elle touche les composants par la même règle que
+   les incidents, et son impact « maintenance » passe devant « dégradé »,
+   jamais devant « panne ». Le public lit le même JSON que pour une
+   maintenance ordinaire ; le délai est celui de la relecture de 30 s.
 6. **Le public voit**, page par page : le titre, l'annonce, l'état global, les composants
    visibles avec leur état et, pour ceux qui ont une sonde, la somme des
    jours de leurs sondes sur 90 jours ; les incidents ouverts, les
@@ -1934,7 +1965,7 @@ toutes les cinq ; elle ne reste plus figée sur un état périmé.
 L'administration vit dans la coquille, sous l'entrée « Pages de statut », à
 l'adresse `/page-statut`, en trois onglets : les pages (liste, création,
 modification, suppression par son plan : la page emporte ses composants et
-leurs membres, les incidents s'en détachent), les composants d'une page
+leurs membres ; les incidents ne visent pas de composant, ils restent), les composants d'une page
 choisie (`?page=<id>`, avec le lien vers sa page publique), les incidents de
 toutes les pages. L'API : `GET`/`POST /api/status/pages`,
 `GET`/`PUT`/`DELETE /api/status/pages/{id}`,
@@ -2003,7 +2034,12 @@ liste vit dans `internal/alert`.
    l'opérateur dit au public ; le moteur des alertes ne lit plus la page. Un
    silence venu d'un volume tait le disque de sa machine. Chaque silence
    garde son auteur, celui du journal d'audit (`mute.create`,
-   `mute.delete`).
+   `mute.delete`). **Annoncer** n'est permis que sur une machine, un
+   service déclaré, une tâche ou une sonde (pas « tout », pas un conteneur
+   non déclaré : rien ne le relie à un composant) et exige un titre public ;
+   un titre sans la case, ou la case sans titre, est refusé
+   (`silence.announce_invalid`). Un silence ne se modifie pas : on le
+   supprime et on le recrée.
 5. **Acquitter** ne ferme rien : l'alerte sort du compteur rouge et reste
    ouverte jusqu'à sa reprise. Une aggravation la ré-arme. L'onglet
    Ouvertes regroupe les alertes par machine (en-tête avec leur nombre) et
@@ -2781,13 +2817,13 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
-| Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur) | rapprochement refait ; rien ne touche la machine |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
-| Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes | jeu de sondes renvoyé à sa machine |
-| Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes | l'URL de ping ne répond plus |
-| Composant de statut | — | membres | liens d'incident (l'incident reste) | page publique relue |
-| Page de statut | — | composants, membres | liens d'incident (l'incident reste) | son adresse répond `404` |
+| Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
+| Tâche | composants : `job.shown_on_status` | pings, exécutions, silences | alertes, incidents (le lien seul) | l'URL de ping ne répond plus |
+| Composant de statut | — | membres | — | page publique relue |
+| Page de statut | — | composants, membres | — | son adresse répond `404` |
 
 - **Le plan se lit avant** : `GET /api/machines/{id}/delete-plan`,
   `/api/directory/services/{id}/delete-plan`,
@@ -2864,11 +2900,11 @@ l'acteur de l'apply et avec son `apply_id`.
 | Sonde | `probe.create`, `.update`, `.delete`, `.pause`, `.resume` | La sonde | `kind`, `target` **masquée**, `machine_id`, `service_id` |
 | Tâche | `heartbeat.create`, `.update`, `.delete`, `.pause`, `.resume`, `.regenerate_token` | La tâche | `machine_id`, `interval_seconds`, `grace_seconds` ; jamais le jeton |
 | Composant de la page de statut | `status_component.create`, `.update`, `.delete` | Le composant | `page_id`, `members` |
-| Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `components` |
+| Incident | `incident.open`, `.update`, `.delete` | L'incident, par son titre | `impact`, `status`, `targets` (le nombre d'objets visés) |
 | Message au fil d'un incident, fenêtre d'une maintenance | `incident.post` | L'incident | `status`, `message` (déjà public) |
 | Page de statut | `status_page.create`, `.update`, `.delete` (avant la `034`, `status_page.update` nommait la page unique par son titre) | La page, par son slug | `title`, `announcement`, `language`, `project_id` |
 | Canal | `channel.create`, `.update`, `.delete` | Le canal | `format`, `min_severity`, `notify_resolve`, `receives_audit`, `enabled` ; à la modification `url_changed` et `secret_changed`, **jamais les valeurs** |
-| Silence (`mutes`) | `mute.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at` |
+| Silence (`mutes`) | `mute.create`, `.delete` | Le silence, au nom de l'objet tu | `kind`, `target_kind`, `target_id`, `reason`, `starts_at`, `ends_at`, `announce`, `public_title` |
 | Acquitter une alerte, une sélection | `alert.acknowledge` | L'alerte ; une sélection n'a pas d'objet | `kind`, `object_kind`, `object_id` ; pour une sélection `alert_ids` et `acknowledged` |
 | Réglage | `settings.update` | `language`, `mail_relay`, `disk` ou `lifecycle` | La valeur ; le relais sans son mot de passe, avec `password_changed` |
 | Accès à l'interface | `auth.enable`, `.disable`, `.change_password` | `interface` | `mode`, `username`, `header` ; jamais le mot de passe ni son empreinte |
@@ -3231,3 +3267,4 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Annuaire, retrait de « à vérifier » | La migration `003_needs_review.sql` (`declared_services.needs_review` supprimée, `declared_by = 'migration'` réécrit en `operator`), `directory.Review`, `MarkServiceReviewed`, la route `POST /api/directory/services/{id}/actions/review`, l'action d'audit `service.review`, `manifest.Annotations.NeedsReview` (le commentaire « à vérifier » de l'export), `logServicesToReview`, la bannière et la pastille « À vérifier » de la fiche et du tableau ; `declared_by` reste, avec la seule valeur `operator` |
 | Journal vers les canaux | La migration `004_audit_deliveries.sql` (`alert_channels.receives_audit`, la table `audit_deliveries` en `cascade` vers l'événement et le canal), `audit.Forwarder` et `Recorder.SetForwarder`, `InsertAuditEvent` qui réserve les livraisons dans la transaction de l'événement, `alert.EventAudit` (hors de `alert.Events()`), `Engine.ForwardAuditEvent`, `Requeue` et `retryDue` qui rejouent aussi le journal, le notifieur (un essai dans l'ouvrier, `UpdateAuditDelivery`), `RenderAudit` et `JournalLink` (`forward_render.go`), l'identifiant de transaction Matrix `audit-`, `reader.CountAuditForwarding` et `GET /api/audit/forwarding`, la case « Recevoir le journal » du formulaire de canal et sa pastille, l'avertissement de la page Journal, les clés `audit.notify_*`, `audit.forwarding_*`, `channel.receives_audit_*` et `alert.notify_audit`, les goldens `audit_forwarding.golden.json` et (`receives_audit`) `alert_channels`, `mcp_list_alert_channels` |
 | Versions signées | Le paquet `internal/release` (minisign en Go, sommes, version, `VerifyFile`, clé publique embarquée `TrustedPublicKey`), la sous-commande `opencloud release` (`verify`, `sign`, `keygen`), le workflow `release.yml` (tag `vX.Y.Z` sur `main`, build reproductible, signature, attestation, version jamais réécrite), les constantes `Release*` de `internal/brand`. Pas de migration |
+| Incidents par objets, silences annoncés | La migration `005_incident_targets.sql` (`incident_targets` à la place de `incident_components`, chaque composant visé déplié en ses membres ; `mutes.announce` et `mutes.public_title`), la règle `touches` et les maintenances synthétiques de `internal/status` (`targets.go`, `maintenance.go`), `status.Target` et `ErrTargetInvalid` (`incident.target_invalid`), `alert.ErrMuteAnnounceInvalid` (`silence.announce_invalid`), le détache « incidents » des plans de suppression d'une machine, d'un service, d'une sonde et d'une tâche (`deletion.KindIncidentLinks`), `targets` à la place de `component_ids` dans l'API et l'outil MCP `open_incident`, le sélecteur d'objets partagé (`ObjectPicker`) du composant et de l'incident, la case « annoncer » d'un silence |

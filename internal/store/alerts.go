@@ -334,7 +334,8 @@ const muteColumns = `u.id, COALESCE(u.alert_kind, ''),
 	END,
 	COALESCE(u.machine_id, u.service_id, u.container_id, u.probe_id, u.heartbeat_id, ''),
 	COALESCE(m.name, NULLIF(s.title, ''), s.name, c.name, p.name, h.name, ''),
-	u.reason, u.starts_at, u.ends_at, u.created_by, u.created_at`
+	u.reason, u.starts_at, u.ends_at, u.created_by, u.created_at,
+	u.announce, u.public_title`
 
 const muteFrom = ` FROM mutes u
 	LEFT JOIN machines m ON m.id = u.machine_id
@@ -364,10 +365,11 @@ func muteTargetColumns(target alert.Target) (machineID, serviceID, containerID, 
 func (db *DB) InsertMute(ctx context.Context, mute alert.Mute) (int64, error) {
 	machineID, serviceID, containerID, probeID, heartbeatID := muteTargetColumns(mute.Target)
 	result, err := db.sql.ExecContext(ctx, `
-		INSERT INTO mutes (alert_kind, machine_id, service_id, container_id, probe_id, heartbeat_id, reason, starts_at, ends_at, created_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO mutes (alert_kind, machine_id, service_id, container_id, probe_id, heartbeat_id, reason, starts_at, ends_at, created_by, created_at, announce, public_title)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		nullableString(string(mute.Kind)), machineID, serviceID, containerID, probeID, heartbeatID,
-		mute.Reason, mute.StartsAt.Unix(), mute.EndsAt.Unix(), actorText(mute.CreatedBy), mute.CreatedAt.Unix())
+		mute.Reason, mute.StartsAt.Unix(), mute.EndsAt.Unix(), actorText(mute.CreatedBy), mute.CreatedAt.Unix(),
+		mute.Announce, mute.PublicTitle)
 	if err != nil {
 		return 0, fmt.Errorf("insert mute: %w", err)
 	}
@@ -424,7 +426,7 @@ func scanMute(row scanner) (alert.Mute, error) {
 	var createdBy string
 	var startsAt, endsAt, createdAt int64
 	if err := row.Scan(&mute.ID, &mute.Kind, &mute.Target.Kind, &mute.Target.ID, &mute.Target.Name,
-		&mute.Reason, &startsAt, &endsAt, &createdBy, &createdAt); err != nil {
+		&mute.Reason, &startsAt, &endsAt, &createdBy, &createdAt, &mute.Announce, &mute.PublicTitle); err != nil {
 		return alert.Mute{}, fmt.Errorf("scan mute: %w", err)
 	}
 	mute.StartsAt = time.Unix(startsAt, 0)

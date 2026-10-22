@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
@@ -113,11 +114,11 @@ func (s *Service) Components(ctx context.Context, pageID string) ([]Component, e
 	if err != nil {
 		return nil, err
 	}
-	open, err := s.store.ListIncidents(ctx, s.now())
+	known, err := s.facts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	known, err := s.facts(ctx)
+	open, err := s.readIncidents(ctx, known, components, s.now())
 	if err != nil {
 		return nil, err
 	}
@@ -132,16 +133,32 @@ func (s *Service) GetComponent(ctx context.Context, id string) (Component, error
 	if err != nil {
 		return Component{}, err
 	}
-	open, err := s.store.ListIncidents(ctx, s.now())
+	known, err := s.facts(ctx)
 	if err != nil {
 		return Component{}, err
 	}
-	known, err := s.facts(ctx)
+	open, err := s.readIncidents(ctx, known, []Component{component}, s.now())
 	if err != nil {
 		return Component{}, err
 	}
 	s.judge(&component, known, open)
 	return component, nil
+}
+
+// readIncidents rend les incidents ouverts et les résolus depuis l'instant
+// donné, plus les silences annoncés, chacun avec ceux des composants donnés
+// que ses cibles touchent.
+func (s *Service) readIncidents(ctx context.Context, known facts, components []Component, resolvedSince time.Time) ([]Incident, error) {
+	written, err := s.store.ListIncidents(ctx, resolvedSince)
+	if err != nil {
+		return nil, err
+	}
+	incidents, err := s.withAnnounced(ctx, written, s.now())
+	if err != nil {
+		return nil, err
+	}
+	known.describe(incidents, components)
+	return incidents, nil
 }
 
 // judge remplit les membres et pose les deux états du composant.

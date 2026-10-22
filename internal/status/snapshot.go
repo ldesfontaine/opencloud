@@ -45,16 +45,16 @@ func (s *Service) readView(ctx context.Context) (view, error) {
 	if err != nil {
 		return view{}, err
 	}
-	incidents, err := s.store.ListIncidents(ctx, now.Add(-HistorySpan))
-	if err != nil {
-		return view{}, err
-	}
 	known, err := s.facts(ctx)
 	if err != nil {
 		return view{}, err
 	}
 	// Les incidents lus contiennent les ouverts : ce sont eux qui imposent
 	// un état, les résolus ne s'appliquent plus.
+	incidents, err := s.readIncidents(ctx, known, components, now.Add(-HistorySpan))
+	if err != nil {
+		return view{}, err
+	}
 	for i := range components {
 		s.judge(&components[i], known, incidents)
 	}
@@ -91,6 +91,9 @@ func (v view) snapshotOf(page Page) Snapshot {
 		if !ok {
 			continue
 		}
+		// Les objets visés ne sortent jamais : l'instantané est ce que le
+		// public lit, il n'en garde même pas la trace.
+		touched.Targets = nil
 		if touched.IsResolved() {
 			snapshot.History = append(snapshot.History, touched)
 		} else {

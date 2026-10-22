@@ -418,6 +418,8 @@ const mutes = shape<MutesResponse>("MutesResponse", {
     created_by_kind: value,
     created_by_name: value,
     created_at: value,
+    announce: value,
+    public_title: value,
   }),
 });
 
@@ -639,6 +641,7 @@ const incident = shape<Incident>("Incident", {
   status: value,
   starts_at: value,
   ends_at: value,
+  targets: shape("Incident.targets", { kind: value, id: value, name: value }),
   components: shape("Incident.components", { id: value, name: value }),
   updates: incidentUpdate,
   created_at: value,

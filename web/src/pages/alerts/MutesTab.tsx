@@ -76,6 +76,11 @@ function MuteRow({ mute }: { mute: Mute }) {
         <span className="cell-stack">
           <span>{muteTargets(t, mute)}</span>
           <Pill tone={muteStateTones[state]}>{t(`silence.state_${state}`)}</Pill>
+          {mute.announce && (
+            <span>
+              <Pill tone="accent">{t("silence.announced_pill")}</Pill> <span className="secondary">{mute.public_title}</span>
+            </span>
+          )}
         </span>
       </td>
       <td className="secondary">{mute.reason}</td>

@@ -62,6 +62,9 @@ export interface Incident {
   status: IncidentStatus;
   starts_at: string | null;
   ends_at: string | null;
+  // Les objets visés, puis les composants que ces cibles touchent, toutes
+  // pages confondues : le serveur les calcule à la lecture.
+  targets: { kind: MemberKind; id: string; name: string }[];
   components: { id: string; name: string }[];
   updates: IncidentUpdate[];
   created_at: string;
@@ -138,15 +141,15 @@ export interface IncidentRequest {
   impact: Impact;
   status: IncidentStatus;
   message: string;
-  component_ids: string[];
+  targets: { kind: MemberKind; id: string }[];
   starts_at: string | null;
   ends_at: string | null;
 }
 
-// Ce qui se corrige d'un incident : le titre, les composants, la fenêtre.
+// Ce qui se corrige d'un incident : le titre, les cibles, la fenêtre.
 export interface IncidentEditRequest {
   title: string;
-  component_ids: string[];
+  targets: { kind: MemberKind; id: string }[];
   starts_at: string | null;
   ends_at: string | null;
 }
@@ -190,8 +193,7 @@ export function useStatusPage(id: string | null): Resource<StatusPage> {
   return useResource<StatusPage>(id === null ? null : () => pagePath(id));
 }
 
-// Les composants d'une page ; nul : ceux de toutes les pages (le choix des
-// composants d'un incident).
+// Les composants d'une page ; nul : ceux de toutes les pages.
 export function useStatusComponents(pageID: string | null): Resource<StatusComponentsResponse> {
   return useResource<StatusComponentsResponse>(pageID === null ? componentsPath : () => `${componentsPath}?page=${encodeURIComponent(pageID)}`);
 }

@@ -65,8 +65,8 @@ func TestInsertPage_RefusesTakenKeys(t *testing.T) {
 	}
 }
 
-// Une page part avec ses composants et leurs membres ; les liens d'incident
-// partent avec eux, l'incident reste.
+// Une page part avec ses composants et leurs membres ; l'incident vise des
+// objets, il reste tel quel.
 func TestDeletePage_CascadesToItsComponents(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
@@ -76,8 +76,7 @@ func TestDeletePage_CascadesToItsComponents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Removes) != 1 || plan.Removes[0] != (deletion.Count{Kind: deletion.KindComponents, Count: 2}) ||
-		len(plan.Detaches) != 1 || plan.Detaches[0] != (deletion.Count{Kind: deletion.KindIncidentLinks, Count: 1}) {
+	if len(plan.Removes) != 1 || plan.Removes[0] != (deletion.Count{Kind: deletion.KindComponents, Count: 2}) || len(plan.Detaches) != 0 {
 		t.Fatalf("plan %+v", plan)
 	}
 	if err := db.DeletePage(ctx, pageID); err != nil {
@@ -86,8 +85,8 @@ func TestDeletePage_CascadesToItsComponents(t *testing.T) {
 	if got := count(t, db, `SELECT COUNT(*) FROM status_components`); got != 0 {
 		t.Fatalf("%d composants restent", got)
 	}
-	if got := count(t, db, `SELECT COUNT(*) FROM incidents`); got != 1 {
-		t.Fatalf("l'incident doit rester : %d", got)
+	if got := count(t, db, `SELECT COUNT(*) FROM incidents`) + count(t, db, `SELECT COUNT(*) FROM incident_targets`); got != 2 {
+		t.Fatalf("l'incident et sa cible doivent rester : %d", got)
 	}
 	if err := db.DeletePage(ctx, pageID); !errors.Is(err, status.ErrNotFound) {
 		t.Fatalf("deux fois : %v", err)

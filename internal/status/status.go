@@ -168,7 +168,16 @@ type Component struct {
 	Effective State
 }
 
-// Incident est ce que l'opérateur a dit, avec son fil et ses composants.
+// Target est un objet de l'annuaire qu'un incident vise ; le nom se lit à
+// la lecture.
+type Target struct {
+	Kind MemberKind
+	ID   string
+	Name string
+}
+
+// Incident est ce que l'opérateur a dit, avec son fil et les objets qu'il
+// vise.
 type Incident struct {
 	ID     string
 	Title  string
@@ -177,7 +186,11 @@ type Incident struct {
 	// La fenêtre d'une maintenance ; zéro pour un incident.
 	StartsAt time.Time
 	EndsAt   time.Time
-	// Les composants touchés : identifiant et nom, le nom seul en public.
+	// Les objets visés, jamais servis au public.
+	Targets []Target
+	// Les composants que ses cibles touchent, toutes pages confondues :
+	// calculé à la lecture, jamais stocké. Identifiant et nom, le nom seul
+	// en public.
 	Components []ComponentRef
 	Updates    []Update
 	CreatedAt  time.Time
@@ -249,22 +262,22 @@ type ComponentDefinition struct {
 // IncidentDefinition est ce que l'opérateur donne pour ouvrir un incident
 // ou planifier une maintenance. Message est la première entrée du fil.
 type IncidentDefinition struct {
-	Title        string
-	Impact       Impact
-	Status       IncidentStatus
-	Message      string
-	ComponentIDs []string
-	StartsAt     time.Time
-	EndsAt       time.Time
+	Title    string
+	Impact   Impact
+	Status   IncidentStatus
+	Message  string
+	Targets  []MemberRef
+	StartsAt time.Time
+	EndsAt   time.Time
 }
 
 // IncidentChange est ce que l'opérateur peut corriger après coup : le
-// titre, les composants, la fenêtre. Le fil ne se réécrit pas.
+// titre, les cibles, la fenêtre. Le fil ne se réécrit pas.
 type IncidentChange struct {
-	Title        string
-	ComponentIDs []string
-	StartsAt     time.Time
-	EndsAt       time.Time
+	Title    string
+	Targets  []MemberRef
+	StartsAt time.Time
+	EndsAt   time.Time
 }
 
 const (
@@ -300,7 +313,7 @@ var (
 	ErrImpactInvalid       = refusal.Invalid("incident.impact_invalid", "status: impact invalid")
 	ErrStatusInvalid       = refusal.Invalid("incident.status_invalid", "status: status invalid")
 	ErrMemberInvalid       = refusal.Invalid("component.member_invalid", "status: member invalid")
-	ErrComponentInvalid    = refusal.Invalid("incident.component_invalid", "status: component invalid")
+	ErrTargetInvalid       = refusal.Invalid("incident.target_invalid", "status: incident target invalid")
 	ErrWindowInvalid       = refusal.Invalid("incident.window_invalid", "status: window invalid")
 	ErrTooMany             = refusal.Invalid("component.too_many", "status: too many")
 	ErrPageInvalid         = refusal.Invalid("component.page_invalid", "status: component page unknown")
@@ -345,8 +358,8 @@ func (d IncidentDefinition) Validate(now time.Time) error {
 	if !validMessage(d.Message) {
 		return ErrMessageInvalid
 	}
-	if len(d.ComponentIDs) == 0 || len(d.ComponentIDs) > MaxComponents {
-		return ErrComponentInvalid
+	if err := validateTargets(d.Targets); err != nil {
+		return err
 	}
 	if err := validateWindow(d.Impact, d.StartsAt, d.EndsAt, now); err != nil {
 		return err
@@ -355,6 +368,22 @@ func (d IncidentDefinition) Validate(now time.Time) error {
 	// s'ouvrirait puis se résoudrait aussitôt, datée d'aujourd'hui.
 	if d.Impact == ImpactMaintenance && !d.EndsAt.After(now) {
 		return ErrWindowInvalid
+	}
+	return nil
+}
+
+// validateTargets : au moins un objet, au plus MaxMembers, chacun d'un
+// genre connu, une seule fois.
+func validateTargets(targets []MemberRef) error {
+	if len(targets) == 0 || len(targets) > MaxMembers {
+		return ErrTargetInvalid
+	}
+	seen := make(map[MemberRef]bool, len(targets))
+	for _, target := range targets {
+		if !isKind(target.Kind) || target.ID == "" || seen[target] {
+			return ErrTargetInvalid
+		}
+		seen[target] = true
 	}
 	return nil
 }

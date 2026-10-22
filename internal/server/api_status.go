@@ -63,6 +63,7 @@ type incidentJSON struct {
 	Status     string             `json:"status"`
 	StartsAt   *time.Time         `json:"starts_at"`
 	EndsAt     *time.Time         `json:"ends_at"`
+	Targets    []targetJSON       `json:"targets"`
 	Components []componentRefJSON `json:"components"`
 	Updates    []updateJSON       `json:"updates"`
 	CreatedAt  time.Time          `json:"created_at"`
@@ -77,6 +78,14 @@ type updateJSON struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Un objet de l'annuaire que l'incident vise.
+type targetJSON struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Un composant que les cibles de l'incident touchent, toutes pages confondues.
 type componentRefJSON struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -87,20 +96,20 @@ type incidentsResponse struct {
 }
 
 type incidentRequest struct {
-	Title        string     `json:"title"`
-	Impact       string     `json:"impact"`
-	Status       string     `json:"status"`
-	Message      string     `json:"message"`
-	ComponentIDs []string   `json:"component_ids"`
-	StartsAt     *time.Time `json:"starts_at"`
-	EndsAt       *time.Time `json:"ends_at"`
+	Title    string             `json:"title"`
+	Impact   string             `json:"impact"`
+	Status   string             `json:"status"`
+	Message  string             `json:"message"`
+	Targets  []memberRefRequest `json:"targets"`
+	StartsAt *time.Time         `json:"starts_at"`
+	EndsAt   *time.Time         `json:"ends_at"`
 }
 
 type incidentChangeRequest struct {
-	Title        string     `json:"title"`
-	ComponentIDs []string   `json:"component_ids"`
-	StartsAt     *time.Time `json:"starts_at"`
-	EndsAt       *time.Time `json:"ends_at"`
+	Title    string             `json:"title"`
+	Targets  []memberRefRequest `json:"targets"`
+	StartsAt *time.Time         `json:"starts_at"`
+	EndsAt   *time.Time         `json:"ends_at"`
 }
 
 type updateRequest struct {
@@ -155,13 +164,16 @@ func updatesToJSON(updates []status.Update) []updateJSON {
 }
 
 func incidentToJSON(incident status.Incident) incidentJSON {
+	targets := httpx.ConvertAll(incident.Targets, func(target status.Target) targetJSON {
+		return targetJSON{Kind: string(target.Kind), ID: target.ID, Name: target.Name}
+	})
 	components := httpx.ConvertAll(incident.Components, func(component status.ComponentRef) componentRefJSON {
 		return componentRefJSON{ID: component.ID, Name: component.Name}
 	})
 	return incidentJSON{
 		ID: incident.ID, Title: incident.Title, Impact: string(incident.Impact), Status: string(incident.Status),
 		StartsAt: httpx.TimeOrNil(incident.StartsAt), EndsAt: httpx.TimeOrNil(incident.EndsAt),
-		Components: components, Updates: updatesToJSON(incident.Updates),
+		Targets: targets, Components: components, Updates: updatesToJSON(incident.Updates),
 		CreatedAt: incident.CreatedAt.UTC(), UpdatedAt: incident.UpdatedAt.UTC(), ResolvedAt: httpx.TimeOrNil(incident.ResolvedAt),
 	}
 }
@@ -279,11 +291,16 @@ func (s *Server) getComponent(w http.ResponseWriter, r *http.Request) {
 }
 
 func componentDefinitionOf(request componentRequest) status.ComponentDefinition {
-	definition := status.ComponentDefinition{PageID: request.PageID, Name: request.Name, Position: request.Position}
-	for _, member := range request.Members {
-		definition.Members = append(definition.Members, status.MemberRef{Kind: status.MemberKind(member.Kind), ID: member.ID})
+	return status.ComponentDefinition{PageID: request.PageID, Name: request.Name, Position: request.Position, Members: memberRefsOf(request.Members)}
+}
+
+// memberRefsOf rend nil pour une liste vide, comme la définition l'attend.
+func memberRefsOf(requests []memberRefRequest) []status.MemberRef {
+	var refs []status.MemberRef
+	for _, request := range requests {
+		refs = append(refs, status.MemberRef{Kind: status.MemberKind(request.Kind), ID: request.ID})
 	}
-	return definition
+	return refs
 }
 
 func (s *Server) createComponent(w http.ResponseWriter, r *http.Request) {
@@ -339,13 +356,13 @@ func (s *Server) openIncident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opened, err := s.status.OpenIncident(r.Context(), status.IncidentDefinition{
-		Title:        request.Title,
-		Impact:       status.Impact(request.Impact),
-		Status:       status.IncidentStatus(request.Status),
-		Message:      request.Message,
-		ComponentIDs: request.ComponentIDs,
-		StartsAt:     timeOrZero(request.StartsAt),
-		EndsAt:       timeOrZero(request.EndsAt),
+		Title:    request.Title,
+		Impact:   status.Impact(request.Impact),
+		Status:   status.IncidentStatus(request.Status),
+		Message:  request.Message,
+		Targets:  memberRefsOf(request.Targets),
+		StartsAt: timeOrZero(request.StartsAt),
+		EndsAt:   timeOrZero(request.EndsAt),
 	})
 	if s.failed(w, r, err, nil) {
 		return
@@ -371,7 +388,7 @@ func (s *Server) changeIncident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	changed, err := s.status.ChangeIncident(r.Context(), r.PathValue("id"), status.IncidentChange{
-		Title: request.Title, ComponentIDs: request.ComponentIDs,
+		Title: request.Title, Targets: memberRefsOf(request.Targets),
 		StartsAt: timeOrZero(request.StartsAt), EndsAt: timeOrZero(request.EndsAt),
 	})
 	if s.failed(w, r, err, status.ErrNotFound) {
