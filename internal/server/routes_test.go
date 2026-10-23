@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -11,20 +13,26 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/apitoken"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/backup"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/store/storetest"
@@ -48,16 +56,53 @@ type testServer struct {
 	status     *status.Service
 	alerts     *alert.Engine
 	notifier   *alert.Notifier
-	access     *mcp.Service
+	apiTokens  *apitoken.Service
 	operator   *auth.Service
+	journal    *audit.Recorder
+	actions    *action.Service
+	backups    *backup.Service
+	state      *os.Root
 	bus        *live.Bus
 	publicBus  *live.Bus
 	db         *store.DB
 }
 
 // Le serveur de test tourne sur le vrai composant machine et une vraie base
-// SQLite temporaire, avec la machine openCloud déjà en place.
+// SQLite temporaire, avec la machine openCloud déjà en place. Il est
+// configuré comme une installation qui a passé sa première configuration : un
+// compte basic, dont les identifiants sont posés sur toute requête de
+// l'opérateur qui n'en porte pas, pour que les tests qui ne parlent pas de
+// l'accès n'aient pas à les écrire. Ceux qui en parlent partent de
+// newFirstSetupServer.
 func newTestServer(t *testing.T) *testServer {
+	t.Helper()
+	server := newFirstSetupServer(t)
+	server.enableBasic(t)
+	server.handler = asOperator(server.handler)
+	return server
+}
+
+// anonymousHeader marque la requête d'un test qui joue un inconnu : le banc
+// n'y pose pas d'identifiants (voir callAs).
+const anonymousHeader = "X-Test-Anonymous"
+
+// asOperator pose les identifiants du compte de test sur une requête qui n'en
+// porte aucun. Les routes ouvertes les ignorent ; une requête qui porte déjà
+// Authorization (un Bearer d'API, par exemple) garde la sienne.
+func asOperator(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		anonymous := r.Header.Get(anonymousHeader) != ""
+		r.Header.Del(anonymousHeader)
+		if !anonymous && r.Header.Get("Authorization") == "" {
+			r.SetBasicAuth(testUsername, testPassword)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// newFirstSetupServer est une installation neuve : mode none, aucun compte,
+// rien de posé sur les requêtes.
+func newFirstSetupServer(t *testing.T) *testServer {
 	t.Helper()
 	root, db := storetest.OpenWithStateDir(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -103,7 +148,7 @@ func newTestServer(t *testing.T) *testServer {
 	lifecycles.SetWatcher(bus)
 	lifecycles.SetPause(0)
 	publicBus := live.New()
-	statusPage := status.New(db, db, machines, preferences, logger)
+	statusPage := status.New(db, db, machines, logger)
 	statusPage.SetClock(func() time.Time { return testNow })
 	statusPage.AddWatcher(bus)
 	statusPage.AddWatcher(publicBus)
@@ -114,7 +159,6 @@ func newTestServer(t *testing.T) *testServer {
 	alerts := alert.New(db, logger)
 	alerts.SetClock(func() time.Time { return testNow })
 	alerts.SetWatcher(bus)
-	alerts.SetMaintenance(statusPage)
 	notifier := alert.NewNotifier(db, catalogs, func() lang.Code { return lang.French }, logger)
 	notifier.SetClock(func() time.Time { return testNow })
 	alerts.SetSender(notifier)
@@ -123,8 +167,8 @@ func newTestServer(t *testing.T) *testServer {
 	resources.SetAlerter(alerts)
 	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
-	access := mcp.New(db, logger)
-	access.SetClock(func() time.Time { return testNow })
+	apiTokens := apitoken.New(db, logger)
+	apiTokens.SetClock(func() time.Time { return testNow })
 	operator, err := auth.New(db, logger)
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +176,41 @@ func newTestServer(t *testing.T) *testServer {
 	operator.SetClock(func() time.Time { return testNow })
 	// Le coût minimal de bcrypt : le coût réel ferait durer chaque test.
 	operator.SetHashCost(bcrypt.MinCost)
+	// Le journal d'audit, branché comme dans serve.
+	journal := audit.New(db, logger)
+	journal.SetClock(func() time.Time { return testNow })
+	preferences.SetAuditor(journal)
+	machines.SetAuditor(journal)
+	heartbeats.SetAuditor(journal)
+	probes.SetAuditor(journal)
+	declared.SetAuditor(journal)
+	statusPage.SetAuditor(journal)
+	alerts.SetAuditor(journal)
+	apiTokens.SetAuditor(journal)
+	operator.SetAuditor(journal)
+	// Les ordres, signés par une clé figée : les rendus le sont aussi.
+	actions := action.New(db, machines, logger)
+	actions.SetClock(func() time.Time { return testNow })
+	actions.SetWatcher(bus)
+	actions.SetAuditor(journal)
+	actions.SetKey(testServerKey(t))
+	// La sauvegarde : une vraie boîte à colis sous l'état de test, une phrase
+	// scellée à bas coût.
+	outbox, err := action.NewOutbox(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions.SetOutbox(outbox)
+	backups := backup.New(db, machines, root, logger)
+	backups.SetClock(func() time.Time { return testNow })
+	backups.SetWorkFactor(10)
+	backups.SetSender(actions)
+	backups.SetParcels(outbox)
+	backups.SetWatcher(bus)
+	backups.SetAuditor(journal)
+	deployer := deploy.New(db, declared, machines, db, actions, logger)
+	sshKeys := sshkeys.New(db, logger)
+	sshKeys.SetClock(func() time.Time { return testNow })
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -149,11 +228,14 @@ func newTestServer(t *testing.T) *testServer {
 		Status:     statusPage,
 		Alerts:     alerts,
 		Notifier:   notifier,
-		MCP:        access,
+		APITokens:  apiTokens,
 		Auth:       operator,
+		Actions:    actions,
+		SSHKeys:    sshKeys,
+		Backups:    backups,
+		Deploy:     deployer,
 		Live:       bus,
 		PublicLive: publicBus,
-		ConfigPath: "/etc/opencloud/config.toml",
 		// httptest donne Host: example.com à ses requêtes : c'est l'hôte
 		// d'écoute de ce serveur, donc un Host reconnu.
 		Listen: "example.com:80",
@@ -166,13 +248,47 @@ func newTestServer(t *testing.T) *testServer {
 	containers.SetCommander(server)
 	probes.SetCommander(server)
 	updates.SetCommander(server)
-	return &testServer{Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, access: access, operator: operator, bus: bus, publicBus: publicBus, db: db}
+	actions.SetCommander(server)
+	return &testServer{actions: actions, backups: backups, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+}
+
+// testServerKey lit une clé du serveur figée, posée dans un fichier comme
+// serve la pose : son empreinte est la même d'un passage à l'autre.
+func testServerKey(t *testing.T) *action.Key {
+	t.Helper()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	seed := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("k", ed25519.SeedSize)))
+	if err := root.WriteFile(brand.ServerKeyFile, []byte("ed25519-v1:"+seed+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := action.LoadKey(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
 }
 
 // Enrôle une machine distante avec un id fixe, pour des rendus figés.
 func (ts *testServer) enroll(t *testing.T, name, id string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
 	return storetest.EnrollMachineWithKey(t, ts.machines, id, name)
+}
+
+// signaledAt donne à l'agent de la machine son dernier signal à l'instant
+// donné : testNow la rend observée, cinq heures plus tôt la perdue.
+func (ts *testServer) signaledAt(t *testing.T, machineID string, at time.Time) {
+	t.Helper()
+	found, err := ts.machines.Get(context.Background(), machineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.db.TouchAgent(context.Background(), found.Agent.ID, at); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // L'identifiant de la machine distante des tests, fixe pour des rendus figés.

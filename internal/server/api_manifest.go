@@ -30,7 +30,6 @@ func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportO
 	catalog := s.catalogs.For(code)
 	return s.manifest.Export(ctx, manifest.Annotations{
 		Header:       catalog.Get("manifest.export_header"),
-		NeedsReview:  catalog.Get("manifest.export_needs_review"),
 		Proposed:     catalog.Get("manifest.export_proposed"),
 		ProposedUnit: catalog.Get("manifest.export_proposed_unit"),
 	}, options)
@@ -42,6 +41,9 @@ func (s *Server) exportedDirectory(ctx context.Context, options manifest.ExportO
 // sert l'annuaire seul.
 func (s *Server) exportManifest(w http.ResponseWriter, r *http.Request) {
 	options := manifest.ExportOptions{Propose: r.URL.Query().Get("propose") == "1"}
+	// Un jeton d'API reçoit le fichier sans les secrets du manifeste.
+	_, byToken := apiTokenFrom(r.Context())
+	options.RedactSecrets = byToken
 	data, err := s.exportedDirectory(r.Context(), options)
 	if s.failed(w, r, err, nil) {
 		return
@@ -252,17 +254,13 @@ func printable(text string, limit int) string {
 
 // actorOf dit qui lance l'apply. Sur la socket : la commande, sous le nom
 // qu'elle déclare. Sur TCP : l'opérateur, sous l'identité que
-// l'authentification a vue (Basic ou en-tête transmis), vide sans
-// authentification. Ce nom est indicatif, pas une preuve.
+// l'authentification a vue (operatorName). Ce nom est indicatif, pas une
+// preuve.
 func actorOf(r *http.Request, request manifestRequest) manifest.Actor {
 	if fromControlSocket(r.Context()) {
 		return manifest.Actor{Kind: manifest.ActorCLI, Name: printable(request.ActorName, maxActorNameRunes)}
 	}
-	name := identityFrom(r.Context())
-	if name == "" {
-		name, _, _ = r.BasicAuth()
-	}
-	return manifest.Actor{Kind: manifest.ActorOperator, Name: printable(name, maxActorNameRunes)}
+	return manifest.Actor{Kind: manifest.ActorOperator, Name: operatorName(r)}
 }
 
 // readManifestRequest lit le fichier à juger. Un corps qui n'en est pas un

@@ -7,12 +7,16 @@ import {
   channelRequestOf,
   deliveryReason,
   describeAlert,
+  deliveryFailure,
   emptyChannelForm,
-  emptySilenceForm,
-  hasSilenceTarget,
+  canAnnounce,
+  emptyMuteForm,
+  muteRequestOf,
+  mutePathOf,
+  muteStateOf,
+  muteTargets,
+  mostUrgentAlert,
   objectPath,
-  silenceRequestOf,
-  silenceTargets,
   stateOf,
 } from "./alerts";
 
@@ -26,10 +30,11 @@ function alert(overrides: Partial<Alert>): Alert {
     kind: "disk_full",
     severity: "attention",
     status: "open",
-    silenced: false,
+    muted: false,
     object: { kind: "volume", id: "local:/data", name: "/data" },
     machine_id: "local",
     machine_name: "vps-lyon-2",
+    service_id: "",
     details: { mount_point: "/data", percent: 86 },
     opened_at: "2026-09-22T09:00:00Z",
     updated_at: "2026-09-22T09:00:00Z",
@@ -99,7 +104,7 @@ describe("stateOf", () => {
 
 describe("objectPath", () => {
   it("mène à la fiche de l'objet, un volume à sa machine", () => {
-    expect(objectPath({ kind: "probe", id: "p1", name: "site" }, "")).toBe("/domaines/p1");
+    expect(objectPath({ kind: "probe", id: "p1", name: "site" }, "")).toBe("/disponibilite/p1");
     expect(objectPath({ kind: "volume", id: "m1:/", name: "/" }, "m1")).toBe("/machines/m1");
     expect(objectPath({ kind: "volume", id: "m1:/", name: "/" }, "")).toBeNull();
   });
@@ -122,41 +127,73 @@ describe("deliveryReason", () => {
   });
 });
 
-describe("silenceTargets", () => {
-  const silence = { id: 1, kind: "" as const, object: { kind: "" as const, id: "", name: "" }, reason: "", starts_at: "", ends_at: "", active: true, created_at: "" };
-  it("nomme le type, l'objet, ou les deux", () => {
-    expect(silenceTargets(t, { ...silence, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
-    expect(silenceTargets(t, { ...silence, object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
-    expect(silenceTargets(t, { ...silence, kind: "disk_full", object: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
+describe("muteTargets", () => {
+  const mute = { kind: "" as const, target: { kind: "" as const, id: "", name: "" } };
+  it("nomme le type, l'objet, les deux, ou tout", () => {
+    expect(muteTargets(t, { ...mute, kind: "job_late" })).toBe("silence.targets_kind alert.kind_job_late");
+    expect(muteTargets(t, { ...mute, target: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_object vps");
+    expect(muteTargets(t, { kind: "disk_full", target: { kind: "machine", id: "m1", name: "vps" } })).toBe("silence.targets_both alert.kind_disk_full vps");
+    expect(muteTargets(t, mute)).toBe("silence.targets_all");
   });
 });
 
-describe("silenceRequestOf", () => {
-  it("rend le silence tel que réglé, durée en minutes", () => {
-    const values = { kind: "disk_full" as const, objectKind: "machine" as const, objectID: "m1", objectName: "vps", minutes: 240, reason: "maintenance" };
-    expect(silenceRequestOf(values)).toEqual({
+describe("muteStateOf", () => {
+  it("dit en cours, planifié ou expiré", () => {
+    expect(muteStateOf({ active: true, starts_at: "2026-09-22T09:00:00Z" }, now)).toBe("active");
+    expect(muteStateOf({ active: false, starts_at: "2026-09-22T11:00:00Z" }, now)).toBe("planned");
+    expect(muteStateOf({ active: false, starts_at: "2026-09-22T08:00:00Z" }, now)).toBe("expired");
+  });
+});
+
+describe("muteRequestOf", () => {
+  it("rend le silence tel que réglé, durée en minutes, début en instant", () => {
+    const values = { ...emptyMuteForm, kind: "disk_full" as const, targetKind: "machine" as const, targetID: "m1", startsAt: "2026-09-26T08:00", minutes: 240, reason: "maintenance" };
+    expect(muteRequestOf(values)).toEqual({
       kind: "disk_full",
-      object_kind: "machine",
-      object_id: "m1",
-      object_name: "vps",
+      target_kind: "machine",
+      target_id: "m1",
       reason: "maintenance",
+      starts_at: new Date("2026-09-26T08:00").toISOString(),
       duration_minutes: 240,
+      announce: false,
+      public_title: "",
     });
   });
-  it("n'envoie pas de genre d'objet quand aucun objet n'est choisi", () => {
-    const request = silenceRequestOf({ ...emptySilenceForm, kind: "job_late", objectKind: "probe" });
-    expect(request).toMatchObject({ kind: "job_late", object_kind: "", object_id: "" });
+  it("n'annonce qu'un objet du répertoire, avec son titre public", () => {
+    const values = { ...emptyMuteForm, targetKind: "service" as const, targetID: "s1", announce: true, publicTitle: "Mise à jour du site" };
+    expect(muteRequestOf(values)).toMatchObject({ announce: true, public_title: "Mise à jour du site" });
+    expect(muteRequestOf({ ...values, targetKind: "container" })).toMatchObject({ announce: false, public_title: "" });
+    expect(canAnnounce({ targetKind: "", targetID: "" })).toBe(false);
+    expect(canAnnounce({ targetKind: "machine", targetID: "" })).toBe(false);
   });
-  it("part d'une heure, sans type ni objet", () => {
-    expect(silenceRequestOf(emptySilenceForm)).toMatchObject({ kind: "", object_kind: "", duration_minutes: 60 });
+  it("n'envoie pas de genre de cible quand aucun objet n'est choisi", () => {
+    const request = muteRequestOf({ ...emptyMuteForm, kind: "job_late", targetKind: "probe" });
+    expect(request).toMatchObject({ kind: "job_late", target_kind: "", target_id: "" });
+  });
+  it("part d'une heure, tout de suite, sans type ni objet", () => {
+    expect(muteRequestOf(emptyMuteForm)).toMatchObject({ kind: "", target_kind: "", starts_at: null, duration_minutes: 60 });
   });
 });
 
-describe("hasSilenceTarget", () => {
-  it("demande un type d'alerte, un objet, ou les deux", () => {
-    expect(hasSilenceTarget(emptySilenceForm)).toBe(false);
-    expect(hasSilenceTarget({ kind: "job_late", objectID: "" })).toBe(true);
-    expect(hasSilenceTarget({ kind: "", objectID: "m1" })).toBe(true);
+describe("mutePathOf", () => {
+  it("tait un volume par le disque de sa machine", () => {
+    expect(mutePathOf(alert({}))).toBe("/alertes/silences/nouveau?kind=disk_full&target_kind=machine&target_id=local&target_name=vps-lyon-2");
+  });
+  it("tait un conteneur par son service déclaré, ou lui seul s'il n'est pas déclaré", () => {
+    const container = { kind: "container" as const, id: "local:abc", name: "shop-app-1" };
+    expect(mutePathOf(alert({ kind: "service_down", object: container, service_id: "svc_1" }))).toBe(
+      "/alertes/silences/nouveau?kind=service_down&target_kind=service&target_id=svc_1&target_name=",
+    );
+    expect(mutePathOf(alert({ kind: "service_down", object: container }))).toBe(
+      "/alertes/silences/nouveau?kind=service_down&target_kind=container&target_id=local%3Aabc&target_name=shop-app-1",
+    );
+  });
+});
+
+describe("deliveryFailure", () => {
+  it("ajoute l'heure de l'essai suivant quand il y en a un", () => {
+    expect(deliveryFailure(t, { reason: "timeout", code: 0, next_attempt_at: null })).toBe("alert.delivery_reason_timeout");
+    expect(deliveryFailure(t, { reason: "timeout", code: 0, next_attempt_at: "2026-09-22T10:02:00Z" })).toMatch(/^alert\.delivery_reason_timeout · alert\.delivery_retry /);
   });
 });
 
@@ -170,6 +207,7 @@ describe("channelFormOf et channelRequestOf", () => {
     has_secret: true,
     min_severity: "danger",
     notify_resolve: false,
+    receives_audit: true,
     enabled: true,
     plain: false,
     created_at: "2026-10-01T10:00:00Z",
@@ -185,6 +223,7 @@ describe("channelFormOf et channelRequestOf", () => {
       clear_secret: false,
       min_severity: "danger",
       notify_resolve: false,
+      receives_audit: true,
       enabled: true,
     });
   });
@@ -197,5 +236,43 @@ describe("channelFormOf et channelRequestOf", () => {
 
   it("partent d'un canal JSON actif, qui prévient du retour à la normale", () => {
     expect(channelRequestOf(emptyChannelForm)).toMatchObject({ format: "json", min_severity: "attention", notify_resolve: true, enabled: true });
+  });
+
+  it("ne donnent pas le journal à un nouveau canal : il se coche", () => {
+    expect(channelRequestOf(emptyChannelForm).receives_audit).toBe(false);
+    expect(channelRequestOf({ ...emptyChannelForm, receivesAudit: true }).receives_audit).toBe(true);
+  });
+});
+
+describe("mostUrgentAlert", () => {
+  const acknowledged = "2026-09-22T09:30:00Z";
+
+  it("ne rend rien sans alerte ouverte", () => {
+    expect(mostUrgentAlert([])).toBeNull();
+    expect(mostUrgentAlert([alert({ status: "resolved", resolved_at: "2026-09-22T09:40:00Z" })])).toBeNull();
+  });
+
+  it("une alerte non acquittée passe avant une acquittée, même plus grave", () => {
+    const grave = alert({ id: 1, severity: "danger", acknowledged_at: acknowledged });
+    const open = alert({ id: 2, severity: "attention" });
+    expect(mostUrgentAlert([grave, open])?.id).toBe(2);
+  });
+
+  it("à acquittement égal, la plus grave passe avant, même plus ancienne", () => {
+    const old = alert({ id: 1, severity: "danger", opened_at: "2026-09-20T09:00:00Z" });
+    const recent = alert({ id: 2, severity: "attention", opened_at: "2026-09-22T09:00:00Z" });
+    expect(mostUrgentAlert([recent, old])?.id).toBe(1);
+  });
+
+  it("à égalité de tout, la plus récente", () => {
+    const old = alert({ id: 1, opened_at: "2026-09-20T09:00:00Z" });
+    const recent = alert({ id: 2, opened_at: "2026-09-22T09:00:00Z" });
+    expect(mostUrgentAlert([old, recent])?.id).toBe(2);
+    expect(mostUrgentAlert([recent, old])?.id).toBe(2);
+  });
+
+  it("une résolue n'est jamais la plus urgente", () => {
+    const resolved = alert({ id: 1, severity: "danger", status: "resolved", resolved_at: "2026-09-22T09:40:00Z" });
+    expect(mostUrgentAlert([resolved, alert({ id: 2, acknowledged_at: acknowledged })])?.id).toBe(2);
   });
 });

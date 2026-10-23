@@ -5,6 +5,11 @@
   flex-wrap: wrap;
 }
 
+// La ligne du support prend toute la largeur : elle passe sous le reste.
+.machine-head .support-line {
+  flex: 1 0 100%;
+}
+
 .machine-state {
   display: inline-flex;
   align-items: center;
@@ -47,6 +52,25 @@
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   overflow-y: hidden;
+  // Un onglet amené dans la vue (actif, ou atteint au clavier) s'arrête hors
+  // du fondu de 32 px.
+  scroll-padding-inline: 32px;
+
+  // La barre déborde : un fondu au bord qui cache encore des onglets (TabNav).
+  &.fade-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+
+  &.fade-left {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  }
+
+  &.fade-both {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  }
 }
 
 .tab {

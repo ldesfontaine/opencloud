@@ -23,7 +23,6 @@ type declaredServiceJSON struct {
 	ComposeProject string     `json:"compose_project"`
 	PublicURL      string     `json:"public_url"`
 	DeclaredBy     string     `json:"declared_by"`
-	NeedsReview    bool       `json:"needs_review"`
 	Provides       []string   `json:"provides"`
 	Units          []unitJSON `json:"units"`
 	ProjectIDs     []string   `json:"project_ids"`
@@ -41,6 +40,9 @@ type unitJSON struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Le dossier du conteneur que le déploiement monte sur la machine ;
+	// vide : aucun.
+	DataPath string `json:"data_path"`
 	// Ce que l'opérateur veut des mises à jour de l'image : watch, hold,
 	// ignore.
 	UpdatePolicy string `json:"update_policy"`
@@ -61,13 +63,6 @@ type linksJSON struct {
 type linkedObjectJSON struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-}
-
-// Le refus de supprimer un service lié : la clé du catalogue, et la liste de
-// ce qui le lie, seule réponse d'erreur qui porte plus qu'une clé.
-type linkedRefusalJSON struct {
-	Error string    `json:"error"`
-	Links linksJSON `json:"links"`
 }
 
 type projectJSON struct {
@@ -112,6 +107,8 @@ type unitRequest struct {
 	ContainerName string   `json:"container_name"`
 	SystemdUnit   string   `json:"systemd_unit"`
 	Ports         []string `json:"ports"`
+	// Vide : aucun dossier de données.
+	DataPath string `json:"data_path"`
 	// Absente : watch.
 	UpdatePolicy string `json:"update_policy,omitempty"`
 }
@@ -139,7 +136,6 @@ func declaredServiceToJSON(found directory.Service) declaredServiceJSON {
 		ComposeProject: found.ComposeProject,
 		PublicURL:      found.PublicURL,
 		DeclaredBy:     string(found.DeclaredBy),
-		NeedsReview:    found.NeedsReview,
 		Provides:       provides,
 		Units:          units,
 		ProjectIDs:     orEmpty(found.ProjectIDs),
@@ -159,6 +155,7 @@ func unitToJSON(unit directory.Unit) unitJSON {
 		ContainerName: unit.ContainerName,
 		SystemdUnit:   unit.SystemdUnit,
 		Ports:         orEmpty(unit.Ports),
+		DataPath:      unit.DataPath,
 		UpdatePolicy:  string(unit.UpdatePolicy),
 	}
 }
@@ -197,6 +194,7 @@ func declaredServiceDefinition(request declaredServiceRequest) directory.Service
 			ContainerName: unit.ContainerName,
 			SystemdUnit:   unit.SystemdUnit,
 			Ports:         unit.Ports,
+			DataPath:      unit.DataPath,
 			UpdatePolicy:  container.UpdatePolicy(unit.UpdatePolicy),
 		})
 	}
@@ -265,26 +263,9 @@ func (s *Server) updateDeclaredService(w http.ResponseWriter, r *http.Request) {
 }
 
 // Supprimer un service que des sondes ou des composants de statut visent
-// encore est refusé, avec la liste : l'opérateur les détache d'abord.
+// encore est refusé, avec le plan : l'opérateur les détache d'abord.
 func (s *Server) deleteDeclaredService(w http.ResponseWriter, r *http.Request) {
-	err := s.directory.DeleteService(r.Context(), r.PathValue("id"))
-	var linked *directory.LinkedError
-	if errors.As(err, &linked) {
-		s.writeAPI(w, http.StatusConflict, linkedRefusalJSON{Error: "directory.service_linked", Links: linksToJSON(linked.Links)})
-		return
-	}
-	s.finishAPIAction(w, r, err, directory.ErrNotFound)
-}
-
-// Valider dit que l'opérateur a relu un service repris de l'existant. Une
-// définition qui ne passe pas la validation ne se valide pas : le refus est
-// celui de la première règle violée.
-func (s *Server) reviewDeclaredService(w http.ResponseWriter, r *http.Request) {
-	reviewed, err := s.directory.Review(r.Context(), r.PathValue("id"))
-	if s.failed(w, r, err, directory.ErrNotFound) {
-		return
-	}
-	s.writeAPI(w, http.StatusOK, declaredServiceToJSON(reviewed))
+	s.finishAPIAction(w, r, s.directory.DeleteService(r.Context(), r.PathValue("id")), directory.ErrNotFound)
 }
 
 // La politique de mise à jour se règle sur l'unité : ses conteneurs, ceux

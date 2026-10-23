@@ -3,9 +3,9 @@ package agent
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 )
 
@@ -24,9 +24,9 @@ func TestExplain_SpeaksTheOperatorLanguageAndTellsRefusalsApart(t *testing.T) {
 	if message != english.Get("agent.token_consumed") || message == french.Get("agent.token_consumed") {
 		t.Fatalf("en consumed: %q", message)
 	}
-	message, refused = Explain(&ServerError{Status: 409, Code: "machine_is_opencloud"}, french)
-	if !refused || !strings.Contains(message, "déjà supervisée par openCloud lui-même") {
-		t.Fatalf("fr opencloud host: %q %v", message, refused)
+	message, refused = Explain(&ServerError{Status: 409, Code: agentwire.CodeLocalAgentActive}, french)
+	if !refused || message != french.Get("agent.local_agent_active") {
+		t.Fatalf("fr server machine with an active agent: %q %v", message, refused)
 	}
 	if message, refused := Explain(fmt.Errorf("%w: %w", ErrIdentityRefused, errors.New("x")), french); !refused || message != french.Get("agent.identity_refused") {
 		t.Fatalf("identity: %q %v", message, refused)
@@ -38,8 +38,11 @@ func TestExplain_SpeaksTheOperatorLanguageAndTellsRefusalsApart(t *testing.T) {
 	if refused || message == "" || message == "dial tcp: connection refused" {
 		t.Fatalf("plain error: %q %v", message, refused)
 	}
-	if _, refused := Explain(&ServerError{Status: 401, Code: codeChallengeExpired}, french); refused {
-		t.Fatal("an expired challenge is asked again, not a refusal")
+	if _, refused := Explain(&ServerError{Status: 401, Code: agentwire.CodeReplayed}, french); refused {
+		t.Fatal("a replayed proof is signed again, not a refusal")
+	}
+	if message, refused := Explain(&ServerError{Status: 426, Code: agentwire.CodeProtocolUnsupported}, french); !refused || message != french.Get("agent.protocol_unsupported") {
+		t.Fatalf("another protocol: %q %v", message, refused)
 	}
 	if _, refused := Explain(&ServerError{Status: 401, Code: codeBadProof}, french); !refused {
 		t.Fatal("a bad proof is a refusal")

@@ -95,3 +95,23 @@ func (db *DB) SetUnitUpdatePolicy(ctx context.Context, unitID string, policy con
 	}
 	return notFoundIfNoRow(result, directory.ErrUnitNotFound)
 }
+
+// SetUnitVersion écrit la version déclarée d'une unité et date la
+// modification de son service, dans la même transaction ; rien d'autre ne
+// change. ErrUnitNotFound si l'unité n'existe plus.
+func (db *DB) SetUnitVersion(ctx context.Context, unitID, version string, at time.Time) error {
+	return db.inTx(ctx, "set unit version", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE service_units SET version = ? WHERE id = ?`, version, unitID)
+		if err != nil {
+			return fmt.Errorf("set version of unit %s: %w", unitID, err)
+		}
+		if err := notFoundIfNoRow(result, directory.ErrUnitNotFound); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE declared_services SET updated_at = ? WHERE id = (SELECT service_id FROM service_units WHERE id = ?)`, at.Unix(), unitID)
+		if err != nil {
+			return fmt.Errorf("date the service of unit %s: %w", unitID, err)
+		}
+		return nil
+	})
+}

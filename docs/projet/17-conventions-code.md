@@ -12,16 +12,16 @@ le compilateur interdit d'importer d'ailleurs. Pas de `src/`, pas de `pkg/`.
 cmd/opencloud/               # le seul main : il aiguille vers la commande
 internal/<composant>/        # un package par composant
 internal/reader/             # l'interface Reader : les lectures de la base sans règle, partagées (types seulement)
-internal/agentwire/          # le protocole agent ↔ serveur : en-têtes, corps JSON, sections du signal (types seulement)
-internal/server/             # la couche HTTP : montage, middlewares, API JSON, MCP, front servi
-internal/server/agentapi/    # les routes /agent/… : enrôlement, défi, flux, signal, journaux
+internal/agentwire/          # le protocole agent ↔ serveur entier : en-têtes, corps JSON, sections du signal, liste fermée de ce que le serveur pousse, enveloppe signée des ordres
+internal/server/             # la couche HTTP : montage, middlewares, API JSON, front servi
+internal/server/agentapi/    # les routes /agent/… : enrôlement, flux, signal, journaux
 internal/server/ping/        # les routes /ping/… d'un cron
 internal/server/public/      # la page de statut publique sous /statut : page, instantané, chaînes, direct
 internal/server/sse/         # la boucle des flux text/event-stream, partagée par l'administration et la page publique
 internal/server/httpx/       # les gestes de réponse que la racine et ses sous-paquets partagent : JSON, événement SSE, 429, adresse du pair
 internal/server/servertest/  # ce que les tests de server et de ses sous-paquets partagent
 web/                         # le front React : src/, public/, dist/ embarqué par web/embed.go
-migrations/                  # SQL numéroté, embarqué
+migrations/                  # SQL numéroté, embarqué ; 001_schema.sql est le schéma lisible
 docs/projet/                 # méthode, conventions, direction artistique
 .github/                     # CI, gabarits de tickets
 ```
@@ -138,6 +138,18 @@ func (s *Server) trustedIdentity(r *http.Request, header string) string {
 Go ≥ 1.26. Les outils (`staticcheck`, `govulncheck`, `gosec`) sont
 épinglés par version dans le Makefile et la CI — jamais `@latest`. `CGO_ENABLED=0`, `-trimpath`, version par `ldflags` depuis le tag.
 SQLite `modernc.org/sqlite`. Un binaire, reproductible.
+Une version : tag `vX.Y.Z` sur `main`, build reproductible vérifié par le
+job, `SHA256SUMS` signé (minisign), attestation de provenance
+(`12-methode.md`).
+
+Une seule bibliothèque de chiffrement hors de la bibliothèque standard :
+`filippo.io/age` (BSD-3-Clause, Go pur, aucun `import "C"` ; dépendances
+`filippo.io/hpke`, `nistec`, `edwards25519`, `x/crypto`, `x/sys`, `x/term`).
+Elle chiffre la sauvegarde de la base (« Comment la base est sauvegardée »,
+`22-fonctionnement.md`). Choisie parce que le format est celui de l'outil
+`age` courant : on restaure sans openCloud. L'écrire à la main (X25519, scrypt,
+STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de
+cryptographie à maintenir et à éprouver contre les vecteurs de test.
 
 Le front demande Node ≥ 20.19 et npm. Les paquets sont épinglés à la version
 exacte dans `web/package.json` (`save-exact`), le verrou est
@@ -161,15 +173,15 @@ binaire par plateforme.
 
 | Couche | Paquets | Ce qu'elle fait | Jamais |
 | --- | --- | --- | --- |
-| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et `mcp` | Une règle métier |
-| HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, MCP, le front servi | Du SQL, une règle métier |
+| Entrée | `cmd/opencloud` | Aiguille vers la commande, ouvre la base, construit les composants et les branche : une fois, dans `components.go`, pour `serve` et les commandes qui en ont besoin | Une règle métier |
+| HTTP | `internal/server` (racine) | Le montage des routes, la chaîne de middlewares, les gardes (hôte, même-origine, opérateur), l'API JSON, le front servi | Du SQL, une règle métier |
 | HTTP par consommateur | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | Les routes d'un seul consommateur, avec ses dépendances, son format de réponse et ses limiteurs (« Le dépôt ») | Importer `server` |
 | HTTP partagé | `server/httpx` | Les gestes de réponse de la racine et des sous-paquets : `WriteJSON`, `WriteEvent`, `WriteTooMany`, `PeerHost`, `ConvertAll`, `TimeOrNil` | Une route, un composant |
-| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `mcp` | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
+| Composants | `machine`, `container`, `probe`, `heartbeat`, `resource`, `directory`, `manifest`, `status`, `alert`, `update`, `lifecycle`, `settings`, `auth`, `apitoken`, `action` (les ordres signés aux agents : la clé du serveur, le run écrit avant l'envoi, la réponse, l'expiration, les colis), `backup` (la sauvegarde de la base : la paire de clés, l'archive chiffrée, le plan ; il envoie par `action`, sans connaître le serveur ni le store) | Les règles : vérifier, valider, écrire, publier sur le direct, donner les faits aux alertes | HTTP, SQL, relayer une lecture de la base sans rien y ajouter |
 | Lecture partagée | `internal/reader` | L'interface `Reader` : les lectures de la base sans règle (`List*`, `Get*`, `Count*`) que le serveur, la page de statut et le fichier de l'annuaire partagent ; `*store.DB` la satisfait (`var _ reader.Reader = (*DB)(nil)`) | Une requête, une règle, une écriture ; rendre les types d'un paquet qui l'importe (`status`, `manifest`) |
 | Base | `internal/store` | Tout le SQL : requêtes, transactions, migrations, les comptes (`CountContainers`, `CountContainerUpdates`), et les contrôles qui doivent tenir dans la transaction de l'écriture (unicité de l'annuaire) | Une règle qu'un composant peut porter |
-| Protocole agent | `internal/agentwire` | Les types, en-têtes et sections du signal, figés par les agents installés | Une règle, un appel |
-| Outils | `refusal`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `config` | Un concept chacun, sans règle d'openCloud. `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation | Importer un composant |
+| Protocole agent | `internal/agentwire` | Le protocole entier, figé par les agents installés : en-têtes, corps, sections du signal ; la liste fermée de ce que le serveur pousse (`Kind`, `Command` typée, plus d'`any` sur le fil) et l'enveloppe des ordres (`OrderBody`, `SignedOrder`) ; les octets que les deux côtés signent ou comparent (`OrderSigningBytes`, `KeyFingerprint`) ; sa version (`ProtocolVersion`, l'en-tête `OpenCloud-Agent-Protocol`) et ses bornes (`MaxEventBytes`, `MaxEventLineBytes`, `EventDataLine`). Un changement que les agents installés ne liraient pas passe la version : le serveur refuse l'autre (`426`), jamais en silence. La preuve de l'agent (`machine.SignedPayload`) reste dans `machine`, que `agentwire` importe Un domaine ne nomme jamais un événement : il déclare son commandeur typé (`container.Commander.RequestLogs`), le serveur l'encode | Une règle, un appel |
+| Outils | `refusal`, `deletion`, `live`, `fsx`, `seal`, `egress`, `ratelimit`, `ident`, `wait`, `brand`, `lang`, `mail`, `registry`, `dockerapi`, `sampler`, `hostinfo`, `trust`, `proxysecret`, `mcpcheck`, `config`, `audit`, `release` | Un concept chacun, sans règle d'openCloud. `deletion` : la forme du plan d'une suppression et le refus qui le porte, la règle restant au domaine (`machine.RefuseDeletion`) ; `ratelimit` : un limiteur par clé (`New`) ou par source (`BySource`, le /64 calculé dedans), balayé au passage ; `ident.New` : les identifiants de seize hexadécimaux (`machine.NewID`, un UUID, reste à part) ; `wait.For` : une pause qui s'arrête à l'annulation; `audit` : l'acteur dans le contexte et le `Recorder` du journal d'audit, que tous les composants, `server`, `store` et `reader` importent : un outil, sinon un composant qui l'importe et qu'il nommerait ferait un cycle ; `release` : la signature minisign des versions et la vérification d'un fichier contre elle ; la clé publique embarquée | Importer un composant |
 | Agent | `agent`, `dockerwatch` | Ce qui tourne sur une machine gérée | Importer `server` ou `store` |
 
 Qui peut importer qui :
@@ -181,8 +193,8 @@ Qui peut importer qui :
 | `server/agentapi`, `server/ping`, `server/public`, `server/sse` | les composants qu'il sert, les outils, `agentwire`, `server/httpx` ; `public` importe `sse` | `server`, `store`, un autre sous-paquet |
 | `server/httpx` | la bibliothèque standard | `server`, un autre sous-paquet, un composant, `store` |
 | Un composant | d'autres composants (types et gestes), les outils ; `status` et `manifest` importent `reader` | `server`, `store`, `cmd` |
-| `reader` | les composants dont il rend les types : `machine`, `container`, `probe`, `heartbeat`, `directory`, `alert`, `settings` | `server`, `store`, un composant qui l'importe (`status`, `manifest`) : Go refuserait le cycle |
-| `store` | les composants, pour leurs types ; `reader`, pour l'assertion ; `seal` ; `migrations` | `server` |
+| `reader` | les composants dont il rend les types : `machine`, `container`, `probe`, `heartbeat`, `directory`, `alert`, `settings` ; l'outil `audit` | `server`, `store`, un composant qui l'importe (`status`, `manifest`) : Go refuserait le cycle |
+| `store` | les composants, pour leurs types ; `reader`, pour l'assertion ; `seal` ; `audit`, pour ses types et son `Store` ; `migrations` | `server` |
 | `agentwire` | les types qu'il transporte : `container`, `probe`, `update`, `sampler` | un composant dont il ne transporte pas les types (`machine`), `server`, `store` |
 | Un outil | d'autres outils, la bibliothèque standard | un composant, `server`, `store` |
 | `agent`, `dockerwatch` | les composants (leurs types), les outils, `agentwire` | `server`, `store` |
@@ -198,7 +210,7 @@ deux (Go le refuse) : l'un déclare une interface et reçoit l'autre par un
 | Geste | Par où | Exemple |
 | --- | --- | --- |
 | Lire pour dériver : un état, un compte, un écart | La base, par le `reader.Reader` reçu au câblage ; une lecture propre à sa règle, que lui seul fait, reste dans son `Store` | `status` lit `ListProbes`, `ListContainers`, `LoadSettings` par son `reader` ; `probe.Store` a `DeclaredServiceExists`, `update.Store` a `ListContainers` |
-| Lire ce qu'un composant montre sans rien y ajouter | Le `Reader`, directement : le composant ne relaie pas | Le serveur et MCP lisent `ListProbes`, `GetHeartbeat`, `CountAlerts` par `s.reader` |
+| Lire ce qu'un composant montre sans rien y ajouter | Le `Reader`, directement : le composant ne relaie pas | Le serveur lit `ListProbes`, `GetHeartbeat`, `CountAlerts` par `s.reader` |
 | Lire ce qui porte une règle | Le composant | `machine.List` (en ligne ou non), `container.Tracker.List` (les vivants), `probe.Days` (la fenêtre), `alert.Engine.List` (la borne) |
 | Écrire | **Toujours le composant du domaine**, par une interface déclarée chez celui qui écrit | `status` écrit le titre de la page par `settings.SetStatusPage` ; `manifest` applique par les gestes de `directory`, `probe` et `heartbeat` |
 
@@ -219,20 +231,24 @@ nouveau suit le même ordre, de haut en bas du fichier :
 | Pièce | Règle | Dans `probe` |
 | --- | --- | --- |
 | Interfaces | Déclarées chez lui, ce qu'il attend et rien de plus : les écritures et les lectures de sa règle dans `Store` ; ce qu'il lit d'un autre domaine par le `reader.Reader` | `Store`, `Commander`, `Assignable`, `Watcher`, `Alerter` ; `status.New(store, reader, …)` |
-| Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetLocalRunner`, `SetClock` |
+| Constructeur | `New(store, logger)` ; les collaborateurs par `Set*`, au câblage, avant le démarrage | `SetWatcher`, `SetAlerter`, `SetCommander`, `SetClock` |
 | Définition | Fonction pure, testable sans base : `Definition.Complete()` pose les valeurs par défaut, puis `Validate()` rend le premier refus | `internal/probe/probe.go` ; `heartbeat` n'a que `Validate()`, faute de valeur par défaut |
-| Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise, appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
+| Geste | Vérifie que ce qu'il référence existe, valide, écrit, journalise (`slog`, puis `auditor.Record` pour un objet déclaré ou une autorité, sans secret), appelle `changed()`, relit et rend l'objet | `Create`, `Update`, `Pause`, `Delete` |
 | `changed()` | Prévient le `Watcher` ; jamais depuis un handler | `ProbesChanged(machineID)` |
 | Lectures | Seules celles qui ajoutent une règle : une fenêtre, un filtre, une vérification, une conversion. Une liste, un objet ou un compte tels qu'en base se lisent par le `Reader` ; le composant ne les relaie pas | `Days`, `Uptimes`, `Certificates` ; pas de `List` ni de `Get` |
 | Boucle | `Watch(ctx)` : rollup, purge, relances, jusqu'à l'annulation du contexte | `Watch` |
 
 - **Nommage** : `Watcher` est le direct (`internal/live`), `Alerter` le
   moteur des alertes ; `nil` est toléré pour les deux. `Listener` ne
-  s'emploie plus.
+  s'emploie plus. Le journal d'audit est un outil : il se reçoit tel quel,
+  `SetAuditor(*audit.Recorder)`, sans interface déclarée, et un `*Recorder`
+  nil ne fait rien. L'acteur ne passe pas en argument : il est dans le
+  contexte (`audit.WithActor`), posé par qui le connaît (`server`, la
+  commande, `serve`, `agentapi`).
 - **L'existence se vérifie dans le composant**, avant toute écriture : la
   machine et le service d'une sonde, la machine d'une tâche quand elle en a
-  une. Sans cela la clé étrangère refuse en erreur brute, et MCP ou
-  `opencloud apply`, qui appellent le composant sans handler, passeraient
+  une. Sans cela la clé étrangère refuse en erreur brute, et
+  `opencloud apply`, qui appelle le composant sans handler, passerait
   sans contrôle. Ordre des refus, celui que l'API a toujours rendu : l'objet
   modifié (404), la machine, la définition, puis le service.
 - **Compter puis insérer** (un plafond) se tient sous un verrou du composant
@@ -289,7 +305,7 @@ Petit, nommé, à cette échelle.
 - **Toute règle métier refuse par `refusal.*`** : le domaine déclare sa clé
   avec l'erreur, `refusal.Invalid` ou `refusal.Conflict`
   (`internal/refusal`). Elle se traduit une seule fois : le serveur par
-  `s.failed`, MCP par `s.toolFailed`, le fichier de l'annuaire par
+  `s.failed`, le fichier de l'annuaire par
   `refusal.KeyOf`. Jamais d'`errors.Is` qui choisit une clé dans un handler.
 - `s.apiRefuse` n'est que pour ce que le handler juge lui-même : un
   paramètre de requête, un en-tête, une limite du serveur. Les quelques refus
@@ -313,11 +329,30 @@ jamais d'état à moitié appliqué. Clé inconnue = avertissement au démarrage
 
 Le schéma de la base d'openCloud changera : une colonne ajoutée, une table
 nouvelle. Une installation existante doit **suivre sans perdre ses données**.
-Les migrations sont des fichiers SQL numérotés (`001_machines.sql`,
-`002_heartbeats.sql`…), embarqués dans le binaire, appliqués **dans l'ordre au
-démarrage**, chacun noté dans une table `schema_migrations` pour ne jamais être
-rejoué. Même principe que `php artisan migrate`, sans commande à lancer : le
-binaire se met à niveau tout seul.
+**Une migration = un fichier SQL numéroté** sous `migrations/`, embarqué dans
+le binaire, appliqué **dans l'ordre au démarrage**, noté dans une table
+`schema_migrations` pour ne jamais être rejoué. Même principe que `php artisan
+migrate`, sans commande à lancer : le binaire se met à niveau tout seul.
+
+- **Le schéma de départ est `001_schema.sql`** : tout le schéma, groupé par
+  domaine dans l'ordre des dépendances, colonnes alignées, règles de
+  suppression visibles, un commentaire court qui dit le pourquoi. On le lit
+  pour savoir ce qu'est la base. Il ne se modifie plus : un changement est
+  une migration de plus, à partir de `002`, écrite pour que la table finale
+  se lise telle quelle.
+- **Le runner** (`internal/store/store.go`) joue chaque fichier hors clés
+  étrangères, dans sa transaction, et lance `PRAGMA foreign_key_check` avant
+  le COMMIT : une reconstruction de table (le patron de SQLite : créer la
+  nouvelle, recopier, supprimer l'ancienne, renommer) n'emporte rien par
+  cascade, et une clé pendante annule tout. Une base qui note une version que
+  le binaire n'embarque pas est refusée.
+- **Du SQL, pas de Go** : une migration qui demanderait du code se discute
+  d'abord.
+- **Les garde-fous** (`internal/store/schema_test.go`) : `001_schema.sql` égale
+  les anciennes migrations rejouées (gardées dans `testdata`) suivies de
+  l'élagage ; chaque clé étrangère vise une clé ; chaque table est lue et
+  écrite par le store, chaque colonne y est nommée. Une colonne qui ne sert
+  pas encore n'entre pas dans le schéma : elle vient avec le code qui la lit.
 
 Rien à voir avec les migrations d'un **service** déployé (celles de son
 application, jouées par `make update`) : ici il s'agit de la base d'openCloud
@@ -325,11 +360,15 @@ lui-même.
 
 ## À venir : les actions
 
-openCloud observe et n'agit sur aucune machine : aucun `exec.Command`,
-aucun script, aucun catalogue d'actions dans le code. Les actions viendront
-avec l'issue #125 (l'agent applique une mise à jour au clic). Les
-conventions ci-dessous sont **écrites d'avance** pour ce jour-là ; rien ne
-les vérifie encore, ni en local ni en CI.
+Le chemin d'un ordre existe (#146, `internal/action`, « Comment un ordre part
+et revient » dans `22-fonctionnement.md`) : liste fermée dans `agentwire`,
+run écrit avant l'envoi, signature de la clé du serveur, réponse par le
+signal. Le seul ordre, `agent.ping`, ne change rien : aucun `exec.Command`,
+aucun script dans le code. Un ordre nouveau ajoute son genre à
+`agentwire.OrderKinds`, son exécution chez l'agent (`orders.go`) et son geste
+dans `action` ; jamais une chaîne shell dans ses paramètres. Les conventions
+ci-dessous sont **écrites d'avance** pour le premier ordre qui écrit ; rien
+ne les vérifie encore, ni en local ni en CI.
 
 ### L'exécution de commandes
 
@@ -368,8 +407,8 @@ pings (`/ping/`) ne changent pas.
   Aucune logique métier. Le serveur rend des **faits** (instants ISO en
   UTC, durées en secondes), jamais du texte formaté : « vu il y a 12 s » se
   calcule dans le navigateur.
-- **Une lecture, une forme** pour l'API et MCP : les assembleurs vivent dans
-  `server` et servent les deux (`probeListOf`, `containerListOf`,
+- **Une lecture, une forme** pour l'API : les assembleurs vivent dans
+  `server` et servent l'interface comme un jeton d'API (`probeListOf`, `containerListOf`,
   `probeResponseOf`, `containerResponseOf`, `gapsResponseOf`,
   `alertResponseOf`). Une liste se convertit par `httpx.ConvertAll(alerts,
   alertToJSON)`, jamais `null` ; `orEmpty` pour une liste déjà faite,
@@ -389,7 +428,7 @@ pings (`/ping/`) ne changent pas.
   `Sec-Fetch-Site` absent ne suffit pas à refuser. Refus : `403 bad_origin`.
   C'est ce qui remplace le jeton anti-CSRF des formulaires, et ce qui vaut
   tant qu'il n'y a pas d'authentification.
-- Toute requête sous `/api/` et sur `/oauth/authorize` exige un `Host`
+- Toute requête sous `/api/` exige un `Host`
   reconnu : l'hôte de `public_url`, `localhost`, une IP littérale (v4 ou v6,
   avec ou sans port), l'hôte de `listen` ; derrière un mandataire de
   `trusted_proxies`, `X-Forwarded-Host` est jugé de même. Refus :
@@ -448,8 +487,9 @@ direction artistique. Les mêmes règles qu'en Go, transposées :
 
 ## Les journaux
 
-`log/slog`, JSON vers journald. Un champ `action_id` sur tout ce qui touche une
-action. Un marqueur interne pour distinguer les lignes d'openCloud de celles des
+`log/slog`, JSON vers journald. Un champ `run_id` sur tout ce qui touche un
+ordre, chez le serveur comme chez l'agent : le modèle nomme l'exécution un
+run. Un marqueur interne pour distinguer les lignes d'openCloud de celles des
 scripts relus.
 
 ## Les tests
@@ -469,7 +509,7 @@ scripts relus.
   (`internal/store/storetest`, avec `EnrollMachine`,
   `EnrollMachineWithKey` quand le test signe comme l'agent, et
   `EnsureLocalMachine`) ; `server` et ses sous-paquets y ajoutent
-  `servertest` (`RequestChallenge`, `OpenStream`, l'horloge figée `Now`).
+  `servertest` (`NewNonce`, `SignedStreamRequest`, `OpenStream`, l'horloge figée `Now`).
   Un faux seulement pour ce qui est lent ou externe : Docker, un registre,
   un relais SMTP (`mail/smtptest`), un tiers sur Internet.
 - **Les gardes de règle** lisent le source : `TestNameOnlyInBrand`, et le

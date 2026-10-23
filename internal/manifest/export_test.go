@@ -14,8 +14,7 @@ import (
 )
 
 var testAnnotations = manifest.Annotations{
-	Header:      "Annuaire exporté.\nLes identifiants rattachent chaque entrée à son objet : gardez-les.",
-	NeedsReview: "À vérifier : repris de l'existant.",
+	Header: "Annuaire exporté.\nLes identifiants rattachent chaque entrée à son objet : gardez-les.",
 }
 
 func (b *bench) export(t *testing.T) []byte {
@@ -195,9 +194,7 @@ func TestExport_NeverWritesASecret(t *testing.T) {
 func TestExport_ParseGivesBackTheSameFile(t *testing.T) {
 	b := newBench(t)
 	b.seed(t, false)
-	// « À vérifier » est un commentaire : la relecture ne le sait pas, le
-	// fichier relu se réécrit donc sans lui.
-	annotations := manifest.Annotations{Header: testAnnotations.Header}
+	annotations := testAnnotations
 	data, err := b.manifest.Export(context.Background(), annotations, manifest.ExportOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -236,19 +233,12 @@ func TestExport_ParseGivesBackTheSameFile(t *testing.T) {
 	}
 }
 
-func TestExport_NeedsReviewServiceGetsItsComment(t *testing.T) {
+func TestExport_StartsWithItsHeader(t *testing.T) {
 	b := newBench(t)
 	b.seed(t, false)
 	text := string(b.export(t))
-	if strings.Count(text, "# "+testAnnotations.NeedsReview) != 1 {
-		t.Fatalf("the comment must sit above the only service to review:\n%s", text)
-	}
 	if !strings.HasPrefix(text, "# Annuaire exporté.\n# Les identifiants") {
 		t.Fatalf("header missing:\n%s", text)
-	}
-	index := strings.Index(text, "# "+testAnnotations.NeedsReview)
-	if !strings.Contains(text[index:], "name: legacy") || strings.Contains(text[index:index+120], "name: wiki") {
-		t.Fatalf("the comment is not above legacy:\n%s", text[index:])
 	}
 }
 

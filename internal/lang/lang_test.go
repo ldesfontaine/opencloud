@@ -114,22 +114,22 @@ func diff(want, got []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// La carte MCP de Paramètres ne promet pas « jamais un secret » : les
-// journaux de conteneur sont bruts.
-func TestLoad_MCPCardAdmitsRawLogs(t *testing.T) {
+// La carte de l'agent IA, sous Paramètres, ne promet pas « jamais un secret » :
+// les journaux de conteneur sont bruts.
+func TestLoad_AIAgentCardAdmitsRawLogs(t *testing.T) {
 	catalogs, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for code, catalog := range catalogs {
-		for _, key := range []string{"mcp.intro", "mcp.tools", "mcp.never"} {
+		for _, key := range []string{"ai_agent.intro", "ai_agent.never"} {
 			text := strings.ToLower(catalog.Get(key))
 			if strings.Contains(text, "jamais un secret") || strings.Contains(text, "never a secret") {
 				t.Errorf("%s %s: promises no secret: %s", code, key, text)
 			}
 		}
-		if intro := catalog.Get("mcp.intro"); !strings.Contains(strings.ToLower(intro), map[Code]string{"fr": "journaux", "en": "logs"}[code]) {
-			t.Errorf("%s mcp.intro does not mention container logs: %s", code, intro)
+		if intro := catalog.Get("ai_agent.intro"); !strings.Contains(strings.ToLower(intro), map[Code]string{"fr": "journaux", "en": "logs"}[code]) {
+			t.Errorf("%s ai_agent.intro does not mention container logs: %s", code, intro)
 		}
 	}
 }
@@ -168,6 +168,13 @@ func TestLoad_ExpandsPlaceholders(t *testing.T) {
 			if got := catalog.Get(key); !strings.Contains(got, brand.Command+" auth disable") {
 				t.Errorf("%s: %s = %q, want the command %q", code, key, got, brand.Command+" auth disable")
 			}
+		}
+		// La ligne que l'agent cite quand le jeton manque est celle de l'installation.
+		if got := catalog.Get("agent.token_missing"); !strings.Contains(got, "sudo -u "+brand.AgentAccount+" "+brand.AgentCurrentPath+" agent") {
+			t.Errorf("%s: agent.token_missing = %q, want the install line", code, got)
+		}
+		if got := catalog.Get("machine.prepare_docker_note"); !strings.Contains(got, brand.AgentAccount) {
+			t.Errorf("%s: machine.prepare_docker_note = %q, want the account %q", code, got, brand.AgentAccount)
 		}
 		if got := catalog.Get("channel.secret_help"); !strings.Contains(got, brand.WebhookSignatureHeader) {
 			t.Errorf("%s: channel.secret_help = %q, want the header %q", code, got, brand.WebhookSignatureHeader)

@@ -4,7 +4,7 @@ import type { Container } from "../api/containers";
 import type { NetworkResponse } from "../api/network";
 import type { Probe } from "../api/probes";
 import type { Translate } from "../i18n/context";
-import { compactHeight, compactWidth, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, peersOf, probesOf, publicPorts, zoomView } from "./network";
+import { type PlacedMachine, compactHeight, compactWidth, fitOverview, fitPorts, fitView, internetID, layoutNetwork, layoutOverview, modeText, nodeHeight, nodeWidth, overviewCompactGap, overviewFramePadding, overviewGraphFloor, overviewGraphMaxHeight, overviewMargin, overviewScale, peersOf, probesOf, publicPorts, zoomView } from "./network";
 
 function container(id: string, name: string, extra: Partial<Container> = {}): Container {
   return {
@@ -24,6 +24,8 @@ function container(id: string, name: string, extra: Partial<Container> = {}): Co
     declared_service_id: "",
     image_check: null,
     state: "running",
+    observed: true,
+    machine_last_seen_at: "2026-09-19T09:00:00Z",
     exit_code: 0,
     oom_killed: false,
     killed: false,
@@ -166,11 +168,13 @@ test("layoutOverview cadre chaque machine, les publiés face à Internet", () =>
   const web = byID.get("web")!;
   const db = byID.get("db")!;
   expect(web.public).toBe(true);
-  expect(web.x).toBe(vps.x + 16);
-  expect(db.x).toBe(web.x + compactWidth + 12);
-  // Cinq conteneurs sans route publique : quatre colonnes, deux lignes.
-  expect(byID.get("s5")!.y).toBe(byID.get("s1")!.y + compactHeight + 12);
-  expect(byID.get("s5")!.x).toBe(byID.get("s1")!.x);
+  expect(web.x).toBe(vps.x + overviewFramePadding.left);
+  expect(db.x).toBe(web.x + compactWidth + overviewCompactGap);
+  // Cinq conteneurs sans route publique : deux lignes (quatre colonnes au
+  // plus), réparties trois et deux ; le cinquième sous le deuxième.
+  expect(byID.get("s4")!.y).toBe(byID.get("s1")!.y + compactHeight + overviewCompactGap);
+  expect(byID.get("s4")!.x).toBe(byID.get("s1")!.x);
+  expect(byID.get("s5")!.x).toBe(byID.get("s2")!.x);
   expect(layout.edges).toHaveLength(1);
   expect(layout.edges[0]!.edge.to).toBe("web");
   expect(layout.internet.x).toBeLessThan(vps.x);
@@ -184,7 +188,8 @@ test("layoutOverview ne cadre pas une machine seule et accepte une machine vide"
   const empty = layoutOverview({ machines: [{ ...response, containers: [], edges: [] }] });
   expect(empty.machines[0]!.empty).toBe(true);
   expect(empty.nodes).toHaveLength(0);
-  expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 48);
+  // Le nœud Internet et ses marges, au moins.
+  expect(empty.height).toBeGreaterThanOrEqual(nodeHeight + 2 * overviewMargin);
 });
 
 test("probesOf rend les sondes du service déclaré, et rien pour un conteneur non déclaré", () => {
@@ -223,4 +228,146 @@ test("modeText traduit host et none, et dit un tiret quand le mode est vide", ()
 test("modeText rend le nom d'un réseau tel quel et raccourcit l'identifiant d'un conteneur partagé", () => {
   expect(modeText(modeTranslate, { network_mode: "ocfix_back" })).toBe("ocfix_back");
   expect(modeText(modeTranslate, { network_mode: "container:0123456789abcdef0123" })).toBe("network.mode_container:0123456789ab");
+});
+
+test("overviewGraphFloor garde le plus petit texte du dessin à 10 px au moins", () => {
+  expect(11 * overviewGraphFloor).toBeGreaterThanOrEqual(10 - 1e-9);
+  expect(overviewGraphMaxHeight).toBe(240);
+});
+
+test("overviewScale laisse un petit dessin à l'échelle 1", () => {
+  expect(overviewScale({ width: 600, height: 200 }, 1000, 300, 0.9)).toBe(1);
+});
+
+test("overviewScale : la largeur décide quand elle réduit le plus", () => {
+  expect(overviewScale({ width: 1000, height: 250 }, 500, 300, 0.9)).toBe(0.5);
+});
+
+test("overviewScale : la hauteur décide quand le dessin dépasse la hauteur maximale", () => {
+  // 300 / 330 = 0,909… : au-dessus du plancher de 0,8.
+  expect(overviewScale({ width: 600, height: 330 }, 1000, 300, 0.8)).toBeCloseTo(300 / 330, 10);
+});
+
+test("overviewScale : un dessin très haut s'arrête au plancher", () => {
+  expect(overviewScale({ width: 600, height: 900 }, 1000, 300, 0.9)).toBe(0.9);
+});
+
+test("overviewScale : la largeur l'emporte sur le plancher, pour ne jamais défiler à l'horizontale", () => {
+  expect(overviewScale({ width: 2000, height: 900 }, 1000, 300, 0.9)).toBe(0.5);
+});
+
+// Une machine de la vue d'ensemble : count conteneurs, les publics premiers
+// publiés vers Internet.
+function overviewMachine(id: string, count: number, publics: number): NetworkResponse {
+  const containers = Array.from({ length: count }, (_, index) => container(`${id}-${index}`, `${id}-${index}`, { machine_id: id }));
+  return {
+    machine_id: id,
+    machine_name: id,
+    online: true,
+    engine: null,
+    containers,
+    groups: [],
+    edges: containers.slice(0, publics).map((published) => ({ from: internetID, to: published.id, kind: "public" as const, port: 443 })),
+  };
+}
+
+function inside(layout: ReturnType<typeof layoutOverview>) {
+  const frames = new Map(layout.machines.map((machine) => [machine.id, machine]));
+  for (const node of layout.nodes) {
+    const frame = frames.get(node.container!.machine_id)!;
+    expect(node.x).toBeGreaterThanOrEqual(frame.x);
+    expect(node.y).toBeGreaterThanOrEqual(frame.y);
+    expect(node.x + compactWidth).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(node.y + compactHeight).toBeLessThanOrEqual(frame.y + frame.height);
+  }
+}
+
+function overlaps(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+test("layoutOverview : chaque conteneur reste dans le cadre de sa machine", () => {
+  // Deux publiés et deux autres : les autres en une colonne, pas trois.
+  inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0), overviewMachine("d", 14, 1)] }));
+  inside(layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 1), overviewMachine("c", 5, 0)] }, 2));
+  const narrow = layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 1, 0)] });
+  expect(narrow.machines[0]!.width).toBe(overviewFramePadding.left + 2 * compactWidth + overviewCompactGap + overviewFramePadding.right);
+});
+
+test("layoutOverview range les cadres en grille, alignés, sans chevauchement", () => {
+  const layout = layoutOverview({ machines: [overviewMachine("a", 4, 2), overviewMachine("b", 3, 1), overviewMachine("c", 4, 2)] }, 2);
+  expect(layout.perRow).toBe(2);
+  const [a, b, c] = layout.machines as [PlacedMachine, PlacedMachine, PlacedMachine];
+  expect(b.y).toBe(a.y);
+  expect(b.x).toBeGreaterThan(a.x + a.width);
+  expect(c.x).toBe(a.x);
+  expect(c.y).toBeGreaterThan(a.y + a.height);
+  // Une rangée a une seule hauteur, une colonne une seule largeur.
+  expect(b.height).toBe(a.height);
+  expect(c.width).toBe(a.width);
+  for (const [index, frame] of layout.machines.entries()) {
+    for (const other of layout.machines.slice(index + 1)) {
+      expect(overlaps(frame, other)).toBe(false);
+    }
+  }
+  expect(layout.width).toBeGreaterThanOrEqual(b.x + b.width);
+  expect(layout.height).toBeGreaterThanOrEqual(c.y + c.height);
+  inside(layout);
+});
+
+test("layoutOverview : la route d'un cadre de la deuxième colonne passe par les écarts", () => {
+  const layout = layoutOverview({ machines: [overviewMachine("a", 2, 1), overviewMachine("b", 2, 1)] }, 2);
+  const [a, b] = layout.machines as [PlacedMachine, PlacedMachine];
+  const route = layout.edges.find((placed) => placed.edge.to === "b-0")!;
+  // Les points d'appui de la route : aucun n'est à l'intérieur du cadre de a.
+  const numbers = route.path.match(/-?\d+(\.\d+)?/g)!.map(Number);
+  for (let index = 0; index + 1 < numbers.length; index += 2) {
+    const x = numbers[index]!;
+    const y = numbers[index + 1]!;
+    expect(x > a.x && x < a.x + a.width && y > a.y && y < a.y + a.height).toBe(false);
+  }
+  // Elle finit sur le bord gauche du nœud publié de b.
+  const target = layout.nodes.find((node) => node.id === "b-0")!;
+  expect(route.path.endsWith(`L${target.x} ${target.y + compactHeight / 2}`)).toBe(true);
+  expect(target.x).toBe(b.x + 14);
+});
+
+test("fitOverview empile les cadres quand la largeur manque, comme avant", () => {
+  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1)] };
+  // 1 070 px : la largeur d'un portable 1366 moins la barre latérale.
+  const fitted = fitOverview(response, 1070, 240, 10 / 11);
+  expect(fitted.layout.perRow).toBe(1);
+  expect(fitted.scale).toBeGreaterThanOrEqual(10 / 11);
+  expect(fitted.layout.height * fitted.scale).toBeLessThanOrEqual(240 + 0.5);
+});
+
+test("fitOverview met les cadres côte à côte quand ils tiennent, pour gagner en hauteur", () => {
+  const response = { machines: [overviewMachine("a", 4, 2), overviewMachine("b", 4, 2), overviewMachine("c", 4, 2)] };
+  const stacked = layoutOverview(response, 1);
+  const fitted = fitOverview(response, 1070, 240, 10 / 11);
+  expect(fitted.layout.perRow).toBe(2);
+  expect(fitted.scale).toBeGreaterThanOrEqual(10 / 11);
+  expect(fitted.layout.width * fitted.scale).toBeLessThanOrEqual(1070);
+  expect(fitted.layout.height * fitted.scale).toBeLessThan(stacked.height * overviewScale(stacked, 1070, 240, 10 / 11));
+});
+
+test("fitOverview ne passe jamais sous le plancher pour ranger côte à côte", () => {
+  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1)] };
+  // Trop étroit pour deux cadres de quatre colonnes au plancher.
+  const fitted = fitOverview(response, 1070, 100, 10 / 11);
+  expect(fitted.layout.perRow).toBe(1);
+  // Assez large : deux cadres côte à côte, le texte à sa taille.
+  const wide = fitOverview(response, 1700, 100, 10 / 11);
+  expect(wide.layout.perRow).toBe(2);
+  expect(wide.scale).toBeGreaterThanOrEqual(10 / 11);
+});
+
+test("fitOverview garde le plus grand texte quand plusieurs rangements tiennent", () => {
+  const response = { machines: [overviewMachine("a", 4, 1), overviewMachine("b", 4, 1), overviewMachine("c", 4, 1), overviewMachine("d", 4, 1)] };
+  // 1 624 px (un écran 1920) : empilés, quatre cadres demandent de réduire ; côte à côte, l'échelle 1 tient.
+  const fitted = fitOverview(response, 1624, 240, 10 / 11);
+  expect(fitted.scale).toBe(1);
+  expect(fitted.layout.perRow).toBeGreaterThan(1);
+  // Une machine seule n'a pas de cadre, rien à ranger.
+  expect(fitOverview({ machines: [overviewMachine("a", 4, 1)] }, 1624, 240, 10 / 11).layout.perRow).toBe(1);
 });

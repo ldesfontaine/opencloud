@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { deleteJob, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
+import { deleteJob, fetchJobDeletePlan, pauseJob, regenerateJobToken, resumeJob, useJob, type Job, type JobResponse, type Ping, type Run } from "../api/jobs";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
 import { CopyButton, TokenBox } from "../components/Copy";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Disclosure, FoldSection } from "../components/Disclosure";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
-import { Dot, JobPill } from "../components/Pill";
+import { Dot, JobPill, Pill } from "../components/Pill";
 import { RunStrip } from "../components/RunStrip";
 import { List, RowText, RowWhen, Table } from "../components/Table";
 import { Verdict } from "../components/Verdict";
 import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useT } from "../i18n/context";
-import { awaitsFirstPing, jobFact, jobTones, lastResult, lastSuccessText, preview, runsShownFirst, runTones } from "../lib/jobs";
+import { awaitsFirstPing, exitCodeTone, jobFact, jobTones, lastResult, lastSuccessText, outcomeKey, preview, runMoment, runsShownFirst, runTones } from "../lib/jobs";
 import { ago, deadlineIn, everyOnce, formatClock, formatDuration, lastPing } from "../lib/time";
 
 // La page d'une tâche : le verdict, les dernières exécutions, puis les
@@ -43,7 +44,7 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
         tone={jobTones[job.status]}
         pill={<JobPill status={job.status} />}
         fact={jobFact(t, job, response.runs, now)}
-        context={lastSuccessText(t, job, response.runs, now)}
+        context={lastSuccessText(t, response.runs, now)}
       >
         {job.machine_id !== "" && (
           <>
@@ -71,7 +72,9 @@ function JobView({ response, reload }: { response: JobResponse; reload: () => vo
         {result && (
           <>
             <span className="sep" />
-            <span className={`mono result result-${result.tone}`}>{result.text}</span>
+            <Pill tone={result.tone} dot={result.tone !== "neutral"}>
+              <span className="mono">{result.text}</span>
+            </Pill>
           </>
         )}
       </Verdict>
@@ -199,18 +202,20 @@ function Installation({ response, reload, initiallyOpen }: { response: JobRespon
 
 function RunRow({ run, now }: { run: Run; now: number }) {
   const t = useT();
-  const when = run.completed_at ?? run.started_at;
+  const when = runMoment(run);
   return (
     <div className="row">
       <Dot tone={runTones[run.outcome]} />
       <RowText
         title={
           <>
-            {t(`job.outcome_${run.outcome}`)}
+            {t(outcomeKey(run))}
             {run.exit_code !== null && (
               <>
                 {" · "}
-                <span className="mono">{t("job.exit_code", run.exit_code)}</span>
+                <Pill tone={exitCodeTone(run.exit_code)} dot={exitCodeTone(run.exit_code) !== "neutral"} small>
+                  <span className="mono">{t("job.exit_code", run.exit_code)}</span>
+                </Pill>
               </>
             )}
             {run.duration_ms !== null && (
@@ -223,6 +228,7 @@ function RunRow({ run, now }: { run: Run; now: number }) {
         }
       >
         {run.started_at !== null && t("job.started_at", formatClock(run.started_at))}
+        {run.outcome === "missed" && run.completed_at !== null && t("job.missed_detail", formatClock(run.completed_at))}
         {run.payload !== "" && (
           <>
             {run.started_at !== null && <br />}
@@ -235,24 +241,19 @@ function RunRow({ run, now }: { run: Run; now: number }) {
   );
 }
 
-// Modifier, mettre en pause, reprendre, supprimer après confirmation.
+// Modifier, mettre en pause, reprendre, supprimer après confirmation sur le
+// plan : la page de statut qui l'affiche la retient, ses pings partent.
 function Actions({ job, reload }: { job: Job; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const action = useAction();
+  const [removing, setRemoving] = useState(false);
 
   const pause = () => {
     action.run(() => pauseJob(job.id), { topic: "all", onDone: reload });
   };
   const resume = () => {
     action.run(() => resumeJob(job.id), { topic: "all", onDone: reload });
-  };
-  const remove = () => {
-    action.run(() => deleteJob(job.id), {
-      confirm: t("job.delete_confirm", job.name),
-      topic: "all",
-      onDone: () => void navigate("/taches"),
-    });
   };
 
   return (
@@ -270,9 +271,20 @@ function Actions({ job, reload }: { job: Job; reload: () => void }) {
           {t("job.pause")}
         </Button>
       )}
-      <Button variant="danger" icon="x" onClick={remove}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("job.delete")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("job.delete_confirm", job.name)}
+          confirmLabel={t("job.delete")}
+          loadPlan={() => fetchJobDeletePlan(job.id)}
+          perform={() => deleteJob(job.id)}
+          topic="all"
+          onDone={() => void navigate("/taches")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

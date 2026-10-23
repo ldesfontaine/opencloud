@@ -4,7 +4,8 @@ import { api } from "./client";
 // L'accès de l'opérateur à l'interface. Chemin sans sujet du direct : relu
 // à la reconnexion, quand tout se relit, jamais à chaque sujet.
 
-// « forward » est le mode derrière un mandataire (Authelia).
+// « forward » est le mode derrière un SSO en amont (Authelia) ; « SSO » dans
+// l'interface, « mandataire » ne désignant que trusted_proxies.
 type AuthMode = "none" | "basic" | "forward";
 
 // En forward, username est l'identité que le mandataire a transmise avec
@@ -18,12 +19,10 @@ export interface AuthState {
   // En forward, présent et vrai quand rien ne prouve que la requête passe
   // par le mandataire (pas de secret, boucle locale de confiance).
   forward_insecure?: boolean;
-}
-
-// Activer l'authentification révoque tous les jetons MCP : la réponse dit
-// combien sont tombés.
-export interface AuthEnableResponse extends AuthState {
-  mcp_revoked: { api_tokens: number; sessions: number };
+  // Les identités que forward_users (config.toml) admet, en forward
+  // seulement ; null quand la liste est vide (toute identité du mandataire)
+  // et dans les autres modes.
+  allowed_users: string[] | null;
 }
 
 // Un compte et son mot de passe, ou l'en-tête d'un mandataire.
@@ -35,8 +34,25 @@ export function useAuth(): Resource<AuthState> {
   return useResource<AuthState>(authPath);
 }
 
-export async function enableAuth(body: AuthEnableRequest): Promise<AuthEnableResponse> {
-  return api.post<AuthEnableResponse>(`${authPath}/actions/enable`, body);
+// Crée le compte de la première configuration. Le serveur répond aussi
+// combien de jetons d'API sont tombés : l'écran n'en dit rien, il n'y en a qu'après
+// une commande de secours, et la documentation le dit.
+export async function enableAuth(body: AuthEnableRequest): Promise<void> {
+  await api.post(`${authPath}/actions/enable`, body);
+}
+
+// Confie au navigateur les identifiants que l'opérateur vient de choisir :
+// une requête XHR qui les porte les fait entrer dans le cache HTTP Basic, et
+// le navigateur les renvoie ensuite de lui-même, EventSource compris ; fetch
+// ne sait pas le faire. Un navigateur qui ne les retient pas les demandera
+// dans sa propre fenêtre : la promesse se résout dans tous les cas.
+export function signIn(username: string, password: string): Promise<void> {
+  return new Promise((resolve) => {
+    const request = new XMLHttpRequest();
+    request.open("GET", authPath, true, username, password);
+    request.onloadend = () => resolve();
+    request.send();
+  });
 }
 
 export async function disableAuth(): Promise<void> {

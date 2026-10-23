@@ -28,6 +28,12 @@ type Body struct {
 	Urgent bool
 }
 
+// openLinkLabel est le libellé du lien vers openCloud, le même partout où un
+// corps en porte un.
+func openLinkLabel(catalog lang.Catalog) string {
+	return catalog.Get("alert.open_in_opencloud")
+}
+
 // alertPath est la fiche d'une alerte dans l'interface, sous public_url.
 const alertPath = "/alertes/alerte/"
 
@@ -56,7 +62,7 @@ func AlertsLink(publicURL string) string {
 func RenderSummary(catalog lang.Catalog, format Format, held Held, now time.Time, link string) (Body, error) {
 	text := Text{Fact: catalog.Format("alert.summary_fact", held.Count), Cause: summaryCause(catalog, held, escaperOf(format))}
 	title := catalog.Get("alert.notify_summary") + " · " + text.Fact
-	openLabel := catalog.Get("alert.open_in_opencloud")
+	openLabel := openLinkLabel(catalog)
 	alert := Alert{Severity: held.Severity}
 	var rendered Body
 	var err error
@@ -113,7 +119,7 @@ func Render(catalog lang.Catalog, format Format, event Event, alert Alert, now t
 		text = Text{Fact: catalog.Get("alert.test_fact"), Cause: catalog.Get("alert.test_cause"), Action: ""}
 	}
 	title := catalog.Get("alert.notify_"+string(event)) + " · " + text.Fact
-	openLabel := catalog.Get("alert.open_in_opencloud")
+	openLabel := openLinkLabel(catalog)
 	switch format {
 	case FormatText:
 		return Body{Content: []byte(plainText(title, text)), ContentType: "text/plain; charset=utf-8", Title: title, Link: link}, nil

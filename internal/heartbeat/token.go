@@ -15,8 +15,9 @@ const (
 	tokenBytes = 16
 )
 
-// NewToken tire le secret de l'URL de ping. La base le garde chiffré, car la
-// page du moniteur doit pouvoir le réafficher ; HashToken sert à le chercher.
+// NewToken tire le secret de l'URL de ping. La base le garde chiffré
+// (token_sealed), car la page du moniteur doit pouvoir le réafficher ;
+// HashToken sert à le chercher (token_lookup).
 func NewToken() (string, error) {
 	raw := make([]byte, tokenBytes)
 	if _, err := rand.Read(raw); err != nil {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // controlPrefix est tout ce que la socket de commande sert : les routes du
@@ -36,9 +38,12 @@ func (s *Server) controlMux() *http.ServeMux {
 }
 
 // markControlSocket dit au gestionnaire qu'il répond à la commande locale :
-// l'acteur d'un apply en dépend, et seule cette porte peut le dire.
+// l'acteur d'un apply en dépend, et seule cette porte peut le dire. Le
+// journal d'audit y voit la commande ; l'apply la nomme ensuite du compte
+// qu'elle déclare.
 func markControlSocket(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		next(w, r.WithContext(context.WithValue(r.Context(), controlSocketKey{}, struct{}{})))
+		ctx := context.WithValue(r.Context(), controlSocketKey{}, struct{}{})
+		next(w, r.WithContext(audit.WithActor(ctx, audit.CLI(""))))
 	}
 }

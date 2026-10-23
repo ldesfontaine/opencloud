@@ -428,9 +428,16 @@ func TestCount_CountsLiveContainersAndThoseNeedingAttention(t *testing.T) {
 	stopped := running("2222222222222222222222222222222222222222222222222222222222222222", "old", "")
 	stopped.State, stopped.ExitCode = container.StateExited, 143
 	b.record(t, inventory(running(webID, "web", ""), crashed, stopped))
-	total, attention, err := b.db.CountContainers(context.Background())
-	if err != nil || total != 3 || attention != 1 {
-		t.Fatalf("total = %d attention = %d err = %v", total, attention, err)
+	local, err := b.db.GetMachine(context.Background(), machine.LocalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.db.TouchAgent(context.Background(), local.Agent.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+	total, attention, unknown, err := b.db.CountContainers(context.Background(), machine.ObservedSince(testNow))
+	if err != nil || total != 3 || attention != 1 || unknown != 0 {
+		t.Fatalf("total = %d attention = %d unknown = %d err = %v", total, attention, unknown, err)
 	}
 }
 
@@ -461,11 +468,12 @@ func TestPurge_DropsOldTransitionsArchivedContainersAndSamples(t *testing.T) {
 
 func TestDeleteMachine_TakesItsContainersAlong(t *testing.T) {
 	b := newBench(t)
-	remote := machine.Machine{ID: "11111111-1111-4111-8111-111111111111", Name: "vps", Kind: machine.KindRemote, PublicKey: make([]byte, 32), EnrolledAt: testNow, CreatedAt: testNow}
+	remote := machine.Machine{ID: "11111111-1111-4111-8111-111111111111", Name: "vps", CreatedAt: testNow}
+	agent := machine.Agent{ID: "agt_0123456789abcdef", PublicKey: make([]byte, 32), EnrolledAt: testNow}
 	if err := b.db.InsertToken(context.Background(), machine.Token{ID: "t1", Hash: "h", Prefix: "p", Name: "vps", CreatedAt: testNow, ExpiresAt: testNow.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.db.Enroll(context.Background(), "h", remote, testNow); err != nil {
+	if _, err := b.db.Enroll(context.Background(), "h", remote, agent, testNow); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.tracker.Record(context.Background(), remote.ID, inventory(running(webID, "web", ""))); err != nil {

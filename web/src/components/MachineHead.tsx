@@ -7,11 +7,13 @@ import { machineTabs } from "../lib/machineTabs";
 import { machineSeen } from "../lib/machines";
 import { Select } from "./Field";
 import { OnlinePill } from "./Pill";
+import { SupportLine } from "./SupportBlock";
 import { TabNav } from "./TabNav";
 import "./MachineHead.scss";
 
 // En-tête de machine : sélecteur, pastille d'état, métadonnées séparées par
-// des points ; « vu il y a » avance tout seul.
+// des points ; « vu il y a » avance tout seul. Dessous, sur une ligne, la fin
+// de support du système quand elle est activée (le détail est sous l'historique).
 export function MachineHead({ current, all }: { current: Machine; all: Machine[] }) {
   const t = useT();
   const navigate = useNavigate();
@@ -41,12 +43,13 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
           <span>{current.os}</span>
           <span className="sep" />
           <span>
-            {t("machine.agent")} <span className="mono">{current.agent_version}</span>
+            {t("machine.agent")} <span className="mono">{current.agent?.version ?? "—"}</span>
           </span>
           <span className="sep" />
           <span>{machineSeen(t, current, now)}</span>
         </span>
       </span>
+      {current.lifecycle !== undefined && <SupportLine lifecycle={current.lifecycle} subject="system" />}
     </div>
   );
 }

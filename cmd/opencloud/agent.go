@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,11 +18,17 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/trust"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
 const defaultAgentStateDir = brand.AgentStateDir
+
+// updatedExitCode : « mis à jour, relance-moi ». Ni 0 ni 1 (une erreur) ni 2
+// (un refus, que systemd ne relance pas).
+const updatedExitCode = 3
 
 // Un refus se dit à l'opérateur dans sa langue et sort avec le code 2 ; une
 // erreur porte une phrase puis le détail, code 1.
@@ -44,6 +51,8 @@ func runAgent(args []string) error {
 	flags.String("token", "", "refusé : le jeton se lit sur l'entrée standard")
 	pin := flags.String("pin", "", "empreinte SHA-256 du certificat d'"+brand.ProductName+", s'il est auto-signé")
 	language := flags.String("lang", string(lang.Default), "langue des messages, premier lancement seulement")
+	rights := flags.String("rights", "", "droits cochés à l'installation, premier lancement seulement (observe par défaut)")
+	rootDir := flags.String("root-dir", brand.WorkspaceRoot, "racine des services déployés, premier lancement seulement")
 	allowPlain := flags.Bool("allow-plain", false, "accepte http:// vers un serveur distant (réseau déjà chiffré seulement)")
 	stateDir := flags.String("state", defaultAgentStateDir, "répertoire d'état de l'agent")
 	dockerSocket := flags.String("docker-socket", dockerapi.DefaultSocket, "socket du démon Docker de cette machine")
@@ -70,12 +79,27 @@ func runAgent(args []string) error {
 	if flagIsSet(flags, "token") {
 		return &refusal{message: catalogs.For(code).Get("agent.token_flag_refused")}
 	}
+	// Les droits se jugent avant l'enrôlement : un droit mal écrit ne doit
+	// pas consommer le jeton.
+	capabilities, err := machine.ParseCapabilities(*rights)
+	if err != nil {
+		return &refusal{message: catalogs.For(code).Get("agent.rights_invalid")}
+	}
+	// La racine aussi se juge avant l'enrôlement, pour la même raison.
+	if !machine.ValidCapabilityPath(*rootDir) {
+		return &refusal{message: catalogs.For(code).Get("agent.root_invalid")}
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	root, err := openStateDir(*stateDir)
 	if err != nil {
-		return err
+		return explainStateDirError(err, *stateDir, agent.CurrentAccount(), catalogs.For(code))
 	}
 	defer root.Close()
+
+	// Un état mal gardé ne coupe pas l'agent : il ne garde que observe, et
+	// l'écart se lit sur la fiche de la machine. Jugé après l'ouverture : le
+	// dossier ouvert doit être celui que le chemin désigne.
+	unsafeState := agent.CheckStateDir(root, *stateDir)
 
 	enrollmentToken, err := enrollmentTokenFor(root, *server, os.Stdin, os.Stderr, stdinIsTerminal(), catalogs.For(code))
 	if err != nil {
@@ -85,22 +109,48 @@ func runAgent(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.Info("agent starting", "version", version.String(), "state_dir", *stateDir)
+	// Sans clé de version embarquée, l'agent refuse agent.update : il ne
+	// saurait rien vérifier.
+	releaseKey, keyErr := release.TrustedKey()
 	err = agent.Run(ctx, agent.Options{
 		StateDir:     root,
+		UnsafeState:  unsafeState,
 		Server:       *server,
 		Token:        enrollmentToken,
 		Pin:          *pin,
 		AllowPlain:   *allowPlain,
 		Language:     code,
+		Rights:       capabilities,
+		RootDir:      *rootDir,
 		Version:      version.Number(),
 		DockerSocket: *dockerSocket,
 		Roots:        roots,
 		Logger:       logger,
+
+		ReleaseKey:    releaseKey,
+		HasReleaseKey: keyErr == nil,
 	})
 	if err == nil {
 		return nil
 	}
+	// Mis à jour : le lien current vise la nouvelle version, systemd relance.
+	if errors.Is(err, agent.ErrUpdated) {
+		logger.Info("agent updated, exiting for systemd to restart it")
+		return &exitStatus{code: updatedExitCode}
+	}
 	return explainAgentError(err, root, code, catalogs)
+}
+
+// explainStateDirError dit à l'opérateur, en un refus (code 2), que le compte de
+// l'agent n'a pas son dossier d'état, avec la commande qui le lui donne : un
+// agent lancé sous un compte sans privilège sur un dossier de root ne doit pas
+// finir sur « permission denied » seul. Toute autre erreur passe telle quelle.
+func explainStateDirError(err error, path string, account machine.Account, text lang.Catalog) error {
+	if !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	label := agent.AccountLabel(account)
+	return &refusal{message: text.Format("agent.state_denied", label, path, label, path)}
 }
 
 func flagIsSet(flags *flag.FlagSet, name string) bool {

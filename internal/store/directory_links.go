@@ -8,20 +8,13 @@ import (
 )
 
 // ListServiceLinks rend les sondes et les composants de statut qui visent le
-// service, par nom.
+// service, par nom : ce qui retient sa suppression (DeclaredServiceDeletionPlan).
 func (db *DB) ListServiceLinks(ctx context.Context, serviceID string) (directory.Links, error) {
-	return listServiceLinks(ctx, db.sql, serviceID)
-}
-
-func listServiceLinks(ctx context.Context, db querier, serviceID string) (directory.Links, error) {
-	probes, err := linkedObjects(ctx, db, `SELECT id, name FROM probes WHERE service_id = ? ORDER BY name, id`, serviceID)
+	probes, err := db.linkedObjects(ctx, probesWatchingService, serviceID)
 	if err != nil {
 		return directory.Links{}, fmt.Errorf("list service probes: %w", err)
 	}
-	components, err := linkedObjects(ctx, db, `
-		SELECT id, name FROM status_components
-		WHERE id IN (SELECT component_id FROM status_component_members WHERE service_id = ?)
-		ORDER BY position, name, id`, serviceID)
+	components, err := db.linkedObjects(ctx, componentsShowing("service_id"), serviceID)
 	if err != nil {
 		return directory.Links{}, fmt.Errorf("list service components: %w", err)
 	}
@@ -29,8 +22,8 @@ func listServiceLinks(ctx context.Context, db querier, serviceID string) (direct
 }
 
 // linkedObjects lit des lignes (id, nom).
-func linkedObjects(ctx context.Context, db querier, query string, args ...any) ([]directory.LinkedObject, error) {
-	rows, err := db.QueryContext(ctx, query, args...)
+func (db *DB) linkedObjects(ctx context.Context, query string, args ...any) ([]directory.LinkedObject, error) {
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

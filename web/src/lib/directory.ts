@@ -20,6 +20,8 @@ export interface UnitFormValues {
   containerName: string;
   systemdUnit: string;
   ports: string;
+  // Le dossier du conteneur que le déploiement monte ; vide : aucun.
+  dataPath: string;
   // Ce que l'opérateur veut des mises à jour de l'unité ; un binaire n'en a pas.
   updatePolicy: UpdatePolicy;
 }
@@ -38,7 +40,7 @@ export interface ServiceFormValues {
 }
 
 export function emptyUnitForm(): UnitFormValues {
-  return { id: "", name: "", image: "", version: "", digest: "", containerName: "", systemdUnit: "", ports: "", updatePolicy: "watch" };
+  return { id: "", name: "", image: "", version: "", digest: "", containerName: "", systemdUnit: "", ports: "", dataPath: "", updatePolicy: "watch" };
 }
 
 // Un service neuf : une application Compose et sa première unité vide. Une
@@ -69,6 +71,7 @@ export function unitFormOf(unit: ServiceUnit): UnitFormValues {
     containerName: unit.container_name,
     systemdUnit: unit.systemd_unit,
     ports: formatUnitPorts(unit.ports),
+    dataPath: unit.data_path,
     updatePolicy: unit.update_policy,
   };
 }
@@ -112,6 +115,7 @@ export function serviceFormOfDefinition(definition: ProposalResponse["definition
       containerName: unit.container_name,
       systemdUnit: unit.systemd_unit,
       ports: formatUnitPorts(unit.ports),
+      dataPath: unit.data_path,
       // Une unité ajoutée par la proposition n'en porte pas : elle se suit.
       updatePolicy: unit.update_policy ?? "watch",
     })),
@@ -201,6 +205,8 @@ export function serviceRequestOf(values: ServiceFormValues): ServiceRequest {
       container_name: isContainer ? unit.containerName : "",
       systemd_unit: isBinary ? unit.systemdUnit : "",
       ports: parsePorts(unit.ports),
+      // Un binaire n'a pas de conteneur où monter un dossier.
+      data_path: isBinary ? "" : unit.dataPath,
       // La politique ne vaut que pour un conteneur : un binaire se suit.
       update_policy: isBinary ? "watch" : unit.updatePolicy,
     })),

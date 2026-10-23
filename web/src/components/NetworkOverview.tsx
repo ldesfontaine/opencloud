@@ -4,7 +4,7 @@ import { useNavigate } from "react-router";
 import { useNetworkOverview } from "../api/network";
 import { useSize } from "../hooks/useSize";
 import { useT } from "../i18n/context";
-import { compactHeight, compactWidth, fitPorts, layoutOverview, nodeHeight, nodeWidth, publicPorts } from "../lib/network";
+import { compactHeight, compactWidth, fitOverview, fitPorts, nodeHeight, nodeWidth, overviewGraphFloor, overviewGraphMaxHeight, publicPorts } from "../lib/network";
 import { nodeTone, containerIcon } from "../lib/containers";
 import { EmptyCard } from "./Card";
 import { Failure } from "./Failure";
@@ -14,10 +14,15 @@ import "./NetworkOverview.scss";
 
 const nameLimit = 14;
 const internetSubtitleLimit = 20;
+// La pastille de l'icône (24 px) est centrée dans le nœud compact.
+const nodeIconY = (compactHeight - 24) / 2;
 
 // Le réseau de la vue d'ensemble : toutes les machines dans un seul dessin,
-// sans zoom, mis à l'échelle de la carte. Un nœud mène à la fiche du
-// conteneur, le nom d'une machine à son onglet Réseau.
+// sans zoom, mis à l'échelle de la carte en largeur et en hauteur, les
+// cadres côte à côte quand la largeur le permet (fitOverview, le plancher
+// est dans lib/network.ts). Seule la largeur mesurée entre dans le calcul :
+// la hauteur du dessin en dépend, l'inverse bouclerait. Un nœud mène à la
+// fiche du conteneur, le nom d'une machine à son onglet Réseau.
 export function NetworkOverview() {
   const t = useT();
   const navigate = useNavigate();
@@ -25,7 +30,9 @@ export function NetworkOverview() {
   const width = useSize(holder).width;
   const network = useNetworkOverview();
   const response = network.data;
-  const layout = useMemo(() => (response ? layoutOverview(response) : null), [response]);
+  const fitted = useMemo(() => (response && width > 0 ? fitOverview(response, width, overviewGraphMaxHeight, overviewGraphFloor) : null), [response, width]);
+  const layout = fitted?.layout ?? null;
+  const scale = fitted?.scale ?? 1;
   if (network.error && !response) {
     return <Failure error={network.error} />;
   }
@@ -34,7 +41,6 @@ export function NetworkOverview() {
   }
   const ports = publicPorts(response?.machines.flatMap((machine) => machine.edges) ?? []);
   const entries = ports.length > 0 ? t("network.internet_entries", fitPorts(ports, internetSubtitleLimit, t("network.internet_entries", "").length)) : t("network.internet_none");
-  const scale = layout && width > 0 ? Math.min(1, width / layout.width) : 1;
   // Le conteneur est toujours là : c'est lui qui donne la largeur, avant
   // même que la réponse arrive.
   return (
@@ -102,11 +108,11 @@ export function NetworkOverview() {
                 >
                   <title>{`${container.name} · ${container.image}`}</title>
                   <rect className="frame" width={compactWidth} height={compactHeight} rx="10" />
-                  <rect className="ico" x="8" y="8" width="24" height="24" rx="7" />
-                  <svg className="icon" x="13" y="13" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                  <rect className="ico" x="8" y={nodeIconY} width="24" height="24" rx="7" />
+                  <svg className="icon" x="13" y={nodeIconY + 5} width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
                     {iconPaths(containerIcon(container))}
                   </svg>
-                  <text className="name" x="40" y="25">
+                  <text className="name" x="40" y={compactHeight / 2 + 5}>
                     {container.name.length > nameLimit ? `${container.name.slice(0, nameLimit - 1)}…` : container.name}
                   </text>
                   <circle className={`dot ${nodeTone(container)}`} cx={compactWidth - 14} cy={compactHeight / 2} r="3.5" />

@@ -3,10 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
@@ -20,12 +22,7 @@ var linksNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 func declaredOnLocal(t *testing.T, db *DB) directory.Service {
 	t.Helper()
 	ctx := context.Background()
-	err := db.SaveLocalMachine(ctx, machine.Machine{
-		ID: machine.LocalID, Name: "opencloud", Kind: machine.KindLocal, Hostname: "host", EnrolledAt: linksNow, CreatedAt: linksNow,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	exec(t, db, `INSERT INTO machines (id, name, hostname, created_at) VALUES (?, 'opencloud', 'host', ?)`, machine.LocalID, linksNow.Unix())
 	declared := directory.Service{
 		ID: "svc_0123456789abcdef", MachineID: machine.LocalID, Name: "whoami", Nature: directory.NatureApplication,
 		Origin: directory.OriginContainer, DeclaredBy: directory.ByOperator, CreatedAt: linksNow, UpdatedAt: linksNow,
@@ -55,7 +52,7 @@ func TestDeleteDeclaredService_LinkedIsRefusedWithItsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	component := status.Component{
-		ID: "cmp1", Name: "Whoami", CreatedAt: linksNow,
+		ID: "cmp1", PageID: insertTestPage(t, db, "statut"), Name: "Whoami", CreatedAt: linksNow,
 		Members: []status.Member{{Kind: status.KindService, ID: declared.ID}},
 	}
 	if err := db.InsertComponent(ctx, component); err != nil {
@@ -64,15 +61,16 @@ func TestDeleteDeclaredService_LinkedIsRefusedWithItsLinks(t *testing.T) {
 
 	err = db.DeleteDeclaredService(ctx, declared.ID)
 
-	var linked *directory.LinkedError
-	if !errors.As(err, &linked) || !errors.Is(err, directory.ErrServiceLinked) {
-		t.Fatalf("attendu un LinkedError, obtenu %v", err)
+	var refused *deletion.RefusedError
+	if !errors.As(err, &refused) || !errors.Is(err, directory.ErrServiceLinked) {
+		t.Fatalf("attendu un refus avec le plan, obtenu %v", err)
 	}
-	if len(linked.Links.Probes) != 1 || linked.Links.Probes[0] != (directory.LinkedObject{ID: "p1", Name: "site"}) {
-		t.Fatalf("sondes = %+v", linked.Links.Probes)
+	wantBlockers := []deletion.Blocker{
+		{Kind: deletion.KindProbes, Objects: []deletion.Object{{ID: "p1", Name: "site"}}},
+		{Kind: deletion.KindComponents, Objects: []deletion.Object{{ID: "cmp1", Name: "Whoami"}}},
 	}
-	if len(linked.Links.Components) != 1 || linked.Links.Components[0] != (directory.LinkedObject{ID: "cmp1", Name: "Whoami"}) {
-		t.Fatalf("composants = %+v", linked.Links.Components)
+	if !reflect.DeepEqual(refused.Plan.Blockers, wantBlockers) {
+		t.Fatalf("bloqueurs = %+v", refused.Plan.Blockers)
 	}
 	if _, err := db.GetDeclaredService(ctx, declared.ID); err != nil {
 		t.Fatalf("le service a disparu malgré le refus: %v", err)

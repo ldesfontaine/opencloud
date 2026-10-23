@@ -44,14 +44,14 @@ func (f File) Lookup(registry string) (Credentials, bool) {
 	return keychain.Lookup(registry)
 }
 
-// DefaultConfigPath est le config.json de Docker pour l'utilisateur qui
-// fait tourner l'agent : root, donc /root/.docker, sauf DOCKER_CONFIG.
-func DefaultConfigPath() string {
+// ConfigPath est le config.json de Docker du compte qui fait tourner l'agent :
+// $DOCKER_CONFIG s'il est posé, sinon <home>/.docker. Vide sans dossier
+// personnel : pas de trousseau.
+func ConfigPath(home string) string {
 	if dir := os.Getenv("DOCKER_CONFIG"); dir != "" {
 		return filepath.Join(dir, "config.json")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	if home == "" {
 		return ""
 	}
 	return filepath.Join(home, ".docker", "config.json")

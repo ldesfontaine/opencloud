@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { deleteProbe, pauseProbe, resumeProbe, useProbe, type Probe, type ProbeResponse, type ProbeResult } from "../api/probes";
+import { deleteProbe, fetchProbeDeletePlan, pauseProbe, resumeProbe, useProbe, type Probe, type ProbeResponse, type ProbeResult } from "../api/probes";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Note, Stat } from "../components/Card";
 import { CertificatePill, Remaining, TrustPill } from "../components/Certificate";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { Loaded } from "../components/Loaded";
 import { PageHead } from "../components/PageHead";
@@ -14,7 +16,7 @@ import { useNow } from "../hooks/useNow";
 import { useAction } from "../hooks/useAction";
 import { useCertificateThresholds, useI18n, useT, type Translate } from "../i18n/context";
 import { read } from "../lib/certificates";
-import { probeTones, uptimePercent } from "../lib/probes";
+import { editProbePath, probeListPath, probeTones, uptimePercent } from "../lib/probes";
 import { ago, everyOnce, formatClock, formatDuration } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 
@@ -185,7 +187,7 @@ function CertificateCard({ probe }: { probe: Probe }) {
             <CertificatePill reading={reading} />
             <TrustPill reading={reading} />
           </span>
-          <Remaining reading={reading} />
+          <Remaining reading={reading} plain />
         </div>
         <KeyValue label={t("probe.cert_subject")} value={certificate.subject} mono />
         <KeyValue label={t("probe.cert_issuer")} value={certificate.issuer} mono />
@@ -222,11 +224,13 @@ function ResultRow({ result }: { result: ProbeResult }) {
   );
 }
 
-// Modifier, mettre en pause, reprendre, supprimer après confirmation.
+// Modifier, mettre en pause, reprendre, supprimer après confirmation sur le
+// plan : la page de statut qui l'affiche la retient, son historique part.
 function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const action = useAction();
+  const [removing, setRemoving] = useState(false);
 
   const pause = () => {
     action.run(() => pauseProbe(probe.id), { topic: "all", onDone: reload });
@@ -234,18 +238,11 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
   const resume = () => {
     action.run(() => resumeProbe(probe.id), { topic: "all", onDone: reload });
   };
-  const remove = () => {
-    action.run(() => deleteProbe(probe.id), {
-      confirm: t("probe.delete_confirm", probe.name),
-      topic: "all",
-      onDone: () => void navigate("/domaines"),
-    });
-  };
 
   return (
     <>
       <Failure error={action.error} />
-      <Button icon="settings" to={`/domaines/${probe.id}/modifier`}>
+      <Button icon="settings" to={editProbePath(probe.id)}>
         {t("probe.edit")}
       </Button>
       {probe.status === "paused" ? (
@@ -257,9 +254,20 @@ function Actions({ probe, reload }: { probe: Probe; reload: () => void }) {
           {t("probe.pause")}
         </Button>
       )}
-      <Button variant="danger" icon="x" onClick={remove}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("probe.delete")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("probe.delete_confirm", probe.name)}
+          confirmLabel={t("probe.delete")}
+          loadPlan={() => fetchProbeDeletePlan(probe.id)}
+          perform={() => deleteProbe(probe.id)}
+          topic="all"
+          onDone={() => void navigate(probeListPath)}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

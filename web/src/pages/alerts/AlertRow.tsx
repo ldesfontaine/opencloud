@@ -8,7 +8,7 @@ import { Dot, Pill } from "../../components/Pill";
 import { useAction } from "../../hooks/useAction";
 import { useNow } from "../../hooks/useNow";
 import { useDiskThresholds, useT, type Translate } from "../../i18n/context";
-import { alertStateTones, describeAlert, objectPath, severityTones, stateOf } from "../../lib/alerts";
+import { alertStateTones, describeAlert, mutePathOf, objectPath, severityTones, stateOf } from "../../lib/alerts";
 import { ago } from "../../lib/time";
 import "./Alerts.scss";
 
@@ -38,7 +38,6 @@ export function AlertRow({
   const acknowledge = () => {
     action.run(() => acknowledgeAlert(alert.id), { onSettled: () => refresh("alerts") });
   };
-  const silenceHref = `/alertes/silences/nouveau?kind=${alert.kind}&object_kind=${alert.object.kind}&object_id=${encodeURIComponent(alert.object.id)}&object_name=${encodeURIComponent(alert.object.name)}`;
   return (
     <div className="row alert-row">
       {onSelect !== undefined && (
@@ -63,9 +62,9 @@ export function AlertRow({
           )}
         </span>
         <span className="cluster">
-          {alert.silenced && (
+          {alert.muted && (
             <Pill tone="neutral" dot={false}>
-              {t("alert.silenced")}
+              {t("alert.muted")}
             </Pill>
           )}
           <Pill tone={alertStateTones[state]}>{t(`alert.status_${state}`)}</Pill>
@@ -79,7 +78,7 @@ export function AlertRow({
                 {t("alert.acknowledge")}
               </Button>
             )}
-            <Button small variant="ghost" to={silenceHref}>
+            <Button small variant="ghost" to={mutePathOf(alert)}>
               {t("alerts.silence")}
             </Button>
           </span>

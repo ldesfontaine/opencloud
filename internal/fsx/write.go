@@ -34,7 +34,7 @@ func WriteAtomic(root *os.Root, name string, data []byte, perm os.FileMode) erro
 	}
 	removeLeftoverTemps(root, name)
 	// fsync du dossier, sinon le rename peut se perdre à la coupure.
-	return syncDir(root, path.Dir(name))
+	return SyncDir(root, path.Dir(name))
 }
 
 // removeLeftoverTemps supprime les temporaires qu'une coupure a laissés à
@@ -81,7 +81,7 @@ func CreateExclusive(root *os.Root, name string, data []byte, perm os.FileMode) 
 	if linkErr != nil {
 		return fmt.Errorf("create %s: %w", name, linkErr)
 	}
-	return syncDir(root, path.Dir(name))
+	return SyncDir(root, path.Dir(name))
 }
 
 // uniqueTempName rend un nom de temporaire imprévisible, dans le même dossier
@@ -132,7 +132,9 @@ func writeAndSync(file *os.File, data []byte) error {
 	return nil
 }
 
-func syncDir(root *os.Root, dir string) error {
+// SyncDir force l'écriture d'un dossier : sans elle, un rename ou une création
+// de fichier peut se perdre à la coupure.
+func SyncDir(root *os.Root, dir string) error {
 	handle, err := root.Open(dir)
 	if err != nil {
 		return fmt.Errorf("open dir: %w", err)

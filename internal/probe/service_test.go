@@ -31,16 +31,18 @@ type bench struct {
 	mu      sync.Mutex
 }
 
-// recordingRunner tient lieu du moteur de la machine openCloud.
+// recordingRunner tient lieu du flux de l'agent : il garde chaque jeu de
+// sondes poussé, quelle que soit la machine.
 type recordingRunner struct {
 	mu          sync.Mutex
 	assignments []probe.Assignment
 }
 
-func (r *recordingRunner) Assign(assignment probe.Assignment) {
+func (r *recordingRunner) AssignProbes(_ string, assignment probe.Assignment) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.assignments = append(r.assignments, assignment)
+	return nil
 }
 
 func (r *recordingRunner) last() probe.Assignment {
@@ -72,7 +74,7 @@ func newBenchLogging(t *testing.T, logger *slog.Logger) *bench {
 	fixture.service = probe.New(db, logger)
 	fixture.service.SetClock(func() time.Time { return fixture.now })
 	fixture.service.SetWatcher(fixture)
-	fixture.service.SetLocalRunner(machine.LocalID, fixture.runner)
+	fixture.service.SetCommander(fixture.runner)
 	return fixture
 }
 
@@ -248,8 +250,8 @@ func TestCreate_UnknownDeclaredServiceRefused(t *testing.T) {
 	}
 }
 
-// Le contrôle vit dans le composant : le fichier et les outils MCP qui
-// créent une sonde sans passer par l'API sont tenus de même.
+// Le contrôle vit dans le composant : le fichier, qui crée une sonde sans
+// passer par l'API, est tenu de même.
 func TestCreate_UnknownMachineRefused(t *testing.T) {
 	fixture := newBench(t)
 
@@ -432,6 +434,34 @@ func TestUptimes_ReadTheirOwnTableAndSayNothingWhenEmpty(t *testing.T) {
 	}
 	if got := byWindow["7d"]; got.Total != 3 || got.Success != 2 {
 		t.Fatalf("la fenêtre de 7 jours n'additionne pas l'agrégat: %+v", got)
+	}
+}
+
+// Un essai du jour que le rollup n'a pas repris compte dans 7, 30 et 90 jours
+// comme dans 24 h : la fenêtre la plus longue n'en a jamais moins.
+func TestUptimes_DailyWindowsCountTheRawNotYetRolledUp(t *testing.T) {
+	fixture := newBench(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow.Add(-3*24*time.Hour), probe.OutcomeUp)
+	fixture.record(t, created.ID, testNow.Add(-2*24*time.Hour), probe.OutcomeDown)
+	if err := fixture.service.Rollup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	fixture.record(t, created.ID, testNow.Add(-time.Hour), probe.OutcomeUp)
+	fixture.record(t, created.ID, testNow.Add(-time.Minute), probe.OutcomeUp)
+
+	uptimes, err := fixture.service.Uptimes(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, uptime := range uptimes {
+		want := probe.Uptime{Window: uptime.Window, Total: 4, Success: 3}
+		if uptime.Window == "24h" {
+			want = probe.Uptime{Window: "24h", Total: 2, Success: 2}
+		}
+		if uptime != want {
+			t.Fatalf("fenêtre %s: attendu %+v, obtenu %+v", uptime.Window, want, uptime)
+		}
 	}
 }
 
@@ -694,13 +724,13 @@ type recordingCommander struct {
 	sets map[string]probe.Assignment
 }
 
-func (c *recordingCommander) Command(machineID, _ string, payload any) error {
+func (c *recordingCommander) AssignProbes(machineID string, assignment probe.Assignment) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.sets == nil {
 		c.sets = map[string]probe.Assignment{}
 	}
-	c.sets[machineID] = payload.(probe.Assignment)
+	c.sets[machineID] = assignment
 	return nil
 }
 
@@ -866,8 +896,8 @@ func TestUpdate_MovingMachine_HandsTheSetToBoth(t *testing.T) {
 	if updated.MachineID != remoteMachineID || updated.Status != probe.StatusNew {
 		t.Fatalf("la sonde n'a pas changé de machine: %+v", updated)
 	}
-	if assignment := fixture.runner.last(); len(assignment.Probes) != 0 {
-		t.Fatalf("l'ancienne machine garde la sonde: %+v", assignment)
+	if previous, pushed := commander.setOf(machine.LocalID); !pushed || len(previous.Probes) != 0 {
+		t.Fatalf("l'ancienne machine garde la sonde: %+v", previous)
 	}
 	set, pushed := commander.setOf(remoteMachineID)
 	if !pushed || len(set.Probes) != 1 || set.Probes[0].ID != created.ID {
@@ -1045,5 +1075,35 @@ func TestRecord_ProbeRevisedBetweenReadAndWrite_TellsTheAlerterNothing(t *testin
 	}
 	if after := fixture.get(t, created.ID); after.Status != probe.StatusNew || after.Target != "https://autre.exemple.fr/" {
 		t.Fatalf("l'état remis à zéro a été écrasé: %+v", after)
+	}
+}
+
+// Un agent ne peut refuser que ses propres sondes : un essai
+// « refusée par l'agent » (ou tout autre) qui nomme la sonde d'une autre
+// machine est ignoré, rien ne s'écrit et l'état ne bouge pas.
+func TestRecord_AnAgentCannotRefuseAnotherMachinesProbe(t *testing.T) {
+	fixture := newBench(t)
+	fixture.enrollRemote(t)
+	created := fixture.create(t, "site", "https://cloud.exemple.fr/")
+	fixture.record(t, created.ID, testNow.Add(-time.Minute), probe.OutcomeUp)
+
+	forged := probe.Report{Results: []probe.Result{
+		{ProbeID: created.ID, CheckedAt: testNow, Outcome: probe.OutcomeDown, Reason: probe.ReasonAgentRefused},
+	}}
+	if err := fixture.service.Record(context.Background(), remoteMachineID, forged); err != nil {
+		t.Fatalf("le rapport d'une autre machine est ignoré, pas refusé: %v", err)
+	}
+	after := fixture.get(t, created.ID)
+	if after.Status != probe.StatusUp || after.ConsecutiveFailures != 0 || after.LastReason != probe.ReasonNone {
+		t.Fatalf("l'agent d'une autre machine a touché la sonde: %+v", after)
+	}
+	if got := fixture.countResults(t, created.ID); got != 1 {
+		t.Fatalf("attendu le seul essai de sa machine, obtenu %d", got)
+	}
+
+	// Sa propre machine, elle, la fait tomber avec cette raison.
+	fixture.recordResult(t, forged.Results[0])
+	if after := fixture.get(t, created.ID); after.LastReason != probe.ReasonAgentRefused || after.ConsecutiveFailures != 1 {
+		t.Fatalf("l'essai de sa machine doit s'écrire: %+v", after)
 	}
 }

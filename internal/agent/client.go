@@ -24,16 +24,13 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 const (
 	requestTimeout = 15 * time.Second
 	maxErrorBody   = 4 << 10
-	// Une réponse d'enrôlement ou de défi tient en quelques centaines
-	// d'octets : au-delà, ce n'est pas openCloud qui parle.
+	// Une réponse d'enrôlement tient en quelques centaines d'octets : au-delà,
+	// ce n'est pas openCloud qui parle.
 	maxAnswerBody = 64 << 10
 )
 
@@ -51,34 +48,24 @@ func (e *ServerError) Error() string {
 const (
 	codeMachineNotFound = "machine_not_found"
 	codeBadProof        = "bad_proof"
-	// Le défi signé est expiré, déjà utilisé ou perdu au redémarrage du
-	// serveur : l'agent en redemande un. Les agents installés ne
-	// connaissent pas ce code et le traitent comme tout 401 autre que
-	// bad_proof, c'est-à-dire en passager.
-	codeChallengeExpired = "challenge_expired"
-	codeNoSession        = "no_session"
-	codeClockSkew        = "clock_skew"
+	codeNoSession       = "no_session"
+	codeClockSkew       = "clock_skew"
 )
 
 // Permanent dit si réessayer ne servira à rien : la machine n'existe plus,
-// sa clé n'est plus celle enrôlée, ou l'enrôlement est refusé. Un autre 401
-// ou 404 n'arrête rien : une horloge décalée se règle, une session perdue
-// se rouvre, un défi expiré se redemande, un proxy en plein redéploiement
-// revient. Un défi se perd sans que la clé y soit pour rien (serveur
-// redémarré, délai dépassé) ; seule une signature fausse dit que la clé
-// n'est plus la bonne.
+// sa clé n'est plus celle enrôlée, l'agent est révoqué, l'enrôlement est
+// refusé, ou le serveur ne parle pas ce protocole. Un autre 401 ou 404
+// n'arrête rien : une horloge décalée se règle, une session perdue se
+// rouvre, une preuve déjà vue se refait avec un aléa neuf, un proxy en plein
+// redéploiement revient. Seule une signature fausse dit que la clé n'est
+// plus la bonne.
 func (e *ServerError) Permanent() bool {
 	switch e.Status {
 	case http.StatusNotFound:
 		return e.Code == codeMachineNotFound
 	case http.StatusUnauthorized:
-		// Nommé plutôt que laissé au cas général : changer ce dernier ne
-		// doit pas arrêter l'agent sur un simple défi à redemander.
-		if e.Code == codeChallengeExpired {
-			return false
-		}
-		return e.Code == codeBadProof
-	case http.StatusConflict:
+		return e.Code == codeBadProof || e.Code == agentwire.CodeRevoked
+	case http.StatusConflict, http.StatusUpgradeRequired:
 		return true
 	}
 	return false
@@ -98,10 +85,39 @@ type Client struct {
 	server  string
 	http    *http.Client
 	version string
-	// L'empreinte de la machine, présentée à l'ouverture du flux.
-	hostFingerprint string
 	// Le système de la machine, redit à chaque ouverture du flux.
 	system string
+	// Les droits du fichier de l'agent, redits à chaque ouverture du flux.
+	rights string
+	// La racine des services du fichier de l'agent, redite de même.
+	root string
+	// Le compte sous lequel l'agent tourne, et les droits cochés qu'il ne peut
+	// pas exercer : jugés avant chaque ouverture du flux, redits avec lui.
+	account     string
+	unavailable string
+}
+
+// SetAccount fixe le compte que l'agent dit à l'ouverture du flux.
+func (c *Client) SetAccount(account machine.Account) {
+	c.account = machine.FormatAccount(account)
+}
+
+// SetUnavailable fixe les droits cochés que le compte de l'agent ne peut pas
+// exercer, avec leur raison. Une table vide efface le rapport précédent.
+func (c *Client) SetUnavailable(unavailable map[string]string) {
+	c.unavailable = machine.FormatUnavailable(unavailable)
+}
+
+// SetRoot fixe la racine des services que l'agent rapporte à l'ouverture du
+// flux : celle de son fichier.
+func (c *Client) SetRoot(root string) {
+	c.root = root
+}
+
+// SetCapabilities fixe les droits que l'agent rapporte à l'ouverture du
+// flux : ceux de son fichier.
+func (c *Client) SetCapabilities(capabilities []machine.Capability) {
+	c.rights = machine.FormatCapabilities(capabilities)
 }
 
 // NewClient refuse http:// vers autre chose que la boucle locale, sauf si
@@ -123,7 +139,25 @@ func NewClient(server, pin, version string, allowPlain bool) (*Client, error) {
 		}
 		transport.TLSClientConfig = tlsConfig
 	}
-	return &Client{server: server, http: &http.Client{Transport: transport}, version: version, hostFingerprint: hostinfo.HostFingerprint(), system: hostinfo.OSName()}, nil
+	// Une redirection n'est pas suivie : elle se lit comme une réponse, donc
+	// un refus. Le serveur n'en fait jamais vers l'agent ; un mandataire qui
+	// en fait enverrait le jeton ou la preuve ailleurs.
+	httpClient := &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return &Client{server: server, http: httpClient, version: version, system: hostinfo.OSName()}, nil
+}
+
+// newRequest prépare une requête vers le serveur, avec la version du
+// protocole que l'agent parle.
+func (c *Client) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, method, c.server+path, body)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set(agentwire.HeaderProtocol, agentwire.ProtocolVersion)
+	return request, nil
 }
 
 func isLoopback(server string) bool {
@@ -185,18 +219,6 @@ func (c *Client) Enroll(ctx context.Context, identity Identity, token string, in
 	return response, nil
 }
 
-func (c *Client) challenge(ctx context.Context, machineID string) ([]byte, error) {
-	var response agentwire.ChallengeResponse
-	if err := c.postJSON(ctx, "/agent/challenge", agentwire.ChallengeRequest{MachineID: machineID}, &response); err != nil {
-		return nil, fmt.Errorf("challenge: %w", err)
-	}
-	nonce, err := base64.StdEncoding.DecodeString(response.Nonce)
-	if err != nil {
-		return nil, fmt.Errorf("decode nonce: %w", err)
-	}
-	return nonce, nil
-}
-
 // Stream est le flux ouvert : le jeton de session et ce que le serveur dit.
 type Stream struct {
 	Session string
@@ -208,18 +230,16 @@ func (s *Stream) Close() error {
 	return s.body.Close()
 }
 
-// OpenStream relève le défi, ouvre le flux et attend le jeton de session.
+// OpenStream signe une preuve neuve (protocole 2 : un aléa tiré ici, la
+// machine, l'heure), ouvre le flux et attend le jeton de session.
 func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, error) {
-	nonce, err := c.challenge(ctx, identity.MachineID)
-	if err != nil {
-		return nil, err
-	}
+	nonce := machine.NewNonce()
 	timestamp := time.Now().Unix()
 	payload, err := machine.SignedPayload(nonce, identity.MachineID, timestamp)
 	if err != nil {
 		return nil, fmt.Errorf("build proof: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.server+"/agent/stream", nil)
+	request, err := c.newRequest(ctx, http.MethodGet, "/agent/stream", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +253,20 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 	if machine.IsSystemName(c.system) {
 		request.Header.Set(agentwire.HeaderAgentOS, c.system)
 	}
-	if c.hostFingerprint != "" {
-		request.Header.Set(agentwire.HeaderHostFingerprint, c.hostFingerprint)
+	if c.rights != "" {
+		request.Header.Set(agentwire.HeaderAgentRights, c.rights)
+	}
+	if fingerprint := identity.ServerKeyFingerprint(); fingerprint != "" {
+		request.Header.Set(agentwire.HeaderServerKey, fingerprint)
+	}
+	if c.root != "" {
+		request.Header.Set(agentwire.HeaderAgentRoot, c.root)
+	}
+	if c.account != "" {
+		request.Header.Set(agentwire.HeaderAgentAccount, c.account)
+	}
+	if c.unavailable != "" {
+		request.Header.Set(agentwire.HeaderAgentUnavailable, c.unavailable)
 	}
 	request.Header.Set("Accept", "text/event-stream")
 
@@ -246,7 +278,7 @@ func (c *Client) OpenStream(ctx context.Context, identity Identity) (*Stream, er
 		defer response.Body.Close()
 		return nil, serverError(response)
 	}
-	reader := bufio.NewReader(response.Body)
+	reader := bufio.NewReaderSize(response.Body, agentwire.MaxEventLineBytes)
 	name, data, err := readEvent(reader)
 	if err != nil || name != "session" || data == "" {
 		_ = response.Body.Close()
@@ -275,20 +307,20 @@ func (s *Stream) Follow(handle func(name, data string)) error {
 }
 
 // Signal donne signe de vie et livre ce qui attendait : les lectures de la
-// machine, ce que Docker a montré et ce que les sondes ont donné ; sans
-// rien, le signal part sans corps.
-func (c *Client) Signal(ctx context.Context, session string, readings []sampler.Reading, report *container.Report, checked *probe.Report, images *update.Report) (map[string]string, error) {
+// machine, ce que Docker a montré, ce que les sondes ont donné, ce qu'il a
+// fait des ordres ; sans rien, le signal part sans corps.
+func (c *Client) Signal(ctx context.Context, session string, sent agentwire.SignalRequest) (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var body io.Reader
-	if len(readings) > 0 || report != nil || checked != nil || images != nil {
-		content, err := json.Marshal(agentwire.SignalRequest{Readings: readings, Services: report, Probes: checked, Images: images})
+	if !isEmptySignal(sent) {
+		content, err := json.Marshal(sent)
 		if err != nil {
 			return nil, err
 		}
 		body = bytes.NewReader(content)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/signal", body)
+	request, err := c.newRequest(ctx, http.MethodPost, "/agent/signal", body)
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +348,10 @@ func (c *Client) Signal(ctx context.Context, session string, readings []sampler.
 	}
 }
 
+func isEmptySignal(sent agentwire.SignalRequest) bool {
+	return len(sent.Readings) == 0 && sent.Services == nil && sent.Probes == nil && sent.Images == nil && sent.Actions == nil && sent.SSHKeys == nil
+}
+
 // PostLogs livre un lot de journal pour une requête du serveur.
 func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch container.LogBatch) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
@@ -324,7 +360,7 @@ func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch 
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+"/agent/logs/"+url.PathEscape(requestID), bytes.NewReader(content))
+	request, err := c.newRequest(ctx, http.MethodPost, "/agent/logs/"+url.PathEscape(requestID), bytes.NewReader(content))
 	if err != nil {
 		return err
 	}
@@ -341,6 +377,28 @@ func (c *Client) PostLogs(ctx context.Context, session, requestID string, batch 
 	return nil
 }
 
+// GetParcel ouvre un fichier d'un colis que le serveur a préparé pour cette
+// machine, sous le jeton de session du flux. Pas de délai propre : un fichier
+// se compte en dizaines de Mio, le contexte de l'appelant borne la durée. Le
+// corps est à fermer ; la taille est celle que le serveur annonce, l'ordre
+// signé fait foi.
+func (c *Client) GetParcel(ctx context.Context, session, parcel, name string) (io.ReadCloser, int64, error) {
+	request, err := c.newRequest(ctx, http.MethodGet, agentwire.ParcelPath(parcel, name), nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	request.Header.Set("Authorization", "Bearer "+session)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, 0, fmt.Errorf("get parcel: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		return nil, 0, fmt.Errorf("get parcel: %w", serverError(response))
+	}
+	return response.Body, response.ContentLength, nil
+}
+
 func (c *Client) postJSON(ctx context.Context, path string, payload, into any) error {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
@@ -348,7 +406,7 @@ func (c *Client) postJSON(ctx context.Context, path string, payload, into any) e
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server+path, bytes.NewReader(body))
+	request, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -358,7 +416,8 @@ func (c *Client) postJSON(ctx context.Context, path string, payload, into any) e
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusBadRequest {
+	// Une redirection, non suivie, est un refus comme un autre.
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return serverError(response)
 	}
 	return json.NewDecoder(io.LimitReader(response.Body, maxAnswerBody)).Decode(into)

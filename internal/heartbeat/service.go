@@ -8,6 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
@@ -25,7 +27,10 @@ type Store interface {
 	MachineExists(ctx context.Context, id string) (bool, error)
 	// SetHeartbeatToken remplace le jeton et son empreinte d'un coup.
 	SetHeartbeatToken(ctx context.Context, id, token string) error
+	// DeleteHeartbeat relit le plan dans sa transaction et refuse tant qu'il
+	// est bloqué (RefuseDeletion).
 	DeleteHeartbeat(ctx context.Context, id string) error
+	HeartbeatDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	ListOverdueHeartbeats(ctx context.Context, now time.Time) ([]Heartbeat, error)
 	// Transact relit le moniteur dans une transaction qui prend le verrou
 	// d'écriture, laisse decide calculer la transition sur cet état frais,
@@ -59,6 +64,18 @@ func closeOpenRun(before Heartbeat, now time.Time, outcome Outcome) *Run {
 	return &Run{HeartbeatID: before.ID, CompletedAt: now, Outcome: outcome}
 }
 
+// missedRun inscrit le retard dans l'historique, une fois par épisode : le
+// serveur ne passe une tâche en retard qu'une fois par trou. Une exécution
+// ouverte est déjà close en dépassement ; y ajouter « missed » compterait
+// l'échéance deux fois. La ligne est close à l'échéance, pas à l'instant du
+// contrôle : la boucle passe toutes les quelques secondes, l'échéance est le fait.
+func missedRun(before Heartbeat) *Run {
+	if !before.RunStartedAt.IsZero() {
+		return nil
+	}
+	return &Run{HeartbeatID: before.ID, CompletedAt: before.NextDeadlineAt, Outcome: OutcomeMissed}
+}
+
 // Alerter reçoit ce qui mérite une alerte : le moteur des alertes s'y
 // branche ; nil est toléré.
 type Alerter interface {
@@ -83,6 +100,7 @@ type Service struct {
 	store   Store
 	alerter Alerter
 	watcher Watcher
+	auditor *audit.Recorder
 	logger  *slog.Logger
 	// now est remplaçable dans les tests : les échéances se comparent à lui.
 	now func() time.Time
@@ -146,6 +164,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Heartbeat,
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat created", "heartbeat_id", id, "name", heartbeat.Name)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatCreate, heartbeat))
 	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
 }
@@ -177,6 +196,7 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 		return Heartbeat{}, err
 	}
 	s.logger.Info("heartbeat updated", "heartbeat_id", id, "name", after.Name, "previous_status", string(before.Status), "status", string(after.Status))
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatUpdate, after))
 	s.notifyAfterEdit(ctx, before, after)
 	s.changed(id)
 	return s.store.GetHeartbeat(ctx, id)
@@ -282,6 +302,7 @@ func (s *Service) RegenerateToken(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat token regenerated", "heartbeat_id", id, "name", found.Name)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatRegenerateToken, found))
 	s.changed(id)
 	return nil
 }
@@ -291,11 +312,26 @@ func NeedsAttention(status Status) bool {
 	return status == StatusLate || status == StatusFailed
 }
 
+// DeletePlan dit ce que Delete ferait : les composants de statut qui la
+// retiennent, les pings et exécutions qui partent, les alertes détachées.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetHeartbeat(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.HeartbeatDeletionPlan(ctx, id)
+}
+
 func (s *Service) Delete(ctx context.Context, id string) error {
+	// Relue avant : le journal garde le nom de ce qui part.
+	found, err := s.store.GetHeartbeat(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.DeleteHeartbeat(ctx, id); err != nil {
 		return err
 	}
 	s.logger.Info("heartbeat deleted", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatDelete, found))
 	if s.alerter != nil {
 		s.alerter.Removed(ctx, id)
 	}
@@ -320,6 +356,7 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("heartbeat paused", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatPause, paused))
 	if s.alerter != nil {
 		s.alerter.Paused(ctx, paused)
 	}
@@ -332,6 +369,7 @@ func (s *Service) Pause(ctx context.Context, id string) error {
 func (s *Service) Resume(ctx context.Context, id string) error {
 	now := s.now()
 	notPaused := false
+	var resumed Heartbeat
 	err := s.store.Transact(ctx, id, func(before Heartbeat) *Transition {
 		if !before.IsPaused() {
 			notPaused = true
@@ -343,6 +381,7 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 			after.Status = StatusNew
 		}
 		after.NextDeadlineAt = now.Add(before.Interval + before.Grace)
+		resumed = after
 		return &Transition{Heartbeat: after}
 	})
 	if err != nil {
@@ -352,6 +391,7 @@ func (s *Service) Resume(ctx context.Context, id string) error {
 		return ErrNotPaused
 	}
 	s.logger.Info("heartbeat resumed", "heartbeat_id", id)
+	s.auditor.Record(ctx, heartbeatEvent(audit.HeartbeatResume, resumed))
 	s.changed(id)
 	return nil
 }
@@ -503,7 +543,7 @@ func (s *Service) expire(ctx context.Context, id string, now time.Time) error {
 		after.NextDeadlineAt = time.Time{}
 		after.RunStartedAt = time.Time{}
 		expired = true
-		return &Transition{Heartbeat: after, CloseRun: closeOpenRun(current, now, OutcomeTimeout)}
+		return &Transition{Heartbeat: after, CloseRun: closeOpenRun(current, now, OutcomeTimeout), NewRun: missedRun(current)}
 	})
 	if err != nil || !expired {
 		return err

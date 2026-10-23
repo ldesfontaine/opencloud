@@ -153,9 +153,11 @@ type Member struct {
 	Present bool
 }
 
-// Component est un composant tel que la base le connaît, avec ses objets.
+// Component est un composant tel que la base le connaît, avec ses objets ;
+// il appartient à une page.
 type Component struct {
 	ID        string
+	PageID    string
 	Name      string
 	Position  int
 	Members   []Member
@@ -166,7 +168,16 @@ type Component struct {
 	Effective State
 }
 
-// Incident est ce que l'opérateur a dit, avec son fil et ses composants.
+// Target est un objet de l'annuaire qu'un incident vise ; le nom se lit à
+// la lecture.
+type Target struct {
+	Kind MemberKind
+	ID   string
+	Name string
+}
+
+// Incident est ce que l'opérateur a dit, avec son fil et les objets qu'il
+// vise.
 type Incident struct {
 	ID     string
 	Title  string
@@ -175,7 +186,11 @@ type Incident struct {
 	// La fenêtre d'une maintenance ; zéro pour un incident.
 	StartsAt time.Time
 	EndsAt   time.Time
-	// Les composants touchés : identifiant et nom, le nom seul en public.
+	// Les objets visés, jamais servis au public.
+	Targets []Target
+	// Les composants que ses cibles touchent, toutes pages confondues :
+	// calculé à la lecture, jamais stocké. Identifiant et nom, le nom seul
+	// en public.
 	Components []ComponentRef
 	Updates    []Update
 	CreatedAt  time.Time
@@ -210,17 +225,35 @@ type Update struct {
 	CreatedAt time.Time
 }
 
-// Page est ce que l'opérateur règle de la page : son titre, une annonce en
-// texte brut, sa langue. Un visiteur ne choisit pas la langue.
+// Page est une page de statut : son adresse sous /statut/, son titre, une
+// annonce en texte brut, sa langue, et le projet qu'elle montre s'il y en a
+// un. Un visiteur ne choisit pas la langue ; vide, c'est celle de
+// l'interface, résolue à la lecture.
 type Page struct {
+	ID           string
+	ProjectID    string
+	Slug         string
 	Title        string
 	Announcement string
 	Language     lang.Code
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// PageDefinition est ce que l'opérateur donne pour créer ou modifier une
+// page. Un projet vide : la page n'est rangée nulle part.
+type PageDefinition struct {
+	Slug         string
+	Title        string
+	Announcement string
+	Language     lang.Code
+	ProjectID    string
 }
 
 // ComponentDefinition est ce que l'opérateur donne pour créer ou modifier
-// un composant.
+// un composant. La page se choisit à la création et ne change plus.
 type ComponentDefinition struct {
+	PageID   string
 	Name     string
 	Position int
 	Members  []MemberRef
@@ -229,22 +262,22 @@ type ComponentDefinition struct {
 // IncidentDefinition est ce que l'opérateur donne pour ouvrir un incident
 // ou planifier une maintenance. Message est la première entrée du fil.
 type IncidentDefinition struct {
-	Title        string
-	Impact       Impact
-	Status       IncidentStatus
-	Message      string
-	ComponentIDs []string
-	StartsAt     time.Time
-	EndsAt       time.Time
+	Title    string
+	Impact   Impact
+	Status   IncidentStatus
+	Message  string
+	Targets  []MemberRef
+	StartsAt time.Time
+	EndsAt   time.Time
 }
 
 // IncidentChange est ce que l'opérateur peut corriger après coup : le
-// titre, les composants, la fenêtre. Le fil ne se réécrit pas.
+// titre, les cibles, la fenêtre. Le fil ne se réécrit pas.
 type IncidentChange struct {
-	Title        string
-	ComponentIDs []string
-	StartsAt     time.Time
-	EndsAt       time.Time
+	Title    string
+	Targets  []MemberRef
+	StartsAt time.Time
+	EndsAt   time.Time
 }
 
 const (
@@ -253,7 +286,11 @@ const (
 	MaxMessageLength      = 2000
 	MaxAnnouncementLength = 500
 	MaxMembers            = 64
-	MaxComponents         = 64
+	// Par page : la page publique reste lisible, et l'instantané borné.
+	MaxComponents = 64
+	// Les pages se créent à la main ; chacune se relit à chaque changement.
+	MaxPages      = 64
+	MaxSlugLength = 63
 	// Ce que le public voit du passé, et ce que la base garde.
 	HistorySpan       = 14 * 24 * time.Hour
 	IncidentRetention = 365 * 24 * time.Hour
@@ -276,9 +313,15 @@ var (
 	ErrImpactInvalid       = refusal.Invalid("incident.impact_invalid", "status: impact invalid")
 	ErrStatusInvalid       = refusal.Invalid("incident.status_invalid", "status: status invalid")
 	ErrMemberInvalid       = refusal.Invalid("component.member_invalid", "status: member invalid")
-	ErrComponentInvalid    = refusal.Invalid("incident.component_invalid", "status: component invalid")
+	ErrTargetInvalid       = refusal.Invalid("incident.target_invalid", "status: incident target invalid")
 	ErrWindowInvalid       = refusal.Invalid("incident.window_invalid", "status: window invalid")
 	ErrTooMany             = refusal.Invalid("component.too_many", "status: too many")
+	ErrPageInvalid         = refusal.Invalid("component.page_invalid", "status: component page unknown")
+	ErrSlugInvalid         = refusal.Invalid("statuspage.slug_invalid", "status: page slug invalid")
+	ErrSlugTaken           = refusal.Invalid("statuspage.slug_taken", "status: page slug already used")
+	ErrProjectInvalid      = refusal.Invalid("statuspage.project_invalid", "status: page project unknown")
+	ErrProjectTaken        = refusal.Invalid("statuspage.project_taken", "status: project already has a page")
+	ErrTooManyPages        = refusal.Invalid("statuspage.too_many", "status: too many pages")
 	ErrResolved            = refusal.Conflict("incident.already_resolved", "status: incident resolved")
 	ErrUpdateEmpty         = refusal.Invalid("incident.update_empty", "status: update says nothing")
 )
@@ -315,8 +358,8 @@ func (d IncidentDefinition) Validate(now time.Time) error {
 	if !validMessage(d.Message) {
 		return ErrMessageInvalid
 	}
-	if len(d.ComponentIDs) == 0 || len(d.ComponentIDs) > MaxComponents {
-		return ErrComponentInvalid
+	if err := validateTargets(d.Targets); err != nil {
+		return err
 	}
 	if err := validateWindow(d.Impact, d.StartsAt, d.EndsAt, now); err != nil {
 		return err
@@ -325,6 +368,22 @@ func (d IncidentDefinition) Validate(now time.Time) error {
 	// s'ouvrirait puis se résoudrait aussitôt, datée d'aujourd'hui.
 	if d.Impact == ImpactMaintenance && !d.EndsAt.After(now) {
 		return ErrWindowInvalid
+	}
+	return nil
+}
+
+// validateTargets : au moins un objet, au plus MaxMembers, chacun d'un
+// genre connu, une seule fois.
+func validateTargets(targets []MemberRef) error {
+	if len(targets) == 0 || len(targets) > MaxMembers {
+		return ErrTargetInvalid
+	}
+	seen := make(map[MemberRef]bool, len(targets))
+	for _, target := range targets {
+		if !isKind(target.Kind) || target.ID == "" || seen[target] {
+			return ErrTargetInvalid
+		}
+		seen[target] = true
 	}
 	return nil
 }
@@ -348,19 +407,42 @@ func validateWindow(impact Impact, startsAt, endsAt, now time.Time) error {
 }
 
 // Validate tolère un titre vide : la page porte alors celui du catalogue.
-func (p Page) Validate() error {
-	if strings.TrimSpace(p.Title) != "" && !validText(p.Title, MaxTitleLength) {
+func (d PageDefinition) Validate() error {
+	if !validSlug(d.Slug) {
+		return ErrSlugInvalid
+	}
+	if strings.TrimSpace(d.Title) != "" && !validText(d.Title, MaxTitleLength) {
 		return ErrPageTitleInvalid
 	}
-	if utf8.RuneCountInString(p.Announcement) > MaxAnnouncementLength || !utf8.ValidString(p.Announcement) {
+	if utf8.RuneCountInString(d.Announcement) > MaxAnnouncementLength || !utf8.ValidString(d.Announcement) {
 		return ErrAnnouncementInvalid
 	}
-	if p.Language != "" {
-		if _, ok := lang.Parse(string(p.Language)); !ok {
+	if d.Language != "" {
+		if _, ok := lang.Parse(string(d.Language)); !ok {
 			return ErrLanguageInvalid
 		}
 	}
 	return nil
+}
+
+// reservedSlugs ne nomment pas une page : « api » a été le chemin de l'API
+// publique sous /statut, un lien ancien ne doit pas tomber sur une page.
+var reservedSlugs = []string{"api"}
+
+// validSlug : minuscules, chiffres et tirets, commençant par une lettre ou
+// un chiffre ; un seul segment d'URL, rien à échapper.
+func validSlug(slug string) bool {
+	if slug == "" || len(slug) > MaxSlugLength || slices.Contains(reservedSlugs, slug) {
+		return false
+	}
+	for index, char := range slug {
+		isLower := char >= 'a' && char <= 'z'
+		isDigit := char >= '0' && char <= '9'
+		if !isLower && !isDigit && (char != '-' || index == 0) {
+			return false
+		}
+	}
+	return true
 }
 
 func validText(value string, max int) bool {

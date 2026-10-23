@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 // c'est ajouter son nom ici, puis sa ligne dans initialVersions (le
 // compilateur la réclame) : l'écoute du direct suit seule.
 // Le type Topic se lit dans la liste.
-export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory"] as const;
+export const topics = ["machines", "jobs", "resources", "containers", "probes", "status", "alerts", "directory", "actions", "backups"] as const;
 
 export type Topic = (typeof topics)[number];
 
@@ -12,7 +12,7 @@ export type Versions = Record<Topic, number>;
 
 // Un littéral typé : un sujet ajouté à topics et oublié ici ne compile pas.
 export function initialVersions(): Versions {
-  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0 };
+  return { machines: 0, jobs: 0, resources: 0, containers: 0, probes: 0, status: 0, alerts: 0, directory: 0, actions: 0, backups: 0 };
 }
 
 // Le compteur du sujet demandé avance d'un cran, ou tous sans argument.
@@ -60,6 +60,11 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/directory/gaps")) {
     return ["directory", "containers"];
   }
+  // Le plan d'un déploiement croise l'annuaire, les ordres (le dernier, et
+  // si le dossier est écrit) et la machine (ses droits, sa racine).
+  if (/^\/api\/directory\/services\/[^/?]+\/deploy-plan(\?.*)?$/.test(path)) {
+    return ["directory", "actions", "machines"];
+  }
   // L'annuaire a son propre sujet, distinct de celui des conteneurs ; le
   // journal des fichiers appliqués le suit : un passage le touche.
   if (path.startsWith("/api/directory") || path.startsWith("/api/manifest")) {
@@ -73,8 +78,19 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.startsWith("/api/status")) {
     return ["status"];
   }
-  if (path.startsWith("/api/alerts")) {
+  // L'état de l'envoi du journal suit les canaux : en cocher un le change.
+  if (path.startsWith("/api/alerts") || path.startsWith("/api/audit/forwarding")) {
     return ["alerts"];
+  }
+  // Les ordres et leur état ; la clé que l'agent a épinglée se lit sur la
+  // machine.
+  if (path.startsWith("/api/actions")) {
+    return ["actions"];
+  }
+  // L'état d'une sauvegarde est celui de son dernier ordre : la page suit
+  // les deux sujets.
+  if (path.startsWith("/api/backups")) {
+    return ["backups", "actions"];
   }
   if (path.includes("/resources")) {
     return ["resources"];
@@ -85,13 +101,19 @@ export function topicsOf(path: string): readonly Topic[] {
   if (path.includes("/containers") || path.includes("/network")) {
     return ["containers"];
   }
-  if (path.startsWith("/api/machines")) {
+  // L'offre de mise à jour d'un agent suit la machine (sa version, son état)
+  // et les ordres (celui qui est parti).
+  if (/^\/api\/machines\/[^/?]+\/agent-update/.test(path)) {
+    return ["machines", "actions"];
+  }
+  // Le relevé des clés SSH se publie avec les machines.
+  if (path.startsWith("/api/machines") || path.startsWith("/api/ssh-keys")) {
     return ["machines"];
   }
   if (path.startsWith("/api/jobs")) {
     return ["jobs"];
   }
-  // Un chemin inconnu (l'accès, les réglages, le MCP) n'a pas de sujet.
+  // Un chemin inconnu (l'accès, les réglages, les jetons d'API) n'a pas de sujet.
   return [];
 }
 

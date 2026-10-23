@@ -12,6 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/seal"
+	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
@@ -42,17 +43,40 @@ func OpenWithStateDir(t testing.TB) (*os.Root, *store.DB) {
 	return root, db
 }
 
-// SaveLocalMachine écrit la machine openCloud directement en base, sans
-// passer par le service des machines.
+// SaveLocalMachine inscrit la machine openCloud et son agent par la base
+// seule, sans le service des machines : un jeton écrit puis consommé sous
+// LocalID, comme le fait l'enrôlement de l'agent qui tourne sur la machine
+// du serveur.
 func SaveLocalMachine(t testing.TB, db *store.DB, at time.Time) {
 	t.Helper()
-	err := db.SaveLocalMachine(context.Background(), machine.Machine{
-		ID: machine.LocalID, Name: brand.LocalMachineName, Kind: machine.KindLocal, EnrolledAt: at, CreatedAt: at,
-	})
+	ctx := context.Background()
+	cleartext, token, err := machine.NewToken(brand.LocalMachineName, "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	token.CreatedAt, token.ExpiresAt = at, at.Add(machine.TokenLifetime)
+	if err := db.InsertToken(ctx, token); err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := machine.Machine{ID: machine.LocalID, Hostname: localHostname, CreatedAt: at}
+	agent := machine.Agent{ID: localAgentID, PublicKey: public, Version: "v0.0.1", EnrolledAt: at}
+	if _, err := db.Enroll(ctx, machine.HashToken(cleartext), local, agent, at); err != nil {
+		t.Fatal(err)
+	}
 }
+
+// Ce que les rendus figés voient de la machine openCloud.
+const (
+	localHostname = brand.ID + "-host"
+	localAgentID  = "agt_0000000000000001"
+	// LocalFingerprint est l'empreinte que les tests donnent à la machine du
+	// serveur : l'agent qui la présente s'enrôle sous LocalID.
+	LocalFingerprint = "test-server-host"
+)
 
 // InsertProbe écrit une sonde directement en base, sans les règles du
 // composant : celle qu'une base ancienne garde d'avant un refus nouveau. La
@@ -74,16 +98,50 @@ func InsertProbe(t testing.TB, db *store.DB, id string, definition probe.Definit
 	return item
 }
 
-// EnsureLocalMachine déclare la machine openCloud par le service des
-// machines, comme le fait serve au démarrage.
-func EnsureLocalMachine(t testing.TB, machines *machine.Service) {
+// StatusPage écrit une page de statut directement en base, sans projet, à
+// l'adresse /statut/<slug> ; rend son identifiant. Un composant naît sur une
+// page : les bancs qui en créent un commencent par elle. Le même slug rend la
+// page déjà écrite.
+func StatusPage(t testing.TB, db *store.DB, slug string) string {
 	t.Helper()
-	err := machines.EnsureLocal(context.Background(), machine.LocalInfo{
-		Hostname: brand.ID + "-host", Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", Version: "v0.0.1",
+	ctx := context.Background()
+	if found, err := db.GetPageBySlug(ctx, slug); err == nil {
+		return found.ID
+	}
+	page := status.Page{ID: "page_" + slug, Slug: slug, CreatedAt: time.Unix(1, 0), UpdatedAt: time.Unix(1, 0)}
+	if err := db.InsertPage(ctx, page); err != nil {
+		t.Fatal(err)
+	}
+	return page.ID
+}
+
+// EnsureLocalMachine enrôle l'agent de la machine openCloud par le service
+// des machines, comme en vrai : un jeton, puis un agent qui présente
+// l'empreinte de la machine du serveur et prend LocalID.
+func EnsureLocalMachine(t testing.TB, machines *machine.Service) machine.Machine {
+	t.Helper()
+	ctx := context.Background()
+	machines.SetServerHost(LocalFingerprint, localHostname)
+	cleartext, _, err := machines.CreateToken(ctx, brand.LocalMachineName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := machine.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled, err := machines.Enroll(ctx, machine.Enrollment{
+		MachineID: id, PublicKey: public, Token: cleartext, HostFingerprint: LocalFingerprint,
+		Hostname: localHostname, Address: "10.8.0.1", OS: "Debian 12", Arch: "amd64", AgentVersion: "v0.0.1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return enrolled
 }
 
 // EnrollMachine enrôle une machine distante sous l'id et le nom donnés, par
@@ -100,7 +158,7 @@ func EnrollMachine(t testing.TB, machines *machine.Service, id, name string) mac
 func EnrollMachineWithKey(t testing.TB, machines *machine.Service, id, name string) (machine.Machine, ed25519.PrivateKey) {
 	t.Helper()
 	ctx := context.Background()
-	cleartext, _, err := machines.CreateToken(ctx, name)
+	cleartext, _, err := machines.CreateToken(ctx, name, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,9 +1,11 @@
-import type { Alert, AlertKind, AlertObject, AlertObjectKind, AlertSeverity, Channel, ChannelFormat, ChannelRequest, ChannelTest, Delivery, Silence, SilenceRequest } from "../api/alerts";
+import type { Alert, AlertKind, AlertObject, AlertSeverity, Channel, ChannelFormat, ChannelRequest, ChannelTest, Delivery, Mute, MuteRequest, MuteTargetKind } from "../api/alerts";
 import type { DiskThresholds } from "../api/session";
 import type { Tone } from "./tone";
 import type { Translate } from "../i18n/context";
 import { daysUntil } from "./certificates";
-import { formatDuration, since } from "./time";
+import { probePath } from "./probes";
+import { fromLocalInput } from "./status";
+import { formatClock, formatDuration, since } from "./time";
 
 // Ce qu'une alerte dit : le fait, la cause, puis ce qu'on peut faire. Les
 // mêmes clés que le canal, remplies ici avec les faits de l'API.
@@ -93,6 +95,27 @@ function lines(t: Translate, kind: AlertKind, factArgs: (string | number)[], cau
   };
 }
 
+// La plus urgente des alertes ouvertes : une que personne n'a acquittée avant
+// une acquittée, puis la plus grave, puis la plus récente. null : aucune
+// ouverte. C'est ce que la tuile Alertes de la vue d'ensemble montre.
+export function mostUrgentAlert(alerts: Alert[]): Alert | null {
+  let best: Alert | null = null;
+  for (const alert of alerts) {
+    if (alert.status !== "open") {
+      continue;
+    }
+    if (best === null || urgencyOf(alert) > urgencyOf(best) || (urgencyOf(alert) === urgencyOf(best) && Date.parse(alert.opened_at) > Date.parse(best.opened_at))) {
+      best = alert;
+    }
+  }
+  return best;
+}
+
+// Non acquittée : 2, grave : 1 ; la gravité ne vient qu'après l'acquittement.
+function urgencyOf(alert: Alert): number {
+  return (alert.acknowledged_at === null ? 2 : 0) + (alert.severity === "danger" ? 1 : 0);
+}
+
 // L'état d'une alerte tel que la pastille le dit.
 export type AlertState = "open" | "acknowledged" | "resolved";
 
@@ -114,12 +137,12 @@ export function objectPath(object: AlertObject, machineID: string): string | nul
   switch (object.kind) {
     case "machine":
       return `/machines/${object.id}`;
-    case "service":
+    case "container":
       return `/services/conteneurs/${object.id}`;
     case "heartbeat":
       return `/taches/${object.id}`;
     case "probe":
-      return `/domaines/${object.id}`;
+      return probePath(object.id);
     case "volume":
       return machineID !== "" ? `/machines/${machineID}` : null;
   }
@@ -148,6 +171,16 @@ export function deliveryReason(t: Translate, delivery: Pick<Delivery, "reason" |
   return t(`alert.delivery_reason_${delivery.reason}`);
 }
 
+// L'échec d'une livraison : son motif, et l'heure de l'essai suivant s'il y
+// en a un.
+export function deliveryFailure(t: Translate, delivery: Pick<Delivery, "reason" | "code" | "next_attempt_at">): string {
+  const reason = deliveryReason(t, delivery);
+  if (delivery.next_attempt_at === null) {
+    return reason;
+  }
+  return `${reason} · ${t("alert.delivery_retry", formatClock(delivery.next_attempt_at))}`;
+}
+
 // Ce qu'a donné l'envoi d'essai d'un canal : le code reçu, ou le motif.
 export function channelTestResult(t: Translate, test: ChannelTest): string {
   if (!test.ok) {
@@ -162,19 +195,33 @@ export const deliveryTones: Record<Delivery["status"], Tone> = {
   delivered: "ok",
   failed: "danger",
   held: "warn",
+  muted: "neutral",
 };
 
-// Ce qu'un silence vise, en une phrase : le type, l'objet, ou les deux.
-export function silenceTargets(t: Translate, silence: Silence): string {
-  const kind = silence.kind !== "" ? t(`alert.kind_${silence.kind}`) : "";
-  const object = silence.object.id !== "" ? silence.object.name : "";
+// Ce qu'un silence vise, en une phrase : le type, l'objet, les deux, ou tout.
+export function muteTargets(t: Translate, mute: Pick<Mute, "kind" | "target">): string {
+  const kind = mute.kind !== "" ? t(`alert.kind_${mute.kind}`) : "";
+  const object = mute.target.kind !== "" ? mute.target.name : "";
   if (kind !== "" && object !== "") {
     return t("silence.targets_both", kind, object);
   }
   if (kind !== "") {
     return t("silence.targets_kind", kind);
   }
-  return t("silence.targets_object", object);
+  if (object !== "") {
+    return t("silence.targets_object", object);
+  }
+  return t("silence.targets_all");
+}
+
+// L'état d'un silence tel que la pastille le dit.
+export type MuteState = "active" | "planned" | "expired";
+
+export function muteStateOf(mute: Pick<Mute, "active" | "starts_at">, now: number): MuteState {
+  if (mute.active) {
+    return "active";
+  }
+  return Date.parse(mute.starts_at) > now ? "planned" : "expired";
 }
 
 // Les durées qu'un silence propose, en minutes.
@@ -185,47 +232,81 @@ export const silenceDurations: readonly { key: string; minutes: number }[] = [
   { key: "7d", minutes: 7 * 24 * 60 },
 ];
 
-// Le genre d'objet qu'un silence vise ; vide : aucun objet.
-export type SilenceObjectKind = AlertObjectKind | "";
-
 // Le formulaire d'un silence, tel que l'opérateur le règle. La page le
-// pré-remplit depuis l'adresse (type, objet) quand elle vient d'une alerte.
-export interface SilenceFormValues {
+// pré-remplit depuis l'adresse (type, cible) quand elle vient d'une alerte ;
+// targetName ne sert qu'à montrer un conteneur non déclaré, qu'aucune liste
+// ne propose. startsAt est la valeur d'un champ datetime-local ; vide : tout
+// de suite.
+export interface MuteFormValues {
   kind: AlertKind | "";
-  objectKind: SilenceObjectKind;
-  objectID: string;
-  objectName: string;
+  targetKind: MuteTargetKind;
+  targetID: string;
+  targetName: string;
+  startsAt: string;
   minutes: number;
   reason: string;
+  announce: boolean;
+  publicTitle: string;
 }
 
 const defaultSilenceMinutes = 60;
 
-export const emptySilenceForm: SilenceFormValues = {
+export const emptyMuteForm: MuteFormValues = {
   kind: "",
-  objectKind: "",
-  objectID: "",
-  objectName: "",
+  targetKind: "",
+  targetID: "",
+  targetName: "",
+  startsAt: "",
   minutes: defaultSilenceMinutes,
   reason: "",
+  announce: false,
+  publicTitle: "",
 };
 
-// Un genre sans objet choisi ne vise rien : le serveur ne reçoit pas un genre
-// orphelin.
-export function silenceRequestOf(values: SilenceFormValues): SilenceRequest {
+// Seul un objet du répertoire peut s'annoncer : une page de statut n'en
+// montre pas d'autres.
+export function canAnnounce(values: Pick<MuteFormValues, "targetKind" | "targetID">): boolean {
+  return values.targetID !== "" && announceableKinds.includes(values.targetKind);
+}
+
+const announceableKinds: readonly MuteTargetKind[] = ["machine", "service", "probe", "heartbeat"];
+
+// Un genre sans objet choisi ne vise rien : le serveur reçoit « tout ».
+export function muteRequestOf(values: MuteFormValues): MuteRequest {
+  const announced = values.announce && canAnnounce(values);
   return {
     kind: values.kind,
-    object_kind: values.objectID !== "" ? values.objectKind : "",
-    object_id: values.objectID,
-    object_name: values.objectName,
+    target_kind: values.targetID !== "" ? values.targetKind : "",
+    target_id: values.targetID,
     reason: values.reason,
+    starts_at: fromLocalInput(values.startsAt),
     duration_minutes: values.minutes,
+    announce: announced,
+    public_title: announced ? values.publicTitle : "",
   };
 }
 
-// Un silence vise quelque chose : un type d'alerte, un objet, ou les deux.
-export function hasSilenceTarget(values: Pick<SilenceFormValues, "kind" | "objectID">): boolean {
-  return values.kind !== "" || values.objectID !== "";
+// Ce qu'on fait taire depuis une alerte : son objet, ou ce qui le porte. Un
+// volume se tait par le disque de sa machine, un conteneur par son service
+// déclaré quand il en a un.
+export function muteTargetOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): { kind: AlertKind | ""; targetKind: MuteTargetKind; targetID: string; targetName: string } {
+  switch (alert.object.kind) {
+    case "volume":
+      return { kind: alert.kind, targetKind: "machine", targetID: alert.machine_id, targetName: alert.machine_name };
+    case "container":
+      if (alert.service_id !== "") {
+        return { kind: alert.kind, targetKind: "service", targetID: alert.service_id, targetName: "" };
+      }
+      return { kind: alert.kind, targetKind: "container", targetID: alert.object.id, targetName: alert.object.name };
+  }
+  return { kind: alert.kind, targetKind: alert.object.kind, targetID: alert.object.id, targetName: alert.object.name };
+}
+
+// L'adresse du formulaire de silence, pré-rempli depuis l'alerte.
+export function mutePathOf(alert: Pick<Alert, "kind" | "object" | "machine_id" | "machine_name" | "service_id">): string {
+  const target = muteTargetOf(alert);
+  const query = new URLSearchParams({ kind: target.kind, target_kind: target.targetKind, target_id: target.targetID, target_name: target.targetName });
+  return `/alertes/silences/nouveau?${query.toString()}`;
 }
 
 // Les listes fermées du formulaire d'un canal, dans son ordre.
@@ -244,6 +325,7 @@ export interface ChannelFormValues {
   clearSecret: boolean;
   minSeverity: AlertSeverity;
   notifyResolve: boolean;
+  receivesAudit: boolean;
   enabled: boolean;
 }
 
@@ -256,6 +338,7 @@ export const emptyChannelForm: ChannelFormValues = {
   clearSecret: false,
   minSeverity: "attention",
   notifyResolve: true,
+  receivesAudit: false,
   enabled: true,
 };
 
@@ -270,6 +353,7 @@ export function channelFormOf(channel: Channel): ChannelFormValues {
     clearSecret: false,
     minSeverity: channel.min_severity,
     notifyResolve: channel.notify_resolve,
+    receivesAudit: channel.receives_audit,
     enabled: channel.enabled,
   };
 }
@@ -284,6 +368,7 @@ export function channelRequestOf(values: ChannelFormValues): ChannelRequest {
     clear_secret: values.clearSecret,
     min_severity: values.minSeverity,
     notify_resolve: values.notifyResolve,
+    receives_audit: values.receivesAudit,
     enabled: values.enabled,
   };
 }

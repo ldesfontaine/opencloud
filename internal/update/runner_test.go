@@ -128,6 +128,9 @@ func TestChecker_ReportsFactsPerOutcome(t *testing.T) {
 		{"registry.example.internal/x:1.2.3", Result{Outcome: OutcomeUnreachable, LocalDigest: digestA}},
 		{"nginx@" + digestA, Result{Outcome: OutcomeUnsupported}},
 		{"Not An Image", Result{Outcome: OutcomeUnsupported}},
+		// Un hôte que Docker ne nommerait pas : « non pris en charge », sans
+		// demander à Docker, sans erreur ni journal à chaque passage.
+		{"${DB_PASSWORD}.evil.example/app:1", Result{Outcome: OutcomeUnsupported}},
 	}
 	for _, tc := range cases {
 		got, err := checker.Check(context.Background(), tc.image, now)

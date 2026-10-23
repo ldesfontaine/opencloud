@@ -84,6 +84,32 @@ func composeDefinition(machineID string) directory.ServiceDefinition {
 	}
 }
 
+// Le dossier de données d'une unité se relit tel qu'il a été écrit, et un
+// remplacement du service le change ou le vide.
+func TestCreateAndReplaceService_KeepsTheUnitDataPath(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	definition := composeDefinition(remoteID)
+	definition.Units[0].DataPath = "/var/www/html"
+
+	created := mustCreate(t, b, definition)
+	read, err := b.db.GetDeclaredService(ctx, created.ID)
+	if err != nil || read.Units[0].DataPath != "/var/www/html" || read.Units[1].DataPath != "" {
+		t.Fatalf("dossiers de données %q %q, %v", read.Units[0].DataPath, read.Units[1].DataPath, err)
+	}
+
+	replaced := read.Definition()
+	replaced.Units[0].DataPath = ""
+	replaced.Units[1].DataPath = "/var/lib/postgresql/data"
+	if _, err := b.directory.UpdateService(ctx, created.ID, replaced); err != nil {
+		t.Fatal(err)
+	}
+	read, err = b.db.GetDeclaredService(ctx, created.ID)
+	if err != nil || read.Units[0].DataPath != "" || read.Units[1].DataPath != "/var/lib/postgresql/data" {
+		t.Fatalf("dossiers de données après remplacement %q %q, %v", read.Units[0].DataPath, read.Units[1].DataPath, err)
+	}
+}
+
 func containerDefinition(machineID, name, containerName string) directory.ServiceDefinition {
 	return directory.ServiceDefinition{
 		MachineID: machineID,
@@ -135,8 +161,8 @@ func TestCreateService_WritesUnitsProvidesAndProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.DeclaredBy != directory.ByOperator || read.NeedsReview {
-		t.Fatalf("provenance %q, à vérifier %v", read.DeclaredBy, read.NeedsReview)
+	if read.DeclaredBy != directory.ByOperator {
+		t.Fatalf("provenance %q", read.DeclaredBy)
 	}
 	if read.MachineName != "vps-paris-1" || !read.CreatedAt.Equal(testNow) {
 		t.Fatalf("machine %q, créé %v", read.MachineName, read.CreatedAt)
@@ -776,6 +802,50 @@ func TestGaps_ProjectFilterHidesUndeclared(t *testing.T) {
 	}
 	if len(inProject.Services) != 1 || inProject.Undeclared == nil || len(inProject.Undeclared) != 0 {
 		t.Fatalf("projet: %+v", inProject)
+	}
+}
+
+// Une image enregistrée avant que la règle de l'hôte ne se durcisse reste en
+// base : l'écart la dit illisible sans erreur, et la fiche ne s'enregistre de
+// nouveau qu'une fois l'image corrigée.
+func TestGaps_AStoredImageWithARefusedHostReadsAsUnreadable(t *testing.T) {
+	b := newBench(t)
+	ctx := context.Background()
+	created := mustCreate(t, b, composeDefinition(remoteID))
+	legacy, err := b.db.GetDeclaredService(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Units[0].Image = "${DB_PASSWORD}.evil.example/app"
+	if err := b.db.UpdateDeclaredService(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.containers.Record(ctx, remoteID, inventoryOf(
+		composeContainerOf(containerID1, "nextcloud-app-1", "nextcloud", "app", "nextcloud:29.0.4"),
+		composeContainerOf(containerID2, "nextcloud-db-1", "nextcloud", "db", "postgres:16.4"),
+	)); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := b.directory.Gaps(ctx, directory.Filter{MachineID: remoteID})
+	if err != nil || len(report.Services) != 1 {
+		t.Fatalf("gaps %+v %v", report, err)
+	}
+	app, db := report.Services[0].Units[0], report.Services[0].Units[1]
+	if app.State != directory.GapUnverifiable || len(app.Containers) != 1 || app.Containers[0].Reason != directory.ReasonImageUnreadable {
+		t.Fatalf("the legacy unit: %+v", app)
+	}
+	if db.State != directory.GapConform {
+		t.Fatalf("the other unit is still judged: %+v", db)
+	}
+
+	definition := legacy.Definition()
+	if _, err := b.directory.UpdateService(ctx, created.ID, definition); !errors.Is(err, directory.ErrImageInvalid) {
+		t.Fatalf("saving the legacy image again: %v", err)
+	}
+	definition.Units[0].Image = "nextcloud"
+	if _, err := b.directory.UpdateService(ctx, created.ID, definition); err != nil {
+		t.Fatalf("once corrected: %v", err)
 	}
 }
 

@@ -2,93 +2,23 @@ package status
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 )
 
-// UnderMaintenance dit si un objet est rattaché à un composant sous un
-// incident de maintenance qui s'applique : le moteur des alertes ouvre
-// alors l'alerte sans la livrer. Un objet rattaché nulle part ne l'est
-// jamais.
-//
-// Le genre « service » d'une alerte désigne un conteneur observé, alors que
-// celui d'un membre désigne un service de l'annuaire : le conteneur est
-// retrouvé par son unité. Un conteneur non déclaré n'est dans aucun composant.
-func (s *Service) UnderMaintenance(ctx context.Context, objectKind, objectID string) (bool, error) {
-	ref := MemberRef{Kind: MemberKind(objectKind), ID: objectID}
-	if !isKind(ref.Kind) || ref.ID == "" {
-		return false, nil
-	}
-	if ref.Kind == KindService {
-		declaredID, err := s.declaredServiceOf(ctx, ref.ID)
-		if err != nil || declaredID == "" {
-			return false, err
-		}
-		ref.ID = declaredID
-	}
-	components, err := s.store.ListComponents(ctx)
-	if err != nil {
-		return false, err
-	}
-	var touched []string
-	for _, component := range components {
-		for _, member := range component.Members {
-			if member.Kind == ref.Kind && member.ID == ref.ID {
-				touched = append(touched, component.ID)
-			}
-		}
-	}
-	if len(touched) == 0 {
-		return false, nil
-	}
-	incidents, err := s.store.ListIncidents(ctx, s.now())
-	if err != nil {
-		return false, err
-	}
-	for _, incident := range incidents {
-		if !incident.IsMaintenance() || !incident.Applies() {
-			continue
-		}
-		for _, component := range incident.Components {
-			for _, id := range touched {
-				if component.ID == id {
-					return true, nil
-				}
-			}
-		}
-	}
-	return false, nil
-}
-
-// declaredServiceOf rend le service de l'annuaire qui porte l'unité d'un
-// conteneur ; vide si le conteneur n'existe plus ou n'est pas déclaré.
-func (s *Service) declaredServiceOf(ctx context.Context, containerID string) (string, error) {
-	item, err := s.reader.GetContainer(ctx, containerID)
-	if errors.Is(err, container.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	// La fiche porte déjà le service de son unité : pas besoin de relire
-	// l'annuaire à chaque alerte.
-	return item.DeclaredServiceID, nil
-}
-
-// OpenIncident écrit l'incident, ses composants et la première entrée de
-// son fil. Une maintenance dont la fenêtre est déjà ouverte commence tout
+// OpenIncident écrit l'incident, ses cibles et la première entrée de son
+// fil. Une maintenance dont la fenêtre est déjà ouverte commence tout
 // de suite.
 func (s *Service) OpenIncident(ctx context.Context, definition IncidentDefinition) (Incident, error) {
 	now := s.now()
 	if err := definition.Validate(now); err != nil {
 		return Incident{}, err
 	}
-	if err := s.checkComponents(ctx, definition.ComponentIDs); err != nil {
+	if err := s.checkTargets(ctx, definition.Targets); err != nil {
 		return Incident{}, err
 	}
 	id, err := ident.New()
@@ -106,19 +36,18 @@ func (s *Service) OpenIncident(ctx context.Context, definition IncidentDefinitio
 		Status:    status,
 		StartsAt:  definition.StartsAt,
 		EndsAt:    definition.EndsAt,
+		Targets:   targetsOf(definition.Targets),
 		CreatedAt: now,
 		UpdatedAt: now,
 		Updates:   []Update{{Status: status, Message: strings.TrimSpace(definition.Message), CreatedAt: now}},
-	}
-	for _, componentID := range definition.ComponentIDs {
-		incident.Components = append(incident.Components, ComponentRef{ID: componentID})
 	}
 	if err := s.store.InsertIncident(ctx, incident); err != nil {
 		return Incident{}, err
 	}
 	s.logger.Info("incident opened", "incident_id", id, "impact", incident.Impact, "title", incident.Title)
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentOpen, incident))
 	s.Refresh(ctx)
-	return s.store.GetIncident(ctx, id)
+	return s.GetIncident(ctx, id)
 }
 
 // AddUpdate ajoute une entrée au fil et fait passer l'incident à ce
@@ -146,7 +75,7 @@ func (s *Service) AddUpdate(ctx context.Context, id string, status IncidentStatu
 		return Incident{}, err
 	}
 	s.Refresh(ctx)
-	return s.store.GetIncident(ctx, id)
+	return s.GetIncident(ctx, id)
 }
 
 func (s *Service) transition(ctx context.Context, incident Incident, status IncidentStatus, message string) error {
@@ -160,11 +89,12 @@ func (s *Service) transition(ctx context.Context, incident Incident, status Inci
 		return err
 	}
 	s.logger.Info("incident updated", "incident_id", incident.ID, "status", status)
+	s.auditor.Record(ctx, postEvent(incident, message))
 	return nil
 }
 
-// ChangeIncident corrige le titre, les composants et la fenêtre ; le fil
-// reste tel quel.
+// ChangeIncident corrige le titre, les cibles et la fenêtre ; le fil reste
+// tel quel.
 func (s *Service) ChangeIncident(ctx context.Context, id string, change IncidentChange) (Incident, error) {
 	incident, err := s.store.GetIncident(ctx, id)
 	if err != nil {
@@ -173,75 +103,126 @@ func (s *Service) ChangeIncident(ctx context.Context, id string, change Incident
 	if !validText(change.Title, MaxTitleLength) {
 		return Incident{}, ErrTitleInvalid
 	}
-	if len(change.ComponentIDs) == 0 || len(change.ComponentIDs) > MaxComponents {
-		return Incident{}, ErrComponentInvalid
+	if err := validateTargets(change.Targets); err != nil {
+		return Incident{}, err
 	}
 	if err := validateWindow(incident.Impact, change.StartsAt, change.EndsAt, s.now()); err != nil {
 		return Incident{}, err
 	}
-	if err := s.checkComponents(ctx, change.ComponentIDs); err != nil {
+	if err := s.checkTargets(ctx, change.Targets); err != nil {
 		return Incident{}, err
 	}
 	incident.Title = strings.TrimSpace(change.Title)
 	incident.StartsAt = change.StartsAt
 	incident.EndsAt = change.EndsAt
 	incident.UpdatedAt = s.now()
-	incident.Components = incident.Components[:0]
-	for _, componentID := range change.ComponentIDs {
-		incident.Components = append(incident.Components, ComponentRef{ID: componentID})
-	}
+	incident.Targets = targetsOf(change.Targets)
 	if err := s.store.UpdateIncident(ctx, incident); err != nil {
 		return Incident{}, err
 	}
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentUpdate, incident))
 	s.Refresh(ctx)
-	return s.store.GetIncident(ctx, id)
+	return s.GetIncident(ctx, id)
 }
 
 func (s *Service) DeleteIncident(ctx context.Context, id string) error {
+	// Relu avant : le journal garde le titre de ce qui part.
+	found, err := s.store.GetIncident(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := s.store.DeleteIncident(ctx, id); err != nil {
 		return err
 	}
 	s.logger.Info("incident deleted", "incident_id", id)
+	s.auditor.Record(ctx, incidentEvent(audit.IncidentDelete, found))
 	s.Refresh(ctx)
 	return nil
 }
 
-// Incidents rend tout ce que la base garde, du plus récent au plus ancien.
-func (s *Service) Incidents(ctx context.Context) ([]Incident, error) {
-	return s.store.ListIncidents(ctx, time.Time{})
+// Incidents rend ce que la base garde, du plus récent au plus ancien ; avec
+// une page, ceux qui touchent l'un de ses composants, tels quels : un
+// incident n'appartient pas à une page, il vise des objets. Les silences
+// annoncés n'y entrent pas : ils ne s'écrivent pas.
+func (s *Service) Incidents(ctx context.Context, pageID string) ([]Incident, error) {
+	if pageID != "" {
+		if _, err := s.store.GetPage(ctx, pageID); err != nil {
+			return nil, err
+		}
+	}
+	components, err := s.store.ListComponents(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	incidents, err := s.store.ListIncidents(ctx, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	known, err := s.facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	known.describe(incidents, components)
+	if pageID == "" {
+		return incidents, nil
+	}
+	onPage := make(map[string]bool, len(components))
+	for _, component := range components {
+		if component.PageID == pageID {
+			onPage[component.ID] = true
+		}
+	}
+	kept := []Incident{}
+	for _, incident := range incidents {
+		if _, touches := restrictedTo(incident, onPage); touches {
+			kept = append(kept, incident)
+		}
+	}
+	return kept, nil
 }
 
+// GetIncident rend l'incident avec le nom de ses cibles et les composants
+// qu'elles touchent.
 func (s *Service) GetIncident(ctx context.Context, id string) (Incident, error) {
-	return s.store.GetIncident(ctx, id)
+	incident, err := s.store.GetIncident(ctx, id)
+	if err != nil {
+		return Incident{}, err
+	}
+	components, err := s.store.ListComponents(ctx, "")
+	if err != nil {
+		return Incident{}, err
+	}
+	known, err := s.facts(ctx)
+	if err != nil {
+		return Incident{}, err
+	}
+	incidents := []Incident{incident}
+	known.describe(incidents, components)
+	return incidents[0], nil
 }
 
 func (s *Service) CountOpenIncidents(ctx context.Context) (int, error) {
 	return s.store.CountOpenIncidents(ctx)
 }
 
-// checkComponents refuse un identifiant qui n'est pas un composant, ou
-// donné deux fois.
-func (s *Service) checkComponents(ctx context.Context, ids []string) error {
-	components, err := s.store.ListComponents(ctx)
+// checkTargets refuse un objet que l'annuaire ne connaît pas.
+func (s *Service) checkTargets(ctx context.Context, targets []MemberRef) error {
+	known, err := s.facts(ctx)
 	if err != nil {
 		return err
 	}
-	known := make(map[string]bool, len(components))
-	for _, component := range components {
-		known[component.ID] = true
-	}
-	seen := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		if !known[id] || seen[id] {
-			return ErrComponentInvalid
+	for _, target := range targets {
+		if !known.exists(target.Kind, target.ID) {
+			return ErrTargetInvalid
 		}
-		seen[id] = true
 	}
 	return nil
 }
 
 // ApplyWindows ouvre les maintenances dont l'heure est venue et résout
-// celles dont la fenêtre est passée.
+// celles dont la fenêtre est passée : le fil public, rien d'autre. Une
+// maintenance ne tait pas les alertes ; c'est une fenêtre de mutes qui le
+// fait.
 func (s *Service) ApplyWindows(ctx context.Context) {
 	now := s.now()
 	incidents, err := s.store.ListIncidents(ctx, now)
@@ -267,8 +248,8 @@ func (s *Service) ApplyWindows(ctx context.Context) {
 	}
 }
 
-// Purge efface les incidents résolus depuis plus d'un an, fil et
-// rattachements avec eux.
+// Purge efface les incidents résolus depuis plus d'un an, fil et cibles
+// avec eux.
 func (s *Service) Purge(ctx context.Context) error {
 	return s.store.PurgeIncidents(ctx, s.now().Add(-IncidentRetention))
 }

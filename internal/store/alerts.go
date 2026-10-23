@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // --- Alertes ---
 
-const alertColumns = `a.id, a.kind, a.severity, a.status, a.silenced, a.object_kind, a.object_id, a.object_name,
-	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at, a.clear_since`
+const alertColumns = `a.id, a.kind, a.severity, a.status, a.object_kind, a.object_id, a.object_name,
+	COALESCE(a.machine_id, ''), COALESCE(m.name, ''), COALESCE(a.service_id, ''), a.details, a.opened_at, a.updated_at, a.resolved_at, a.acknowledged_at, a.clear_since`
 
 const alertFrom = ` FROM alerts a LEFT JOIN machines m ON m.id = a.machine_id`
 
@@ -23,7 +24,7 @@ const alertFrom = ` FROM alerts a LEFT JOIN machines m ON m.id = a.machine_id`
 // volume ne porte que sa machine.
 func objectColumns(found alert.Alert) (containerID, heartbeatID, probeID any) {
 	switch found.Object.Kind {
-	case alert.ObjectService:
+	case alert.ObjectContainer:
 		return found.Object.ID, nil, nil
 	case alert.ObjectHeartbeat:
 		return nil, found.Object.ID, nil
@@ -40,12 +41,12 @@ func (db *DB) InsertAlert(ctx context.Context, found alert.Alert) (int64, error)
 	}
 	containerID, heartbeatID, probeID := objectColumns(found)
 	result, err := db.sql.ExecContext(ctx, `
-		INSERT INTO alerts (kind, severity, status, silenced, object_kind, object_id, object_name,
-			machine_id, container_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
+		INSERT INTO alerts (kind, severity, status, object_kind, object_id, object_name,
+			machine_id, service_id, container_id, heartbeat_id, probe_id, details, opened_at, updated_at, resolved_at, acknowledged_at, clear_since)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		string(found.Kind), string(found.Severity), string(found.Status), found.Silenced,
+		string(found.Kind), string(found.Severity), string(found.Status),
 		string(found.Object.Kind), found.Object.ID, found.Object.Name,
-		nullableString(found.MachineID), containerID, heartbeatID, probeID, string(details),
+		nullableString(found.MachineID), nullableString(found.ServiceID), containerID, heartbeatID, probeID, string(details),
 		found.OpenedAt.Unix(), found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince))
 	if err != nil {
 		return 0, fmt.Errorf("insert alert: %w", err)
@@ -109,7 +110,7 @@ func (db *DB) ListAlerts(ctx context.Context, filter alert.Filter) ([]alert.Aler
 func (db *DB) ListOrphanAlerts(ctx context.Context) ([]alert.Alert, error) {
 	return db.queryAlerts(ctx, `SELECT `+alertColumns+alertFrom+` WHERE a.status = 'open' AND (
 		(a.object_kind IN ('machine', 'volume') AND a.machine_id IS NULL) OR
-		(a.object_kind = 'service' AND a.container_id IS NULL) OR
+		(a.object_kind = 'container' AND a.container_id IS NULL) OR
 		(a.object_kind = 'heartbeat' AND a.heartbeat_id IS NULL) OR
 		(a.object_kind = 'probe' AND a.probe_id IS NULL))`)
 }
@@ -120,10 +121,10 @@ func (db *DB) UpdateAlert(ctx context.Context, found alert.Alert) error {
 		return fmt.Errorf("encode alert details: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, machine_id = ?, details = ?, updated_at = ?, resolved_at = ?,
+		UPDATE alerts SET kind = ?, severity = ?, status = ?, object_name = ?, machine_id = ?, service_id = ?, details = ?, updated_at = ?, resolved_at = ?,
 			acknowledged_at = ?, clear_since = ?
 		WHERE id = ?`,
-		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, nullableString(found.MachineID), string(details),
+		string(found.Kind), string(found.Severity), string(found.Status), found.Object.Name, nullableString(found.MachineID), nullableString(found.ServiceID), string(details),
 		found.UpdatedAt.Unix(), nullableTime(found.ResolvedAt), nullableTime(found.AcknowledgedAt), nullableTime(found.ClearSince), found.ID)
 	if err != nil {
 		return fmt.Errorf("update alert: %w", err)
@@ -188,8 +189,8 @@ func scanAlert(row scanner) (alert.Alert, error) {
 	var details string
 	var openedAt, updatedAt int64
 	var resolvedAt, acknowledgedAt, clearSince sql.NullInt64
-	err := row.Scan(&found.ID, &found.Kind, &found.Severity, &found.Status, &found.Silenced, &found.Object.Kind, &found.Object.ID, &found.Object.Name,
-		&found.MachineID, &found.MachineName, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt, &clearSince)
+	err := row.Scan(&found.ID, &found.Kind, &found.Severity, &found.Status, &found.Object.Kind, &found.Object.ID, &found.Object.Name,
+		&found.MachineID, &found.MachineName, &found.ServiceID, &details, &openedAt, &updatedAt, &resolvedAt, &acknowledgedAt, &clearSince)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Alert{}, alert.ErrNotFound
 	}
@@ -209,7 +210,7 @@ func scanAlert(row scanner) (alert.Alert, error) {
 
 // --- Canaux ---
 
-const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at`
+const channelColumns = `id, name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at`
 
 // InsertChannel crée le canal en deux temps dans une transaction : le chiffré
 // de l'URL et du secret est lié à l'id de la ligne, qui n'existe qu'après
@@ -218,10 +219,10 @@ func (db *DB) InsertChannel(ctx context.Context, channel alert.Channel) (int64, 
 	var id int64
 	err := db.inTx(ctx, "channel insert", func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `
-		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, enabled, created_at)
-		VALUES (?, '', ?, ?, '', ?, ?, ?, ?)`,
+		INSERT INTO alert_channels (name, url, format, destination, secret, min_severity, notify_resolve, receives_audit, enabled, created_at)
+		VALUES (?, '', ?, ?, '', ?, ?, ?, ?, ?)`,
 			channel.Name, string(channel.Format), channel.Destination, string(channel.MinSeverity),
-			channel.NotifyResolve, channel.Enabled, channel.CreatedAt.Unix())
+			channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.CreatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("insert channel: %w", err)
 		}
@@ -277,8 +278,8 @@ func (db *DB) UpdateChannel(ctx context.Context, channel alert.Channel) error {
 		return fmt.Errorf("seal channel secret: %w", err)
 	}
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, enabled = ? WHERE id = ?`,
-		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.Enabled, channel.ID)
+		UPDATE alert_channels SET name = ?, url = ?, format = ?, destination = ?, secret = ?, min_severity = ?, notify_resolve = ?, receives_audit = ?, enabled = ? WHERE id = ?`,
+		channel.Name, sealedURL, string(channel.Format), channel.Destination, sealedSecret, string(channel.MinSeverity), channel.NotifyResolve, channel.ReceivesAudit, channel.Enabled, channel.ID)
 	if err != nil {
 		return fmt.Errorf("update channel: %w", err)
 	}
@@ -297,7 +298,7 @@ func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 	var channel alert.Channel
 	var createdAt int64
 	err := row.Scan(&channel.ID, &channel.Name, &channel.URL, &channel.Format, &channel.Destination, &channel.Secret, &channel.MinSeverity,
-		&channel.NotifyResolve, &channel.Enabled, &createdAt)
+		&channel.NotifyResolve, &channel.ReceivesAudit, &channel.Enabled, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return alert.Channel{}, alert.ErrNotFound
 	}
@@ -317,85 +318,164 @@ func (db *DB) scanChannel(row scanner) (alert.Channel, error) {
 	return channel, nil
 }
 
-// --- Silences ---
+// --- Fenêtres pour taire ---
 
-func (db *DB) InsertSilence(ctx context.Context, silence alert.Silence) (int64, error) {
+// La cible d'une fenêtre est l'une de ses clés étrangères ; son nom se lit
+// à la lecture, l'objet ne peut pas manquer (cascade). Un service déclaré
+// se nomme par son titre quand il en a un.
+const muteColumns = `u.id, COALESCE(u.alert_kind, ''),
+	CASE
+		WHEN u.machine_id IS NOT NULL THEN 'machine'
+		WHEN u.service_id IS NOT NULL THEN 'service'
+		WHEN u.container_id IS NOT NULL THEN 'container'
+		WHEN u.probe_id IS NOT NULL THEN 'probe'
+		WHEN u.heartbeat_id IS NOT NULL THEN 'heartbeat'
+		ELSE ''
+	END,
+	COALESCE(u.machine_id, u.service_id, u.container_id, u.probe_id, u.heartbeat_id, ''),
+	COALESCE(m.name, NULLIF(s.title, ''), s.name, c.name, p.name, h.name, ''),
+	u.reason, u.starts_at, u.ends_at, u.created_by, u.created_at,
+	u.announce, u.public_title`
+
+const muteFrom = ` FROM mutes u
+	LEFT JOIN machines m ON m.id = u.machine_id
+	LEFT JOIN declared_services s ON s.id = u.service_id
+	LEFT JOIN containers c ON c.id = u.container_id
+	LEFT JOIN probes p ON p.id = u.probe_id
+	LEFT JOIN heartbeats h ON h.id = u.heartbeat_id`
+
+// muteTargetColumns place l'identifiant de la cible dans sa clé
+// étrangère ; aucune pour une fenêtre qui tait tout.
+func muteTargetColumns(target alert.Target) (machineID, serviceID, containerID, probeID, heartbeatID any) {
+	switch target.Kind {
+	case alert.TargetMachine:
+		return target.ID, nil, nil, nil, nil
+	case alert.TargetService:
+		return nil, target.ID, nil, nil, nil
+	case alert.TargetContainer:
+		return nil, nil, target.ID, nil, nil
+	case alert.TargetProbe:
+		return nil, nil, nil, target.ID, nil
+	case alert.TargetHeartbeat:
+		return nil, nil, nil, nil, target.ID
+	}
+	return nil, nil, nil, nil, nil
+}
+
+func (db *DB) InsertMute(ctx context.Context, mute alert.Mute) (int64, error) {
+	machineID, serviceID, containerID, probeID, heartbeatID := muteTargetColumns(mute.Target)
 	result, err := db.sql.ExecContext(ctx, `
-		INSERT INTO alert_silences (kind, object_kind, object_id, object_name, reason, starts_at, ends_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		string(silence.Kind), string(silence.Object.Kind), silence.Object.ID, silence.Object.Name, silence.Reason,
-		silence.StartsAt.Unix(), silence.EndsAt.Unix(), silence.CreatedAt.Unix())
+		INSERT INTO mutes (alert_kind, machine_id, service_id, container_id, probe_id, heartbeat_id, reason, starts_at, ends_at, created_by, created_at, announce, public_title)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		nullableString(string(mute.Kind)), machineID, serviceID, containerID, probeID, heartbeatID,
+		mute.Reason, mute.StartsAt.Unix(), mute.EndsAt.Unix(), actorText(mute.CreatedBy), mute.CreatedAt.Unix(),
+		mute.Announce, mute.PublicTitle)
 	if err != nil {
-		return 0, fmt.Errorf("insert silence: %w", err)
+		return 0, fmt.Errorf("insert mute: %w", err)
 	}
 	return result.LastInsertId()
 }
 
-// ListSilences rend les silences, ceux qui finissent le plus tard d'abord.
-func (db *DB) ListSilences(ctx context.Context) ([]alert.Silence, error) {
-	rows, err := db.sql.QueryContext(ctx, `
-		SELECT id, kind, object_kind, object_id, object_name, reason, starts_at, ends_at, created_at
-		FROM alert_silences ORDER BY ends_at DESC, id DESC`)
+// MuteTargetName rend le nom de la cible, alert.ErrNotFound si elle n'existe pas.
+func (db *DB) MuteTargetName(ctx context.Context, target alert.Target) (string, error) {
+	var query string
+	switch target.Kind {
+	case alert.TargetMachine:
+		query = `SELECT name FROM machines WHERE id = ?`
+	case alert.TargetService:
+		query = `SELECT COALESCE(NULLIF(title, ''), name) FROM declared_services WHERE id = ?`
+	case alert.TargetContainer:
+		query = `SELECT name FROM containers WHERE id = ?`
+	case alert.TargetProbe:
+		query = `SELECT name FROM probes WHERE id = ?`
+	case alert.TargetHeartbeat:
+		query = `SELECT name FROM heartbeats WHERE id = ?`
+	default:
+		return "", alert.ErrNotFound
+	}
+	var name string
+	err := db.sql.QueryRowContext(ctx, query, target.ID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", alert.ErrNotFound
+	}
 	if err != nil {
-		return nil, fmt.Errorf("list silences: %w", err)
+		return "", fmt.Errorf("read mute target: %w", err)
 	}
-	return collect(rows, scanSilence)
+	return name, nil
 }
 
-func scanSilence(row scanner) (alert.Silence, error) {
-	var silence alert.Silence
+// ListMutes rend les fenêtres, celles qui finissent le plus tard d'abord.
+func (db *DB) ListMutes(ctx context.Context) ([]alert.Mute, error) {
+	return db.queryMutes(ctx, `SELECT `+muteColumns+muteFrom+` ORDER BY u.ends_at DESC, u.id DESC`)
+}
+
+func (db *DB) ListActiveMutes(ctx context.Context, at time.Time) ([]alert.Mute, error) {
+	return db.queryMutes(ctx, `SELECT `+muteColumns+muteFrom+` WHERE u.starts_at <= ? AND u.ends_at > ? ORDER BY u.id`, at.Unix(), at.Unix())
+}
+
+func (db *DB) queryMutes(ctx context.Context, query string, args ...any) ([]alert.Mute, error) {
+	rows, err := db.sql.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list mutes: %w", err)
+	}
+	return collect(rows, scanMute)
+}
+
+func scanMute(row scanner) (alert.Mute, error) {
+	var mute alert.Mute
+	var createdBy string
 	var startsAt, endsAt, createdAt int64
-	if err := row.Scan(&silence.ID, &silence.Kind, &silence.Object.Kind, &silence.Object.ID, &silence.Object.Name, &silence.Reason, &startsAt, &endsAt, &createdAt); err != nil {
-		return alert.Silence{}, fmt.Errorf("scan silence: %w", err)
+	if err := row.Scan(&mute.ID, &mute.Kind, &mute.Target.Kind, &mute.Target.ID, &mute.Target.Name,
+		&mute.Reason, &startsAt, &endsAt, &createdBy, &createdAt, &mute.Announce, &mute.PublicTitle); err != nil {
+		return alert.Mute{}, fmt.Errorf("scan mute: %w", err)
 	}
-	silence.StartsAt = time.Unix(startsAt, 0)
-	silence.EndsAt = time.Unix(endsAt, 0)
-	silence.CreatedAt = time.Unix(createdAt, 0)
-	return silence, nil
+	mute.StartsAt = time.Unix(startsAt, 0)
+	mute.EndsAt = time.Unix(endsAt, 0)
+	mute.CreatedBy = actorOf(createdBy)
+	mute.CreatedAt = time.Unix(createdAt, 0)
+	return mute, nil
 }
 
-// PurgeSilences efface les silences finis avant l'instant donné.
-func (db *DB) PurgeSilences(ctx context.Context, endedBefore time.Time) error {
-	if _, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE ends_at < ?`, endedBefore.Unix()); err != nil {
-		return fmt.Errorf("purge silences: %w", err)
+// actorText écrit l'acteur en une colonne, « genre:nom » ; actorOf le relit.
+// Vide : aucun acteur connu.
+func actorText(actor audit.Actor) string {
+	if actor.Name == "" {
+		return string(actor.Kind)
+	}
+	return string(actor.Kind) + ":" + actor.Name
+}
+
+func actorOf(text string) audit.Actor {
+	kind, name, _ := strings.Cut(text, ":")
+	return audit.Actor{Kind: audit.ActorKind(kind), Name: name}
+}
+
+// PurgeMutes efface les fenêtres finies avant l'instant donné.
+func (db *DB) PurgeMutes(ctx context.Context, endedBefore time.Time) error {
+	if _, err := db.sql.ExecContext(ctx, `DELETE FROM mutes WHERE ends_at < ?`, endedBefore.Unix()); err != nil {
+		return fmt.Errorf("purge mutes: %w", err)
 	}
 	return nil
 }
 
-// DeleteObjectSilences efface les silences qui visent cet objet, et dit
-// combien : la table n'a pas de clé étrangère, le composant les retire
-// quand l'objet part.
-func (db *DB) DeleteObjectSilences(ctx context.Context, object alert.Object) (int, error) {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE object_kind = ? AND object_id = ?`,
-		string(object.Kind), object.ID)
+func (db *DB) DeleteMute(ctx context.Context, id int64) error {
+	result, err := db.sql.ExecContext(ctx, `DELETE FROM mutes WHERE id = ?`, id)
 	if err != nil {
-		return 0, fmt.Errorf("delete object silences: %w", err)
-	}
-	deleted, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("count deleted silences: %w", err)
-	}
-	return int(deleted), nil
-}
-
-func (db *DB) DeleteSilence(ctx context.Context, id int64) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM alert_silences WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete silence: %w", err)
+		return fmt.Errorf("delete mute: %w", err)
 	}
 	return notFoundIfNoRow(result, alert.ErrNotFound)
 }
 
 // --- Livraisons ---
 
-const deliveryColumns = `id, alert_id, channel_id, event, status, attempts, reason, code, created_at, updated_at`
+const deliveryColumns = `id, alert_id, channel_id, event, status, attempts, reason, code, created_at, updated_at, next_attempt_at`
 
 func (db *DB) InsertDelivery(ctx context.Context, delivery alert.Delivery) (int64, error) {
 	result, err := db.sql.ExecContext(ctx, `
-		INSERT INTO alert_deliveries (alert_id, channel_id, event, status, attempts, reason, code, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO alert_deliveries (alert_id, channel_id, event, status, attempts, reason, code, created_at, updated_at, next_attempt_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		delivery.AlertID, delivery.ChannelID, string(delivery.Event), string(delivery.Status), delivery.Attempts,
-		string(delivery.Reason), delivery.Code, delivery.CreatedAt.Unix(), delivery.UpdatedAt.Unix())
+		string(delivery.Reason), delivery.Code, delivery.CreatedAt.Unix(), delivery.UpdatedAt.Unix(), nullableTime(delivery.NextAttemptAt))
 	if isUniqueViolation(err) {
 		return 0, alert.ErrDeliveryExists
 	}
@@ -407,8 +487,9 @@ func (db *DB) InsertDelivery(ctx context.Context, delivery alert.Delivery) (int6
 
 func (db *DB) UpdateDelivery(ctx context.Context, delivery alert.Delivery) error {
 	result, err := db.sql.ExecContext(ctx, `
-		UPDATE alert_deliveries SET status = ?, attempts = ?, reason = ?, code = ?, updated_at = ? WHERE id = ?`,
-		string(delivery.Status), delivery.Attempts, string(delivery.Reason), delivery.Code, delivery.UpdatedAt.Unix(), delivery.ID)
+		UPDATE alert_deliveries SET status = ?, attempts = ?, reason = ?, code = ?, updated_at = ?, next_attempt_at = ? WHERE id = ?`,
+		string(delivery.Status), delivery.Attempts, string(delivery.Reason), delivery.Code, delivery.UpdatedAt.Unix(),
+		nullableTime(delivery.NextAttemptAt), delivery.ID)
 	if err != nil {
 		return fmt.Errorf("update delivery: %w", err)
 	}
@@ -423,6 +504,11 @@ func (db *DB) ListPendingDeliveries(ctx context.Context) ([]alert.Delivery, erro
 	return db.queryDeliveries(ctx, `SELECT `+deliveryColumns+` FROM alert_deliveries WHERE status = 'pending' ORDER BY id`)
 }
 
+func (db *DB) ListDueDeliveries(ctx context.Context, at time.Time) ([]alert.Delivery, error) {
+	return db.queryDeliveries(ctx, `SELECT `+deliveryColumns+` FROM alert_deliveries
+		WHERE status = 'failed' AND next_attempt_at IS NOT NULL AND next_attempt_at <= ? ORDER BY id`, at.Unix())
+}
+
 func (db *DB) queryDeliveries(ctx context.Context, query string, args ...any) ([]alert.Delivery, error) {
 	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -434,11 +520,13 @@ func (db *DB) queryDeliveries(ctx context.Context, query string, args ...any) ([
 func scanDelivery(row scanner) (alert.Delivery, error) {
 	var delivery alert.Delivery
 	var createdAt, updatedAt int64
+	var nextAttemptAt sql.NullInt64
 	if err := row.Scan(&delivery.ID, &delivery.AlertID, &delivery.ChannelID, &delivery.Event, &delivery.Status, &delivery.Attempts,
-		&delivery.Reason, &delivery.Code, &createdAt, &updatedAt); err != nil {
+		&delivery.Reason, &delivery.Code, &createdAt, &updatedAt, &nextAttemptAt); err != nil {
 		return alert.Delivery{}, fmt.Errorf("scan delivery: %w", err)
 	}
 	delivery.CreatedAt = time.Unix(createdAt, 0)
 	delivery.UpdatedAt = time.Unix(updatedAt, 0)
+	delivery.NextAttemptAt = timeOf(nextAttemptAt)
 	return delivery, nil
 }

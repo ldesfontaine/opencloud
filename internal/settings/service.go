@@ -3,9 +3,11 @@ package settings
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
@@ -29,8 +31,9 @@ var ErrLanguageUnknown = refusal.Invalid("error.unknown_language", "settings: un
 // préserve. Rien n'est gardé en mémoire : un autre processus a pu changer
 // la base.
 type Service struct {
-	store  Store
-	logger *slog.Logger
+	store   Store
+	auditor *audit.Recorder
+	logger  *slog.Logger
 }
 
 func New(store Store, logger *slog.Logger) *Service {
@@ -46,7 +49,11 @@ func (s *Service) SetLanguage(ctx context.Context, code lang.Code) error {
 	_, err := s.store.UpdateSettings(ctx, func(current *Settings) {
 		current.Language = code
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	s.auditor.Record(ctx, settingsEvent(keyLanguage, audit.Details{"language": string(code)}))
+	return nil
 }
 
 // MailRelayChange est le relais saisi par l'opérateur. Un hôte vide retire
@@ -83,6 +90,7 @@ func (s *Service) SetMailRelay(ctx context.Context, change MailRelayChange) (mai
 	if err != nil {
 		return mail.Relay{}, err
 	}
+	s.auditor.Record(ctx, mailRelayEvent(written.MailRelay(), !keepPassword))
 	return written.MailRelay(), nil
 }
 
@@ -94,7 +102,13 @@ func (s *Service) SetDiskThresholds(ctx context.Context, thresholds alert.DiskTh
 		current.DiskAttentionPercent = thresholds.Attention
 		current.DiskDangerPercent = thresholds.Danger
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	s.auditor.Record(ctx, settingsEvent(keyDisk, audit.Details{
+		"attention_percent": strconv.Itoa(thresholds.Attention), "danger_percent": strconv.Itoa(thresholds.Danger),
+	}))
+	return nil
 }
 
 // SetLifecycleEnabled dit si la fin de support vient d'être rallumée,
@@ -109,17 +123,8 @@ func (s *Service) SetLifecycleEnabled(ctx context.Context, enabled bool) (isTurn
 	if err != nil {
 		return false, err
 	}
+	s.auditor.Record(ctx, settingsEvent(keyLifecycle, audit.Details{"enabled": strconv.FormatBool(enabled)}))
 	return enabled && !wasEnabled, nil
-}
-
-// SetStatusPage écrit les clés de la page de statut publique, que la page
-// a validées ; rend les réglages écrits, d'où elle résout sa langue.
-func (s *Service) SetStatusPage(ctx context.Context, title, announcement string, language lang.Code) (Settings, error) {
-	return s.store.UpdateSettings(ctx, func(current *Settings) {
-		current.StatusTitle = title
-		current.StatusAnnouncement = announcement
-		current.StatusLanguage = language
-	})
 }
 
 // --- Les lectures ---

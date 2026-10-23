@@ -115,6 +115,10 @@ var placeholders = strings.NewReplacer(
 	"{signature_header}", brand.WebhookSignatureHeader,
 	"{proxy_secret_header}", brand.ProxySecretHeader,
 	"{label_prefix}", brand.LabelPrefix,
+	"{agent_unit}", brand.AgentUnit,
+	"{agent_account}", brand.AgentAccount,
+	"{agent_binary}", brand.AgentCurrentPath,
+	"{workspace_marker}", brand.WorkspaceMarker,
 )
 
 // expand remplace les marqueurs d'une valeur. Une accolade qui reste est un

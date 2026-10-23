@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -21,10 +22,9 @@ type route struct {
 // authentification : le jeton est le secret (paquet ping). Sous /statut, la
 // page publique et ses routes, sans authentification et limitées en débit
 // (paquet public). Ces trois paquets déclarent leurs routes, montées ici à
-// leur place. Sous /oauth et /mcp, et les deux métadonnées well-known, ce qu'un
-// agent IA appelle, par Bearer, fermé tant que MCP n'est pas activé. Tout
-// le reste est le front, servi par spa.go. Ce qui revient à l'opérateur
-// passe par son authentification quand elle est activée : voir auth.go.
+// leur place. Tout le reste est le front, servi par spa.go. Ce qui revient à
+// l'opérateur passe par son authentification, ou attend la première
+// configuration tant qu'aucun compte n'existe : voir auth_middleware.go.
 func (s *Server) routes() []route {
 	routes := []route{
 		{"GET", "/api/session", s.session},
@@ -35,9 +35,15 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines", s.listMachines},
 		{"POST", "/api/machines/tokens", s.grantsAuthority(s.createMachineToken)},
 		{"DELETE", "/api/machines/tokens/{id}", s.cancelMachineToken},
+		{"POST", "/api/machines/local-enrollment", s.grantsAuthority(s.offerLocalEnrollment)},
 		{"GET", "/api/machines/{id}", s.getMachine},
 		{"DELETE", "/api/machines/{id}", s.removeMachine},
+		{"GET", "/api/machines/{id}/delete-plan", s.getMachineDeletePlan},
 		{"POST", "/api/machines/{id}/actions/reenroll", s.grantsAuthority(s.reenrollMachine)},
+		{"POST", "/api/machines/{id}/actions/revoke", s.revokeAgent},
+		{"POST", "/api/machines/{id}/actions/ping", s.pingAgent},
+		{"GET", "/api/machines/{id}/agent-update", s.getAgentUpdate},
+		{"POST", "/api/machines/{id}/actions/update-agent", s.updateAgent},
 		{"POST", "/api/machines/{id}/actions/check-updates", s.checkUpdates},
 		{"GET", "/api/machines/{id}/resources", s.getMachineResources},
 		{"GET", "/api/machines/{id}/resources/history", s.getMachineHistory},
@@ -45,6 +51,8 @@ func (s *Server) routes() []route {
 		{"GET", "/api/machines/{id}/containers", s.listMachineContainers},
 		{"GET", "/api/machines/{id}/network", s.getMachineNetwork},
 		{"GET", "/api/machines/{id}/probes", s.listMachineProbes},
+		{"GET", "/api/machines/{id}/ssh-keys", s.getMachineSSHKeys},
+		{"GET", "/api/ssh-keys", s.getSSHKeyMatrix},
 		{"GET", "/api/network", s.listNetworks},
 		{"GET", "/api/containers", s.listContainers},
 		{"GET", "/api/containers/{id}", s.getContainer},
@@ -56,13 +64,18 @@ func (s *Server) routes() []route {
 		{"GET", "/api/directory/services/{id}", s.getDeclaredService},
 		{"PUT", "/api/directory/services/{id}", s.updateDeclaredService},
 		{"DELETE", "/api/directory/services/{id}", s.deleteDeclaredService},
-		{"POST", "/api/directory/services/{id}/actions/review", s.reviewDeclaredService},
+		{"GET", "/api/directory/services/{id}/delete-plan", s.getDeclaredServiceDeletePlan},
+		{"GET", "/api/directory/services/{id}/deploy-plan", s.getDeployPlan},
+		{"POST", "/api/directory/services/{id}/actions/deploy", s.deployService},
+		{"POST", "/api/directory/services/{id}/actions/redeploy", s.redeployService},
 		{"PUT", "/api/directory/units/{id}/update-policy", s.setUnitUpdatePolicy},
+		{"POST", "/api/directory/units/{id}/actions/upgrade", s.upgradeUnit},
 		{"GET", "/api/directory/projects", s.listProjects},
 		{"POST", "/api/directory/projects", s.createProject},
 		{"GET", "/api/directory/projects/{id}", s.getProject},
 		{"PUT", "/api/directory/projects/{id}", s.updateProject},
 		{"DELETE", "/api/directory/projects/{id}", s.deleteProject},
+		{"GET", "/api/directory/projects/{id}/delete-plan", s.getProjectDeletePlan},
 		{"GET", "/api/directory/gaps", s.getDirectoryGaps},
 		{"GET", "/api/directory/proposal", s.getDirectoryProposal},
 		{"POST", "/api/directory/ignored", s.ignoreKey},
@@ -77,6 +90,7 @@ func (s *Server) routes() []route {
 		{"GET", "/api/probes/{id}", s.getProbe},
 		{"PUT", "/api/probes/{id}", s.updateProbe},
 		{"DELETE", "/api/probes/{id}", s.deleteProbe},
+		{"GET", "/api/probes/{id}/delete-plan", s.getProbeDeletePlan},
 		{"POST", "/api/probes/{id}/actions/pause", s.pauseProbe},
 		{"POST", "/api/probes/{id}/actions/resume", s.resumeProbe},
 		{"GET", "/api/jobs", s.listJobs},
@@ -84,22 +98,28 @@ func (s *Server) routes() []route {
 		{"GET", "/api/jobs/{id}", s.getJob},
 		{"PUT", "/api/jobs/{id}", s.updateJob},
 		{"DELETE", "/api/jobs/{id}", s.deleteJob},
+		{"GET", "/api/jobs/{id}/delete-plan", s.getJobDeletePlan},
 		{"POST", "/api/jobs/{id}/actions/pause", s.pauseJob},
 		{"POST", "/api/jobs/{id}/actions/resume", s.resumeJob},
 		{"POST", "/api/jobs/{id}/actions/regenerate-token", s.regenerateJobToken},
+		{"GET", "/api/status/pages", s.listPages},
+		{"POST", "/api/status/pages", s.createPage},
+		{"GET", "/api/status/pages/{id}", s.getPage},
+		{"PUT", "/api/status/pages/{id}", s.updatePage},
+		{"DELETE", "/api/status/pages/{id}", s.deletePage},
+		{"GET", "/api/status/pages/{id}/delete-plan", s.getPageDeletePlan},
 		{"GET", "/api/status/components", s.listComponents},
 		{"POST", "/api/status/components", s.createComponent},
 		{"GET", "/api/status/components/{id}", s.getComponent},
 		{"PUT", "/api/status/components/{id}", s.updateComponent},
 		{"DELETE", "/api/status/components/{id}", s.deleteComponent},
+		{"GET", "/api/status/components/{id}/delete-plan", s.getComponentDeletePlan},
 		{"GET", "/api/status/incidents", s.listIncidents},
 		{"POST", "/api/status/incidents", s.openIncident},
 		{"GET", "/api/status/incidents/{id}", s.getIncident},
 		{"PUT", "/api/status/incidents/{id}", s.changeIncident},
 		{"DELETE", "/api/status/incidents/{id}", s.deleteIncident},
 		{"POST", "/api/status/incidents/{id}/updates", s.addIncidentUpdate},
-		{"GET", "/api/status/page", s.getStatusPage},
-		{"PUT", "/api/status/page", s.setStatusPage},
 		{"GET", "/api/alerts", s.listAlerts},
 		{"GET", "/api/alerts/channels", s.listChannels},
 		{"POST", "/api/alerts/channels", s.createChannel},
@@ -107,20 +127,16 @@ func (s *Server) routes() []route {
 		{"PUT", "/api/alerts/channels/{id}", s.updateChannel},
 		{"DELETE", "/api/alerts/channels/{id}", s.deleteChannel},
 		{"POST", "/api/alerts/channels/{id}/actions/test", s.testChannel},
-		{"GET", "/api/alerts/silences", s.listSilences},
-		{"POST", "/api/alerts/silences", s.createSilence},
-		{"DELETE", "/api/alerts/silences/{id}", s.deleteSilence},
+		{"GET", "/api/alerts/mutes", s.listMutes},
+		{"POST", "/api/alerts/mutes", s.createMute},
+		{"DELETE", "/api/alerts/mutes/{id}", s.deleteMute},
 		{"POST", "/api/alerts/actions/acknowledge", s.acknowledgeAlerts},
 		{"GET", "/api/alerts/{id}", s.getAlert},
 		{"POST", "/api/alerts/{id}/actions/acknowledge", s.acknowledgeAlert},
-		{"GET", "/api/mcp", s.getMCP},
-		{"POST", "/api/mcp/actions/enable", s.grantsAuthority(s.enableMCP)},
-		{"POST", "/api/mcp/actions/disable", s.disableMCP},
-		{"POST", "/api/mcp/actions/regenerate-secret", s.grantsAuthority(s.regenerateMCPSecret)},
-		{"PUT", "/api/mcp/redirect-uris", s.grantsAuthority(s.setMCPRedirectURIs)},
-		{"POST", "/api/mcp/tokens", s.grantsAuthority(s.createMCPToken)},
-		{"DELETE", "/api/mcp/tokens/{id}", s.revokeMCPToken},
-		{"DELETE", "/api/mcp/sessions/{id}", s.revokeMCPSession},
+		{"GET", "/api/settings/api-tokens", s.listAPITokens},
+		{"POST", "/api/settings/api-tokens", s.grantsAuthority(s.createAPIToken)},
+		{"DELETE", "/api/settings/api-tokens/{id}", s.revokeAPIToken},
+		{"GET", "/api/settings/mcp", s.getMCPCheck},
 		{"GET", "/api/settings/disk", s.getDiskSettings},
 		{"PUT", "/api/settings/disk", s.setDiskSettings},
 		{"GET", "/api/settings/lifecycle", s.getLifecycleSettings},
@@ -132,6 +148,17 @@ func (s *Server) routes() []route {
 		{"POST", "/api/auth/actions/enable", s.enableAuth},
 		{"POST", "/api/auth/actions/disable", s.disableAuth},
 		{"PUT", "/api/auth/password", s.changeAuthPassword},
+		{"GET", "/api/audit", s.listAudit},
+		{"GET", "/api/audit/forwarding", s.auditForwarding},
+		{"GET", "/api/actions", s.listActions},
+		{"GET", "/api/agents/server-key", s.getServerKey},
+		{"GET", "/api/backups", s.getBackups},
+		{"POST", "/api/backups/keyring", s.createBackupKeyring},
+		{"POST", "/api/backups/destinations", s.createBackupDestination},
+		{"DELETE", "/api/backups/destinations/{id}", s.deleteBackupDestination},
+		{"PUT", "/api/backups/plan", s.saveBackupPlan},
+		{"DELETE", "/api/backups/plan", s.deleteBackupPlan},
+		{"POST", "/api/backups/actions/run", s.runBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {
@@ -140,22 +167,34 @@ func (s *Server) routes() []route {
 	s.agent.Routes(add)
 	s.pings.Routes(add)
 	s.public.Routes(add)
-	return append(routes, []route{
-		{"GET", "/.well-known/oauth-authorization-server", s.oauthServerMetadata},
-		{"GET", "/.well-known/oauth-protected-resource", s.oauthResourceMetadata},
-		{"GET", "/.well-known/oauth-protected-resource/mcp", s.oauthResourceMetadata},
-		{"GET", mcpAuthorizePath, s.grantsAuthority(s.oauthAuthorize)},
-		{"POST", "/oauth/token", s.oauthToken},
-		{anyMethod, "/mcp", s.serveMCP},
-		{anyMethod, "/", s.serveApp},
-	}...)
+	return append(routes, route{anyMethod, "/", s.serveApp})
+}
+
+// Les lectures qu'un jeton d'API ouvre : ce que mcp-maison sert à un agent
+// IA. Toute autre route, écriture ou réglage, lui répond 403 ; les secrets
+// des réponses sont masqués pour lui (apiTokenFrom).
+var apiTokenRoutes = []string{
+	"GET /api/session", "GET /api/counts",
+	"GET /api/machines", "GET /api/machines/{id}", "GET /api/machines/{id}/network", "GET /api/machines/{id}/resources",
+	"GET /api/containers", "GET /api/containers/{id}", "GET /api/containers/{id}/logs",
+	"GET /api/directory/services", "GET /api/directory/gaps", "GET /api/manifest/export",
+	"GET /api/jobs", "GET /api/jobs/{id}",
+	"GET /api/probes", "GET /api/probes/{id}",
+	"GET /api/status/pages", "GET /api/status/pages/{id}", "GET /api/status/components", "GET /api/status/incidents",
+	"GET /api/alerts", "GET /api/alerts/{id}", "GET /api/alerts/channels",
+	"GET /api/audit", "GET /api/actions",
+}
+
+// isAPITokenRoute dit si un jeton d'API ouvre la route.
+func isAPITokenRoute(method, pattern string) bool {
+	return slices.Contains(apiTokenRoutes, method+" "+pattern)
 }
 
 // Toute écriture sous /api passe par la garde même-origine ; les lectures
 // et les routes de l'agent, des pings et de la page publique n'en ont pas
-// besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un navigateur appelle
-// avec l'état d'openCloud, /api et l'autorisation OAuth, exige en plus un
-// Host reconnu, jugé avant tout le reste, authentification comprise.
+// besoin. L'accès de l'opérateur enveloppe le tout, avant la garde. Ce qu'un
+// navigateur appelle avec l'état d'openCloud, /api, exige en plus un Host
+// reconnu, jugé avant tout le reste, authentification comprise.
 func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, route := range s.routes() {
@@ -165,9 +204,9 @@ func (s *Server) mux() *http.ServeMux {
 			handler = s.requireSameOrigin(handler)
 		}
 		if isOperatorRoute(route.pattern) {
-			handler = s.requireOperator(handler)
+			handler = s.requireOperator(s.withOperatorActor(handler), isFirstSetupRoute(route.method, route.pattern), isAPITokenRoute(route.method, route.pattern))
 		}
-		if isAPI || route.pattern == mcpAuthorizePath {
+		if isAPI {
 			handler = s.requireKnownHost(handler)
 		}
 		pattern := route.pattern

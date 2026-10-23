@@ -21,7 +21,18 @@ func (w *Watcher) deliverInventory(ctx context.Context) {
 		w.logger.Warn("docker networks", "error", err)
 		return
 	}
+	// Retenu avant d'être livré : le serveur ne peut pas demander un journal
+	// d'un conteneur que l'agent n'aurait pas encore noté.
+	w.rememberAll(observedIDs(inventory))
 	w.sink.Deliver(container.Report{Complete: true, Inventory: inventory, NetworksComplete: true, Networks: networks})
+}
+
+func observedIDs(inventory []container.Observed) []string {
+	ids := make([]string, 0, len(inventory))
+	for _, observed := range inventory {
+		ids = append(ids, observed.ContainerID)
+	}
+	return ids
 }
 
 // deliverNetworks ne relit que les réseaux : après un réseau créé ou

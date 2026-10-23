@@ -23,8 +23,9 @@ type Store interface {
 	LatestSample(ctx context.Context, machineID string) (Sample, error)
 	LatestSamples(ctx context.Context) ([]Sample, error)
 	ListSamples(ctx context.Context, machineID string, from, to time.Time, step time.Duration) ([]sampler.Reading, error)
-	ListHourly(ctx context.Context, machineID string, from, to time.Time) ([]sampler.Reading, error)
-	ListDaily(ctx context.Context, machineID string, from, to time.Time) ([]sampler.Reading, error)
+	// ListRollups rend les seaux agrégés d'une granularité, du plus ancien au
+	// plus récent.
+	ListRollups(ctx context.Context, machineID string, granularity Granularity, from, to time.Time) ([]sampler.Reading, error)
 	// RollupHourly et RollupDaily agrègent un seau en une instruction
 	// idempotente : repasser sur un seau donne le même résultat.
 	RollupHourly(ctx context.Context, bucketStart, bucketEnd time.Time) error
@@ -141,9 +142,9 @@ func (s *Service) History(ctx context.Context, machineID, windowName string) (Wi
 	var err error
 	switch window.Source {
 	case SourceHourly:
-		points, err = s.store.ListHourly(ctx, machineID, from, now)
+		points, err = s.store.ListRollups(ctx, machineID, GranularityHour, from, now)
 	case SourceDaily:
-		points, err = s.store.ListDaily(ctx, machineID, from, now)
+		points, err = s.store.ListRollups(ctx, machineID, GranularityDay, from, now)
 	default:
 		points, err = s.store.ListSamples(ctx, machineID, from, now, window.Step)
 	}
@@ -213,35 +214,5 @@ func (s *Service) rollupAndPurge(ctx context.Context, withPurge bool) {
 	}
 	if err := s.Purge(ctx); err != nil && ctx.Err() == nil {
 		s.logger.Warn("purge samples", "error", err)
-	}
-}
-
-// SampleLocal mesure la machine openCloud elle-même, à la même cadence que
-// l'agent, et écrit sans passer par le réseau : c'est son rôle d'agent.
-func (s *Service) SampleLocal(ctx context.Context, machineID string, probe *sampler.Sampler, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	s.sampleOnce(ctx, machineID, probe)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.sampleOnce(ctx, machineID, probe)
-		}
-	}
-}
-
-func (s *Service) sampleOnce(ctx context.Context, machineID string, probe *sampler.Sampler) {
-	reading, ok, err := probe.Sample(s.now())
-	if err != nil {
-		s.logger.Warn("sample local machine", "error", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	if err := s.Record(ctx, machineID, []sampler.Reading{reading}); err != nil && ctx.Err() == nil {
-		s.logger.Error("record local sample", "error", err)
 	}
 }

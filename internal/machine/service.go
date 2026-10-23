@@ -3,52 +3,76 @@ package machine
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 const (
-	TokenLifetime    = time.Hour
-	maxClockSkew     = 5 * time.Minute
-	localMachineName = brand.LocalMachineName
-	// Une machine sans flux est perdue passé ce délai depuis son dernier
-	// signal : quatre signaux manqués, pas un hoquet de réseau.
+	TokenLifetime = time.Hour
+	maxClockSkew  = 5 * time.Minute
+	// Une machine est perdue passé ce délai depuis son dernier signal :
+	// quatre signaux manqués, pas un hoquet de réseau. Observed en tire
+	// aussi l'état « inconnu » de ses services.
 	LostAfter       = 2 * time.Minute
 	lostCheckPeriod = 15 * time.Second
 )
 
 // Ce que le service attend de la base ; le package store le fournit.
 type Store interface {
-	SaveLocalMachine(ctx context.Context, machine Machine) error
 	ListMachines(ctx context.Context) ([]Machine, error)
 	GetMachine(ctx context.Context, id string) (Machine, error)
+	// DeleteMachine relit le plan dans sa transaction et refuse tant qu'il
+	// est bloqué (RefuseDeletion) : un lien posé entre le plan et la
+	// suppression ne passe pas.
 	DeleteMachine(ctx context.Context, id string) error
-	TouchMachine(ctx context.Context, id string, at time.Time) error
-	RecordConnection(ctx context.Context, id, address, agentVersion string, at time.Time) error
+	MachineDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
+	TouchAgent(ctx context.Context, agentID string, at time.Time) error
+	RecordConnection(ctx context.Context, connection Connection) error
 	RecordSystem(ctx context.Context, id, system string) error
+	RecordServerKey(ctx context.Context, agentID, fingerprint string) error
+	RecordRootDir(ctx context.Context, agentID, root string) error
 	InsertToken(ctx context.Context, token Token) error
 	ListPendingTokens(ctx context.Context, now time.Time) ([]Token, error)
 	DeleteToken(ctx context.Context, id string) error
-	// Enroll consomme le jeton et crée ou ré-enrôle la machine dans une seule
-	// transaction ; il renvoie la machine telle qu'elle est en base.
-	Enroll(ctx context.Context, tokenHash string, machine Machine, now time.Time) (Machine, error)
+	// Enroll consomme le jeton, crée la machine ou la retrouve, révoque son
+	// agent actif et inscrit le nouveau, dans une seule transaction ; il
+	// renvoie la machine telle qu'elle est en base.
+	Enroll(ctx context.Context, tokenHash string, machine Machine, agent Agent, now time.Time) (Machine, error)
+	// RevokeAgent révoque l'agent actif de la machine et annule ses jetons
+	// de ré-enrôlement en attente, dans une seule transaction ; il rend
+	// l'identifiant de l'agent révoqué, ErrNoAgent s'il n'y en a pas.
+	RevokeAgent(ctx context.Context, machineID string, now time.Time) (string, error)
 }
 
-// Ce que le serveur sait de la machine où il tourne.
-type LocalInfo struct {
-	Hostname string
-	Address  string
-	OS       string
-	Arch     string
-	Version  string
+// Connection est ce que l'ouverture d'un flux note : l'adresse sur la
+// machine, la version et les droits sur l'agent.
+type Connection struct {
+	MachineID string
+	AgentID   string
+	Address   string
+	Version   string
+	// nil : l'agent n'a rien rapporté (un agent d'avant les droits), ce qui
+	// est en base reste.
+	Capabilities []Capability
+	// Les droits rapportés qu'il ne peut pas exercer, avec la raison. nil :
+	// rien d'indisponible, ou un agent qui ne sait pas le juger ; les droits
+	// rapportés se réécrivent alors sans raison.
+	Unavailable map[string]string
+	// nil : l'agent n'a pas dit son compte (ou illisible), ce qui est en base
+	// reste.
+	Account *Account
+	At      time.Time
 }
 
 // Presence dit si l'agent d'une machine est joint. Le service ne sait pas
-// d'où vient la réponse : serve la lit dans les flux ouverts, opencloud mcp,
-// qui n'en tient aucun, dans le dernier signal de la base.
+// d'où vient la réponse : serve la lit dans les flux ouverts.
 type Presence interface {
 	IsOnline(machine Machine, now time.Time) bool
 }
@@ -70,63 +94,37 @@ type Alerter interface {
 }
 
 type Service struct {
-	store      Store
-	sessions   *Sessions
-	presence   Presence
-	challenges *challenges
-	watcher    Watcher
-	alerter    Alerter
-	logger     *slog.Logger
-	// L'empreinte de l'identifiant de la machine openCloud : un agent qui
-	// présente la même tourne sur elle. Vide, pas de contrôle.
-	localFingerprint string
+	store    Store
+	sessions *Sessions
+	presence Presence
+	nonces   *nonces
+	watcher  Watcher
+	alerter  Alerter
+	auditor  *audit.Recorder
+	logger   *slog.Logger
+	// La machine où tourne serve, et la ligne d'installation de son agent :
+	// voir local.go.
+	server    serverHost
+	offerLock sync.Mutex
+	offer     localOffer
 	// now est remplaçable dans les tests : « vu il y a » se compare à lui.
 	now func() time.Time
 }
 
 func New(store Store, sessions *Sessions, logger *slog.Logger) *Service {
 	return &Service{
-		store:      store,
-		sessions:   sessions,
-		presence:   openStreams{sessions: sessions},
-		challenges: newChallenges(),
-		logger:     logger,
-		now:        time.Now,
+		store:    store,
+		sessions: sessions,
+		presence: openStreams{sessions: sessions},
+		nonces:   newNonces(),
+		logger:   logger,
+		now:      time.Now,
 	}
-}
-
-// SetLocalFingerprint retient l'empreinte de la machine openCloud, lue au
-// démarrage de serve.
-func (s *Service) SetLocalFingerprint(fingerprint string) {
-	s.localFingerprint = fingerprint
-}
-
-// isOpenCloudHost dit si une empreinte d'agent est celle de la machine
-// openCloud : elle se supervise déjà, un agent doublerait conteneurs et
-// alertes.
-func (s *Service) isOpenCloudHost(fingerprint string) bool {
-	return s.localFingerprint != "" && fingerprint == s.localFingerprint
-}
-
-// WarnIfOpenCloudHost journalise un agent enrôlé avant le refus et qui
-// tourne sur la machine openCloud : rien ne casse, mais tout est en double.
-func (s *Service) WarnIfOpenCloudHost(machine Machine, fingerprint string) {
-	if !s.isOpenCloudHost(fingerprint) {
-		return
-	}
-	s.logger.Warn("agent runs on the "+brand.ProductName+" machine itself: containers and alerts are doubled; remove this machine and uninstall its agent",
-		"machine_id", machine.ID, "name", machine.Name)
 }
 
 // SetClock remplace l'horloge, pour les tests et les rendus figés.
 func (s *Service) SetClock(now func() time.Time) {
 	s.now = now
-}
-
-// SetPresence remplace la façon de savoir qu'une machine est en ligne : les
-// flux ouverts par défaut.
-func (s *Service) SetPresence(presence Presence) {
-	s.presence = presence
 }
 
 func (s *Service) SetWatcher(watcher Watcher) {
@@ -141,28 +139,6 @@ func (s *Service) changed(machineID string) {
 	if s.watcher != nil {
 		s.watcher.MachineChanged(machineID)
 	}
-}
-
-// EnsureLocal crée ou rafraîchit la machine openCloud elle-même au démarrage.
-func (s *Service) EnsureLocal(ctx context.Context, info LocalInfo) error {
-	now := s.now()
-	machine := Machine{
-		ID:           LocalID,
-		Name:         localMachineName,
-		Kind:         KindLocal,
-		Hostname:     info.Hostname,
-		Address:      info.Address,
-		OS:           info.OS,
-		Arch:         info.Arch,
-		AgentVersion: info.Version,
-		EnrolledAt:   now,
-		LastSeenAt:   now,
-		CreatedAt:    now,
-	}
-	if err := s.store.SaveLocalMachine(ctx, machine); err != nil {
-		return fmt.Errorf("save local machine: %w", err)
-	}
-	return nil
 }
 
 func (s *Service) List(ctx context.Context) ([]Status, error) {
@@ -185,13 +161,9 @@ func (s *Service) Get(ctx context.Context, id string) (Status, error) {
 	return s.status(machine), nil
 }
 
-// La machine openCloud est en ligne tant que ce processus tourne ; les autres
-// le sont selon la présence installée : leur flux ouvert, ou leur dernier signal.
+// Une machine est en ligne selon la présence installée : le flux ouvert de
+// son agent, ou son dernier signal. La machine openCloud comme les autres.
 func (s *Service) status(machine Machine) Status {
-	if machine.IsLocal() {
-		machine.LastSeenAt = s.now()
-		return Status{Machine: machine, Online: true}
-	}
 	return Status{Machine: machine, Online: s.presence.IsOnline(machine, s.now())}
 }
 
@@ -209,38 +181,53 @@ func (s *Service) Count(ctx context.Context) (total, online int, err error) {
 	return len(statuses), online, nil
 }
 
-// CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur.
-func (s *Service) CreateToken(ctx context.Context, name string) (string, Token, error) {
+// CreateToken émet le jeton d'une nouvelle machine, nommée par l'opérateur,
+// avec les droits qu'il a cochés ; observe s'y ajoute toujours.
+func (s *Service) CreateToken(ctx context.Context, name string, capabilities []Capability) (string, Token, error) {
 	if err := ValidateName(name); err != nil {
 		return "", Token{}, err
 	}
-	return s.issueToken(ctx, name, "")
+	normalized, err := NormalizeCapabilities(capabilities)
+	if err != nil {
+		return "", Token{}, err
+	}
+	return s.issueToken(ctx, name, "", normalized)
 }
 
-// CreateReenrollToken émet un jeton qui remplace la clé d'une machine
-// existante : elle garde son id et son historique.
-func (s *Service) CreateReenrollToken(ctx context.Context, machineID string) (string, Token, error) {
+// CreateReenrollToken émet un jeton qui installe un nouvel agent sur une
+// machine existante : elle garde son id et son historique, l'agent d'avant
+// est révoqué à l'enrôlement. C'est aussi la seule façon de changer les
+// droits d'un agent (décision 10) : capabilities les donne ; nil reprend ce
+// que le jeton du précédent demandait, observe seul s'il n'en demandait
+// aucun.
+func (s *Service) CreateReenrollToken(ctx context.Context, machineID string, capabilities []Capability) (string, Token, error) {
 	machine, err := s.store.GetMachine(ctx, machineID)
 	if err != nil {
 		return "", Token{}, err
 	}
-	if machine.IsLocal() {
-		return "", Token{}, ErrLocalMachine
+	if capabilities == nil {
+		capabilities = machine.Agent.Requested
 	}
-	return s.issueToken(ctx, machine.Name, machine.ID)
+	normalized, err := NormalizeCapabilities(capabilities)
+	if err != nil {
+		return "", Token{}, err
+	}
+	return s.issueToken(ctx, machine.Name, machine.ID, normalized)
 }
 
-func (s *Service) issueToken(ctx context.Context, name, machineID string) (string, Token, error) {
+func (s *Service) issueToken(ctx context.Context, name, machineID string, capabilities []Capability) (string, Token, error) {
 	cleartext, token, err := NewToken(name, machineID)
 	if err != nil {
 		return "", Token{}, fmt.Errorf("generate token: %w", err)
 	}
+	token.Capabilities = capabilities
 	now := s.now()
 	token.CreatedAt = now
 	token.ExpiresAt = now.Add(TokenLifetime)
 	if err := s.store.InsertToken(ctx, token); err != nil {
 		return "", Token{}, fmt.Errorf("insert token: %w", err)
 	}
+	s.auditor.Record(ctx, tokenEvent(token))
 	s.changed(machineID)
 	return cleartext, token, nil
 }
@@ -253,24 +240,34 @@ func (s *Service) CancelToken(ctx context.Context, id string) error {
 	if err := s.store.DeleteToken(ctx, id); err != nil {
 		return err
 	}
+	s.auditor.Record(ctx, audit.Event{Action: audit.EnrollmentTokenCancel, ObjectID: id})
 	s.changed("")
 	return nil
 }
 
-// Remove retire une machine et coupe son flux ; la machine openCloud reste.
+// DeletePlan dit ce que Remove ferait : ce qui le retient (services, sondes,
+// tâches, membres de la page de statut), ce qui part avec la machine et ce
+// qui s'en détache. Rien n'est écrit.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetMachine(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.MachineDeletionPlan(ctx, id)
+}
+
+// Remove retire une machine et coupe son flux, la machine openCloud comme les
+// autres. Tant que son plan est bloqué, le refus porte ce plan.
 func (s *Service) Remove(ctx context.Context, id string) error {
 	machine, err := s.store.GetMachine(ctx, id)
 	if err != nil {
 		return err
-	}
-	if machine.IsLocal() {
-		return ErrLocalMachine
 	}
 	if err := s.store.DeleteMachine(ctx, id); err != nil {
 		return err
 	}
 	s.sessions.Close(id)
 	s.logger.Info("machine removed", "machine_id", id, "name", machine.Name)
+	s.auditor.Record(ctx, machineEvent(audit.MachineDelete, machine))
 	if s.alerter != nil {
 		s.alerter.MachineRemoved(ctx, id)
 	}
@@ -278,10 +275,11 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-// CheckLost signale au moteur des alertes chaque machine sans flux dont
-// le dernier signal date de plus de LostAfter. Sans état en mémoire :
-// le moteur déduplique, et une machine tombée pendant que le serveur
-// était éteint est vue au premier passage.
+// CheckLost signale au moteur des alertes chaque machine non observée :
+// son dernier signal date de plus de LostAfter, même si son flux paraît
+// encore ouvert. Sans état en mémoire : le moteur déduplique, et une
+// machine tombée pendant que le serveur était éteint est vue au premier
+// passage.
 func (s *Service) CheckLost(ctx context.Context) error {
 	if s.alerter == nil {
 		return nil
@@ -290,9 +288,18 @@ func (s *Service) CheckLost(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	limit := s.now().Add(-LostAfter)
+	now := s.now()
 	for _, status := range statuses {
-		if status.Online || status.IsLocal() || status.LastSeenAt.After(limit) {
+		// Sans agent actif, rien à perdre : la machine attend son agent, ou
+		// l'opérateur l'a révoqué.
+		if !status.Agent.IsActive() {
+			continue
+		}
+		if Observed(status, now) {
+			// Un flux resté ouvert pendant que les signaux manquaient : la
+			// machine revient sans se reconnecter, l'alerte ne se résoudrait
+			// pas à la connexion.
+			s.alerter.MachineBack(ctx, status.ID)
 			continue
 		}
 		s.alerter.MachineLost(ctx, status.Machine)
@@ -325,48 +332,56 @@ func (s *Service) Enroll(ctx context.Context, request Enrollment) (Machine, erro
 	if len(request.PublicKey) != ed25519.PublicKeySize {
 		return Machine{}, ErrBadKey
 	}
-	// Avant la base : le jeton n'est pas consommé, il servira ailleurs.
-	if s.isOpenCloudHost(request.HostFingerprint) {
-		s.logger.Warn("enrollment refused: the agent runs on the "+brand.ProductName+" machine itself", "hostname", request.Hostname)
-		return Machine{}, ErrIsOpenCloud
+	agentID, err := NewAgentID()
+	if err != nil {
+		return Machine{}, fmt.Errorf("generate agent id: %w", err)
 	}
 	now := s.now()
 	candidate := Machine{
-		ID:           request.MachineID,
-		Kind:         KindRemote,
-		PublicKey:    request.PublicKey,
-		Hostname:     request.Hostname,
-		Address:      request.Address,
-		OS:           request.OS,
-		Arch:         request.Arch,
-		AgentVersion: request.AgentVersion,
-		EnrolledAt:   now,
-		CreatedAt:    now,
+		ID:        s.machineIDFor(request),
+		Hostname:  request.Hostname,
+		Address:   request.Address,
+		OS:        request.OS,
+		Arch:      request.Arch,
+		CreatedAt: now,
 	}
-	machine, err := s.store.Enroll(ctx, HashToken(request.Token), candidate, now)
+	agent := Agent{ID: agentID, PublicKey: request.PublicKey, Version: request.AgentVersion, EnrolledAt: now}
+	machine, err := s.store.Enroll(ctx, HashToken(request.Token), candidate, agent, now)
 	if err != nil {
 		return Machine{}, err
 	}
-	// Un ré-enrôlement remplace la clé : l'ancien flux ne vaut plus rien.
+	// Un ré-enrôlement révoque l'agent d'avant : son flux ne vaut plus rien.
 	s.sessions.Close(machine.ID)
-	s.logger.Info("machine enrolled", "machine_id", machine.ID, "name", machine.Name)
+	s.logger.Info("agent enrolled", "machine_id", machine.ID, "agent_id", machine.Agent.ID, "name", machine.Name)
+	s.auditor.Record(ctx, agentEvent(audit.AgentEnroll, machine))
 	s.changed(machine.ID)
 	return machine, nil
 }
 
-// Challenge émet le défi qu'un agent devra signer pour ouvrir son flux.
-func (s *Service) Challenge(ctx context.Context, machineID string) ([]byte, error) {
+// Revoke révoque l'agent actif d'une machine : il est refusé à sa prochaine
+// preuve, son flux est coupé, les jetons de ré-enrôlement en attente sont
+// annulés. La machine, son historique et ses services restent ; ré-enrôler
+// installe un nouvel agent et lève la révocation.
+func (s *Service) Revoke(ctx context.Context, machineID string) error {
 	machine, err := s.store.GetMachine(ctx, machineID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if machine.IsLocal() {
-		return nil, ErrNotFound
+	now := s.now()
+	revokedID, err := s.store.RevokeAgent(ctx, machineID, now)
+	if err != nil {
+		return err
 	}
-	return s.challenges.issue(machineID, s.now()), nil
+	s.sessions.Close(machineID)
+	machine.Agent.ID, machine.Agent.RevokedAt = revokedID, now
+	s.logger.Info("agent revoked", "machine_id", machineID, "agent_id", revokedID, "name", machine.Name)
+	s.auditor.Record(ctx, agentEvent(audit.AgentRevoke, machine))
+	s.changed(machineID)
+	return nil
 }
 
-// Ce que l'agent présente pour ouvrir son flux.
+// Ce que l'agent présente pour ouvrir son flux : l'aléa qu'il a tiré,
+// l'horodatage et sa signature des deux, liés à la machine.
 type Proof struct {
 	MachineID string
 	Nonce     []byte
@@ -374,24 +389,14 @@ type Proof struct {
 	Signature []byte
 }
 
-// Authenticate vérifie la preuve : défi signé par ce serveur pour cette
-// machine et pas expiré, horloge dans la tolérance, signature de la clé
-// enrôlée. Le défi n'est marqué utilisé qu'une fois la signature vérifiée :
-// quelqu'un qui n'a pas la clé ne peut pas brûler le défi d'un autre.
-// ErrBadNonce (défi absent, expiré, d'un autre serveur ou déjà utilisé) se
-// répare en redemandant un défi ; ErrBadSignature, non.
+// Authenticate vérifie la preuve (protocole 2) : horloge dans la tolérance,
+// signature de la clé de l'agent sur (aléa, machine, horodatage), couple
+// (machine, aléa) jamais servi. Le couple n'est retenu qu'une fois la
+// signature vérifiée : qui n'a pas la clé ne remplit rien. Un agent révoqué
+// qui prouve sa clé apprend qu'il l'est (ErrAgentRevoked) ; sans sa clé, il
+// n'apprend rien de plus qu'un autre.
 func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error) {
-	machine, err := s.store.GetMachine(ctx, proof.MachineID)
-	if err != nil {
-		return Machine{}, err
-	}
-	if machine.IsLocal() {
-		return Machine{}, ErrNotFound
-	}
 	now := s.now()
-	if !s.challenges.valid(proof.Nonce, proof.MachineID, now) {
-		return Machine{}, ErrBadNonce
-	}
 	skew := now.Sub(time.Unix(proof.Timestamp, 0))
 	if skew > maxClockSkew || skew < -maxClockSkew {
 		return Machine{}, ErrClockSkew
@@ -400,22 +405,48 @@ func (s *Service) Authenticate(ctx context.Context, proof Proof) (Machine, error
 	if err != nil {
 		return Machine{}, err
 	}
-	if !Verify(machine.PublicKey, payload, proof.Signature) {
+	machine, err := s.store.GetMachine(ctx, proof.MachineID)
+	if err != nil {
+		return Machine{}, err
+	}
+	if !machine.Agent.Exists() {
+		return Machine{}, ErrNotFound
+	}
+	if !Verify(machine.Agent.PublicKey, payload, proof.Signature) {
 		return Machine{}, ErrBadSignature
 	}
-	if !s.challenges.markUsed(proof.Nonce, now) {
-		return Machine{}, ErrBadNonce
+	if !s.nonces.remember(proof.MachineID, proof.Nonce, now) {
+		return Machine{}, ErrReplayed
+	}
+	if machine.Agent.IsRevoked() {
+		return Machine{}, ErrAgentRevoked
 	}
 	return machine, nil
 }
 
-// Connect ouvre la session d'une machine authentifiée et note sa venue.
-func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion string) (*Session, error) {
+// Connect ouvre la session d'une machine authentifiée et note sa venue :
+// l'adresse sur la machine, la version, les droits, le compte et les droits
+// indisponibles sur son agent. Un texte illisible n'est pas gardé, le flux
+// s'ouvre quand même.
+func (s *Service) Connect(ctx context.Context, authenticated Machine, address, agentVersion, capabilities, account, unavailable string) (*Session, error) {
+	machineID := authenticated.ID
 	now := s.now()
-	if err := s.store.RecordConnection(ctx, machineID, address, agentVersion, now); err != nil {
+	connection := Connection{
+		MachineID: machineID, AgentID: authenticated.Agent.ID,
+		Address: address, Version: agentVersion, At: now,
+	}
+	if capabilities != "" {
+		reported, err := ParseCapabilities(capabilities)
+		if err != nil {
+			s.logger.Warn("agent capabilities unreadable", "machine_id", machineID, "error", err)
+		}
+		connection.Capabilities = reported
+	}
+	s.readAgentAccount(&connection, account, unavailable)
+	if err := s.store.RecordConnection(ctx, connection); err != nil {
 		return nil, fmt.Errorf("record connection: %w", err)
 	}
-	session, err := s.sessions.Open(machineID, now)
+	session, err := s.sessions.Open(machineID, authenticated.Agent.ID, now)
 	if err != nil {
 		return nil, fmt.Errorf("open session: %w", err)
 	}
@@ -425,6 +456,63 @@ func (s *Service) Connect(ctx context.Context, machineID, address, agentVersion 
 	}
 	s.changed(machineID)
 	return session, nil
+}
+
+// readAgentAccount lit le compte et les droits indisponibles que l'agent dit.
+// Le texte vient d'un pair : un compte ou un en-tête illisible n'est pas
+// gardé (le compte reste celui d'avant, les raisons s'effacent), le flux
+// s'ouvre quand même.
+func (s *Service) readAgentAccount(connection *Connection, account, unavailable string) {
+	if account != "" {
+		if parsed, ok := ParseAccount(account); ok {
+			connection.Account = &parsed
+		} else {
+			s.logger.Warn("agent account unreadable", "machine_id", connection.MachineID)
+		}
+	}
+	reasons, err := ParseUnavailable(unavailable)
+	if err != nil {
+		s.logger.Warn("agent unavailable rights unreadable", "machine_id", connection.MachineID, "error", err)
+	}
+	connection.Unavailable = reasons
+}
+
+// NoteServerKey garde l'empreinte de la clé du serveur que l'agent dit avoir
+// épinglée, redite à chaque ouverture de flux : la fiche montre un agent qui
+// ne vérifierait pas les ordres de ce serveur. Une forme qui n'est pas une
+// empreinte, ou rien, s'écrit vide.
+func (s *Service) NoteServerKey(ctx context.Context, agentID, fingerprint string) error {
+	if !isKeyFingerprint(fingerprint) {
+		fingerprint = ""
+	}
+	return s.store.RecordServerKey(ctx, agentID, fingerprint)
+}
+
+// NoteRootDir garde la racine des services que l'agent dit avoir dans son
+// fichier, redite à l'ouverture du flux : c'est là que le plan d'un
+// déploiement montre le dossier. Un agent plus vieux ne la dit pas, et un
+// chemin qui n'en est pas un n'est pas gardé : on reste sur ce que la base
+// avait.
+func (s *Service) NoteRootDir(ctx context.Context, agentID, root string) error {
+	if root == "" {
+		return nil
+	}
+	if !ValidCapabilityPath(root) {
+		s.logger.Warn("agent root unreadable", "agent_id", agentID)
+		return nil
+	}
+	return s.store.RecordRootDir(ctx, agentID, root)
+}
+
+// isKeyFingerprint : « SHA256: » et 43 caractères de base64 sans
+// remplissage, la forme d'agentwire.KeyFingerprint.
+func isKeyFingerprint(text string) bool {
+	digest, found := strings.CutPrefix(text, "SHA256:")
+	if !found || len(digest) != 43 {
+		return false
+	}
+	_, err := base64.RawStdEncoding.Strict().DecodeString(digest)
+	return err == nil
 }
 
 // MaxSystemLength borne ce qu'un agent dit de son système.
@@ -487,7 +575,7 @@ func (s *Service) Signal(ctx context.Context, sessionToken string) (string, erro
 	if !ok {
 		return "", ErrNotConnected
 	}
-	if err := s.store.TouchMachine(ctx, session.MachineID, s.now()); err != nil {
+	if err := s.store.TouchAgent(ctx, session.AgentID, s.now()); err != nil {
 		return "", err
 	}
 	return session.MachineID, nil
@@ -504,7 +592,7 @@ func (s *Service) SessionMachine(sessionToken string) (string, error) {
 	return session.MachineID, nil
 }
 
-// Command pousse une commande à l'agent d'une machine par son flux ouvert.
-func (s *Service) Command(machineID, name string, payload any) error {
-	return s.sessions.Command(machineID, Command{Name: name, Payload: payload})
+// Push pousse un événement à l'agent d'une machine par son flux ouvert.
+func (s *Service) Push(machineID string, event StreamEvent) error {
+	return s.sessions.Push(machineID, event)
 }

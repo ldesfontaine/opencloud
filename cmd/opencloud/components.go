@@ -5,10 +5,15 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/apitoken"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deploy"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -16,23 +21,28 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/store"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
-// components sont les composants que serve et mcp construisent de la même
-// façon, déjà branchés entre eux : un composant ajouté se branche ici, une
-// fois. Ce qui ne vaut que pour serve (le direct, les boucles, les
-// commandeurs, la machine openCloud) reste dans serve.go.
+// components sont les composants que serve construit, déjà branchés entre
+// eux : un composant ajouté se branche ici, une fois. Ce qui ne vaut que
+// pour serve (le direct, les boucles, les commandeurs, la machine openCloud)
+// reste dans serve.go.
 type components struct {
 	db          *store.DB
+	actions     *action.Service
+	sshKeys     *sshkeys.Service
+	backups     *backup.Service
+	deployer    *deploy.Service
 	logger      *slog.Logger
 	preferences *settings.Service
 	machines    *machine.Service
@@ -45,7 +55,7 @@ type components struct {
 	statusPage  *status.Service
 	alerts      *alert.Engine
 	notifier    *alert.Notifier
-	access      *mcp.Service
+	apiTokens   *apitoken.Service
 	operator    *auth.Service
 	support     *lifecycle.Service
 	manifests   *manifest.Manifest
@@ -72,16 +82,14 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// des images de redire à la machine ce qu'elle ne doit plus interroger.
 	declared.SetAssigner(updates)
 	containers.SetUnits(declared)
-	statusPage := status.New(db, db, machines, preferences, logger)
-	// Les alertes : chaque composant lui donne ses faits, la page de statut
-	// lui dit ce qui est sous maintenance, le notifieur livre aux canaux
-	// dans la langue de l'interface.
+	statusPage := status.New(db, db, machines, logger)
+	// Les alertes : chaque composant lui donne ses faits, le notifieur livre
+	// aux canaux dans la langue de l'interface.
 	catalogs, err := lang.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load languages: %w", err)
 	}
 	alerts := alert.New(db, logger)
-	alerts.SetMaintenance(statusPage)
 	alerts.SetDiskThresholds(preferences.CurrentDiskThresholds)
 	notifier := alert.NewNotifier(db, catalogs, preferences.CurrentLanguage, logger)
 	notifier.SetPublicURL(cfg.PublicURL)
@@ -92,13 +100,49 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	resources.SetAlerter(alerts)
 	containers.SetAlerter(alerts)
 	probes.SetAlerter(alerts)
-	// L'accès d'un agent IA : le client OAuth, ses jetons, leur purge.
-	access := mcp.New(db, logger)
+	// Les jetons d'API que mcp-maison présente : leur purge.
+	apiTokens := apitoken.New(db, logger)
 	// L'accès de l'opérateur à l'interface : relu à chaque requête.
 	operator, err := auth.New(db, logger)
 	if err != nil {
 		return nil, err
 	}
+	// Le journal d'audit : chaque composant y écrit ses gestes, sous l'acteur
+	// que le contexte porte. Les alertes le purgent avec leur historique.
+	journal := audit.New(db, logger)
+	preferences.SetAuditor(journal)
+	machines.SetAuditor(journal)
+	heartbeats.SetAuditor(journal)
+	probes.SetAuditor(journal)
+	declared.SetAuditor(journal)
+	statusPage.SetAuditor(journal)
+	alerts.SetAuditor(journal)
+	// Le journal part aussi vers les canaux qui le reçoivent ; sans notifieur
+	// (une commande hors ligne), les livraisons attendent le prochain serve.
+	journal.SetForwarder(alerts)
+	apiTokens.SetAuditor(journal)
+	operator.SetAuditor(journal)
+	// Les ordres aux agents : écrits, journalisés, puis signés par la clé du
+	// serveur, que serve seul charge (sans elle, rien ne part).
+	actions := action.New(db, machines, logger)
+	actions.SetAuditor(journal)
+	// Les mises à jour des agents : la bibliothèque des versions importées, lue
+	// avec la clé de version embarquée. Sans clé (binaire de développement),
+	// rien ne se vérifie et la fiche ne propose rien.
+	if releaseKey, keyErr := release.TrustedKey(); keyErr == nil {
+		actions.SetReleases(release.NewLibrary(stateDir, releaseKey), version.Number())
+	} else {
+		logger.Info("no release key embedded: agent updates are off")
+	}
+	// Les clés SSH autorisées que les agents relèvent, en lecture seule.
+	sshKeys := sshkeys.New(db, logger)
+	// La sauvegarde de la base part par ces ordres. Le dépôt des colis
+	// (SetParcels) et la boucle sont à serve seul.
+	backups := backup.New(db, machines, stateDir, logger)
+	backups.SetSender(actions)
+	backups.SetAuditor(journal)
+	// Le déploiement des services déclarés part par les mêmes ordres signés.
+	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	// La fin de support : activée tant que l'opérateur ne la coupe pas sous
 	// Paramètres. La machine openCloud lit endoflife.date une fois par jour,
 	// deux au plus, pour les produits des images présentes et les systèmes
@@ -114,14 +158,14 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 		db: db, logger: logger, preferences: preferences,
 		machines: machines, heartbeats: heartbeats, resources: resources, containers: containers,
 		probes: probes, declared: declared, updates: updates, statusPage: statusPage,
-		alerts: alerts, notifier: notifier, access: access, operator: operator,
-		support: support, manifests: manifests,
+		alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator,
+		support: support, manifests: manifests, actions: actions, sshKeys: sshKeys, backups: backups, deployer: deployer,
 	}, nil
 }
 
 // serverOptions rend les options communes du serveur. Le direct (Live,
 // PublicLive) et le secret du mandataire sont à la charge de l'appelant.
-func (c *components) serverOptions(cfg config.Config, configPath string) server.Options {
+func (c *components) serverOptions(cfg config.Config) server.Options {
 	return server.Options{
 		Logger:         c.logger,
 		Version:        version.Number(),
@@ -139,11 +183,16 @@ func (c *components) serverOptions(cfg config.Config, configPath string) server.
 		Status:         c.statusPage,
 		Alerts:         c.alerts,
 		Notifier:       c.notifier,
-		MCP:            c.access,
+		APITokens:      c.apiTokens,
 		Auth:           c.operator,
+		Actions:        c.actions,
+		SSHKeys:        c.sshKeys,
+		Backups:        c.backups,
+		Deploy:         c.deployer,
 		PublicURL:      cfg.PublicURL,
 		Listen:         cfg.Listen,
 		TrustedProxies: cfg.TrustedPrefixes(),
-		ConfigPath:     configPath,
+		ForwardUsers:   cfg.ForwardUsers,
+		MCPURL:         cfg.MCPURL,
 	}
 }

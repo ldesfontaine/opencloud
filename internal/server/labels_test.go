@@ -261,22 +261,3 @@ func TestControlSocket_ExportProposeIsServed(t *testing.T) {
 		t.Fatalf("socket : %d\n%s", recorder.Code, recorder.Body.String())
 	}
 }
-
-func TestMCP_ExportDirectoryPropose(t *testing.T) {
-	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
-	server.seedContainers(t)
-	server.seedGaps(t)
-	server.seedProposals(t)
-	session := connectMCP(t, server.mcpServer)
-
-	plain, isError := callTool(t, session, "export_directory", map[string]any{})
-	if isError || strings.Contains(plain, "relisez avant apply") {
-		t.Fatalf("sans propose : %v %s", isError, plain)
-	}
-	text, isError := callTool(t, session, "export_directory", map[string]any{"propose": true})
-	if isError || !strings.Contains(text, "relisez avant apply") {
-		t.Fatalf("avec propose : %v %s", isError, text)
-	}
-	compareGolden(t, filepath.Join("testdata", "mcp_export_directory_propose.golden.json"), normalize(text)+"\n")
-}

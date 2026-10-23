@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/auth"
-	"github.com/ldesfontaine/opencloud/internal/mcp"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 const (
@@ -28,7 +28,36 @@ func (ts *testServer) enableBasic(t *testing.T) {
 	}
 }
 
-// callAs joue une requête comme le front, avec ou sans identifiants Basic.
+// rescue fait ce que fait `opencloud auth disable` depuis un autre accès à
+// la base : l'installation revient à sa première configuration. Les jetons
+// d'API tirés sous le compte restent : c'est la seule façon d'en trouver à
+// l'activation.
+func (ts *testServer) rescue(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	current, err := ts.operator.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.operator.Disable(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// requireSetupRequired : le refus d'une installation sans compte, sans défi
+// Basic qui ferait ouvrir au navigateur une fenêtre sans réponse possible.
+func requireSetupRequired(t *testing.T, recorder *httptest.ResponseRecorder) {
+	t.Helper()
+	if recorder.Code != http.StatusUnauthorized || errorCode(t, recorder) != codeSetupRequired {
+		t.Fatalf("status %d %s, want 401 %s", recorder.Code, recorder.Body.String(), codeSetupRequired)
+	}
+	if got := recorder.Header().Get("WWW-Authenticate"); got != "" {
+		t.Fatalf("WWW-Authenticate %q on a first setup refusal", got)
+	}
+}
+
+// callAs joue une requête comme le front, avec ou sans identifiants Basic ;
+// sans, c'est un inconnu, même face au banc qui pose ceux de l'opérateur.
 func callAs(server *Server, method, path, username, password string) *httptest.ResponseRecorder {
 	return callAsWithin(context.Background(), server, method, path, username, password)
 }
@@ -40,6 +69,8 @@ func callAsWithin(ctx context.Context, server *Server, method, path, username, p
 	request.Header.Set("Sec-Fetch-Site", "same-origin")
 	if username != "" || password != "" {
 		request.SetBasicAuth(username, password)
+	} else {
+		request.Header.Set(anonymousHeader, "1")
 	}
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
@@ -68,7 +99,7 @@ func concreteMethod(method string) string {
 // Chaque route de l'arbre est jugée : celles de l'opérateur répondent 401
 // avec le défi Basic, les autres ne le demandent jamais.
 func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	open := map[string]bool{}
 	for _, route := range server.routes() {
@@ -97,11 +128,10 @@ func TestAuthBasic_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) 
 // La liste des ouvertes est une décision : la voici, entière, la même pour
 // chaque mode.
 var wantOpenRoutes = []string{
-	"/agent/enroll", "/agent/challenge", "/agent/stream", "/agent/signal", "/agent/logs/{request}",
+	"/agent/enroll", "/agent/stream", "/agent/signal", "/agent/logs/{request}", "/agent/parcels/{parcel}/{name}", "/agent/",
 	"/ping/{token}", "/ping/{token}/start", "/ping/{token}/{code}",
-	"/statut", "/statut/{$}", "/statut/api/status", "/statut/api/i18n", "/statut/api/events", "/statut/",
-	"/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp",
-	"/oauth/token", "/mcp",
+	"/statut", "/statut/{$}", "/statut/{slug}", "/statut/{slug}/{$}",
+	"/statut/{slug}/api/status", "/statut/{slug}/api/i18n", "/statut/{slug}/api/events", "/statut/",
 }
 
 func checkOpenRoutes(t *testing.T, open map[string]bool) {
@@ -114,14 +144,14 @@ func checkOpenRoutes(t *testing.T, open map[string]bool) {
 			t.Errorf("%s should stay open", pattern)
 		}
 	}
-	if open["/oauth/authorize"] || open["/"] || open["/api/events"] || open["/api/containers/{id}/logs/stream"] {
-		t.Error("the consent step, the front, the live stream and the log stream must be guarded")
+	if open["/"] || open["/api/events"] || open["/api/containers/{id}/logs/stream"] {
+		t.Error("the front, the live stream and the log stream must be guarded")
 	}
 }
 
 func TestAuthBasic_RightCredentialsPassAndWrongPasswordIs401(t *testing.T) {
 	servertest.RequireFront(t)
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusOK {
 		t.Fatalf("right credentials: status %d", got.Code)
@@ -140,13 +170,14 @@ func TestAuthBasic_RightCredentialsPassAndWrongPasswordIs401(t *testing.T) {
 
 func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 	servertest.RequireFront(t)
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
-	if got := callAs(server.Server, http.MethodGet, "/statut", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut: status %d", got.Code)
+	storetest.StatusPage(t, server.db, "statut")
+	if got := callAs(server.Server, http.MethodGet, "/statut/statut", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut: status %d", got.Code)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/statut/api/status", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut/api/status: status %d", got.Code)
+	if got := callAs(server.Server, http.MethodGet, "/statut/statut/api/status", "", ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut/api/status: status %d", got.Code)
 	}
 	if got := callAs(server.Server, http.MethodGet, "/ping/hb_unknown", "", ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)
@@ -158,7 +189,7 @@ func TestAuthBasic_StatusPageAndPingStayPublic(t *testing.T) {
 // l'interface elle-même non.
 func TestAuthBasic_StatusPageAssetsStayPublic(t *testing.T) {
 	servertest.RequireFront(t)
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	assets, err := fs.Glob(server.app, "assets/*")
 	if err != nil || len(assets) == 0 {
@@ -179,7 +210,7 @@ func TestAuthBasic_StatusPageAssetsStayPublic(t *testing.T) {
 // Le refus d'une page, affiché quand l'opérateur annule la fenêtre du
 // navigateur, dit comment rouvrir l'accès, dans la langue du navigateur.
 func TestAuthBasic_RefusedPageSaysHowToRecoverALostPassword(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	cases := map[string]string{
 		"fr-FR,fr;q=0.9,en;q=0.8": "Identifiants requis. Mot de passe perdu : opencloud auth disable -config <chemin de la config>",
@@ -203,7 +234,7 @@ func TestAuthBasic_RefusedPageSaysHowToRecoverALostPassword(t *testing.T) {
 // Les échecs comptent par adresse : au-delà de la rafale, 429, même avec
 // le bon mot de passe ; une autre adresse n'est pas touchée.
 func TestAuthBasic_FailuresAreRateLimitedPerAddress(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	attempt := func(address, password string) int {
 		request := httptest.NewRequest(http.MethodGet, "/api/counts", nil)
@@ -229,7 +260,7 @@ func TestAuthBasic_FailuresAreRateLimitedPerAddress(t *testing.T) {
 // Les identifiants vérifiés sont retenus : les requêtes suivantes ne
 // consomment ni hachage lent ni jeton de la limite.
 func TestAuthBasic_RememberedCredentialsDoNotCountAgainstTheLimit(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	for i := range authAttemptBurst * 3 {
 		if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusOK {
@@ -239,7 +270,7 @@ func TestAuthBasic_RememberedCredentialsDoNotCountAgainstTheLimit(t *testing.T) 
 }
 
 func TestAuthAPI_EnableChangeDisable(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	var state authResponse
 	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/auth", nil), &state)
 	if state.Mode != "none" || state.Username != "" || state.PasswordMinLength != auth.MinPasswordLength {
@@ -295,31 +326,23 @@ func TestAuthAPI_EnableChangeDisable(t *testing.T) {
 	if disabled.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", disabled.Code, disabled.Body.String())
 	}
-	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("after disabling, anonymous: %d", got.Code)
-	}
-	twice := callAPI(server.Server, http.MethodPost, "/api/auth/actions/disable", struct{}{})
-	if twice.Code != http.StatusConflict || errorCode(t, twice) != "auth.disabled" {
-		t.Fatalf("disable twice: %d %s", twice.Code, twice.Body.String())
-	}
-	changeOff := callAPI(server.Server, http.MethodPut, "/api/auth/password", authPasswordRequest{Password: newPassword})
-	if changeOff.Code != http.StatusConflict || errorCode(t, changeOff) != "auth.disabled" {
-		t.Fatalf("change while disabled: %d %s", changeOff.Code, changeOff.Body.String())
-	}
+	// Désactiver ramène à la première configuration, pas à une interface
+	// ouverte : ni la lecture, ni une écriture, ni le changement de mot de
+	// passe ne passent.
+	requireSetupRequired(t, callAs(server.Server, http.MethodGet, "/api/counts", "", ""))
+	requireSetupRequired(t, callAPI(server.Server, http.MethodPost, "/api/auth/actions/disable", struct{}{}))
+	requireSetupRequired(t, callAPI(server.Server, http.MethodPut, "/api/auth/password", authPasswordRequest{Password: newPassword}))
 }
 
-// Activer l'authentification révoque tous les jetons MCP, d'API et OAuth,
-// et dit combien ; le client OAuth reste. Changer le mot de passe ou
-// désactiver ne révoque rien.
-func TestAuthAPI_EnableRevokesEveryMCPTokenAndPasswordChangeDoesNot(t *testing.T) {
+// Activer l'authentification révoque tous les jetons d'API et dit combien.
+// Changer le mot de passe ou désactiver ne révoque rien. Les jetons sont
+// tirés sous le compte, puis la commande de secours ramène à la première
+// configuration : c'est là qu'une activation en trouve.
+func TestAuthAPI_EnableRevokesEveryAPITokenAndPasswordChangeDoesNot(t *testing.T) {
 	server := newTestServer(t)
-	liveServer := httptest.NewServer(server.Server)
-	t.Cleanup(liveServer.Close)
-	endpoint := liveServer.URL + mcpPath
-	secret := server.enableMCP(t)
-	reader := server.createAPIToken(t, "lecteur")
-	writer := server.createScopedToken(t, mcpTokenRequest{Name: "écrivain", Scope: string(mcp.ScopeWrite)})
-	grant := server.oauthGrant(t, secret)
+	first := server.issueAPIToken(t, "lecteur")
+	second := server.issueAPIToken(t, "script")
+	server.rescue(t)
 
 	enabled := callAPI(server.Server, http.MethodPost, "/api/auth/actions/enable", authEnableRequest{Username: testUsername, Password: testPassword})
 	if enabled.Code != http.StatusOK {
@@ -327,48 +350,44 @@ func TestAuthAPI_EnableRevokesEveryMCPTokenAndPasswordChangeDoesNot(t *testing.T
 	}
 	var response authEnableResponse
 	decodeAPI(t, enabled, &response)
-	if response.Mode != "basic" || response.MCPRevoked != (mcpRevokedJSON{APITokens: 2, Sessions: 1}) {
+	if response.Mode != "basic" || response.APITokensRevoked != 2 {
 		t.Fatalf("response %+v", response)
 	}
-	for _, bearer := range []string{reader, writer, grant.AccessToken} {
-		if _, err := listToolsOverHTTP(t, endpoint, bearer); err == nil {
-			t.Fatal("a token survived the activation")
+	for _, bearer := range []string{first, second} {
+		if got := callBearer(server.Server, "/api/counts", bearer); got.Code != http.StatusUnauthorized {
+			t.Fatalf("a token survived the activation: %d", got.Code)
 		}
-	}
-	// Le client OAuth reste : une nouvelle autorisation passe, désormais
-	// derrière les identifiants.
-	if _, enabled, err := server.access.Client(context.Background()); err != nil || !enabled {
-		t.Fatalf("client gone: %v %v", enabled, err)
 	}
 
 	// Un jeton créé après l'activation survit au changement de mot de
 	// passe et à la désactivation.
-	created := callBasicJSON(server.Server, http.MethodPost, "/api/mcp/tokens", `{"name":"après"}`, testPassword)
+	created := callBasicJSON(server.Server, http.MethodPost, "/api/settings/api-tokens", `{"name":"après"}`, testPassword)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create after: %d %s", created.Code, created.Body.String())
 	}
-	var after mcpTokenResponse
+	var after apiTokenCreated
 	decodeAPI(t, created, &after)
 	const newPassword = "another long passphrase"
 	if got := callBasicJSON(server.Server, http.MethodPut, "/api/auth/password", `{"password":"`+newPassword+`"}`, testPassword); got.Code != http.StatusOK {
 		t.Fatalf("change: %d %s", got.Code, got.Body.String())
 	}
-	if _, err := listToolsOverHTTP(t, endpoint, after.Token); err != nil {
-		t.Fatalf("password change revoked a token: %v", err)
+	if got := callBearer(server.Server, "/api/counts", after.Token); got.Code != http.StatusOK {
+		t.Fatalf("password change revoked a token: %d", got.Code)
 	}
 	if got := callBasicJSON(server.Server, http.MethodPost, "/api/auth/actions/disable", `{}`, newPassword); got.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", got.Code, got.Body.String())
 	}
-	if _, err := listToolsOverHTTP(t, endpoint, after.Token); err != nil {
+	if _, err := server.apiTokens.Verify(context.Background(), after.Token); err != nil {
 		t.Fatalf("disabling revoked a token: %v", err)
 	}
 }
 
 // La commande de secours écrit dans la base depuis un autre processus :
-// serve la suit à la requête suivante, sans redémarrer, et les
-// identifiants qu'il avait retenus ne rouvrent rien à la réactivation.
+// serve la suit à la requête suivante, sans redémarrer, en revenant à la
+// première configuration, et les identifiants qu'il avait retenus ne
+// rouvrent rien à la réactivation.
 func TestAuthBasic_DisableFromAnotherProcessTakesEffectWithoutRestart(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusOK {
 		t.Fatalf("before: %d", got.Code)
@@ -384,9 +403,7 @@ func TestAuthBasic_DisableFromAnotherProcessTakesEffectWithoutRestart(t *testing
 	if err := rescue.Disable(context.Background(), current); err != nil {
 		t.Fatal(err)
 	}
-	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("after the rescue command: %d", got.Code)
-	}
+	requireSetupRequired(t, callAs(server.Server, http.MethodGet, "/api/counts", "", ""))
 	if _, err := rescue.EnableBasic(context.Background(), auth.State{Mode: auth.ModeNone}, testUsername, "a brand new passphrase"); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +415,7 @@ func TestAuthBasic_DisableFromAnotherProcessTakesEffectWithoutRestart(t *testing
 // Le direct et les flux SSE passent avec les identifiants Basic, comme le
 // navigateur les renvoie de lui-même à la même origine.
 func TestAuthBasic_LiveStreamOpensWithCredentials(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableBasic(t)
 	liveServer := httptest.NewServer(server.Server)
 	t.Cleanup(liveServer.Close)
@@ -479,8 +496,8 @@ func callForwardedJSON(server *Server, method, path, body, peer, header, identit
 // route de l'opérateur répond 401 sans défi Basic ; les ouvertes répondent
 // exactement ce qu'elles répondent sans authentification.
 func TestAuthForward_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T) {
-	reference := newTestServer(t)
-	server := newTestServer(t)
+	reference := newFirstSetupServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	open := map[string]bool{}
 	for _, route := range server.routes() {
@@ -513,7 +530,7 @@ func TestAuthForward_GuardsEveryOperatorRouteAndLeavesTheOthersOpen(t *testing.T
 // sans identité, ni un conteneur voisin qui écrit l'en-tête lui-même.
 func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 	servertest.RequireFront(t)
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	if got := callForwarded(server.Server, http.MethodGet, "/api/counts", trustedPeer, testUsername); got.Code != http.StatusOK {
 		t.Fatalf("trusted proxy with identity: status %d", got.Code)
@@ -539,8 +556,9 @@ func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 	if got := callAs(server.Server, http.MethodGet, "/api/counts", testUsername, testPassword); got.Code != http.StatusUnauthorized {
 		t.Fatalf("basic credentials in forward mode: status %d", got.Code)
 	}
-	if got := callForwarded(server.Server, http.MethodGet, "/statut", untrustedPeer, ""); got.Code != http.StatusOK {
-		t.Fatalf("/statut stays public: %d", got.Code)
+	storetest.StatusPage(t, server.db, "statut")
+	if got := callForwarded(server.Server, http.MethodGet, "/statut/statut", untrustedPeer, ""); got.Code != http.StatusOK {
+		t.Fatalf("/statut/statut stays public: %d", got.Code)
 	}
 	if got := callForwarded(server.Server, http.MethodGet, "/ping/hb_unknown", untrustedPeer, ""); got.Code != http.StatusNotFound {
 		t.Fatalf("/ping: status %d, want the ping's own 404", got.Code)
@@ -550,7 +568,7 @@ func TestAuthForward_OnlyATrustedProxyWithTheIdentityPasses(t *testing.T) {
 // Un mandataire qui ajoute l'identité au lieu d'écraser laisse passer celle
 // du client en premier : deux valeurs, c'est un refus, dans les deux ordres.
 func TestAuthForward_IdentityHeaderSentTwiceIsRefused(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	for _, values := range [][]string{{"admin", testUsername}, {testUsername, testUsername}} {
 		request := httptest.NewRequest(http.MethodGet, "/api/counts", nil)
@@ -570,11 +588,11 @@ func TestAuthForward_IdentityHeaderSentTwiceIsRefused(t *testing.T) {
 // Le refus d'une page dit de passer par le mandataire, et comment rouvrir
 // l'accès, dans la langue du navigateur.
 func TestAuthForward_RefusedPageSaysToGoThroughTheProxy(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.enableForward(t)
 	cases := map[string]string{
-		"fr-FR,fr;q=0.9": "Accès refusé : passez par le mandataire d'authentification. Pour rouvrir l'accès : opencloud auth disable -config <chemin de la config>",
-		"en-US,en;q=0.9": "Access denied: go through the authentication proxy. To reopen access: opencloud auth disable -config <config path>",
+		"fr-FR,fr;q=0.9": "Accès refusé : passez par le SSO. Pour rouvrir l'accès : opencloud auth disable -config <chemin de la config>",
+		"en-US,en;q=0.9": "Access denied: go through the SSO. To reopen access: opencloud auth disable -config <config path>",
 	}
 	for acceptLanguage, want := range cases {
 		request := httptest.NewRequest(http.MethodGet, "/machines", nil)
@@ -594,7 +612,7 @@ func TestAuthForward_RefusedPageSaysToGoThroughTheProxy(t *testing.T) {
 // Le garde-fou : on n'active forward que depuis une requête qui porte déjà
 // l'identité d'un mandataire de confiance, sans quoi on s'enfermerait dehors.
 func TestAuthAPI_EnableForwardRequiresTheIdentityFromATrustedProxy(t *testing.T) {
-	server := newTestServer(t)
+	server := newFirstSetupServer(t)
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
 	const enable = "/api/auth/actions/enable"
 	const remoteUser = auth.DefaultForwardHeader
@@ -659,18 +677,17 @@ func TestAuthAPI_EnableForwardRequiresTheIdentityFromATrustedProxy(t *testing.T)
 	if disabled.Code != http.StatusOK {
 		t.Fatalf("disable: %d %s", disabled.Code, disabled.Body.String())
 	}
-	if got := callAs(server.Server, http.MethodGet, "/api/counts", "", ""); got.Code != http.StatusOK {
-		t.Fatalf("after disabling, anonymous: %d", got.Code)
-	}
+	requireSetupRequired(t, callAs(server.Server, http.MethodGet, "/api/counts", "", ""))
 }
 
 // Un en-tête choisi remplace Remote-User, et l'activation révoque les
-// jetons MCP comme en basic.
-func TestAuthAPI_EnableForwardWithAnotherHeaderRevokesMCPTokens(t *testing.T) {
+// jetons d'API comme en basic : tirés sous le compte, laissés par la commande
+// de secours.
+func TestAuthAPI_EnableForwardWithAnotherHeaderRevokesAPITokens(t *testing.T) {
 	server := newTestServer(t)
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
-	server.enableMCP(t)
-	server.createAPIToken(t, "lecteur")
+	server.issueAPIToken(t, "lecteur")
+	server.rescue(t)
 	const header = "X-Forwarded-User"
 	enabled := callForwardedJSON(server.Server, http.MethodPost, "/api/auth/actions/enable", `{"mode":"forward","header":"`+header+`"}`, trustedPeer, header, testUsername)
 	if enabled.Code != http.StatusOK {
@@ -678,7 +695,7 @@ func TestAuthAPI_EnableForwardWithAnotherHeaderRevokesMCPTokens(t *testing.T) {
 	}
 	var response authEnableResponse
 	decodeAPI(t, enabled, &response)
-	if response.Header != header || response.MCPRevoked != (mcpRevokedJSON{APITokens: 1, Sessions: 0}) {
+	if response.Header != header || response.APITokensRevoked != 1 {
 		t.Fatalf("response %+v", response)
 	}
 	// Remote-User ne vaut plus rien : seul l'en-tête choisi porte l'identité.

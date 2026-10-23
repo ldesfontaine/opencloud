@@ -1,7 +1,24 @@
-.overview-machines {
+// La vue d'ensemble tient sur un écran de portable (#141) : 12 px entre ses
+// blocs et pas de sous-titre (la tuile Machines dit déjà le compte), pour
+// cette page seulement (.content, global, garde ses 24 px).
+// Sous 860 px le flux reste naturel : tout passe en colonnes plus étroites.
+//
+// Les coupures sont à 1280 px et non à 1100 : la barre latérale prend 232 px,
+// une tuile ou une carte de machine serait trop étroite entre les deux.
+// (« overview » seul est déjà la classe du schéma, NetworkOverview.scss.)
+.overview-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  min-width: 0;
+}
+
+// Un bloc de la page : son titre sur la même ligne que son lien, puis le
+// contenu à 8 px.
+.overview-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .overview-head {
@@ -10,27 +27,129 @@
   justify-content: space-between;
 }
 
-// Une carte qui est un lien : même dessin, le trait s'appuie au survol.
+// La bande de cinq tuiles compactes. La tuile Alertes, la dernière, est la
+// plus large : son pied porte la plus urgente, un texte long ; les trois
+// autres, dont le pied est court, cèdent chacune un peu de place.
+.overview-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.05fr) minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.55fr);
+  gap: 16px;
+}
+
+// La tuile Alertes est un lien : même dessin, le trait s'appuie au survol.
+a.stat-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: 14px;
+
+  &,
+  &:hover {
+    color: inherit;
+  }
+
+  > .card {
+    flex: 1;
+  }
+
+  &:hover > .card {
+    border-color: var(--line-strong);
+  }
+}
+
+// Une rangée de cartes de machine, quatre de front.
+.overview-machines-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+// Une carte qui est un lien : même dessin, le trait s'appuie au survol. Trois
+// lignes serrées ; sa largeur est le conteneur des jauges (Resources.scss).
 a.machine-card {
   color: inherit;
+  padding: 14px;
+  gap: 8px;
+  container-type: inline-size;
 
   &:hover {
     border-color: var(--line-strong);
   }
-
-  .card-b {
-    gap: 12px;
-  }
 }
 
-.machine-card-title {
+.machine-card-head {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
 }
 
-// La carte de la vue d'ensemble : trois lignes au plus, le reste par le lien.
-.overview-alerts .row {
-  padding: 10px 20px;
+// Le nom puis l'adresse, sur une ligne ; l'adresse cède la place la première.
+.machine-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+
+  > span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .card-t {
+    flex: 0 1 auto;
+  }
+
+  .mono {
+    flex: 1 1 0;
+  }
+}
+
+// Le système puis le dernier signal : une ligne, tronquée plutôt que cassée.
+.machine-card-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+
+  > span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  > span:last-child {
+    flex: none;
+  }
+}
+
+@media (max-width: 1280px) {
+  .overview-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .overview-machines-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .overview-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-machines-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .overview-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

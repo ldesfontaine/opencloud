@@ -14,11 +14,11 @@ http:
       # Mode forward (SSO devant openCloud) : décommentez, avec le middleware
       # ci-dessous et celui d'Authelia, `authelia` d'abord : forwardAuth
       # transmet les en-têtes de la requête à Authelia, le secret ne doit pas
-      # en être. Voir « Derrière un mandataire qui authentifie » dans
+      # en être. Voir « Derrière un SSO qui authentifie » dans
       # docs/installation.md.
       # middlewares: ["authelia", "opencloud-proxy-secret"]
       # Pas de middleware `buffering` ni `compress` ici : /agent/stream,
-      # /api/events, les journaux, /statut/api/events et /mcp sont des
+      # /api/events, les journaux, /statut/api/events sont des
       # flux SSE qui doivent partir tels quels et durer.
 
   # Mode forward seulement. `customRequestHeaders` remplace la valeur que le

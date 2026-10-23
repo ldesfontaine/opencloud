@@ -163,8 +163,10 @@ export function AlertChannelForm() {
         )}
         <Checks>
           <Checkbox label={t("channel.notify_resolve_label")} checked={values.notifyResolve} onChange={(checked) => change("notifyResolve", checked)} />
+          <Checkbox label={t("channel.receives_audit_label")} checked={values.receivesAudit} onChange={(checked) => change("receivesAudit", checked)} />
           <Checkbox label={t("channel.enabled_label")} checked={values.enabled} onChange={(checked) => change("enabled", checked)} />
         </Checks>
+        <p className="field-help">{t("channel.receives_audit_help")}</p>
       </FormCard>
     </>
   );

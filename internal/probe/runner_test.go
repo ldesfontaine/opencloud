@@ -54,7 +54,7 @@ func (s *collectingSink) waitFor(t *testing.T, wanted int) {
 func testRunner(t *testing.T, sink Sink) (*Runner, context.CancelFunc) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, NewChecker(nil), logger)
+	runner := NewRunner(sink, NewChecker(nil, true), logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -154,7 +154,7 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 	defer server.Close()
 	sink := newSink()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	runner := NewRunner(sink, NewChecker(nil), logger)
+	runner := NewRunner(sink, NewChecker(nil, true), logger)
 	runner.Assign(Assignment{Probes: []Task{httpTask(server.URL)}})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -172,27 +172,16 @@ func TestRunner_AssignBeforeRunIsKept(t *testing.T) {
 }
 
 // La ligne de journal d'un essai ne porte pas le mot de passe de la cible.
+// L'agent refuse déjà une cible à identifiants (voir Task.Validate) : l'essai
+// est lancé ici sans passer par Assign, pour garder la ligne sous test.
 func TestRunner_LogsNeverCarryATargetPassword(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	defer server.Close()
 	var logs lockedBuffer
 	sink := newSink()
-	runner := NewRunner(sink, NewChecker(nil), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		runner.Run(ctx)
-	}()
-	defer func() {
-		cancel()
-		<-done
-	}()
-	task := httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1))
-	runner.Assign(Assignment{Probes: []Task{task}})
+	runner := NewRunner(sink, NewChecker(nil, true), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	runner.once(context.Background(), httpTask(strings.Replace(server.URL, "http://", "http://u:secret@", 1)))
 	sink.waitFor(t, 1)
-	cancel()
-	<-done
 	text := logs.String()
 	if !strings.Contains(text, "probe checked") || strings.Contains(text, "secret") {
 		t.Fatalf("log:\n%s", text)
@@ -214,4 +203,15 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.data.String()
+}
+
+// L'agent ne sonde jamais plus vite que MinInterval, quoi que le jeu reçu
+// dise : le serveur valide déjà, l'agent ne s'y fie pas.
+func TestTask_IntervalHasAFloorOnTheAgent(t *testing.T) {
+	cases := map[int]time.Duration{0: DefaultInterval, 1: MinInterval, 29: MinInterval, 30: 30 * time.Second, 3600: time.Hour}
+	for seconds, want := range cases {
+		if got := (Task{IntervalSeconds: seconds}).interval(); got != want {
+			t.Errorf("%d s: %v, want %v", seconds, got, want)
+		}
+	}
 }

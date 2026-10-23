@@ -14,7 +14,6 @@ import (
 
 var proposeAnnotations = manifest.Annotations{
 	Header:       testAnnotations.Header,
-	NeedsReview:  testAnnotations.NeedsReview,
 	Proposed:     "Proposé depuis des conteneurs non déclarés : relisez avant apply.",
 	ProposedUnit: "Unité proposée depuis un conteneur non déclaré.",
 }

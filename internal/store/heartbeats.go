@@ -10,21 +10,21 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 )
 
-const heartbeatColumns = `h.id, h.token, h.name, h.machine_id, COALESCE(m.name, ''), h.status,
+const heartbeatColumns = `h.id, h.token_sealed, h.name, h.machine_id, COALESCE(m.name, ''), h.status,
 	h.interval_seconds, h.grace_seconds, h.last_ping_at, h.next_deadline_at, h.run_started_at,
 	h.last_exit_code, h.last_duration_ms, h.created_at`
 
 const heartbeatFrom = ` FROM heartbeats h LEFT JOIN machines m ON m.id = h.machine_id`
 
 // InsertHeartbeat garde le jeton chiffré, lié à l'id du moniteur, et son
-// empreinte, par laquelle un ping le retrouve.
+// empreinte (token_lookup), par laquelle un ping le retrouve.
 func (db *DB) InsertHeartbeat(ctx context.Context, h heartbeat.Heartbeat) error {
 	sealedToken, err := db.sealSecret(h.Token, heartbeatTokenScope(h.ID))
 	if err != nil {
 		return fmt.Errorf("seal heartbeat token: %w", err)
 	}
 	_, err = db.sql.ExecContext(ctx, `
-		INSERT INTO heartbeats (id, token, token_hash, name, machine_id, status, interval_seconds, grace_seconds, next_deadline_at, created_at)
+		INSERT INTO heartbeats (id, token_sealed, token_lookup, name, machine_id, status, interval_seconds, grace_seconds, next_deadline_at, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		h.ID, sealedToken, heartbeat.HashToken(h.Token), h.Name, nullableString(h.MachineID), string(h.Status),
 		int64(h.Interval.Seconds()), int64(h.Grace.Seconds()), nullableTime(h.NextDeadlineAt), h.CreatedAt.Unix())
@@ -45,7 +45,7 @@ func (db *DB) GetHeartbeat(ctx context.Context, id string) (heartbeat.Heartbeat,
 }
 
 func (db *DB) GetHeartbeatByToken(ctx context.Context, token string) (heartbeat.Heartbeat, error) {
-	row := db.sql.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.token_hash = ?`, heartbeat.HashToken(token))
+	row := db.sql.QueryRowContext(ctx, `SELECT `+heartbeatColumns+heartbeatFrom+` WHERE h.token_lookup = ?`, heartbeat.HashToken(token))
 	return db.scanHeartbeat(row)
 }
 
@@ -59,12 +59,24 @@ func (db *DB) SetHeartbeatToken(ctx context.Context, id, token string) error {
 	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
 }
 
+// DeleteHeartbeat relit le plan de la tâche et la supprime dans la même
+// transaction : un composant de statut qui l'affiche la retient. Ses pings
+// et ses exécutions partent avec elle, ses alertes restent, détachées.
 func (db *DB) DeleteHeartbeat(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM heartbeats WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete heartbeat: %w", err)
-	}
-	return notFoundIfNoRow(result, heartbeat.ErrNotFound)
+	return db.inTx(ctx, "delete heartbeat", func(tx *sql.Tx) error {
+		plan, err := heartbeatDeletionPlan(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := heartbeat.RefuseDeletion(plan); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM heartbeats WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete heartbeat: %w", err)
+		}
+		return notFoundIfNoRow(result, heartbeat.ErrNotFound)
+	})
 }
 
 // CountHeartbeats rend le nombre de moniteurs et ceux à traiter, en retard
@@ -281,16 +293,4 @@ func (db *DB) scanHeartbeat(row scanner) (heartbeat.Heartbeat, error) {
 	h.LastDuration = durationPointer(lastDurationMs)
 	h.CreatedAt = time.Unix(createdAt, 0)
 	return h, nil
-}
-
-// CountHeartbeatHistory compte ce qu'emporte la suppression d'une tâche : ses
-// pings bruts et ses exécutions.
-func (db *DB) CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error) {
-	err = db.sql.QueryRowContext(ctx, `
-		SELECT (SELECT COUNT(*) FROM heartbeat_pings WHERE heartbeat_id = ?),
-		       (SELECT COUNT(*) FROM heartbeat_runs WHERE heartbeat_id = ?)`, heartbeatID, heartbeatID).Scan(&pings, &runs)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count heartbeat history: %w", err)
-	}
-	return pings, runs, nil
 }

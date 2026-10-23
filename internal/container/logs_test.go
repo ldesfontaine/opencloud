@@ -14,7 +14,15 @@ type fakeCommander struct {
 	offline  bool
 }
 
-func (c *fakeCommander) Command(machineID, name string, payload any) error {
+func (c *fakeCommander) RequestLogs(machineID string, _ LogRequest) error {
+	return c.note(machineID, "logs")
+}
+
+func (c *fakeCommander) StopLogs(machineID, _ string) error {
+	return c.note(machineID, "logs_stop")
+}
+
+func (c *fakeCommander) note(machineID, name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.offline {
@@ -30,30 +38,19 @@ func (c *fakeCommander) count() int {
 	return len(c.commands)
 }
 
-type fakeLocal struct{ opened []LogRequest }
-
-func (l *fakeLocal) OpenLogs(_ context.Context, request LogRequest) (<-chan LogBatch, error) {
-	l.opened = append(l.opened, request)
-	batches := make(chan LogBatch, 1)
-	batches <- LogBatch{Lines: []LogLine{{Text: "local"}}, Done: true}
-	close(batches)
-	return batches, nil
-}
-
-func TestRelay_LocalMachineGoesToTheInProcessSource(t *testing.T) {
+// La machine openCloud n'a plus de source en processus : son journal se
+// demande à son agent, comme pour toute machine.
+func TestRelay_TheOpenCloudMachineAsksItsAgentLikeAnyOther(t *testing.T) {
 	relay := NewRelay()
-	local := &fakeLocal{}
-	relay.SetLocal("local", local)
-	relay.SetCommander(&fakeCommander{})
-	batches, err := relay.Open(context.Background(), "local", LogRequest{ContainerID: "c", Tail: 10})
-	if err != nil {
+	commander := &fakeCommander{}
+	relay.SetCommander(commander)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if _, err := relay.Open(ctx, "local", LogRequest{ContainerID: "c", Tail: 10}); err != nil {
 		t.Fatal(err)
 	}
-	if batch := <-batches; batch.Lines[0].Text != "local" {
-		t.Fatalf("batch = %+v", batch)
-	}
-	if len(local.opened) != 1 || local.opened[0].ID == "" || local.opened[0].Tail != 10 {
-		t.Fatalf("opened = %+v", local.opened)
+	if commander.count() != 1 || commander.commands[0] != "local:logs" {
+		t.Fatalf("commands = %v", commander.commands)
 	}
 }
 

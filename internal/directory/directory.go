@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
@@ -60,17 +61,14 @@ func Capabilities() []Capability {
 	return []Capability{CapabilitySSO, CapabilityProxy, CapabilityTLS, CapabilityBackupTarget}
 }
 
-// DeclaredBy dit d'où vient la déclaration : de l'opérateur, ou de la
-// reprise de l'existant (migration).
+// DeclaredBy dit qui a écrit la déclaration : l'opérateur (la découverte
+// automatique, plus tard).
 type DeclaredBy string
 
-const (
-	ByOperator  DeclaredBy = "operator"
-	ByMigration DeclaredBy = "migration"
-)
+const ByOperator DeclaredBy = "operator"
 
 func Provenances() []DeclaredBy {
-	return []DeclaredBy{ByOperator, ByMigration}
+	return []DeclaredBy{ByOperator}
 }
 
 const (
@@ -108,6 +106,7 @@ var (
 	ErrSystemdUnitInvalid    = refusal.Invalid("directory.systemd_unit_invalid", "systemd unit is required for a binary service, and only for it")
 	ErrUnitKeyDuplicate      = refusal.Invalid("directory.unit_key_duplicate", "two units of the service declare the same container name or systemd unit")
 	ErrPortsInvalid          = refusal.Invalid("directory.ports_invalid", "unit ports must be port, host:port, with an optional /tcp or /udp")
+	ErrDataPathInvalid       = refusal.Invalid("directory.data_path_invalid", "unit data path must be a clean absolute path inside the container, never /, and only for a container")
 	ErrNameTaken             = refusal.Invalid("directory.name_taken", "declared service name already used on this machine")
 	ErrComposeProjectTaken   = refusal.Invalid("directory.compose_project_taken", "compose project already declared on this machine")
 	ErrMatchKeyTaken         = refusal.Invalid("directory.match_key_taken", "container name or systemd unit already declared on this machine")
@@ -117,6 +116,7 @@ var (
 	ErrProjectNameInvalid    = refusal.Invalid("project.name_invalid", "project name must be a lowercase label: letters, digits, dashes, underscores")
 	ErrProjectTitleInvalid   = refusal.Invalid("project.title_invalid", "project title must be at most 80 characters")
 	ErrProjectNameTaken      = refusal.Invalid("project.name_taken", "project name already used")
+	ErrProjectHasStatusPage  = refusal.Conflict("project.has_status_page", "a status page belongs to the project")
 
 	ErrIgnoreInvalid     = refusal.Invalid("directory.ignore_invalid", "ignored key needs an existing machine, a known kind and a value that fits it")
 	ErrIgnoredNotFound   = errors.New("ignored key not found")
@@ -132,8 +132,10 @@ var (
 
 	ErrUpdatePolicyInvalid = refusal.Invalid("directory.update_policy_invalid", "unit update policy must be watch, hold or ignore, and only watch for a binary")
 	ErrUnitNotFound        = errors.New("unit not found")
+	// Une unité binaire n'a pas d'image à faire passer à une autre version.
+	ErrUnitNotContainer = refusal.Invalid("directory.unit_not_container", "only a container unit changes version through its image")
 	// ErrServiceLinked : des sondes ou des composants de statut visent le
-	// service. LinkedError porte la liste et enveloppe ce refus.
+	// service. Le refus porte le plan (deletion.RefusedError), avec la liste.
 	ErrServiceLinked = refusal.Conflict("directory.service_linked", "declared service is still watched or shown")
 )
 
@@ -150,7 +152,6 @@ type Service struct {
 	ComposeProject string
 	PublicURL      string
 	DeclaredBy     DeclaredBy
-	NeedsReview    bool
 	Provides       []Capability
 	Units          []Unit
 	ProjectIDs     []string
@@ -171,6 +172,9 @@ type Unit struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Chemin absolu dans le conteneur où monter ./data/<unité> au
+	// déploiement ; vide : aucun dossier de données.
+	DataPath string
 	// Ce que l'opérateur veut des mises à jour de l'image ; elle vaut pour
 	// tous les conteneurs de l'unité, recréés compris.
 	UpdatePolicy container.UpdatePolicy
@@ -216,6 +220,8 @@ type UnitDefinition struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	// Chemin absolu dans le conteneur où monter ./data/<unité> ; vide : aucun.
+	DataPath string
 	// Vide : Complete la pose à watch.
 	UpdatePolicy container.UpdatePolicy
 }
@@ -245,24 +251,19 @@ type Links struct {
 	Components []LinkedObject
 }
 
-func (l Links) IsEmpty() bool {
-	return len(l.Probes) == 0 && len(l.Components) == 0
+// RefuseServiceDeletion rend le refus de supprimer un service que le plan
+// retient, nil sinon : sondes et composants donnent le même refus.
+func RefuseServiceDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{
+		deletion.KindProbes:     ErrServiceLinked,
+		deletion.KindComponents: ErrServiceLinked,
+	})
 }
 
-// LinkedError est le refus de supprimer un service que des sondes ou des
-// composants visent encore, avec la liste de ce qui le lie.
-type LinkedError struct {
-	Links Links
-}
-
-func (e *LinkedError) Error() string {
-	return ErrServiceLinked.Error()
-}
-
-// Unwrap rend le refus : errors.Is le reconnaît, et refusal.KeyOf y lit la
-// clé, pour le fichier de l'annuaire qui n'a pas besoin de la liste.
-func (e *LinkedError) Unwrap() error {
-	return ErrServiceLinked
+// RefuseProjectDeletion rend le refus de supprimer un projet que sa page de
+// statut retient, nil sinon.
+func RefuseProjectDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindStatusPages: ErrProjectHasStatusPage})
 }
 
 // NewID tire un identifiant du serveur : le préfixe de l'objet, puis

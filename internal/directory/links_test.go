@@ -5,16 +5,18 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
 
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 // recordingAssigner tient lieu de la mise à jour : il note les machines à qui
@@ -49,8 +51,8 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 	if err != nil {
 		t.Fatalf("créer la sonde: %v", err)
 	}
-	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
-	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{
+	statuses := status.New(b.db, b.db, b.machines, logger)
+	component, err := statuses.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
 		Name: "Nuage", Members: []status.MemberRef{{Kind: status.KindService, ID: serviceID}},
 	})
 	if err != nil {
@@ -60,7 +62,7 @@ func watch(t *testing.T, b *bench, serviceID string) (probe.Probe, status.Compon
 }
 
 // Un service que des sondes ou des composants visent ne se supprime pas : le
-// refus porte la liste, et rien n'a bougé. Détaché, il part.
+// refus porte le plan, avec la liste, et rien n'a bougé. Détaché, il part.
 func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	b := newBench(t)
 	ctx := context.Background()
@@ -72,21 +74,26 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if !errors.Is(err, directory.ErrServiceLinked) {
 		t.Fatalf("attendu %v, obtenu %v", directory.ErrServiceLinked, err)
 	}
-	var linked *directory.LinkedError
-	if !errors.As(err, &linked) {
-		t.Fatalf("le refus doit porter la liste: %T", err)
+	var refused *deletion.RefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("le refus doit porter le plan: %T", err)
 	}
-	if len(linked.Links.Probes) != 1 || linked.Links.Probes[0].ID != watched.ID || linked.Links.Probes[0].Name != "site" {
-		t.Fatalf("sondes = %+v", linked.Links.Probes)
+	wantBlockers := []deletion.Blocker{
+		{Kind: deletion.KindProbes, Objects: []deletion.Object{{ID: watched.ID, Name: "site"}}},
+		{Kind: deletion.KindComponents, Objects: []deletion.Object{{ID: component.ID, Name: "Nuage"}}},
 	}
-	if len(linked.Links.Components) != 1 || linked.Links.Components[0].ID != component.ID || linked.Links.Components[0].Name != "Nuage" {
-		t.Fatalf("composants = %+v", linked.Links.Components)
+	if !reflect.DeepEqual(refused.Plan.Blockers, wantBlockers) {
+		t.Fatalf("bloqueurs = %+v", refused.Plan.Blockers)
+	}
+	plan, err := b.directory.DeleteServicePlan(ctx, created.ID)
+	if err != nil || !reflect.DeepEqual(plan, refused.Plan) {
+		t.Fatalf("le plan lu doit être celui du refus: %+v %v", plan, err)
 	}
 	if _, err := b.db.GetDeclaredService(ctx, created.ID); err != nil {
 		t.Fatalf("le service a disparu malgré le refus: %v", err)
 	}
 	links, err := b.db.ListServiceLinks(ctx, created.ID)
-	if err != nil || links.IsEmpty() {
+	if err != nil || len(links.Probes) != 1 || len(links.Components) != 1 {
 		t.Fatalf("ServiceLinks = %+v, %v", links, err)
 	}
 
@@ -94,60 +101,11 @@ func TestDeleteService_LinkedIsRefusedWithTheList(t *testing.T) {
 	if err := probe.New(b.db, logger).Delete(ctx, watched.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger).DeleteComponent(ctx, component.ID); err != nil {
+	if err := status.New(b.db, b.db, b.machines, logger).DeleteComponent(ctx, component.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.directory.DeleteService(ctx, created.ID); err != nil {
 		t.Fatalf("détaché, le service doit partir: %v", err)
-	}
-}
-
-// Valider un service repris de l'existant exige une définition qui passe la
-// validation ; modifier le service ne le valide pas ; valider deux fois ne
-// change rien.
-func TestReview_ClearsTheFlagOnlyForAValidDefinition(t *testing.T) {
-	b := newBench(t)
-	ctx := context.Background()
-	taken := directory.Service{
-		ID: "svc_0123456789abcdef", MachineID: remoteID, Name: "whoami", Nature: directory.NatureApplication,
-		Origin: directory.OriginContainer, DeclaredBy: directory.ByMigration, NeedsReview: true,
-		CreatedAt: testNow, UpdatedAt: testNow,
-		Units: []directory.Unit{{
-			ID: "unit_0123456789abcdef", ServiceID: "svc_0123456789abcdef", Name: "whoami", Kind: directory.UnitContainer,
-			// Une image que Docker montrait sous une forme que l'annuaire refuse.
-			Image: "NOT A VALID IMAGE", ContainerName: "whoami", UpdatePolicy: container.PolicyWatch,
-		}},
-	}
-	if err := b.db.InsertDeclaredService(ctx, taken); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := b.directory.Review(ctx, taken.ID); !errors.Is(err, directory.ErrImageInvalid) {
-		t.Fatalf("attendu %v, obtenu %v", directory.ErrImageInvalid, err)
-	}
-	if still, _ := b.db.GetDeclaredService(ctx, taken.ID); !still.NeedsReview {
-		t.Fatal("un refus ne valide rien")
-	}
-
-	definition := containerDefinition(remoteID, "whoami", "whoami")
-	definition.Units[0].ID = "unit_0123456789abcdef"
-	if _, err := b.directory.UpdateService(ctx, taken.ID, definition); err != nil {
-		t.Fatal(err)
-	}
-	if edited, _ := b.db.GetDeclaredService(ctx, taken.ID); !edited.NeedsReview || edited.DeclaredBy != directory.ByMigration {
-		t.Fatalf("modifier ne valide pas, et la provenance reste: %+v", edited)
-	}
-
-	reviewed, err := b.directory.Review(ctx, taken.ID)
-	if err != nil || reviewed.NeedsReview {
-		t.Fatalf("Review = %+v, %v", reviewed, err)
-	}
-	again, err := b.directory.Review(ctx, taken.ID)
-	if err != nil || again.NeedsReview || !again.UpdatedAt.Equal(reviewed.UpdatedAt) {
-		t.Fatalf("valider deux fois ne change rien: %+v, %v", again, err)
-	}
-	if _, err := b.directory.Review(ctx, "svc_inconnu"); !errors.Is(err, directory.ErrNotFound) {
-		t.Fatalf("service inconnu: %v", err)
 	}
 }
 

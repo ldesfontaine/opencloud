@@ -1,6 +1,8 @@
 import { useResource, type Resource } from "../hooks/useResource";
-import { api, ApiError, segment } from "./client";
+import { api, segment } from "./client";
 import type { ContainerState } from "./containers";
+import type { ActionRun } from "./actions";
+import type { DeletionPlan } from "./deletion";
 
 // L'annuaire : ce que l'opérateur déclare (services, projets), l'écart avec
 // ce que Docker montre, et ce qu'il choisit d'ignorer. Sujet du direct :
@@ -10,7 +12,7 @@ import type { ContainerState } from "./containers";
 export type Nature = "application" | "infra";
 export type Origin = "compose" | "container" | "binary";
 export type Capability = "sso" | "proxy" | "tls" | "backup-target";
-type DeclaredBy = "operator" | "migration";
+type DeclaredBy = "operator";
 
 // Ce que l'opérateur veut des mises à jour d'une unité : les suivre (watch),
 // les taire (hold : vérifiées, jamais montrées), ne jamais interroger le
@@ -29,6 +31,8 @@ export interface ServiceUnit {
   container_name: string;
   systemd_unit: string;
   ports: string[];
+  // Le dossier du conteneur monté depuis data/<unité> au déploiement ; vide : aucun.
+  data_path: string;
   // « watch » pour un binaire : la politique ne vaut que pour un conteneur.
   update_policy: UpdatePolicy;
 }
@@ -56,7 +60,6 @@ export interface DeclaredService {
   compose_project: string;
   public_url: string;
   declared_by: DeclaredBy;
-  needs_review: boolean;
   provides: Capability[];
   units: ServiceUnit[];
   project_ids: string[];
@@ -119,6 +122,9 @@ interface UnitGap {
 export interface ServiceGap {
   service_id: string;
   state: GapState;
+  // Faux : la machine du service ne signale plus, l'écart est celui d'avant
+  // son silence.
+  observed: boolean;
   weak: boolean;
   units: UnitGap[];
 }
@@ -249,8 +255,9 @@ export function unignorePath(key: IgnoreKey): string {
   return `${ignoredPath}?${query.toString()}`;
 }
 
-export function useDeclaredServices(): Resource<DeclaredServicesResponse> {
-  return useResource<DeclaredServicesResponse>(servicesPath);
+// wanted faux : rien à lire (le sélecteur d'un silence, tant qu'un autre genre est choisi).
+export function useDeclaredServices(wanted = true): Resource<DeclaredServicesResponse> {
+  return useResource<DeclaredServicesResponse>(wanted ? servicesPath : null);
 }
 
 // Les services qu'un projet regroupe ; projectID nul : rien à lire.
@@ -294,14 +301,13 @@ export async function saveDeclaredService(id: string | undefined, body: ServiceR
 }
 
 // Les projets restent, seul le lien s'efface. Un service lié est refusé
-// en 409 : linksOfRefusal lit ce qui le lie.
+// en 409, avec le plan qui dit ce qui le lie.
 export async function deleteDeclaredService(id: string): Promise<void> {
   return api.delete(servicePath(id));
 }
 
-// Valide un service repris de l'existant.
-export async function reviewDeclaredService(id: string): Promise<void> {
-  return api.post(`${servicePath(id)}/actions/review`);
+export async function fetchDeclaredServiceDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${servicePath(id)}/delete-plan`);
 }
 
 // Sans id, une création ; avec, le remplacement de ce projet.
@@ -312,6 +318,54 @@ export async function saveProject(id: string | undefined, body: ProjectRequest):
 // Les services du projet gardent leur déclaration.
 export async function deleteProject(id: string): Promise<void> {
   return api.delete(projectPath(id));
+}
+
+export async function fetchProjectDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${projectPath(id)}/delete-plan`);
+}
+
+// Le droit du prochain geste de déploiement ; « unknown » tant que l'agent
+// n'a pas rapporté ses droits ; « unavailable » : le droit est coché mais le
+// compte de l'agent ne peut pas l'exercer (right_reason dit pourquoi). L'ordre
+// part quand même : c'est l'agent qui le refuse.
+export type DeployRight = "ok" | "missing" | "unavailable" | "unknown";
+
+// Ce que l'opérateur lit avant de déployer : où le service ira, ce qu'il y
+// aura, et où il en est.
+export interface DeployPlan {
+  service_id: string;
+  machine_id: string;
+  machine_name: string;
+  // Vide tant que l'agent n'a pas dit sa racine.
+  root_dir: string;
+  path: string;
+  // Le dossier est écrit sur la machine : le geste est « redéployer ».
+  deployed: boolean;
+  right: DeployRight;
+  // La raison de « unavailable » ; absente sinon.
+  right_reason?: string;
+  compose: string;
+  // Les unités dont un dossier de données est monté.
+  data_dirs: string[];
+  last_run: ActionRun | null;
+}
+
+// id nul : rien à lire. Le plan suit l'annuaire, les ordres et les machines
+// (topicsOf).
+export function useDeployPlan(id: string | null): Resource<DeployPlan> {
+  return useResource<DeployPlan>(id === null ? null : () => `${servicePath(id)}/deploy-plan`);
+}
+
+// Le .env part dans ce corps et nulle part ailleurs ; null : aucun. L'ordre
+// rendu avance ensuite par le direct.
+export async function deployService(id: string, redeploy: boolean, env: string | null): Promise<ActionRun> {
+  return api.post<ActionRun>(`${servicePath(id)}/actions/${redeploy ? "redeploy" : "deploy"}`, { env });
+}
+
+// Change la version déclarée de l'unité, puis redéploie son service : un
+// geste. La version est celle que l'agent propose, rien d'autre.
+export async function upgradeUnit(unitID: string, version: string): Promise<ActionRun> {
+  return api.post<ActionRun>(`${directoryPath}/units/${segment(unitID)}/actions/upgrade`, { version });
 }
 
 export async function ignoreObservation(key: IgnoreKey): Promise<void> {
@@ -326,13 +380,4 @@ export async function unignoreObservation(key: IgnoreKey): Promise<void> {
 // survit à sa recréation.
 export async function saveUpdatePolicy(unitID: string, policy: UpdatePolicy): Promise<void> {
   return api.put(`${directoryPath}/units/${segment(unitID)}/update-policy`, { policy });
-}
-
-// Ce que le serveur dit lier un service qu'on voulait supprimer : la liste
-// vient du corps du refus 409, pas d'une clé du catalogue.
-export function linksOfRefusal(error: unknown): ServiceLinks | null {
-  if (!(error instanceof ApiError) || error.status !== 409 || typeof error.payload !== "object" || error.payload === null || !("links" in error.payload)) {
-    return null;
-  }
-  return error.payload.links as ServiceLinks;
 }

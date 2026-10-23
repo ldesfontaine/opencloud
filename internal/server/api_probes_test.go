@@ -14,7 +14,6 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 func (ts *testServer) createProbeVia(t *testing.T, request probeRequest) probeJSON {
@@ -36,8 +35,8 @@ func TestAPI_CreateProbe_ReturnsItAndRefusesBadDefinitionsWithTheirKey(t *testin
 	if created.Status != string(probe.StatusNew) || created.IntervalSeconds != 60 || created.Method != "GET" {
 		t.Fatalf("created %+v", created)
 	}
-	if created.MachineName == "" || !created.MachineOnline {
-		t.Fatalf("la machine openCloud devait être nommée et en ligne: %+v", created)
+	if created.MachineName == "" || created.MachineOnline {
+		t.Fatalf("la machine openCloud, nommée, hors ligne sans le flux de son agent: %+v", created)
 	}
 	if got, err := server.db.GetProbe(context.Background(), created.ID); err != nil || got.Name != "site nextcloud" {
 		t.Fatalf("stored %+v %v", got, err)
@@ -160,11 +159,11 @@ func nextAssignment(t *testing.T, stream *bufio.Reader) probe.Assignment {
 	t.Helper()
 	name, data := nextCommand(t, stream, 3*time.Second)
 	// Le flux qui s'ouvre porte aussi les exclusions d'images : on passe.
-	if name == update.CommandImages {
+	if name == string(agentwire.KindImages) {
 		name, data = nextCommand(t, stream, 3*time.Second)
 	}
-	if name != probe.CommandProbes {
-		t.Fatalf("attendu la commande %q, obtenu %q", probe.CommandProbes, name)
+	if name != string(agentwire.KindProbes) {
+		t.Fatalf("attendu la commande %q, obtenu %q", string(agentwire.KindProbes), name)
 	}
 	var assignment probe.Assignment
 	if err := json.Unmarshal([]byte(data), &assignment); err != nil {

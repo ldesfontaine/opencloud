@@ -1,31 +1,52 @@
-# Publie les binaires d'openCloud (Linux amd64 et arm64) dans la release
-# v0.0.1 du dépôt. Lancement à la main seulement (onglet Actions → release →
-# Run workflow), sur la branche choisie : aucune exécution automatique de
-# plus. Chaque lancement remplace la release précédente, la version reste
-# v0.0.1 ; le commit est dans le nom et dans `opencloud version`.
+# Publie une version : binaires Linux amd64 et arm64, leurs sommes, la
+# signature minisign des sommes (clé privée en secret de l'environnement
+# « release », clé publique embarquée dans le binaire) et l'attestation de
+# provenance de GitHub.
+# Deux jobs. « build » compile et teste (npm, binaires) sans aucun secret et
+# sans droit d'écriture. « sign » tient la clé, sous l'environnement protégé
+# « release », et n'exécute jamais de code npm ni de binaire publié : il
+# recompile son propre signataire depuis le tag, vérifie que les fichiers
+# reçus sont ceux du build, signe, vérifie, atteste et publie.
+# Déclenché seulement par un tag vX.Y.Z poussé sur un commit de main. Une
+# version publiée ne se réécrit jamais : un job échoue si elle existe.
 # Actions épinglées par SHA, comme ci.yml.
 name: release
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: read
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  binaires:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
-      contents: write # créer la release et y déposer les binaires
+      contents: read # aucun secret ici, aucun droit d'écriture : npm tourne dans ce job
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: le tag est sur main, la version n'existe pas
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "la version $TAG existe déjà : une version ne se réécrit pas"
+            exit 1
+          fi
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -41,17 +62,114 @@ jobs:
         run: make front-check test
 
       - name: compiler amd64 et arm64
-        run: make release
-
-      - name: publier la release v0.0.1
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT_SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: make release VERSION="$TAG"
+
+      - name: le build est reproductible
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          short="${COMMIT_SHA:0:7}"
-          gh release delete v0.0.1 --cleanup-tag --yes || true
-          gh release create v0.0.1 dist-release/* \
-            --target "$COMMIT_SHA" \
-            --title "v0.0.1 (${short})" \
-            --prerelease \
-            --notes "Binaires statiques Linux, commit ${short}. Vérifier avec : sha256sum -c SHA256SUMS. Installation : docs/installation.md."
+          cp dist-release/SHA256SUMS /tmp/premier-build
+          # sans le cache de compilation, le second build refait tout
+          go clean -cache
+          make release VERSION="$TAG"
+          diff /tmp/premier-build dist-release/SHA256SUMS
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-release
+          path: dist-release/
+          retention-days: 1
+          if-no-files-found: error
+
+  sign:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # La clé de signature est un secret de cet environnement : relecteur
+    # obligatoire, tags v* seulement (réglages du dépôt, docs/projet/12-methode.md).
+    environment: release
+    permissions:
+      contents: write # créer la release et y déposer les fichiers
+      id-token: write # l'attestation signe avec l'identité du job
+      attestations: write # et se range dans le dépôt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Pas de setup-node ni de make : web/dist ne garde que .gitkeep, que
+      # web/embed.go accepte, et rien de npm n'entre dans ce job.
+      # Sans cache : celui que build enregistre (même clé, même ref) sort d'un
+      # runner où npm a tourné, et go fait confiance à GOCACHE et à GOMODCACHE
+      # sans les revérifier. Modules téléchargés à neuf, contrôlés par go.sum.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: construire le signataire, sans npm
+        run: CGO_ENABLED=0 go build -trimpath -o "$RUNNER_TEMP/signer" ./cmd/opencloud
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-release
+          path: dist-release
+
+      - name: les fichiers sont ceux du build
+        working-directory: dist-release
+        run: |
+          sha256sum --strict -c SHA256SUMS
+          # LC_ALL=C : l'ordre du tri ne dépend pas de la langue du runner
+          liste=$(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')
+          if [ "$liste" != "SHA256SUMS opencloud-linux-amd64 opencloud-linux-arm64 " ]; then
+            echo "le dossier reçu ne contient pas exactement les fichiers du build : $liste"
+            exit 1
+          fi
+          # SHA256SUMS est ce qui est signé : il ne liste que les deux binaires
+          noms=$(sed 's/^[0-9a-f]\{64\}  //' SHA256SUMS | LC_ALL=C sort | tr '\n' ' ')
+          if [ "$noms" != "opencloud-linux-amd64 opencloud-linux-arm64 " ]; then
+            echo "SHA256SUMS ne liste pas exactement les deux binaires : $noms"
+            exit 1
+          fi
+
+      - name: la version n'existe toujours pas
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "la version $TAG existe déjà : une version ne se réécrit pas"
+            exit 1
+          fi
+
+      - name: signer les sommes
+        env:
+          TAG: ${{ github.ref_name }}
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          "$RUNNER_TEMP/signer" release sign -key-env RELEASE_SIGNING_KEY -version "$TAG" dist-release/SHA256SUMS
+
+      # Le signataire vérifie, jamais un binaire publié.
+      - name: vérifier avec la clé embarquée
+        run: |
+          "$RUNNER_TEMP/signer" release verify dist-release/opencloud-linux-amd64
+          "$RUNNER_TEMP/signer" release verify dist-release/opencloud-linux-arm64
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist-release/SHA256SUMS
+
+      - name: publier la version
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="Binaires statiques Linux, signés. Vérifier : opencloud release verify <binaire>, ou minisign -Vm SHA256SUMS -P <clé de docs/installation.md>, puis sha256sum -c --ignore-missing SHA256SUMS. Installation : docs/installation.md."
+          if [ "${TAG#v0.}" != "$TAG" ]; then
+            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" --prerelease --notes "$notes"
+          else
+            gh release create "$TAG" dist-release/* --verify-tag --title "$TAG" --notes "$notes"
+          fi

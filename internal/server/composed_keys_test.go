@@ -4,17 +4,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/lifecycle"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -84,7 +91,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "alert.action_service_down_", values: alert.ServiceDownReasons()},
 		{prefix: "alert.severity_", values: names(alert.Severities())},
 		{prefix: "channel.receives_", values: names(alert.Severities())},
-		{prefix: "silence.object_kind_", values: names(alert.ObjectKinds())},
+		{prefix: "silence.target_kind_", values: names(alert.TargetKinds())},
 		// Un envoi d'essai n'est jamais une livraison de la fiche.
 		{prefix: "alert.event_", values: without(without(names(alert.Events()), string(alert.EventTest)), string(alert.EventSummary))},
 		{prefix: "alert.notify_", values: names(alert.Events())},
@@ -125,7 +132,48 @@ func closedKeyLists() []composedKeys {
 		{prefix: "manifest.note_", values: names(manifest.Notes())},
 		{prefix: "manifest.carries_", values: manifest.CarryKinds()},
 		{prefix: "manifest.carries_", suffix: "_one", values: manifest.CarryKinds()},
+		// Le journal d'audit : qui, le verbe d'une action, la sorte d'objet ;
+		// les anciennes lignes du MCP restent lisibles.
+		{prefix: "audit.actor_", values: names(append(audit.ActorKinds(), audit.LegacyActorKinds()...))},
+		{prefix: "audit.verb_", values: audit.Verbs()},
+		{prefix: "audit.object_", values: names(append(audit.ObjectKinds(), audit.LegacyObjectKinds()...))},
+		// La carte de Paramètres sur mcp-maison : ce que sa vérification a
+		// trouvé, et le conseil qui suit (aucun quand il est joignable).
+		{prefix: "ai_agent.state_", values: names(mcpcheck.States())},
+		{prefix: "ai_agent.hint_", values: without(names(mcpcheck.States()), string(mcpcheck.StateReachable))},
+		// Le plan d'une suppression : ce qui retient, part ou se détache, compté.
+		// L'état de lecture des clés SSH d'un compte.
+		{prefix: "ssh.state_", values: names(sshkeys.States())},
+		{prefix: "deletion.kind_", values: names(deletion.Kinds())},
+		{prefix: "deletion.kind_", suffix: "_one", values: names(deletion.Kinds())},
+		// Les droits d'un agent : le front remplace le point par « _ ».
+		{prefix: "machine.capability_", values: capabilityKeys()},
+		// Les ordres : leur genre (le point devient « _ »), l'état d'un run,
+		// la raison d'un refus.
+		{prefix: "action.kind_", values: orderKindKeys()},
+		{prefix: "action.state_", values: names(action.States())},
+		{prefix: "action.reason_", values: append(agentwire.RefusalReasons(), action.ReasonUndelivered, action.ReasonTimeout)},
+		// La fiche d'une machine dit pourquoi son agent n'a pas de mise à jour à recevoir.
+		{prefix: "machine.agent_update_reason_", values: action.OfferReasons()},
+		// Pourquoi un droit coché n'est pas exerçable : une phrase par raison.
+		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
 	}
+}
+
+func orderKindKeys() []string {
+	out := make([]string, 0, len(agentwire.OrderKinds()))
+	for _, kind := range agentwire.OrderKinds() {
+		out = append(out, strings.ReplaceAll(string(kind), ".", "_"))
+	}
+	return out
+}
+
+func capabilityKeys() []string {
+	out := make([]string, 0, len(machine.CapabilityNames()))
+	for _, name := range machine.CapabilityNames() {
+		out = append(out, strings.ReplaceAll(name, ".", "_"))
+	}
+	return out
 }
 
 func names[T ~string](values []T) []string {

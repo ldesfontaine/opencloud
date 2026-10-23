@@ -86,19 +86,20 @@ func TestLoad_RefusesAWrongId(t *testing.T) {
 	}
 }
 
-func TestLoad_RefusesAnythingButOneLine(t *testing.T) {
+func TestLoad_RefusesAnythingButKeyLines(t *testing.T) {
 	root := newRoot(t)
 	keyring := Generate()
 	line := keyFileScheme + ":" + keyring.ID() + ":" + encodeKey(keyring)
 	for name, content := range map[string]string{
-		"two lines":      line + "\n" + line + "\n",
-		"a blank second": line + "\n\n",
-		"empty":          "",
-		"only a newline": "\n",
-		"unknown format": "key-v2:" + keyring.ID() + ":" + encodeKey(keyring) + "\n",
-		"short key":      keyFileScheme + ":" + keyring.ID() + ":AAAA\n",
-		"not a key":      "hunter2\n",
-		"too long":       strings.Repeat("x", maxKeyFileBytes+1),
+		"the same key twice": line + "\n" + line + "\n",
+		"a blank second":     line + "\n\n",
+		"five keys":          strings.Repeat(line+"\n", 5),
+		"empty":              "",
+		"only a newline":     "\n",
+		"unknown format":     "key-v2:" + keyring.ID() + ":" + encodeKey(keyring) + "\n",
+		"short key":          keyFileScheme + ":" + keyring.ID() + ":AAAA\n",
+		"not a key":          "hunter2\n",
+		"too long":           strings.Repeat("x", maxKeyFileBytes+1),
 	} {
 		writeKeyFile(t, root, content)
 		if _, err := Load(root); !errors.Is(err, ErrKeyFileInvalid) {
@@ -113,7 +114,7 @@ func TestLoad_RefusesAnythingButOneLine(t *testing.T) {
 }
 
 func encodeKey(keyring *Keyring) string {
-	return base64.RawURLEncoding.EncodeToString(keyring.key[:])
+	return base64.RawURLEncoding.EncodeToString(keyring.keys[0].key[:])
 }
 
 func writeKeyFile(t *testing.T, root *os.Root, content string) {
@@ -177,5 +178,37 @@ func TestCreate_ConcurrentCreatorsEndWithTheSameKey(t *testing.T) {
 	loaded, err := Load(root)
 	if err != nil || loaded.ID() != ids[0] {
 		t.Fatalf("the file holds %v (%v), want %s", loaded, err, ids[0])
+	}
+}
+
+// La rotation : une clé neuve scelle, les précédentes ouvrent encore ce
+// qu'elles ont scellé, chacune reconnue par son identifiant ; le fichier
+// garde l'ordre. Une fois tout rescellé, la neuve reste seule.
+func TestRotation_SealsWithTheNewKeyAndOpensWithBoth(t *testing.T) {
+	root := newRoot(t)
+	old := Generate()
+	sealedBefore := old.Seal("hunter2", Scope{Table: "settings", Column: "mail_password", Row: "1"})
+	rotated := old.WithNewKey()
+	if err := Save(root, rotated); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil || loaded.Len() != 2 || loaded.ID() != rotated.ID() || loaded.ID() == old.ID() {
+		t.Fatalf("loaded %d keys, %v", loaded.Len(), err)
+	}
+	scope := Scope{Table: "settings", Column: "mail_password", Row: "1"}
+	if plaintext, err := loaded.Open(sealedBefore, scope); err != nil || plaintext != "hunter2" {
+		t.Fatalf("old secret: %q %v", plaintext, err)
+	}
+	sealedAfter := loaded.Seal("hunter2", scope)
+	if !strings.HasPrefix(sealedAfter, "v1:"+rotated.ID()+":") {
+		t.Fatalf("sealed with %q", sealedAfter)
+	}
+	current := loaded.Current()
+	if _, err := current.Open(sealedBefore, scope); !errors.Is(err, ErrUnknownKey) {
+		t.Fatalf("the current key alone opens an old secret: %v", err)
+	}
+	if loaded.Retired().Len() != 1 || loaded.Retired().ID() != old.ID() {
+		t.Fatal("the retired key is not the old one")
 	}
 }

@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/heartbeat"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/status"
 )
@@ -30,13 +33,13 @@ func (f *fixture) effective(t *testing.T, componentID string) status.State {
 	return component.Effective
 }
 
-func TestChangeIncident_MovesTheTitleAndTheComponentsAndKeepsTheTimeline(t *testing.T) {
+func TestChangeIncident_MovesTheTitleAndTheTargetsAndKeepsTheTimeline(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	site, mail := twoSites(t, f)
 	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Panne du site", Impact: status.ImpactDown, Status: status.StatusInvestigating,
-		Message: "On regarde.", ComponentIDs: []string{site.ID},
+		Message: "On regarde.", Targets: targetsOf(site),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,12 +50,15 @@ func TestChangeIncident_MovesTheTitleAndTheComponentsAndKeepsTheTimeline(t *test
 	f.now = f.now.Add(10 * time.Minute)
 	published := f.published.count
 
-	changed, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "  Panne de la messagerie  ", ComponentIDs: []string{mail.ID}})
+	changed, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "  Panne de la messagerie  ", Targets: targetsOf(mail)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changed.Title != "Panne de la messagerie" {
 		t.Fatalf("title %q, want it trimmed", changed.Title)
+	}
+	if len(changed.Targets) != 1 || changed.Targets[0].ID != targetsOf(mail)[0].ID || changed.Targets[0].Name != "mail" {
+		t.Fatalf("targets %+v, want the mail probe only", changed.Targets)
 	}
 	if len(changed.Components) != 1 || changed.Components[0].ID != mail.ID || changed.Components[0].Name != "Messagerie" {
 		t.Fatalf("components %+v, want the mail only", changed.Components)
@@ -67,7 +73,7 @@ func TestChangeIncident_MovesTheTitleAndTheComponentsAndKeepsTheTimeline(t *test
 	if !changed.CreatedAt.Equal(opened.CreatedAt) || !changed.UpdatedAt.Equal(f.now) {
 		t.Fatalf("created %v updated %v, want the creation kept and the update at %v", changed.CreatedAt, changed.UpdatedAt, f.now)
 	}
-	// L'impact suit les composants touchés.
+	// L'impact suit les composants que les cibles touchent.
 	if f.effective(t, site.ID) != status.StateOperational || f.effective(t, mail.ID) != status.StateDown {
 		t.Fatalf("site %q mail %q: the outage must have moved to the mail", f.effective(t, site.ID), f.effective(t, mail.ID))
 	}
@@ -80,14 +86,14 @@ func TestChangeIncident_TheSnapshotShowsTheChange(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	site, mail := twoSites(t, f)
-	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}})
+	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "Panne corrigée", ComponentIDs: []string{site.ID, mail.ID}}); err != nil {
+	if _, err := f.status.ChangeIncident(ctx, opened.ID, status.IncidentChange{Title: "Panne corrigée", Targets: targetsOf(site, mail)}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.status.Snapshot(ctx)
+	snapshot, err := f.status.Snapshot(ctx, f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,13 +116,13 @@ func TestChangeIncident_ReschedulesAMaintenanceWindow(t *testing.T) {
 	site, _ := twoSites(t, f)
 	planned, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
 		Title: "Redémarrage", Impact: status.ImpactMaintenance, Status: status.StatusScheduled,
-		ComponentIDs: []string{site.ID}, StartsAt: f.now.Add(time.Hour), EndsAt: f.now.Add(2 * time.Hour),
+		Targets: targetsOf(site), StartsAt: f.now.Add(time.Hour), EndsAt: f.now.Add(2 * time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	startsAt, endsAt := f.now.Add(3*time.Hour), f.now.Add(4*time.Hour)
-	changed, err := f.status.ChangeIncident(ctx, planned.ID, status.IncidentChange{Title: planned.Title, ComponentIDs: []string{site.ID}, StartsAt: startsAt, EndsAt: endsAt})
+	changed, err := f.status.ChangeIncident(ctx, planned.ID, status.IncidentChange{Title: planned.Title, Targets: targetsOf(site), StartsAt: startsAt, EndsAt: endsAt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +146,7 @@ func TestChangeIncident_RefusesWhatMakesNoSenseAndChangesNothing(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
 	site, mail := twoSites(t, f)
-	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID}})
+	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,12 +155,14 @@ func TestChangeIncident_RefusesWhatMakesNoSenseAndChangesNothing(t *testing.T) {
 		change status.IncidentChange
 		want   error
 	}{
-		"unknown incident":      {"nope", status.IncidentChange{Title: "x", ComponentIDs: []string{site.ID}}, status.ErrNotFound},
-		"empty title":           {opened.ID, status.IncidentChange{Title: "  ", ComponentIDs: []string{site.ID}}, status.ErrTitleInvalid},
-		"no component":          {opened.ID, status.IncidentChange{Title: "x"}, status.ErrComponentInvalid},
-		"unknown component":     {opened.ID, status.IncidentChange{Title: "x", ComponentIDs: []string{"nope"}}, status.ErrComponentInvalid},
-		"component twice":       {opened.ID, status.IncidentChange{Title: "x", ComponentIDs: []string{mail.ID, mail.ID}}, status.ErrComponentInvalid},
-		"window on an incident": {opened.ID, status.IncidentChange{Title: "x", ComponentIDs: []string{site.ID}, StartsAt: f.now}, status.ErrWindowInvalid},
+		"unknown incident":      {"nope", status.IncidentChange{Title: "x", Targets: targetsOf(site)}, status.ErrNotFound},
+		"empty title":           {opened.ID, status.IncidentChange{Title: "  ", Targets: targetsOf(site)}, status.ErrTitleInvalid},
+		"no target":             {opened.ID, status.IncidentChange{Title: "x"}, status.ErrTargetInvalid},
+		"unknown target":        {opened.ID, status.IncidentChange{Title: "x", Targets: []status.MemberRef{{Kind: status.KindProbe, ID: "nope"}}}, status.ErrTargetInvalid},
+		"unknown kind":          {opened.ID, status.IncidentChange{Title: "x", Targets: []status.MemberRef{{Kind: "container", ID: "nope"}}}, status.ErrTargetInvalid},
+		"target without id":     {opened.ID, status.IncidentChange{Title: "x", Targets: []status.MemberRef{{Kind: status.KindProbe}}}, status.ErrTargetInvalid},
+		"target twice":          {opened.ID, status.IncidentChange{Title: "x", Targets: targetsOf(mail, mail)}, status.ErrTargetInvalid},
+		"window on an incident": {opened.ID, status.IncidentChange{Title: "x", Targets: targetsOf(site), StartsAt: f.now}, status.ErrWindowInvalid},
 	}
 	for name, tc := range cases {
 		if _, err := f.status.ChangeIncident(ctx, tc.id, tc.change); !errors.Is(err, tc.want) {
@@ -165,7 +173,7 @@ func TestChangeIncident_RefusesWhatMakesNoSenseAndChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unchanged.Title != "Panne" || len(unchanged.Components) != 1 || unchanged.Components[0].ID != site.ID {
+	if unchanged.Title != "Panne" || len(unchanged.Targets) != 1 || unchanged.Targets[0].ID != targetsOf(site)[0].ID || len(unchanged.Components) != 1 || unchanged.Components[0].ID != site.ID {
 		t.Fatalf("a refused change reached the base: %+v", unchanged)
 	}
 }
@@ -174,11 +182,11 @@ func TestDeleteIncident_TakesTheIncidentOffTheComponentsAndTheSnapshot(t *testin
 	f := newFixture(t)
 	ctx := context.Background()
 	site, mail := twoSites(t, f)
-	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, ComponentIDs: []string{site.ID, mail.ID}})
+	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Panne", Impact: status.ImpactDown, Status: status.StatusInvestigating, Targets: targetsOf(site, mail)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kept, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Lenteur", Impact: status.ImpactDegraded, Status: status.StatusInvestigating, ComponentIDs: []string{mail.ID}})
+	kept, err := f.status.OpenIncident(ctx, status.IncidentDefinition{Title: "Lenteur", Impact: status.ImpactDegraded, Status: status.StatusInvestigating, Targets: targetsOf(mail)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +202,7 @@ func TestDeleteIncident_TakesTheIncidentOffTheComponentsAndTheSnapshot(t *testin
 	if f.effective(t, site.ID) != status.StateOperational || f.effective(t, mail.ID) != status.StateDegraded {
 		t.Fatalf("site %q mail %q", f.effective(t, site.ID), f.effective(t, mail.ID))
 	}
-	snapshot, err := f.status.Snapshot(ctx)
+	snapshot, err := f.status.Snapshot(ctx, f.pageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,5 +226,131 @@ func TestDeleteIncident_UnknownIsNotFoundAndSilent(t *testing.T) {
 	}
 	if f.published.count != published {
 		t.Fatal("a refusal must not wake the public page")
+	}
+}
+
+// serviceWithProbe pose un service déclaré sur la machine openCloud et une
+// sonde qui le regarde depuis la machine donnée, en bonne santé.
+func (f *fixture) serviceWithProbe(t *testing.T, name, probeMachineID string) (serviceID string, watching probe.Probe) {
+	t.Helper()
+	ctx := context.Background()
+	serviceID = f.service(t, name, container.StateRunning, 0)
+	watching, err := f.probes.Create(ctx, probe.Definition{
+		Name: "sonde-" + name, Kind: probe.KindHTTP, Target: "https://" + name + ".exemple.fr/", MachineID: probeMachineID, ServiceID: serviceID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := probe.Result{ProbeID: watching.ID, CheckedAt: f.now.Add(-time.Minute), Outcome: probe.OutcomeUp, DurationMs: 100}
+	if err := f.probes.Record(ctx, probeMachineID, probe.Report{Results: []probe.Result{result}}); err != nil {
+		t.Fatal(err)
+	}
+	return serviceID, watching
+}
+
+// Un incident sur un service touche le composant de sa sonde : l'état du
+// composant devient celui de l'incident, et l'incident paraît sur la page,
+// réduit à ce composant. L'opérateur lit les noms des cibles.
+func TestSnapshot_IncidentOnAServiceTouchesTheComponentOfItsProbe(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	serviceID, watching := f.serviceWithProbe(t, "Nextcloud", machine.LocalID)
+	web := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: watching.ID})
+	elsewhere := f.probe(t, "autre", probe.OutcomeUp, nil)
+	other := f.component(t, "Autre", status.MemberRef{Kind: status.KindProbe, ID: elsewhere.ID})
+
+	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
+		Title: "Nextcloud est tombé", Impact: status.ImpactDown, Status: status.StatusInvestigating,
+		Targets: []status.MemberRef{{Kind: status.KindService, ID: serviceID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(opened.Targets) != 1 || opened.Targets[0].Name != "Nextcloud" {
+		t.Fatalf("targets %+v, want the service named by its title", opened.Targets)
+	}
+	if len(opened.Components) != 1 || opened.Components[0].ID != web.ID {
+		t.Fatalf("components %+v, want the web component only", opened.Components)
+	}
+	if f.effective(t, web.ID) != status.StateDown || f.effective(t, other.ID) != status.StateOperational {
+		t.Fatalf("web %q other %q", f.effective(t, web.ID), f.effective(t, other.ID))
+	}
+	snapshot, err := f.status.Snapshot(ctx, f.pageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Open) != 1 || len(snapshot.Open[0].Components) != 1 || snapshot.Open[0].Components[0].Name != "Site web" {
+		t.Fatalf("open %+v, want the incident reduced to the web component", snapshot.Open)
+	}
+}
+
+// La machine qui lance une sonde ne la touche pas : une sonde qui regarde de
+// dehors reste juste. La machine qui héberge le service, si.
+func TestSnapshot_IncidentOnAMachineDoesNotTouchAProbeRunFromIt(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	remote := f.enroll(t, "vps-paris-1")
+	_, watching := f.serviceWithProbe(t, "Nextcloud", remote)
+	web := f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: watching.ID})
+
+	fromRemote, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
+		Title: "Le VPS de contrôle tombe", Impact: status.ImpactDown, Status: status.StatusInvestigating,
+		Targets: []status.MemberRef{{Kind: status.KindMachine, ID: remote}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fromRemote.Components) != 0 || f.effective(t, web.ID) != status.StateOperational {
+		t.Fatalf("components %+v, effective %q: the machine running the probe must not touch it", fromRemote.Components, f.effective(t, web.ID))
+	}
+	if snapshot, err := f.status.Snapshot(ctx, f.pageID); err != nil || len(snapshot.Open) != 0 {
+		t.Fatalf("the incident must show on no page: %+v %v", snapshot.Open, err)
+	}
+
+	onHost, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
+		Title: "Le serveur tombe", Impact: status.ImpactDegraded, Status: status.StatusInvestigating,
+		Targets: []status.MemberRef{{Kind: status.KindMachine, ID: machine.LocalID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(onHost.Components) != 1 || f.effective(t, web.ID) != status.StateDegraded {
+		t.Fatalf("components %+v, effective %q: the host of the service touches its probe", onHost.Components, f.effective(t, web.ID))
+	}
+}
+
+// Un incident dont la seule cible a disparu garde son texte et son fil, sans
+// cible : l'administration le liste, aucune page ne le montre.
+func TestIncident_WhoseTargetVanishedKeepsItsTextAndShowsOnNoPage(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	up := f.probe(t, "site", probe.OutcomeUp, nil)
+	f.component(t, "Site web", status.MemberRef{Kind: status.KindProbe, ID: up.ID})
+	job, err := f.heartbeats.Create(ctx, heartbeat.Definition{Name: "sauvegarde", Interval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := f.status.OpenIncident(ctx, status.IncidentDefinition{
+		Title: "Sauvegarde en retard", Impact: status.ImpactDegraded, Status: status.StatusInvestigating, Message: "On regarde.",
+		Targets: []status.MemberRef{{Kind: status.KindHeartbeat, ID: job.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.heartbeats.Delete(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	kept, err := f.status.GetIncident(ctx, opened.ID)
+	if err != nil || kept.Title != "Sauvegarde en retard" || len(kept.Updates) != 1 || len(kept.Targets) != 0 || len(kept.Components) != 0 {
+		t.Fatalf("kept %+v %v", kept, err)
+	}
+	all, err := f.status.Incidents(ctx, "")
+	if err != nil || len(all) != 1 {
+		t.Fatalf("the administration lists it: %+v %v", all, err)
+	}
+	if onPage, err := f.status.Incidents(ctx, f.pageID); err != nil || len(onPage) != 0 {
+		t.Fatalf("no page shows it: %+v %v", onPage, err)
 	}
 }

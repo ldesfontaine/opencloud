@@ -19,6 +19,10 @@ const (
 	TopicStatus     Topic = "status"
 	TopicAlerts     Topic = "alerts"
 	TopicDirectory  Topic = "directory"
+	// Les ordres envoyés aux agents et ce qu'ils deviennent.
+	TopicActions Topic = "actions"
+	// La clé, les destinations et le plan de sauvegarde de la base.
+	TopicBackups Topic = "backups"
 )
 
 // ResourcesEvery espace les publications des mesures : chaque machine en
@@ -149,6 +153,19 @@ func (b *Bus) AlertsChanged() {
 
 func (b *Bus) DirectoryChanged() {
 	b.Publish(TopicDirectory)
+}
+
+func (b *Bus) ActionsChanged(string) {
+	b.Publish(TopicActions)
+}
+
+// Un relevé de clés SSH se lit avec la machine : même sujet.
+func (b *Bus) SSHKeysChanged(string) {
+	b.Publish(TopicMachines)
+}
+
+func (b *Bus) BackupsChanged() {
+	b.Publish(TopicBackups)
 }
 
 func (s *Subscription) add(topic Topic) {

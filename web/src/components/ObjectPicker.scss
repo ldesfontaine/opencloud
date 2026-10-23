@@ -1,0 +1,41 @@
+// Le choix d'objets de l'annuaire : la liste de ceux qui sont choisis, une
+// ligne par objet (genre, nom, ce qu'il apporte, le bouton pour le retirer),
+// puis le genre, l'objet et le bouton pour en ajouter.
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.member {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+
+  .kind {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}
+
+.member-pick {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 860px) {
+  .member,
+  .member-pick {
+    grid-template-columns: 1fr;
+  }
+}

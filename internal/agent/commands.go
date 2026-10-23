@@ -2,12 +2,12 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/update"
@@ -15,9 +15,9 @@ import (
 
 // commandRunner exécute ce que le serveur pousse par le flux : ouvrir et
 // fermer un suivi de journal, remplacer le jeu de sondes, régler les
-// vérifications d'images. Chaque suivi vit dans sa propre goroutine et
-// meurt avec le flux ; les sondes et les vérifications, elles, survivent
-// aux reconnexions, leurs boucles vivent avec l'agent.
+// vérifications d'images, et passer les ordres signés à leur juge. Chaque
+// suivi vit dans sa propre goroutine et meurt avec le flux ; les sondes,
+// les vérifications et les ordres, eux, survivent aux reconnexions.
 type commandRunner struct {
 	ctx     context.Context
 	client  *Client
@@ -25,61 +25,55 @@ type commandRunner struct {
 	logs    container.LogSource
 	probes  probe.Assignable
 	updates update.Assignable
+	orders  *orderRunner
 	logger  *slog.Logger
 
 	mu   sync.Mutex
 	open map[string]context.CancelFunc
 }
 
-func newCommandRunner(ctx context.Context, client *Client, session string, logs container.LogSource, probes probe.Assignable, updates update.Assignable, logger *slog.Logger) *commandRunner {
-	return &commandRunner{ctx: ctx, client: client, session: session, logs: logs, probes: probes, updates: updates, logger: logger, open: make(map[string]context.CancelFunc)}
+func newCommandRunner(ctx context.Context, client *Client, session string, logs container.LogSource, probes probe.Assignable, updates update.Assignable, orders *orderRunner, logger *slog.Logger) *commandRunner {
+	return &commandRunner{ctx: ctx, client: client, session: session, logs: logs, probes: probes, updates: updates, orders: orders, logger: logger, open: make(map[string]context.CancelFunc)}
 }
 
+// handle lit un événement du flux. Un ordre part à son juge sans être lu
+// ici : son genre ne compte qu'une fois sa signature vérifiée. Les
+// commandes d'observation, elles, ne sont pas signées : elles ne font que
+// lire la machine.
 func (r *commandRunner) handle(name, data string) {
-	switch name {
-	case container.CommandLogs:
-		r.withLogRequest(name, data, r.startLogs)
-	case container.CommandLogsStop:
-		r.withLogRequest(name, data, func(request container.LogRequest) { r.stopLogs(request.ID) })
-	case probe.CommandProbes:
-		r.assignProbes(name, data)
-	case update.CommandImages:
-		r.assignImages(name, data)
-	default:
+	if name == agentwire.EventOrder {
+		r.orders.receive([]byte(data))
+		return
+	}
+	command, err := agentwire.DecodeObservation(name, []byte(data))
+	if errors.Is(err, agentwire.ErrUnknownCommand) {
 		r.logger.Warn("unknown command", "name", name)
+		return
 	}
-}
-
-func (r *commandRunner) withLogRequest(name, data string, apply func(container.LogRequest)) {
-	var request container.LogRequest
-	if err := json.Unmarshal([]byte(data), &request); err != nil || request.ID == "" {
+	if err != nil {
 		r.logger.Warn("bad command", "name", name)
 		return
 	}
-	apply(request)
-}
-
-// Le jeu de sondes remplace le précédent : ce qui n'y est plus s'arrête.
-func (r *commandRunner) assignProbes(name, data string) {
-	var assignment probe.Assignment
-	if err := json.Unmarshal([]byte(data), &assignment); err != nil {
-		r.logger.Warn("bad command", "name", name)
-		return
+	switch command.Kind {
+	case agentwire.KindLogs:
+		if command.Logs.ID == "" {
+			r.logger.Warn("bad command", "name", name)
+			return
+		}
+		r.startLogs(*command.Logs)
+	case agentwire.KindLogsStop:
+		r.stopLogs(command.Logs.ID)
+	case agentwire.KindProbes:
+		// Le jeu de sondes remplace le précédent : ce qui n'y est plus s'arrête.
+		// L'agent rejuge le jeu : ce qu'il écarte, il le dit dans son journal.
+		refused := r.probes.Assign(*command.Probes)
+		r.logger.Info("probes assigned", "count", len(command.Probes.Probes), "refused", refused)
+	case agentwire.KindImages:
+		// Les exclusions remplacent les précédentes ; « maintenant » lance un
+		// passage complet.
+		r.logger.Info("image checks assigned", "excluded", len(command.Images.Excluded), "now", command.Images.Now)
+		r.updates.Assign(*command.Images)
 	}
-	r.logger.Info("probes assigned", "count", len(assignment.Probes))
-	r.probes.Assign(assignment)
-}
-
-// Les exclusions remplacent les précédentes ; « maintenant » lance un
-// passage complet.
-func (r *commandRunner) assignImages(name, data string) {
-	var assignment update.Assignment
-	if err := json.Unmarshal([]byte(data), &assignment); err != nil {
-		r.logger.Warn("bad command", "name", name)
-		return
-	}
-	r.logger.Info("image checks assigned", "excluded", len(assignment.Excluded), "now", assignment.Now)
-	r.updates.Assign(assignment)
 }
 
 func (r *commandRunner) startLogs(request container.LogRequest) {

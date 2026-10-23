@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Certificate } from "../api/probes";
 import type { CertificateThresholds } from "../api/session";
 import type { Translate } from "../i18n/context";
-import { certificateNote, daysUntil, read, soonest } from "./certificates";
+import { certificateNote, certificateTone, daysUntil, read, soonest } from "./certificates";
 
 const now = Date.parse("2026-09-20T12:00:00Z");
 const thresholds: CertificateThresholds = { warning: 30, danger: 7 };
@@ -84,6 +84,16 @@ describe("read", () => {
   it("colore sur la seule échéance, doute ou pas", () => {
     expect(read(certificate(inDays(3), { chain_valid: false }), thresholds, now).tone).toBe("danger");
     expect(read(certificate(inDays(3), { chain_valid: true }), thresholds, now).tone).toBe("danger");
+  });
+});
+
+describe("certificateTone", () => {
+  it("tranche aux deux seuils, bornes comprises", () => {
+    expect(certificateTone(31, thresholds)).toBe("ok");
+    expect(certificateTone(30, thresholds)).toBe("warn");
+    expect(certificateTone(8, thresholds)).toBe("warn");
+    expect(certificateTone(7, thresholds)).toBe("danger");
+    expect(certificateTone(-3, thresholds)).toBe("danger");
   });
 });
 

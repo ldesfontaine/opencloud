@@ -24,6 +24,7 @@ func (e *Engine) Acknowledge(ctx context.Context, id int64) (Alert, error) {
 		return Alert{}, err
 	}
 	e.logger.Info("alert acknowledged", "alert_id", id)
+	e.auditor.Record(ctx, acknowledgeEvent(alert))
 	e.changed()
 	return alert, nil
 }
@@ -47,6 +48,7 @@ func (e *Engine) AcknowledgeMany(ctx context.Context, ids []int64) (int, error) 
 		return 0, err
 	}
 	e.logger.Info("alerts acknowledged", "requested", len(unique), "acknowledged", acknowledged)
+	e.auditor.Record(ctx, acknowledgeManyEvent(unique, acknowledged))
 	if acknowledged > 0 {
 		e.changed()
 	}

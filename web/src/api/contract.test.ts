@@ -1,19 +1,25 @@
 import { expect, test } from "vitest";
 
-import type { AlertResponse, AlertsResponse, ChannelsResponse, SilencesResponse } from "./alerts";
+import type { ActionsResponse, ActionRun, AgentUpdateOffer, RunLine } from "./actions";
+import type { APITokensState } from "./apiTokens";
+import type { AlertResponse, AlertsResponse, ChannelsResponse, MutesResponse } from "./alerts";
+import type { AuditForwarding, AuditResponse } from "./audit";
+import type { BackupDestination, BackupKeyring, BackupPlan, Backups } from "./backups";
 import type { AuthState } from "./auth";
 import type { ContainerResponse, ContainersResponse } from "./containers";
 import type { Counts } from "./counts";
-import type { DeclaredServiceDetail, DeclaredServicesResponse, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
+import type { DeletionCount, DeletionPlan } from "./deletion";
+import type { DeclaredServiceDetail, DeclaredServicesResponse, DeployPlan, GapsResponse, ProjectsResponse, ProposalResponse } from "./directory";
 import type { JobResponse, JobsResponse } from "./jobs";
-import type { Machine, MachinesResponse } from "./machines";
+import type { Account, Agent, Capability, Machine, MachinesResponse, ReportedCapability } from "./machines";
 import type { AppliesResponse, Apply } from "./manifest";
-import type { MCPState } from "./mcp";
+import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
+import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
-import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPageSettings } from "./status";
+import type { Incident, IncidentsResponse, PublicStatus, StatusComponent, StatusComponentsResponse, StatusPagesResponse } from "./status";
 
 // Le contrat de l'API est écrit deux fois : en Go (les balises json) et ici
 // (les types de api/*.ts). Les réponses figées par les goldens du serveur
@@ -92,19 +98,30 @@ const lifecycle = shape<NonNullable<Machine["lifecycle"]>>("Lifecycle", {
   is_stale: value,
 });
 
+const capability = shape<Capability>("Capability", { name: value, paths: value });
+const reportedCapability = shape<ReportedCapability>("ReportedCapability", { name: value, paths: value, unavailable: value });
+
 const machine = shape<Machine>("Machine", {
   id: value,
   name: value,
-  kind: value,
   hostname: value,
   address: value,
   os: value,
   arch: value,
-  agent_version: value,
-  local: value,
   online: value,
-  enrolled_at: value,
   last_seen_at: value,
+  agent: shape<Agent>("Agent", {
+    id: value,
+    version: value,
+    enrolled_at: value,
+    revoked_at: value,
+    capabilities: reportedCapability,
+    reported_at: value,
+    requested: capability,
+    server_key_fingerprint: value,
+    capabilities_differ: value,
+    run_as: shape<Account>("Account", { uid: value, name: value }),
+  }),
   lifecycle: optional(lifecycle),
 });
 
@@ -153,6 +170,8 @@ const container = shape<ContainerJSON>("Container", {
   }),
   lifecycle: optional(lifecycle),
   state: value,
+  observed: value,
+  machine_last_seen_at: value,
   exit_code: value,
   oom_killed: value,
   killed: value,
@@ -218,6 +237,21 @@ const network = shape<NetworkResponse>("NetworkResponse", {
   containers: container,
   groups: shape("Group", { network_id: value, name: value, internal: value, members: value }),
   edges: shape("Edge", { from: value, to: value, kind: value, port: optional(value), protocol: optional(value), source: optional(value) }),
+});
+
+const sshReport = shape<SSHReport>("SSHReport", {
+  machine_id: value,
+  machine_name: value,
+  reported_at: value,
+  truncated: value,
+  accounts: shape("SSHAccount", {
+    name: value,
+    uid: value,
+    state: value,
+    truncated: value,
+    ignored: value,
+    keys: shape("SSHKey", { file: value, fingerprint: value, type: value, bits: value, comment: value, options: value }),
+  }),
 });
 
 type ProbeJSON = ProbesResponse["probes"][number];
@@ -338,10 +372,11 @@ const alert = shape<AlertJSON>("Alert", {
   kind: value,
   severity: value,
   status: value,
-  silenced: value,
+  muted: value,
   object: shape("AlertObject", { kind: value, id: value, name: value }),
   machine_id: value,
   machine_name: value,
+  service_id: value,
   details: shape("AlertDetails", {
     count: optional(value),
     percent: optional(value),
@@ -372,6 +407,7 @@ const alertResponse = shape<AlertResponse>("AlertResponse", {
     reason: value,
     code: value,
     updated_at: value,
+    next_attempt_at: value,
   }),
 });
 
@@ -385,29 +421,34 @@ const channels = shape<ChannelsResponse>("ChannelsResponse", {
     has_secret: value,
     min_severity: value,
     notify_resolve: value,
+    receives_audit: value,
     enabled: value,
     plain: value,
     created_at: value,
   }),
 });
 
-const silences = shape<SilencesResponse>("SilencesResponse", {
-  silences: shape("Silence", {
+const mutes = shape<MutesResponse>("MutesResponse", {
+  mutes: shape("Mute", {
     id: value,
     kind: value,
-    object: shape("Silence.object", { kind: value, id: value, name: value }),
+    target: shape("Mute.target", { kind: value, id: value, name: value }),
     reason: value,
     starts_at: value,
     ends_at: value,
     active: value,
+    created_by_kind: value,
+    created_by_name: value,
     created_at: value,
+    announce: value,
+    public_title: value,
   }),
 });
 
 const counts = shape<Counts>("Counts", {
   machines: shape("Counts.machines", { total: value, online: value }),
   jobs: shape("Counts.jobs", { total: value, attention: value }),
-  containers: shape("Counts.containers", { total: value, attention: value, updates: value }),
+  containers: shape("Counts.containers", { total: value, attention: value, unknown: value, updates: value }),
   probes: shape("Counts.probes", { total: value, attention: value }),
   certificates: shape("CertificateCounts", { total: value, expiring: value, expired: value, soonest_expires_at: value }),
   status: shape("Counts.status", { open_incidents: value }),
@@ -426,6 +467,7 @@ const serviceUnit = shape<DeclaredServiceJSON["units"][number]>("ServiceUnit", {
   container_name: value,
   systemd_unit: value,
   ports: value,
+  data_path: value,
   update_policy: value,
 });
 
@@ -440,7 +482,6 @@ const declaredServiceFields = {
   compose_project: value,
   public_url: value,
   declared_by: value,
-  needs_review: value,
   provides: value,
   units: serviceUnit,
   project_ids: value,
@@ -471,6 +512,7 @@ const gaps = shape<GapsResponse>("GapsResponse", {
   services: shape<ServiceGapJSON>("ServiceGap", {
     service_id: value,
     state: value,
+    observed: value,
     weak: value,
     units: shape<UnitGapJSON>("UnitGap", {
       unit_id: value,
@@ -531,6 +573,7 @@ const proposal = shape<ProposalResponse>("ProposalResponse", {
       container_name: value,
       systemd_unit: value,
       ports: value,
+      data_path: value,
       update_policy: optional(value),
     }),
   }),
@@ -566,22 +609,20 @@ const apply = shape<Apply>("Apply", {
   changes: optional(manifestChange),
 });
 
-const mcp = shape<MCPState>("MCPState", {
-  enabled: value,
-  client_id: value,
-  secret_masked: value,
-  redirect_uris: value,
-  endpoint: value,
-  issuer: value,
-  url_local: value,
-  stdio_command: value,
-  server_name: value,
-  tokens: shape("MCPToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
-  sessions: shape("MCPSession", { id: value, started_at: value, last_used_at: value, expires_at: value }),
-  limits: shape("MCPState.limits", { tokens: value, redirect_uris: value }),
-  lifetimes: shape("MCPState.lifetimes", { access_seconds: value, refresh_seconds: value, api_token_days: value, api_token_default_days: value }),
-  tools: shape("MCPState.tools", { reads: value }),
-  enabled_at: value,
+const apiTokens = shape<APITokensState>("APITokensState", {
+  tokens: shape("APIToken", { id: value, name: value, masked: value, scope: value, created_at: value, expires_at: value, last_used_at: value }),
+  limit: value,
+  lifetimes: shape("APITokensState.lifetimes", { days: value, default_days: value }),
+  env: shape("APITokensState.env", { mcp_host: value, opencloud_url: value }),
+});
+
+const mcpCheck = shape<MCPCheck>("MCPCheck", {
+  url: value,
+  state: value,
+  version: value,
+  opencloud_tools: value,
+  checked_at: value,
+  suggested_url: value,
 });
 
 const auth = shape<AuthState>("AuthState", {
@@ -591,6 +632,7 @@ const auth = shape<AuthState>("AuthState", {
   enabled_at: value,
   password_min_length: value,
   forward_insecure: optional(value),
+  allowed_users: value,
 });
 
 const session = shape<Session>("Session", {
@@ -607,6 +649,7 @@ const incidentUpdate = shape<IncidentUpdateJSON>("IncidentUpdate", { status: val
 
 const statusComponent = shape<StatusComponent>("StatusComponent", {
   id: value,
+  page_id: value,
   name: value,
   position: value,
   members: shape("StatusMember", { kind: value, id: value, name: value, state: value, counts: value, present: value }),
@@ -622,6 +665,7 @@ const incident = shape<Incident>("Incident", {
   status: value,
   starts_at: value,
   ends_at: value,
+  targets: shape("Incident.targets", { kind: value, id: value, name: value }),
   components: shape("Incident.components", { id: value, name: value }),
   updates: incidentUpdate,
   created_at: value,
@@ -661,18 +705,121 @@ const publicStatus = shape<PublicStatus>("PublicStatus", {
   history: publicIncident,
 });
 
+const audit = shape<AuditResponse>("AuditResponse", {
+  events: shape("AuditEvent", {
+    id: value,
+    at: value,
+    actor_kind: value,
+    actor_name: value,
+    action: value,
+    object_kind: value,
+    object_id: value,
+    object_name: value,
+    details: dictionaryOf(value),
+    apply_id: value,
+  }),
+  next_before: value,
+});
+
+const auditForwarding = shape<AuditForwarding>("AuditForwarding", { channels: value, failing: value });
+
+const actionRun = shape<ActionRun>("ActionRun", {
+  id: value,
+  kind: value,
+  params: dictionaryOf(value),
+  machine_id: value,
+  machine_name: value,
+  agent_id: value,
+  service_id: value,
+  state: value,
+  reason: value,
+  seq: value,
+  requested_by: value,
+  requested_at: value,
+  not_after: value,
+  finished_at: value,
+  output: shape<RunLine>("RunLine", { at: value, stream: value, line: value }),
+});
+
+const actions = shape<ActionsResponse>("ActionsResponse", { runs: actionRun });
+
+const agentUpdateOffer = shape<AgentUpdateOffer>("AgentUpdateOffer", {
+  current: value,
+  target: value,
+  arch: value,
+  available: value,
+  reason: value,
+});
+
+const deployPlan = shape<DeployPlan>("DeployPlan", {
+  service_id: value,
+  machine_id: value,
+  machine_name: value,
+  root_dir: value,
+  path: value,
+  deployed: value,
+  right: value,
+  right_reason: optional(value),
+  compose: value,
+  data_dirs: value,
+  last_run: actionRun,
+});
+
+const backups = shape<Backups>("Backups", {
+  keyring: shape<BackupKeyring>("BackupKeyring", { recipient: value, fingerprint: value, created_at: value }),
+  destinations: shape<BackupDestination>("BackupDestination", {
+    id: value,
+    name: value,
+    machine_id: value,
+    machine_name: value,
+    path: value,
+    right: value,
+    right_reason: optional(value),
+    created_at: value,
+  }),
+  plan: shape<BackupPlan>("BackupPlan", {
+    destination_id: value,
+    keep: value,
+    schedule: value,
+    last_attempt_at: value,
+    last_error: value,
+    last_run: actionRun,
+  }),
+});
+
+const deletionCount = shape<DeletionCount>("DeletionCount", { kind: value, count: value });
+
+const deletionPlan = shape<DeletionPlan>("DeletionPlan", {
+  blocked: value,
+  blockers: shape("DeletionBlocker", { kind: value, objects: shape("DeletionObject", { id: value, name: value }) }),
+  removes: deletionCount,
+  detaches: deletionCount,
+});
+
 // Chaque golden JSON de l'API, et le type du front qui le lit.
 const contract: Record<string, Shape<unknown>> = {
+  "actions.golden.json": actions,
+  "agent_update_offer.golden.json": agentUpdateOffer,
   "alert.golden.json": alertResponse,
   "alert_channels.golden.json": channels,
-  "alert_silences.golden.json": silences,
+  "alert_mutes.golden.json": mutes,
   "alerts.golden.json": alerts,
+  "api_tokens.golden.json": apiTokens,
+  "audit.golden.json": audit,
+  "audit_forwarding.golden.json": auditForwarding,
+  "backups.golden.json": backups,
+  "backups_empty.golden.json": backups,
+  "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,
   "containers.golden.json": containers,
   "counts.golden.json": counts,
   "declared_service.golden.json": declaredService,
   "declared_services.golden.json": declaredServices,
+  "deploy_plan.golden.json": deployPlan,
+  "deploy_plan_sent.golden.json": deployPlan,
+  "deploy_plan_unavailable.golden.json": deployPlan,
+  "deploy_upgrade.golden.json": actionRun,
   "directory_gaps.golden.json": gaps,
   "directory_proposal.golden.json": proposal,
   "history.golden.json": history,
@@ -684,13 +831,14 @@ const contract: Record<string, Shape<unknown>> = {
   "local_network.golden.json": network,
   "local_resources.golden.json": current,
   "machine.golden.json": machine,
+  "machine_account.golden.json": machine,
+  "machine_delete_plan.golden.json": deletionPlan,
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,
   "machine_probes.golden.json": probes,
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,
-  "mcp.golden.json": mcp,
   "network.golden.json": shape<OverviewNetworkResponse>("OverviewNetworkResponse", { machines: network }),
   "probe.golden.json": probeResponse,
   "probes.golden.json": probes,
@@ -698,6 +846,9 @@ const contract: Record<string, Shape<unknown>> = {
   "remote_resources.golden.json": current,
   "resources.golden.json": shape<ResourcesResponse>("ResourcesResponse", { machines: current }),
   "session.golden.json": session,
+  "ssh_keys.golden.json": shape<SSHMatrixResponse>("SSHMatrixResponse", { machines: sshReport }),
+  "ssh_keys_machine.golden.json": sshReport,
+  "settings_ai_agent.golden.json": mcpCheck,
   "status_component.golden.json": statusComponent,
   "status_components.golden.json": shape<StatusComponentsResponse>("StatusComponentsResponse", {
     public_url: value,
@@ -706,12 +857,21 @@ const contract: Record<string, Shape<unknown>> = {
   }),
   "status_incident.golden.json": incident,
   "status_incidents.golden.json": shape<IncidentsResponse>("IncidentsResponse", { incidents: incident }),
-  "status_page.golden.json": shape<StatusPageSettings>("StatusPageSettings", { title: value, announcement: value, language: value, public_url: value }),
+  "status_pages.golden.json": shape<StatusPagesResponse>("StatusPagesResponse", {
+    pages: shape("StatusPage", {
+      id: value,
+      project_id: value,
+      slug: value,
+      title: value,
+      announcement: value,
+      language: value,
+      public_url: value,
+      created_at: value,
+      updated_at: value,
+    }),
+  }),
   "status_public.golden.json": publicStatus,
 };
-
-// Les réponses des outils MCP : un agent IA les lit, pas le navigateur.
-const mcpToolGolden = "mcp_";
 
 // Les autres goldens JSON que le front ne lit pas, chacun avec sa raison.
 const notReadByFront: Record<string, string> = {
@@ -720,7 +880,7 @@ const notReadByFront: Record<string, string> = {
 };
 
 function isNotReadByFront(name: string): boolean {
-  return name.startsWith(mcpToolGolden) || name in notReadByFront;
+  return name in notReadByFront;
 }
 
 function isOptional(field: Field): field is Optional {

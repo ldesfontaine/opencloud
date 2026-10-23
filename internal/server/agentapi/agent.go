@@ -1,22 +1,26 @@
 package agentapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
-	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
@@ -38,9 +42,12 @@ type agentError struct {
 }
 
 func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
-	// Le même seau que le défi : un enrôlement légitime est rare, un flot
-	// d'enrôlements coûte une transaction chacun.
-	if !h.challengeLimit.Allow(h.clientAddress(r)) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	// Le même seau que l'ouverture du flux : un enrôlement légitime est rare,
+	// un flot d'enrôlements coûte une transaction chacun.
+	if !h.sourceLimit.Allow(h.clientAddress(r)) {
 		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
 		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
 		return
@@ -49,12 +56,23 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 	if !h.readJSON(w, r, &request) {
 		return
 	}
+	// La clé que l'agent épinglera, lue avant de consommer le jeton : sans
+	// elle, l'agent ne pourrait vérifier aucun ordre.
+	serverKey, err := h.serverKey()
+	if err != nil {
+		h.logger.Error("enroll without a server key", "error", err)
+		h.writeError(w, http.StatusServiceUnavailable, "server_key_missing")
+		return
+	}
 	publicKey, err := base64.StdEncoding.DecodeString(request.PublicKey)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "bad_key")
 		return
 	}
-	enrolled, err := h.machines.Enroll(r.Context(), machine.Enrollment{
+	// L'agent agit sous l'identifiant qu'il présente : le jeton, consommé
+	// dans la même transaction, dit s'il en avait le droit.
+	ctx := audit.WithActor(r.Context(), audit.Agent(request.MachineID))
+	enrolled, err := h.machines.Enroll(ctx, machine.Enrollment{
 		MachineID:    request.MachineID,
 		PublicKey:    publicKey,
 		Token:        request.Token,
@@ -70,8 +88,23 @@ func (h *Handler) enroll(w http.ResponseWriter, r *http.Request) {
 		h.writeEnrollError(w, r, err)
 		return
 	}
-	h.writeJSON(w, http.StatusCreated, agentwire.EnrollResponse{MachineID: enrolled.ID, Name: enrolled.Name})
+	h.writeJSON(w, http.StatusCreated, agentwire.EnrollResponse{
+		MachineID: enrolled.ID, Name: enrolled.Name, AgentID: enrolled.Agent.ID,
+		ServerKey: base64.StdEncoding.EncodeToString(serverKey),
+	})
 }
+
+func (h *Handler) serverKey() ([]byte, error) {
+	if h.actions == nil {
+		return nil, errNoActions
+	}
+	public, _, err := h.actions.ServerKey()
+	return public, err
+}
+
+// errNoActions : le handler est monté sans composant action (un banc de
+// test qui ne s'en sert pas).
+var errNoActions = errors.New("no action component")
 
 func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
@@ -85,35 +118,33 @@ func (h *Handler) writeEnrollError(w http.ResponseWriter, r *http.Request, err e
 		h.writeError(w, http.StatusConflict, "token_expired")
 	case errors.Is(err, machine.ErrNameTaken):
 		h.writeError(w, http.StatusConflict, "name_taken")
-	case errors.Is(err, machine.ErrIsOpenCloud):
-		h.writeError(w, http.StatusConflict, brand.AgentErrorIsHost)
+	case errors.Is(err, machine.ErrLocalAgentActive):
+		h.writeError(w, http.StatusConflict, agentwire.CodeLocalAgentActive)
 	default:
 		h.logger.Error("enroll", "path", r.URL.Path, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
 	}
 }
 
-func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
-	if !h.challengeLimit.Allow(h.clientAddress(r)) {
-		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
-		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+// speaksProtocol refuse un agent d'une autre version du protocole, en le
+// disant : 426 protocol_unsupported. Un agent du protocole 1 ne pose pas
+// l'en-tête.
+func (h *Handler) speaksProtocol(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get(agentwire.HeaderProtocol) == agentwire.ProtocolVersion {
+		return true
+	}
+	h.writeError(w, http.StatusUpgradeRequired, agentwire.CodeProtocolUnsupported)
+	return false
+}
+
+// unknown répond à un chemin d'agent que ce serveur ne sert pas : 426 pour
+// un agent d'une autre version (le défi du protocole 1 tombe ici), 404
+// sinon.
+func (h *Handler) unknown(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
 		return
 	}
-	var request agentwire.ChallengeRequest
-	if !h.readJSON(w, r, &request) {
-		return
-	}
-	nonce, err := h.machines.Challenge(r.Context(), request.MachineID)
-	if errors.Is(err, machine.ErrNotFound) {
-		h.writeError(w, http.StatusNotFound, "machine_not_found")
-		return
-	}
-	if err != nil {
-		h.logger.Error("challenge", "error", err)
-		h.writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	h.writeJSON(w, http.StatusOK, agentwire.ChallengeResponse{Nonce: base64.StdEncoding.EncodeToString(nonce)})
+	h.writeError(w, http.StatusNotFound, "not_found")
 }
 
 // Le flux d'une machine : la preuve est vérifiée, la session ouverte, puis
@@ -121,6 +152,14 @@ func (h *Handler) challenge(w http.ResponseWriter, r *http.Request) {
 // session ; ensuite un ping tient la connexion, et « closed » dit à l'agent
 // pourquoi le serveur raccroche.
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	if !h.sourceLimit.Allow(h.clientAddress(r)) {
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
+		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
 	proof, err := proofFromHeaders(r)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "bad_proof")
@@ -136,19 +175,50 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	if err := h.machines.NoteSystem(r.Context(), authenticated.ID, r.Header.Get(agentwire.HeaderAgentOS)); err != nil {
 		h.logger.Warn("note system", "machine_id", authenticated.ID, "error", err)
 	}
-	session, err := h.machines.Connect(r.Context(), authenticated.ID, h.clientAddress(r), r.Header.Get(agentwire.HeaderAgentVersion))
+	// L'empreinte de la clé que l'agent a épinglée : la fiche montre un
+	// agent qui refuserait les ordres de ce serveur.
+	if err := h.machines.NoteServerKey(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderServerKey)); err != nil {
+		h.logger.Warn("note server key", "machine_id", authenticated.ID, "error", err)
+	}
+	// La racine des services que l'agent a dans son fichier : le plan d'un
+	// déploiement la montre.
+	if err := h.machines.NoteRootDir(r.Context(), authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentRoot)); err != nil {
+		h.logger.Warn("note root dir", "machine_id", authenticated.ID, "error", err)
+	}
+	// Les droits que l'agent lit dans son fichier : stockés tels qu'il les
+	// dit, comparés à ce que son jeton demandait ; l'agent les applique, le
+	// serveur s'en sert pour ne pas envoyer un ordre qu'il sait refusé. Avec
+	// eux, le compte sous lequel il tourne et les droits que ce compte ne peut
+	// pas exercer : la fiche les montre, aucun ordre n'est refusé pour autant.
+	session, err := h.machines.Connect(r.Context(), authenticated, h.clientAddress(r),
+		r.Header.Get(agentwire.HeaderAgentVersion), r.Header.Get(agentwire.HeaderAgentRights),
+		r.Header.Get(agentwire.HeaderAgentAccount), r.Header.Get(agentwire.HeaderAgentUnavailable))
 	if err != nil {
 		h.logger.Error("connect", "machine_id", authenticated.ID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	defer h.machines.Disconnect(session)
-	h.machines.WarnIfOpenCloudHost(authenticated, r.Header.Get(agentwire.HeaderHostFingerprint))
 	// Le flux qui s'ouvre repart avec le jeu de sondes de sa machine et
 	// les images à ne pas interroger : les commandes attendent dans la
 	// file que la boucle ci-dessous va lire.
 	h.probes.Assign(r.Context(), authenticated.ID)
 	h.updates.Assign(r.Context(), authenticated.ID)
+	// Pendant une rotation de la clé du serveur, un agent resté sur la
+	// précédente reçoit la neuve, par un ordre que la précédente signe. C'est
+	// serve qui le décide : une règle, au journal.
+	if h.actions != nil {
+		rekeyCtx := audit.WithActor(r.Context(), audit.Rule("server_key_rotation"))
+		if err := h.actions.Rekey(rekeyCtx, authenticated.ID); err != nil {
+			h.logger.Warn("rekey agent", "machine_id", authenticated.ID, "error", err)
+		}
+		// Un agent qui revient avec la version qu'un ordre agent.update visait
+		// a fini de se mettre à jour : c'est ce retour, et non l'agent qui
+		// s'arrête, qui ferme l'ordre.
+		if err := h.actions.ConfirmAgentUpdate(r.Context(), authenticated.ID, authenticated.Agent.ID, r.Header.Get(agentwire.HeaderAgentVersion)); err != nil {
+			h.logger.Warn("confirm agent update", "machine_id", authenticated.ID, "error", err)
+		}
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -169,22 +239,39 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 			if err := httpx.WriteEvent(w, "ping", ""); err != nil {
 				return
 			}
-		case command := <-session.Commands():
-			if err := writeCommand(w, command); err != nil {
+		case event := <-session.Events():
+			if err := writeAgentEvent(w, event); err != nil {
 				return
 			}
 		}
 	}
 }
 
-// writeCommand pousse une commande à l'agent : son nom en événement, son
-// contenu en JSON sur une ligne, tiré par le serveur.
-func writeCommand(w http.ResponseWriter, command machine.Command) error {
-	payload, err := json.Marshal(command.Payload)
-	if err != nil {
+// writeAgentEvent pousse un événement à l'agent, son contenu découpé en
+// lignes « data: » d'au plus agentwire.EventDataLine octets, que l'agent
+// recolle sans séparateur. Un contenu au-delà de MaxEventBytes ne part pas :
+// l'agent couperait le flux.
+func writeAgentEvent(w http.ResponseWriter, event machine.StreamEvent) error {
+	if len(event.Data) > agentwire.MaxEventBytes {
+		return fmt.Errorf("event %s: %d bytes, more than an agent reads", event.Name, len(event.Data))
+	}
+	var text strings.Builder
+	text.WriteString("event: " + event.Name + "\n")
+	for data := event.Data; ; {
+		line := data[:min(len(data), agentwire.EventDataLine)]
+		text.WriteString("data: ")
+		text.Write(line)
+		text.WriteString("\n")
+		data = data[len(line):]
+		if len(data) == 0 {
+			break
+		}
+	}
+	text.WriteString("\n")
+	if _, err := io.WriteString(w, text.String()); err != nil {
 		return err
 	}
-	return httpx.WriteEvent(w, command.Name, string(payload))
+	return http.NewResponseController(w).Flush()
 }
 
 func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
@@ -193,12 +280,17 @@ func (h *Handler) writeAuthError(w http.ResponseWriter, err error) {
 		h.writeError(w, http.StatusNotFound, "machine_not_found")
 	case errors.Is(err, machine.ErrClockSkew):
 		h.writeError(w, http.StatusUnauthorized, "clock_skew")
-	// Un défi expiré, déjà utilisé ou perdu au redémarrage n'est pas un refus
-	// d'identité : l'agent en redemande un. Seul bad_proof l'arrête.
-	case errors.Is(err, machine.ErrBadNonce):
-		h.writeError(w, http.StatusUnauthorized, "challenge_expired")
-	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID):
+	// Une preuve déjà servie n'est pas un refus d'identité : l'agent en signe
+	// une autre. Seul bad_proof l'arrête.
+	case errors.Is(err, machine.ErrReplayed):
+		h.writeError(w, http.StatusUnauthorized, agentwire.CodeReplayed)
+	case errors.Is(err, machine.ErrBadSignature), errors.Is(err, machine.ErrBadID), errors.Is(err, machine.ErrBadProof):
 		h.writeError(w, http.StatusUnauthorized, "bad_proof")
+	// L'agent a prouvé sa clé, mais l'opérateur l'a révoqué : il s'arrête,
+	// comme pour bad_proof. Un agent plus vieux ne connaît pas ce code et
+	// réessaie, avec son délai croissant, sans jamais être admis.
+	case errors.Is(err, machine.ErrAgentRevoked):
+		h.writeError(w, http.StatusUnauthorized, agentwire.CodeRevoked)
 	default:
 		h.logger.Error("authenticate", "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")
@@ -268,7 +360,9 @@ func (h *Handler) signal(w http.ResponseWriter, r *http.Request) {
 // refusées avec leur clé, et dit si une écriture a échoué pour une raison
 // qui n'est pas un refus.
 func (h *Handler) recordSignal(r *http.Request, machineID string, request agentwire.SignalRequest) (map[string]string, bool) {
-	ctx := r.Context()
+	// Rien d'un signal n'est journalisé aujourd'hui (des observations) ; ce
+	// qu'il ferait écrire un jour le serait sous sa machine.
+	ctx := audit.WithActor(r.Context(), audit.Agent(machineID))
 	rejected := map[string]string{}
 	failed := false
 	keep := func(section string, err error, refusals ...error) {
@@ -296,7 +390,31 @@ func (h *Handler) recordSignal(r *http.Request, machineID string, request agentw
 	if request.Images != nil {
 		keep(agentwire.SectionImages, h.updates.Record(ctx, machineID, *request.Images), update.ErrReportInvalid)
 	}
+	if request.Actions != nil {
+		keep(agentwire.SectionActions, h.recordActions(ctx, machineID, *request.Actions), action.ErrReportInvalid)
+	}
+	if request.SSHKeys != nil {
+		keep(agentwire.SectionSSHKeys, h.recordSSHKeys(ctx, machineID, *request.SSHKeys), sshkeys.ErrReportInvalid)
+	}
 	return rejected, failed
+}
+
+// recordSSHKeys écrit le relevé des clés SSH ; sans composant, la section est
+// refusée.
+func (h *Handler) recordSSHKeys(ctx context.Context, machineID string, report sshkeys.Report) error {
+	if h.sshKeys == nil {
+		return sshkeys.ErrReportInvalid
+	}
+	return h.sshKeys.Record(ctx, machineID, report)
+}
+
+// recordActions écrit ce que l'agent a fait des ordres ; sans composant
+// action, la section est refusée.
+func (h *Handler) recordActions(ctx context.Context, machineID string, report agentwire.ActionReport) error {
+	if h.actions == nil {
+		return action.ErrReportInvalid
+	}
+	return h.actions.Record(ctx, machineID, report)
 }
 
 // firstRejected rend la clé de la première section refusée, dans l'ordre
@@ -342,8 +460,8 @@ func (h *Handler) logs(w http.ResponseWriter, r *http.Request) {
 
 func proofFromHeaders(r *http.Request) (machine.Proof, error) {
 	nonce, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderNonce))
-	if err != nil {
-		return machine.Proof{}, fmt.Errorf("decode nonce: %w", err)
+	if err != nil || len(nonce) != machine.NonceSize {
+		return machine.Proof{}, fmt.Errorf("decode nonce: %w", machine.ErrBadProof)
 	}
 	signature, err := base64.StdEncoding.DecodeString(r.Header.Get(agentwire.HeaderSignature))
 	if err != nil {
@@ -378,4 +496,48 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, code string) {
 	h.writeJSON(w, status, agentError{Error: code})
+}
+
+// Un fichier de colis, pour la machine dont la session le demande : un colis
+// d'une autre machine, échu ou inconnu répond 404 sans distinguer ces cas.
+func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
+	if !h.speaksProtocol(w, r) {
+		return
+	}
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
+		h.writeError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	machineID, err := h.machines.SessionMachine(token)
+	if err != nil {
+		h.writeError(w, http.StatusUnauthorized, "no_session")
+		return
+	}
+	if !h.parcelLimit.Allow(machineID) {
+		w.Header().Set("Retry-After", httpx.RetryAfterSeconds)
+		h.writeError(w, http.StatusTooManyRequests, "too_many_requests")
+		return
+	}
+	if h.actions == nil {
+		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+		return
+	}
+	file, size, err := h.actions.OpenParcel(machineID, r.PathValue("parcel"), r.PathValue("name"))
+	if errors.Is(err, action.ErrParcelNotFound) {
+		h.writeError(w, http.StatusNotFound, "parcel_not_found")
+		return
+	}
+	if err != nil {
+		h.logger.Error("open parcel", "machine_id", machineID, "error", err)
+		h.writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	defer file.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err := io.Copy(w, file); err != nil {
+		h.logger.Warn("send parcel", "machine_id", machineID, "error", err)
+	}
 }

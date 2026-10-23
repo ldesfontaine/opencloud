@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation, useParams } from "react-router";
 
-import { useContainer, type ContainerResponse, type Transition } from "../api/containers";
+import { useContainer, type Container, type ContainerResponse, type Transition } from "../api/containers";
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, EmptyCard, KeyValue, Note } from "../components/Card";
 import { DirectoryCard } from "../components/DirectoryCard";
+import { Fold } from "../components/Disclosure";
 import { Loaded } from "../components/Loaded";
 import { LogViewer } from "../components/LogViewer";
 import { PageHead } from "../components/PageHead";
@@ -14,12 +15,14 @@ import { UpdateCard } from "../components/UpdateCard";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
 import { adoptPath, isOrphan } from "../lib/gaps";
-import { findingText, formatBindings, containerPill, transitionTitle } from "../lib/containers";
+import { findingText, formatBindings, containerPill, lastStateText, transitionPassage } from "../lib/containers";
 import { modeText } from "../lib/network";
+import { newProbePath } from "../lib/probes";
 import { ago, formatClock, formatDuration, since } from "../lib/time";
-import { formatBytes, formatDecimal } from "../lib/units";
+import { formatBytes, formatCPU } from "../lib/units";
+import "./Container.scss";
 
-// La fiche d'un conteneur : la pastille et les faits, les transitions, les
+// La fiche d'un conteneur : la pastille, les détails, l'historique d'état, les
 // journaux en direct, et de quoi le mettre sous sonde.
 export function ContainerPage() {
   const { id = "" } = useParams();
@@ -51,6 +54,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
   const { t, language } = useI18n();
   const now = useNow();
   const container = response.container;
+  const lastState = lastStateText(t, container, now);
   return (
     <>
       <PageHead
@@ -60,7 +64,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
           // Une sonde vise le service déclaré : sans lui, il n'y a rien à
           // surveiller, et le chemin est d'abord d'adopter le conteneur.
           container.declared_service_id !== "" ? (
-            <Button icon="globe" to={`/domaines/nouvelle?service=${container.declared_service_id}&container=${container.id}`}>
+            <Button icon="globe" to={newProbePath({ service: container.declared_service_id, container: container.id })}>
               {t("probe.watch_service")}
             </Button>
           ) : (
@@ -81,7 +85,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               <Link to={`/machines/${container.machine_id}`}>{container.machine_name}</Link>
               <span className="sep" />
               <span className="mono">{container.image}</span>
-              {container.state === "running" && container.started_at !== null && (
+              {container.observed && container.state === "running" && container.started_at !== null && (
                 <>
                   <span className="sep" />
                   <span>{t("container.uptime", formatDuration(t, since(container.started_at, now)))}</span>
@@ -90,7 +94,7 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               {container.current && (
                 <>
                   <span className="sep" />
-                  <span className="mono">{formatDecimal(language, container.current.cpu_percent, 0)} %</span>
+                  <span className="mono">{formatCPU(language, container.current.cpu_percent)}</span>
                   <span className="sep" />
                   <span className="mono">
                     {formatBytes(t, language, container.current.mem_used)} / {formatBytes(t, language, container.current.mem_limit)}
@@ -99,79 +103,109 @@ function ContainerView({ response, reload }: { response: ContainerResponse; relo
               )}
             </span>
           </span>
+          {lastState !== null && <span className="secondary">{lastState}</span>}
         </CardBody>
       </Card>
       <UpdateCard container={container} directory={response.directory} reload={reload} />
       <DirectoryCard container={container} directory={response.directory} />
-      <div className="grid-3">
-        <Card>
-          <CardHeader title={t("tab.summary")} />
-          <CardBody gap={10}>
-            <KeyValue label={t("container.field_machine")} value={<Link to={`/machines/${container.machine_id}`}>{container.machine_name}</Link>} />
-            {container.group !== "" && <KeyValue label={t("container.field_group")} value={container.group} mono />}
-            <KeyValue label={t("container.field_image")} value={container.image} mono />
-            {container.image_id !== "" && <KeyValue label={t("container.field_image_id")} value={container.image_id.replace("sha256:", "").slice(0, 12)} mono />}
-            <KeyValue label={t("container.field_container")} value={container.container_id.slice(0, 12)} mono />
-            <KeyValue label={t("container.field_restarts")} value={container.restart_count} mono />
-            <KeyValue label={t("container.field_created")} value={formatClock(container.created_at)} mono />
-            {container.started_at !== null && <KeyValue label={t("container.field_started")} value={formatClock(container.started_at)} mono />}
-            {container.finished_at !== null && container.state !== "running" && (
-              <KeyValue
-                label={t("container.field_finished")}
-                value={`${formatClock(container.finished_at)} · ${t("container.exit_code", container.exit_code)}`}
-                mono
-              />
-            )}
-            <KeyValue label={t("container.field_seen")} value={ago(t, container.last_seen_at, now)} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader title={t("tab.network")} aside={<Link to={`/machines/${container.machine_id}/reseau`}>{t("network.open_graph")}</Link>} />
-          <CardBody gap={10}>
-            <KeyValue label={t("network.field_mode")} value={modeText(t, container)} mono />
-            <KeyValue
-              label={t("container.field_ports")}
-              value={container.ports.length > 0 ? formatBindings(container.ports).map((line) => <div key={line}>{line}</div>) : t("container.internal")}
-              mono
-            />
-            <KeyValue
-              label={t("network.field_networks")}
-              value={container.networks.length > 0 ? container.networks.map((attachment) => <div key={attachment.network_id}>{attachment.ip !== "" ? `${attachment.name} · ${attachment.ip}` : attachment.name}</div>) : t("network.none")}
-              mono
-            />
-            <KeyValue
-              label={t("network.field_depends")}
-              value={container.depends_on.length > 0 ? container.depends_on.map((dependency) => dependency.name).join(", ") : t("network.none")}
-              mono
-            />
-            {container.exposure.map((finding) =>
-              finding.level === "warn" ? (
-                <Note tone="warn" key={finding.kind + String(finding.port)}>
-                  {findingText(t, finding)}
-                </Note>
-              ) : (
-                <span className="secondary" key={finding.kind + String(finding.port)}>
-                  {findingText(t, finding)}
-                </span>
-              ),
-            )}
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader title={t("container.transitions_title")} />
-          {response.transitions.length > 0 ? (
-            <List>
-              {response.transitions.map((transition) => (
-                <TransitionRow key={transition.id} transition={transition} now={now} />
-              ))}
-            </List>
-          ) : (
-            <Empty text={t("container.transitions_empty")} />
-          )}
-        </Card>
+      <div className="container-facts">
+        <ContainerDetails container={container} now={now} />
+        <ContainerHistory transitions={response.transitions} now={now} />
       </div>
       <LogsCard containerID={container.id} />
     </>
+  );
+}
+
+// Les faits de la fiche, sans ce que l'en-tête de page dit déjà (machine,
+// image, durée). Une ligne vide ne s'affiche pas.
+function ContainerDetails({ container, now }: { container: Container; now: number }) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <CardHeader title={t("container.details_title")} aside={<Link to={`/machines/${container.machine_id}/reseau`}>{t("network.open_graph")}</Link>} />
+      <CardBody gap={10}>
+        <div className="container-details">
+          {container.group !== "" && <KeyValue label={t("container.field_group")} value={container.group} mono />}
+          {container.image_id !== "" && <KeyValue label={t("container.field_image_id")} value={container.image_id.replace("sha256:", "").slice(0, 12)} mono />}
+          <KeyValue label={t("container.field_container")} value={container.container_id.slice(0, 12)} mono />
+          <KeyValue label={t("container.field_restarts")} value={container.restart_count} mono />
+          <KeyValue label={t("container.field_created")} value={formatClock(container.created_at)} mono />
+          {container.started_at !== null && <KeyValue label={t("container.field_started")} value={formatClock(container.started_at)} mono />}
+          {container.finished_at !== null && container.state !== "running" && (
+            <KeyValue
+              label={t("container.field_finished")}
+              value={`${formatClock(container.finished_at)} · ${t("container.exit_code", container.exit_code)}`}
+              mono
+            />
+          )}
+          <KeyValue label={t("container.field_seen")} value={ago(t, container.last_seen_at, now)} />
+          <KeyValue label={t("network.field_mode")} value={modeText(t, container)} mono />
+          {container.ports.length > 0 && (
+            <KeyValue label={t("container.field_ports")} value={formatBindings(container.ports).map((line) => <div key={line}>{line}</div>)} mono />
+          )}
+          {container.networks.length > 0 && (
+            <KeyValue
+              label={t("network.field_networks")}
+              value={container.networks.map((attachment) => <div key={attachment.network_id}>{attachment.ip !== "" ? `${attachment.name} · ${attachment.ip}` : attachment.name}</div>)}
+              mono
+            />
+          )}
+          {container.depends_on.length > 0 && (
+            <KeyValue label={t("network.field_depends")} value={container.depends_on.map((dependency) => dependency.name).join(", ")} mono />
+          )}
+        </div>
+        {container.exposure.map((finding) =>
+          finding.level === "warn" ? (
+            <Note tone="warn" key={finding.kind + String(finding.port)}>
+              {findingText(t, finding)}
+            </Note>
+          ) : (
+            <span className="secondary" key={finding.kind + String(finding.port)}>
+              {findingText(t, finding)}
+            </span>
+          ),
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// Les changements d'état les plus récents, les plus anciens repliés : l'API
+// en rend cinquante au plus.
+const visibleTransitions = 8;
+
+function ContainerHistory({ transitions, now }: { transitions: Transition[]; now: number }) {
+  const { t } = useI18n();
+  const recent = transitions.slice(0, visibleTransitions);
+  const older = transitions.slice(visibleTransitions);
+  return (
+    <Card>
+      <CardHeader title={t("container.history_title")} />
+      <p className="secondary container-history-text">{t("container.history_text")}</p>
+      {transitions.length === 0 ? (
+        <Empty text={t("container.transitions_empty")} />
+      ) : (
+        <>
+          <List>
+            {recent.map((transition) => (
+              <TransitionRow key={transition.id} transition={transition} now={now} />
+            ))}
+          </List>
+          {older.length > 0 && (
+            <div className="container-history-more">
+              <Fold label={t("container.history_more", older.length)} initiallyOpen={false}>
+                <List>
+                  {older.map((transition) => (
+                    <TransitionRow key={transition.id} transition={transition} now={now} />
+                  ))}
+                </List>
+              </Fold>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -205,7 +239,7 @@ function TransitionRow({ transition, now }: { transition: Transition; now: numbe
       <RowText
         title={
           <>
-            {transitionTitle(t, transition)}
+            {transitionPassage(t, transition)}
             {transition.exit_code !== null && (
               <>
                 {" · "}

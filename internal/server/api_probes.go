@@ -223,12 +223,18 @@ func (s *Server) writeProbeList(w http.ResponseWriter, r *http.Request, machineI
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	// Un jeton d'API ne voit pas le mot de passe d'une cible.
+	if _, byToken := apiTokenFrom(r.Context()); byToken {
+		for index := range response.Probes {
+			response.Probes[index] = redactedProbe(response.Probes[index])
+		}
+	}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
 // probeListOf assemble les sondes d'une machine, ou de toutes quand
-// machineID est vide, avec leurs jours ; l'API et l'outil MCP la rendent
-// telle quelle, l'outil la pagine et masque les cibles après.
+// machineID est vide, avec leurs jours ; l'API la rend telle quelle,
+// et masque les cibles pour un jeton d'API.
 func (s *Server) probeListOf(ctx context.Context, machineID string) (probesResponse, error) {
 	probes, err := s.reader.ListProbes(ctx, machineID)
 	if err != nil {
@@ -267,11 +273,14 @@ func (s *Server) getProbe(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	if _, byToken := apiTokenFrom(r.Context()); byToken {
+		response.Probe = redactedProbe(response.Probe)
+	}
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// probeResponseOf assemble la fiche d'une sonde ; l'API et l'outil MCP la
-// rendent telle quelle.
+// probeResponseOf assemble la fiche d'une sonde ; l'API la rend telle
+// quelle, cible masquée pour un jeton d'API.
 func (s *Server) probeResponseOf(ctx context.Context, found probe.Probe) (probeResponse, error) {
 	online, err := s.onlineMachines(ctx)
 	if err != nil {

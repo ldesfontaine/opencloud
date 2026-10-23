@@ -25,16 +25,17 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 	h.service.SetWatcher(watcher)
 	ctx := context.Background()
 
-	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1")
+	cleartext, _, err := h.service.CreateToken(ctx, "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	public, _, _ := ed25519.GenerateKey(rand.Reader)
 	const id = "11111111-2222-4333-8444-555555555555"
-	if _, err := h.service.Enroll(ctx, Enrollment{MachineID: id, PublicKey: public, Token: cleartext}); err != nil {
+	enrolled, err := h.service.Enroll(ctx, Enrollment{MachineID: id, PublicKey: public, Token: cleartext})
+	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := h.service.Connect(ctx, id, "192.0.2.1", "v0.0.1")
+	session, err := h.service.Connect(ctx, enrolled, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,7 @@ func TestWatcher_HearsEveryVisibleChange(t *testing.T) {
 
 func TestWatcher_NilIsTolerated(t *testing.T) {
 	h := newHarness(t)
-	if _, _, err := h.service.CreateToken(context.Background(), "vps-paris-1"); err != nil {
+	if _, _, err := h.service.CreateToken(context.Background(), "vps-paris-1", nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -68,7 +69,7 @@ func TestWatcher_NilIsTolerated(t *testing.T) {
 func TestWatcher_SignalWithoutChangeDoesNotPublish(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m.ID, "192.0.2.1", "v0.0.1")
+	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestWatcher_SignalWithoutChangeDoesNotPublish(t *testing.T) {
 func TestWatcher_GoingOfflinePublishes(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m.ID, "192.0.2.1", "v0.0.1")
+	session, err := h.service.Connect(context.Background(), m, "192.0.2.1", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

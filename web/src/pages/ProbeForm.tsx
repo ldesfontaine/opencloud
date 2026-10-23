@@ -14,7 +14,7 @@ import { PageHead } from "../components/PageHead";
 import { useAction } from "../hooks/useAction";
 import { useForm } from "../hooks/useForm";
 import { useT } from "../i18n/context";
-import { emptyProbeForm, probeFormOf, probeKinds, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../lib/probes";
+import { emptyProbeForm, probeFormOf, probeKinds, probeListPath, probePath, probeRequestOf, probeSuggestionOf, type ProbeFormValues } from "../lib/probes";
 import { NotFound } from "./NotFound";
 
 // Créer ou modifier une sonde : l'opérateur dit ce qu'il faut joindre, tous
@@ -44,14 +44,14 @@ export function ProbeForm() {
   const action = useAction();
   const [prefilled, setPrefilled] = useState(false);
 
-  // À défaut de choix, la machine openCloud sonde : c'est la vue depuis
-  // l'extérieur, celle qu'on veut presque toujours.
-  const local = machines.data?.machines.find((machine) => machine.local);
+  // À défaut de choix, la première machine de la liste : le sélecteur n'a
+  // pas d'option vide, il montrerait une machine sans l'avoir choisie.
+  const first = machines.data?.machines[0];
   useEffect(() => {
-    if (!isEditing && values.machineID === "" && local !== undefined) {
-      change("machineID", local.id);
+    if (!isEditing && values.machineID === "" && first !== undefined) {
+      change("machineID", first.id);
     }
-  }, [isEditing, local, values.machineID]);
+  }, [isEditing, first, values.machineID]);
 
   // Venue d'un service déclaré, ou d'un de ses conteneurs, la sonde part de
   // ce qu'ils disent (probeSuggestionOf), une seule fois, quand tout est lu.
@@ -74,7 +74,7 @@ export function ProbeForm() {
     const body = probeRequestOf(values);
     action.run(() => saveProbe(id, body), {
       topic: "all",
-      onDone: (saved) => void navigate(`/domaines/${saved.id}`),
+      onDone: (saved) => void navigate(probePath(saved.id)),
     });
   };
 
@@ -95,7 +95,7 @@ export function ProbeForm() {
             busy={action.busy}
             canSubmit={form.isFilled}
             cancelLabel={t("probe.cancel")}
-            cancelTo={isEditing ? `/domaines/${id}` : "/domaines"}
+            cancelTo={isEditing ? probePath(id) : probeListPath}
           />
         }
       >

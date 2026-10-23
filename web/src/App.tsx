@@ -2,12 +2,16 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router";
 
 import { Layout } from "./components/Layout";
+import { renamedProbePath } from "./lib/probes";
 import { AlertPage } from "./pages/Alert";
 import { AlertChannelForm } from "./pages/AlertChannelForm";
 import { Alerts } from "./pages/Alerts";
-import { AlertSilenceNew } from "./pages/AlertSilenceNew";
+import { AlertMuteNew } from "./pages/AlertMuteNew";
 import { ApplyDetail } from "./pages/ApplyDetail";
 import { Applies } from "./pages/Applies";
+import { Audit } from "./pages/Audit";
+import { SSHKeyMatrix } from "./pages/SSHKeyMatrix";
+import { Backups } from "./pages/Backups";
 import { ContainerPage } from "./pages/Container";
 import { DeclaredServicePage } from "./pages/DeclaredService";
 import { DeclaredServiceForm } from "./pages/DeclaredServiceForm";
@@ -16,6 +20,7 @@ import { JobForm } from "./pages/JobForm";
 import { Jobs } from "./pages/Jobs";
 import { MachinePage } from "./pages/Machine";
 import { MachineNew } from "./pages/MachineNew";
+import { MachineRights } from "./pages/MachineRights";
 import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
@@ -30,6 +35,7 @@ import { StatusAdmin } from "./pages/StatusAdmin";
 import { StatusComponentForm } from "./pages/StatusComponentForm";
 import { StatusIncidentPage } from "./pages/StatusIncident";
 import { StatusIncidentNew } from "./pages/StatusIncidentNew";
+import { StatusPageForm } from "./pages/StatusPageForm";
 
 // La fiche d'un conteneur s'ouvrait sur /services/:id avant d'aller sous
 // /services/conteneurs/:id : un lien d'avant mène à la nouvelle adresse, avec sa query et son ancre
@@ -38,6 +44,14 @@ function ContainerRedirect() {
   const { id = "" } = useParams();
   const location = useLocation();
   return <Navigate replace to={{ pathname: `/services/conteneurs/${encodeURIComponent(id)}`, search: location.search, hash: location.hash }} />;
+}
+
+// La page des sondes s'appelait « Domaines » (/domaines) avant « Disponibilité » :
+// un lien d'avant mène à la nouvelle adresse (/domaines/p1/modifier?x devient
+// /disponibilite/p1/modifier?x).
+function ProbesRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={{ pathname: renamedProbePath(location.pathname), search: location.search, hash: location.hash }} />;
 }
 
 // La page de démonstration du système visuel ne sert qu'en développement :
@@ -56,6 +70,7 @@ export function App() {
         <Route path="machines/nouvelle" element={<MachineNew />} />
         <Route path="machines/jeton" element={<MachineToken />} />
         <Route path="machines/:id" element={<MachinePage />} />
+        <Route path="machines/:id/droits" element={<MachineRights />} />
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services tab="annuaire" />} />
         <Route path="services/conteneurs" element={<Services tab="conteneurs" />} />
@@ -73,17 +88,20 @@ export function App() {
         <Route path="services/conteneurs/:id" element={<ContainerPage />} />
         {/* L'ancienne adresse d'une fiche de conteneur, gardée pour les liens déjà partagés. */}
         <Route path="services/:id" element={<ContainerRedirect />} />
-        <Route path="domaines" element={<Probes />} />
-        <Route path="domaines/nouvelle" element={<ProbeForm />} />
-        <Route path="domaines/:id/modifier" element={<ProbeForm />} />
-        <Route path="domaines/:id" element={<ProbePage />} />
-        {/* Pas encore livrée : l'adresse mène à la vue d'ensemble. */}
-        <Route path="sauvegardes" element={<Navigate to="/" replace />} />
+        <Route path="disponibilite" element={<Probes />} />
+        <Route path="disponibilite/nouvelle" element={<ProbeForm />} />
+        <Route path="disponibilite/:id/modifier" element={<ProbeForm />} />
+        <Route path="disponibilite/:id" element={<ProbePage />} />
+        {/* L'ancien nom de la page : les liens enregistrés suivent, chemin, query et ancre gardés. */}
+        <Route path="domaines/*" element={<ProbesRedirect />} />
+        <Route path="sauvegardes" element={<Backups />} />
         <Route path="taches" element={<Jobs />} />
         <Route path="taches/nouvelle" element={<JobForm />} />
         <Route path="taches/:id/modifier" element={<JobForm />} />
         <Route path="taches/:id" element={<JobPage />} />
         <Route path="page-statut" element={<StatusAdmin />} />
+        <Route path="page-statut/pages/nouvelle" element={<StatusPageForm />} />
+        <Route path="page-statut/pages/:id" element={<StatusPageForm />} />
         <Route path="page-statut/composants/nouveau" element={<StatusComponentForm />} />
         <Route path="page-statut/composants/:id" element={<StatusComponentForm />} />
         <Route path="page-statut/incidents/nouveau" element={<StatusIncidentNew />} />
@@ -93,9 +111,11 @@ export function App() {
         <Route path="alertes/alerte/:id" element={<AlertPage />} />
         <Route path="alertes/canaux/nouveau" element={<AlertChannelForm />} />
         <Route path="alertes/canaux/:id" element={<AlertChannelForm />} />
-        <Route path="alertes/silences/nouveau" element={<AlertSilenceNew />} />
+        <Route path="alertes/silences/nouveau" element={<AlertMuteNew />} />
         <Route path="alertes/:tab" element={<Alerts />} />
         <Route path="parametres" element={<Settings />} />
+        <Route path="cles-ssh" element={<SSHKeyMatrix />} />
+        <Route path="journal" element={<Audit />} />
         {VisualSystem && (
           <Route
             path="systeme-visuel"

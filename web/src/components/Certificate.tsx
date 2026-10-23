@@ -4,16 +4,25 @@ import type { Certificate, Probe } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useCertificateThresholds, useT } from "../i18n/context";
 import { certificateNote, read, type CertificateReading } from "../lib/certificates";
+import { probePath } from "../lib/probes";
 import { Card, CardBody, CardHeader, Empty } from "./Card";
 import { Pill } from "./Pill";
-import "./Certificate.scss";
 
-// Ce qui reste, en jours, dans le ton de son urgence. Un certificat expiré
-// dit depuis combien de temps plutôt qu'un nombre négatif.
-export function Remaining({ reading }: { reading: CertificateReading }) {
+// Ce qui reste, en jours. Un certificat sain reste discret, en texte ; dès
+// qu'il approche de sa fin, l'échéance se lit en pastille, au ton du seuil.
+// Un certificat expiré dit depuis combien de temps plutôt qu'un nombre
+// négatif. `plain` : la pastille d'état est juste à côté et dit déjà le ton.
+export function Remaining({ reading, plain = false }: { reading: CertificateReading; plain?: boolean }) {
   const t = useT();
   const text = reading.days < 0 ? t("cert.expired_days", -reading.days) : t("cert.days", reading.days);
-  return <span className={`mono nowrap cert-days ${reading.tone === "ok" ? "secondary" : reading.tone}`}>{text}</span>;
+  if (plain || reading.tone === "ok") {
+    return <span className="mono nowrap secondary">{text}</span>;
+  }
+  return (
+    <Pill tone={reading.tone} small>
+      <span className="mono">{text}</span>
+    </Pill>
+  );
 }
 
 // L'état d'un certificat, dans le vocabulaire de la direction artistique.
@@ -37,7 +46,7 @@ export function TrustPill({ reading }: { reading: CertificateReading }) {
   return null;
 }
 
-// Le bloc « Domaines et certificats » d'une machine : un domaine par
+// Le bloc « Certificats » de l'onglet Disponibilité d'une machine : une cible par
 // ligne, sa note, et ce qui lui reste. Les sondes sans certificat n'y sont
 // pas — elles sont déjà dans le tableau au-dessus.
 export function CertificateList({ probes }: { probes: Probe[] }) {
@@ -60,7 +69,7 @@ export function CertificateList({ probes }: { probes: Probe[] }) {
             return (
               <div className="kv" key={probe.id}>
                 <span className="svc">
-                  <Link className="mono" to={`/domaines/${probe.id}`}>
+                  <Link className="mono" to={probePath(probe.id)}>
                     {certificate.subject !== "" ? certificate.subject : probe.name}
                   </Link>
                   <span className="secondary">{certificateNote(t, certificate, reading, now)}</span>

@@ -54,7 +54,6 @@ services:
         version: "2.4.1"
         ports: ["8080:3000/tcp", "80"]
         updates: watch
-  # À vérifier : repris de l'existant.
   - id: svc_00000000000000b4
     machine: opencloud
     name: legacy

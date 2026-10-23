@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/fsx"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
@@ -31,6 +34,72 @@ type Identity struct {
 	// Langue de l'opérateur, choisie sur openCloud au moment de l'installation.
 	Language   lang.Code `json:"language,omitempty"`
 	EnrolledAt time.Time `json:"enrolled_at"`
+	// Les droits cochés par l'opérateur, écrits par la ligne d'installation
+	// (-rights), un par entrée (« observe », « files.write=/srv/a:/srv/b »).
+	// Absents chez un agent d'avant les droits : observe seul. Rapportés au
+	// serveur à chaque ouverture du flux, et appliqués : un ordre dont le
+	// droit n'est pas ici est refusé (orders.go). Les changer, c'est
+	// ré-enrôler avec d'autres droits.
+	Rights []string `json:"rights,omitempty"`
+	// L'agent que le serveur a inscrit à l'enrôlement : un ordre pour un
+	// autre agent de la même machine (avant un ré-enrôlement) est refusé.
+	AgentID string `json:"agent_id,omitempty"`
+	// La clé publique du serveur, épinglée à l'enrôlement : seul ce qu'elle
+	// signe est exécuté. Vide chez un agent qui ne l'a jamais reçue : il
+	// refuse tout ordre, et le ré-enrôlement la pose.
+	ServerKey []byte `json:"server_key,omitempty"`
+	// Le rang du dernier ordre exécuté : un rang qui ne le dépasse pas est
+	// un rejeu. Écrit avant d'exécuter, pour qu'un redémarrage ne rouvre
+	// pas la porte.
+	LastOrderSeq int64 `json:"last_order_seq,omitempty"`
+	// La racine des services déployés, choisie au premier lancement
+	// (-root-dir). Vide chez un agent d'avant le déploiement : la racine par
+	// défaut. Redite au serveur à chaque ouverture du flux.
+	RootDir string `json:"root_dir,omitempty"`
+	// L'état est mal gardé (CheckStateDir) : seuls les droits d'observer
+	// s'appliquent, ceux du fichier restent sur le disque. Non exporté, donc
+	// jamais écrit : l'état corrigé, un redémarrage les rend.
+	narrowed bool
+}
+
+// Root rend la racine des services que cet agent écrit.
+func (id Identity) Root() string {
+	if id.RootDir == "" {
+		return brand.WorkspaceRoot
+	}
+	return id.RootDir
+}
+
+// ServerKeyFingerprint rend l'empreinte de la clé épinglée, vide sans clé :
+// c'est ce que l'agent redit au serveur à chaque ouverture du flux.
+func (id Identity) ServerKeyFingerprint() string {
+	if len(id.ServerKey) != ed25519.PublicKeySize {
+		return ""
+	}
+	return agentwire.KeyFingerprint(id.ServerKey)
+}
+
+// Capabilities rend les droits du fichier ; une liste illisible (fichier
+// modifié à la main) vaut observe seul, le plus étroit, comme un état mal
+// gardé.
+func (id Identity) Capabilities() []machine.Capability {
+	if id.narrowed {
+		return []machine.Capability{{Name: machine.CapabilityObserve}}
+	}
+	capabilities, err := machine.ParseCapabilities(strings.Join(id.Rights, ","))
+	if err != nil {
+		return []machine.Capability{{Name: machine.CapabilityObserve}}
+	}
+	return capabilities
+}
+
+// rightsOf écrit des droits sous la forme du fichier : une entrée par droit.
+func rightsOf(capabilities []machine.Capability) []string {
+	rights := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		rights = append(rights, machine.FormatCapabilities([]machine.Capability{capability}))
+	}
+	return rights
 }
 
 var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and send the token on stdin")
@@ -40,7 +109,7 @@ var ErrNotEnrolled = errors.New("agent not enrolled: run with -server and send t
 var ErrTokenMissing = errors.New("no enrollment token on stdin")
 
 // NewIdentity tire une clé et un id ; rien n'est écrit avant l'enrôlement.
-func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
+func NewIdentity(server, pin string, language lang.Code, capabilities []machine.Capability) (Identity, error) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate key: %w", err)
@@ -49,7 +118,10 @@ func NewIdentity(server, pin string, language lang.Code) (Identity, error) {
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate id: %w", err)
 	}
-	return Identity{MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin, Language: language}, nil
+	return Identity{
+		MachineID: id, PublicKey: publicKey, PrivateKey: privateKey, Server: server, Pin: pin, Language: language,
+		Rights: rightsOf(capabilities),
+	}, nil
 }
 
 func LoadIdentity(stateDir *os.Root) (Identity, error) {

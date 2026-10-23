@@ -16,9 +16,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
-	"github.com/ldesfontaine/opencloud/internal/update"
 )
 
 func (ts *testServer) agentPost(session, path string, payload any) *httptest.ResponseRecorder {
@@ -42,7 +40,7 @@ func readCommand(t *testing.T, stream *bufio.Reader, want string) string {
 		if name == want {
 			return data
 		}
-		if name != probe.CommandProbes && name != update.CommandImages {
+		if name != string(agentwire.KindProbes) && name != string(agentwire.KindImages) {
 			t.Fatalf("commande inattendue %q en attendant %q", name, want)
 		}
 	}
@@ -123,7 +121,7 @@ func TestContainerLogs_RemoteRoundTrip(t *testing.T) {
 		t.Fatalf("stream: %d %s", browser.StatusCode, browser.Header.Get("Content-Type"))
 	}
 
-	data := readCommand(t, agentStream, container.CommandLogs)
+	data := readCommand(t, agentStream, string(agentwire.KindLogs))
 	var command container.LogRequest
 	if err := json.Unmarshal([]byte(data), &command); err != nil {
 		t.Fatal(err)
@@ -176,10 +174,10 @@ func TestContainerLogs_BrowserLeaving_StopsTheAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := readCommand(t, agentStream, container.CommandLogs)
+	data := readCommand(t, agentStream, string(agentwire.KindLogs))
 	browser.Body.Close()
 	stop()
-	stopData := readCommand(t, agentStream, container.CommandLogsStop)
+	stopData := readCommand(t, agentStream, string(agentwire.KindLogsStop))
 	if !strings.Contains(data, jsonID(t, stopData)) {
 		t.Fatalf("la commande d'arrêt ne porte pas la requête ouverte: %s", stopData)
 	}
@@ -215,37 +213,6 @@ func TestContainerLogs_OfflineMachineAndUnknownContainer(t *testing.T) {
 	}
 }
 
-// La machine openCloud sert ses journaux en processus : le tirage unique
-// passe par la source locale, sans agent.
-type fakeLocalLogs struct{}
-
-func (fakeLocalLogs) OpenLogs(_ context.Context, request container.LogRequest) (<-chan container.LogBatch, error) {
-	batches := make(chan container.LogBatch, 1)
-	batches <- container.LogBatch{Lines: []container.LogLine{{At: testNow, Stream: "stdout", Text: "local line " + request.ContainerID[:4]}}, Done: true}
-	close(batches)
-	return batches, nil
-}
-
-func TestContainerLogs_LocalMachineUsesTheInProcessSource(t *testing.T) {
-	server := newTestServer(t)
-	server.containers.SetLocalLogSource(machine.LocalID, fakeLocalLogs{})
-	report := container.Report{Complete: true, Inventory: []container.Observed{{
-		ContainerID: strings.Repeat("d", 64), Name: "traefik", Image: "traefik:3.1", State: container.StateRunning, CreatedAt: testNow,
-	}}}
-	if err := server.containers.Record(context.Background(), machine.LocalID, report); err != nil {
-		t.Fatal(err)
-	}
-	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+container.ID(machine.LocalID, strings.Repeat("d", 64))+"/logs?tail=5", nil)
-	if got.Code != http.StatusOK {
-		t.Fatalf("logs: %d %s", got.Code, got.Body.String())
-	}
-	var response logsResponse
-	decodeAPI(t, got, &response)
-	if len(response.Lines) != 1 || response.Lines[0].Text != "local line dddd" || response.Lines[0].At == nil {
-		t.Fatalf("lines = %+v", response.Lines)
-	}
-}
-
 // Une machine ne livre pas dans la requête poussée à une autre : sans quoi
 // un agent enrôlé écrirait dans les journaux qu'un onglet lit ailleurs.
 func TestContainerLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
@@ -270,7 +237,7 @@ func TestContainerLogs_BatchFromAnotherMachine_IsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer browser.Body.Close()
-	requestID := jsonID(t, readCommand(t, agentStream, container.CommandLogs))
+	requestID := jsonID(t, readCommand(t, agentStream, string(agentwire.KindLogs)))
 
 	if got := server.agentPost(intruderSession, "/agent/logs/"+requestID, container.LogBatch{Lines: []container.LogLine{{Text: "intrus"}}}); got.Code != http.StatusNotFound {
 		t.Fatalf("intruder: %d %s", got.Code, got.Body.String())
@@ -322,9 +289,9 @@ func TestLogSlots_ConcurrentTakers_NeverExceedTheCeiling(t *testing.T) {
 	}
 }
 
-// Le tirage unique et l'outil MCP comptent dans les mêmes seize places que
-// les suivis : au-delà, la clé du catalogue.
-func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
+// Le tirage unique et le suivi comptent dans les mêmes seize places : au-delà,
+// la clé du catalogue.
+func TestContainerLogs_FetchAndStreamShareTheCeiling(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
@@ -339,11 +306,6 @@ func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 	if got.Code != http.StatusServiceUnavailable || errorCode(t, got) != codeLogsBusy {
 		t.Fatalf("stream: %d %s", got.Code, got.Body.String())
 	}
-	session := connectMCP(t, server.mcpServer)
-	text, isError := callTool(t, session, "get_container_logs", map[string]any{"id": containerID})
-	if !isError || toolErrorCode(t, text) != codeLogsBusy {
-		t.Fatalf("tool: %v %s", isError, text)
-	}
 	server.releaseLogSlot()
 	got = callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
 	if errorCode(t, got) != "container.machine_offline" {
@@ -355,15 +317,15 @@ func TestContainerLogs_FetchAndToolShareTheCeiling(t *testing.T) {
 // 500 ; le jeu de sondes refusé repart au cycle suivant.
 func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	server := newTestServer(t)
-	server.enroll(t, "vps-paris-1", remoteID)
+	enrolled, _ := server.enroll(t, "vps-paris-1", remoteID)
 	containerID := server.seedContainers(t)
 	// Une session sans boucle de flux : personne ne vide la file.
-	session, err := server.machines.Connect(context.Background(), remoteID, "51.15.20.114", "v0.0.1")
+	session, err := server.machines.Connect(context.Background(), enrolled, "51.15.20.114", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer server.machines.Disconnect(session)
-	for server.Command(remoteID, "filler", nil) == nil {
+	for server.machines.Push(remoteID, machine.StreamEvent{Name: "filler"}) == nil {
 	}
 
 	got := callAPI(server.Server, http.MethodGet, "/api/containers/"+containerID+"/logs", nil)
@@ -372,15 +334,15 @@ func TestCommandQueueFull_RefusesLogsAndResendsProbes(t *testing.T) {
 	}
 
 	server.probes.Assign(context.Background(), remoteID)
-	for len(session.Commands()) > 0 {
-		<-session.Commands()
+	for len(session.Events()) > 0 {
+		<-session.Events()
 	}
 	server.probes.ResendUnsent(context.Background())
-	if len(session.Commands()) != 1 || (<-session.Commands()).Name != probe.CommandProbes {
+	if len(session.Events()) != 1 || (<-session.Events()).Name != string(agentwire.KindProbes) {
 		t.Fatal("the probe set was not resent")
 	}
 	server.probes.ResendUnsent(context.Background())
-	if len(session.Commands()) != 0 {
+	if len(session.Events()) != 0 {
 		t.Fatal("a delivered set is resent again")
 	}
 }

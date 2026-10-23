@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import type { DeletionPlan } from "./deletion";
 
 // Les sondes : ce que l'API en rend, et tout ce que le front lui demande.
 // Un chemin qui porte un identifiant passe par segment(), même quand
@@ -152,6 +153,10 @@ export async function saveProbe(id: string | undefined, body: ProbeRequest): Pro
 
 export async function deleteProbe(id: string): Promise<void> {
   return api.delete(probePath(id));
+}
+
+export async function fetchProbeDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${probePath(id)}/delete-plan`);
 }
 
 export async function pauseProbe(id: string): Promise<void> {

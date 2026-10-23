@@ -16,14 +16,15 @@ const probeColumns = `p.id, p.name, p.kind, p.target, p.machine_id, COALESCE(m.n
 	p.method, p.expected_status, p.expected_body, p.follow_redirects, p.tls,
 	p.consecutive_failures, p.consecutive_successes,
 	p.last_checked_at, p.last_duration_ms, p.last_code, p.last_reason,
-	p.cert_subject, p.cert_issuer, p.cert_not_before, p.cert_not_after, p.cert_fingerprint,
-	p.cert_chain_valid, p.cert_hostname_match, p.cert_ocsp,
+	c.subject, c.issuer, c.not_before, c.not_after, c.fingerprint,
+	c.chain_valid, c.hostname_match, c.ocsp,
 	p.created_at, p.revised_at`
 
 const probeFrom = ` FROM probes p
 	JOIN machines m ON m.id = p.machine_id
 	LEFT JOIN declared_services s ON s.id = p.service_id
-	LEFT JOIN machines sm ON sm.id = s.machine_id`
+	LEFT JOIN machines sm ON sm.id = s.machine_id
+	LEFT JOIN probe_certificates c ON c.probe_id = p.id`
 
 func (db *DB) InsertProbe(ctx context.Context, item probe.Probe) error {
 	_, err := db.sql.ExecContext(ctx, `
@@ -45,42 +46,40 @@ func (db *DB) InsertProbe(ctx context.Context, item probe.Probe) error {
 // UpdateProbe remplace la définition en une seule instruction, sans relire
 // ni réécrire l'état, qu'un essai peut changer au même moment. L'état,
 // les compteurs et la date de révision ne s'écrivent que si l'édition remet
-// à zéro, et une sonde en pause le reste ; le certificat, que si la cible
-// change.
+// à zéro, et une sonde en pause le reste. Le certificat part dans la même
+// transaction, si la cible change.
 func (db *DB) UpdateProbe(ctx context.Context, revision probe.Revision) error {
 	item := revision.Probe
 	resets := boolToInt(revision.ResetsState)
-	clears := boolToInt(revision.ClearsCertificate)
-	result, err := db.sql.ExecContext(ctx, `
+	return db.inTx(ctx, "update probe", func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `
 		UPDATE probes SET name = ?, kind = ?, target = ?, machine_id = ?, service_id = ?,
 			interval_seconds = ?, timeout_seconds = ?, failure_threshold = ?, recovery_threshold = ?,
 			method = ?, expected_status = ?, expected_body = ?, follow_redirects = ?, tls = ?,
 			status = CASE WHEN ? AND status <> ? THEN ? ELSE status END,
 			consecutive_failures = CASE WHEN ? THEN 0 ELSE consecutive_failures END,
 			consecutive_successes = CASE WHEN ? THEN 0 ELSE consecutive_successes END,
-			revised_at = CASE WHEN ? THEN ? ELSE revised_at END,
-			cert_subject = CASE WHEN ? THEN '' ELSE cert_subject END,
-			cert_issuer = CASE WHEN ? THEN '' ELSE cert_issuer END,
-			cert_not_before = CASE WHEN ? THEN NULL ELSE cert_not_before END,
-			cert_not_after = CASE WHEN ? THEN NULL ELSE cert_not_after END,
-			cert_fingerprint = CASE WHEN ? THEN '' ELSE cert_fingerprint END,
-			cert_chain_valid = CASE WHEN ? THEN 0 ELSE cert_chain_valid END,
-			cert_hostname_match = CASE WHEN ? THEN 0 ELSE cert_hostname_match END,
-			cert_ocsp = CASE WHEN ? THEN '' ELSE cert_ocsp END
+			revised_at = CASE WHEN ? THEN ? ELSE revised_at END
 		WHERE id = ?`,
-		item.Name, string(item.Kind), item.Target, item.MachineID, nullableString(item.ServiceID),
-		int64(item.Interval.Seconds()), int64(item.Timeout.Seconds()), item.FailureThreshold, item.RecoveryThreshold,
-		item.Method, item.ExpectedStatus, item.ExpectedBody, boolToInt(item.FollowRedirects), boolToInt(item.TLS),
-		resets, string(probe.StatusPaused), string(probe.StatusNew),
-		resets,
-		resets,
-		resets, revisedAtMillis(item.RevisedAt),
-		clears, clears, clears, clears, clears, clears, clears, clears,
-		item.ID)
-	if err != nil {
-		return fmt.Errorf("update probe: %w", err)
-	}
-	return notFoundIfNoRow(result, probe.ErrNotFound)
+			item.Name, string(item.Kind), item.Target, item.MachineID, nullableString(item.ServiceID),
+			int64(item.Interval.Seconds()), int64(item.Timeout.Seconds()), item.FailureThreshold, item.RecoveryThreshold,
+			item.Method, item.ExpectedStatus, item.ExpectedBody, boolToInt(item.FollowRedirects), boolToInt(item.TLS),
+			resets, string(probe.StatusPaused), string(probe.StatusNew),
+			resets,
+			resets,
+			resets, revisedAtMillis(item.RevisedAt),
+			item.ID)
+		if err != nil {
+			return fmt.Errorf("update probe: %w", err)
+		}
+		if err := notFoundIfNoRow(result, probe.ErrNotFound); err != nil {
+			return err
+		}
+		if !revision.ClearsCertificate {
+			return nil
+		}
+		return deleteProbeCertificate(ctx, tx, item.ID)
+	})
 }
 
 // ListProbes rend les sondes d'une machine, ou de toutes si machineID est
@@ -125,10 +124,10 @@ func (db *DB) CountProbeCertificates(ctx context.Context, now, before time.Time)
 	var soonest sql.NullInt64
 	err := db.sql.QueryRowContext(ctx, `
 		SELECT COUNT(*),
-			COALESCE(SUM(cert_not_after >= ? AND cert_not_after < ?), 0),
-			COALESCE(SUM(cert_not_after < ?), 0),
-			MIN(CASE WHEN cert_not_after >= ? THEN cert_not_after END)
-		FROM probes WHERE cert_fingerprint != '' AND status != ?`,
+			COALESCE(SUM(c.not_after >= ? AND c.not_after < ?), 0),
+			COALESCE(SUM(c.not_after < ?), 0),
+			MIN(CASE WHEN c.not_after >= ? THEN c.not_after END)
+		FROM probe_certificates c JOIN probes p ON p.id = c.probe_id WHERE p.status != ?`,
 		now.Unix(), before.Unix(), now.Unix(), now.Unix(), string(probe.StatusPaused),
 	).Scan(&counted.Total, &counted.Expiring, &counted.Expired, &soonest)
 	if err != nil {
@@ -159,12 +158,24 @@ func (db *DB) CountProbesOnMachine(ctx context.Context, machineID string) (int, 
 	return carried, nil
 }
 
+// DeleteProbe relit le plan de la sonde et la supprime dans la même
+// transaction : un composant de statut qui l'affiche la retient. Son
+// historique part avec elle, ses alertes restent, détachées.
 func (db *DB) DeleteProbe(ctx context.Context, id string) error {
-	result, err := db.sql.ExecContext(ctx, `DELETE FROM probes WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("delete probe: %w", err)
-	}
-	return notFoundIfNoRow(result, probe.ErrNotFound)
+	return db.inTx(ctx, "delete probe", func(tx *sql.Tx) error {
+		plan, err := probeDeletionPlan(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := probe.RefuseDeletion(plan); err != nil {
+			return err
+		}
+		result, err := tx.ExecContext(ctx, `DELETE FROM probes WHERE id = ?`, id)
+		if err != nil {
+			return fmt.Errorf("delete probe: %w", err)
+		}
+		return notFoundIfNoRow(result, probe.ErrNotFound)
+	})
 }
 
 // SetProbeStatus met l'état et remet les compteurs à zéro : après une
@@ -225,23 +236,16 @@ func insertProbeResult(ctx context.Context, tx *sql.Tx, result probe.Result) err
 
 // L'état se calcule sur la sonde telle qu'elle était à la lecture : si une
 // édition l'a remise à zéro depuis (revised_at a changé), il ne l'écrase
-// pas. Une révision qui laisse l'état en place ne change pas revised_at.
+// pas, ni le certificat. Une révision qui laisse l'état en place ne change
+// pas revised_at.
 func updateProbeState(ctx context.Context, tx *sql.Tx, item probe.Probe) (bool, error) {
-	certificate := item.Certificate
-	if certificate == nil {
-		certificate = &probe.Certificate{}
-	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE probes SET status = ?, consecutive_failures = ?, consecutive_successes = ?,
-			last_checked_at = ?, last_duration_ms = ?, last_code = ?, last_reason = ?,
-			cert_subject = ?, cert_issuer = ?, cert_not_before = ?, cert_not_after = ?, cert_fingerprint = ?,
-			cert_chain_valid = ?, cert_hostname_match = ?, cert_ocsp = ?
+			last_checked_at = ?, last_duration_ms = ?, last_code = ?, last_reason = ?
 		WHERE id = ? AND revised_at IS ?`,
 		string(item.Status), item.ConsecutiveFailures, item.ConsecutiveSuccesses,
 		nullableTime(item.LastCheckedAt), item.LastDurationMs, nullableInt(item.LastCode), string(item.LastReason),
-		certificate.Subject, certificate.Issuer, nullableTime(certificate.NotBefore), nullableTime(certificate.NotAfter),
-		certificate.Fingerprint, boolToInt(certificate.ChainValid), boolToInt(certificate.HostnameMatch),
-		string(certificate.OCSP), item.ID, revisedAtMillis(item.RevisedAt))
+		item.ID, revisedAtMillis(item.RevisedAt))
 	if err != nil {
 		return false, fmt.Errorf("update probe state: %w", err)
 	}
@@ -249,7 +253,40 @@ func updateProbeState(ctx context.Context, tx *sql.Tx, item probe.Probe) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("count updated probe state: %w", err)
 	}
-	return affected > 0, nil
+	if affected == 0 {
+		return false, nil
+	}
+	return true, saveProbeCertificate(ctx, tx, item.ID, item.Certificate)
+}
+
+// saveProbeCertificate garde le dernier certificat vu ; un essai qui n'en a
+// pas vu efface le précédent. Un certificat sans empreinte n'en est pas un.
+func saveProbeCertificate(ctx context.Context, tx *sql.Tx, probeID string, certificate *probe.Certificate) error {
+	if certificate == nil || certificate.Fingerprint == "" {
+		return deleteProbeCertificate(ctx, tx, probeID)
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO probe_certificates (probe_id, subject, issuer, not_before, not_after, fingerprint,
+			chain_valid, hostname_match, ocsp)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (probe_id) DO UPDATE SET
+			subject = excluded.subject, issuer = excluded.issuer,
+			not_before = excluded.not_before, not_after = excluded.not_after, fingerprint = excluded.fingerprint,
+			chain_valid = excluded.chain_valid, hostname_match = excluded.hostname_match, ocsp = excluded.ocsp`,
+		probeID, certificate.Subject, certificate.Issuer, nullableTime(certificate.NotBefore), nullableTime(certificate.NotAfter),
+		certificate.Fingerprint, boolToInt(certificate.ChainValid), boolToInt(certificate.HostnameMatch),
+		string(certificate.OCSP))
+	if err != nil {
+		return fmt.Errorf("save probe certificate: %w", err)
+	}
+	return nil
+}
+
+func deleteProbeCertificate(ctx context.Context, tx *sql.Tx, probeID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM probe_certificates WHERE probe_id = ?`, probeID); err != nil {
+		return fmt.Errorf("delete probe certificate: %w", err)
+	}
+	return nil
 }
 
 // ListResults rend les derniers essais d'une sonde, le plus récent d'abord.
@@ -317,16 +354,34 @@ func (db *DB) CountProbeResults(ctx context.Context, probeID string, from, to ti
 	return total, success, nil
 }
 
-// CountDays additionne les jours d'une fenêtre : c'est pour cela que
-// l'agrégat garde des comptes et non un pourcentage.
-func (db *DB) CountProbeDays(ctx context.Context, probeID string, from time.Time) (total, success int, err error) {
+// CountProbeWindow compte une fenêtre de plusieurs jours : l'agrégat pour
+// les jours que le brut ne couvre plus en entier, le brut pour tous les
+// suivants, jusqu'à maintenant. La frontière est le premier jour que la
+// rétention du brut couvre entièrement, celui où Rollup commence : un jour
+// avant elle a été agrégé quand il était entier, un jour après a tout son
+// brut. Elle ne dépend donc pas du retard du rollup (le jour courant, le
+// jour d'hier juste après minuit, un rollup en panne) : pas de trou, et pas
+// de double compte, un jour n'étant lu que d'un côté. L'agrégat garde des
+// comptes et non un pourcentage pour que cette addition soit juste.
+func (db *DB) CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error) {
+	now = now.UTC()
+	cutoff := now.Add(-probe.ResultRetention)
+	rawFrom := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, 1)
+	if rawFrom.Before(from) {
+		rawFrom = from
+	}
 	err = db.sql.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(total), 0), COALESCE(SUM(success), 0) FROM probe_days
-		WHERE probe_id = ? AND day >= ?`, probeID, from.Unix()).Scan(&total, &success)
+		WHERE probe_id = ? AND day >= ? AND day < ?`,
+		probeID, from.Unix(), rawFrom.Unix()).Scan(&total, &success)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count probe days: %w", err)
 	}
-	return total, success, nil
+	rawTotal, rawSuccess, err := db.CountProbeResults(ctx, probeID, rawFrom, now)
+	if err != nil {
+		return 0, 0, err
+	}
+	return total + rawTotal, success + rawSuccess, nil
 }
 
 // RollupDay réécrit un jour entier depuis le brut, en une instruction :
@@ -363,10 +418,9 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	var item probe.Probe
 	var kind, status, reason string
 	var intervalSeconds, timeoutSeconds int64
-	var followRedirects, useTLS, chainValid, hostnameMatch int
-	var lastCheckedAt, lastCode, notBefore, notAfter sql.NullInt64
-	var certificate probe.Certificate
-	var ocsp string
+	var followRedirects, useTLS int
+	var lastCheckedAt, lastCode, notBefore, notAfter, chainValid, hostnameMatch sql.NullInt64
+	var subject, issuer, fingerprint, ocsp sql.NullString
 	var createdAt int64
 	var revisedAt sql.NullInt64
 	err := row.Scan(
@@ -376,7 +430,7 @@ func scanProbe(row scanner) (probe.Probe, error) {
 		&item.Method, &item.ExpectedStatus, &item.ExpectedBody, &followRedirects, &useTLS,
 		&item.ConsecutiveFailures, &item.ConsecutiveSuccesses,
 		&lastCheckedAt, &item.LastDurationMs, &lastCode, &reason,
-		&certificate.Subject, &certificate.Issuer, &notBefore, &notAfter, &certificate.Fingerprint,
+		&subject, &issuer, &notBefore, &notAfter, &fingerprint,
 		&chainValid, &hostnameMatch, &ocsp,
 		&createdAt, &revisedAt,
 	)
@@ -397,13 +451,19 @@ func scanProbe(row scanner) (probe.Probe, error) {
 	item.LastReason = probe.Reason(reason)
 	item.CreatedAt = time.Unix(createdAt, 0).UTC()
 	item.RevisedAt = timeOfMillis(revisedAt)
-	if certificate.Fingerprint != "" {
-		certificate.NotBefore = timeOf(notBefore)
-		certificate.NotAfter = timeOf(notAfter)
-		certificate.ChainValid = chainValid != 0
-		certificate.HostnameMatch = hostnameMatch != 0
-		certificate.OCSP = probe.OCSP(ocsp)
-		item.Certificate = &certificate
+	// Sans ligne dans probe_certificates, la jointure rend des NULL : pas
+	// de certificat.
+	if fingerprint.Valid {
+		item.Certificate = &probe.Certificate{
+			Subject:       subject.String,
+			Issuer:        issuer.String,
+			NotBefore:     timeOf(notBefore),
+			NotAfter:      timeOf(notAfter),
+			Fingerprint:   fingerprint.String,
+			ChainValid:    chainValid.Int64 != 0,
+			HostnameMatch: hostnameMatch.Int64 != 0,
+			OCSP:          probe.OCSP(ocsp.String),
+		}
 	}
 	return item, nil
 }
@@ -423,16 +483,4 @@ func timeOfMillis(value sql.NullInt64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(value.Int64)
-}
-
-// CountProbeHistory compte ce qu'emporte la suppression d'une sonde : ses
-// essais bruts et ses jours agrégés.
-func (db *DB) CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error) {
-	err = db.sql.QueryRowContext(ctx, `
-		SELECT (SELECT COUNT(*) FROM probe_results WHERE probe_id = ?),
-		       (SELECT COUNT(*) FROM probe_days WHERE probe_id = ?)`, probeID, probeID).Scan(&results, &days)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count probe history: %w", err)
-	}
-	return results, days, nil
 }

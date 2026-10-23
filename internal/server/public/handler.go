@@ -2,6 +2,7 @@ package public
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -15,11 +16,13 @@ import (
 // La méthode « * » du montage de la racine : toutes, pour un fourre-tout.
 const anyMethod = "*"
 
-// Ce que la page attend du composant statut : l'instantané public et les
-// réglages de la page (sa langue).
+// Ce que la page attend du composant statut : la page à une adresse (sa
+// langue), la liste des pages pour /statut seul, et l'instantané public
+// d'une page.
 type StatusReader interface {
-	Snapshot(ctx context.Context) (status.Snapshot, error)
-	Page(ctx context.Context) (status.Page, error)
+	PageBySlug(ctx context.Context, slug string) (status.Page, error)
+	ListPages(ctx context.Context) ([]status.Page, error)
+	Snapshot(ctx context.Context, pageID string) (status.Snapshot, error)
 }
 
 // Ce que le direct public attend du bus : un abonnement par visiteur. Ce
@@ -83,13 +86,32 @@ func New(opts Options) *Handler {
 	return handler
 }
 
-// Routes déclare les routes de la page publique. Le serveur les monte à leur
-// place dans son arbre, que server/routes_test.go fige.
+// Routes déclare les routes des pages publiques, une par slug. Le serveur
+// les monte à leur place dans son arbre, que server/routes_test.go fige.
 func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFunc)) {
-	add("GET", "/statut", h.limitRead(h.servePage))
-	add("GET", "/statut/{$}", h.limitRead(h.servePage))
-	add("GET", "/statut/api/status", h.limitRead(h.serveStatus))
-	add("GET", "/statut/api/i18n", h.limitRead(h.serveCatalog))
-	add("GET", "/statut/api/events", h.serveEvents)
+	add("GET", "/statut", h.limitRead(h.serveRoot))
+	add("GET", "/statut/{$}", h.limitRead(h.serveRoot))
+	add("GET", "/statut/{slug}", h.limitRead(h.servePage))
+	add("GET", "/statut/{slug}/{$}", h.limitRead(h.servePage))
+	add("GET", "/statut/{slug}/api/status", h.limitRead(h.serveStatus))
+	add("GET", "/statut/{slug}/api/i18n", h.limitRead(h.serveCatalog))
+	add("GET", "/statut/{slug}/api/events", h.serveEvents)
 	add(anyMethod, "/statut/", h.serveUnknown)
+}
+
+// pageOf rend la page de l'adresse demandée. Un slug inconnu répond 404,
+// comme tout chemin inconnu sous /statut : rien ne dit qu'une autre page
+// existe. Faux : la réponse est écrite.
+func (h *Handler) pageOf(w http.ResponseWriter, r *http.Request) (status.Page, bool) {
+	page, err := h.status.PageBySlug(r.Context(), r.PathValue("slug"))
+	if errors.Is(err, status.ErrNotFound) {
+		http.NotFound(w, nil)
+		return status.Page{}, false
+	}
+	if err != nil {
+		h.logger.Error("status page", "error", err)
+		http.Error(w, "error", http.StatusInternalServerError)
+		return status.Page{}, false
+	}
+	return page, true
 }

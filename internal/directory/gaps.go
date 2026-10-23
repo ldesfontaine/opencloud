@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/update"
 )
@@ -110,6 +111,7 @@ func (d *Directory) Ignore(ctx context.Context, key IgnoredKey) error {
 		return err
 	}
 	d.logger.Info("key ignored", "machine_id", key.MachineID, "kind", key.Kind, "value", key.Value)
+	d.auditor.Record(ctx, ignoredKeyEvent(audit.IgnoredKeyCreate, key))
 	d.changed()
 	return nil
 }
@@ -120,6 +122,7 @@ func (d *Directory) Unignore(ctx context.Context, key IgnoredKey) error {
 		return err
 	}
 	d.logger.Info("key no longer ignored", "machine_id", key.MachineID, "kind", key.Kind, "value", key.Value)
+	d.auditor.Record(ctx, ignoredKeyEvent(audit.IgnoredKeyDelete, key))
 	d.changed()
 	return nil
 }

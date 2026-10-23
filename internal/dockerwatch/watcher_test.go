@@ -24,6 +24,8 @@ import (
 const (
 	fixtureID   = "0082fc783011ead4e11be27f298f845fc39b25b371c0247ed7b7a798b8388513"
 	networkedID = "0b8a6dace3720f0be321b35a86049366e9609bd998d8da680b249209360fa346"
+	// Un identifiant bien formé que le démon ne connaît pas (ou plus).
+	goneID = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
 // Les fixtures sont celles du client, enregistrées sur un vrai démon.
@@ -91,6 +93,11 @@ func (s *recordingSink) delivered() []container.Report {
 type daemon struct {
 	mux   *http.ServeMux
 	stats atomic.Int64
+	// Les demandes de journal reçues, avec leur paramètre « tail » : un refus
+	// de l'agent ne doit jamais arriver jusque-là.
+	logs     atomic.Int64
+	logsMu   sync.Mutex
+	logTails []string
 	// events tient le flux ouvert après les fixtures quand hold est vrai.
 	hold bool
 	// onEvents remplace le flux enregistré quand un test veut le sien.
@@ -124,7 +131,11 @@ func newDaemon(t *testing.T, hold bool) *daemon {
 		_ = json.NewEncoder(w).Encode(stats)
 	})
 	d.mux.HandleFunc("GET /v1.41/containers/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
-		if r.PathValue("id") == "missing" {
+		d.logs.Add(1)
+		d.logsMu.Lock()
+		d.logTails = append(d.logTails, r.URL.Query().Get("tail"))
+		d.logsMu.Unlock()
+		if r.PathValue("id") == goneID {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -409,6 +420,7 @@ func TestRun_SecondMeasureGivesACPUPercent(t *testing.T) {
 
 func TestOpenLogs_BatchesThenDone(t *testing.T) {
 	watcher := newWatcher(serve(t, newDaemon(t, true).mux), newSink())
+	watcher.rememberAll([]string{fixtureID})
 	batches, err := watcher.OpenLogs(context.Background(), container.LogRequest{ContainerID: fixtureID, Tail: 5})
 	if err != nil {
 		t.Fatal(err)
@@ -428,9 +440,10 @@ func TestOpenLogs_BatchesThenDone(t *testing.T) {
 	}
 }
 
-func TestOpenLogs_UnknownContainerAndBusyMachine(t *testing.T) {
+func TestOpenLogs_DisappearedContainerAndBusyMachine(t *testing.T) {
 	watcher := newWatcher(serve(t, newDaemon(t, true).mux), newSink())
-	batches, _ := watcher.OpenLogs(context.Background(), container.LogRequest{ContainerID: "missing"})
+	watcher.rememberAll([]string{fixtureID, goneID})
+	batches, _ := watcher.OpenLogs(context.Background(), container.LogRequest{ContainerID: goneID})
 	if batch := <-batches; batch.Error != LogsNotFound {
 		t.Fatalf("batch = %+v", batch)
 	}

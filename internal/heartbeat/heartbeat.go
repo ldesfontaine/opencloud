@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -40,7 +41,7 @@ func Kinds() []Kind {
 }
 
 // Le résultat d'une exécution : ouverte par un start, close par une fin ou
-// par le dépassement de l'échéance.
+// par le dépassement de l'échéance ; ou, sans exécution, le retard lui-même.
 type Outcome string
 
 const (
@@ -48,10 +49,13 @@ const (
 	OutcomeSuccess    Outcome = "success"
 	OutcomeFailure    Outcome = "failure"
 	OutcomeTimeout    Outcome = "timeout"
+	// Une échéance dépassée sans aucun ping : une ligne par épisode de retard,
+	// sans début ni code de sortie.
+	OutcomeMissed Outcome = "missed"
 )
 
 func Outcomes() []Outcome {
-	return []Outcome{OutcomeInProgress, OutcomeSuccess, OutcomeFailure, OutcomeTimeout}
+	return []Outcome{OutcomeInProgress, OutcomeSuccess, OutcomeFailure, OutcomeTimeout, OutcomeMissed}
 }
 
 const (
@@ -149,6 +153,9 @@ var (
 	ErrMachineInvalid  = refusal.Invalid("job.machine_invalid", "heartbeat machine must exist when given")
 	ErrExitCodeInvalid = errors.New("exit code must be between 0 and 255")
 	ErrNotPaused       = refusal.Conflict("job.not_paused", "heartbeat is not paused")
+	// Une page publique affiche la tâche : la retirer d'abord du composant
+	// (restrict, migrations/001_schema.sql).
+	ErrShownOnStatus = refusal.Conflict("job.shown_on_status", "a status component shows the heartbeat")
 )
 
 func (d Definition) Validate() error {
@@ -163,4 +170,10 @@ func (d Definition) Validate() error {
 		return ErrGraceInvalid
 	}
 	return nil
+}
+
+// RefuseDeletion rend le refus de supprimer une tâche que le plan retient,
+// nil sinon.
+func RefuseDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindComponents: ErrShownOnStatus})
 }

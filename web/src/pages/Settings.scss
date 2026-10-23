@@ -1,0 +1,111 @@
+// La page est une colonne de réglages de 880 px au plus, avec sa navigation
+// à côté. L'ensemble (titre compris) se centre : sur un grand écran, le vide
+// se partage des deux côtés au lieu de s'accumuler à droite.
+.settings-page {
+  width: 100%;
+  max-width: 1088px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-main {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+
+// L'ancre se pose sous la rangée d'onglets collée en haut, pas dessous.
+.settings-section {
+  scroll-margin-top: 72px;
+}
+
+// Étroit : une rangée d'onglets-ancres, collée en haut, qui défile.
+.settings-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 8px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.settings-nav-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  color: var(--ink-2);
+  font-weight: 500;
+  white-space: nowrap;
+
+  &:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  &[aria-current="location"] {
+    background: var(--surface);
+    border-color: var(--line);
+    color: var(--ink);
+    box-shadow: var(--shadow-1);
+  }
+}
+
+// Sous 860 px l'en-tête de 56 px est collé en haut : la rangée se pose dessous.
+@media (max-width: 860px) {
+  .settings-nav {
+    top: 56px;
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+
+  .settings-nav-link {
+    height: 40px;
+  }
+
+  .settings-section {
+    scroll-margin-top: 128px;
+  }
+}
+
+// Large : la navigation passe à gauche de la colonne, collante.
+@media (min-width: 1101px) {
+  .settings-layout {
+    grid-template-columns: 168px minmax(0, 880px);
+    gap: 32px;
+  }
+
+  .settings-nav {
+    top: 28px;
+    flex-direction: column;
+    overflow: visible;
+    padding: 0;
+    background: none;
+    border-bottom: 0;
+  }
+
+  .settings-section {
+    scroll-margin-top: 28px;
+  }
+}

@@ -3,6 +3,9 @@ package directory
 import (
 	"context"
 	"fmt"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinition) (Project, error) {
@@ -20,6 +23,7 @@ func (d *Directory) CreateProject(ctx context.Context, definition ProjectDefinit
 		return Project{}, err
 	}
 	d.logger.Info("project created", "project_id", id, "name", created.Name)
+	d.auditor.Record(ctx, projectEvent(audit.ProjectCreate, created))
 	d.changed()
 	return d.store.GetProject(ctx, id)
 }
@@ -40,12 +44,23 @@ func (d *Directory) UpdateProject(ctx context.Context, id string, definition Pro
 		return Project{}, err
 	}
 	d.logger.Info("project updated", "project_id", id, "name", before.Name)
+	d.auditor.Record(ctx, projectEvent(audit.ProjectUpdate, before))
 	d.changed()
 	return d.store.GetProject(ctx, id)
 }
 
+// DeleteProjectPlan dit ce que DeleteProject ferait : sa page de statut le
+// retient ; seuls les liens vers ses services partent.
+func (d *Directory) DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := d.store.GetProject(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return d.store.ProjectDeletionPlan(ctx, id)
+}
+
 // DeleteProject défait le groupe et rien d'autre : les services qu'il
-// regroupait restent dans l'annuaire.
+// regroupait restent dans l'annuaire. Un projet qui a sa page de statut se
+// refuse (project.has_status_page) : la page d'abord.
 func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 	found, err := d.store.GetProject(ctx, id)
 	if err != nil {
@@ -55,6 +70,7 @@ func (d *Directory) DeleteProject(ctx context.Context, id string) error {
 		return err
 	}
 	d.logger.Info("project deleted", "project_id", id, "name", found.Name, "services", len(found.ServiceIDs))
+	d.auditor.Record(ctx, projectEvent(audit.ProjectDelete, found))
 	d.changed()
 	return nil
 }

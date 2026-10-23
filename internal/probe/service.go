@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/ident"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -36,7 +38,10 @@ type Store interface {
 	MachineExists(ctx context.Context, id string) (bool, error)
 	// DeclaredServiceExists dit si le service de l'annuaire existe.
 	DeclaredServiceExists(ctx context.Context, id string) (bool, error)
+	// DeleteProbe relit le plan dans sa transaction et refuse tant qu'il est
+	// bloqué (RefuseDeletion).
 	DeleteProbe(ctx context.Context, id string) error
+	ProbeDeletionPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// SetProbeStatus met l'état et remet les compteurs à zéro : après une
 	// pause, ce que la sonde valait ne vaut plus rien.
 	SetProbeStatus(ctx context.Context, id string, status Status) error
@@ -48,25 +53,26 @@ type Store interface {
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]Day, error)
 	// CountResults compte les essais et les succès d'une fenêtre, dans le brut.
 	CountProbeResults(ctx context.Context, probeID string, from, to time.Time) (total, success int, err error)
-	// CountDays fait la même chose depuis l'agrégat journalier.
-	CountProbeDays(ctx context.Context, probeID string, from time.Time) (total, success int, err error)
+	// CountProbeWindow compte une fenêtre de jours : l'agrégat des jours que
+	// le brut ne couvre plus en entier, puis le brut.
+	CountProbeWindow(ctx context.Context, probeID string, from, now time.Time) (total, success int, err error)
 	// RollupDay réécrit un jour entier en une instruction idempotente.
 	RollupProbeDay(ctx context.Context, dayStart, dayEnd time.Time) error
 	PurgeProbeHistory(ctx context.Context, resultsBefore, daysBefore time.Time) error
 }
 
-// Commander pousse une commande à l'agent d'une machine par son flux ; il
-// refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
+// Commander pousse le jeu de sondes à l'agent d'une machine par son flux ;
+// il refuse quand elle est hors ligne, et c'est sans gravité : elle recevra
 // son jeu en revenant. Une file pleine rend machine.ErrBusy : le jeu est
 // renvoyé au cycle suivant.
 type Commander interface {
-	Command(machineID, name string, payload any) error
+	AssignProbes(machineID string, assignment Assignment) error
 }
 
-// Assignable reçoit le jeu de sondes sans passer par le réseau : c'est le
-// moteur de la machine openCloud, qui est son propre agent.
+// Assignable reçoit le jeu de sondes : le moteur de l'agent, qui le tient de
+// sa commande. Il rend le nombre de tâches qu'il a écartées.
 type Assignable interface {
-	Assign(assignment Assignment)
+	Assign(assignment Assignment) int
 }
 
 // Watcher reçoit chaque changement visible : le direct s'y branche. nil
@@ -87,12 +93,12 @@ type Service struct {
 	store   Store
 	watcher Watcher
 	alerter Alerter
+	auditor *audit.Recorder
 	logger  *slog.Logger
 	now     func() time.Time
 
 	mu        sync.RWMutex
 	commander Commander
-	local     map[string]Assignable
 	// Les machines dont le dernier jeu n'est pas parti, file pleine.
 	unsent map[string]bool
 	// creating tient compter-puis-insérer d'un seul tenant : deux créations
@@ -101,7 +107,7 @@ type Service struct {
 }
 
 func New(store Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger, now: time.Now, local: make(map[string]Assignable), unsent: make(map[string]bool)}
+	return &Service{store: store, logger: logger, now: time.Now, unsent: make(map[string]bool)}
 }
 
 func (s *Service) SetClock(now func() time.Time) {
@@ -120,14 +126,6 @@ func (s *Service) SetCommander(commander Commander) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.commander = commander
-}
-
-// SetLocalRunner branche le moteur de la machine openCloud : son jeu de
-// sondes ne sort jamais du processus.
-func (s *Service) SetLocalRunner(machineID string, runner Assignable) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.local[machineID] = runner
 }
 
 func (s *Service) changed(machineID string) {
@@ -179,6 +177,7 @@ func (s *Service) Create(ctx context.Context, definition Definition) (Probe, err
 		return Probe{}, err
 	}
 	s.logger.Info("probe created", "probe_id", id, "name", created.Name, "machine_id", created.MachineID, "target", RedactTarget(created.Target))
+	s.auditor.Record(ctx, probeEvent(audit.ProbeCreate, created))
 	s.Assign(ctx, created.MachineID)
 	s.changed(created.MachineID)
 	return s.store.GetProbe(ctx, id)
@@ -256,6 +255,7 @@ func (s *Service) Update(ctx context.Context, id string, definition Definition) 
 	}
 	s.logger.Info("probe updated", "probe_id", id, "name", revision.Probe.Name, "machine_id", revision.Probe.MachineID,
 		"target", RedactTarget(revision.Probe.Target), "state_reset", revision.ResetsState)
+	s.auditor.Record(ctx, probeEvent(audit.ProbeUpdate, revision.Probe))
 	updated, err := s.store.GetProbe(ctx, id)
 	if err != nil {
 		return Probe{}, err
@@ -334,7 +334,7 @@ func (s *Service) Uptimes(ctx context.Context, id string) ([]Uptime, error) {
 		var total, success int
 		var err error
 		if window.Source == SourceDaily {
-			total, success, err = s.store.CountProbeDays(ctx, id, startOfDay(now.Add(-window.Span)))
+			total, success, err = s.store.CountProbeWindow(ctx, id, startOfDay(now.Add(-window.Span)), now)
 		} else {
 			total, success, err = s.store.CountProbeResults(ctx, id, now.Add(-window.Span), now)
 		}
@@ -346,8 +346,18 @@ func (s *Service) Uptimes(ctx context.Context, id string) ([]Uptime, error) {
 	return uptimes, nil
 }
 
+// DeletePlan dit ce que Delete ferait : les composants de statut qui la
+// retiennent, l'historique qui part, les alertes qui s'en détachent.
+func (s *Service) DeletePlan(ctx context.Context, id string) (deletion.Plan, error) {
+	if _, err := s.store.GetProbe(ctx, id); err != nil {
+		return deletion.Plan{}, err
+	}
+	return s.store.ProbeDeletionPlan(ctx, id)
+}
+
 // Delete efface la sonde, son histoire avec elle, et rend son jeu à la
-// machine. Rien ne la recréera : une sonde ne naît que de l'interface.
+// machine. Rien ne la recréera : une sonde ne naît que de l'interface. Un
+// composant de statut qui l'affiche la retient (RefuseDeletion).
 func (s *Service) Delete(ctx context.Context, id string) error {
 	found, err := s.store.GetProbe(ctx, id)
 	if err != nil {
@@ -357,6 +367,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	s.logger.Info("probe deleted", "probe_id", id, "name", found.Name)
+	s.auditor.Record(ctx, probeEvent(audit.ProbeDelete, found))
 	if s.alerter != nil {
 		s.alerter.ProbeRemoved(ctx, id)
 	}
@@ -394,6 +405,7 @@ func (s *Service) setStatus(ctx context.Context, id string, status Status, wasPa
 		return err
 	}
 	s.logger.Info("probe status set", "probe_id", id, "status", string(status))
+	s.auditor.Record(ctx, probeEvent(pauseAction(wasPaused), found))
 	if s.alerter != nil {
 		found.Status = status
 		s.alerter.ProbeChanged(ctx, found)
@@ -444,18 +456,13 @@ func (s *Service) Assign(ctx context.Context, machineID string) {
 		tasks = append(tasks, found.Task())
 	}
 	s.mu.RLock()
-	runner, isLocal := s.local[machineID]
 	commander := s.commander
 	s.mu.RUnlock()
 	assignment := Assignment{Probes: tasks}
-	if isLocal {
-		runner.Assign(assignment)
-		return
-	}
 	if commander == nil {
 		return
 	}
-	err = commander.Command(machineID, CommandProbes, assignment)
+	err = commander.AssignProbes(machineID, assignment)
 	if errors.Is(err, machine.ErrBusy) {
 		s.logger.Warn("assign probes later, command queue full", "machine_id", machineID, "probes", len(tasks))
 		s.setUnsent(machineID, true)

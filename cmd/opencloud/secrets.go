@@ -9,9 +9,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -20,20 +23,28 @@ import (
 )
 
 // #nosec G101 -- le texte d'aide de la commande, pas un secret.
-const secretsUsage = `Usage : {command} secrets forget [-config chemin]
+const secretsUsage = `Usage : {command} secrets <sous-commande> [-config chemin]
 
-  forget    clé perdue : crée une clé neuve et oublie ce que l'ancienne
-            chiffrait (mot de passe du relais, URL et secret des canaux,
-            jetons de ping). Refuse si la clé ouvre encore tout. Arrêtez le
-            serveur avant
+  forget              clé perdue : crée une clé neuve et oublie ce que
+                      l'ancienne chiffrait (mot de passe du relais, URL et
+                      secret des canaux, jetons de ping). Refuse si la clé
+                      ouvre encore tout. Arrêtez le serveur avant
+  rotate              tire une clé de chiffrement neuve et rescelle chaque
+                      secret avec elle ; l'ancienne est mise de côté.
+                      Arrêtez le serveur avant
+  rotate-server-key   tire une clé neuve pour signer les ordres ; la
+                      précédente reste valable le temps que chaque agent
+                      reçoive la neuve. Prend effet au redémarrage
+  finish-server-key   retire la clé précédente une fois chaque agent passé
+                      à la neuve (option -force : sans attendre les agents
+                      restés dessus, qui seront à ré-enrôler)
 `
 
 // openSecrets donne à la base la clé du serveur, puis vérifie qu'elle ouvre
 // chaque secret : une base qui ne s'ouvre pas avec elle est refusée dès le
-// démarrage, pas à la première alerte. serve peut créer la clé ; mcp ne la
-// crée jamais : il lit la base d'un serveur qui existe déjà.
-func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) error {
-	keyring, err := loadOrCreateKey(ctx, stateDir, db, logger, mayCreate)
+// démarrage, pas à la première alerte.
+func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) error {
+	keyring, err := loadOrCreateKey(ctx, stateDir, db, logger)
 	if err != nil {
 		return err
 	}
@@ -41,10 +52,10 @@ func openSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, logger *s
 	return verifySecrets(ctx, db)
 }
 
-func loadOrCreateKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) (*seal.Keyring, error) {
+func loadOrCreateKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) (*seal.Keyring, error) {
 	keyring, err := loadKey(stateDir)
 	if errors.Is(err, seal.ErrNoKey) {
-		return createKey(ctx, stateDir, db, logger, mayCreate)
+		return createKey(ctx, stateDir, db, logger)
 	}
 	return keyring, err
 }
@@ -68,10 +79,7 @@ func loadKey(stateDir *os.Root) (*seal.Keyring, error) {
 
 // createKey ne crée la clé que sur une base qui n'a aucun chiffré : sinon la
 // neuve chiffrerait les écritures suivantes et la base mêlerait deux clés.
-func createKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger, mayCreate bool) (*seal.Keyring, error) {
-	if !mayCreate {
-		return nil, &refusal{message: fmt.Sprintf("%s absent : démarrez serve une fois, ou restaurez la clé", brand.SecretKeyFile)}
-	}
+func createKey(ctx context.Context, stateDir *os.Root, db *store.DB, logger *slog.Logger) (*seal.Keyring, error) {
 	hasSealed, err := db.HasSealedSecrets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check sealed secrets: %w", err)
@@ -119,13 +127,14 @@ func secretsCommand(args []string, out io.Writer) error {
 		return &refusal{message: "sous-commande manquante"}
 	}
 	command := args[0]
-	if command != "forget" {
+	if !slices.Contains([]string{"forget", "rotate", "rotate-server-key", "finish-server-key"}, command) {
 		fmt.Fprint(os.Stderr, strings.ReplaceAll(secretsUsage, "{command}", brand.Command))
 		return &refusal{message: "sous-commande inconnue : " + command}
 	}
 	flags := flag.NewFlagSet("secrets "+command, flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	configPath := flags.String("config", config.DefaultPath, "chemin du fichier de configuration")
+	force := flags.Bool("force", false, "finish-server-key : retirer la clé précédente même si des agents y sont restés")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -138,13 +147,27 @@ func secretsCommand(args []string, out io.Writer) error {
 		return err
 	}
 	defer stateDir.Close()
-	ctx := context.Background()
+	ctx := audit.WithActor(context.Background(), audit.CLI(currentAccount()))
 	db, err := store.Open(ctx, stateDir)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+	switch command {
+	case "rotate":
+		return rotateSecrets(ctx, stateDir, db, out)
+	case "rotate-server-key":
+		return rotateServerKey(ctx, stateDir, db, out)
+	case "finish-server-key":
+		return finishServerKey(ctx, stateDir, db, *force, out)
+	}
 	return forgetSecrets(ctx, stateDir, db, out)
+}
+
+// commandJournal est le journal d'audit d'une commande locale : ses propres
+// échecs d'écriture vont sur la sortie d'erreur.
+func commandJournal(db *store.DB) *audit.Recorder {
+	return audit.New(db, slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 }
 
 // forgetSecrets met l'ancienne clé de côté, en pose une neuve, puis vide ce
@@ -171,6 +194,11 @@ func forgetSecrets(ctx context.Context, stateDir *os.Root, db *store.DB, out io.
 	if err != nil {
 		return err
 	}
+	// Des secrets viennent d'être effacés et des URL de ping de changer : le
+	// journal d'audit le garde.
+	commandJournal(db).Record(ctx, audit.Event{Action: audit.SecretsForget, Details: audit.Details{
+		"channels_disabled": strconv.Itoa(channels), "ping_tokens_renewed": strconv.Itoa(tokens),
+	}})
 	keyPath := filepath.Join(stateDir.Name(), brand.SecretKeyFile)
 	if _, err := fmt.Fprintf(out, "Nouvelle clé écrite : %s\n", keyPath); err != nil {
 		return err

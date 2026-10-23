@@ -1,5 +1,6 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
+import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
 
 // Les machines et leurs jetons d'enrôlement, sur le modèle d'api/probes.
@@ -10,19 +11,57 @@ import type { Lifecycle } from "./lifecycle";
 export interface Machine {
   id: string;
   name: string;
-  kind: "local" | "remote";
   hostname: string;
   address: string;
   os: string;
   arch: string;
-  agent_version: string;
-  local: boolean;
   online: boolean;
-  enrolled_at: string;
   last_seen_at: string | null;
+  // L'agent courant : l'actif, sinon le dernier révoqué ; null tant
+  // qu'aucun ne s'est enrôlé.
+  agent: Agent | null;
   // Le support du système, seulement quand la fin de support est activée
   // sous Paramètres.
   lifecycle?: Lifecycle;
+}
+
+// Un droit de l'agent et, pour un droit borné, ses chemins.
+export interface Capability {
+  name: string;
+  paths: string[];
+}
+
+// Un droit tel que l'agent le rapporte : unavailable dit pourquoi son compte
+// ne peut pas l'exercer sur la machine (vide quand il le peut). Le droit coché
+// reste coché : l'agent refusera l'ordre, avec cette raison.
+export interface ReportedCapability extends Capability {
+  unavailable: string;
+}
+
+// Le compte système sous lequel l'agent tourne ; name est vide quand il n'a
+// pas de nom lisible, l'uid 0 dit alors root.
+export interface Account {
+  uid: number;
+  name: string;
+}
+
+// Ce que l'agent rapporte de son fichier, ce que son jeton demandait, et
+// s'ils diffèrent. L'agent applique ceux de son fichier.
+export interface Agent {
+  id: string;
+  version: string;
+  enrolled_at: string;
+  revoked_at: string | null;
+  capabilities: ReportedCapability[];
+  reported_at: string | null;
+  requested: Capability[];
+  capabilities_differ: boolean;
+  // L'empreinte de la clé du serveur que l'agent a épinglée ; vide tant
+  // qu'il n'a rien dit, ou s'il n'en a pas.
+  server_key_fingerprint: string;
+  // Le compte que l'agent a dit à l'ouverture de son flux ; null tant qu'il
+  // n'a rien dit (un agent plus ancien).
+  run_as: Account | null;
 }
 
 export interface PendingToken {
@@ -42,6 +81,8 @@ export interface TokenResponse {
   name: string;
   token: string;
   command: string;
+  // Les commandes à jouer une fois, en root, avant `command`.
+  preparation: string;
   expires_at: string;
   url_local: boolean;
 }
@@ -58,22 +99,40 @@ export function useMachines(wanted = true): Resource<MachinesResponse> {
   return useResource<MachinesResponse>(wanted ? machinesPath : null);
 }
 
-// Un jeton à usage unique pour enrôler une machine neuve.
-export async function createMachineToken(name: string): Promise<TokenResponse> {
-  return api.post<TokenResponse>(tokensPath, { name });
+// Un jeton à usage unique pour enrôler une machine neuve, avec les droits
+// cochés ; observe s'y ajoute toujours.
+export async function createMachineToken(name: string, capabilities: Capability[]): Promise<TokenResponse> {
+  return api.post<TokenResponse>(tokensPath, { name, capabilities });
 }
 
 export async function deleteMachineToken(id: string): Promise<void> {
   return api.delete(`${tokensPath}/${segment(id)}`);
 }
 
-// Un nouveau jeton pour le même identifiant de machine.
-export async function reenrollMachine(id: string): Promise<TokenResponse> {
-  return api.post<TokenResponse>(`${machinePath(id)}/actions/reenroll`);
+// La ligne d'installation de l'agent de la machine openCloud, tant qu'elle
+// n'en a jamais eu : l'écran de première configuration la montre.
+export async function offerLocalEnrollment(): Promise<TokenResponse> {
+  return api.post<TokenResponse>(`${machinesPath}/local-enrollment`);
+}
+
+// Un nouveau jeton pour le même identifiant de machine. Avec des droits,
+// c'est changer ceux de son agent ; sans, il garde ceux d'avant.
+export async function reenrollMachine(id: string, capabilities?: Capability[]): Promise<TokenResponse> {
+  return api.post<TokenResponse>(`${machinePath(id)}/actions/reenroll`, capabilities === undefined ? {} : { capabilities });
+}
+
+// L'agent est refusé et s'arrête ; la machine et son historique restent.
+export async function revokeAgent(id: string): Promise<void> {
+  return api.post(`${machinePath(id)}/actions/revoke`);
 }
 
 export async function deleteMachine(id: string): Promise<void> {
   return api.delete(machinePath(id));
+}
+
+// Ce que le retrait ferait, lu avant de le confirmer.
+export async function fetchMachineDeletePlan(id: string): Promise<DeletionPlan> {
+  return api.get<DeletionPlan>(`${machinePath(id)}/delete-plan`);
 }
 
 // La machine vérifie ses images à son rythme ; la réponse dit seulement que

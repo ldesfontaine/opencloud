@@ -20,6 +20,11 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/directory/gaps?machine=m1&project=prj_1")).toEqual(["directory", "containers"]);
   });
 
+  it("rereads a deployment plan when the directory, the orders or the machines change", () => {
+    expect(topicsOf("/api/directory/services/svc_1/deploy-plan")).toEqual(["directory", "actions", "machines"]);
+    expect(topicsOf("/api/directory/services/svc_1")).toEqual(["directory"]);
+  });
+
   it("rereads an adoption proposal only when the directory changes", () => {
     expect(topicsOf("/api/directory/proposal?container=abc")).toEqual(["directory"]);
   });
@@ -31,6 +36,28 @@ describe("topicsOf", () => {
     expect(topicsOf("/api/containers")).toEqual(["containers"]);
   });
 
+  it("rereads the SSH keys with the machines", () => {
+    expect(topicsOf("/api/ssh-keys")).toEqual(["machines"]);
+    expect(topicsOf("/api/machines/m1/ssh-keys")).toEqual(["machines"]);
+  });
+
+  it("rereads the orders of a machine on their own topic", () => {
+    expect(topicsOf("/api/actions?machine=m1&limit=10")).toEqual(["actions"]);
+  });
+
+  it("rereads the update offer of an agent when its machine or its orders change", () => {
+    expect(topicsOf("/api/machines/m1/agent-update")).toEqual(["machines", "actions"]);
+  });
+
+  it("rereads the audit forwarding state when a channel changes, the journal itself on demand only", () => {
+    expect(topicsOf("/api/audit/forwarding")).toEqual(["alerts"]);
+    expect(topicsOf("/api/audit?before=40")).toEqual([]);
+  });
+
+  it("rereads the backups when either their own topic or the orders change", () => {
+    expect(topicsOf("/api/backups")).toEqual(["backups", "actions"]);
+  });
+
   it("keeps the observed containers on the containers topic", () => {
     expect(topicsOf("/api/machines/m1/containers")).toEqual(["containers"]);
   });
@@ -38,7 +65,7 @@ describe("topicsOf", () => {
   it("gives no topic to an unknown path, nor to the operator's access", () => {
     expect(topicsOf("/api/unknown")).toEqual([]);
     expect(topicsOf("/api/auth")).toEqual([]);
-    expect(topicsOf("/api/mcp")).toEqual([]);
+    expect(topicsOf("/api/settings/api-tokens")).toEqual([]);
     expect(topicsOf("/api/settings/disk")).toEqual([]);
   });
 

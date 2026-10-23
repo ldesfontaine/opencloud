@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,14 +20,16 @@ import (
 )
 
 // L'accès de l'opérateur à l'interface. En mode basic, HTTP Basic garde
-// tout ce que l'opérateur appelle : le front, l'API, le direct, les flux
-// de journaux et l'autorisation OAuth, où il consent pour un agent IA. En
-// mode forward, les mêmes routes exigent l'en-tête d'identité posé par un
-// mandataire de trusted_proxies.
+// tout ce que l'opérateur appelle : le front, l'API, le direct et les flux
+// de journaux. En mode forward, les mêmes routes exigent l'en-tête
+// d'identité posé par un mandataire de trusted_proxies. En mode none,
+// l'installation attend sa première configuration : seules les routes qui
+// servent à créer le compte passent.
+// Un jeton d'API (Authorization: Bearer) remplace l'un et l'autre, sur une
+// liste fermée de lectures (apiTokenRoutes) : voir admitAPIToken.
 // Restent ouverts ceux qui ont leur propre preuve ou n'en ont pas
-// besoin : l'agent (sa clé), les pings (le jeton dans l'URL), la page de
-// statut (publique), /mcp (son Bearer), le point de jeton OAuth (le secret
-// du client) et les métadonnées well-known.
+// besoin : l'agent (sa clé), les pings (le jeton dans l'URL) et la page de
+// statut (publique).
 
 const (
 	authRealmHeader  = `Basic realm="` + brand.ProductName + `", charset="UTF-8"`
@@ -54,13 +57,40 @@ type AuthService interface {
 // d'authentification qui n'est plus le bon.
 const codeAuthStateChanged = "auth.state_changed"
 
+// codeSetupRequired est le refus de toute route de l'opérateur tant que le
+// compte n'est pas créé : le front y reconnaît l'écran de première
+// configuration.
+const codeSetupRequired = "auth.setup_required"
+
+// codeForwardForbidden est le refus d'une identité du mandataire absente de
+// forward_users. Son texte ne nomme pas l'identité : le front qui le lit ne
+// la connaît pas. La page, elle, la nomme (forwardForbiddenPage).
+const codeForwardForbidden = "auth.forward_forbidden"
+
+// forwardForbiddenPage est le texte du même refus pour une page, qui dit
+// l'identité reçue (%s).
+const forwardForbiddenPage = "auth.forward_forbidden_identity"
+
+// Les routes de l'opérateur qu'une installation sans compte (mode none) sert
+// à qui atteint le port : le front, sa session et ses catalogues pour
+// s'afficher dans la langue réglée, l'état de l'accès, et la création du
+// compte. Tout le reste attend : un avertissement n'est pas un contrôle.
+var firstSetupRoutes = []string{
+	"GET /api/session",
+	"GET /api/i18n/{code}",
+	"GET /api/auth",
+	"POST /api/auth/actions/enable",
+	anyMethod + " /",
+}
+
+// isFirstSetupRoute dit si la route reste servie en mode none.
+func isFirstSetupRoute(method, pattern string) bool {
+	return slices.Contains(firstSetupRoutes, method+" "+pattern)
+}
+
 // Les préfixes qui ne passent jamais par l'authentification de
 // l'opérateur. Tout le reste, fourre-tout du front compris, y passe.
-var openRoutePrefixes = []string{"/agent/", "/ping/", "/statut", "/.well-known/"}
-
-// Les routes ouvertes exactes, à part des préfixes : /oauth/authorize,
-// sa voisine, est l'étape où l'opérateur consent, elle reste gardée.
-var openRoutePatterns = []string{mcpPath, mcpTokenPath}
+var openRoutePrefixes = []string{"/agent/", "/ping/", "/statut"}
 
 // isOperatorRoute dit si le motif de route est réservé à l'opérateur. Le
 // jugement porte sur le motif enregistré, pas sur le chemin reçu : un
@@ -71,18 +101,15 @@ func isOperatorRoute(pattern string) bool {
 			return false
 		}
 	}
-	for _, open := range openRoutePatterns {
-		if pattern == open {
-			return false
-		}
-	}
 	return true
 }
 
 // requireOperator relit le mode à chaque requête : la commande de secours
 // `opencloud auth disable` écrit dans la base, et serve la suit sans
-// redémarrer.
-func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
+// redémarrer ; l'installation revient alors à sa première configuration.
+// firstSetup dit si la route reste servie tant qu'aucun compte n'existe,
+// tokenRoute si un jeton d'API l'ouvre.
+func (s *Server) requireOperator(next http.HandlerFunc, firstSetup, tokenRoute bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.isCompiledAsset(r) {
 			next(w, r)
@@ -93,8 +120,19 @@ func (s *Server) requireOperator(next http.HandlerFunc) http.HandlerFunc {
 			s.apiInternalError(w, r, err)
 			return
 		}
+		// Un Bearer est jugé avant le mode : en basic comme en forward, il
+		// passe par le jeton, ni par Basic ni par l'en-tête du mandataire.
+		// En none, il est ignoré : la première configuration seule est servie.
+		if bearer, presented := bearerOf(r); presented && state.Mode != auth.ModeNone {
+			s.admitAPIToken(w, r, bearer, tokenRoute, next)
+			return
+		}
 		switch state.Mode {
 		case auth.ModeNone:
+			if !firstSetup {
+				s.writeSetupRequired(w, r)
+				return
+			}
 			s.admitOperator(w, r, state, next)
 		case auth.ModeBasic:
 			if s.checkBasic(w, r, state) {
@@ -177,7 +215,7 @@ func authorizingStateFrom(ctx context.Context) (auth.State, bool) {
 }
 
 // grantsAuthority garde une écriture qui accorde une autorité durable (un
-// jeton MCP, un code OAuth, le secret du client, un jeton d'enrôlement) : si
+// jeton d'API, un jeton d'enrôlement) : si
 // l'état d'authentification n'est plus celui qui a admis la requête, 409.
 //
 // L'activation révoque après avoir changé l'état : sans verrou, une écriture
@@ -289,6 +327,19 @@ func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, catalog.Get("auth.unauthorized"), http.StatusUnauthorized)
 }
 
+// Le refus d'une installation sans compte, sans défi Basic : le navigateur
+// n'a aucun identifiant à demander, le front montre l'écran de première
+// configuration. Hors /api, le texte dit d'ouvrir l'interface.
+func (s *Server) writeSetupRequired(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		s.writeAPIError(w, http.StatusUnauthorized, codeSetupRequired)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	catalog := s.catalogs.For(browserLanguage(r))
+	http.Error(w, catalog.Get(codeSetupRequired), http.StatusUnauthorized)
+}
+
 // forwardedIdentityKey porte, dans le contexte de la requête, l'identité
 // que le mandataire a transmise : /api/auth la rend à la barre latérale.
 type forwardedIdentityKey struct{}
@@ -303,7 +354,8 @@ func identityFrom(ctx context.Context) string {
 // Quand un secret est configuré, il faut en plus que la requête le porte :
 // l'adresse d'un pair de boucle locale est celle de tous les processus de la
 // machine, pas la preuve de passer par le mandataire.
-// Il répond lui-même 401 quand il refuse.
+// Il répond lui-même quand il refuse : 401 si le mandataire n'a rien prouvé,
+// 403 si l'identité prouvée n'est pas dans forward_users.
 func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth.State) (string, bool) {
 	if !s.trustsPeer(r) {
 		s.logger.Warn("interface authentication refused: peer is not a trusted proxy", "peer", httpx.PeerHost(r), "path", r.URL.Path)
@@ -328,7 +380,32 @@ func (s *Server) checkForward(w http.ResponseWriter, r *http.Request, state auth
 		s.writeForwardUnauthorized(w, r)
 		return "", false
 	}
+	// Après le pair, le secret et l'en-tête : une requête qui échoue à l'un
+	// d'eux reste un 401, et ne dit pas quelles identités sont admises.
+	if !s.admitsForwardUser(identity) {
+		s.logger.Warn("interface authentication refused: identity not in forward_users", "identity", printable(identity, auth.MaxUsernameLength), "peer", httpx.PeerHost(r), "path", r.URL.Path)
+		s.writeForwardForbidden(w, r, identity)
+		return "", false
+	}
 	return identity, true
+}
+
+// forwardUserSet range la liste blanche pour la recherche. Une entrée vide
+// reste dans l'ensemble : elle ne correspond à aucune identité (celle-ci est
+// non vide quand on la compare), et la liste ne devient jamais « vide » par
+// erreur, ce qui ouvrirait la porte à tous.
+func forwardUserSet(users []string) map[string]bool {
+	set := make(map[string]bool, len(users))
+	for _, user := range users {
+		set[user] = true
+	}
+	return set
+}
+
+// admitsForwardUser : sans liste, tout le monde ; avec une liste, seulement
+// ses entrées, comparées telles quelles, casse comprise.
+func (s *Server) admitsForwardUser(identity string) bool {
+	return len(s.forwardUsers) == 0 || s.forwardUsers[identity]
 }
 
 // trustedIdentity rend l'identité posée par un mandataire de confiance, ou
@@ -375,7 +452,7 @@ func (s *Server) hasProxySecret(r *http.Request) bool {
 }
 
 // Le refus du mode forward, sans défi Basic : le navigateur n'a rien à
-// demander, c'est le mandataire qui authentifie.
+// demander, c'est le SSO en amont qui authentifie.
 func (s *Server) writeForwardUnauthorized(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		s.writeAPIError(w, http.StatusUnauthorized, codeUnauthorized)
@@ -384,6 +461,20 @@ func (s *Server) writeForwardUnauthorized(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cache-Control", "no-store")
 	catalog := s.catalogs.For(browserLanguage(r))
 	http.Error(w, catalog.Get("auth.forward_unauthorized"), http.StatusUnauthorized)
+}
+
+// Le refus d'une identité que le mandataire a authentifiée mais que la liste
+// forward_users n'admet pas : 403, pas 401, le mandataire n'y peut rien. La
+// page dit l'identité reçue : c'est le remède à une faute de casse dans la
+// configuration.
+func (s *Server) writeForwardForbidden(w http.ResponseWriter, r *http.Request, identity string) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		s.writeAPIError(w, http.StatusForbidden, codeForwardForbidden)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	catalog := s.catalogs.For(browserLanguage(r))
+	http.Error(w, catalog.Format(forwardForbiddenPage, printable(identity, auth.MaxUsernameLength)), http.StatusForbidden)
 }
 
 // La langue du navigateur, faute de session : le français s'il le demande

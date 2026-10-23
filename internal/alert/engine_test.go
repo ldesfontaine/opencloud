@@ -90,68 +90,6 @@ func TestChannel_MinSeverityAndDisabledFilter(t *testing.T) {
 	}
 }
 
-func TestOpen_UnderASilence_IsShownNeverDelivered(t *testing.T) {
-	f := newFixture(t)
-	f.channel(t, "ops", alert.SeverityAttention, true)
-	ctx := context.Background()
-	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindDiskFull, Duration: time.Hour, Reason: "migration"}); err != nil {
-		t.Fatal(err)
-	}
-	f.Open(ctx, volumeFact(alert.SeverityAttention, 86))
-	silenced := f.only(t, alert.StatusOpen)
-	if !silenced.Silenced || f.sender.events() != "" {
-		t.Fatalf("silenced %v, events %q", silenced.Silenced, f.sender.events())
-	}
-	// Le silence tombé, l'alerte reste silencieuse : même aggravée, même résolue.
-	f.advance(2 * time.Hour)
-	f.Open(ctx, volumeFact(alert.SeverityDanger, 96))
-	f.Resolve(ctx, alert.KindDiskFull, silenced.Object)
-	if f.sender.events() != "" {
-		t.Fatalf("events %q", f.sender.events())
-	}
-	// Mais une alerte nouvelle part.
-	f.Open(ctx, volumeFact(alert.SeverityAttention, 86))
-	if f.sender.events() != "opened:ops" || f.only(t, alert.StatusOpen).Silenced {
-		t.Fatalf("events %q", f.sender.events())
-	}
-}
-
-func TestSilence_ByMachineCoversWhatLivesOnIt_AndNeedsAFilter(t *testing.T) {
-	f := newFixture(t)
-	f.channel(t, "ops", alert.SeverityAttention, true)
-	ctx := context.Background()
-	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Duration: time.Hour}); !errors.Is(err, alert.ErrSilenceInvalid) {
-		t.Fatalf("silence without filter: %v", err)
-	}
-	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindDiskFull, Duration: 8 * 24 * time.Hour}); !errors.Is(err, alert.ErrSilenceDurationInvalid) {
-		t.Fatalf("silence too long: %v", err)
-	}
-	silence, err := f.CreateSilence(ctx, alert.SilenceDefinition{Object: alert.Object{Kind: alert.ObjectMachine, ID: machine.LocalID, Name: "opencloud"}, Duration: time.Hour})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Open(ctx, volumeFact(alert.SeverityAttention, 86))
-	if !f.only(t, alert.StatusOpen).Silenced {
-		t.Fatal("a volume of a silenced machine should be silenced")
-	}
-	if err := f.DeleteSilence(ctx, silence.ID); err != nil {
-		t.Fatal(err)
-	}
-	if silences, err := f.db.ListSilences(ctx); err != nil || len(silences) != 0 {
-		t.Fatalf("silences %v, %v", silences, err)
-	}
-}
-
-func TestOpen_UnderMaintenance_IsSilenced_VolumeFollowsItsMachine(t *testing.T) {
-	f := newFixture(t)
-	f.channel(t, "ops", alert.SeverityAttention, true)
-	f.maintenance.under["machine:"+machine.LocalID] = true
-	f.Open(context.Background(), volumeFact(alert.SeverityAttention, 86))
-	if !f.only(t, alert.StatusOpen).Silenced || f.sender.events() != "" {
-		t.Fatal("an alert under maintenance should be silenced")
-	}
-}
-
 func TestGone_ForAMachine_ResolvesEverythingOnIt(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -251,51 +189,6 @@ func TestPurge_ForgetsOldResolvedAlertsOnly(t *testing.T) {
 	}
 	if len(f.open(t, alert.StatusResolved)) != 0 || len(f.open(t, alert.StatusOpen)) != 1 {
 		t.Fatal("purge should forget the resolved one and keep the open one")
-	}
-}
-
-// Une sonde retirée emporte ses silences ; une sonde mise en pause garde
-// les siens, elle peut revenir.
-func TestProbeRemoved_TakesItsSilencesAndAPauseKeepsThem(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-	removed := alert.Object{Kind: alert.ObjectProbe, ID: "aaaaaaaaaaaaaaaa", Name: "site"}
-	paused := alert.Object{Kind: alert.ObjectProbe, ID: "bbbbbbbbbbbbbbbb", Name: "api"}
-	for _, object := range []alert.Object{removed, paused} {
-		if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Object: object, Duration: time.Hour}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	f.ProbeRemoved(ctx, removed.ID)
-	f.ProbeChanged(ctx, probe.Probe{ID: paused.ID, Name: paused.Name, Status: probe.StatusPaused})
-	silences, err := f.db.ListSilences(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(silences) != 1 || silences[0].Object.ID != paused.ID {
-		t.Fatalf("silences %+v", silences)
-	}
-}
-
-func TestPurge_ForgetsLongEndedSilencesOnly(t *testing.T) {
-	f := newFixture(t)
-	ctx := context.Background()
-	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindDiskFull, Duration: time.Hour}); err != nil {
-		t.Fatal(err)
-	}
-	f.advance(alert.SilenceRetention + 2*time.Hour)
-	if _, err := f.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindProbeDown, Duration: time.Hour}); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Purge(ctx); err != nil {
-		t.Fatal(err)
-	}
-	silences, err := f.db.ListSilences(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(silences) != 1 || silences[0].Kind != alert.KindProbeDown {
-		t.Fatalf("silences %+v", silences)
 	}
 }
 

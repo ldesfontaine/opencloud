@@ -19,16 +19,14 @@ import (
 var testNow = time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 
 // Le moteur se teste sur la vraie base SQLite, temporaire, avec une horloge
-// qu'on avance à la main, un notifieur qui note ce qu'on lui confie, et
-// une page de statut qu'on met en maintenance d'un mot.
+// qu'on avance à la main, et un notifieur qui note ce qu'on lui confie.
 type fixture struct {
 	*alert.Engine
-	db          *store.DB
-	machines    *machine.Service
-	clock       time.Time
-	sender      *recordingSender
-	watcher     *countingWatcher
-	maintenance *fakeMaintenance
+	db       *store.DB
+	machines *machine.Service
+	clock    time.Time
+	sender   *recordingSender
+	watcher  *countingWatcher
 }
 
 type recordingSender struct {
@@ -57,28 +55,19 @@ type countingWatcher struct{ changes atomic.Int32 }
 
 func (w *countingWatcher) AlertsChanged() { w.changes.Add(1) }
 
-type fakeMaintenance struct{ under map[string]bool }
-
-func (m *fakeMaintenance) UnderMaintenance(_ context.Context, kind, id string) (bool, error) {
-	return m.under[kind+":"+id], nil
-}
-
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	db := storetest.Open(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	f := &fixture{Engine: alert.New(db, logger), db: db, clock: testNow, sender: &recordingSender{}, watcher: &countingWatcher{}, maintenance: &fakeMaintenance{under: map[string]bool{}}}
+	f := &fixture{Engine: alert.New(db, logger), db: db, clock: testNow, sender: &recordingSender{}, watcher: &countingWatcher{}}
 	f.SetClock(func() time.Time { return f.clock })
 	f.SetSender(f.sender)
 	f.SetWatcher(f.watcher)
-	f.SetMaintenance(f.maintenance)
 	// La machine openCloud existe toujours : les objets s'y rattachent.
 	f.machines = machine.New(db, machine.NewSessions(), logger)
 	f.machines.SetClock(func() time.Time { return f.clock })
 	f.machines.SetAlerter(f.Engine)
-	if err := f.machines.EnsureLocal(context.Background(), machine.LocalInfo{Hostname: "opencloud-host"}); err != nil {
-		t.Fatal(err)
-	}
+	storetest.EnsureLocalMachine(t, f.machines)
 	return f
 }
 

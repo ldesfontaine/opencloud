@@ -19,8 +19,8 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
-	"github.com/ldesfontaine/opencloud/internal/settings"
 	"github.com/ldesfontaine/opencloud/internal/status"
+	"github.com/ldesfontaine/opencloud/internal/store/storetest"
 )
 
 var testActor = manifest.Actor{Kind: manifest.ActorCLI, Name: "opencloud"}
@@ -241,6 +241,45 @@ func TestApply_UnitsMatchedByNameKeepIDsPolicyAndContainers(t *testing.T) {
 	}
 }
 
+// Sans « data_path » dans le fichier, un apply vide le dossier de données :
+// l'export l'écrit donc, et un apply le change comme tout autre champ.
+func TestApply_KeepsAndChangesDataPath(t *testing.T) {
+	b, data := seeded(t)
+	data = replaceOnce(t, data, `version: "2.4.1"`, "version: \"2.4.1\"\n        data_path: /var/www/html")
+	applied, _ := b.apply(t, data, false)
+	if applied.State != manifest.ApplyApplied {
+		t.Fatalf("apply: %+v", applied)
+	}
+	unitPath := func(name string) string {
+		for _, unit := range b.serviceByID(t, "svc_00000000000000b1").Units {
+			if unit.Name == name {
+				return unit.DataPath
+			}
+		}
+		return "?"
+	}
+	if got := unitPath("app"); got != "/var/www/html" || unitPath("db") != "" {
+		t.Fatalf("data_path after apply: app %q, db %q", got, unitPath("db"))
+	}
+	// L'export le redit, et le relire ne change rien.
+	exported := string(b.export(t))
+	if !strings.Contains(exported, "data_path: /var/www/html") {
+		t.Fatalf("export lacks data_path:\n%s", exported)
+	}
+	if plan := b.plan(t, exported, false); len(plan.Changes) > 0 {
+		t.Fatalf("the export does not read back as a no-op: %v", changeLabels(plan))
+	}
+	changed := replaceOnce(t, exported, "data_path: /var/www/html", "data_path: /data")
+	if plan := b.plan(t, changed, false); len(plan.Changes) != 1 {
+		t.Fatalf("a changed data_path is one change: %v", changeLabels(plan))
+	}
+	removed := replaceOnce(t, exported, "        data_path: /var/www/html\n", "")
+	b.apply(t, removed, false)
+	if got := unitPath("app"); got != "" {
+		t.Fatalf("a file without data_path clears it, got %q", got)
+	}
+}
+
 func TestApply_SecretKeptLeavesTheTokenAlone(t *testing.T) {
 	b, data := seeded(t)
 	before := b.heartbeatByID(t, "00000000000000d1")
@@ -313,7 +352,7 @@ ignored:
 
 func prunable(t *testing.T, data string) string {
 	t.Helper()
-	data = cut(t, data, "  # À vérifier : repris de l'existant.\n  - id: svc_00000000000000b4", "probes:\n")
+	data = cut(t, data, "  - id: svc_00000000000000b4\n", "probes:\n")
 	data = cut(t, data, "  - id: 00000000000000c2\n", "  - id: 00000000000000c3\n")
 	data = cut(t, data, "  - id: 00000000000000d2\n", "  - id: 00000000000000d1\n")
 	return replaceOnce(t, data, "  - machine: opencloud\n    container_name: portainer\n", "")
@@ -378,14 +417,14 @@ func TestApply_PruneDeletesAndSaysWhatItCarries(t *testing.T) {
 func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 	b, data := seeded(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	statuses := status.New(b.db, b.db, b.machines, settings.New(b.db, logger), logger)
-	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{
+	statuses := status.New(b.db, b.db, b.machines, logger)
+	_, err := statuses.CreateComponent(context.Background(), status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
 		Name: "Site", Members: []status.MemberRef{{Kind: status.KindService, ID: "svc_00000000000000b1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  # À vérifier")
+	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  - id: svc_00000000000000b4\n")
 	data = cut(t, data, "  - id: 00000000000000c1\n", "heartbeats:\n")
 	// Sans --prune, le service reste et rien ne bloque.
 	if plan := b.plan(t, data, false); !plan.Applicable() {
@@ -396,6 +435,70 @@ func TestPlan_PruneOfAComponentMemberIsBlocked(t *testing.T) {
 		if problem.Key == manifest.KeyPruneBlocked && (problem.Value != "Site" || !strings.Contains(problem.Path, "wiki")) {
 			t.Errorf("the refusal must name the component: %+v", problem)
 		}
+	}
+}
+
+// Une sonde ou une tâche que la page de statut affiche ne se supprime pas
+// par --prune : le plan le refuse en nommant le composant, comme le geste du
+// domaine le refuserait (même plan, même règle), plutôt que de s'arrêter au
+// milieu de l'écriture.
+func TestPlan_PruneOfAProbeOrJobShownOnStatusIsBlockedLikeTheGesture(t *testing.T) {
+	b, _ := seeded(t)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	statuses := status.New(b.db, b.db, b.machines, logger)
+	_, err := statuses.CreateComponent(ctx, status.ComponentDefinition{PageID: storetest.StatusPage(t, b.db, "statut"),
+		Name:    "Courrier",
+		Members: []status.MemberRef{{Kind: status.KindProbe, ID: "00000000000000c2"}, {Kind: status.KindHeartbeat, ID: "00000000000000d1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPruneBlocked)
+
+	var blocked []string
+	for _, problem := range plan.Problems {
+		if problem.Key == manifest.KeyPruneBlocked {
+			blocked = append(blocked, problem.Path+" "+problem.Value)
+		}
+	}
+	slices.Sort(blocked)
+	if !slices.Equal(blocked, []string{"mail-imaps Courrier", "wiki-dump Courrier"}) {
+		t.Fatalf("refus = %v", blocked)
+	}
+	if err := b.probes.Delete(ctx, "00000000000000c2"); !errors.Is(err, probe.ErrShownOnStatus) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
+	}
+	if err := b.heartbeats.Delete(ctx, "00000000000000d1"); !errors.Is(err, heartbeat.ErrShownOnStatus) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
+	}
+}
+
+// Un projet qui a sa page de statut ne se supprime pas par --prune : le
+// fichier ne porte pas les pages, il ne peut pas l'en détacher. Le plan le
+// refuse en nommant la page, comme le geste du domaine le refuserait.
+func TestPlan_PruneOfAProjectWithAStatusPageIsBlocked(t *testing.T) {
+	b, _ := seeded(t)
+	ctx := context.Background()
+	project, err := b.directory.CreateProject(ctx, directory.ProjectDefinition{Name: "vitrine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err := status.New(b.db, b.db, b.machines, logger).CreatePage(ctx, status.PageDefinition{Slug: "vitrine", Title: "Vitrine", ProjectID: project.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := b.requireRefused(t, "version: 1\nmachines:\n  - name: opencloud\n", true, manifest.KeyPruneStatusPage)
+
+	for _, problem := range plan.Problems {
+		if problem.Key == manifest.KeyPruneStatusPage && (problem.Path != "vitrine" || problem.Value != "Vitrine") {
+			t.Errorf("the refusal must name the project and its page: %+v", problem)
+		}
+	}
+	if err := b.directory.DeleteProject(ctx, project.ID); !errors.Is(err, directory.ErrProjectHasStatusPage) {
+		t.Fatalf("le geste doit refuser de même: %v", err)
 	}
 }
 
@@ -674,7 +777,7 @@ func TestOrder_AKeyHeldByAPrunedObjectCannotBeTakenInTheSamePass(t *testing.T) {
 	b, data := seeded(t)
 	// « wiki » sort du fichier (donc de l'annuaire avec --prune) et un autre
 	// service reprend son projet Compose.
-	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  # À vérifier")
+	data = cut(t, data, "  - id: svc_00000000000000b1\n", "  - id: svc_00000000000000b4\n")
 	data = cut(t, data, "  - id: 00000000000000c1\n", "heartbeats:\n")
 	data = replaceOnce(t, data, "probes:\n", `  - machine: app-1
     name: wiki2

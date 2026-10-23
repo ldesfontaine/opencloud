@@ -1,8 +1,9 @@
 import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 
-// Les alertes, les canaux qui les portent, et les silences qui les taisent.
-// Sujet du direct : « alerts », que topicsOf devine du chemin.
+// Les alertes, les canaux qui les portent, et les silences qui les taisent
+// (« mutes » côté serveur). Sujet du direct : « alerts », que topicsOf
+// devine du chemin.
 
 export type AlertKind =
   | "machine_lost"
@@ -34,7 +35,7 @@ export const alertKinds: readonly AlertKind[] = [
 
 export type AlertSeverity = "attention" | "danger";
 type AlertStatus = "open" | "resolved";
-export type AlertObjectKind = "machine" | "service" | "heartbeat" | "probe" | "volume";
+export type AlertObjectKind = "machine" | "container" | "heartbeat" | "probe" | "volume";
 
 export interface AlertObject {
   kind: AlertObjectKind;
@@ -68,11 +69,13 @@ export interface Alert {
   kind: AlertKind;
   severity: AlertSeverity;
   status: AlertStatus;
-  // Ouverte sous un silence ou une maintenance : montrée, jamais envoyée.
-  silenced: boolean;
+  // Un silence la couvre en ce moment : rien n'en part.
+  muted: boolean;
   object: AlertObject;
   machine_id: string;
   machine_name: string;
+  // Le service déclaré du conteneur ou de la sonde ; vide sinon.
+  service_id: string;
   details: AlertDetails;
   opened_at: string;
   updated_at: string;
@@ -86,7 +89,7 @@ export interface AlertsResponse {
 }
 
 type DeliveryEvent = "opened" | "aggravated" | "resolved";
-type DeliveryStatus = "pending" | "delivered" | "failed" | "held";
+type DeliveryStatus = "pending" | "delivered" | "failed" | "held" | "muted";
 
 export interface Delivery {
   id: number;
@@ -97,6 +100,8 @@ export interface Delivery {
   reason: string;
   code: number;
   updated_at: string;
+  // L'essai suivant d'une livraison en échec ; null : plus d'essai.
+  next_attempt_at: string | null;
 }
 
 export interface AlertResponse {
@@ -116,6 +121,8 @@ export interface Channel {
   has_secret: boolean;
   min_severity: AlertSeverity;
   notify_resolve: boolean;
+  // Le canal reçoit aussi le journal d'audit.
+  receives_audit: boolean;
   enabled: boolean;
   // L'URL est en http : le canal parle en clair.
   plain: boolean;
@@ -134,19 +141,29 @@ export interface ChannelTest {
   code: number;
 }
 
-export interface Silence {
+// Ce qu'un silence tait ; vide : tout.
+export type MuteTargetKind = "" | "machine" | "service" | "container" | "probe" | "heartbeat";
+
+export interface Mute {
   id: number;
   kind: AlertKind | "";
-  object: { kind: AlertObjectKind | ""; id: string; name: string };
+  target: { kind: MuteTargetKind; id: string; name: string };
   reason: string;
   starts_at: string;
   ends_at: string;
   active: boolean;
+  // L'acteur du journal d'audit ; vide pour un silence venu d'avant.
+  created_by_kind: string;
+  created_by_name: string;
   created_at: string;
+  // Annoncé, le silence se montre en maintenance sur les pages de statut,
+  // sous ce titre public ; sinon il reste interne.
+  announce: boolean;
+  public_title: string;
 }
 
-export interface SilencesResponse {
-  silences: Silence[];
+export interface MutesResponse {
+  mutes: Mute[];
 }
 
 // Le corps de la création comme de l'édition d'un canal. Le secret vide
@@ -160,17 +177,21 @@ export interface ChannelRequest {
   clear_secret: boolean;
   min_severity: AlertSeverity;
   notify_resolve: boolean;
+  receives_audit: boolean;
   enabled: boolean;
 }
 
-// Un silence vise un type d'alerte, un objet, ou les deux.
-export interface SilenceRequest {
+// Un silence vise un type d'alerte, un objet, les deux, ou tout ; sans
+// début, il commence tout de suite.
+export interface MuteRequest {
   kind: AlertKind | "";
-  object_kind: AlertObjectKind | "";
-  object_id: string;
-  object_name: string;
+  target_kind: MuteTargetKind;
+  target_id: string;
   reason: string;
+  starts_at: string | null;
   duration_minutes: number;
+  announce: boolean;
+  public_title: string;
 }
 
 // Les identifiants d'alerte, de canal et de silence sont des entiers ; une
@@ -179,7 +200,7 @@ type NumericID = number | string;
 
 const alertsPath = "/api/alerts";
 const channelsPath = `${alertsPath}/channels`;
-const silencesPath = `${alertsPath}/silences`;
+const mutesPath = `${alertsPath}/mutes`;
 
 function alertPath(id: NumericID): string {
   return `${alertsPath}/${segment(String(id))}`;
@@ -207,8 +228,8 @@ export function useChannel(id: string | null): Resource<Channel> {
   return useResource<Channel>(id === null ? null : () => channelPath(id));
 }
 
-export function useSilences(): Resource<SilencesResponse> {
-  return useResource<SilencesResponse>(silencesPath);
+export function useMutes(): Resource<MutesResponse> {
+  return useResource<MutesResponse>(mutesPath);
 }
 
 // Acquitte d'un coup ; la réponse dit combien l'étaient vraiment.
@@ -234,10 +255,10 @@ export async function testChannel(id: NumericID): Promise<ChannelTest> {
   return api.post<ChannelTest>(`${channelPath(id)}/actions/test`);
 }
 
-export async function createSilence(body: SilenceRequest): Promise<Silence> {
-  return api.post<Silence>(silencesPath, body);
+export async function createMute(body: MuteRequest): Promise<Mute> {
+  return api.post<Mute>(mutesPath, body);
 }
 
-export async function deleteSilence(id: NumericID): Promise<void> {
-  return api.delete(`${silencesPath}/${segment(String(id))}`);
+export async function deleteMute(id: NumericID): Promise<void> {
+  return api.delete(`${mutesPath}/${segment(String(id))}`);
 }

@@ -4,10 +4,13 @@
 // catalogue.
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Meter, Stat } from "../components/Card";
+import { ConfirmInline } from "../components/ConfirmInline";
 import { Field, Input, Select } from "../components/Field";
 import { Icon } from "../components/Icon";
 import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
+import { SectionHead } from "../components/SectionHead";
+import { DangerZone, SettingFoot, SettingRow } from "../components/SettingRow";
 import { List, RowText, RowWhen, Subject, Table } from "../components/Table";
 import { useI18n } from "../i18n/context";
 import "./VisualSystem.scss";
@@ -128,6 +131,34 @@ export function VisualSystem() {
                   </>
                 }
               />
+              <Stat compact icon="cpu" label={t("visual.stats.cpu")} value="23" unit="%" foot={t("visual.stats.cpu_foot")} />
+              <Stat
+                compact
+                icon="disk"
+                label={t("visual.stats.disk")}
+                value="69"
+                unit={t("visual.stats.disk_unit")}
+                foot={
+                  <>
+                    <b>86 %</b>
+                    {t("visual.stats.disk_foot")}
+                  </>
+                }
+              />
+              <Stat
+                compact
+                wideFoot
+                icon="disk"
+                label={t("visual.stats.disk")}
+                value="69"
+                unit={t("visual.stats.disk_unit")}
+                foot={
+                  <>
+                    <b>86 %</b>
+                    {t("visual.stats.disk_foot")}
+                  </>
+                }
+              />
             </div>
           </section>
 
@@ -240,6 +271,31 @@ export function VisualSystem() {
           </section>
 
           <section>
+            <h2 className="side-label section-label">{t("visual.settings.title")}</h2>
+            <SectionHead id="vs-settings-title" title={t("settings.section_alerts")} text={t("settings.disk_intro")} />
+            <Card className="setting-stack">
+              <SettingRow label={t("settings.disk_attention_label")} description={t("settings.disk_percent_help", 50, 99)} htmlFor="vs-attention" width="short">
+                <Input id="vs-attention" type="number" defaultValue={85} />
+              </SettingRow>
+              <SettingRow label={t("settings.mail_host_label")} description={t("settings.mail_host_help")} htmlFor="vs-host" width="medium">
+                <Input id="vs-host" mono type="text" defaultValue="smtp.exemple.fr" />
+              </SettingRow>
+              <SettingFoot note={t("settings.disk_applies")}>
+                <Button variant="primary" icon="check" disabled>
+                  {t("settings.disk_save")}
+                </Button>
+              </SettingFoot>
+              <DangerZone>
+                <SettingRow label={t("auth.title")}>
+                  <ConfirmInline variant="danger" icon="x" question={t("auth.disable_confirm")} onConfirm={() => undefined}>
+                    {t("auth.disable")}
+                  </ConfirmInline>
+                </SettingRow>
+              </DangerZone>
+            </Card>
+          </section>
+
+          <section>
             <h2 className="side-label section-label">{t("visual.nav.title")}</h2>
             <div className="grid-nav-nodes">
               <nav className="nav">
@@ -320,7 +376,7 @@ export function VisualSystem() {
                     <span className="n">6</span>
                   </span>
                   <span className="tab">
-                    {t("tab.domains")}
+                    {t("tab.availability")}
                     <span className="n">5</span>
                   </span>
                   <span className="tab">{t("tab.network")}</span>

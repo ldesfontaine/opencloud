@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { Probe, ProbeDay } from "../api/probes";
 import { useNow } from "../hooks/useNow";
 import { useI18n } from "../i18n/context";
-import { uptimeOfDays, uptimePercent } from "../lib/probes";
+import { probePath, uptimeOfDays, uptimePercent } from "../lib/probes";
 import { ago } from "../lib/time";
 import { formatDecimal } from "../lib/units";
 import { Subject, Table } from "./Table";
@@ -36,7 +36,7 @@ export function ProbeTable({ probes, days, withMachine = false }: { probes: Prob
           return (
             <tr key={probe.id}>
               <td>
-                <Link className="svc" to={`/domaines/${probe.id}`}>
+                <Link className="svc" to={probePath(probe.id)}>
                   <Subject icon="globe">{probe.name}</Subject>
                 </Link>
               </td>

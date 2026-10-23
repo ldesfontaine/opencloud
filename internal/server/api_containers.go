@@ -18,8 +18,8 @@ import (
 const (
 	defaultTransitions = 50
 	maxTransitions     = 500
-	// Les lectures de journaux en cours, en tout : suivis des onglets,
-	// tirages uniques et outil MCP. Chaque suivi est une seconde connexion,
+	// Les lectures de journaux en cours, en tout : suivis des onglets
+	// et tirages uniques. Chaque suivi est une seconde connexion,
 	// hors du plafond du direct.
 	maxLogStreams = 16
 	// Le code que l'agent rend aussi (dockerwatch.LogsBusy) : un agent déjà
@@ -56,8 +56,15 @@ type containerJSON struct {
 	ImageCheck *imageCheckJSON `json:"image_check"`
 	// Le support de l'image, sur la fiche seulement, et seulement quand
 	// l'opérateur a activé la fin de support.
-	Lifecycle    *lifecycleJSON         `json:"lifecycle,omitempty"`
-	State        string                 `json:"state"`
+	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
+	State     string         `json:"state"`
+	// Faux : la machine ne signale plus (machine.Observed), l'état ci-dessus
+	// est le dernier connu et le front ne doit pas le montrer comme actuel.
+	Observed bool `json:"observed"`
+	// Le dernier signal de la machine, d'où se lit « dernier état, il y a » ;
+	// absent tant que son agent n'en a donné aucun.
+	MachineLastSeenAt *time.Time `json:"machine_last_seen_at"`
+
 	ExitCode     int                    `json:"exit_code"`
 	OOMKilled    bool                   `json:"oom_killed"`
 	Killed       bool                   `json:"killed"`
@@ -177,13 +184,13 @@ func (s *Server) writeContainers(w http.ResponseWriter, r *http.Request, machine
 
 // containerListOf assemble la liste des conteneurs d'une machine, ou de
 // toutes quand machineID est vide, avec l'état du Docker de chacune ; l'API
-// et l'outil MCP la rendent telle quelle, l'outil la pagine après.
+// la rend telle quelle.
 func (s *Server) containerListOf(ctx context.Context, machineID string) (containersResponse, error) {
 	containers, err := s.containers.List(ctx, machineID)
 	if err != nil {
 		return containersResponse{}, err
 	}
-	names, err := s.machineNames(ctx)
+	machines, err := s.machineViews(ctx)
 	if err != nil {
 		return containersResponse{}, err
 	}
@@ -201,7 +208,7 @@ func (s *Server) containerListOf(ctx context.Context, machineID string) (contain
 	}
 	response := containersResponse{Containers: make([]containerJSON, 0, len(containers)), Engines: []engineJSON{}}
 	for _, item := range containers {
-		response.Containers = append(response.Containers, containerToJSON(item, names[item.MachineID], currents[item.ID], checks))
+		response.Containers = append(response.Containers, containerToJSON(item, machines[item.MachineID], currents[item.ID], checks))
 	}
 	for _, engine := range engines {
 		if machineID == "" || engine.MachineID == machineID {
@@ -223,10 +230,10 @@ func (s *Server) getContainer(w http.ResponseWriter, r *http.Request) {
 	s.writeAPI(w, http.StatusOK, response)
 }
 
-// containerResponseOf assemble la fiche d'un conteneur ; l'API et l'outil MCP
-// la rendent telle quelle.
+// containerResponseOf assemble la fiche d'un conteneur ; l'API la rend telle
+// quelle.
 func (s *Server) containerResponseOf(ctx context.Context, item container.Container) (containerResponse, error) {
-	names, err := s.machineNames(ctx)
+	machines, err := s.machineViews(ctx)
 	if err != nil {
 		return containerResponse{}, err
 	}
@@ -246,7 +253,7 @@ func (s *Server) containerResponseOf(ctx context.Context, item container.Contain
 	if err != nil {
 		return containerResponse{}, err
 	}
-	response := containerResponse{Container: containerToJSON(item, names[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
+	response := containerResponse{Container: containerToJSON(item, machines[item.MachineID], currents[item.ID], checks), Transitions: transitionsToJSON(transitions)}
 	response.Container.Lifecycle, err = s.lifecycleOf(ctx, item.Image)
 	if err != nil {
 		return containerResponse{}, err
@@ -422,16 +429,30 @@ func (s *Server) containerOr404(w http.ResponseWriter, r *http.Request) (contain
 	return item, true
 }
 
-func (s *Server) machineNames(ctx context.Context) (map[string]string, error) {
+// machineView est ce que le serveur dit de la machine d'un conteneur : son
+// nom, et si elle est observée (machine.Observed) avec son dernier signal.
+type machineView struct {
+	name       string
+	observed   bool
+	lastSeenAt time.Time
+}
+
+func (s *Server) machineViewOf(status machine.Status) machineView {
+	return machineView{name: status.Name, observed: machine.Observed(status, s.now()), lastSeenAt: status.LastSeenAt}
+}
+
+// machineViews lit les machines une fois, par identifiant : un conteneur
+// n'en relit pas une.
+func (s *Server) machineViews(ctx context.Context) (map[string]machineView, error) {
 	statuses, err := s.machines.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	names := make(map[string]string, len(statuses))
+	views := make(map[string]machineView, len(statuses))
 	for _, machineStatus := range statuses {
-		names[machineStatus.ID] = machineStatus.Name
+		views[machineStatus.ID] = s.machineViewOf(machineStatus)
 	}
-	return names, nil
+	return views, nil
 }
 
 func (s *Server) currentByContainer(ctx context.Context) (map[string]container.Current, error) {
@@ -451,13 +472,14 @@ func tailOf(r *http.Request) int {
 	return tail
 }
 
-func containerToJSON(item container.Container, machineName string, current container.Current, checks map[string]update.Check) containerJSON {
+func containerToJSON(item container.Container, host machineView, current container.Current, checks map[string]update.Check) containerJSON {
 	converted := containerJSON{
-		ID: item.ID, MachineID: item.MachineID, MachineName: machineName, Kind: string(item.Kind),
+		ID: item.ID, MachineID: item.MachineID, MachineName: host.name, Kind: string(item.Kind),
 		Name: item.Name, Group: item.Group, ContainerID: item.ContainerID, Image: item.Image, ImageID: item.ImageID,
 		ComposeService: item.ComposeService, ComposeDir: item.ComposeDir, ComposeFile: item.ComposeFile,
 		UpdatePolicy: string(item.UpdatePolicy), DeclaredServiceID: item.DeclaredServiceID, ImageCheck: imageCheckToJSON(item, checks),
-		State: string(item.State), ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
+		State: string(item.State), Observed: host.observed, MachineLastSeenAt: httpx.TimeOrNil(host.lastSeenAt),
+		ExitCode: item.ExitCode, OOMKilled: item.OOMKilled, Killed: item.Killed, Health: string(item.Health), RestartCount: item.RestartCount,
 		Ports: orEmpty(item.Ports), NetworkMode: item.NetworkMode, Privileged: item.Privileged,
 		Networks: orEmpty(item.Networks), DependsOn: orEmpty(item.DependsOn), Exposure: container.Exposure(item),
 		CreatedAt: item.CreatedAt.UTC(), StartedAt: httpx.TimeOrNil(item.StartedAt), FinishedAt: httpx.TimeOrNil(item.FinishedAt),

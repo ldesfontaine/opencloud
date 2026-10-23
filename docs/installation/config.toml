@@ -18,15 +18,21 @@ state_dir = "/var/lib/opencloud"
 
 # Adresse publique d'openCloud, telle que les machines et le navigateur
 # l'appellent. Elle sert à :
-#  - écrire la commande d'installation d'une machine, l'URL de ping d'une
-#    tâche et l'adresse MCP ;
+#  - écrire la commande d'installation d'une machine et l'URL de ping d'une
+#    tâche ;
 #  - reconnaître le nom sous lequel on atteint l'interface : une requête
-#    sur /api/… ou /oauth/authorize dont le Host n'est ni ce nom, ni
+#    sur /api/… dont le Host n'est ni ce nom, ni
 #    localhost, ni une IP, ni l'hôte de `listen` est refusée en
 #    403 {"error":"bad_host"} (protection contre le DNS rebinding).
 # Vide (défaut) : déduite de chaque requête, et tout nom de domaine autre
 # que localhost est refusé sur l'API. Derrière un domaine, renseignez-la.
 public_url = "https://opencloud.example.org"
+
+# Adresse de mcp-maison, le serveur MCP installé à côté d'openCloud
+# (installation.md, « Brancher un agent IA »). Paramètres → Agent IA lit son
+# /health pour dire s'il répond. Vide (défaut) : openCloud ne le cherche pas
+# et marche sans lui. L'hôte est celui de MCP_HOST, le port 3000.
+# mcp_url = "http://127.0.0.1:3000"
 
 # Mandataires dont les en-têtes X-Forwarded-For, -Host et -Proto sont crus,
 # en notation CIDR. Vide (défaut) : aucun, l'adresse vue est celle du pair.
@@ -49,16 +55,12 @@ trusted_proxies = ["127.0.0.1/32", "::1/128"]
 # démarrage. Vide (défaut) : l'adresse du pair seule décide.
 # forward_secret_file = "/etc/opencloud/forward.secret"
 
-# Socket du démon Docker de la machine openCloud, lue en lecture seule pour
-# suivre ses conteneurs. Absente : la machine n'a simplement aucun service.
-# Le compte du service doit pouvoir la lire (root, ou le groupe docker).
-docker_socket = "/var/run/docker.sock"
-
-# Paquet PEM d'une autorité interne, ajouté au magasin du système pour juger
-# les certificats que les sondes de cette machine voient. Vide (défaut) : le
-# magasin du système seul. Un chemin illisible arrête le démarrage.
-# Chaque machine qui sonde a le sien (drapeau -ca-file de l'agent).
-ca_file = ""
+# Mode forward : les identités que le SSO peut transmettre et
+# qu'openCloud admet, une seconde serrure derrière le SSO. Une autre identité
+# répond 403 (et un WARN qui la nomme). Vide ou absent (défaut) : toute
+# identité transmise est admise. Comparaison exacte, majuscules comprises :
+# "Lucas" n'est pas "lucas". Relu au démarrage seulement.
+# forward_users = ["lucas"]
 
 # Niveau du journal (JSON sur stderr) : debug, info, warn, error.
 # Vide (défaut) : info. En debug, chaque requête HTTP fait une ligne.

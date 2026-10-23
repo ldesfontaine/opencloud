@@ -81,7 +81,7 @@ func TestNotifier_EmailChannel_AuthenticationRefusalIsAReadableReason(t *testing
 	}
 	f.Open(context.Background(), volumeFact(alert.SeverityAttention, 86))
 	delivery := f.waitDelivery(t, f.only(t, alert.StatusOpen).ID)
-	if delivery.Status != alert.DeliveryFailed || delivery.Attempts != alert.MaxAttempts || delivery.Reason != alert.ReasonSMTPAuthFailed {
+	if delivery.Status != alert.DeliveryFailed || delivery.Attempts != alert.ImmediateAttempts || delivery.Reason != alert.ReasonSMTPAuthFailed {
 		t.Fatalf("delivery %+v", delivery)
 	}
 }

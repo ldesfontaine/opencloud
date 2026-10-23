@@ -218,35 +218,9 @@
   }
 }
 
-// Accès ouvert : l'avatar passe à l'avertissement.
-.account-open .avatar {
-  background: var(--warn-wash);
-  color: var(--warn);
-}
-
 .avatar .icon {
   width: 15px;
   height: 15px;
-}
-
-// La bannière de l'accès ouvert, en tête de chaque page.
-.access-banner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 20px;
-
-  .icon {
-    width: 16px;
-    height: 16px;
-    flex: none;
-  }
-
-  a {
-    color: inherit;
-    font-weight: 600;
-  }
 }
 
 .avatar {

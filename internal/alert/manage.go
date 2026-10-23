@@ -2,7 +2,11 @@ package alert
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/audit"
 )
 
 // --- Canaux ---
@@ -17,13 +21,15 @@ func (e *Engine) CreateChannel(ctx context.Context, definition ChannelDefinition
 	}
 	channel := Channel{
 		Name: strings.TrimSpace(definition.Name), URL: definition.URL, Format: definition.Format, Destination: definition.Destination, Secret: definition.Secret,
-		MinSeverity: definition.MinSeverity, NotifyResolve: definition.NotifyResolve, Enabled: definition.Enabled, CreatedAt: e.now(),
+		MinSeverity: definition.MinSeverity, NotifyResolve: definition.NotifyResolve, ReceivesAudit: definition.ReceivesAudit, Enabled: definition.Enabled, CreatedAt: e.now(),
 	}
 	id, err := e.insertChannelUnderCeiling(ctx, channel)
 	if err != nil {
 		return Channel{}, err
 	}
 	e.logger.Info("alert channel created", "channel_id", id, "name", channel.Name, "format", string(channel.Format))
+	channel.ID = id
+	e.auditor.Record(ctx, channelEvent(audit.ChannelCreate, channel))
 	e.changed()
 	return e.store.GetChannel(ctx, id)
 }
@@ -52,12 +58,15 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 	if err != nil {
 		return Channel{}, err
 	}
+	// Ce qui a changé se dit sans la valeur : l'URL et le secret en sont.
+	urlChanged := channel.URL != definition.URL
 	channel.Name = strings.TrimSpace(definition.Name)
 	channel.URL = definition.URL
 	channel.Format = definition.Format
 	channel.Destination = definition.Destination
 	channel.MinSeverity = definition.MinSeverity
 	channel.NotifyResolve = definition.NotifyResolve
+	channel.ReceivesAudit = definition.ReceivesAudit
 	channel.Enabled = definition.Enabled
 	if definition.ClearSecret {
 		channel.Secret = ""
@@ -74,45 +83,70 @@ func (e *Engine) UpdateChannel(ctx context.Context, id int64, definition Channel
 		return Channel{}, err
 	}
 	e.logger.Info("alert channel updated", "channel_id", id, "name", channel.Name, "enabled", channel.Enabled)
+	e.auditor.Record(ctx, channelUpdateEvent(channel, urlChanged, definition.Secret != "" || definition.ClearSecret))
 	e.changed()
 	return e.store.GetChannel(ctx, id)
 }
 
 func (e *Engine) DeleteChannel(ctx context.Context, id int64) error {
+	// Relu avant : le journal garde le nom de ce qui part.
+	found, err := e.store.GetChannel(ctx, id)
+	if err != nil {
+		return err
+	}
 	if err := e.store.DeleteChannel(ctx, id); err != nil {
 		return err
 	}
 	e.logger.Info("alert channel deleted", "channel_id", id)
+	e.auditor.Record(ctx, channelEvent(audit.ChannelDelete, found))
 	e.changed()
 	return nil
 }
 
-// --- Silences ---
+// --- Fenêtres pour taire ---
 
-func (e *Engine) CreateSilence(ctx context.Context, definition SilenceDefinition) (Silence, error) {
-	if err := definition.Validate(); err != nil {
-		return Silence{}, err
-	}
+// CreateMute ouvre une fenêtre, tout de suite ou à l'heure dite. La cible
+// doit exister : la clé étrangère refuserait en erreur brute.
+func (e *Engine) CreateMute(ctx context.Context, definition MuteDefinition) (Mute, error) {
 	now := e.now()
-	silence := Silence{
-		Kind: definition.Kind, Object: definition.Object, Reason: strings.TrimSpace(definition.Reason),
-		StartsAt: now, EndsAt: now.Add(definition.Duration), CreatedAt: now,
+	if err := definition.Validate(now); err != nil {
+		return Mute{}, err
 	}
-	id, err := e.store.InsertSilence(ctx, silence)
+	target := Target{Kind: definition.Target.Kind, ID: definition.Target.ID}
+	if target.Kind != TargetAll {
+		name, err := e.store.MuteTargetName(ctx, target)
+		if errors.Is(err, ErrNotFound) {
+			return Mute{}, ErrMuteTargetUnknown
+		}
+		if err != nil {
+			return Mute{}, err
+		}
+		target.Name = name
+	}
+	startsAt, endsAt := definition.Window(now)
+	mute := Mute{
+		Kind: definition.Kind, Target: target, Reason: strings.TrimSpace(definition.Reason),
+		StartsAt: startsAt, EndsAt: endsAt, CreatedBy: audit.ActorFrom(ctx), CreatedAt: now,
+		Announce: definition.Announce, PublicTitle: strings.TrimSpace(definition.PublicTitle),
+	}
+	id, err := e.store.InsertMute(ctx, mute)
 	if err != nil {
-		return Silence{}, err
+		return Mute{}, err
 	}
-	silence.ID = id
-	e.logger.Info("alert silence created", "silence_id", id, "kind", string(silence.Kind), "object_kind", string(silence.Object.Kind), "object_id", silence.Object.ID, "until", silence.EndsAt)
+	mute.ID = id
+	e.logger.Info("alert mute created", "mute_id", id, "kind", string(mute.Kind), "target_kind", string(target.Kind), "target_id", target.ID,
+		"from", mute.StartsAt, "until", mute.EndsAt)
+	e.auditor.Record(ctx, muteEvent(audit.MuteCreate, mute))
 	e.changed()
-	return silence, nil
+	return mute, nil
 }
 
-func (e *Engine) DeleteSilence(ctx context.Context, id int64) error {
-	if err := e.store.DeleteSilence(ctx, id); err != nil {
+func (e *Engine) DeleteMute(ctx context.Context, id int64) error {
+	if err := e.store.DeleteMute(ctx, id); err != nil {
 		return err
 	}
-	e.logger.Info("alert silence deleted", "silence_id", id)
+	e.logger.Info("alert mute deleted", "mute_id", id)
+	e.auditor.Record(ctx, audit.Event{Action: audit.MuteDelete, ObjectID: strconv.FormatInt(id, 10)})
 	e.changed()
 	return nil
 }

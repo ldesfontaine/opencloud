@@ -8,32 +8,32 @@ import (
 	"unicode/utf8"
 )
 
-// LogSource sait ouvrir un journal sur une machine : en processus pour la
-// machine openCloud, par l'agent pour les autres. Le canal se ferme quand
-// le journal finit ou que le contexte s'arrête.
+// LogSource sait ouvrir un journal sur sa machine : c'est l'agent, qui lit
+// son Docker. Le canal se ferme quand le journal finit ou que le contexte
+// s'arrête.
 type LogSource interface {
 	OpenLogs(ctx context.Context, request LogRequest) (<-chan LogBatch, error)
 }
 
-// Commander pousse une commande à l'agent d'une machine par son flux ; il
-// rend ErrMachineOffline quand elle est hors ligne.
+// Commander demande à l'agent d'une machine, par son flux, d'ouvrir ou de
+// fermer un suivi de journal ; il rend ErrMachineOffline quand elle est
+// hors ligne. Le nom de l'événement est au protocole (agentwire), pas ici.
 type Commander interface {
-	Command(machineID, name string, payload any) error
+	RequestLogs(machineID string, request LogRequest) error
+	StopLogs(machineID, requestID string) error
 }
 
 // Un lot attend ici tant que le navigateur ne l'a pas lu ; au-delà l'agent
 // bloque sur son POST, ce qui freine la source.
 const batchBacklog = 16
 
-// Relay route une demande de journaux vers la bonne source et fait suivre
-// les lots que l'agent livre à qui les attend.
+// Relay demande un journal à l'agent d'une machine et fait suivre les lots
+// qu'il livre à qui les attend.
 type Relay struct {
 	mu        sync.Mutex
-	local     map[string]LogSource
 	commander Commander
 	pending   map[string]*follow
-	// Le compte de suivis ouverts par machine, distants seulement : la
-	// source locale se borne elle-même.
+	// Le compte de suivis ouverts par machine.
 	open  map[string]int
 	newID func() string
 }
@@ -54,13 +54,7 @@ func (f *follow) markDone() {
 }
 
 func NewRelay() *Relay {
-	return &Relay{local: make(map[string]LogSource), pending: make(map[string]*follow), open: make(map[string]int), newID: newRequestID}
-}
-
-func (r *Relay) SetLocal(machineID string, source LogSource) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.local[machineID] = source
+	return &Relay{pending: make(map[string]*follow), open: make(map[string]int), newID: newRequestID}
 }
 
 func (r *Relay) SetCommander(commander Commander) {
@@ -73,16 +67,6 @@ func (r *Relay) SetCommander(commander Commander) {
 // reçu de l'agent ni du navigateur.
 func (r *Relay) Open(ctx context.Context, machineID string, request LogRequest) (<-chan LogBatch, error) {
 	request.ID = r.newID()
-	r.mu.Lock()
-	source, isLocal := r.local[machineID]
-	r.mu.Unlock()
-	if isLocal {
-		return source.OpenLogs(ctx, request)
-	}
-	return r.openRemote(ctx, machineID, request)
-}
-
-func (r *Relay) openRemote(ctx context.Context, machineID string, request LogRequest) (<-chan LogBatch, error) {
 	r.mu.Lock()
 	if r.commander == nil {
 		r.mu.Unlock()
@@ -98,7 +82,7 @@ func (r *Relay) openRemote(ctx context.Context, machineID string, request LogReq
 	commander := r.commander
 	r.mu.Unlock()
 
-	if err := commander.Command(machineID, CommandLogs, request); err != nil {
+	if err := commander.RequestLogs(machineID, request); err != nil {
 		r.forget(request.ID)
 		return nil, err
 	}
@@ -111,7 +95,7 @@ func (r *Relay) openRemote(ctx context.Context, machineID string, request LogReq
 func (r *Relay) stopWhenDone(ctx context.Context, requestID, machineID string, pending *follow, commander Commander) {
 	select {
 	case <-ctx.Done():
-		_ = commander.Command(machineID, CommandLogsStop, LogRequest{ID: requestID})
+		_ = commander.StopLogs(machineID, requestID)
 	case <-pending.done:
 	}
 	r.forget(requestID)
@@ -222,10 +206,6 @@ func newRequestID() string {
 
 // Les journaux d'un conteneur, par son relais.
 
-func (t *Tracker) SetLocalLogSource(machineID string, source LogSource) {
-	t.relay.SetLocal(machineID, source)
-}
-
 func (t *Tracker) SetCommander(commander Commander) {
 	t.relay.SetCommander(commander)
 }
@@ -237,7 +217,7 @@ func (t *Tracker) FollowLogs(ctx context.Context, containerID string, tail int) 
 	if err != nil {
 		return nil, err
 	}
-	return t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail), Follow: true})
+	return t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: ClampLogTail(tail), Follow: true})
 }
 
 // FetchLogs tire les dernières lignes en un coup ; passé le délai, la
@@ -249,7 +229,7 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, LogFetchTimeout)
 	defer cancel()
-	batches, err := t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: clampTail(tail)})
+	batches, err := t.relay.Open(ctx, container.MachineID, LogRequest{ContainerID: container.ContainerID, Tail: ClampLogTail(tail)})
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +238,7 @@ func (t *Tracker) FetchLogs(ctx context.Context, containerID string, tail int) (
 	// la mémoire du serveur pendant les 15 s. Passé MaxFetchLogBytes reçus, la
 	// demande est coupée (le contexte annulé dit à l'agent d'arrêter) et ce
 	// qui est gardé est rendu.
-	limit := clampTail(tail)
+	limit := ClampLogTail(tail)
 	lines := []LogLine{}
 	received := 0
 	for {
@@ -312,7 +292,9 @@ func (e *LogsError) Is(target error) bool {
 	return target == ErrLogsFailed
 }
 
-func clampTail(tail int) int {
+// ClampLogTail borne le nombre de lignes demandé : le serveur et l'agent
+// bornent la même chose.
+func ClampLogTail(tail int) int {
 	if tail <= 0 {
 		return DefaultLogTail
 	}

@@ -1,19 +1,17 @@
 import type { AuthState } from "../api/auth";
 
-// Ce que la barre latérale dit de l'accès : protégé par tel identifiant,
-// par le mandataire pour telle identité, ou ouvert à qui atteint le port.
-// Rien tant que l'API n'a pas répondu.
+// Ce que la barre latérale dit de l'accès : protégé par tel identifiant, ou
+// par le mandataire pour telle identité. Rien tant que l'API n'a pas répondu,
+// ni sans compte : l'écran de première configuration tient alors la place de
+// l'interface.
 export interface AccessLabel {
   key: string;
-  username: string | null;
+  username: string;
 }
 
 export function accessLabel(state: AuthState | null): AccessLabel | null {
-  if (state === null) {
+  if (state === null || state.mode === "none") {
     return null;
-  }
-  if (state.mode === "none") {
-    return { key: "auth.side_open", username: null };
   }
   if (state.mode === "forward") {
     return { key: "auth.side_protected_forward", username: state.username };
@@ -21,9 +19,9 @@ export function accessLabel(state: AuthState | null): AccessLabel | null {
   return { key: "auth.side_protected", username: state.username };
 }
 
-// La bannière ne s'affiche que quand l'API a dit « none » : jamais sur un
-// doute, ni pendant le chargement.
-export function isInterfaceOpen(state: AuthState | null): boolean {
+// Sans compte, le serveur ne sert que la première configuration : l'écran
+// la remplace. Jamais sur un doute, ni pendant le chargement.
+export function needsFirstSetup(state: AuthState | null): boolean {
   return state !== null && state.mode === "none";
 }
 

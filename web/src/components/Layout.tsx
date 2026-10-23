@@ -1,18 +1,18 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 import { useAuth, type AuthState } from "../api/auth";
 import { useCounts, type Counts } from "../api/counts";
 import { useLive } from "../hooks/useLive";
 import { useTheme } from "../hooks/useTheme";
 import { useI18n, useT } from "../i18n/context";
-import { accessLabel, isInterfaceOpen } from "../lib/auth";
+import { accessLabel } from "../lib/auth";
 import { nextDrawer, returnsFocus, type DrawerEvent } from "../lib/drawer";
+import { probeListPath } from "../lib/probes";
 import { Icon, Mark, type IconName } from "./Icon";
 import "./Layout.scss";
 
-// L'état de l'accès est lu une fois ici : la barre latérale le dit, la
-// bannière le rappelle tant que l'interface est ouverte.
+// L'état de l'accès est lu une fois ici : la barre latérale le dit.
 export function Layout() {
   useLive();
   const access = useAuth().data;
@@ -24,7 +24,6 @@ export function Layout() {
       <Sidebar access={access} inert={drawer.narrow && !drawer.open} />
       <main className="main" id="main" inert={drawer.narrow && drawer.open}>
         <div className="content">
-          {isInterfaceOpen(access) && <OpenBanner />}
           <Outlet />
         </div>
       </main>
@@ -119,7 +118,8 @@ function TopBar({ drawer }: { drawer: Drawer }) {
   );
 }
 
-function Brand() {
+// La marque, aussi en tête de l'écran de première configuration.
+export function Brand() {
   return (
     <NavLink className="brand" to="/">
       <span className="mark">
@@ -144,19 +144,23 @@ interface NavEntry {
   attentionHref?: string;
 }
 
-// Seul ce qui est livré a son entrée : les Sauvegardes reviendront avec
-// leur fonctionnalité.
+// Seul ce qui est livré a son entrée.
 const viewEntries: NavEntry[] = [
   { key: "overview", label: "nav.overview", href: "/", icon: "grid" },
   { key: "machines", label: "nav.machines", href: "/machines", icon: "server" },
   { key: "services", label: "nav.services", href: "/services", icon: "box", attentionHref: "/services/conteneurs" },
-  { key: "domains", label: "nav.domains", href: "/domaines", icon: "globe" },
+  { key: "availability", label: "nav.availability", href: probeListPath, icon: "globe" },
   { key: "jobs", label: "nav.jobs", href: "/taches", icon: "clock" },
   { key: "statuspage", label: "nav.statuspage", href: "/page-statut", icon: "eye" },
   { key: "alerts", label: "nav.alerts", href: "/alertes", icon: "bell" },
 ];
 
-const settingsEntries: NavEntry[] = [{ key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" }];
+const settingsEntries: NavEntry[] = [
+  { key: "backups", label: "nav.backups", href: "/sauvegardes", icon: "archive" },
+  { key: "ssh_keys", label: "nav.ssh_keys", href: "/cles-ssh", icon: "shield" },
+  { key: "settings", label: "nav.settings", href: "/parametres", icon: "settings" },
+  { key: "audit", label: "nav.audit", href: "/journal", icon: "file" },
+];
 
 // Barre latérale : marque, sections Vue et Administration avec leurs compteurs en
 // mono (rouge quand il y a une alerte), en bas thème, langue et compte.
@@ -207,13 +211,13 @@ function Sidebar({ access, inert }: { access: AuthState | null; inert: boolean }
           </div>
         </div>
         {label !== null && (
-          <NavLink className={label.username === null ? "account account-open" : "account"} to="/parametres">
+          <NavLink className="account" to="/parametres">
             <span className="avatar" aria-hidden="true">
               <Icon name="shield" />
             </span>
             <span className="who">
               <b>{t(label.key)}</b>
-              <span>{label.username ?? t("auth.side_open_hint")}</span>
+              <span>{label.username}</span>
             </span>
           </NavLink>
         )}
@@ -246,7 +250,7 @@ function counter(key: string, counts: Counts | null): Counter | null {
   if (key === "services" && counts.containers.total > 0) {
     return { value: counts.containers.total, hot: counts.containers.attention > 0 };
   }
-  if (key === "domains" && counts.probes.total > 0) {
+  if (key === "availability" && counts.probes.total > 0) {
     return { value: counts.probes.total, hot: counts.probes.attention > 0 };
   }
   if (key === "statuspage" && counts.status.open_incidents > 0) {
@@ -267,18 +271,5 @@ function NavItem({ entry, counter }: { entry: NavEntry; counter: Counter | null 
       <span>{t(entry.label)}</span>
       {counter && <span className={counter.hot ? "count hot" : "count"}>{counter.value}</span>}
     </NavLink>
-  );
-}
-
-// Rappel tant que personne n'est vérifié : qui atteint le port est
-// l'opérateur. Le lien mène à la carte qui y remédie.
-function OpenBanner() {
-  const t = useT();
-  return (
-    <div className="note note-warn access-banner" role="status">
-      <Icon name="shield" />
-      <span>{t("auth.banner")}</span>
-      <Link to="/parametres">{t("auth.banner_link")}</Link>
-    </div>
   );
 }

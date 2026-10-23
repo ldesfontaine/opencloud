@@ -281,16 +281,44 @@ export function publicPorts(edges: Edge[]): number[] {
 // puis chaque machine dans un cadre, ses conteneurs en nœuds compacts : les
 // publiés dans la première colonne, face à Internet, les autres en grille.
 // Ni groupes ni dépendances : l'onglet Réseau de la machine les dessine.
-// Une seule machine n'a pas de cadre.
+// Une seule machine n'a pas de cadre. Les cadres s'empilent, ou se rangent
+// côte à côte quand la largeur le permet (fitOverview).
+//
+// Ses écarts sont plus serrés que ceux du graphe d'une machine (margin,
+// columnGap, groupGap…) : la vue d'ensemble doit tenir sur un écran de
+// portable (#141). Les constantes overview* ne servent qu'à elle ; la fiche
+// Réseau d'une machine garde les siennes.
 
 export const compactWidth = 148;
-export const compactHeight = 40;
-const compactGap = 12;
-const frameGap = 20;
-const framePadding = { top: 30, right: 16, bottom: 14, left: 16 };
+export const compactHeight = 38;
+export const overviewCompactGap = 6;
+export const overviewMargin = 4;
+const overviewColumnGap = 56;
+export const overviewFrameGap = 6;
+// En haut, la place de la légende du cadre (texte de 11 px, ligne de base à 15,
+// les nœuds commencent 5 px plus bas).
+export const overviewFramePadding = { top: 20, right: 14, bottom: 4, left: 14 };
 const maxColumns = 4;
 // La hauteur d'un cadre sans conteneur : sa légende seule.
 const emptyFrameHeight = 22;
+
+// La vue d'ensemble doit tenir sur un écran de portable (#141) : le schéma
+// vise 240 px de haut au plus (le reste de la page en prend ≈ 400 à
+// 1366×768, pour ≈ 657 px de fenêtre), mais jamais en rendant un texte sous
+// 10 px. 11 px est le plus petit texte du dessin (la légende d'un cadre et
+// le sous-titre d'Internet, NetworkGraph.scss). Un très grand réseau reste
+// donc plus haut, et la page défile : c'est voulu.
+export const overviewGraphMaxHeight = 240;
+const overviewSmallestText = 11;
+const overviewReadableText = 10;
+export const overviewGraphFloor = overviewReadableText / overviewSmallestText;
+
+// L'échelle du dessin de la vue d'ensemble. La largeur s'impose toujours
+// (jamais de défilement horizontal) ; la hauteur réduit le dessin, mais pas
+// sous le plancher.
+export function overviewScale(layout: { width: number; height: number }, width: number, maxHeight: number, floor: number): number {
+  return Math.min(1, width / layout.width, Math.max(floor, maxHeight / layout.height));
+}
 
 export interface PlacedMachine {
   id: string;
@@ -307,76 +335,163 @@ export interface OverviewLayout {
   width: number;
   height: number;
   framed: boolean;
+  // Le nombre de cadres par rangée : 1 quand ils s'empilent.
+  perRow: number;
   internet: PlacedNode;
   machines: PlacedMachine[];
   nodes: PlacedNode[];
   edges: PlacedEdge[];
 }
 
-export function layoutOverview(response: OverviewNetworkResponse): OverviewLayout {
+// Le dessin de la vue d'ensemble, perRow cadres par rangée. Les cadres
+// forment une grille : chacun prend la largeur de sa colonne et la hauteur
+// de sa rangée, pour que leurs traits s'alignent.
+export function layoutOverview(response: OverviewNetworkResponse, perRow = 1): OverviewLayout {
   const framed = response.machines.length > 1;
-  const internet: PlacedNode = { id: internetID, x: margin, y: margin, container: null, public: false };
+  const columns = framed ? Math.max(1, Math.min(perRow, response.machines.length)) : 1;
+  const internet: PlacedNode = { id: internetID, x: overviewMargin, y: overviewMargin, container: null, public: false };
+  const left = overviewMargin + nodeWidth + overviewColumnGap;
+  // Chaque machine placée à l'origine, puis déplacée dans sa case.
+  const placed = response.machines.map((machine) => placeMachine(machine, framed));
+  const columnWidths = new Array<number>(columns).fill(0);
+  const rowHeights: number[] = [];
+  placed.forEach((machine, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    columnWidths[column] = Math.max(columnWidths[column] ?? 0, machine.frame.width);
+    rowHeights[row] = Math.max(rowHeights[row] ?? 0, machine.frame.height);
+  });
+  const columnX = columnWidths.map((_, column) => left + columnWidths.slice(0, column).reduce((sum, value) => sum + value + overviewFrameGap, 0));
+  const rowY = rowHeights.map((_, row) => overviewMargin + rowHeights.slice(0, row).reduce((sum, value) => sum + value + overviewFrameGap, 0));
   const machines: PlacedMachine[] = [];
   const nodes: PlacedNode[] = [];
-  const edges: PlacedEdge[] = [];
-  const left = margin + nodeWidth + columnGap;
-  let y = margin;
-  let widest = 0;
-  for (const machine of response.machines) {
-    const placed = placeMachine(machine, left, y, framed);
-    machines.push(placed.frame);
-    nodes.push(...placed.nodes);
-    widest = Math.max(widest, placed.frame.width);
-    y += placed.frame.height + frameGap;
-  }
-  const height = Math.max(y - frameGap, margin + nodeHeight) + margin;
+  const cellOf = new Map<string, { column: number; row: number }>();
+  placed.forEach((machine, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = columnX[column] ?? left;
+    const y = rowY[row] ?? overviewMargin;
+    const width = framed ? (columnWidths[column] ?? machine.frame.width) : machine.frame.width;
+    const height = framed ? (rowHeights[row] ?? machine.frame.height) : machine.frame.height;
+    machines.push({ ...machine.frame, x, y, width, height });
+    for (const node of machine.nodes) {
+      nodes.push({ ...node, x: node.x + x, y: node.y + y });
+      cellOf.set(node.id, { column, row });
+    }
+  });
+  const contentWidth = columnWidths.reduce((sum, value) => sum + value, 0) + (columns - 1) * overviewFrameGap;
+  const contentHeight = rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(rowHeights.length - 1, 0) * overviewFrameGap;
+  const height = Math.max(overviewMargin + contentHeight, overviewMargin + nodeHeight) + overviewMargin;
   internet.y = (height - nodeHeight) / 2;
   const start = { x: internet.x + nodeWidth, y: internet.y + nodeHeight / 2 };
+  // Le tronc commun des routes publiques, à mi-chemin de la première colonne.
+  const trunkX = (start.x + left + (framed ? overviewFramePadding.left : 0)) / 2;
+  const edges: PlacedEdge[] = [];
   for (const machine of response.machines) {
     for (const edge of machine.edges) {
       const target = nodes.find((node) => node.id === edge.to);
-      if (edge.kind !== "public" || target === undefined) {
+      const cell = cellOf.get(edge.to);
+      if (edge.kind !== "public" || target === undefined || cell === undefined) {
         continue;
       }
       const end = { x: target.x, y: target.y + compactHeight / 2 };
-      const middle = (start.x + end.x) / 2;
-      edges.push({ edge, path: elbow(start, end, middle), labelX: (middle + end.x) / 2, labelY: end.y - 7 });
+      if (cell.column === 0) {
+        edges.push({ edge, path: elbow(start, end, trunkX), labelX: (trunkX + end.x) / 2, labelY: end.y - 7 });
+        continue;
+      }
+      // Un cadre qui n'est pas dans la première colonne : la route suit
+      // l'écart au-dessus de sa rangée, puis celui à sa gauche, sans
+      // traverser aucun cadre.
+      const channelY = (rowY[cell.row] ?? overviewMargin) - overviewFrameGap / 2;
+      const laneX = (columnX[cell.column] ?? left) - overviewFrameGap / 2;
+      const points = [start, { x: trunkX, y: start.y }, { x: trunkX, y: channelY }, { x: laneX, y: channelY }, { x: laneX, y: end.y }, end];
+      edges.push({ edge, path: orthogonal(points), labelX: (laneX + end.x) / 2, labelY: end.y - 7 });
     }
   }
-  return { width: left + widest + margin, height, framed, internet, machines, nodes, edges };
+  return { width: left + contentWidth + overviewMargin, height, framed, perRow: columns, internet, machines, nodes, edges };
 }
 
-// Les conteneurs publiés en première colonne, les autres en grille à droite.
-function placeMachine(machine: NetworkResponse, left: number, top: number, framed: boolean): { frame: PlacedMachine; nodes: PlacedNode[] } {
+// Le dessin de la vue d'ensemble qui tient le mieux dans width : parmi les
+// rangements dont le texte reste lisible (échelle ≥ floor ; l'empilement est
+// toujours permis, c'est le dessin d'avant), celui qui garde le plus grand
+// texte en tenant dans maxHeight, sinon le moins haut. À égalité, le moins
+// de cadres par rangée.
+export function fitOverview(response: OverviewNetworkResponse, width: number, maxHeight: number, floor: number): { layout: OverviewLayout; scale: number } {
+  const stacked = layoutOverview(response, 1);
+  let best = { layout: stacked, scale: overviewScale(stacked, width, maxHeight, floor) };
+  const rendered = (candidate: typeof best) => candidate.layout.height * candidate.scale;
+  const fits = (candidate: typeof best) => rendered(candidate) <= maxHeight + 0.5;
+  for (let perRow = 2; perRow <= response.machines.length; perRow++) {
+    const layout = layoutOverview(response, perRow);
+    if (width / layout.width < floor) {
+      break;
+    }
+    const candidate = { layout, scale: overviewScale(layout, width, maxHeight, floor) };
+    const better = fits(candidate)
+      ? !fits(best) || candidate.scale > best.scale + 1e-9
+      : !fits(best) && rendered(candidate) < rendered(best) - 0.5;
+    if (better) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+// Les conteneurs publiés en première colonne, les autres en grille à droite,
+// répartis sur autant de lignes que les publiés en demandent. Placés depuis
+// l'origine du cadre : layoutOverview les déplace dans leur case.
+function placeMachine(machine: NetworkResponse, framed: boolean): { frame: PlacedMachine; nodes: PlacedNode[] } {
   const published = new Set(machine.edges.filter((edge) => edge.kind === "public").map((edge) => edge.to));
   const publicContainers = machine.containers.filter((container) => published.has(container.id));
   const others = machine.containers.filter((container) => !published.has(container.id));
   const gridColumns = publicContainers.length > 0 ? maxColumns - 1 : maxColumns;
   const rows = Math.max(publicContainers.length, Math.ceil(others.length / gridColumns), 1);
-  const usedColumns = (publicContainers.length > 0 ? 1 : 0) + Math.min(gridColumns, Math.ceil(others.length / rows));
-  const padding = framed ? framePadding : { top: 0, right: 0, bottom: 0, left: 0 };
+  // Autant de colonnes que la grille en remplit : le cadre les englobe toutes.
+  const otherColumns = Math.min(gridColumns, Math.ceil(others.length / rows));
+  const usedColumns = Math.max((publicContainers.length > 0 ? 1 : 0) + otherColumns, 1);
+  const padding = framed ? overviewFramePadding : { top: 0, right: 0, bottom: 0, left: 0 };
   const nodes: PlacedNode[] = [];
-  const originX = left + padding.left;
-  const originY = top + padding.top;
   publicContainers.forEach((container, row) => {
-    nodes.push({ id: container.id, x: originX, y: originY + row * (compactHeight + compactGap), container, public: true });
+    nodes.push({ id: container.id, x: padding.left, y: padding.top + row * (compactHeight + overviewCompactGap), container, public: true });
   });
   const firstGridColumn = publicContainers.length > 0 ? 1 : 0;
   others.forEach((container, index) => {
-    const column = firstGridColumn + (index % gridColumns);
-    const row = Math.floor(index / gridColumns);
-    nodes.push({ id: container.id, x: originX + column * (compactWidth + compactGap), y: originY + row * (compactHeight + compactGap), container, public: false });
+    const column = firstGridColumn + (index % Math.max(otherColumns, 1));
+    const row = Math.floor(index / Math.max(otherColumns, 1));
+    nodes.push({ id: container.id, x: padding.left + column * (compactWidth + overviewCompactGap), y: padding.top + row * (compactHeight + overviewCompactGap), container, public: false });
   });
   const empty = machine.containers.length === 0;
-  const contentHeight = empty ? emptyFrameHeight : rows * compactHeight + (rows - 1) * compactGap;
-  const contentWidth = Math.max(usedColumns, 1) * compactWidth + (Math.max(usedColumns, 1) - 1) * compactGap;
+  const contentHeight = empty ? emptyFrameHeight : rows * compactHeight + (rows - 1) * overviewCompactGap;
+  const contentWidth = usedColumns * compactWidth + (usedColumns - 1) * overviewCompactGap;
   return {
     frame: {
       id: machine.machine_id, name: machine.machine_name, online: machine.online,
-      x: left, y: top, width: padding.left + contentWidth + padding.right, height: padding.top + contentHeight + padding.bottom, empty,
+      x: 0, y: 0, width: padding.left + contentWidth + padding.right, height: padding.top + contentHeight + padding.bottom, empty,
     },
     nodes,
   };
+}
+
+// Une route à angles droits arrondis, par ses points de passage.
+function orthogonal(points: Box[]): string {
+  const parts: string[] = [];
+  points.forEach((corner, index) => {
+    const before = points[index - 1];
+    const after = points[index + 1];
+    if (before === undefined) {
+      parts.push(`M${corner.x} ${corner.y}`);
+      return;
+    }
+    const radius = after === undefined ? 0 : Math.min(cornerRadius, Math.hypot(corner.x - before.x, corner.y - before.y) / 2, Math.hypot(after.x - corner.x, after.y - corner.y) / 2);
+    if (after === undefined || radius < 0.5) {
+      parts.push(`L${corner.x} ${corner.y}`);
+      return;
+    }
+    const entry = { x: corner.x - Math.sign(corner.x - before.x) * radius, y: corner.y - Math.sign(corner.y - before.y) * radius };
+    const exit = { x: corner.x + Math.sign(after.x - corner.x) * radius, y: corner.y + Math.sign(after.y - corner.y) * radius };
+    parts.push(`L${entry.x} ${entry.y}`, `Q${corner.x} ${corner.y} ${exit.x} ${exit.y}`);
+  });
+  return parts.join(" ");
 }
 
 // Les sondes qui surveillent ce conteneur : elles visent son service déclaré,

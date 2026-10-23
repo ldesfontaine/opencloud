@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 // Action est ce qu'un changement fait à son objet.
@@ -61,19 +63,21 @@ func Notes() []Note {
 }
 
 // Ce qu'une suppression emporte avec elle ; chaque genre a son texte sous
-// manifest.carries_<genre>.
+// manifest.carries_<genre>. L'historique est compté par le plan de
+// suppression du domaine (deletion.Plan) : mêmes noms de genre.
 const (
-	CarryProbeResults   = "probe_results"
-	CarryProbeDays      = "probe_days"
-	CarryHeartbeatPings = "heartbeat_pings"
-	CarryHeartbeatRuns  = "heartbeat_runs"
-	CarryUnits          = "units"
-	CarryProjectLinks   = "project_links"
+	CarryProbeResults   = string(deletion.KindProbeResults)
+	CarryProbeDays      = string(deletion.KindProbeDays)
+	CarryHeartbeatPings = string(deletion.KindHeartbeatPings)
+	CarryHeartbeatRuns  = string(deletion.KindHeartbeatRuns)
+	CarrySilences       = string(deletion.KindSilences)
+	CarryUnits          = string(deletion.KindUnits)
+	CarryProjectLinks   = string(deletion.KindProjectLinks)
 )
 
 func CarryKinds() []string {
 	return []string{
-		CarryProbeResults, CarryProbeDays, CarryHeartbeatPings, CarryHeartbeatRuns,
+		CarryProbeResults, CarryProbeDays, CarryHeartbeatPings, CarryHeartbeatRuns, CarrySilences,
 		CarryUnits, CarryProjectLinks,
 	}
 }

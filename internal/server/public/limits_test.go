@@ -14,18 +14,18 @@ import (
 func TestStatusPublic_ReadsAreRateLimitedBySource(t *testing.T) {
 	server := newBench(t)
 	for i := range statusPerSourceBurst {
-		if got := server.getFrom("203.0.113.9:4000", "/statut/api/status"); got != http.StatusOK {
+		if got := server.getFrom("203.0.113.9:4000", "/statut/statut/api/status"); got != http.StatusOK {
 			t.Fatalf("request %d: %d", i+1, got)
 		}
 	}
-	request := httptest.NewRequest(http.MethodGet, "/statut", nil)
+	request := httptest.NewRequest(http.MethodGet, "/statut/statut", nil)
 	request.RemoteAddr = "203.0.113.9:4000"
 	recorder := httptest.NewRecorder()
 	server.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusTooManyRequests || recorder.Header().Get("Retry-After") != httpx.RetryAfterSeconds || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("beyond the burst: %d, Retry-After %q, Cache-Control %q", recorder.Code, recorder.Header().Get("Retry-After"), recorder.Header().Get("Cache-Control"))
 	}
-	if got := server.getFrom("203.0.113.10:4000", "/statut"); got != http.StatusOK {
+	if got := server.getFrom("203.0.113.10:4000", "/statut/statut"); got != http.StatusOK {
 		t.Fatalf("another source: %d", got)
 	}
 }

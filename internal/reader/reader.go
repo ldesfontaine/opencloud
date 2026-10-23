@@ -4,7 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/container"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
@@ -28,9 +30,11 @@ type Reader interface {
 	ListContainers(ctx context.Context, machineID string) ([]container.Container, error)
 	GetContainer(ctx context.Context, id string) (container.Container, error)
 	ListEngines(ctx context.Context) ([]container.Engine, error)
-	// CountContainers compte les conteneurs vivants et ceux qui demandent
-	// attention (container.NeedsAttention, écrit en SQL).
-	CountContainers(ctx context.Context) (total, attention int, err error)
+	// CountContainers compte les conteneurs vivants ; parmi ceux dont la
+	// machine est observée depuis observedSince (machine.ObservedSince), ceux
+	// qui demandent attention (container.NeedsAttention, écrit en SQL) ; et
+	// ceux dont la machine ne l'est pas (état inconnu).
+	CountContainers(ctx context.Context, observedSince time.Time) (total, attention, unknown int, err error)
 	// CountContainerUpdates compte les conteneurs vivants qui ont une mise à
 	// jour et dont l'unité veut la voir (politique « watch »).
 	CountContainerUpdates(ctx context.Context) (int, error)
@@ -44,7 +48,6 @@ type Reader interface {
 	// ListProbeDays rend les jours d'une sonde depuis l'instant donné, ou
 	// de toutes si probeID est vide.
 	ListProbeDays(ctx context.Context, probeID string, from time.Time) ([]probe.Day, error)
-	CountProbeHistory(ctx context.Context, probeID string) (results, days int, err error)
 
 	ListHeartbeats(ctx context.Context) ([]heartbeat.Heartbeat, error)
 	GetHeartbeat(ctx context.Context, id string) (heartbeat.Heartbeat, error)
@@ -53,7 +56,6 @@ type Reader interface {
 	CountHeartbeats(ctx context.Context) (total, attention int, err error)
 	ListPings(ctx context.Context, heartbeatID string, limit int) ([]heartbeat.Ping, error)
 	ListRuns(ctx context.Context, heartbeatID string, limit int) ([]heartbeat.Run, error)
-	CountHeartbeatHistory(ctx context.Context, heartbeatID string) (pings, runs int, err error)
 
 	ListDeclaredServices(ctx context.Context, filter directory.Filter) ([]directory.Service, error)
 	GetDeclaredService(ctx context.Context, id string) (directory.Service, error)
@@ -72,8 +74,22 @@ type Reader interface {
 	ListDeliveries(ctx context.Context, alertID int64) ([]alert.Delivery, error)
 	ListChannels(ctx context.Context) ([]alert.Channel, error)
 	GetChannel(ctx context.Context, id int64) (alert.Channel, error)
-	ListSilences(ctx context.Context) ([]alert.Silence, error)
+	ListMutes(ctx context.Context) ([]alert.Mute, error)
 
 	// LoadSettings rend des réglages vides tant que rien n'est réglé.
 	LoadSettings(ctx context.Context) (settings.Settings, error)
+
+	// ListAuditEvents rend une page du journal, du plus récent au plus ancien.
+	ListAuditEvents(ctx context.Context, query audit.Query) ([]audit.Event, error)
+
+	// CountAuditForwarding dit combien de canaux reçoivent le journal et
+	// combien de ses livraisons sont en échec.
+	CountAuditForwarding(ctx context.Context) (channels int, failing int, err error)
+
+	// ListActionRuns rend les ordres envoyés aux agents, d'une machine ou de
+	// toutes, du plus récent au plus ancien, avec leur sortie.
+	ListActionRuns(ctx context.Context, query action.Query) ([]action.Run, error)
+	// GetActionRun rend un ordre et sa sortie ; sql.ErrNoRows, enveloppé,
+	// s'il n'existe plus.
+	GetActionRun(ctx context.Context, id string) (action.Run, error)
 }

@@ -43,16 +43,6 @@
   max-width: 560px;
 }
 
-// Une carte de réglage qui porte un tableau : plus large, pour que la
-// dernière colonne se voie ; son formulaire garde la largeur des autres.
-.form-card-wide {
-  max-width: 860px;
-
-  form {
-    max-width: 560px;
-  }
-}
-
 .kv {
   display: flex;
   justify-content: space-between;
@@ -92,6 +82,8 @@
       color: var(--ink-2);
       font-weight: 500;
 
+      // La tuile qui remplace une jauge garde sa couleur (Resources.tsx) :
+      // ce n'est pas un état mais la gravité d'une mesure.
       &.warn {
         color: var(--warn);
       }
@@ -99,12 +91,59 @@
       &.danger {
         color: var(--danger);
       }
+    }
 
-      &.accent {
-        color: var(--accent);
-      }
+    .pill-sm {
+      vertical-align: top;
     }
   }
+}
+
+// La tuile compacte : le chiffre à gauche, l'étiquette et le contexte l'un
+// sous l'autre à sa droite. Environ 60 px de haut au lieu de 125, sans
+// qu'aucune information disparaisse ; un contexte trop long est tronqué
+// plutôt que de casser la ligne.
+.stat-compact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "value label"
+    "value foot";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 0;
+  padding: 12px 16px;
+
+  .stat-value {
+    grid-area: value;
+    font-size: 20px;
+  }
+
+  .label {
+    grid-area: label;
+    min-width: 0;
+  }
+
+  .foot {
+    grid-area: foot;
+    min-width: 0;
+  }
+
+  .label span,
+  .foot {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+// Le pied sur toute la largeur, sous le chiffre et l'étiquette : la fiche d'une
+// machine, dont les pieds sont longs. La tuile reste sur deux lignes.
+.stat-compact.stat-wide-foot {
+  grid-template-areas:
+    "value label"
+    "foot foot";
+  row-gap: 2px;
 }
 
 .stat-value {

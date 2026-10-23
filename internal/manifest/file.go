@@ -49,9 +49,9 @@ type Project struct {
 	Line  int
 }
 
-// Service est le service déclaré. NeedsReview et Proposed ne viennent que de
-// l'export, qui en fait un commentaire : la lecture ne les pose jamais, l'état
-// n'est pas dans le fichier.
+// Service est le service déclaré. Proposed ne vient que de l'export, qui en
+// fait un commentaire : la lecture ne le pose jamais, l'état n'est pas dans le
+// fichier.
 type Service struct {
 	ID             string
 	Machine        string
@@ -63,9 +63,8 @@ type Service struct {
 	PublicURL      string
 	Provides       []directory.Capability
 	// Les noms des projets du service.
-	Projects    []string
-	Units       []Unit
-	NeedsReview bool
+	Projects []string
+	Units    []Unit
 	// Proposé par l'export depuis des conteneurs non déclarés, pas encore
 	// déclaré.
 	Proposed bool
@@ -81,6 +80,7 @@ type Unit struct {
 	ContainerName string
 	SystemdUnit   string
 	Ports         []string
+	DataPath      string
 	// Vide pour un binaire, qui n'a que « watch ».
 	Updates container.UpdatePolicy
 	// Proposée par l'export à un service déjà déclaré : elle vient d'un

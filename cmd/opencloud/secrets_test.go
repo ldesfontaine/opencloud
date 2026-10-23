@@ -17,7 +17,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/store"
 )
 
-// openState ouvre le répertoire d'état et sa base, comme le font serve et mcp
+// openState ouvre le répertoire d'état et sa base, comme le fait serve
 // avant de demander la clé.
 func openState(t *testing.T, stateDir string) (*os.Root, *store.DB) {
 	t.Helper()
@@ -64,7 +64,7 @@ func TestOpenSecrets_NoKeyOnAnEmptyBase_CreatesTheKeyInMode0600(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, journal := capturedLogger()
 
-	if err := openSecrets(context.Background(), root, db, logger, true); err != nil {
+	if err := openSecrets(context.Background(), root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	info, err := root.Stat(brand.SecretKeyFile)
@@ -84,7 +84,7 @@ func TestOpenSecrets_NoKeyButSealedSecrets_RefusesAndWritesNoKey(t *testing.T) {
 	_, stateDir := writeConfig(t)
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
-	if err := openSecrets(context.Background(), root, db, logger, true); err != nil {
+	if err := openSecrets(context.Background(), root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_sealed")
@@ -98,7 +98,7 @@ func TestOpenSecrets_NoKeyButSealedSecrets_RefusesAndWritesNoKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer again.Close()
-	err = openSecrets(context.Background(), root, again, logger, true)
+	err = openSecrets(context.Background(), root, again, logger)
 	var refused *refusal
 	if !errors.As(err, &refused) {
 		t.Fatalf("got %v, want a refusal", err)
@@ -113,40 +113,6 @@ func TestOpenSecrets_NoKeyButSealedSecrets_RefusesAndWritesNoKey(t *testing.T) {
 	}
 }
 
-func TestOpenSecrets_McpWithoutKey_RefusesAndNeverCreatesIt(t *testing.T) {
-	_, stateDir := writeConfig(t)
-	root, db := openState(t, stateDir)
-	logger, _ := capturedLogger()
-
-	err := openSecrets(context.Background(), root, db, logger, false)
-	var refused *refusal
-	if !errors.As(err, &refused) || !strings.Contains(refused.message, "démarrez serve une fois") {
-		t.Fatalf("got %v, want the mcp refusal", err)
-	}
-	if _, err := root.Stat(brand.SecretKeyFile); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("mcp must not write a key: %v", err)
-	}
-}
-
-func TestOpenSecrets_McpWithoutKeyOnASealedBase_KeepsTheShortMessage(t *testing.T) {
-	_, stateDir := writeConfig(t)
-	root, db := openState(t, stateDir)
-	logger, _ := capturedLogger()
-	if err := openSecrets(context.Background(), root, db, logger, true); err != nil {
-		t.Fatal(err)
-	}
-	addHeartbeat(t, db, "hb_sealed")
-	if err := root.Remove(brand.SecretKeyFile); err != nil {
-		t.Fatal(err)
-	}
-
-	err := openSecrets(context.Background(), root, db, logger, false)
-	var refused *refusal
-	if !errors.As(err, &refused) || !strings.Contains(refused.message, "démarrez serve une fois") || strings.Contains(refused.message, "forget") {
-		t.Fatalf("got %v, want the short mcp refusal that names no destructive command", err)
-	}
-}
-
 func TestOpenSecrets_RefusesAKeyOthersCanRead(t *testing.T) {
 	_, stateDir := writeConfig(t)
 	root, db := openState(t, stateDir)
@@ -156,7 +122,7 @@ func TestOpenSecrets_RefusesAKeyOthersCanRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := openSecrets(context.Background(), root, db, logger, true)
+	err := openSecrets(context.Background(), root, db, logger)
 	var refused *refusal
 	if !errors.As(err, &refused) || !strings.Contains(refused.message, "chmod 600") {
 		t.Fatalf("got %v, want a refusal that says how to fix the mode", err)
@@ -168,13 +134,13 @@ func TestOpenSecrets_RefusesTheWrongKey(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_sealed")
 	replaceKey(t, root, seal.Generate())
 
-	err := openSecrets(ctx, root, db, logger, true)
+	err := openSecrets(ctx, root, db, logger)
 	var refused *refusal
 	if !errors.As(err, &refused) || !strings.Contains(refused.message, brand.Command+" secrets forget") {
 		t.Fatalf("got %v, want a refusal that names the way out", err)
@@ -186,7 +152,7 @@ func TestSecretsForget_StartsAgainWithANewKeyAndNewPingTokens(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_before_loss")
@@ -212,7 +178,7 @@ func TestSecretsForget_StartsAgainWithANewKeyAndNewPingTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer again.Close()
-	if err := openSecrets(ctx, root, again, logger, true); err != nil {
+	if err := openSecrets(ctx, root, again, logger); err != nil {
 		t.Fatalf("the next start must work: %v", err)
 	}
 	newKey, err := seal.Load(root)
@@ -240,7 +206,7 @@ func TestSecretsForget_RefusesWhileTheKeyStillOpensEverything(t *testing.T) {
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_still_readable")
@@ -285,7 +251,7 @@ func TestSecretsForget_KeepsTheWrongKeyAsideInsteadOfOverwritingIt(t *testing.T)
 	root, db := openState(t, stateDir)
 	logger, _ := capturedLogger()
 	ctx := context.Background()
-	if err := openSecrets(ctx, root, db, logger, true); err != nil {
+	if err := openSecrets(ctx, root, db, logger); err != nil {
 		t.Fatal(err)
 	}
 	addHeartbeat(t, db, "hb_sealed")
@@ -334,7 +300,7 @@ func mustLoad(t *testing.T, root *os.Root) *seal.Keyring {
 }
 
 func TestSecretsCommand_RefusesAMissingOrUnknownSubcommand(t *testing.T) {
-	for _, args := range [][]string{nil, {"rotate"}} {
+	for _, args := range [][]string{nil, {"renew"}} {
 		err := secretsCommand(args, &bytes.Buffer{})
 		var refused *refusal
 		if !errors.As(err, &refused) {

@@ -1,9 +1,10 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { useAlerts } from "../api/alerts";
 import {
   deleteDeclaredService,
-  linksOfRefusal,
-  reviewDeclaredService,
+  fetchDeclaredServiceDeletePlan,
   useDeclaredService,
   useGaps,
   useProjects,
@@ -14,23 +15,26 @@ import {
   type ServiceLinks,
 } from "../api/directory";
 import { Button } from "../components/Button";
-import { Card, CardBody, CardHeader, Empty, KeyValue, Note } from "../components/Card";
+import { Card, CardBody, CardHeader, Empty, KeyValue } from "../components/Card";
+import { DeployCard } from "../components/DeployCard";
 import { NaturePill } from "../components/DeclaredServiceTable";
-import { Failure } from "../components/Failure";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Loaded } from "../components/Loaded";
 import { GapPill } from "../components/GapPill";
 import { PageHead } from "../components/PageHead";
 import { Pill } from "../components/Pill";
-import { Table } from "../components/Table";
-import { useAction } from "../hooks/useAction";
+import { List, Table } from "../components/Table";
 import { useT } from "../i18n/context";
 import { formatUnitPorts, hasLinks, projectNames, unitKeyOf } from "../lib/directory";
+import { probePath } from "../lib/probes";
 import { formatClock } from "../lib/time";
+import { AlertRow } from "./alerts/AlertRow";
 
 // La fiche d'un service déclaré : ses faits, ses unités, ce qu'il fournit,
-// ses projets, ce qui le lie (sondes et composants de statut), et l'écart
+// ses projets, ce qui le lie (sondes et composants de statut), ses alertes
+// ouvertes (celles de ses conteneurs et de ses sondes), et l'écart
 // avec ce que sa machine montre : un état par unité et les conteneurs
-// rattachés. Un service repris de l'existant se valide ici.
+// rattachés.
 export function DeclaredServicePage() {
   const { id = "" } = useParams();
   const service = useDeclaredService(id);
@@ -52,13 +56,11 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
   return (
     <>
       <PageHead title={service.name} subtitle={service.title} actions={<Actions service={service} />} />
-      {service.needs_review && <ReviewBanner service={service} />}
       <Card>
         <CardBody gap={16}>
           <span className="machine-state">
             <NaturePill nature={service.nature} />
-            {service.needs_review && <Pill tone="warn">{t("directory.needs_review")}</Pill>}
-            {gap && <GapPill state={gap.state} weak={gap.weak} />}
+            {gap && <GapPill state={gap.state} weak={gap.weak} observed={gap.observed} />}
             <span className="meta">
               <Link to={`/machines/${service.machine_id}`}>{service.machine_name}</Link>
               <span className="sep" />
@@ -130,6 +132,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
         </Card>
       </div>
       <LinksCard links={service.links} />
+      <AlertsCard serviceID={service.id} />
       <Card className="scroll-x">
         <CardHeader title={t("directory.units_title")} aside={t("directory.units_text")} />
         {service.units.length > 0 ? (
@@ -164,6 +167,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
         )}
       </Card>
       <AttachedContainers gap={gap} />
+      {service.origin === "compose" && <DeployCard serviceID={service.id} />}
     </>
   );
 }
@@ -171,7 +175,7 @@ function DeclaredServiceView({ service, projects, gap }: { service: DeclaredServ
 // L'état d'une unité, ou un tiret tant que l'écart n'est pas lu.
 function unitGap(gap: ServiceGap | undefined, unitID: string) {
   const unit = gap?.units.find((candidate) => candidate.unit_id === unitID);
-  return unit ? <GapPill state={unit.state} weak={unit.weak} /> : <span className="muted">—</span>;
+  return unit ? <GapPill state={unit.state} weak={unit.weak} observed={gap?.observed ?? true} /> : <span className="muted">—</span>;
 }
 
 // Les conteneurs que les machines montrent pour ce service, avec le verdict
@@ -204,7 +208,7 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
                 <td className="mono wide-only">{container.image}</td>
                 <td>
                   <span className="stack">
-                    <GapPill state={container.verdict} weak={container.match_level === "name"} />
+                    <GapPill state={container.verdict} weak={container.match_level === "name"} observed={gap?.observed ?? true} />
                     <span className="secondary">
                       {container.reason !== "" && `${t(`gap.reason_${container.reason}`)} · `}
                       {container.match_level !== "" && t(`gap.level_${container.match_level}`)}
@@ -222,41 +226,37 @@ function AttachedContainers({ gap }: { gap: ServiceGap | undefined }) {
   );
 }
 
-// Le service repris de l'existant à la mise à jour : l'opérateur le relit,
-// puis le valide. Un service que l'opérateur avait déclaré et auquel la mise à
-// jour a ajouté une unité garde sa provenance « à la main » : le bandeau le dit
-// autrement plutôt que d'afficher deux provenances. Le serveur refuse une définition qui ne tient plus, et
-// dit pourquoi par sa clé.
-function ReviewBanner({ service }: { service: DeclaredServiceDetail }) {
+// Ce qui vise ce service : tant qu'une sonde ou un composant de statut le
+// vise, il ne se supprime pas.
+// Les alertes ouvertes qui portent ce service ; le silence se pose d'ici
+// sur le service entier.
+function AlertsCard({ serviceID }: { serviceID: string }) {
   const t = useT();
-  const action = useAction();
-  const review = () => {
-    action.run(() => reviewDeclaredService(service.id), { topic: "directory" });
-  };
+  const alerts = useAlerts();
+  const mine = (alerts.data?.alerts ?? []).filter((alert) => alert.service_id === serviceID);
+  const mute = (
+    <Button small variant="ghost" icon="pause" to={`/alertes/silences/nouveau?target_kind=service&target_id=${encodeURIComponent(serviceID)}`}>
+      {t("alerts.silence")}
+    </Button>
+  );
   return (
     <Card>
-      <CardBody gap={10}>
-        {service.declared_by === "migration" ? (
-          <Note tone="warn">
-            {t("directory.review_banner")} <span className="secondary">{t("directory.declared_by_migration")}</span>
-          </Note>
-        ) : (
-          <Note tone="warn">{t("directory.review_banner_completed")}</Note>
-        )}
-        <Failure error={action.error} />
-        <span className="cluster">
-          <Button variant="primary" icon="check" onClick={review} disabled={action.busy}>
-            {t("directory.review")}
-          </Button>
-          <Button to={`/services/annuaire/${service.id}/modifier`}>{t("directory.edit")}</Button>
-        </span>
-      </CardBody>
+      <CardHeader title={t("directory.alerts_title")} aside={mute} />
+      {mine.length === 0 ? (
+        <CardBody>
+          <span className="secondary">{t("directory.alerts_none")}</span>
+        </CardBody>
+      ) : (
+        <List>
+          {mine.map((alert) => (
+            <AlertRow key={alert.id} alert={alert} compact />
+          ))}
+        </List>
+      )}
     </Card>
   );
 }
 
-// Ce qui vise ce service : tant qu'une sonde ou un composant de statut le
-// vise, il ne se supprime pas.
 function LinksCard({ links }: { links: ServiceLinks }) {
   const t = useT();
   return (
@@ -267,7 +267,7 @@ function LinksCard({ links }: { links: ServiceLinks }) {
           <span className="secondary">{t("directory.links_none")}</span>
         ) : (
           <>
-            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => `/domaines/${object.id}`} />
+            <LinkList label={t("directory.links_probes")} objects={links.probes} to={(object) => probePath(object.id)} />
             <LinkList label={t("directory.links_components")} objects={links.components} to={(object) => `/page-statut/composants/${object.id}`} />
           </>
         )}
@@ -296,38 +296,33 @@ function LinkList({ label, objects, to }: { label: string; objects: LinkedObject
   );
 }
 
-// Modifier, ou supprimer après confirmation : les projets restent, seul le
-// lien s'efface. Un service que des sondes ou des composants visent ne se
-// supprime pas : le bouton le dit, et un 409 reçu quand même (le lien est
-// apparu entre-temps) montre la liste que le serveur donne.
+// Modifier, ou supprimer après confirmation sur le plan : les projets
+// restent, seul le lien s'efface. Un service que des sondes ou des
+// composants visent ne se supprime pas : le plan les nomme, et un 409 reçu
+// quand même (le lien est apparu entre-temps) montre le plan du serveur.
 function Actions({ service }: { service: DeclaredServiceDetail }) {
   const t = useT();
   const navigate = useNavigate();
-  const linked = hasLinks(service.links);
-  const action = useAction();
-  const remove = () => {
-    action.run(() => deleteDeclaredService(service.id), {
-      confirm: t("directory.delete_confirm", service.name),
-      topic: "directory",
-      onDone: () => void navigate("/services"),
-    });
-  };
-  // Le 409 porte la liste de ce qui vise le service : elle remplace le message.
-  const refused = linksOfRefusal(action.error);
+  const [removing, setRemoving] = useState(false);
   return (
     <>
-      {refused === null && <Failure error={action.error} />}
-      {refused !== null && (
-        <Note tone="danger">
-          {t("directory.service_linked")} {[...refused.probes, ...refused.components].map((object) => object.name).join(", ")}
-        </Note>
-      )}
       <Button icon="settings" to={`/services/annuaire/${service.id}/modifier`}>
         {t("directory.edit")}
       </Button>
-      <Button variant="danger" icon="x" onClick={remove} disabled={linked} title={linked ? t("directory.delete_linked") : undefined}>
+      <Button variant="danger" icon="x" onClick={() => setRemoving(true)}>
         {t("directory.delete")}
       </Button>
+      {removing && (
+        <DeletePlanDialog
+          question={t("directory.delete_confirm", service.name)}
+          confirmLabel={t("directory.delete")}
+          loadPlan={() => fetchDeclaredServiceDeletePlan(service.id)}
+          perform={() => deleteDeclaredService(service.id)}
+          topic="directory"
+          onDone={() => void navigate("/services")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
     </>
   );
 }

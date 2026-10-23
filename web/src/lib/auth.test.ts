@@ -1,16 +1,17 @@
 import { expect, test } from "vitest";
 
 import type { AuthState } from "../api/auth";
-import { accessLabel, isForwardInsecure, isInterfaceOpen, passwordFormError } from "./auth";
+import { accessLabel, isForwardInsecure, needsFirstSetup, passwordFormError } from "./auth";
 
-const open: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12 };
-const basic: AuthState = { mode: "basic", username: "lucas", enabled_at: "2026-10-10T08:00:00Z", password_min_length: 12 };
+const unconfigured: AuthState = { mode: "none", username: "", enabled_at: null, password_min_length: 12, allowed_users: null };
+const basic: AuthState = { mode: "basic", username: "lucas", enabled_at: "2026-10-10T08:00:00Z", password_min_length: 12, allowed_users: null };
 const forward: AuthState = {
   mode: "forward",
   username: "marie",
   header: "Remote-User",
   enabled_at: "2026-10-11T08:00:00Z",
   password_min_length: 12,
+  allowed_users: ["marie"],
 };
 
 test("accessLabel dit l'identifiant quand l'accès est protégé", () => {
@@ -19,18 +20,18 @@ test("accessLabel dit l'identifiant quand l'accès est protégé", () => {
 
 test("accessLabel dit le mandataire et l'identité qu'il transmet", () => {
   expect(accessLabel(forward)).toEqual({ key: "auth.side_protected_forward", username: "marie" });
-  expect(isInterfaceOpen(forward)).toBe(false);
 });
 
-test("accessLabel dit l'accès ouvert sans identifiant, et rien avant la réponse", () => {
-  expect(accessLabel(open)).toEqual({ key: "auth.side_open", username: null });
+test("accessLabel ne dit rien sans compte, ni avant la réponse", () => {
+  expect(accessLabel(unconfigured)).toBeNull();
   expect(accessLabel(null)).toBeNull();
 });
 
-test("isInterfaceOpen n'affirme l'ouverture que sur la réponse du serveur", () => {
-  expect(isInterfaceOpen(open)).toBe(true);
-  expect(isInterfaceOpen(basic)).toBe(false);
-  expect(isInterfaceOpen(null)).toBe(false);
+test("needsFirstSetup n'ouvre la première configuration que sur la réponse du serveur", () => {
+  expect(needsFirstSetup(unconfigured)).toBe(true);
+  expect(needsFirstSetup(basic)).toBe(false);
+  expect(needsFirstSetup(forward)).toBe(false);
+  expect(needsFirstSetup(null)).toBe(false);
 });
 
 test("passwordFormError refuse un mot de passe trop court, compté en caractères", () => {
@@ -47,6 +48,6 @@ test("isForwardInsecure ne parle que du mode mandataire que le serveur dit sans 
   expect(isForwardInsecure({ ...forward, forward_insecure: true })).toBe(true);
   expect(isForwardInsecure(forward)).toBe(false);
   expect(isForwardInsecure({ ...basic, forward_insecure: true })).toBe(false);
-  expect(isForwardInsecure(open)).toBe(false);
+  expect(isForwardInsecure(unconfigured)).toBe(false);
   expect(isForwardInsecure(null)).toBe(false);
 });

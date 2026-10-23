@@ -18,7 +18,7 @@ import (
 
 // Les données de test ouvrent déjà des alertes par les composants : la
 // base sur un crash, la tâche certbot en échec, le certificat du site à
-// renouveler et non vérifié. On y ajoute un canal et un silence.
+// renouveler et non vérifié. On y ajoute un canal et une fenêtre pour taire.
 func (ts *testServer) seedAlerts(t *testing.T) (channelID int64, alertID int64) {
 	t.Helper()
 	ctx := context.Background()
@@ -29,7 +29,7 @@ func (ts *testServer) seedAlerts(t *testing.T) (channelID int64, alertID int64) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.alerts.CreateSilence(ctx, alert.SilenceDefinition{Kind: alert.KindJobLate, Reason: "cron désactivé ce week-end", Duration: 24 * time.Hour}); err != nil {
+	if _, err := ts.alerts.CreateMute(ctx, alert.MuteDefinition{Kind: alert.KindJobLate, Reason: "cron désactivé ce week-end", Duration: 24 * time.Hour}); err != nil {
 		t.Fatal(err)
 	}
 	open, err := ts.alerts.List(ctx, alert.StatusOpen)
@@ -55,7 +55,7 @@ func TestAlertsAPI_ReadsMatchGoldenFiles(t *testing.T) {
 		"alerts":         "/api/alerts",
 		"alert":          "/api/alerts/" + itoa(alertID),
 		"alert_channels": "/api/alerts/channels",
-		"alert_silences": "/api/alerts/silences",
+		"alert_mutes":    "/api/alerts/mutes",
 	}
 	for name, path := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -131,7 +131,7 @@ func TestAlertsAPI_AcknowledgeAndResolutionByTheComponent(t *testing.T) {
 	}
 }
 
-func TestAlertsAPI_ChannelsAndSilencesGoThroughTheComponent(t *testing.T) {
+func TestAlertsAPI_ChannelsAndMutesGoThroughTheComponent(t *testing.T) {
 	server := newTestServer(t)
 	received := make(chan *http.Request, 1)
 	var body []byte
@@ -176,27 +176,63 @@ func TestAlertsAPI_ChannelsAndSilencesGoThroughTheComponent(t *testing.T) {
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "channel.url_forbidden" {
 		t.Fatalf("link-local: %d %s", recorder.Code, recorder.Body.String())
 	}
-	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/silences", map[string]any{"duration_minutes": 60})
+	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/mutes", map[string]any{"target_kind": "machine", "duration_minutes": 60})
 	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "silence.invalid" {
-		t.Fatalf("silence without filter: %d %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("a target kind without its object: %d %s", recorder.Code, recorder.Body.String())
 	}
-	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/silences", map[string]any{"object_kind": "machine", "object_id": "local", "object_name": "opencloud", "duration_minutes": 60, "reason": "mise à jour"})
+	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/mutes", map[string]any{"target_kind": "probe", "target_id": "inconnue", "duration_minutes": 60})
+	if recorder.Code != http.StatusUnprocessableEntity || errorCode(t, recorder) != "silence.target_unknown" {
+		t.Fatalf("an unknown target: %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/mutes", map[string]any{"target_kind": "machine", "target_id": "local", "duration_minutes": 60, "reason": "mise à jour"})
 	if recorder.Code != http.StatusCreated {
-		t.Fatalf("silence: %d %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("mute: %d %s", recorder.Code, recorder.Body.String())
 	}
-	var silence silenceJSON
-	decodeAPI(t, recorder, &silence)
-	if !silence.Active || silence.Object.Name != "opencloud" || !silence.EndsAt.Equal(testNow.Add(time.Hour)) {
-		t.Fatalf("silence %+v", silence)
+	var mute muteJSON
+	decodeAPI(t, recorder, &mute)
+	if !mute.Active || mute.Target.Name != "opencloud" || !mute.EndsAt.Equal(testNow.Add(time.Hour)) || mute.CreatedByKind != "operator" {
+		t.Fatalf("mute %+v", mute)
 	}
-	if recorder := callAPI(server.Server, http.MethodDelete, "/api/alerts/silences/"+itoa(silence.ID), nil); recorder.Code != http.StatusNoContent {
-		t.Fatalf("delete silence: %d", recorder.Code)
+	// Planifiée : la fenêtre commence à l'heure dite, pas avant.
+	recorder = callAPI(server.Server, http.MethodPost, "/api/alerts/mutes", map[string]any{"starts_at": testNow.Add(2 * time.Hour).Format(time.RFC3339), "duration_minutes": 30})
+	var planned muteJSON
+	decodeAPI(t, recorder, &planned)
+	if recorder.Code != http.StatusCreated || planned.Active || !planned.EndsAt.Equal(testNow.Add(150*time.Minute)) || planned.Target.Kind != "" {
+		t.Fatalf("planned: %d %+v", recorder.Code, planned)
+	}
+	if recorder := callAPI(server.Server, http.MethodDelete, "/api/alerts/mutes/"+itoa(mute.ID), nil); recorder.Code != http.StatusNoContent {
+		t.Fatalf("delete mute: %d", recorder.Code)
 	}
 	if recorder := callAPI(server.Server, http.MethodDelete, "/api/alerts/channels/"+itoa(channel.ID), nil); recorder.Code != http.StatusNoContent {
 		t.Fatalf("delete channel: %d", recorder.Code)
 	}
 	if recorder := callAPI(server.Server, http.MethodGet, "/api/alerts/channels/"+itoa(channel.ID), nil); recorder.Code != http.StatusNotFound {
 		t.Fatalf("deleted channel still answers: %d", recorder.Code)
+	}
+}
+
+// receives_audit se crée, se relit, se modifie, comme le reste du canal.
+func TestAlertsAPI_ChannelReceivesAuditRoundTrips(t *testing.T) {
+	server := newTestServer(t)
+	var channel channelJSON
+	recorder := callAPI(server.Server, http.MethodPost, "/api/alerts/channels", map[string]any{
+		"name": "journal", "url": "https://hooks.example.org/journal", "format": "json", "min_severity": "attention", "receives_audit": true, "enabled": true,
+	})
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusCreated || !channel.ReceivesAudit {
+		t.Fatalf("create: %d %+v", recorder.Code, channel)
+	}
+	var read channelJSON
+	decodeAPI(t, callAPI(server.Server, http.MethodGet, "/api/alerts/channels/"+itoa(channel.ID), nil), &read)
+	if !read.ReceivesAudit {
+		t.Fatalf("read: %+v", read)
+	}
+	recorder = callAPI(server.Server, http.MethodPut, "/api/alerts/channels/"+itoa(channel.ID), map[string]any{
+		"name": "journal", "url": "https://hooks.example.org/journal", "format": "json", "min_severity": "attention", "receives_audit": false, "enabled": true,
+	})
+	decodeAPI(t, recorder, &channel)
+	if recorder.Code != http.StatusOK || channel.ReceivesAudit {
+		t.Fatalf("update: %d %+v", recorder.Code, channel)
 	}
 }
 

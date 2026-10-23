@@ -1,0 +1,20 @@
+// La matrice des clés SSH : la colonne des clés reste lisible, les machines
+// défilent avec la carte sous 860 px.
+
+.ssh-matrix {
+  .table th:not(:first-child),
+  .table td:not(:first-child) {
+    white-space: nowrap;
+  }
+
+  .table th:first-child,
+  .table td:first-child {
+    min-width: 260px;
+  }
+}
+
+.ssh-key-id {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

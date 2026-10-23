@@ -2,10 +2,8 @@ package server
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -31,21 +29,11 @@ func parsePrefixes(t *testing.T, cidrs ...string) []netip.Prefix {
 	return prefixes
 }
 
-func postJSON(server *Server, path string, payload any) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(payload)
-	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
-	return recorder
-}
-
 // openStream ouvre le flux d'un agent à travers tout le serveur : montage,
 // chaîne de middlewares et en-têtes compris.
 func openStream(t *testing.T, server *testServer, machineID string, private ed25519.PrivateKey) (*http.Response, string, *bufio.Reader, context.CancelFunc) {
 	t.Helper()
-	challenge := servertest.RequestChallenge(t, server.Server, machineID, "")
-	return servertest.OpenStream(t, server.Server, machineID, private, challenge)
+	return servertest.OpenStream(t, server.Server, machineID, private)
 }
 
 func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
@@ -56,7 +44,7 @@ func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 	defer cancel()
 
 	status, _ := server.machines.Get(context.Background(), remoteID)
-	if !status.Online || status.AgentVersion != "v0.0.2" {
+	if !status.Online || status.Agent.Version != "v0.0.2" {
 		t.Fatalf("after stream: %+v", status)
 	}
 	signal := httptest.NewRequest(http.MethodPost, "/agent/signal", nil)
@@ -85,35 +73,40 @@ func TestAgentStream_OpensASessionThatSignalsAndCloses(t *testing.T) {
 	t.Fatal("machine still online after the stream was cut")
 }
 
-// Le limiteur du défi compte l'adresse que la racine résout : derrière un
-// mandataire de confiance, une autre adresse transmise passe encore. Les
-// bornes elles-mêmes se testent dans agentapi.
-func TestAgentChallenge_IsLimitedOnTheResolvedAddress(t *testing.T) {
+// Le limiteur de l'ouverture du flux compte l'adresse que la racine résout :
+// derrière un mandataire de confiance, une autre adresse transmise passe
+// encore. Les bornes elles-mêmes se testent dans agentapi.
+func TestAgentStream_IsLimitedOnTheResolvedAddress(t *testing.T) {
 	server := newTestServer(t)
-	unknown := agentwire.ChallengeRequest{MachineID: "11111111-1111-4111-8111-111111111111"}
+	_, private := server.enroll(t, "vps-paris-1", remoteID)
+	unknown := "11111111-1111-4111-8111-111111111111"
+	attempt := func(forwardedFor string) *httptest.ResponseRecorder {
+		request := servertest.SignedStreamRequest(t, "http://example.com", unknown, private, servertest.NewNonce(t))
+		request.RemoteAddr = "192.0.2.1:1234"
+		if forwardedFor != "" {
+			request.Header.Set("X-Forwarded-For", forwardedFor)
+		}
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		return recorder
+	}
 	refused := false
 	for range 100 {
-		got := postJSON(server.Server, "/agent/challenge", unknown)
+		got := attempt("")
 		if got.Code == http.StatusTooManyRequests && got.Header().Get("Retry-After") != "" {
 			refused = true
 			break
 		}
 		if got.Code != http.StatusNotFound {
-			t.Fatalf("under the burst: %d", got.Code)
+			t.Fatalf("under the burst: %d %s", got.Code, got.Body.String())
 		}
 	}
 	if !refused {
-		t.Fatal("the challenge is never rate limited")
+		t.Fatal("the stream is never rate limited")
 	}
 	server.trustedProxies = parsePrefixes(t, "192.0.2.0/24")
-	body, _ := json.Marshal(unknown)
-	request := httptest.NewRequest(http.MethodPost, "/agent/challenge", bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Forwarded-For", "203.0.113.50")
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("another source: %d", recorder.Code)
+	if got := attempt("203.0.113.50"); got.Code != http.StatusNotFound {
+		t.Fatalf("another source: %d", got.Code)
 	}
 }
 
@@ -136,7 +129,7 @@ func TestAgentLogs_BatchOverTheLimit_IsRefusedWith413(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer browser.Body.Close()
-	requestID := jsonID(t, readCommand(t, agentStream, container.CommandLogs))
+	requestID := jsonID(t, readCommand(t, agentStream, string(agentwire.KindLogs)))
 
 	tooMany := container.LogBatch{Lines: make([]container.LogLine, container.MaxLinesPerBatch+1)}
 	got := server.agentPost(session, "/agent/logs/"+requestID, tooMany)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 )
@@ -253,7 +254,6 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 	server := newTestServer(t)
 	server.seedManifest(t)
 	file := editedFile(t, server.exportedFile(t))
-	server.enableBasic(t)
 	call := func(method, path, user, password string) int {
 		body, _ := json.Marshal(manifestPayload(file, false, ""))
 		request := httptest.NewRequest(method, path, bytes.NewReader(body))
@@ -261,6 +261,8 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 		request.Header.Set("Content-Type", "application/json")
 		if user != "" {
 			request.SetBasicAuth(user, password)
+		} else {
+			request.Header.Set(anonymousHeader, "1")
 		}
 		recorder := httptest.NewRecorder()
 		server.ServeHTTP(recorder, request)
@@ -295,7 +297,6 @@ func TestManifestAPI_PlanAndApplyAreOperatorRoutes(t *testing.T) {
 func TestControlSocket_ActorIsCLI(t *testing.T) {
 	server := newTestServer(t)
 	server.seedManifest(t)
-	server.enableBasic(t)
 	file := editedFile(t, server.exportedFile2(t))
 
 	onSocket := func(method, path string, payload any) *httptest.ResponseRecorder {
@@ -324,6 +325,21 @@ func TestControlSocket_ActorIsCLI(t *testing.T) {
 	decodeAPI(t, applied, &result)
 	if result.ActorKind != "cli" || !strings.HasPrefix(result.ActorName, "root") || strings.ContainsRune(result.ActorName, 0) || len([]rune(result.ActorName)) != maxActorNameRunes {
 		t.Fatalf("actor: %q %q", result.ActorKind, result.ActorName)
+	}
+	// Le journal d'audit a un événement par objet écrit, sous la commande et
+	// lié à la ligne du passage.
+	linked := 0
+	for _, event := range server.auditSince(t, 0) {
+		if event.ApplyID != result.ID {
+			continue
+		}
+		linked++
+		if event.Actor != audit.CLI(result.ActorName) {
+			t.Errorf("%s: actor %+v", event.Action, event.Actor)
+		}
+	}
+	if linked != len(result.Changes) {
+		t.Fatalf("%d audit events linked to the apply, want %d", linked, len(result.Changes))
 	}
 	// Le journal se lit aussi par la socket.
 	if list := onSocket(http.MethodGet, "/api/manifest/applies", nil); list.Code != http.StatusOK || !strings.Contains(list.Body.String(), result.ID) {

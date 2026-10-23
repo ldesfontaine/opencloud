@@ -15,25 +15,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/auth"
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/config"
-	"github.com/ldesfontaine/opencloud/internal/container"
-	"github.com/ldesfontaine/opencloud/internal/directory"
-	"github.com/ldesfontaine/opencloud/internal/dockerapi"
-	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
+	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
-	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/proxysecret"
-	"github.com/ldesfontaine/opencloud/internal/registry"
-	"github.com/ldesfontaine/opencloud/internal/resource"
-	"github.com/ldesfontaine/opencloud/internal/sampler"
 	"github.com/ldesfontaine/opencloud/internal/server"
 	"github.com/ldesfontaine/opencloud/internal/store"
-	"github.com/ldesfontaine/opencloud/internal/trust"
-	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
 
@@ -68,13 +61,7 @@ func runServe(args []string) error {
 	for _, warning := range warnings {
 		logger.Warn("config", "detail", warning)
 	}
-	// Les autorités avant tout le reste : un chemin faux doit arrêter le
-	// démarrage, jamais laisser les sondes juger sur un magasin vide.
-	roots, err := trust.Load(cfg.CAFile)
-	if err != nil {
-		return err
-	}
-	// Le secret du mandataire de même : un fichier faux ou trop ouvert ne doit
+	// Le secret du mandataire avant tout le reste : un fichier faux ou trop ouvert ne doit
 	// jamais laisser le mode forward croire une adresse faute de mieux.
 	forwardSecret, err := proxysecret.Load(cfg.ForwardSecretFile)
 	if err != nil {
@@ -88,6 +75,9 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Ce que serve fait de lui-même, au démarrage et dans ses boucles, va au
+	// journal d'audit sous « rule » ; une requête a son propre contexte.
+	ctx = audit.WithActor(ctx, audit.Rule(""))
 
 	db, err := store.Open(ctx, stateDir)
 	if err != nil {
@@ -95,15 +85,20 @@ func runServe(args []string) error {
 	}
 	defer db.Close()
 	// La clé avant tout ce qui lit un secret.
-	if err := openSecrets(ctx, stateDir, db, logger, true); err != nil {
+	if err := openSecrets(ctx, stateDir, db, logger); err != nil {
+		return err
+	}
+	// La clé qui signe les ordres aux agents, créée au premier démarrage.
+	serverKey, err := openServerKey(stateDir, logger)
+	if err != nil {
 		return err
 	}
 	now := time.Now()
 	if err := db.PurgeTokens(ctx, now, now.Add(-machine.ConsumedTokenRetention)); err != nil {
 		logger.Warn("purge enrollment tokens", "error", err)
 	}
-	// Les composants, branchés entre eux comme pour mcp ; tout ce qui suit
-	// n'appartient qu'à serve.
+	// Les composants, branchés entre eux ; tout ce qui suit n'appartient
+	// qu'à serve.
 	parts, err := buildComponents(cfg, stateDir, db, logger)
 	if err != nil {
 		return err
@@ -127,74 +122,61 @@ func runServe(args []string) error {
 	parts.alerts.SetWatcher(bus)
 	parts.support.SetWatcher(bus)
 	parts.manifests.SetWatcher(bus)
-
-	// La machine openCloud est son propre agent (chantier #146).
-	info := hostinfo.Collect()
-	parts.machines.SetLocalFingerprint(info.HostFingerprint)
-	if err := parts.machines.EnsureLocal(ctx, machine.LocalInfo{
-		Hostname: info.Hostname,
-		Address:  info.Address,
-		OS:       info.OS,
-		Arch:     info.Arch,
-		Version:  version.Number(),
-	}); err != nil {
+	parts.actions.SetWatcher(bus)
+	parts.sshKeys.SetWatcher(bus)
+	parts.actions.SetKey(serverKey)
+	// Les colis des ordres longs (la sauvegarde) : un dossier vidé à chaque
+	// démarrage de serve.
+	outbox, err := action.NewOutbox(stateDir)
+	if err != nil {
 		return err
 	}
-	// Elle veille son propre Docker, sans passer par le réseau : ce que le
-	// veilleur observe s'écrit directement.
-	watcher := dockerwatch.New(dockerapi.New(cfg.DockerSocket), localSink{ctx: ctx, containers: parts.containers, logger: logger}, dockerwatch.Options{Logger: logger})
-	parts.containers.SetLocalLogSource(machine.LocalID, watcher)
-	// Elle exécute aussi ses propres sondes, sans passer par le réseau : son
-	// jeu ne sort pas du processus.
-	prober := probe.NewRunner(localProbes{ctx: ctx, probes: parts.probes, logger: logger}, probe.NewChecker(roots), logger)
-	parts.probes.SetLocalRunner(machine.LocalID, prober)
-	// Et vérifie ses propres images contre leur registre, avec son
-	// trousseau Docker ; les constats s'écrivent sans passer par le réseau.
-	docker := dockerapi.New(cfg.DockerSocket)
-	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), localImages{ctx: ctx, updates: parts.updates, logger: logger}, logger)
-	parts.updates.SetLocalRunner(machine.LocalID, updater)
+	parts.actions.SetOutbox(outbox)
+	parts.backups.SetParcels(outbox)
+	parts.backups.SetWatcher(bus)
 
-	warnIfOpen(ctx, logger, parts.operator, cfg.Listen)
+	// serve n'observe rien de sa propre machine : c'est l'agent installé sur
+	// elle, comme sur les autres. L'empreinte de la machine ne sert qu'à le
+	// reconnaître à l'enrôlement, pour qu'il prenne l'identifiant stable de
+	// la machine openCloud et son historique.
+	hostname, _ := os.Hostname()
+	parts.machines.SetServerHost(hostinfo.HostFingerprint(), hostname)
+	offerLocalEnrollment(ctx, logger, parts)
+
+	logInterfaceAccess(ctx, logger, parts.operator, cfg.Listen)
 	warnIfForwardUnproven(ctx, logger, parts.operator, cfg.TrustedPrefixes(), forwardSecret != "")
-	// Quinze boucles de fond : les échéances, le rollup et la purge des
-	// mesures, la mesure de cette machine, qui est son propre agent, la
-	// purge des conteneurs, le veilleur Docker, le rollup et la purge des
-	// sondes, leur moteur, la purge des constats d'images et leur
-	// vérificateur, la page de statut, les machines perdues, le moteur des
-	// alertes, le notifieur, la purge des jetons MCP et la fin de support.
-	// Elles finissent avant que la base ne se ferme.
+	// Treize boucles de fond : les échéances, le rollup et la purge des
+	// mesures, la purge des conteneurs, le rollup et la purge des sondes, la
+	// purge des constats d'images, la page de statut, les machines perdues,
+	// le moteur des alertes, le notifieur, la purge des jetons d'API, la fin
+	// de support, l'expiration et la purge des ordres, la sauvegarde de la
+	// base. Elles finissent avant
+	// que la base ne se ferme.
 	var loops sync.WaitGroup
 	runLoop(&loops, func() { parts.heartbeats.Watch(ctx) })
 	runLoop(&loops, func() { parts.resources.Watch(ctx) })
-	runLoop(&loops, func() { parts.resources.SampleLocal(ctx, machine.LocalID, sampler.New(), resource.SampleInterval) })
 	runLoop(&loops, func() { parts.containers.Watch(ctx) })
-	runLoop(&loops, func() { watcher.Run(ctx) })
 	runLoop(&loops, func() { parts.probes.Watch(ctx) })
-	runLoop(&loops, func() { prober.Run(ctx) })
 	runLoop(&loops, func() { parts.updates.Watch(ctx) })
-	runLoop(&loops, func() { updater.Run(ctx) })
 	runLoop(&loops, func() { parts.statusPage.Watch(ctx) })
 	runLoop(&loops, func() { parts.machines.Watch(ctx) })
 	runLoop(&loops, func() { parts.alerts.Watch(ctx) })
 	runLoop(&loops, func() { parts.notifier.Run(ctx) })
-	runLoop(&loops, func() { parts.access.Watch(ctx) })
+	runLoop(&loops, func() { parts.apiTokens.Watch(ctx) })
 	runLoop(&loops, func() { parts.support.Watch(ctx) })
+	runLoop(&loops, func() { parts.actions.Watch(ctx) })
+	runLoop(&loops, func() { parts.backups.Watch(ctx) })
 	defer func() { stop(); loops.Wait() }()
 	// Une sonde dont la cible porte des identifiants, d'avant leur refus, ne
 	// repart pas : elle attend que l'opérateur change sa cible.
 	if err := parts.probes.PauseTargetsWithCredentials(ctx); err != nil {
 		logger.Warn("pause probes with credentials", "error", err)
 	}
-	// Le moteur local ne sait rien tant qu'on ne lui a rien donné : ce que
-	// la base garde des sondes de cette machine repart dès le démarrage.
-	parts.probes.Assign(ctx, machine.LocalID)
 	// Les services saisis avant que le rapprochement existe, ou pendant que
 	// le serveur était arrêté, sont rattachés sans attendre l'inventaire
 	// suivant de chaque agent. Les exclusions se disent après : c'est
 	// l'unité rattachée qui porte la politique.
 	parts.containers.RematchAll(ctx)
-	parts.updates.Assign(ctx, machine.LocalID)
-	logServicesToReview(ctx, db, logger)
 
 	// L'arrêt d'un apply suit celui du serveur : un apply en cours finit son
 	// changement puis se journalise « interrompu ».
@@ -205,7 +187,7 @@ func runServe(args []string) error {
 		logger.Warn("mark interrupted applies", "error", err)
 	}
 
-	options := parts.serverOptions(cfg, *configPath)
+	options := parts.serverOptions(cfg)
 	options.Live = bus
 	options.PublicLive = publicBus
 	options.ForwardSecret = forwardSecret
@@ -217,6 +199,7 @@ func runServe(args []string) error {
 	parts.containers.SetCommander(server)
 	parts.probes.SetCommander(server)
 	parts.updates.SetCommander(server)
+	parts.actions.SetCommander(server)
 	// Le port principal s'ouvre avant la socket de commande : un second serve
 	// sur le même state_dir échoue ici, avant d'avoir touché à la socket du
 	// premier.
@@ -228,9 +211,11 @@ func runServe(args []string) error {
 	return listenUntilSignal(ctx, logger, newHTTPServer(cfg.Listen, server), listener, control, cfg)
 }
 
-// warnIfOpen dit au journal que l'interface n'est pas protégée, plus fort
-// quand elle écoute ailleurs que sur la boucle locale.
-func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service, listen string) {
+// logInterfaceAccess dit au journal comment l'interface est gardée. Sans
+// compte, elle attend sa première configuration : sur la boucle locale, c'est
+// une information ; au-delà, un avertissement, car le premier qui atteint
+// l'adresse crée le compte.
+func logInterfaceAccess(ctx context.Context, logger *slog.Logger, operator *auth.Service, listen string) {
 	state, err := operator.State(ctx)
 	if err != nil {
 		logger.Warn("read interface authentication", "error", err)
@@ -241,10 +226,10 @@ func warnIfOpen(ctx context.Context, logger *slog.Logger, operator *auth.Service
 		return
 	}
 	if isLoopbackListen(listen) {
-		logger.Warn("interface authentication disabled: anyone reaching the port is the operator; enable it under Settings", "listen", listen)
+		logger.Info("interface awaiting first setup: open it in a browser and create the operator account", "listen", listen)
 		return
 	}
-	logger.Warn("INTERFACE OPEN TO THE NETWORK WITHOUT AUTHENTICATION: anyone reaching this address can enroll machines, read logs and enable MCP; enable it under Settings now",
+	logger.Warn("interface awaiting first setup and listening beyond loopback: whoever reaches this address first creates the operator account; open it and create it now",
 		"listen", listen)
 }
 
@@ -302,7 +287,7 @@ func openStateDir(path string) (*os.Root, error) {
 }
 
 // newHTTPServer prépare le serveur HTTP. Les flux en direct (agents,
-// interface, journaux, statut, MCP) ne finissent qu'avec le contexte de
+// interface, journaux, statut) ne finissent qu'avec le contexte de
 // leur requête : il dérive d'un contexte de base annulé dès l'arrêt, sans
 // quoi Shutdown les attendrait jusqu'à son délai. Une requête courte en
 // cours au même instant voit aussi son contexte annulé : sa transaction
@@ -367,61 +352,25 @@ func listenUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *htt
 	return nil
 }
 
-// localSink écrit ce que le veilleur de la machine openCloud observe.
-type localSink struct {
-	ctx        context.Context
-	containers *container.Tracker
-	logger     *slog.Logger
-}
-
-func (s localSink) Deliver(report container.Report) {
-	if err := s.containers.Record(s.ctx, machine.LocalID, report); err != nil && s.ctx.Err() == nil {
-		s.logger.Error("record local containers", "error", err)
-	}
-}
-
-// localImages écrit ce que la machine openCloud a constaté sur ses images.
-type localImages struct {
-	ctx     context.Context
-	updates *update.Service
-	logger  *slog.Logger
-}
-
-func (l localImages) Deliver(report update.Report) {
-	if err := l.updates.Record(l.ctx, machine.LocalID, report); err != nil && l.ctx.Err() == nil {
-		l.logger.Error("record local image checks", "error", err)
-	}
-}
-
-// localProbes écrit ce que les sondes de la machine openCloud ont donné.
-type localProbes struct {
-	ctx    context.Context
-	probes *probe.Service
-	logger *slog.Logger
-}
-
-func (p localProbes) Deliver(report probe.Report) {
-	if err := p.probes.Record(p.ctx, machine.LocalID, report); err != nil && p.ctx.Err() == nil {
-		p.logger.Error("record local probes", "error", err)
-	}
-}
-
-// logServicesToReview dit au journal combien de services repris de l'existant
-// attendent la relecture de l'opérateur : la mise à jour qui relie l'annuaire
-// en crée, et rien d'autre ne le prévient.
-func logServicesToReview(ctx context.Context, db *store.DB, logger *slog.Logger) {
-	found, err := db.ListDeclaredServices(ctx, directory.Filter{})
-	if err != nil {
-		logger.Warn("list declared services to review", "error", err)
+// offerLocalEnrollment émet, tant que la machine openCloud n'a jamais eu
+// d'agent, le jeton qui l'installe : c'est la première étape de
+// l'installation. La ligne se lit dans l'interface, à la première
+// configuration ; le journal dit seulement qu'elle attend, jamais le jeton.
+func offerLocalEnrollment(ctx context.Context, logger *slog.Logger, parts *components) {
+	_, token, err := parts.machines.OfferLocalEnrollment(ctx)
+	if errors.Is(err, machine.ErrLocalEnrolled) {
 		return
 	}
-	count := 0
-	for _, candidate := range found {
-		if candidate.NeedsReview {
-			count++
-		}
+	if err != nil {
+		logger.Warn("offer the agent of this machine", "error", err)
+		return
 	}
-	if count > 0 {
-		logger.Info("declared services to review", "count", count)
+	catalogs, err := lang.Load()
+	if err != nil {
+		logger.Warn("load languages", "error", err)
+		return
 	}
+	text := catalogs.For(parts.preferences.CurrentLanguage())
+	logger.Info("enrollment token waiting for the agent of this machine", "message", text.Get("machine.local_agent_waiting"),
+		"name", token.Name, "expires_at", token.ExpiresAt.UTC())
 }

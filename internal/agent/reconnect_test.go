@@ -3,39 +3,42 @@ package agent
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
-// fakeServer joue le serveur openCloud du point de vue de l'agent : défi,
-// flux, signal. Chaque route répond ce que le test lui dit.
+// fakeServer joue le serveur openCloud du point de vue de l'agent : flux,
+// signal. Chaque route répond ce que le test lui dit.
 type fakeServer struct {
-	mu             sync.Mutex
-	streamRefusal  string
-	signalRefusals []string
-	streams        []time.Time
-	refusedSignals []time.Time
-	acceptedSignal int
+	mu sync.Mutex
+	// Les requêtes reçues sans la version du protocole.
+	withoutProtocol int
+	streamRefusal   string
+	signalRefusals  []string
+	streams         []time.Time
+	// Ce que l'agent a dit de son compte et de ses droits indisponibles, à
+	// chaque ouverture du flux.
+	accounts, unavailables []string
+	refusedSignals         []time.Time
+	acceptedSignal         int
 }
 
 func (f *fakeServer) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /agent/challenge", func(w http.ResponseWriter, r *http.Request) {
-		nonce := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
-		_ = json.NewEncoder(w).Encode(agentwire.ChallengeResponse{Nonce: nonce})
-	})
 	mux.HandleFunc("GET /agent/stream", f.stream)
 	mux.HandleFunc("POST /agent/signal", f.signal)
 	return mux
@@ -43,7 +46,12 @@ func (f *fakeServer) handler() http.Handler {
 
 func (f *fakeServer) stream(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
+	if r.Header.Get(agentwire.HeaderProtocol) != agentwire.ProtocolVersion {
+		f.withoutProtocol++
+	}
 	f.streams = append(f.streams, time.Now())
+	f.accounts = append(f.accounts, r.Header.Get(agentwire.HeaderAgentAccount))
+	f.unavailables = append(f.unavailables, r.Header.Get(agentwire.HeaderAgentUnavailable))
 	count := len(f.streams)
 	refusal := f.streamRefusal
 	f.mu.Unlock()
@@ -60,6 +68,9 @@ func (f *fakeServer) stream(w http.ResponseWriter, r *http.Request) {
 func (f *fakeServer) signal(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if r.Header.Get(agentwire.HeaderProtocol) != agentwire.ProtocolVersion {
+		f.withoutProtocol++
+	}
 	if len(f.signalRefusals) > 0 {
 		refusal := f.signalRefusals[0]
 		f.signalRefusals = f.signalRefusals[1:]
@@ -78,6 +89,8 @@ func writeRefusal(w http.ResponseWriter, code string) {
 		status = http.StatusNotFound
 	case "too_many_requests":
 		status = http.StatusTooManyRequests
+	case agentwire.CodeProtocolUnsupported:
+		status = http.StatusUpgradeRequired
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -94,9 +107,16 @@ func (f *fakeServer) snapshot() (streams, refused []time.Time, accepted int) {
 // l'identité chargée, et rend ce que keepConnected a rendu.
 func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *bytes.Buffer) <-chan error {
 	t.Helper()
+	return startAgentWith(t, ctx, server, logs, nil, nil)
+}
+
+// startAgentWith est startAgent avec des droits au fichier de l'agent, et la
+// main sur son client et son juge d'ordres avant le premier flux.
+func startAgentWith(t *testing.T, ctx context.Context, server *fakeServer, logs *bytes.Buffer, rights []machine.Capability, configure func(*Client, *orderRunner)) <-chan error {
+	t.Helper()
 	httpServer := httptest.NewServer(server.handler())
 	t.Cleanup(httpServer.Close)
-	identity, err := NewIdentity(httpServer.URL, "", lang.French)
+	identity, err := NewIdentity(httpServer.URL, "", lang.French, rights)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +129,14 @@ func startAgent(t *testing.T, ctx context.Context, server *fakeServer, logs *byt
 		t.Fatal(err)
 	}
 	opts := Options{SignalInterval: 30 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(logs, nil))}
-	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}}
+	actions := newActionResults()
+	// Le juge des ordres sans dossier d'état : ces tests n'en envoient aucun.
+	orders := newOrderRunner(nil, identity, "v0.0.1", "", actions, opts.Logger)
+	allowTheAccount(orders)
+	if configure != nil {
+		configure(client, orders)
+	}
+	waiting := &pending{readings: &buffer{}, reports: &reports{}, results: &results{}, images: &images{}, actions: actions, sshKeys: &sshReports{}, orders: orders}
 	done := make(chan error, 1)
 	go func() { done <- keepConnected(ctx, client, identity, waiting, catalogs.For(lang.French), opts) }()
 	return done
@@ -141,6 +168,12 @@ func TestKeepConnected_ExpiredSession_ReconnectsAtOnce(t *testing.T) {
 	streams, refused, _ := server.snapshot()
 	if gap := streams[1].Sub(refused[0]); gap >= minBackoff/2 {
 		t.Fatalf("reconnected %v after the refusal, not at once", gap)
+	}
+	server.mu.Lock()
+	unversioned := server.withoutProtocol
+	server.mu.Unlock()
+	if unversioned != 0 {
+		t.Fatalf("%d requests without the protocol version", unversioned)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -208,10 +241,11 @@ func TestKeepConnected_ClockSkew_KeepsRetryingAndSaysToFixTheClock(t *testing.T)
 	}
 }
 
-// Un défi expiré, évincé ou perdu au redémarrage du serveur : l'agent n'a
-// rien à se reprocher, il en redemande un et réessaie, sans s'arrêter.
-func TestKeepConnected_ChallengeExpired_KeepsRetrying(t *testing.T) {
-	server := &fakeServer{streamRefusal: codeChallengeExpired}
+// Une preuve déjà vue (un aléa tiré deux fois, ou une preuve rejouée par un
+// tiers) : l'agent n'a rien à se reprocher, il en signe une autre et
+// réessaie, sans s'arrêter.
+func TestKeepConnected_ReplayedProof_KeepsRetrying(t *testing.T) {
+	server := &fakeServer{streamRefusal: agentwire.CodeReplayed}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := startAgent(t, ctx, server, &bytes.Buffer{})
@@ -222,7 +256,7 @@ func TestKeepConnected_ChallengeExpired_KeepsRetrying(t *testing.T) {
 	})
 	select {
 	case err := <-done:
-		t.Fatalf("agent stopped on an expired challenge: %v", err)
+		t.Fatalf("agent stopped on a replayed proof: %v", err)
 	default:
 	}
 	cancel()
@@ -243,6 +277,21 @@ func TestKeepConnected_BadProof_Stops(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("agent kept retrying a refused identity")
+	}
+}
+
+// Un serveur d'une autre version du protocole : l'agent s'arrête et le dit.
+func TestKeepConnected_AnotherProtocol_Stops(t *testing.T) {
+	server := &fakeServer{streamRefusal: agentwire.CodeProtocolUnsupported}
+	done := startAgent(t, context.Background(), server, &bytes.Buffer{})
+	select {
+	case err := <-done:
+		var refused *ServerError
+		if !errors.As(err, &refused) || refused.Status != http.StatusUpgradeRequired {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("agent kept retrying a server of another protocol")
 	}
 }
 
@@ -270,7 +319,8 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		{http.StatusUnauthorized, "bad_proof", true},
 		{http.StatusConflict, "token_consumed", true},
 		{http.StatusConflict, "name_taken", true},
-		{http.StatusUnauthorized, "challenge_expired", false},
+		{http.StatusUpgradeRequired, "protocol_unsupported", true},
+		{http.StatusUnauthorized, "replayed", false},
 		{http.StatusUnauthorized, "no_session", false},
 		{http.StatusUnauthorized, "clock_skew", false},
 		{http.StatusUnauthorized, "", false},
@@ -284,5 +334,58 @@ func TestServerError_OnlyAnIdentityOrEnrollmentRefusalIsPermanent(t *testing.T) 
 		if refused.Permanent() != c.permanent {
 			t.Errorf("%d %q: permanent %v, want %v", c.status, c.code, refused.Permanent(), c.permanent)
 		}
+	}
+}
+
+// L'agent redit son compte et ses droits indisponibles à chaque ouverture du
+// flux, jugés à neuf : ce qui a été réglé entre deux flux n'est plus dit, et le
+// journal ne parle que d'un changement.
+func TestKeepConnected_SaysItsAccountAndWhatItCannotExerciseAtEachStream(t *testing.T) {
+	server := &fakeServer{signalRefusals: []string{codeNoSession}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	logs := &bytes.Buffer{}
+	rights, err := machine.ParseCapabilities("docker.deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var judged atomic.Int32
+	done := startAgentWith(t, ctx, server, logs, rights, func(client *Client, orders *orderRunner) {
+		client.SetAccount(machine.Account{UID: 998, Name: "svc"})
+		checks := allowAll()
+		// Le compte n'a pas Docker au premier flux, l'opérateur l'ajoute au groupe avant le second.
+		checks.docker = func(context.Context) string {
+			if judged.Add(1) == 1 {
+				return agentwire.ReasonDockerDenied
+			}
+			return ""
+		}
+		useHostChecks(orders, checks)
+	})
+	waitUntil(t, "a second stream", func() bool {
+		streams, _, _ := server.snapshot()
+		return len(streams) >= 2
+	})
+	server.mu.Lock()
+	accounts, unavailables := slices.Clone(server.accounts), slices.Clone(server.unavailables)
+	server.mu.Unlock()
+	if accounts[0] != "998:svc" || accounts[1] != "998:svc" {
+		t.Errorf("accounts %q", accounts)
+	}
+	if unavailables[0] != "docker.deploy=docker_denied" {
+		t.Errorf("first stream said %q", unavailables[0])
+	}
+	if unavailables[1] != "" {
+		t.Errorf("a right set right between two streams was still said: %q", unavailables[1])
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("agent stopped with %v", err)
+	}
+	if got := strings.Count(logs.String(), "rights not exercisable"); got != 1 {
+		t.Errorf("%d warnings, one expected:\n%s", got, logs.String())
+	}
+	if !strings.Contains(logs.String(), "every right can be exercised again") {
+		t.Errorf("the return to normal was not logged:\n%s", logs.String())
 	}
 }

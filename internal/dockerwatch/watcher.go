@@ -63,6 +63,12 @@ type Watcher struct {
 	// L'instant de la dernière demande d'arrêt vue par conteneur : un
 	// « die » 137 sans elle est un conteneur tué brutalement.
 	stopRequests map[string]time.Time
+	// Les conteneurs que ce veilleur a rapportés : seuls leurs journaux
+	// s'ouvrent. Le serveur n'est pas cru sur un identifiant qu'il invente.
+	known map[string]bool
+	// Fermé au premier inventaire livré : avant lui, known est vide parce
+	// que l'agent n'a encore rien vu, pas parce que le conteneur n'existe pas.
+	firstInventory chan struct{}
 }
 
 func New(client *dockerapi.Client, sink Sink, opts Options) *Watcher {
@@ -75,7 +81,7 @@ func New(client *dockerapi.Client, sink Sink, opts Options) *Watcher {
 	if opts.ProbeInterval <= 0 {
 		opts.ProbeInterval = DefaultProbeInterval
 	}
-	return &Watcher{client: client, sink: sink, logger: opts.Logger, opts: opts, previous: make(map[string]cpuCounters), stopRequests: make(map[string]time.Time)}
+	return &Watcher{client: client, sink: sink, logger: opts.Logger, opts: opts, previous: make(map[string]cpuCounters), stopRequests: make(map[string]time.Time), known: make(map[string]bool), firstInventory: make(chan struct{})}
 }
 
 // Run veille jusqu'à l'arrêt du contexte : sonde, puis inventaire, flux
@@ -85,7 +91,7 @@ func (w *Watcher) Run(ctx context.Context) {
 	// Les mesures ne dépendent pas de la vie du flux d'événements : un flux
 	// qui retombe aussitôt rouvert (une ligne que le démon rejoue, par
 	// exemple) ne doit pas les priver de leur cadence. Run attend leur fin :
-	// la machine openCloud ferme sa base après Run, une mesure ne doit pas
+	// ce que le puits écrit peut se fermer après Run, une mesure ne doit pas
 	// y écrire encore.
 	var sampling sync.WaitGroup
 	sampling.Go(func() { w.sampleStats(ctx) })
@@ -167,4 +173,38 @@ func (w *Watcher) reportEngine(report container.EngineReport) {
 		return
 	}
 	w.sink.Deliver(container.Report{Engine: &report})
+}
+
+// rememberAll remplace l'ensemble des conteneurs rapportés : un inventaire
+// complet dit tout ce qui existe, et rien d'autre.
+func (w *Watcher) rememberAll(ids []string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.known = make(map[string]bool, len(ids))
+	for _, id := range ids {
+		w.known[id] = true
+	}
+	select {
+	case <-w.firstInventory:
+	default:
+		close(w.firstInventory)
+	}
+}
+
+func (w *Watcher) remember(id string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.known[id] = true
+}
+
+func (w *Watcher) forget(id string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	delete(w.known, id)
+}
+
+func (w *Watcher) isKnown(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.known[id]
 }

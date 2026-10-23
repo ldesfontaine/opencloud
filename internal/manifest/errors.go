@@ -40,6 +40,7 @@ const (
 	KeyProjectUnknown  = "manifest.project_unknown"
 	KeyReferenceBroken = "manifest.reference_invalid"
 	KeyPruneBlocked    = "manifest.prune_blocked"
+	KeyPruneStatusPage = "manifest.prune_status_page"
 	KeySwapRefused     = "manifest.swap_refused"
 	KeyKeyFromPruned   = "manifest.key_from_pruned"
 	KeyEntryInvalid    = "manifest.entry_invalid"
@@ -122,6 +123,7 @@ var problemArguments = map[string]arguments{
 	KeyProjectUnknown:     lineAndValue,
 	KeyReferenceBroken:    lineAndValue,
 	KeyPruneBlocked:       pathAndValue,
+	KeyPruneStatusPage:    pathAndValue,
 	KeySwapRefused:        valueOnly,
 	KeyKeyFromPruned:      pathAndValue,
 	KeyEntryInvalid:       lineAndValue,

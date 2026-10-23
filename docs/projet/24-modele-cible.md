@@ -5,6 +5,11 @@
 > elles-mêmes sont dans [`23-direction.md`](23-direction.md) ; ce qui n'y est
 > pas reste une proposition du modèle. L'application telle qu'elle tourne est
 > décrite dans [`22-fonctionnement.md`](22-fonctionnement.md).
+>
+> **Le schéma vivant est [`migrations/001_schema.sql`](../../migrations/001_schema.sql)**
+> (21 octobre 2026 : les 33 migrations y sont écrasées). Ce document dit où il
+> va ; les sections 10 à 15 gardent l'historique des décisions, et les
+> numéros de migration qu'elles citent datent ce qui a été fait.
 
 ## Règles du modèle
 
@@ -15,21 +20,21 @@
 | Un service a une **nature** : application ou outil d'infra (libellé provisoire, dans les catalogues). Un outil d'infra déclare ce qu'il **fournit** : `sso`, `proxy`, `tls`, `backup-target` | C'est sur quoi les modules se branchent ; séparés dans l'interface et le catalogue | Une liste fermée dans le code, à étendre par migration de code, pas de table |
 | Un **projet** regroupe des services ; un service peut être dans plusieurs projets | Le socle (proxy, SSO) paraît sur la page de chaque site qui en dépend | Une table de liaison ; un service sans projet reste valide |
 | Le projet porte sa page de statut, limite les canaux, filtre l'interface ; plus tard les droits | Un seul regroupement pour tout | Supprimer un projet passe par un plan (page, canaux) |
-| Entre objets déclarés : `restrict`. La suppression passe par un **plan** qui liste ce qu'elle emporte, puis supprime dans l'ordre | Aucune perte silencieuse, même par MCP ou l'API | Chaque suppression écrit son plan ; plus de code qu'un `cascade` |
+| Entre objets déclarés : `restrict`. La suppression passe par un **plan** qui liste ce qu'elle emporte, puis supprime dans l'ordre | Aucune perte silencieuse, même par l'API | Chaque suppression écrit son plan ; plus de code qu'un `cascade` |
 | D'un objet vers **son propre** historique : `cascade`, chiffré dans le plan | L'historique n'a pas de sens sans son objet | Le plan le dit en nombre de lignes |
 | Alertes, exécutions, audit vers un objet : `set null` + nom recopié | La trace survit à l'objet | Une colonne de nom en double |
 | Supprimer un service de l'annuaire ne touche jamais la machine | Retirer un déploiement est une action typée à part | Les conteneurs restent et passent « présent non déclaré » |
 | `apply` modifie sur place, ne recrée jamais (décision 3) | Historique et jetons gardés | Chaque objet éditable champ par champ (sondes et tâches : faites, PR « édition sur place ») |
 | Secrets saisis dans l'interface (URL et secret des canaux, mot de passe du relais, jetons de tâche, secret OIDC) : **chiffrés en base** par la clé du serveur, colonnes `*_sealed` | Une base volée sans la clé ne livre rien ; la sauvegarde chiffrée les emporte | Un jeton cherché par valeur a besoin d'une empreinte à côté (`token_lookup`) |
 | Secrets des services : **le `.env` sur la machine fait foi**. Ni en base, ni dans l'export | Une seule source de vérité | Restaurer un service passe par sa sauvegarde (`data/` + `.env`, chiffrés) |
-| La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé |
+| La machine openCloud est une machine comme les autres, avec un agent | Un seul mécanisme ; le chemin intégré à `serve` disparaît | Le serveur seul ne voit rien de sa machine tant que l'agent n'est pas installé. **Fait** (section 13) |
 | Ni silence, ni maintenance : un seul objet **« taire »**, jugé à chaque envoi. Le moteur d'alertes ne lit plus les pages de statut | Trois notions au lieu de quatre : alerte, acquitter, taire | Une annonce publique de maintenance porte son propre titre |
 
 ## 1. Entités cibles et liens
 
 ### Diagramme des entités
 
-Tables nouvelles : `agents`, `agent_capabilities`, `projects`, `project_services`, `declared_services`, `service_units`, `service_provides`, `service_open_paths`, `ignored_keys`, `update_proposals`, `service_samples_hourly`, `backup_destinations`, `backup_plans`, `backup_keyring`, `status_pages`, `incident_targets`, `mutes`, `channel_projects`, `action_runs`, `run_logs`, `applies`, `audit_events`, `audit_deliveries`, `settings`, `accounts`, `sessions`, `templates` (plus tard). Non dessinées, inchangées : `machine_disks`, `machine_samples_hourly`, `machine_samples_daily` (comme `machine_samples`, plus un agrégat horaire par volume), `mcp_clients`, `mcp_codes`, `mcp_tokens`, `schema_migrations`.
+Tables nouvelles : `agents`, `agent_capabilities`, `projects`, `project_services`, `declared_services`, `service_units`, `service_provides`, `service_open_paths`, `ignored_keys`, `update_proposals`, `service_samples_hourly`, `backup_destinations`, `backup_plans`, `backup_keyring`, `status_pages`, `incident_targets`, `mutes`, `channel_projects`, `action_runs`, `run_logs`, `applies`, `audit_events`, `audit_deliveries`, `settings`, `accounts`, `sessions`, `templates` (plus tard). Non dessinées, inchangées : `machine_disks`, `machine_rollups` (les agrégats par heure et par jour, comme `machine_samples`, plus un agrégat horaire par volume), `probe_certificates` (le dernier certificat vu par une sonde), `mcp_clients`, `mcp_codes`, `mcp_tokens`, `schema_migrations`.
 
 ```mermaid
 erDiagram
@@ -47,6 +52,7 @@ erDiagram
         TEXT version
         TEXT root_dir "defaut /srv/workspace"
         TEXT server_key_fingerprint
+        INTEGER last_order_seq
         INTEGER desired_revision "sa part de l annuaire"
         INTEGER acked_revision
         INTEGER last_seen_at
@@ -54,7 +60,7 @@ erDiagram
     }
     agent_capabilities {
         TEXT agent_id PK, FK
-        TEXT capability PK "liste reportee, decision 9"
+        TEXT capability PK "decision 9, prise le 21/10"
         TEXT scope "chemins, comptes"
         INTEGER reported_at "lu dans le fichier de l agent"
     }
@@ -63,7 +69,7 @@ erDiagram
         TEXT machine_id FK "re-enrolement"
         TEXT agent_id FK "consomme par"
         TEXT token_hash UK
-        TEXT requested_capabilities "JSON, coche a l installation"
+        TEXT requested_capabilities "forme texte, cochee a l installation"
         TEXT root_dir
         INTEGER expires_at
         INTEGER consumed_at
@@ -166,8 +172,7 @@ erDiagram
         TEXT machine_id FK
         TEXT nature "application ou infra, libelle provisoire"
         TEXT origin "deployed, compose, container, binary"
-        TEXT declared_by "operator, migration, discovery"
-        INTEGER needs_review "a verifier, jamais bloquant"
+        TEXT declared_by "operator, discovery plus tard"
         TEXT compose_project "niveau 2"
         TEXT public_url
         INTEGER protected "1 par defaut"
@@ -194,6 +199,7 @@ erDiagram
         TEXT container_name "niveau 3, faible"
         TEXT systemd_unit "binaire"
         TEXT ports "JSON"
+        TEXT data_path "dossier du conteneur monte depuis data/unite, facultatif"
         TEXT update_policy "watch, hold, ignore"
         TEXT eol_product "fin de support, choisi a la main"
     }
@@ -255,7 +261,11 @@ erDiagram
         TEXT check_name "nrpe : nom dans le fichier de l agent"
         INTEGER interval_seconds
         TEXT status "up, warning, degraded, down"
-        INTEGER cert_not_after
+    }
+    probe_certificates {
+        TEXT probe_id PK, FK
+        TEXT fingerprint
+        INTEGER not_after
     }
     probe_results {
         TEXT probe_id PK, FK
@@ -271,7 +281,7 @@ erDiagram
         TEXT id PK
         TEXT name UK
         TEXT kind "cron ou webhook"
-        BLOB token_sealed "reaffichable"
+        TEXT token_sealed "reaffichable, forme v1 des chiffres"
         TEXT token_lookup UK "HMAC du jeton"
         TEXT service_id FK "facultatif"
         TEXT machine_id FK "facultatif"
@@ -291,6 +301,7 @@ erDiagram
     }
     machines ||--o{ probes : "restrict"
     declared_services |o--o{ probes : "restrict"
+    probes ||--o| probe_certificates : "cascade"
     probes ||--o{ probe_results : "cascade"
     probes ||--o{ probe_days : "cascade"
     machines |o--o{ heartbeats : "restrict"
@@ -366,6 +377,7 @@ erDiagram
         TEXT project_id FK "un objet au plus"
         TEXT service_id FK
         TEXT machine_id FK
+        TEXT container_id FK "conteneur non declare"
         TEXT probe_id FK
         TEXT heartbeat_id FK
         INTEGER announce "maintenance publique, 0 par defaut"
@@ -375,6 +387,7 @@ erDiagram
     projects |o--o{ mutes : "cascade"
     declared_services |o--o{ mutes : "cascade"
     machines |o--o{ mutes : "cascade"
+    containers |o--o{ mutes : "cascade"
     probes |o--o{ mutes : "cascade"
     heartbeats |o--o{ mutes : "cascade"
 
@@ -392,6 +405,7 @@ erDiagram
         INTEGER not_after
         INTEGER seq
         TEXT requested_by
+        INTEGER requested_at
         INTEGER finished_at
     }
     run_logs {
@@ -413,13 +427,13 @@ erDiagram
     audit_events {
         INTEGER id PK
         INTEGER at
-        TEXT actor_kind "operator, mcp, rule, agent, system"
+        TEXT actor_kind "operator, api, cli, rule, agent, unknown ; mcp avant le 21/10/2026"
         TEXT actor_name
         TEXT action
         TEXT object_kind "sans FK"
         TEXT object_id "sans FK"
         TEXT object_name
-        TEXT changes "JSON sans secret"
+        TEXT details "JSON sans secret"
         TEXT run_id FK
         TEXT apply_id FK
     }
@@ -469,7 +483,8 @@ erDiagram
         INTEGER id PK
         INTEGER audit_id FK
         INTEGER channel_id FK
-        TEXT status
+        TEXT status "pending, delivered, failed"
+        INTEGER next_attempt_at "essais jusqu a 24 h"
     }
     machines |o--o{ alerts : "set null"
     declared_services |o--o{ alerts : "set null"
@@ -606,37 +621,38 @@ flowchart LR
 
 | Entité | Rôle | État |
 | --- | --- | --- |
-| `machines` | L'hôte : nom, système. Survit à un ré-enrôlement. Plus de genre `local` : la machine openCloud a un agent comme les autres | Transformée : clé et `last_seen_at` passent à l'agent, `kind` disparaît |
-| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle |
-| `agent_capabilities` | Droits **lus dans le fichier de l'agent** et rapportés à la connexion. Le demandé reste dans le jeton : l'écart se voit | Nouvelle (liste : décision 9 reportée) |
-| `projects` | Regroupe des services. Sert à la page de statut, au routage des canaux, au filtre de l'interface, plus tard aux droits | Nouvelle |
-| `project_services` | Appartenance d'un service à un projet ; un service peut être dans plusieurs | Nouvelle |
-| `declared_services` | L'annuaire. Une ligne = un dossier `<racine>/<service>/`, ou un projet Compose observé, ou un conteneur seul, ou un binaire supervisé. Porte la nature, l'adresse, « protégé » | Nouvelle |
-| `service_provides` | Ce que fournit un outil d'infra : `sso`, `proxy`, `tls`, `backup-target`. Admis seulement si la nature est « outil d'infra » (contrôlé par le code) | Nouvelle |
+| `machines` | L'hôte : nom, système. Survit à un ré-enrôlement. Plus de genre `local` : la machine openCloud a un agent comme les autres | Transformée : clé et `last_seen_at` passent à l'agent, `kind` disparaît. **Faite** (`030`) |
+| `agents` | Le logiciel installé : clé, version, racine, empreinte de la clé du serveur, révision d'état désiré envoyée et accusée | Nouvelle, faite (migration `030_agents.sql`, section 14) ; `server_key_fingerprint` et `last_order_seq` remis par `002_actions.sql` (section 16), les révisions attendent l'état désiré |
+| `agent_capabilities` | Droits **lus dans le fichier de l'agent** et rapportés à la connexion. Le demandé reste dans le jeton : l'écart se voit | Nouvelle, faite (`030`) ; liste : décision 9, prise le 21 octobre 2026 |
+| `projects` | Regroupe des services. Sert à la page de statut, au routage des canaux, au filtre de l'interface, plus tard aux droits | Nouvelle, faite |
+| `project_services` | Appartenance d'un service à un projet ; un service peut être dans plusieurs | Nouvelle, faite |
+| `declared_services` | L'annuaire. Une ligne = un dossier `<racine>/<service>/`, ou un projet Compose observé, ou un conteneur seul, ou un binaire supervisé. Porte la nature, l'adresse, « protégé » | Nouvelle, faite (sans « protégé ») |
+| `service_provides` | Ce que fournit un outil d'infra : `sso`, `proxy`, `tls`, `backup-target`. Admis seulement si la nature est « outil d'infra » (contrôlé par le code) | Nouvelle, faite |
 | `service_open_paths` | SSO du service : tout est protégé par défaut, sauf ces chemins. Pré-remplis par le modèle, modifiables, affichés comme publics | Nouvelle |
-| `service_units` | Ce qui tourne dans le service : un service Compose, un conteneur ou un binaire. Image, version épinglée, ports, politique de mise à jour, produit de fin de support | Nouvelle |
-| `containers` | Le conteneur vu par Docker, plus son rattachement (`unit_id`, `match_level`) | Ex-`services` |
-| `container_events` | Transitions d'état, rattachées aussi à l'unité : l'historique traverse les recréations | Ex-`service_transitions` |
+| `service_units` | Ce qui tourne dans le service : un service Compose, un conteneur ou un binaire. Image, version épinglée, ports, dossier de données (`data_path`), politique de mise à jour, produit de fin de support | Nouvelle, faite (sans produit de fin de support ; `data_path` ajouté par `007`, section 21) |
+| `containers` | Le conteneur vu par Docker, plus son rattachement (`unit_id`, `match_level`) | Ex-`services`, faite ; `kind` retiré par le schéma unique |
+| `container_events` | Transitions d'état, rattachées aussi à l'unité : l'historique traverse les recréations | Ex-`service_transitions`, renommée ; `unit_id` à faire |
 | `service_samples_hourly` | Historique long des mesures par service, sur l'identité stable | Nouvelle |
-| `ignored_keys` | « Présent non déclaré, et c'est voulu » : clé (projet Compose ou nom), jamais un id Docker | Nouvelle |
+| `ignored_keys` | « Présent non déclaré, et c'est voulu » : clé (projet Compose ou nom), jamais un id Docker | Nouvelle, faite |
 | `update_proposals` | Montée proposée (de, vers) ; jamais appliquée seule (décision 6) ; l'application est un run | Nouvelle |
-| `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | Nouvelle |
-| `backup_plans` | Une sauvegarde : la base ou un service (`data/` + `.env`), destination, rythme, nombre gardé. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | Nouvelle |
-| `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | Nouvelle |
-| `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée |
-| `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée |
-| `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle |
-| `status_components` | Composé à la main, nommé librement, pré-rempli depuis les services du projet ; un outil d'infra y paraît sous un nom générique | Transformée |
-| `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) |
-| `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) |
+| `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | **Faite** (`006`, section 20) |
+| `backup_plans` | Une sauvegarde : la base ou un service (`data/` + `.env`), destination, rythme, nombre gardé. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | **Faite** (`006`, section 20) |
+| `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | **Faite** (`006`, section 20) |
+| `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée, en partie : `restrict`, service déclaré, certificat dans `probe_certificates` (schéma unique) ; `nrpe`, `warning`, `runner_machine_id` à faire |
+| `probe_certificates` | Le dernier certificat vu par une sonde : sujet, émetteur, dates, empreinte, chaîne valide, nom, agrafe OCSP. Pas d'historique | Nouvelle, faite (schéma unique : les huit `cert_*` de `probes`) |
+| `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée, en partie : `token_sealed` et `token_lookup` (schéma unique), `restrict` vers la machine ; `kind`, `service_id` à faire |
+| `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle ; **faite** (migration `034_status_pages.sql`), `project_id` facultatif, sans `published` (section 15) |
+| `status_components` | Composé à la main, nommé librement, pré-rempli depuis les services du projet ; un outil d'infra y paraît sous un nom générique | Transformée, faite (`page_id`, `034`) |
+| `incidents`, `incident_targets` | Ce que l'opérateur écrit au public, sur des objets de l'annuaire. Chaque page montre ceux qui touchent ses composants | Transformées (`incident_targets` nouvelle) ; **faites** (`005`, section 19) |
+| `mutes` | « Taire » : fenêtre début-fin, immédiate ou planifiée, sur un objet, un type d'alerte ou les deux ; case « annoncer comme maintenance » décochée par défaut | Nouvelle (remplace `alert_silences` et les incidents `maintenance`) ; **faite** (migration `032_alerts_directory.sql`) ; `announce` et `public_title` **faits** (`005`, section 19) ; `project_id` à faire |
 | `channel_projects` | Projets auxquels un canal est limité. Aucune ligne = canal global | Nouvelle |
-| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles |
+| `action_runs`, `run_logs` | Une exécution typée : identifiant, action, paramètres sans secret, état, échéance, journal | Nouvelles, faites (`002_actions.sql`, section 16) ; `service_id` ajouté par `007_deploy.sql` (section 21) |
 | `applies` | Un passage d'`apply` : empreinte du fichier, plan confirmé, acteur, `prune` ou non, état (`confirmed`, `applied`, `failed`), combien de changements sont écrits et pourquoi il s'est arrêté. Migration `026_applies.sql` (annuaire 4b/7) | Nouvelle, faite |
-| `audit_events` | Qui, quoi, quand, sur quoi, diff sans secret. Sans clé étrangère vers l'objet : survit à tout | Nouvelle |
-| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle |
+| `audit_events` | Qui, quoi, quand, sur quoi, les champs du geste sans secret. Sans clé étrangère vers l'objet : survit à tout. Ajout seul, purgé à un an | Nouvelle, faite (migration `029_audit.sql`, sans `run_id` : voir la section 12) |
+| `audit_deliveries` | Envoi de l'audit vers les canaux marqués `receives_audit` | Nouvelle, **faite** (`004`, section 18) |
 | `accounts`, `sessions` | Compte local créé au premier démarrage ; page de connexion avec déconnexion. Comptes multiples et rôles plus tard | Nouvelles |
 | `auth_settings` | SSO de l'interface : forward-auth (existe), OIDC (à ajouter), secret chiffré | Transformée |
-| `settings` | Tout ce que l'interface change (décision 1), une seule ligne à colonnes typées (comme `auth_settings`), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` |
+| `settings` | Tout ce que l'interface change (décision 1), une seule ligne à colonnes typées (comme `auth_settings`), dont les seuils d'alerte et de certificat, l'interrupteur de fin de support, le relais e-mail chiffré | Nouvelle, remplace `settings.toml` ; **faite** (`019`) |
 | `templates` | Catalogue : nom, version, dépôt ; pré-règle nature, fournitures, chemins ouverts | Plus tard |
 
 ### Rattachement d'un conteneur à une unité
@@ -702,7 +718,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `backup_plans` → `declared_services` | 0..n | cascade | Réglage du service ; les fichiers déjà envoyés restent |
 | `backup_plans` → `backup_destinations` | 0..n | **restrict** | On ne retire pas une destination qui reçoit encore |
 | `backup_destinations` → `machines` | 0..n | **restrict** | Retirer la machine qui garde les sauvegardes : plan obligatoire |
-| `probes` → `machines` (qui sonde) | 1 | **restrict** | Aujourd'hui cascade : 90 jours partent sans prévenir. Le plan propose de changer de machine |
+| `probes` → `machines` (qui sonde) | 1 | **restrict** | Était cascade : 90 jours partaient sans prévenir (**fait**, `028_restrict.sql`). Le plan propose de changer de machine |
 | `probes` → `declared_services` | 0..1 | **restrict** | Le plan demande : supprimer la sonde ou la détacher |
 | `probe_results`, `probe_days` → `probes` | 0..n | cascade | Historique propre ; le plan dit combien de jours |
 | `heartbeats` → `declared_services`, `machines` | 0..1 chacun | **restrict** | Une tâche porte un jeton utilisé par un cron ou un émetteur distant |
@@ -710,7 +726,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `status_pages` → `projects` | 0..1 page par projet | **restrict** | Une page publique ne disparaît pas avec son projet sans le dire |
 | `status_components` → `status_pages` | 0..n | cascade | Un composant n'existe que sur sa page |
 | `status_component_members` → `status_components` | 0..n | cascade | Lien de présentation |
-| `status_component_members` → service, sonde, tâche, machine | 0..n | **restrict** | Aujourd'hui cascade : un objet disparaît d'une page publique sans prévenir |
+| `status_component_members` → service, sonde, tâche, machine | 0..n | **restrict** | Était cascade : un objet disparaissait d'une page publique sans prévenir (**fait**, `024` pour le service, `028_restrict.sql` pour les trois autres) |
 | `incident_targets` → `incidents` | 0..n | cascade | Partie de l'incident |
 | `incident_targets` → service, sonde, tâche, machine | 0..n | cascade (lien seul) | L'incident et son texte restent ; le plan dit « retiré de N incidents » |
 | `incident_updates` → `incidents` | 0..n | cascade | Fil de l'incident |
@@ -744,32 +760,33 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 
 | Table actuelle | Verdict | Ce qui change | Historique |
 | --- | --- | --- | --- |
-| `machines` | Transformée | `public_key`, `last_seen_at` vers `agents` ; `kind` disparaît. La machine `local` garde son id et son historique ; elle attend un agent, installé par une ligne de ré-enrôlement. Le chemin intégré à `serve` est retiré | Gardé |
-| `enrollment_tokens` | Transformée | `consumed_by` (texte) → `agent_id` (FK set null) ; ajout des droits demandés et de la racine | Gardé |
-| `machine_samples`, `machine_disks`, `machine_samples_hourly`, `machine_samples_daily` | Gardées | Interfaces virtuelles (veth, ponts) écartées du trafic ; agrégat horaire par volume | Gardé |
+| `machines` | Transformée | `public_key`, `last_seen_at` vers `agents` ; `kind` disparaît. La machine `local` garde son id et son historique ; elle attend un agent, installé par une ligne de ré-enrôlement. Le chemin intégré à `serve` est retiré (**fait**, `030_agents.sql`) | Gardé |
+| `enrollment_tokens` | Transformée | `consumed_by` (texte) → `agent_id` (FK set null) ; ajout des droits demandés (**fait**, `030`) et de la racine (à faire, avec le premier déploiement) | Gardé |
+| `machine_samples`, `machine_disks`, `machine_samples_hourly`, `machine_samples_daily` | Gardées | `machine_samples_hourly` et `_daily`, aux colonnes identiques, réunies en `machine_rollups` (granularité `hour` ou `day`, **fait**, schéma unique) ; interfaces virtuelles (veth, ponts) écartées du trafic ; agrégat horaire par volume | Gardé |
 | `machine_engines` | Gardée | — | — |
 | `machine_networks` | Gardée | — | — |
-| `services` | **Remplacée** | Devient `containers` (ids et lignes gardés ; **fait, annuaire 3b**, migration `025_containers.sql`) ; `update_policy` passe sur l'unité (**fait, annuaire 3/6** : `watch`/`hold`/`ignore`, `services.update_policy` supprimée). Pour chaque conteneur qui porte de la configuration (membre, sonde, politique), la migration crée un service déclaré (nature `application`, origine `compose` si labels Compose, sinon `container`) et une unité, et y repointe les liens (**fait pour les sondes, les membres et la politique, annuaire 3/6** ; restent les alertes, les silences et l'historique). Le reste : « présent non déclaré », adoptable dans la vue écart | Gardé ; les liens portés par d'anciennes fiches archivées sont repris par la nouvelle unité |
+| `services` | **Remplacée** | Devient `containers` (ids et lignes gardés ; **fait, annuaire 3b**, migration `025_containers.sql` ; `kind`, une seule valeur, retiré par le schéma unique) ; `update_policy` passe sur l'unité (**fait, annuaire 3/6** : `watch`/`hold`/`ignore`, `services.update_policy` supprimée). Pour chaque conteneur qui porte de la configuration (membre, sonde, politique), la migration crée un service déclaré (nature `application`, origine `compose` si labels Compose, sinon `container`) et une unité, et y repointe les liens (**fait pour les sondes, les membres et la politique, annuaire 3/6** ; restent les alertes, les silences et l'historique). Le reste : « présent non déclaré », adoptable dans la vue écart | Gardé ; les liens portés par d'anciennes fiches archivées sont repris par la nouvelle unité |
 | `service_transitions` | Transformée | Renommée `container_events` (**fait, annuaire 3b**), + `unit_id` ; FK en set null ; purge à l'âge (90 j proposé) | Gardé, rattaché à l'unité quand elle existe |
 | `service_samples` | Gardée | Renommée `container_samples` (**fait, annuaire 3b**) ; alimente `service_samples_hourly` | Gardé (48 h) |
 | `service_networks` | Gardée | Renommée `container_networks` (**fait, annuaire 3b**) | — |
-| `heartbeats` | Transformée | + `service_id`, + `kind` (`cron` pour l'existant, `webhook`) ; `token` → `token_sealed` + `token_lookup` (les URL de ping ne changent pas) ; `machine_id` passe de set null à restrict ; édition sur place, régénération, pause qui tient | Gardé |
-| `heartbeat_pings`, `heartbeat_runs` | Gardées | — | Gardé |
-| `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
+| `heartbeats` | Transformée | + `service_id`, + `kind` (`cron` pour l'existant, `webhook`) ; `token` → `token_sealed` + `token_lookup` (les URL de ping ne changent pas ; **fait**, schéma unique) ; `machine_id` passe de set null à restrict (**fait**, `028_restrict.sql`) ; édition sur place, régénération, pause qui tient | Gardé |
+| `heartbeat_pings` | Gardée | — | Gardé |
+| `heartbeat_runs` | Gardée | Issue `missed` ajoutée (**fait**, `009_heartbeat_missed.sql`, section 26) | Gardé |
+| `probes` | Transformée | Éditable sur place ; `machine_id` → `runner_machine_id` en restrict (restrict **fait**, `028_restrict.sql` ; le renommage reste à faire) ; `service_id` → service déclaré, sur n'importe quelle machine, restrict (**fait, annuaire 3/6**) ; le certificat dans `probe_certificates` (**fait**, schéma unique) ; + genre `nrpe`, `check_name`, état `warning` | Gardé |
 | `probe_results`, `probe_days` | Gardées | Issue `warning` ajoutée | Gardé |
 | `image_checks` | Gardée | Reste un cache (machine, image) ; les montées trouvées deviennent des `update_proposals` | Cache |
-| `status_components` | Transformée | + `page_id`. La page unique actuelle devient un projet (titre repris de `settings.toml`) qui contient les services de ses composants, et sa page ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle existe | Gardé |
-| `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK restent en cascade jusqu'aux plans de suppression, puis passent en restrict | Gardé |
-| `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture | Gardé |
-| `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres | Gardé |
+| `status_components` | Transformée | + `page_id`. La page unique actuelle devient une page (titre repris de `settings`) ; l'ancienne adresse `/statut` renvoie vers elle tant qu'elle est la seule. **Fait** (`034`) : la page reprise n'est rangée dans aucun projet (section 15) | Gardé |
+| `status_component_members` | Transformée | `service_id` → service déclaré (**fait, annuaire 3/6**, en restrict, doublons d'un même projet réunis en un membre) ; les trois autres FK passent en restrict avec les plans de suppression (**fait**, `028_restrict.sql`) | Gardé |
+| `incidents` | Transformée | Ne dépend plus des composants. Impact `maintenance` retiré : une maintenance à venir ou en cours devient une ligne `mutes` (annoncée) ; une maintenance passée reste comme incident, en lecture. **Fait en partie** (032) : une maintenance ne tait plus rien, celles pas encore résolues ont donné leurs lignes `mutes` ; l'impact `maintenance` reste, c'est l'annonce publique tant que `announce` n'existe pas. **Fait** (`005`) : ne dépend plus des composants, il vise des objets (`incident_targets`) ; l'impact `maintenance` reste, à retirer sur décision de Lucas | Gardé |
+| `incident_components` | **Remplacée** | Par `incident_targets` : chaque composant visé est déplié en ses membres. **Fait** (`005`) : chaque composant visé est déplié en ses membres, la table est supprimée | Gardé |
 | `incident_updates` | Gardée | — | Gardé |
-| `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi | Gardé |
-| `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` ; `name` unique (clé du YAML) ; + `channel_projects` | — |
-| `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré | Gardé |
-| `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables | Gardé |
-| `mcp_clients`, `mcp_codes`, `mcp_tokens` | Gardées | Désactivation en une transaction ; `mcp_codes.client_id` en FK | — |
+| `alerts` | Transformée | `service_id` → service déclaré ; + `container_id`, `run_id` ; CHECK sur `object_kind` retiré ; `silenced` (figé à l'ouverture) retiré, taire est jugé à chaque envoi. **Fait** (032), sauf `run_id` | Gardé |
+| `alert_channels` | Transformée | `url` et `secret` chiffrés (`*_sealed`) ; + `receives_audit` (**fait**, `004`) ; `name` unique (clé du YAML) ; + `channel_projects` | — |
+| `alert_deliveries` | Transformée | + `next_attempt_at` (essais espacés jusqu'à une heure, rejoués par la boucle de fond) ; état `muted` ; `PendingRetryAfter` mort retiré. **Fait** (032) | Gardé |
+| `alert_silences` | **Remplacée** | Par `mutes` (`announce` = 0) ; `object_id` réécrits vers les ids stables. **Fait** (032) | Gardé |
+| `mcp_clients`, `mcp_codes`, `mcp_tokens` | Supprimées ; `mcp_tokens` remplacée par `api_tokens` | Le MCP a quitté openCloud (migration `008_api_tokens.sql`, section 23). Les jetons d'API vivants sont repris en lecture ; le client OAuth, ses codes et ses jetons d'accès partent | — |
 | `auth_settings` | Transformée | Mode `none` retiré : un compte local (`accounts`) est créé au premier démarrage, avant tout ; Basic remplacé par une page de connexion (`sessions`) ; + OIDC | Compte Basic repris dans `accounts` |
-| `schema_migrations` | Gardée | — | — |
+| `schema_migrations` | Gardée | Part de `001_schema.sql` (schéma unique) ; une version que le binaire n'embarque pas est refusée au démarrage | — |
 | `settings.toml` (fichier) | **Supprimé** | Vers `settings` : seuils (page Alertes), relais e-mail (mot de passe chiffré), interrupteur de fin de support ; les clés `status_*` vers la page du projet migré | Réglages repris |
 | `config.toml` (fichier) | Gardé | Lecture seule pour le serveur (décision 1). `ca_file` va dans le fichier de l'agent | — |
 | `lifecycle.json` (fichier) | Gardé | Cache, hors export (décision 1) | — |
@@ -786,8 +803,8 @@ fixé ») n'en portent que `machines`, `projects`, `services`,
 `open_paths`, `eol_product` et le genre d'une tâche, attendent les
 fonctionnalités qui les créent, et la lecture les refuse d'ici là. Deux écarts
 à la table des règles ci-dessous, tranchés par la 4b : l'application **n'est pas
-une transaction unique** (voir la section 9), et le journal n'écrit pas encore
-d'`audit_events`.
+une transaction unique** (voir la section 9) ; chaque objet écrit va au
+journal d'audit par le geste de son domaine (section 12).
 
 ```yaml
 version: 1
@@ -907,7 +924,7 @@ settings:
 | Règle d'apply | Détail |
 | --- | --- |
 | Reconnaissance | Par `id` s'il est là, sinon par `name` (unique par type ; pour un service, machine + nom). Deux fois le même `id` (copier-coller) : refus du fichier |
-| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit objet par objet par le geste de son domaine (pas de transaction unique, voir la section 9) ; une ligne `applies` par passage (un `audit_events` par objet viendra avec l'audit) |
+| Plan | Créé, modifié champ par champ, inchangé ; affiché, confirmé, puis écrit objet par objet par le geste de son domaine (pas de transaction unique, voir la section 9) ; une ligne `applies` par passage, un `audit_events` par objet écrit, lié à elle par `apply_id` |
 | Jamais | Recréer un objet ; toucher un jeton, un id, un historique ; créer ou enrôler une machine ; agir sur une machine (apply écrit l'annuaire, les runs viennent après) |
 | `--prune` | Seul chemin de suppression de ce qui n'est pas déclaré ; le plan dit ce que chaque suppression emporte |
 | Fichier invalide | Refusé en entier ; rien n'est écrit |
@@ -923,7 +940,7 @@ settings:
 | Services : nature, fournitures, chemins ouverts, unités | Mesures, résultats, pings, alertes, runs, audit |
 | Sondes, tâches (jeton marqué « conservé ») | Incidents (historique) et fenêtres pour taire (temporaires) |
 | Pages, composants, membres | Tout secret : URL et secret des canaux, jetons, mot de passe du relais, secret OIDC, `.env` |
-| Canaux et leurs projets, destinations, plans de sauvegarde | `config.toml`, `lifecycle.json`, comptes, sessions, `auth_settings`, MCP |
+| Canaux et leurs projets, destinations, plans de sauvegarde | `config.toml`, `lifecycle.json`, comptes, sessions, `auth_settings`, jetons d'API |
 | Réglages de `settings` ; empreinte de la clé de sauvegarde en commentaire | La paire de clés de sauvegarde (créée dans l'interface, jamais par apply) |
 | Clés ignorées (`ignored_keys`) | — |
 
@@ -944,8 +961,8 @@ Le texte de chaque décision est dans [`23-direction.md`](23-direction.md).
 | Export sans secrets, marqueur « conservé » | `{ secret: kept }` | Points techniques, « Export » |
 | `id` + `name` dans le YAML ; id dupliqué refusé | Règle « Reconnaissance » | Points techniques, « Identité dans le YAML » |
 | Machine et agent séparés | `machines` + `agents` | Points techniques, « Machine et agent » |
-| Machine openCloud = agent comme les autres | `kind` retiré | Points techniques, « Machine openCloud » |
-| Racine `/srv/workspace`, droits cochés à l'installation | `agents.root_dir`, `enrollment_tokens.requested_capabilities`, `agent_capabilities` | Actées « Racine », « Droits », « Installation » ; liste des droits : décision 9, reportée |
+| Machine openCloud = agent comme les autres | `kind` retiré, `LocalID` gardé (**fait**, section 13) | Points techniques, « Machine openCloud » |
+| Racine `/srv/workspace`, droits cochés à l'installation | `agents.root_dir`, `enrollment_tokens.requested_capabilities`, `agent_capabilities` | Actées « Racine », « Droits », « Installation » ; liste des droits : décision 9, prise le 21 octobre 2026 |
 | Mesures : historique long par service, veth écartées, agrégat par volume | `service_samples_hourly` | Points techniques, « Mesures » |
 | Migration : service créé d'office seulement pour un conteneur déjà lié | Tableau « De l'existant à la cible », ligne `services` | Points techniques, « Migration de l'existant » |
 | Unités binaires déclarables, écart « non observé » | `service_units.kind` = `binary` | Points techniques, « Unités binaires » |
@@ -969,8 +986,9 @@ Le texte de chaque décision est dans [`23-direction.md`](23-direction.md).
 Les six propositions que le modèle ajoutait ont été tranchées par Lucas le
 17 octobre 2026, une par une : voir
 [23-direction.md, « Propositions du modèle »](23-direction.md#propositions-du-modèle).
-Ce document en tient compte : nom unique par machine, `declared_by` et
-`needs_review` sur le service déclaré.
+Ce document en tient compte : nom unique par machine, `declared_by` sur
+le service déclaré ; « à vérifier » a été retiré le 21 octobre 2026
+(section 17).
 
 ## 6. Ce que l'annuaire (1/5) a fixé
 
@@ -979,12 +997,12 @@ tranché en l'écrivant, et que les migrations suivantes prolongent :
 
 | Décision | Pourquoi |
 | --- | --- |
-| Pas de `CHECK` sur la nature, l'origine, `declared_by` et le genre d'unité ; le code valide, la liste est exposée (`Natures()`, `Origins()`, `Provenances()`, `Capabilities()`) et un test exige la clé de catalogue de chaque valeur | SQLite ne modifie pas un `CHECK` sans reconstruire la table ; les listes grandiront (`deployed`, `discovery`). `needs_review` garde son `CHECK 0/1` |
+| Pas de `CHECK` sur la nature, l'origine, `declared_by` et le genre d'unité ; le code valide, la liste est exposée (`Natures()`, `Origins()`, `Provenances()`, `Capabilities()`) et un test exige la clé de catalogue de chaque valeur | SQLite ne modifie pas un `CHECK` sans reconstruire la table ; les listes grandiront (`deployed`, `discovery`). `needs_review` garde son `CHECK 0/1` *(retiré le 21/10, section 17)* |
 | `title` sur `declared_services` et `position` sur `service_units` | Le titre est le nom affiché ; la position garde l'ordre saisi par l'opérateur |
 | Le genre de l'unité se déduit de l'origine du service : `container` pour Compose comme pour un conteneur seul, `binary` pour un binaire ; une unité Compose est un service du projet | L'opérateur ne le saisit pas ; le rattachement de niveau 2 s'appuie sur le nom |
 | Identifiants préfixés : `svc_`, `unit_`, `prj_` + 16 caractères hexadécimaux tirés par le serveur | Lisibles dans un journal, jamais confondus entre objets |
 | Unicité en base : `(machine_id, name)`, et `(machine_id, compose_project)` pour l'origine `compose` ; en code, dans la même transaction : nom de conteneur et unité systemd uniques par machine | La clé (`container_name`, `systemd_unit`) est dans `service_units` et la machine dans `declared_services` : un index unique ne porte pas sur deux tables |
-| L'origine `deployed` est réservée et refusée ; `declared_by` vaut `operator` (`migration` à venir) | Le déploiement par l'application et la migration de l'existant arrivent plus tard |
+| L'origine `deployed` est réservée et refusée ; `declared_by` vaut `operator` (`migration` à venir) *(retiré le 21/10, section 17)* | Le déploiement par l'application et la migration de l'existant arrivent plus tard |
 | `latest` est refusé ; l'image s'écrit sans étiquette ni empreinte ; la version est facultative (sans elle, l'écart dira « version non vérifiable ») ; l'empreinte ne s'attache pas à un binaire | La déclaration ne ment pas sur ce qui tourne, et ne force pas à épingler ce qu'on ne sait pas encore |
 | Retirer un service supprime ses unités, ses fournitures et ses liens de projet ; retirer un projet ne retire que les liens ; retirer une machine qui porte un service est refusé (409) | `restrict` entre objets déclarés, `cascade` pour ce qui fait partie du service |
 | Ce qui n'est pas encore là : `protected`, `service_open_paths`, `update_policy`, `eol_product`, `template_id`, les ports lus du réel | Chacun arrive avec la migration de la PR qui s'en sert |
@@ -1000,11 +1018,11 @@ vers l'annuaire. Ce que le code a tranché en l'écrivant :
 | **L'étape Go** `store.linkContainersToDirectory` s'exécute dans la même transaction que le SQL, juste avant lui. Elle lit et écrit avec des requêtes **figées sur le schéma de sa version**, jamais celles du store, et dépose sa table de correspondance dans `temp.link_migration` | Le nommage et le rapprochement sont ceux du code (`directory.PlanLinks`, pur et déterministe) ; les écrire en SQL les dédoublerait. Les requêtes du store changeront avec les PR suivantes, la migration ne doit pas les suivre. Après le SQL, `verifyContainerLinks` compte ce qui devait survivre (sondes et celles qui ont un service, résultats, jours, alertes des sondes, membres sans les doublons, unités qui portent une politique) |
 | `''` / `pinned` / `excluded` deviennent `watch` / `hold` / `ignore`, sur `service_units.update_policy` | La politique suit le service, pas l'identifiant Docker ; trois mots qui disent ce que l'opérateur veut plutôt que ce que l'ancien code faisait. Plusieurs fiches pour une unité : la plus récente qui portait une politique, une vivante avant une archivée. Pas de `CHECK` : le code valide, comme pour les autres listes de l'annuaire. Un binaire n'admet que `watch` |
 | **Seuls les conteneurs liés** reçoivent un service, et le projet Compose de ce conteneur devient **un** service : une unité par service Compose **lié ou qui tourne** (`running`, `restarting`), au plus 32. Un conteneur arrêté que rien ne vise (l'`init`) n'a pas d'unité et reste non déclaré. Un projet que l'opérateur a déjà déclaré n'est jamais recréé : ce qui n'y tient pas (32 unités) devient un conteneur seul | Un service d'origine Compose est le projet, pas un conteneur : n'en créer qu'une unité ferait « absentes » les autres au prochain rapprochement. Mais l'état d'un service étant le pire de ses unités, un `init` arrêté en 0 devenu unité ferait passer le composant de statut en panne le jour de la montée : on ne crée d'unité que pour ce qui est lié ou tourne. Le projet de plus de 32 unités, ou dont le nom est refusé, retombe sur un service par conteneur lié ; créer un second service Compose pour (machine, projet) violerait l'unicité et `serve` ne démarrerait plus. Un nom de conteneur déjà porté par une unité déclarée rejoint cette unité (aucun index unique ne garde cette clé) |
-| `declared_by` vaut `migration` et `needs_review` est levé sur ce qu'elle a créé ; **Valider** est la seule façon de le lever | La migration devine (noms, images lues sur Docker) : l'opérateur relit. Modifier le service ne le valide pas |
+| `declared_by` vaut `migration` et `needs_review` est levé sur ce qu'elle a créé ; **Valider** est la seule façon de le lever *(retiré le 21/10, section 17)* | La migration devine (noms, images lues sur Docker) : l'opérateur relit. Modifier le service ne le valide pas |
 | Les membres d'un même composant qui visent deux conteneurs d'un même projet **sont réunis en un seul** (le premier dans l'ordre), sans `OR IGNORE` | Un seul service déclaré ; l'index unique `(component, service)` l'exige. `OR IGNORE` taisait aussi un `CHECK` violé, donc un lien perdu : on déduplique explicitement et le compte le dit |
 | **La règle d'état** d'un service déclaré dans un composant : le pire de ses unités conteneur ; une unité sans conteneur vivant est en panne ; un binaire ne compte pas | L'état ne dépend plus d'un identifiant Docker. Le prix : une unité qui n'a jamais eu de conteneur compte comme en panne |
-| `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression |
-| `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée |
+| `probes.service_id` et `status_component_members.service_id` : **restrict**. `DELETE` d'un service lié répond 409 `directory.service_linked`, avec la liste | On ne retire pas sans le dire un service qu'une sonde surveille ou qu'une page publique affiche. Les trois autres clés du membre (machine, tâche, sonde) **restent en cascade** jusqu'aux plans de suppression (passées en restrict depuis, section 11) |
+| `object_kind 'service'` des alertes et des silences **désigne encore le conteneur** ; la maintenance se lit par l'unité (conteneur → unité → service déclaré → composant) | Les alertes passent sur l'annuaire avec leur propre migration ; d'ici là, une alerte continue de dire le conteneur qui l'a levée. **Réglé par la 032** (section 13) |
 | Une sonde peut viser un service de **n'importe quelle machine** | Sonder depuis l'extérieur un service d'une autre machine est le cas courant ; le service existe, c'est tout ce que la création vérifie |
 | Pas de retour arrière par le binaire seul | Rien n'est détruit, mais l'ancien binaire ne marche pas sur cette base : son inventaire écrit `services.update_policy`, colonne supprimée, donc tout rapport de conteneurs échoue ; créer une sonde sur un identifiant de conteneur échoue contre la clé vers `declared_services`. Revenir, c'est remettre l'ancien binaire **et** la copie faite avant la montée (`installation.md`) |
 
@@ -1020,7 +1038,7 @@ rien appliquer. Ce que le code a tranché en l'écrivant, et que la 4b lit :
 | **Les tâches n'ont ni `service` ni genre** (`cron`, `webhook`) pour l'instant | `heartbeats` n'a pas encore de `service_id` (annuaire 5) ; le fichier n'écrit pas ce que la base ne tient pas |
 | **Les identifiants sont toujours écrits** ; la 4b refusera un identifiant inconnu et demandera l'identifiant pour un nom ambigu ; les unités n'en ont pas | L'identifiant rattache à l'objet quand on renomme ; une unité se reconnaît à son nom dans son service |
 | **Un champ absent veut dire la valeur par défaut**, un champ nul aussi (sauf `token:`, nul = refusé) | Un fichier écrit à la main n'a pas à répéter les défauts ; l'export, lui, écrit tout ce qui a une valeur |
-| **L'état n'est jamais dans le fichier** : pause, essais, conteneurs rattachés, « à vérifier » (commentaire seulement), historique | Le fichier dit ce que l'opérateur déclare ; l'état est ce que le système observe |
+| **L'état n'est jamais dans le fichier** : pause, essais, conteneurs rattachés, « à vérifier » (commentaire seulement ; *retiré le 21/10, section 17*), historique | Le fichier dit ce que l'opérateur déclare ; l'état est ce que le système observe |
 | **Un secret ne s'écrit que `{secret: kept}`** | Garder la valeur du serveur ; le fichier peut aller dans Git |
 | **Sections refusées** : tout ce qui n'est pas dans la liste de la section 3 ci-dessus (canaux, pages, réglages, sauvegardes), avec sa ligne | Mieux vaut refuser que lire en ignorant : un fichier qui semble tout dire et ne dit pas tout |
 | **Durées avec unité** (`60s`, `5m`, `24h`) ; une sonde en secondes entières, une tâche en minutes entières | Ce que la base sait stocker ; une durée ronde sinon refusée plutôt qu'arrondie |
@@ -1064,7 +1082,342 @@ code a tranché :
 | **L'agent ne transmet que les clés qui commencent par `brand.LabelPrefix`**, préfixe retiré, bornées (suffixe `^[a-z0-9][a-z0-9_.-]{0,62}$`, valeur de 255 octets, 16 clés, `service` et `unit` avant la coupe) ; le serveur borne encore à la réception et n'en garde que `service`, `unit` et le signe `invalid` | Un label de Traefik (règles d'hôtes) ou de Compose ne doit pas quitter la machine ; la borne est reposée côté serveur parce qu'un agent n'est pas une preuve |
 | **Compatibilité du protocole** : le champ `labels` d'un conteneur du signal est nouveau et optionnel, aucune clé existante ne change ; un agent plus ancien contre ce serveur ne l'envoie pas, un agent nouveau contre un serveur plus ancien est ignoré (le décodeur est tolérant, `TestAgentSignal_UnknownFieldInAContainerIsIgnored`) | Mise à jour du serveur d'abord, puis des agents, sans coupure |
 | **Un groupe fait seulement d'orphelins n'est pas adoptable** ; `Propose` répond `ErrContainerLabelled` (409) et le représentant d'un groupe mixte est le premier conteneur sans label | L'unité qu'on créerait pour lui ne le rattacherait pas : le label continuerait de gagner |
-| **`ProposeAll` ne construit que le socle d'une découverte** : un service par groupe adoptable non ignoré, nom unique par machine, `needs_review` et `declared_by` ne sont pas construits | L'export avec propositions s'en sert aujourd'hui ; la découverte qui écrirait toute seule viendra plus tard et devra refaire le même calcul |
+| **`ProposeAll` ne construit que le socle d'une découverte** : un service par groupe adoptable non ignoré, nom unique par machine, `needs_review` *(retiré le 21/10, section 17)* et `declared_by` ne sont pas construits | L'export avec propositions s'en sert aujourd'hui ; la découverte qui écrirait toute seule viendra plus tard et devra refaire le même calcul |
 | **`export -propose` est un fichier à relire, jamais une écriture** : les entrées nouvelles sont sans `id`, commentées, triées ; sans `-propose`, les octets sont ceux d'avant | `TestExport_ProposedFileGivesAnApplicablePlan` : le fichier proposé donne un plan applicable avec le vrai `BuildPlan` |
 | **Le préfixe des labels dérive de `ID`** ; le catalogue le dit par `{label_prefix}`, jamais en littéral | `TestNameOnlyInBrand` interdit le nom hors de `internal/brand` ; un renommage coûte un changement dans chaque Compose étiqueté |
 | **Trois colonnes, pas une table** : `containers.label_service`, `label_unit` et `label_invalid`, vides par défaut (migration `027_container_labels.sql`) | Seuls ces deux labels servent au rapprochement ; garder tous les labels stockerait ce que l'opérateur n'a pas demandé |
+
+## 11. Ce que les plans de suppression ont fixé
+
+La migration `028_restrict.sql` et le plan de chaque suppression (le détail
+est dans `22-fonctionnement.md`, « Comment une suppression se décide »). Ce que
+le code a tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Le `DELETE` relit le plan dans sa transaction** ; il ne reçoit pas le plan que l'opérateur a lu. Le geste garde sa forme `Delete(ctx, id)` | Un plan reçu serait périmé (l'historique grossit pendant qu'on lit) ou redondant ; relu sous la transaction, un lien posé entre la lecture et l'écriture ne passe pas. La clé étrangère reste le filet |
+| **La clé du 409 est celle du premier genre qui retient**, dans un ordre fixe (services, sondes, tâches, composants) ; le plan entier suit dans le corps | Une clé par réponse, comme tout refus ; la liste complète est dans le plan |
+| **Un service garde sa clé** `directory.service_linked` pour ses sondes comme pour ses composants ; le corps du 409 porte désormais `plan` à la place de `links` | Une seule forme de refus pour toutes les suppressions ; la fiche du service garde `links` |
+| **Projet et composant ne sont retenus par rien** aujourd'hui : leur plan informe, leur `DELETE` ne change pas | `status_pages` et `channel_projects`, qui retiendront un projet, ne sont pas encore là. Depuis la `034`, la page de statut d'un projet le retient (section 15) |
+| **Le plan compte les silences**, qui n'ont pas de clé étrangère | Le moteur des alertes les retire avec leur objet : c'est une perte, elle se dit. Depuis la 032, ils en ont une (`mutes`, `cascade`) ; le plan les compte toujours, ceux des conteneurs d'une machine compris |
+| **Pas compté** : le moteur Docker d'une machine, les mesures et réseaux d'un conteneur (partent avec lui), les fournitures d'un service (partie de sa définition) | Le plan dit ce qui compte pour l'opérateur ; le reste suit une ligne déjà comptée |
+| **Le plan d'`apply` lit celui du domaine**, et refuse dans le plan (`prune_blocked`) la suppression d'une sonde ou d'une tâche qu'un composant montre, comme celle d'un service | Le fichier ne porte pas les composants : sans ce refus, l'application s'arrêterait au milieu, sur le refus du geste |
+| **Pas de « tout supprimer »** : le bouton de la boîte de confirmation reste fermé tant que le plan retient | Décision 17/10 : aucune perte silencieuse, même d'un clic |
+
+
+## 12. Ce que le journal d'audit a fixé
+
+La table `audit_events` et le paquet `internal/audit` (migration
+`029_audit.sql`). Le fonctionnement est dans `22-fonctionnement.md`, « Le
+journal d'audit ». Ce que le code a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`details`, pas `changes`** : les champs utiles du geste, à plat, en texte | Un avant/après demanderait de relire chaque objet avant chaque geste ; le plan d'un apply porte déjà le sien dans `applies.plan` |
+| **Acteurs : `operator`, `api`, `cli`, `rule`, `agent`, plus `unknown`** (`mcp` pour les lignes d'avant le 21 octobre 2026, lues seulement) ; `system` n'existe pas | Ce que serve fait de lui-même (boucles, démarrage) est une `rule` ; la commande locale a son mot, comme dans `applies` ; `unknown` montre un geste appelé sans acteur au lieu de le taire |
+| **L'acteur voyage dans le contexte**, posé par qui le connaît, lu par le `Recorder` | Les quelque quarante gestes gardent leur signature ; un oubli s'écrit `unknown` et se voit |
+| **Pas encore de `run_id`** | `action_runs` n'existe pas ; la colonne viendra avec elle (`ALTER TABLE … ADD COLUMN run_id TEXT REFERENCES action_runs (id) ON DELETE SET NULL`, que SQLite accepte sans reconstruire) |
+| **Pas encore d'`audit_deliveries` ni de `receives_audit`** *(fait depuis : `004`, section 18)* | Le journal d'abord : l'envoi aux canaux (rendu par format, essais, case du canal) est une PR à lui. D'ici là, une base effacée efface la trace |
+| **Ajout seul, tenu par la base** : un déclencheur refuse toute modification d'une ligne, hors la mise à nul de `apply_id` par sa clé étrangère ; la seule suppression est la purge à un an (`audit.Retention`) | Un défaut de code ne réécrit pas l'histoire ; qui a la base en main la réécrit quand même, d'où l'envoi aux canaux à venir |
+| **Écrit après le geste, hors de sa transaction** ; un échec d'écriture est journalisé en erreur et ne défait pas le geste | Ne pas toucher aux transactions de chaque domaine ; les actions typées écriront leur `action_runs` avant d'envoyer l'ordre |
+
+## 13. Ce que l'alerte sur l'annuaire a fixé
+
+Migration `032_alerts_directory.sql` (`alerts` reconstruite, `mutes`,
+`alert_deliveries.next_attempt_at`). Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment une alerte naît ». Ce que le code a tranché,
+et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **L'objet d'une alerte de conteneur reste le conteneur** (`object_kind 'container'`, `container_id`) ; `service_id` dit le service déclaré de son unité, ou celui que surveille une sonde, sans faire l'objet | La clé de dédup est (type, genre, identifiant). Un service à plusieurs unités a un conteneur par unité, chacun avec son état de plantage : une clé par service mêlerait les deux, et le calme de l'un résoudrait l'alerte de l'autre. Écart au diagramme, qui ne met `container_id` que pour « présent non déclaré » |
+| **`object_kind 'service'` devient `'container'`** pour toutes les alertes de conteneur, rattachées ou non | « service » ne désigne plus jamais une fiche ; le genre `service` reste libre pour une alerte qui viserait le service lui-même |
+| **`mutes.container_id`** (cascade), en plus du diagramme | Un conteneur présent non déclaré a ses alertes ; le faire taire sans taire toute sa machine demande une cible. Un silence d'avant sur un conteneur est recopié tel quel, rattaché ou non : même effet qu'avant |
+| **Un silence sur un volume** devient un silence `disk_full` sur sa machine | La fenêtre vise un objet de l'annuaire, pas un point de montage ; c'est plus large (tous les volumes de la machine), jamais plus étroit |
+| **Une machine tait ce qui vit dessus** (`alerts.machine_id`), **un service déclaré ses conteneurs et ses sondes** (`alerts.service_id`) | La règle des silences d'avant pour la machine ; pour le service, ce que la direction prévoit pour un projet, un cran plus bas |
+| **Une maintenance pas encore résolue** donne un silence par membre de ses composants, sur sa fenêtre, à son titre ; l'incident reste | Ce qu'elle taisait la veille de la montée, elle le tait le lendemain. Un membre machine tait désormais tout ce qui vit dessus, plus que la maintenance (qui ne taisait que la machine et ses volumes) |
+| **Pas encore de `project_id`, `announce` ni `public_title`** sur `mutes` *(fait depuis : `005`, section 19, pour `announce` et `public_title`)* | Pas de page par projet ni d'incidents par cible : la maintenance publique reste un incident d'impact `maintenance`, qui ne tait plus rien ; `ApplyWindows` garde son rôle de fil public (planifiée, en cours, résolue) |
+| **Taire se juge à chaque envoi** ; une livraison tue s'écrit `muted`, sans prendre à la limite du canal ni compter comme annoncée | La fiche dit pourquoi rien n'est parti ; la part (canal, machine) reste aux alertes qui partent |
+| **Essais** : trois tout de suite (0, 5 s, 30 s) dans l'ouvrier, puis 2 min, 10 min, 30 min et toutes les heures, **jusqu'à 24 h** après la réservation, rejoués par le balayage de 30 s, un essai à la fois | Une heure d'écart au plus entre deux essais (direction) ; au-delà d'un jour, l'alerte a été résolue ou lue sur la page, la rejouer ne dit plus rien |
+| **Une ouverture ou une aggravation encore en échec n'est plus rejouée une fois l'alerte résolue** | Elle arriverait après la résolution |
+| **Les refus gardent le mot de l'écran** : `silence.invalid`, `silence.duration_invalid`, `silence.start_invalid`, `silence.target_unknown` ; l'audit dit `mute.create`, `mute.delete` | « Silence » reste le mot de l'interface ; les lignes `silence.*` d'avant restent dans le journal, qui ne se réécrit pas |
+
+## 14. Ce que les agents ont fixé
+
+La migration `030_agents.sql` sépare la machine de son agent ; le
+fonctionnement est dans `22-fonctionnement.md`, « Comment une machine entre »,
+« Les droits d'un agent », « Révoquer un agent ». Ce que le code a tranché, et
+ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`agents.machine_id` en cascade**, comme le tableau des liens ; le plan de retrait d'une machine compte ses agents (`deletion.KindAgents`) | Un agent n'a pas de sens sans sa machine ; le retrait passe déjà par le plan, qui le dit. Un `restrict` forcerait à supprimer les agents à la main avant la machine, sans rien protéger |
+| **Un seul agent actif par machine, tenu par la base** (`agents_one_active`, index unique partiel sur `revoked_at IS NULL`) ; l'**agent courant** est l'actif, sinon le dernier révoqué | Ré-enrôler révoque l'ancien et inscrit le nouveau dans la même transaction ; la fiche montre un agent révoqué au lieu de faire comme s'il n'y en avait jamais eu |
+| **La preuve reste celle de la machine** (`OpenCloud-Machine`, défi lié à l'identifiant de la machine ; depuis le protocole 2 (#146), un aléa tiré par l'agent et signé avec l'identifiant et l'heure), vérifiée avec la clé de l'agent courant | Aucun agent installé ne change : le protocole de l'enrôlement et du flux est le même. Un agent révoqué reçoit encore son défi ; c'est sa preuve, vérifiée, qui lui répond `401 revoked`. Sans sa clé, on n'apprend rien de plus qu'avant. *Protocole 2 : plus de défi à recevoir, la règle reste : c'est la preuve vérifiée qui répond `401 revoked`* |
+| **Une machine sans agent actif n'est jamais « perdue »** | Révoquée ou en attente de son agent, il n'y a rien à perdre ; une alerte serait du bruit |
+| **Les droits demandés restent sur le jeton**, sous leur forme texte (`observe,files.write=/a:/b`), pas en JSON ; **le jeton d'un agent actif n'est plus purgé** à 90 jours | Une seule forme pour la ligne, le fichier de l'agent, l'en-tête et la base ; sans le jeton, l'écart ne se lirait plus après trois mois |
+| **`agent_capabilities` est le dernier rapport**, remplacé à chaque connexion, `scope` porte les chemins séparés par `:` | Le reflet du fichier, pas un historique ; une ligne par droit garde la clé (agent, droit) du diagramme |
+| **Ré-enrôler reprend les droits que le jeton de l'agent courant demandait** ; `observe` seul s'il n'en demandait aucun | **Décision prise, à valider par Lucas** : le plus simple qui ne fait pas perdre ses droits à un agent qu'on réinstalle ; qui les change ensuite reste la décision 10 |
+| **`agent.enroll` et `agent.revoke` au journal d'audit** ; l'objet est l'agent, nommé par sa machine. `machine.reenroll` (l'émission du jeton) et `machine.delete` restent sur la machine | Les lignes déjà écrites sous `machine.enroll` le gardent : le journal ne se réécrit pas |
+| **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146). *Schéma unique (21/10) : les trois dernières, que rien ne lisait ni n'écrivait, sont retirées ; `server_key_fingerprint` est revenue avec les ordres signés (`002_actions.sql`, section 16), les révisions attendent l'état désiré* |
+| **`machines` perd `kind`, `public_key`, `agent_version`, `enrolled_at`, `last_seen_at`** ; la machine openCloud se reconnaît à son identifiant stable, `local` | La clé, la version, l'enrôlement et le signe de vie sont ceux de l'agent ; un genre de machine n'a plus de raison d'être |
+| **La machine openCloud n'a plus de chemin intégré** : `serve` ne mesure, ne veille, ne sonde ni ne vérifie rien de sa machine ; elle se retire, se révoque et se ré-enrôle comme les autres | Un seul mécanisme. Le prix, dit par le modèle : sans son agent, elle ne se voit pas ; ses sondes attendent |
+| **L'empreinte du serveur ne sert qu'à l'enrôlement** : l'agent qui la présente prend `local` et reprend sa ligne (créée si elle manque, reprise si elle est sans agent actif) ; un second, par un jeton de machine neuve, est refusé tant que le premier est actif (`local_agent_active`, jeton non consommé) | C'est ce qui reconnaît la machine openCloud et lui rend son historique. Remplacer son agent passe par Ré-enrôler, comme ailleurs |
+| **Le jeton de son agent est émis au démarrage tant qu'elle n'a jamais eu d'agent**, `observe` seul, nommé d'après le nom d'hôte ; la ligne s'affiche à la première configuration (`POST /api/machines/local-enrollment`), le journal dit seulement qu'un jeton attend | Décision de Lucas : l'agent s'installe dès la première étape. Un agent révoqué ne se réinstalle pas de lui-même : la révocation est un geste voulu |
+| **`config.toml` perd `docker_socket` et `ca_file`** ; l'unité du serveur perd le groupe `docker` et `AF_NETLINK` | Le serveur ne lit plus rien de sa machine : ce sont des réglages de l'agent (`-docker-socket`, `-ca-file`). Une configuration d'avant les garde, avec l'avertissement « clé inconnue » |
+| **Les formulaires de sonde et de service proposent la première machine de la liste**, plus la machine openCloud | Elle n'a plus rien qui la distingue dans l'API ; le fichier de l'annuaire garde son défaut (une sonde sans `runner` court sur `local`) |
+
+## 15. Ce que les pages de statut multiples ont fixé
+
+Migration `034_status_pages.sql` (`status_pages`, `status_components.page_id`,
+`settings` sans `status_*`). Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment une page de statut est publiée ». Ce que le
+code a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`project_id` facultatif** (unique, `restrict`) : une page peut n'être rangée dans aucun projet | La page d'avant n'a pas de projet ; en créer un pour elle inventerait un regroupement que l'opérateur n'a pas fait. Un projet n'a qu'une page ; il refuse d'être supprimé tant qu'elle existe (`project.has_status_page`, et `manifest.prune_status_page` dans le plan d'`apply`) |
+| **La page d'avant devient la page `statut`**, sans projet, avec tous les composants, son titre, son annonce et sa langue, **seulement si elle montrait quelque chose** (un composant, un titre ou une annonce) | Une page se crée à la main ; une page vide reprise ne dirait rien. `/statut` mène à la seule page, ce qui garde les liens donnés |
+| **Pas de `published`** | Rien ne le lit encore : une page existe ou non ; une page sans composant visible dit « rien à afficher » |
+| **`incident_components` reste** ; `incident_targets` est un chantier à part *(fait depuis : `005`, section 19)* | Viser les objets plutôt que les composants change ce que l'opérateur choisit dans le formulaire d'un incident et la règle « une page montre ce qui touche ses composants » ; ici, une page montre les incidents qui touchent l'un de ses composants, **réduits à ceux-là** : jamais le nom d'un composant d'une autre page |
+| **`mutes.announce` et `public_title` ne sont pas ajoutés** *(faits depuis : `005`, section 19)* | Les brancher, c'est montrer une fenêtre de silence comme maintenance sur les pages dont un composant est visé ; la maintenance publique reste un incident d'impact `maintenance` jusque-là |
+| **Un composant ne change pas de page** ; le plafond de 64 composants vaut par page, 64 pages au plus | « Un composant n'existe que sur sa page » ; le recréer ailleurs est un geste clair. Chaque page se relit à chaque changement : le nombre est borné |
+| **Limites publiques et direct partagés** par toutes les pages : seaux par source, 4 flux par source, pool de 256, un seul bus public « status » | Une source ne multiplie pas sa part en ouvrant dix pages ; un événement ne dit pas quelle page a changé, chaque visiteur relit la sienne. En échange, une page très lue peut prendre les places d'une autre |
+| **`/statut` seul** : `302` vers la seule page, sinon `404` ; jamais une liste | Une page de statut ne révèle pas les autres ; un slug inconnu répond `404` comme tout chemin inconnu |
+| **Slug** : minuscules, chiffres, tirets, 63 au plus, `api` réservé | Un seul segment d'URL, rien à échapper ; `api` était le chemin de l'API publique sous `/statut` |
+| **Les composants de statut restent hors du fichier d'`apply`** | L'export ne porte encore ni pages ni composants ; la section `status_pages` reste refusée à la lecture |
+
+## 16. Ce que les ordres signés ont fixé
+
+La migration `002_actions.sql` (`action_runs`, `run_logs`,
+`agents.server_key_fingerprint`, `agents.last_order_seq`) et le paquet
+`internal/action`. Le fonctionnement est dans `22-fonctionnement.md`,
+« Comment un ordre part et revient ». Ce que le code a tranché, et ses
+écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`agents.last_order_seq`**, en plus du diagramme : le rang d'un ordre se prend sur l'agent, dans la transaction qui écrit le run | Tiré de `MAX(action_runs.seq)`, il reculerait à la purge des runs (90 jours) ou à la suppression d'une machine, et l'agent refuserait tout comme un rejeu. Un index unique (`agent_id`, `seq`) le tient en plus |
+| **`requested_at`**, en plus du diagramme | Une liste se lit du plus récent au plus ancien, la purge se fait à l'âge : il faut l'instant de la demande |
+| **Pas de `service_id`** sur `action_runs` (*fait depuis : `007`, section 21*) | Aucun ordre ne vise encore un service (`agent.ping` vise la machine) ; la colonne viendra avec le premier qui le fait, comme le veut le garde-fou du schéma |
+| **Pas de `audit_events.run_id`** | L'événement `action.order` a le run pour objet (`object_kind 'action'`, `object_id` = le run) : le lien existe sans colonne. La colonne servira quand un geste d'un autre objet sera lié à un run (une proposition de mise à jour appliquée) ; elle demande aussi de rouvrir le déclencheur d'ajout seul |
+| **`server_key_fingerprint` dit ce que l'agent a épinglé**, redit à chaque ouverture du flux, pas ce que le serveur a livré | C'est ce que l'agent vérifiera qui compte : une empreinte différente de celle du serveur dit d'avance que les ordres seront refusés |
+| **`desired_revision`, `acked_revision` ne reviennent pas** | Rien ne les lit encore : elles viendront avec l'état désiré |
+| **`refusal_reason` porte aussi `undelivered`** | Le serveur pose `failed` quand le flux ne prend pas l'ordre ; une seule colonne dit pourquoi un run n'a pas abouti |
+| **Les états sont une liste du code**, sans CHECK | La règle du schéma : une liste fermée qui grandira se valide dans le code |
+| **`agent_capabilities` sert aussi au refus côté serveur** : un ordre dont l'agent a rapporté ses droits sans celui-là ne s'écrit pas (`409 action.right_missing`) | L'agent le refuserait ; un run de plus ne dirait rien. Tant que l'agent n'a rien rapporté, l'ordre part et l'agent juge : c'est son fichier qui fait foi |
+| **Changer les droits = un jeton de ré-enrôlement qui les porte** (décision 10) ; `enrollment_tokens.requested_capabilities` dit les nouveaux, l'ancien agent est révoqué à l'enrôlement | Pas de table d'historique des droits : le journal d'audit garde `machine.reenroll` avec les droits demandés |
+| **`server_key_fingerprint` choisit aussi la clé qui signe**, le temps d'une rotation : le serveur signe chaque ordre avec la clé que l'agent a épinglée, et note la neuve quand l'agent a réussi `agent.server_key` | Pas de colonne de plus : l'empreinte que l'agent redit est déjà ce que l'agent vérifiera. La fin de la rotation se juge sur elle (`finish-server-key` refuse tant qu'un agent actif a la précédente) |
+| **Les aléas vus de la preuve vivent en mémoire**, pas en base | Dix minutes de vie, des dizaines d'entrées : une table ajouterait une écriture par connexion pour ne fermer qu'un rejeu de moins de 5 min après un redémarrage, que seul le proxy qui termine TLS peut tenter |
+| **`secret.key` reste un fichier**, à plusieurs lignes pendant une rotation ; aucune colonne ne dit quelle clé a scellé quoi | L'identifiant de la clé est déjà dans chaque chiffré ; la rotation rescelle tout dans une transaction, puis le fichier ne garde que la neuve |
+
+## 17. Ce que le retrait de « à vérifier » a fixé
+
+La migration `003_needs_review.sql` retire `declared_services.needs_review`.
+Le fonctionnement est dans `22-fonctionnement.md`, « Comment l'annuaire se
+déclare ». Ce que le code a tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| `needs_review` et `declared_by = migration` sont retirés (migration `003`) ; la valeur `migration` est réécrite en `operator` avant que la colonne tombe | Plus rien ne crée un service sans l'opérateur depuis le schéma unique : le drapeau, l'action **Valider**, le commentaire d'export et la ligne du journal ne servaient plus qu'à une reprise qui n'existe plus |
+| `declared_by` est gardé, avec une seule valeur : `operator` | La découverte automatique l'étendra, sans reconstruire la table (pas de `CHECK`) ; en attendant, c'est une colonne quasi constante |
+
+## 18. Ce que l'envoi du journal a fixé
+
+La migration `004_audit_deliveries.sql` (`alert_channels.receives_audit`,
+`audit_deliveries`). Le fonctionnement est dans `22-fonctionnement.md`, « Le
+journal d'audit › Envoi aux canaux ». Ce que le code a tranché, et son écart
+au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`audit_deliveries` porte les colonnes d'essai d'`alert_deliveries`** (`attempts`, `reason`, `code`, `updated_at`, `next_attempt_at`), en plus du diagramme | Le même notifieur note l'issue de la même façon ; un `UNIQUE (audit_id, channel_id)` remplace l'index à trois colonnes (pas d'événement par livraison) |
+| **Réservée dans la transaction de l'événement** (`InsertAuditEvent`) | Rien ne se perd à une coupure ; les lignes `pending` sont rejouées au démarrage, sans doubler celles que le processus a déjà confiées |
+| **Même notifieur, même `alert.Delivery`** (un `AuditID`), `alert.EventAudit` hors de `alert.Events()` | Une file, des ouvriers, des essais ; le journal n'est la livraison d'aucune alerte, et `alert_deliveries.event` garde son CHECK |
+| **Un seul essai dans l'ouvrier**, les suivants par la base, jusqu'à 24 h | Un `apply` de 200 objets ne doit pas retarder les alertes |
+| **Ni silence, ni limite de débit, ni seuil** | « Taire » et la limite visent les alertes ; le journal part entier |
+| **Pas de rattrapage du passé** | Un canal coché reçoit ce qui s'écrit après ; renvoyer un an de journal serait un autre geste |
+| **Sans notifieur, les livraisons attendent** (commandes hors ligne) | Le prochain `serve` les rejoue ; aucune écriture n'est perdue |
+| **Identifiant de transaction Matrix préfixé `audit-`** | Deux tables, deux suites : sans le préfixe, deux livraisons pourraient s'appeler pareil et Matrix jetterait la seconde |
+| **L'état se lit au journal** (`GET /api/audit/forwarding`), sans fiche par livraison | Deux nombres suffisent à dire « aucun canal » et « des envois échouent » ; le détail est au journal du serveur |
+
+## 19. Ce que les incidents par objets ont fixé
+
+Migration `005_incident_targets.sql` (`incident_targets` à la place de
+`incident_components`, `mutes.announce` et `mutes.public_title`). Le
+fonctionnement est dans `22-fonctionnement.md`, « Comment une page de statut
+est publiée » et « Comment une alerte naît, se tait et part ». Ce que le code
+a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Les cibles sont les quatre genres du modèle** : machine, service déclaré, tâche, sonde. Ni `container` ni `project` | Un composant n'existe que sur une page : viser un composant ferait d'un incident un objet de page. Un conteneur non déclaré n'a aucun lien avec un composant. Un projet n'est pas encore une cible de silence non plus |
+| **La migration déplie chaque composant visé en ses membres** | Ce que l'incident disait en visant un composant, il le dit en visant ses objets. Un incident dont les composants n'ont aucun membre garde son texte et son fil, sans cible : il ne paraît plus sur aucune page, l'administration le liste toujours |
+| **Une cible touche un membre** selon une table fixe (machine : elle-même, ses services, ses tâches, les sondes de ses services ; service : lui-même et ses sondes ; tâche et sonde : elles-mêmes) | Jamais la machine qui lance une sonde, jamais le service touchant sa machine. La même fonction `touches` sert les incidents et les silences annoncés |
+| **L'état d'un composant** est le pire des impacts qui le touchent, puis l'état dérivé | La règle d'avant, alimentée par une liste calculée à la lecture. « Maintenance » passe devant « dégradé », jamais devant « panne » |
+| **Un silence annoncé est une maintenance synthétique** (`mute-<id>`), jamais écrite dans `incidents` | Aucune seconde source de vérité : la fenêtre du silence fait foi. Planifiée, en cours, terminée (14 jours), fil vide ; le JSON public ne change pas |
+| **Annoncer exige** une cible machine, service, tâche ou sonde et un titre public de 1 à 120 caractères | Un titre sans la case, ou la case sans titre, est refusé (`silence.announce_invalid`). Un silence ne se modifie pas |
+| **Délai** : la relecture de 30 s de la page publique | Pas d'abonnement au sujet `alerts` : le moteur des alertes ne passe pas par la page |
+| **Plafond** : 64 cibles par incident, refus `incident.target_invalid` | Vide, trop, genre inconnu, identifiant vide, doublon, objet inconnu |
+| **L'impact `maintenance` des incidents et `ApplyWindows` restent** | Deux façons d'annoncer une maintenance pendant un temps. Les retirer change le formulaire d'incident et reconstruit `incidents` : décision de Lucas |
+
+## 20. Ce que la sauvegarde de la base a fixé
+
+La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`,
+`backup_plans`) et le paquet `internal/backup`. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment la base est sauvegardée ». Ce que le code a
+tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`filippo.io/age`** pour le chiffrement, plutôt que le format écrit à la main | Le format est lu par l'outil `age` courant : on restaure sans openCloud. L'écrire (X25519, scrypt, STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de cryptographie à maintenir et à éprouver. Licence BSD-3-Clause, Go pur |
+| **`public_key` devient `recipient`, `private_key_sealed` devient `identity_sealed`** | Les mots d'age. La privée est `AGE-SECRET-KEY-1…` chiffrée par un destinataire scrypt (facteur 2^18) ; l'empreinte est les 16 premiers hexadécimaux du SHA-256 de la publique |
+| **Pas de `kind` sur la destination** | Un seul genre, l'agent ; il viendra avec SFTP ou S3 |
+| **Pas de `service_id` sur le plan** | La base seule pour l'instant (`subject` vaut `database`, unique) ; les services viendront avec le déploiement, et avec eux la ligne `declared_services → backup_plans` en `cascade` |
+| **`last_attempt_at`, `last_error`, `last_run_id`**, en plus du diagramme | La nuit se joue sur « aucune tentative depuis 3 h » ; une tentative qui n'a pas pu partir (pas de clé, machine hors ligne) n'a pas d'ordre, sa raison se garde sur le plan. `last_run_id` est en `set null` : la purge des runs peut l'emporter |
+| **Pas de copie locale** : l'instantané `VACUUM INTO` vit le temps de l'emballer dans `state_dir/outgoing/<colis>/`, l'archive chiffrée y attend l'agent le temps de vie de son ordre au plus (`OrderLifetime` + `MaxRunDuration`, un peu plus d'une heure : un colis ne survit pas à son ordre), le dossier est vidé au démarrage | Une sauvegarde gardée sur la machine qu'elle protège ne protège de rien |
+| **Un colis, pas le flux** : l'ordre signé porte l'identifiant du colis et la taille et le SHA-256 de chaque fichier, l'agent les télécharge sous son jeton de session | Un événement du flux est borné à 1 Mio ; une base fait des dizaines de Mio. Le même mécanisme servira à `agent.update` |
+| **`backup.prune` est un ordre à part**, envoyé juste après `backup.receive` ; l'agent exécute ses ordres longs un à la fois, dans l'ordre du rang | L'élagage passe après la réception sans que le serveur attende la fin de l'une pour envoyer l'autre. Il ne supprime que la forme exacte `<id>-AAAAMMJJ-HHMMSS.tar.age` |
+| **Un plan, le rythme `daily`, après 3 h de l'horloge du serveur** | Une tentative par jour, DST sans surprise (une heure de l'horloge, pas une durée depuis minuit) ; « sauvegarder maintenant » pour le reste |
+| **Un run `accepted` depuis plus d'une heure passe `failed`, raison `timeout`** | Avant, un run accepté n'expirait jamais : un ordre long dont l'agent ne répond plus restait « accepté » à jamais |
+| **`OrderBody.Secret`**, signé avec l'ordre, jamais écrit dans `action_runs.params`, l'audit ou un journal | Préparé ici, servi par le déploiement (le `.env` d'un service). La colonne `params` n'a jamais à garder un secret |
+| **La phrase de passe n'est écrite nulle part** (`passphrase` rejoint les noms de détail interdits de l'audit) | Sans elle, aucune sauvegarde ne se relit : c'est à l'opérateur de la garder, ailleurs que les sauvegardes |
+
+## 21. Ce que le déploiement a fixé
+
+La migration `007_deploy.sql` (`service_units.data_path`,
+`action_runs.service_id`) et le paquet `internal/deploy`. Le fonctionnement est
+dans `22-fonctionnement.md`, « Comment un service se déploie ». Ce que le code
+a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **Le `compose.yml` est généré de l'annuaire**, jamais saisi ni stocké | L'annuaire porte déjà image, version, empreinte et ports par unité : le fichier en dérive, déterministe. Un compose libre demanderait de valider images, volumes et privilèges. Il est réécrit à chaque déploiement ; le texte envoyé se garde dans les paramètres du run (il ne contient aucun secret) |
+| **`service_units.data_path`**, en plus du diagramme : un dossier de données par unité, chemin dans le conteneur | Un bind mount `./data/<unité>:<data_path>`, jamais de volume nommé. Il entre dans le fichier d'`apply` et l'export, sans quoi un `apply` l'effacerait. Seul un conteneur en a un |
+| **`action_runs.service_id`**, en `set null` (la ligne du diagramme, *faite*) | Le premier ordre qui vise un service. Elle dit aussi où en est le service : « Déployer » tant qu'aucun ordre n'a dit que son dossier existe, « Redéployer » ensuite. Indexée (`service_id`, `requested_at`) |
+| **Le dernier constat de l'agent sur le dossier décide** de « Déployer » ou « Redéployer » (`timeout` compte comme écrit, `compose_failed` aussi, `service_dir_missing` comme absent ; `service_dir_exists` ne compte pas) | Un déploiement coupé se reprend en un geste au plus : un `timeout` sans dossier donne « Redéployer », l'agent répond `service_dir_missing`, « Déployer » revient. Jamais de « Redéployer » par-dessus un dossier que le serveur ne sait pas avoir écrit. *22/10, #236.* |
+| **Le `.env` passe par `OrderBody.Secret`** (celui que la sauvegarde avait préparé) | Écrit par l'agent en `0600`, jamais gardé : `action_runs.params` dit `env_sent`, l'audit `env: sent` |
+| **L'agent rejuge le `compose.yml`** : il le relit, le rend à nouveau par le même code que le serveur (`agentwire.RenderCompose`) et compare les octets (`agentwire.CheckCompose`) | Sans cela, le droit `docker.deploy` serait root sur la machine pour quiconque signe un ordre (une clé du serveur volée) : `privileged`, `network_mode: host`, `- /:/host`. Avec, un ordre signé ne fait qu'épingler des images, publier des ports et monter `data/<unité>`. Contrepartie : changer la forme du fichier change le protocole (`agentwire`), un agent plus vieux refuse le nouveau fichier (`bad_order`) |
+| **Un ordre ne porte que le nom du projet** ; la racine est celle de l'agent, dite par un en-tête à chaque ouverture du flux | L'agent calcule le chemin lui-même et ne peut être mené nulle part. Écart au diagramme : pas de `enrollment_tokens.root_dir` ; l'identité (`-root-dir` au premier lancement) suffit, et `agents.root_dir` existait déjà |
+| **Les ordres sont jugés « longs »** : acceptés tout de suite, exécutés par le worker, la sortie de Compose revient en 58 lignes au plus | Le serveur écarte tout un rapport de plus de 64 lignes ; le reste (6 lignes) est celui de l'agent |
+| **`apply` ne déploie pas** | « Jamais … agir sur une machine » (section 3) : `apply` écrit l'annuaire, les ordres viennent après, d'un geste confirmé à l'écran |
+| **Rien ne retire un déploiement** (`service.remove` plus tard) | Supprimer le service de l'annuaire ne touche pas la machine : règle existante |
+| **L'agent reste root** (décision 2) | C'est le premier ordre qui lance un programme (`/usr/bin/docker`, chemin constant, arguments en liste, environnement remplacé). Le durcissement de l'unité (`ProtectSystem=strict`) borne ce qu'il écrit |
+
+## 22. Ce que la mise à jour des agents a fixé
+
+Pas de migration : aucune table, aucune colonne. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment un agent se met à jour ». Ce que le code a
+tranché :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **La version visée n'est pas une donnée** : c'est la version du serveur (`version.Number()`), la seule que `action.Service` offre. Elle ne s'écrit que dans les `params` du run | Une table « version cible par machine » n'aurait rien dit de plus que le binaire du serveur, et un second état à tenir d'accord |
+| **La bibliothèque est un dossier de `state_dir`, pas une table** : `releases/<version>/` (binaires, `SHA256SUMS`, `SHA256SUMS.minisig`), droits 0640 | Les fichiers sont déjà signés : la signature est la seule vérité, le serveur la relit à chaque envoi. Une base ne ferait que la doubler |
+| **`release import` ouvre `state_dir` seul, jamais la base** | Il s'exécute serveur arrêté ou non, sans jeton. Contrepartie : pas d'événement d'audit pour l'import ; l'ordre qui s'ensuit, lui, est journalisé |
+| **L'import est strict** : tous les binaires listés dans `SHA256SUMS` doivent être présents et de la somme signée, 256 Mio chacun ; la signature est écrite avant les sommes, les sommes en dernier | Une version à moitié importée n'existe pas (`ErrNoRelease`), l'import suivant la complète ; une version qui change de contenu sous un même numéro est refusée (`ErrVersionConflict`) |
+| **L'agent s'éprouve avant de basculer** (`<binaire> version` sous un environnement remplacé, la sortie doit nommer la version visée) | Un binaire qui ne démarre pas ne remplace jamais celui qui marche ; le lien ne bouge pas |
+| **Le succès est constaté au retour de l'agent**, pas à l'envoi : `Service.ConfirmAgentUpdate`, appelé à l'ouverture du flux avec `OpenCloud-Agent-Version`, ferme (`store.CompleteAgentUpdates`) les seuls runs de cet agent dont la version visée est celle annoncée | L'agent s'arrête avant de pouvoir rapporter quoi que ce soit ; seule sa version, entendue de lui, prouve qu'il a changé |
+| **Le code de sortie 3** (`ErrUpdated` dans `Run`, `exitStatus{3}` dans `main`) dit « relance-moi » | Pas de relance par le processus lui-même : systemd s'en charge, et son `Restart=on-failure` suffit |
+| **Un agent qui ne vit pas dans `<état>/bin/` refuse** (`not_self_updatable`), avant de lire l'ordre | Remplacer un binaire hors de `bin/`, c'est le faire sans lien à rebasculer ni précédente à garder. La migration est une étape manuelle, une fois par machine. L'exception de la machine openCloud (qui gardait `/usr/local/bin/opencloud`) a disparu le 22 octobre 2026 : voir §24 |
+| **`Options.ReleaseKey`** dans `agent.Options` ; le chemin de l'exécutable, champ non exporté | La clé de version passe du binaire à l'agent par ses options plutôt que par un global. Le chemin de l'exécutable ne se remplace que dans les tests du paquet : la commande ne peut pas faire croire à l'agent qu'il tourne depuis `bin/` |
+| **Offre et envoi jugent pareil** (`judgeUpdate`) : le bouton de la fiche et la route ne divergent jamais | Les raisons de l'offre sont des clés de catalogue (`machine.agent_update_reason_*`), jamais du texte du serveur |
+
+## 23. Ce que la sortie du MCP a fixé
+
+Le serveur MCP n'est plus dans openCloud : **mcp-maison**, un projet à part,
+parle MCP et lit l'API avec un jeton d'API. Le fonctionnement est dans
+`22-fonctionnement.md`, « Comment un agent IA lit openCloud ». Ce que le code
+a tranché, et ses écarts au diagramme :
+
+| Décision | Pourquoi |
+| --- | --- |
+| **`api_tokens` est reconstruite, pas renommée** (`008_api_tokens.sql`) ; `mcp_clients`, `mcp_codes` et `mcp_tokens` sont supprimées | Le jeton n'a plus de famille, de client ni de rafraîchissement : la table à garder est la moitié de l'ancienne. Un jeton vivant garde son identifiant, son empreinte et son échéance, donc celui que mcp-maison porte déjà continue de servir |
+| **Révoquer efface la ligne** | Présenté ensuite, un jeton révoqué est inconnu, comme un faux : un seul refus (`api_token.invalid`), pas de période de grâce ni d'état « révoqué » à garder |
+| **`scope` garde `write` dans le `CHECK`, le code le refuse** | Les actions de l'API (#153, étape 5) n'auront pas à reconstruire la table. D'ici là, aucun jeton `write` ne se crée et aucune écriture n'est admise |
+| **Un jeton lit une liste fermée de 25 routes `GET`**, jugée avant le mode d'accès (sauf en `none`, où le Bearer est ignoré) | La liste est la seule porte : une route ajoutée à l'API ne s'ouvre pas à un jeton sans qu'on l'y écrive. Hors liste : `403 api_token.route_forbidden` |
+| **Les secrets sont masqués pour un jeton** | Un jeton d'API ne lit ni un jeton de ping, ni une cible de sonde avec identifiants, ni une destination de canal ; l'export de l'annuaire passe par `RedactSecrets` |
+| **L'acteur d'audit est `api`**, nommé par l'identifiant du jeton ; la personne au nom de qui mcp-maison lit est dans `details.on_behalf_of` | La personne est dite par mcp-maison (en-tête `X-MCP-Maison-User`, bornée à 200 caractères) : indicative, pas une preuve. Elle vit dans `details`, posée par le `Recorder` seul : un geste ne peut pas la forger, et il n'y a pas de colonne de plus |
+| **Les lignes d'audit `mcp` restent** | Le journal est en ajout seul. Les acteurs et sortes d'objet d'avant se lisent (listes `Legacy…` de `audit/event.go`), avec un libellé « ancien », et ne s'écrivent plus |
+| **`mcp_url` vit dans `config.toml`, pas dans la base**, vide par défaut | C'est une adresse d'installation comme `listen`. Vide : la carte « Agent IA » dit `not_configured` et suggère l'adresse |
+| **Aucune table pour mcp-maison** | openCloud ne retient rien de lui : il interroge son `/health` à l'ouverture de la carte (3 s, sans suivre une redirection) et affiche ce qu'il a trouvé |
+| **Le préfixe des outils se compte par `brand.ID`** | Le nom du produit reste dans `internal/brand` ; le groupe d'outils absent se dit `group_missing` |
+
+## 24. Ce que l'état de l'agent hors du serveur a fixé
+
+Pas de migration : aucune table, aucune colonne. Le fonctionnement est dans
+`22-fonctionnement.md`, « Les droits d'un agent » (état mal gardé) et
+« Comment un agent se met à jour » (décision 6). Le déplacement d'une
+installation existante est dans `installation.md`. Ce que le code a tranché
+(#235), quel que soit le découpage que prendra la décision 2 de `23` :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **L'état de l'agent est `/var/lib/opencloud-agent`** (`brand.AgentStateDir`), root `0700`, `StateDirectory=` de l'unité, au lieu de `/var/lib/opencloud/agent` | Sur la machine openCloud, `/var/lib/opencloud` appartient au compte du serveur : il pouvait renommer le dossier de l'agent et en poser un autre, donc remplacer `identity.json` (droits, clé du serveur épinglée). Hors de ce dossier, le compte du serveur n'a plus de prise | Une étape manuelle par machine installée avant (`mv`, `chown`, `chmod`, unité) ; les unités déjà posées passent `-state` : changer le défaut n'en casse aucune avant qu'on change son unité |
+| **L'agent juge la chaîne de son état** (`agent.CheckStateDir`), après l'avoir ouvert : il suit le chemin comme le noyau, depuis `/`, et chaque dossier traversé (ceux où mène un lien compris) appartient à root ou au compte de l'agent et n'est inscriptible ni par le groupe ni par les autres ; le dossier ouvert est celui que le chemin désigne au moment du jugement (`os.SameFile`) ; `identity.json` est un fichier à root ou à l'agent, fermé en écriture aux autres | Un état à root sous un dossier d'un autre compte ne protège rien : qui possède le parent renomme l'état. Juger seulement le chemin donné puis le chemin résolu laisserait passer un dossier qu'on ne traverse qu'entre deux liens, dont le propriétaire choisit où mène le second ; juger avant d'ouvrir laisserait un lien changer entre les deux. `identity.json` est jugé parce qu'un état déplacé à la main (`mv`, `chown` du seul dossier) garde les fichiers de qui l'avait remplacé. La règle est une fonction pure (`checkChain`) sur un `stat` et un `readlink` injectables : les cas hostiles se testent sans dépendre du compte qui lance les tests | Un dossier traversé à bit collant (`/tmp`) passe, le dossier d'état lui-même non (d'autres y poseraient des fichiers). Un lien n'est jugé que par son propriétaire (son mode vaut toujours 0777). Un `stat` en erreur ou plus de 40 liens est un refus. Le contrôle a lieu au démarrage, pas à chaque ordre : un dossier rendu inscriptible ensuite n'est vu qu'au redémarrage suivant, et le binaire que systemd lance (`bin/current`) l'a été avant tout contrôle |
+| **Un état mal gardé ne garde que `observe`**, sans arrêt : `Options.UnsafeState` pose `narrowed` sur l'identité, `Capabilities()` rend `observe`, le flux le rapporte, les ordres qui écrivent sont refusés (`right_missing`) | Un arrêt aurait aveuglé la supervision ; une ligne de journal seule ne protégerait rien. L'écart apparaît sur la fiche, et le serveur refuse l'ordre d'avance | Le fichier ne change pas sur le disque (champ non exporté, jamais écrit) : l'état corrigé, un redémarrage rend les droits. Une machine openCloud non déplacée perd ses droits d'écriture au premier démarrage du nouveau binaire (par défaut elle n'a que `observe` : rien ne change pour elle) |
+| **`agent.server_key` passe encore sous un état mal gardé** : il ne demande que `observe`, et l'ordre doit être signé par la clé déjà épinglée | Un état mal gardé, c'est un autre compte qui peut réécrire `identity.json`, la clé épinglée comprise : l'ordre ne lui donne rien de plus. Et le serveur qui tourne sa clé ne gagne aucun droit, `observe` seul restant appliqué | Un agent mal gardé suit la rotation de la clé du serveur comme les autres ; corrigé, il n'a pas à être ré-enrôlé |
+| **La machine openCloud se met à jour depuis sa fiche** comme les autres : son agent lance `/var/lib/opencloud-agent/bin/current` | Il n'y avait d'exception que parce que son état était sous le dossier du serveur. Le code n'avait pas de cas particulier : il n'y en a plus dans l'unité, les textes ni la documentation | Pas de lien `/usr/local/bin/opencloud` vers `bin/current` sur elle : c'est le binaire du serveur, que rien ne met à jour seul. Le serveur et l'agent y ont chacun leur copie du binaire |
+
+## 25. Ce que l'agent sans root a fixé
+
+Migration `010_agent_account.sql` : `agents.run_as_uid` (entier de 0 à
+4294967295, nul tant que l'agent ne l'a pas dit) et `agents.run_as_name`,
+`agent_capabilities.unavailable` (la raison, vide si le droit s'exerce). Le
+fonctionnement est dans `22-fonctionnement.md`, « Les droits d'un agent » (un
+droit coché peut être indisponible) et « Comment une machine entre ». Ce que le
+code a tranché (#146, décision 2 de `23`) :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Le compte se dit à chaque ouverture du flux** : `OpenCloud-Agent-Account: <uid>:<nom>`, le nom vide si la base des comptes ne le donne pas ou s'il ne passe pas dans un en-tête. Le serveur lit un uid décimal de 0 à 4294967295 sans signe ni zéro en tête, un nom vide ou `^[a-z_][a-z0-9_-]{0,31}$` ; sinon il ne garde rien (`WARN`) et le flux s'ouvre | Le serveur sait si l'agent est root (la fiche le dit) sans le deviner, et ne stocke rien qu'un pair puisse tordre. Même règle que la racine des services | Un nom hors de cette forme (majuscules, point) s'affiche par son uid seul. Un agent plus ancien ne dit rien : la fiche écrit « pas encore rapporté » |
+| **Les droits cochés que le compte ne peut pas exercer se disent aussi** : `OpenCloud-Agent-Unavailable: <droit>=<raison>,…`, jugés avant chaque ouverture du flux ; `observe` n'est pas jugé (l'état de Docker se lit déjà par le moteur) | Un droit coché sous un compte sans privilège n'est plus un droit exerçable : l'opérateur doit le lire avant de lancer un ordre qui échouera | Un en-tête de plus, borné à 2048 octets ; un seul élément illisible fait ignorer tout l'en-tête (on ne garde pas la moitié d'un rapport qu'on ne comprend pas) |
+| **Cinq raisons, une liste fermée** : `docker_denied` et `path_denied` (neuves), `docker_missing`, `path_unwritable`, `not_self_updatable` (existantes). Elles sont des raisons de refus d'`agentwire` ; la liste est écrite dans `machine.UnavailableReasons`, un test de parité la garde égale aux constantes | `agentwire` importe `machine` (par `probe`) : la liste ne peut pas vivre dans `agentwire`. Le test attrape une raison ajoutée d'un côté seulement | Une constante de plus à tenir d'accord ; le test le fait |
+| **Le serveur affiche, il ne refuse pas d'avance** (P1, *à valider par Lucas*) : le plan de déploiement et la destination de sauvegarde passent à l'état `unavailable` avec `right_reason`, l'offre de mise à jour de l'agent a la raison `right_unavailable` en restant disponible ; les boutons restent actifs, et un test verrouille que l'ordre part | Le rapport date de l'ouverture du flux : un dossier rendu ou un groupe ajouté depuis le rendrait un refus d'avance faux dans l'autre sens, sans moyen de s'en défaire. L'agent connaît l'instant | Un ordre peut partir pour être refusé : un run « Refusé » au journal, avec sa raison |
+| **L'agent refuse avant d'écrire, au moment de l'ordre**, avec les mêmes vérifications que le rapport (`hostChecks`, injectables) : `backup.receive` et `backup.prune` après le droit (`path_outside_right` se dit d'abord, sans rien révéler de ce que le compte voit ailleurs), `agent.update` avant tout téléchargement, `docker.deploy` et `docker.update` avant la racine (la socket d'abord, puis la racine des services). Un échec jugé avant la première écriture est un refus (`untouched`), le même mot après une écriture ratée reste un échec | Le même jugement deux fois, avec les mêmes questions, ne peut pas se contredire. Une écriture a pu toucher le dossier : seul le jugement d'avance dit qu'il n'a rien bougé | `access(2)` juge l'uid réel (égal à l'effectif sous systemd et `sudo -u`) : un pré-contrôle lisible, l'écriture reste confinée par `os.Root` et peut échouer plus tard (`path_unwritable`) |
+| **Le pré-contrôle suit les liens symboliques du chemin du droit** (décision de l'implémenteur, *à valider par Lucas*, écart au brief qui voulait `os.Lstat` et `path_outside_right`) | `os.OpenRoot` suit déjà le chemin du droit lui-même : un droit sur un lien vers un volume monté marchait avant et marcherait moins après. Seul ce qui est **sous** le chemin du droit est confiné, et l'écriture le confine toujours | Un lien posé sur le chemin du droit par qui l'écrit dans le fichier de l'agent (root) mène où il mène : ce n'est pas un nouveau droit, c'est son propriétaire qui l'écrit |
+| **Docker arrêté n'est pas un droit indisponible** : la socket existe, rien n'écoute (`ECONNREFUSED`) ; l'agent ne dit rien, `compose up` le dira | Une panne passagère n'est pas une permission manquante ; l'écrire en raison ferait mentir la fiche à chaque redémarrage de Docker | Un `docker.deploy` sur un Docker arrêté part et échoue avec la sortie de Compose |
+| **Un seul dossier personnel** (`homeDir`) pour le trousseau des registres et pour Compose : `/root` pour root, sinon `$HOME` s'il est absolu, sinon celui de la base des comptes, sinon aucun (Compose reçoit alors un environnement sans `HOME`, jamais celui de l'agent) ; le `DOCKER_CONFIG` de l'agent, s'il est posé, passe à Compose comme au registre | `HOME=/root` en dur ne trouvait pas les identifiants d'un compte dédié, et le trousseau lu par la vérification des images et celui de Compose ne doivent pas diverger | Sous un compte dédié, `docker login` se fait sous ce compte (`runuser -u <compte> -- docker login …`) |
+| **Un état que le compte ne peut pas ouvrir est un refus lisible** : `agent.state_denied` (code 2, systemd ne relance pas), avec le compte, le dossier et la commande `chown -R` | Avant : `open state dir: permission denied`, code 1, relancé en boucle sans dire quoi faire | Seule `fs.ErrPermission` est aiguillée ; toute autre erreur reste une erreur |
+| **Le journal dit le compte et les changements, jamais les chemins d'un secret** : `INFO agent running as` au démarrage, `WARN rights not exercisable` (droit, raison) à chaque jugement qui change, `INFO` quand tout redevient exerçable | Un opérateur qui lit le journal d'une machine y voit pourquoi un ordre sera refusé, une fois, pas à chaque flux | Rien n'est écrit tant que le jugement ne change pas |
+| **L'installation recommandée crée un compte dédié, `opencloud-agent`** (`brand.AgentAccount`), système, sans shell, dans le groupe `docker` si la machine l'a ; son dossier personnel est l'état de l'agent (`/var/lib/opencloud-agent`) | Décision 2 de `23`, prise le 22 octobre 2026. Un agent qui n'est plus root ne réécrit ni `/etc`, ni `/usr`, ni les comptes directement, et ses protections systemd (`ProtectSystem=strict`…) s'appliquent à un processus sans privilège. Le dossier personnel est l'état : Compose et `docker login` y trouvent `.docker/` (`homeDir`, ci-dessus) | **Le groupe `docker` équivaut à root** : la socket lance un conteneur `privileged` qui monte `/`. Sur une machine avec Docker, le compte dédié protège des erreurs, pas d'un attaquant décidé ; sans Docker, c'est un compte sans privilège, qui ne lit pas ce qu'un compte non root ne lit pas. La doc le dit noir sur blanc |
+| **L'unité lance l'agent sous ce compte** (`User=`, `Group=`) sans `SupplementaryGroups=docker` ; `StateDirectory=` reste | systemd lit les groupes du compte au démarrage : le groupe ajouté par `usermod` suit ; un `SupplementaryGroups=` sur un groupe absent empêcherait l'unité de démarrer sur une machine sans Docker. `StateDirectory=` crée l'état au nom de `User=` et reprend le propriétaire, récursivement, de ce qu'il contient s'il diffère | Un groupe ajouté après le démarrage ne se voit qu'au redémarrage (`docker_denied` jusque-là). Le retour de root au compte dédié (ou l'inverse) repasse tout l'état d'un coup : voulu |
+| **Root reste possible, par un drop-in** `opencloud-agent.service.d/root.conf` (`User=` et `Group=` vides) | Qui y tient le garde, en connaissance de cause (l'agent a la machine) ; une unité, un drop-in, pas deux unités à tenir | La préparation du compte n'est pas faite pour lui : un état au compte `opencloud-agent` sous un agent root est refusé (`state dir is not safe`), la doc donne des commandes à part |
+| **La ligne d'installation appelle le binaire de l'état** : `sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server …`, pour toutes les machines, la machine openCloud comprise (P3, *à valider par Lucas*) ; **plus de lien** `/usr/local/bin/opencloud → bin/current` | Root qui lancerait `opencloud` exécuterait ce que le compte de l'agent a posé et peut remplacer : une escalade sur une machine **sans** Docker. Le chemin vit dans `brand.AgentCurrentPath` | La commande `opencloud` n'existe plus sur la machine d'un agent : `runuser -u opencloud-agent -- /var/lib/opencloud-agent/bin/current version`, jamais en root. Le message de l'agent qui cite la ligne d'installation (`agent.token_missing`) dit la même |
+| **La préparation est une seconde ligne de commandes que le serveur fabrique** (`installPreparation`, rendue avec le jeton dans `preparation`) : le compte, l'état à lui, puis **sous le compte** (`runuser -u opencloud-agent --`) `bin/` et le binaire (`/tmp/opencloud`, ou `/usr/local/bin/opencloud` pour la machine openCloud) sous la version du serveur avec son lien `current` ; enfin un `test ! -L <dossier> && install -d` au nom du compte par dossier de droit (racine des services en `0755`, `backup.receive` en `0700`, `files.write` en `0755`), chacun une fois, et sous le compte un dossier de droit qui est sous un autre dossier du compte | Le serveur sait quels droits sont cochés : l'opérateur n'oublie pas un dossier (`path_denied` sinon), et le binaire est celui du protocole du serveur (`version.Number()`). La ligne se rejoue sur une machine déjà préparée (Changer les droits), où le compte, peut-être compromis, possède son état : `install -d` suit un lien et donne sa cible, root n'agit donc sur aucun nom que le compte contrôle (relecture de #257 : `bin/` remplacé par un lien vers `/etc/cron.d` était donné au compte). Aucune protection de shell n'est nécessaire : seuls des constantes et des chemins de droits y entrent (`ValidCapabilityPath`, revérifié en fabriquant les lignes), et des tests le vérifient, dont un `sh` réel qui lit chaque mot ; le jeton n'y paraît jamais | `useradd` échoue sur un compte qui existe : la doc dit d'ignorer cette erreur et de rejouer la ligne l'agent arrêté (un dossier de droit de premier niveau dont le parent est au compte reste exposé au court instant entre `test` et `install`) ; un dossier de droit qui est un lien n'est pas préparé ; le lien `current` n'est posé que si `install` a réussi (jamais un lien vers un fichier absent). `-root-dir` n'est pas connu du serveur : la racine est celle par défaut |
+| **Une machine en root se migre sans `chown -R` sur la racine des services** (P4, *à valider par Lucas*) : l'état et le dossier des sauvegardes se reprennent en entier (`chown -hR`), la racine, son témoin et, pour chaque service, son dossier, `compose.yml`, `.env` et `data/` seulement ; chaque dossier de `files.write` lui-même | `data/<unité>` appartient souvent à l'UID du conteneur (Postgres : 999) : le reprendre casserait le service. L'agent n'a besoin que d'écrire ce qu'il réécrit (le dossier, `compose.yml` et `.env` par renommage, `data/` pour y créer une unité) et de lire l'`.env`. `-h` : un lien trouvé dans l'arbre n'est jamais suivi ; un dossier de service, de droit ou la racine qui est un lien est sauté (`test ! -L`) : la procédure se rejoue sans rien donner de plus | Un fichier de plus que Compose lirait dans le dossier du service (`env_file:`) reste à root : à rendre lisible. Les dossiers d'un `files.write` sont repris sans leur contenu ; un droit sur un dossier système en fait le dossier de l'agent. Pas de ré-enrôlement : identité, droits et rang gardés |
+
+## 26. Ce que le retard dans l'historique a fixé
+
+Migration `009_heartbeat_missed.sql` : `heartbeat_runs` est refaite pour que
+`outcome` admette `missed` (SQLite ne modifie pas un `CHECK`) ; les lignes
+gardent leur `id` (l'API trie par `id`), l'index et l'index partiel des
+exécutions ouvertes sont recréés à l'identique. Aucune table ne référence
+`heartbeat_runs`. Le fonctionnement est dans `22-fonctionnement.md`, « Comment
+une tâche est surveillée » (#128, option 1 amendée). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Une ligne `missed` par épisode de retard**, pas par échéance, écrite par `heartbeat.Service.expire` dans la transaction qui passe la tâche en retard | Le serveur ne passe en retard qu'une fois par trou : la règle n'a pas d'état de plus à garder, et la boucle repassée sur une tâche déjà en retard n'écrit rien | « Combien d'échéances manquées » n'est pas stocké ; l'afficher serait une estimation (durée ÷ intervalle), dite « environ » |
+| **Rien si une exécution était ouverte** : elle est close en `timeout`, qui compte déjà comme un échec | Écrire aussi `missed` compterait l'échéance deux fois | Un trou précédé d'un `start` s'y lit comme « Dépassée », pas « Manquée » |
+| **La ligne n'a ni début, ni durée, ni code, ni corps ; sa fin est l'échéance dépassée** (`NextDeadlineAt`) | La boucle passe toutes les 15 s : l'échéance est le fait, l'instant du contrôle n'est qu'un retard de la boucle. `duration_ms` nul garde la ligne hors de toute moyenne de durées | Une exécution sans `started_at` : le front lit sa fin (`completed_at`) |
+| **La série se coupe sur `missed` sans le compter comme un échec**, dans le front (`currentStreak`) ; le serveur ne calcule toujours aucune série | Une série d'échecs ne compte que de vraies exécutions : quatre codes non nuls sont quatre échecs, un trou n'en est pas un | Les 20 exécutions rendues bornent la vue : un `missed` au-delà ne se voit pas, la phrase dit « au moins » |
+| **La phrase de tête dit une durée** (« Repartie il y a 10 min après 5 h sans signal »), pas un compte | Les revues du 12/10 : « 4 réussites de suite » enjambait un trou de plusieurs heures. Une durée dit ce que l'opérateur veut savoir | Le trou va du dernier signal d'avant (réussite ou échec : un échec est un signal) à la réussite d'après : il comprend un intervalle normal. Choix de rédaction, à valider (P7) |
+| **« Passage signalé » pour une réussite sans code de sortie** | Le ping nu part même si la commande d'avant a échoué : il atteste que le cron a tourné, pas que la tâche a réussi | Un mot de plus à connaître dans la liste des exécutions |
+
+## 27. Ce que le relevé des clés SSH a fixé
+
+Migration `011_ssh_keys.sql` : `ssh_reports` (une ligne par machine), `ssh_accounts`
+(`state` borné à `read`, `none`, `denied`, `unsafe`, `too_large`) et `ssh_keys`
+(clé `(machine, compte, fichier, empreinte)`), toutes en cascade depuis la
+machine. Le fonctionnement est dans `22-fonctionnement.md`, « Comment les clés SSH
+se relèvent » (#152, étape 1, lecture seule). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Rien ne sort d'un fichier que l'empreinte, le type, la taille, un commentaire borné et des noms d'option** (décision 1, *à valider par Lucas*) | Un `authorized_keys` est un fichier d'inconnu : une option `command=` y porte parfois un secret. Ce qui n'a pas de forme fermée ne sort pas | On ne voit pas la valeur d'un `from=` : « restreinte à des adresses » se lit, pas lesquelles |
+| **Le serveur refuse un relevé hors bornes en entier** (décision 4) | Un pair peut mentir : mieux vaut garder l'ancien relevé qu'un relevé à moitié cru | Un seul champ hors borne fait perdre le relevé de ce passage ; l'agent redit son relevé quand il change ou à la prochaine ouverture du flux, la section refusée se lit dans l'en-tête |
+| **512 clés par machine, 64 par compte, 64 comptes** (décision 5) | Un signal pèse au plus 1 Mio : 64 comptes de 64 clés n'y tiennent pas. Chaque borne vit à un seul endroit (`internal/sshkeys`), lue par l'agent et par le serveur | Un compte très fourni est tronqué, et le relevé le dit ; il n'y a pas de page suivante |
+| **Un relevé remplace l'ancien en entier** (décision 6) | Une clé retirée d'une machine doit disparaître sans règle de purge ; la clé primaire `(machine, compte, fichier, empreinte)` suffit | Pas d'historique : on ne sait pas depuis quand une clé est là, ni quand elle est partie |
+| **Les trois tables restent dans `internal/store`**, un fichier de plus (`sshkeys.go`) (décision 7) | Le store porte déjà toutes les tables, une par domaine ; un paquet de plus n'aurait rien isolé | `internal/store` compte une table de plus de l'écosystème : 52 tables (51 et `schema_migrations`) |
+

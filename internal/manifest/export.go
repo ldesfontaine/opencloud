@@ -20,7 +20,7 @@ type ExportOptions struct {
 	Propose bool
 	// RedactSecrets masque le mot de passe des cibles de sonde
 	// (« https://user:…@hôte »), pour un export qui quitte l'application
-	// vers un client MCP. Le fichier d'export ne le met pas : l'apply compare
+	// vers un jeton d'API (mcp-maison). Le fichier d'export ne le met pas : l'apply compare
 	// ce mot de passe à celui du stockage, un fichier masqué le changerait en « … ».
 	RedactSecrets bool
 }
@@ -133,6 +133,7 @@ func proposedUnit(definition directory.UnitDefinition) Unit {
 		ContainerName: definition.ContainerName,
 		SystemdUnit:   definition.SystemdUnit,
 		Ports:         definition.Ports,
+		DataPath:      definition.DataPath,
 		Updates:       definition.UpdatePolicy,
 	}
 	if unit.Updates == "" {
@@ -223,7 +224,6 @@ func serviceOf(item directory.Service, projectNames map[string]string) Service {
 		Origin:         item.Origin,
 		ComposeProject: item.ComposeProject,
 		PublicURL:      item.PublicURL,
-		NeedsReview:    item.NeedsReview,
 	}
 	// Dans l'ordre de Capabilities() : celui des fournitures dans l'interface.
 	for _, capability := range directory.Capabilities() {
@@ -254,6 +254,7 @@ func unitOf(item directory.Unit) Unit {
 		ContainerName: item.ContainerName,
 		SystemdUnit:   item.SystemdUnit,
 		Ports:         item.Ports,
+		DataPath:      item.DataPath,
 	}
 	// Un binaire n'a que « watch » : il ne l'écrit pas.
 	if item.Kind == directory.UnitContainer {

@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { deleteProject, saveProject, useProject, useProjectServices, type Project } from "../api/directory";
+import { deleteProject, fetchProjectDeletePlan, saveProject, useProject, useProjectServices, type Project } from "../api/directory";
 import { Card, CardBody, CardHeader, Empty } from "../components/Card";
+import { DeletePlanDialog } from "../components/DeletePlanDialog";
 import { Failure } from "../components/Failure";
 import { Field, Input } from "../components/Field";
 import { FormActions, FormCard } from "../components/FormCard";
@@ -25,6 +27,7 @@ export function ProjectForm() {
   const form = useForm(emptyProjectForm, isEditing ? { source: existing.data, fill: projectFormOf } : null);
   const { values, change } = form;
   const action = useAction();
+  const [removing, setRemoving] = useState(false);
 
   if (isEditing && existing.error?.status === 404) {
     return <NotFound />;
@@ -32,18 +35,6 @@ export function ProjectForm() {
 
   const save = () => {
     action.run(() => saveProject(id, values), {
-      topic: "directory",
-      onDone: () => void navigate("/services/projets"),
-    });
-  };
-
-  const remove = () => {
-    const project = existing.data;
-    if (!isEditing || project === null) {
-      return;
-    }
-    action.run(() => deleteProject(id), {
-      confirm: deleteConfirm(t, project),
       topic: "directory",
       onDone: () => void navigate("/services/projets"),
     });
@@ -69,7 +60,7 @@ export function ProjectForm() {
             cancelLabel={t("project.cancel")}
             cancelTo="/services/projets"
             deleteLabel={t("project.delete")}
-            onDelete={isEditing ? remove : undefined}
+            onDelete={isEditing && existing.data !== null ? () => setRemoving(true) : undefined}
           />
         }
       >
@@ -91,6 +82,17 @@ export function ProjectForm() {
           <Input id="project-title" type="text" value={values.title} onChange={(event) => change("title", event.target.value)} maxLength={80} autoComplete="off" />
         </Field>
       </FormCard>
+      {removing && isEditing && existing.data !== null && (
+        <DeletePlanDialog
+          question={deleteConfirm(t, existing.data)}
+          confirmLabel={t("project.delete")}
+          loadPlan={() => fetchProjectDeletePlan(id)}
+          perform={() => deleteProject(id)}
+          topic="directory"
+          onDone={() => void navigate("/services/projets")}
+          onClose={() => setRemoving(false)}
+        />
+      )}
       {isEditing && (
         <Card>
           <CardHeader title={t("project.services_title")} aside={t("project.services_text")} />

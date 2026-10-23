@@ -12,16 +12,19 @@ const sessionTokenBytes = 32
 // Session est un flux ouvert par l'agent d'une machine. Son jeton, tiré à
 // l'ouverture, authentifie les signaux qui suivent sans nouvelle signature.
 type Session struct {
-	MachineID   string
+	MachineID string
+	// L'agent qui tient le flux : son signal se note sur lui.
+	AgentID     string
 	Token       string
 	ConnectedAt time.Time
 	done        chan struct{}
 	closeOnce   sync.Once
-	commands    chan Command
+	events      chan StreamEvent
 }
 
 // Done se ferme quand la session est fermée par le serveur : machine retirée,
-// ré-enrôlée, ou remplacée par une nouvelle connexion du même agent.
+// ré-enrôlée, agent révoqué, ou remplacée par une nouvelle connexion du même
+// agent.
 func (s *Session) Done() <-chan struct{} {
 	return s.done
 }
@@ -46,17 +49,18 @@ func NewSessions() *Sessions {
 
 // Open enregistre un flux ; un flux précédent de la même machine est fermé,
 // le plus récent gagne.
-func (s *Sessions) Open(machineID string, now time.Time) (*Session, error) {
+func (s *Sessions) Open(machineID, agentID string, now time.Time) (*Session, error) {
 	raw := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
 	}
 	session := &Session{
 		MachineID:   machineID,
+		AgentID:     agentID,
 		Token:       hex.EncodeToString(raw),
 		ConnectedAt: now,
 		done:        make(chan struct{}),
-		commands:    make(chan Command, commandBacklog),
+		events:      make(chan StreamEvent, eventBacklog),
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,25 +117,26 @@ func (s *Sessions) CountOnline() int {
 	return len(s.byMachine)
 }
 
-// Command est ce que le serveur pousse à l'agent par son flux : le nom de
-// l'événement et son contenu, encodé en JSON par le flux.
-type Command struct {
-	Name    string
-	Payload any
+// StreamEvent est ce que le serveur pousse à l'agent par son flux : un nom
+// d'événement et son contenu, déjà encodés (agentwire.Command). La session
+// ne fait que les porter.
+type StreamEvent struct {
+	Name string
+	Data []byte
 }
 
 // Une file courte : un suivi de journal qui s'ouvre et se ferme, jamais
-// des rafales. Pleine, la commande est refusée plutôt que d'attendre.
-const commandBacklog = 16
+// des rafales. Pleine, l'événement est refusé plutôt que d'attendre.
+const eventBacklog = 16
 
-// Commands rend la file que le flux de la session lit.
-func (s *Session) Commands() <-chan Command {
-	return s.commands
+// Events rend la file que le flux de la session lit.
+func (s *Session) Events() <-chan StreamEvent {
+	return s.events
 }
 
-// Command pousse une commande à la machine ; ErrNotConnected sans flux,
+// Push pousse un événement à la machine ; ErrNotConnected sans flux,
 // ErrBusy si la file est pleine.
-func (s *Sessions) Command(machineID string, command Command) error {
+func (s *Sessions) Push(machineID string, event StreamEvent) error {
 	s.mu.RLock()
 	session, ok := s.byMachine[machineID]
 	s.mu.RUnlock()
@@ -139,7 +144,7 @@ func (s *Sessions) Command(machineID string, command Command) error {
 		return ErrNotConnected
 	}
 	select {
-	case session.commands <- command:
+	case session.events <- event:
 		return nil
 	default:
 		return ErrBusy

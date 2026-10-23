@@ -2,21 +2,23 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	gomcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
+	"github.com/ldesfontaine/opencloud/internal/action"
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/alert"
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/container"
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/lang"
@@ -25,6 +27,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/mail"
 	"github.com/ldesfontaine/opencloud/internal/manifest"
+	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/reader"
@@ -34,6 +37,7 @@ import (
 	pingapi "github.com/ldesfontaine/opencloud/internal/server/ping" // ping : l'aide des tests du même nom
 	"github.com/ldesfontaine/opencloud/internal/server/public"
 	"github.com/ldesfontaine/opencloud/internal/settings"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/status"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/web"
@@ -58,21 +62,24 @@ type MachineService interface {
 	List(ctx context.Context) ([]machine.Status, error)
 	Get(ctx context.Context, id string) (machine.Status, error)
 	Count(ctx context.Context) (total, online int, err error)
-	CreateToken(ctx context.Context, name string) (string, machine.Token, error)
-	CreateReenrollToken(ctx context.Context, machineID string) (string, machine.Token, error)
+	CreateToken(ctx context.Context, name string, capabilities []machine.Capability) (string, machine.Token, error)
+	CreateReenrollToken(ctx context.Context, machineID string, capabilities []machine.Capability) (string, machine.Token, error)
+	OfferLocalEnrollment(ctx context.Context) (string, machine.Token, error)
 	PendingTokens(ctx context.Context) ([]machine.Token, error)
 	CancelToken(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
+	Revoke(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Enroll(ctx context.Context, request machine.Enrollment) (machine.Machine, error)
-	Challenge(ctx context.Context, machineID string) ([]byte, error)
 	Authenticate(ctx context.Context, proof machine.Proof) (machine.Machine, error)
-	Connect(ctx context.Context, machineID, address, agentVersion string) (*machine.Session, error)
+	Connect(ctx context.Context, authenticated machine.Machine, address, agentVersion, capabilities, account, unavailable string) (*machine.Session, error)
 	NoteSystem(ctx context.Context, machineID, system string) error
-	WarnIfOpenCloudHost(machine machine.Machine, fingerprint string)
+	NoteServerKey(ctx context.Context, agentID, fingerprint string) error
+	NoteRootDir(ctx context.Context, agentID, root string) error
 	Disconnect(session *machine.Session)
 	Signal(ctx context.Context, sessionToken string) (machineID string, err error)
 	SessionMachine(sessionToken string) (machineID string, err error)
-	Command(machineID, name string, payload any) error
+	Push(machineID string, event machine.StreamEvent) error
 }
 
 // Ce que le serveur attend du composant conteneur : l'API lit ce qui porte
@@ -110,6 +117,7 @@ type ProbeService interface {
 	Create(ctx context.Context, definition probe.Definition) (probe.Probe, error)
 	Update(ctx context.Context, id string, definition probe.Definition) (probe.Probe, error)
 	Delete(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
 	Days(ctx context.Context, id string, span time.Duration) ([]probe.Day, error)
@@ -125,14 +133,15 @@ type ProbeService interface {
 type DirectoryService interface {
 	CreateService(ctx context.Context, definition directory.ServiceDefinition) (directory.Service, error)
 	UpdateService(ctx context.Context, id string, definition directory.ServiceDefinition) (directory.Service, error)
-	// DeleteService refuse avec un *directory.LinkedError tant que des
+	// DeleteService refuse avec un *deletion.RefusedError tant que des
 	// sondes ou des composants de statut visent le service.
 	DeleteService(ctx context.Context, id string) error
-	Review(ctx context.Context, id string) (directory.Service, error)
+	DeleteServicePlan(ctx context.Context, id string) (deletion.Plan, error)
 	SetUnitUpdatePolicy(ctx context.Context, unitID string, policy container.UpdatePolicy) (directory.Service, error)
 	CreateProject(ctx context.Context, definition directory.ProjectDefinition) (directory.Project, error)
 	UpdateProject(ctx context.Context, id string, definition directory.ProjectDefinition) (directory.Project, error)
 	DeleteProject(ctx context.Context, id string) error
+	DeleteProjectPlan(ctx context.Context, id string) (deletion.Plan, error)
 	// L'écart entre ce qui est déclaré et ce que les machines montrent, et
 	// ce qui en découle : adopter un conteneur, ignorer une clé, dire à quoi
 	// se rattache une fiche.
@@ -188,24 +197,31 @@ type HeartbeatService interface {
 	Update(ctx context.Context, id string, definition heartbeat.Definition) (heartbeat.Heartbeat, error)
 	RegenerateToken(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+	DeletePlan(ctx context.Context, id string) (deletion.Plan, error)
 	Pause(ctx context.Context, id string) error
 	Resume(ctx context.Context, id string) error
 	Receive(ctx context.Context, token string, ping heartbeat.Ping) (heartbeat.Heartbeat, error)
 }
 
-// Ce que le serveur attend du composant statut : l'instantané public d'un
-// côté, l'administration des composants, des incidents et de la page de
-// l'autre.
+// Ce que le serveur attend du composant statut : l'instantané public d'une
+// page d'un côté, l'administration des pages, des composants et des
+// incidents de l'autre.
 type StatusService interface {
-	Snapshot(ctx context.Context) (status.Snapshot, error)
-	Page(ctx context.Context) (status.Page, error)
-	SetPage(ctx context.Context, page status.Page) (status.Page, error)
-	Components(ctx context.Context) ([]status.Component, error)
+	Snapshot(ctx context.Context, pageID string) (status.Snapshot, error)
+	ListPages(ctx context.Context) ([]status.Page, error)
+	GetPage(ctx context.Context, id string) (status.Page, error)
+	PageBySlug(ctx context.Context, slug string) (status.Page, error)
+	CreatePage(ctx context.Context, definition status.PageDefinition) (status.Page, error)
+	UpdatePage(ctx context.Context, id string, definition status.PageDefinition) (status.Page, error)
+	DeletePage(ctx context.Context, id string) error
+	DeletePagePlan(ctx context.Context, id string) (deletion.Plan, error)
+	Components(ctx context.Context, pageID string) ([]status.Component, error)
 	GetComponent(ctx context.Context, id string) (status.Component, error)
 	CreateComponent(ctx context.Context, definition status.ComponentDefinition) (status.Component, error)
 	UpdateComponent(ctx context.Context, id string, definition status.ComponentDefinition) (status.Component, error)
 	DeleteComponent(ctx context.Context, id string) error
-	Incidents(ctx context.Context) ([]status.Incident, error)
+	DeleteComponentPlan(ctx context.Context, id string) (deletion.Plan, error)
+	Incidents(ctx context.Context, pageID string) ([]status.Incident, error)
 	GetIncident(ctx context.Context, id string) (status.Incident, error)
 	OpenIncident(ctx context.Context, definition status.IncidentDefinition) (status.Incident, error)
 	AddUpdate(ctx context.Context, id string, next status.IncidentStatus, message string) (status.Incident, error)
@@ -215,17 +231,18 @@ type StatusService interface {
 }
 
 // Ce que le serveur attend du moteur des alertes : la page (une liste
-// bornée), l'acquittement, l'écriture des canaux et des silences. Le reste
-// se lit par le Reader.
+// bornée) et la fiche, avec ce qui les tait ; l'acquittement, l'écriture des
+// canaux et des fenêtres pour taire. Le reste se lit par le Reader.
 type AlertService interface {
 	List(ctx context.Context, status alert.Status) ([]alert.Alert, error)
+	Get(ctx context.Context, id int64) (alert.Alert, error)
 	Acknowledge(ctx context.Context, id int64) (alert.Alert, error)
 	AcknowledgeMany(ctx context.Context, ids []int64) (int, error)
 	CreateChannel(ctx context.Context, definition alert.ChannelDefinition) (alert.Channel, error)
 	UpdateChannel(ctx context.Context, id int64, definition alert.ChannelDefinition) (alert.Channel, error)
 	DeleteChannel(ctx context.Context, id int64) error
-	CreateSilence(ctx context.Context, definition alert.SilenceDefinition) (alert.Silence, error)
-	DeleteSilence(ctx context.Context, id int64) error
+	CreateMute(ctx context.Context, definition alert.MuteDefinition) (alert.Mute, error)
+	DeleteMute(ctx context.Context, id int64) error
 }
 
 // Ce que le serveur attend du notifieur : tester un canal, ou le relais
@@ -233,6 +250,43 @@ type AlertService interface {
 type Notifier interface {
 	Test(ctx context.Context, channel alert.Channel) (alert.Outcome, error)
 	TestMail(ctx context.Context, recipient string) (alert.Outcome, error)
+}
+
+// Ce que le serveur attend du composant action : envoyer un ordre, montrer
+// la clé qui les signe, et, pour l'agent, écrire ce qu'il en a fait. Les
+// runs se lisent par le Reader.
+type ActionService interface {
+	Ping(ctx context.Context, machineID string) (action.Run, error)
+	ServerKey() (public []byte, fingerprint string, err error)
+	PreviousServerKey() string
+	Record(ctx context.Context, machineID string, report agentwire.ActionReport) error
+	Rekey(ctx context.Context, machineID string) error
+	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
+	// La mise à jour de l'agent : ce que la fiche propose, l'ordre, et la
+	// fin de l'ordre au retour de l'agent (voir agentapi).
+	OfferUpdate(ctx context.Context, machineID string) (action.UpdateOffer, error)
+	UpdateAgent(ctx context.Context, machineID string) (action.Run, error)
+	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
+}
+
+// Ce que le serveur attend du composant sshkeys : le relevé d'une machine et
+// la matrice des machines. Le signal de l'agent l'écrit (agentapi).
+type SSHKeysService interface {
+	Record(ctx context.Context, machineID string, report sshkeys.Report) error
+	Machine(ctx context.Context, machineID string) (sshkeys.Snapshot, error)
+	Matrix(ctx context.Context) ([]sshkeys.Snapshot, error)
+}
+
+// Ce que le serveur attend du composant backup : les gestes de la page
+// Sauvegardes. Le dernier ordre du plan se lit par le Reader.
+type Backups interface {
+	Overview(ctx context.Context) (backup.Overview, error)
+	CreateKeyring(ctx context.Context, passphrase string, replace bool) (backup.Keyring, error)
+	CreateDestination(ctx context.Context, definition backup.DestinationDefinition) (backup.Destination, error)
+	DeleteDestination(ctx context.Context, id string) error
+	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
+	DeletePlan(ctx context.Context) error
+	RunNow(ctx context.Context) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.
@@ -260,15 +314,19 @@ type Server struct {
 	status     StatusService
 	alerts     AlertService
 	notifier   Notifier
-	mcp        MCPService
+	apiTokens  APITokenService
+	mcpCheck   *mcpcheck.Checker
+	mcpURL     string
 	auth       AuthService
+	actions    ActionService
+	sshKeys    SSHKeysService
+	backups    Backups
+	deploy     Deployer
 	live       Live
 	logStreams atomic.Int32
-	// Les limiteurs de la racine, par source : /mcp et l'autorisation
-	// OAuth, le point de jeton, et les essais d'identifiants Basic.
-	mcpLimit      *ratelimit.BySource
-	mcpTokenLimit *ratelimit.BySource
-	authLimit     *ratelimit.BySource
+	// Le limiteur de la racine, par source : les essais d'identifiants Basic
+	// et de jetons d'API.
+	authLimit *ratelimit.BySource
 	// Les routes de l'agent, des pings et de la page publique, chacune dans
 	// son paquet avec ses seules dépendances et ses limiteurs ; montées par
 	// routes.go.
@@ -282,18 +340,17 @@ type Server struct {
 	// Les onglets en direct de l'administration ; ceux de la page publique
 	// sont comptés dans son paquet.
 	eventTabs *ratelimit.Slots
-	// Le serveur MCP et son transport HTTP, montés une fois ; voir mcp.go.
-	mcpServer  *gomcp.Server
-	mcpHandler http.Handler
 	// La socket de commande ne sert que les routes du fichier de l'annuaire.
 	controlHandler http.Handler
-	configPath     string
 	publicURL      string
 	trustedProxies []netip.Prefix
 	// Le secret que le mandataire pose dans brand.ProxySecretHeader ; vide :
 	// aucun n'est configuré, l'adresse du pair seule décide (voir auth.go).
 	forwardSecret string
-	listen        string
+	// Les identités admises en mode forward ; vide : toute identité que le
+	// mandataire transmet. Construit une fois, jamais modifié.
+	forwardUsers map[string]bool
+	listen       string
 	// Le front compilé, embarqué : voir spa.go.
 	app     fs.FS
 	handler http.Handler
@@ -317,10 +374,21 @@ type Options struct {
 	Status     StatusService
 	Alerts     AlertService
 	Notifier   Notifier
-	MCP        MCPService
+	// APITokens crée et vérifie les jetons d'API ; voir api_tokens.go.
+	APITokens APITokenService
+	// MCPURL est l'adresse de mcp-maison, vide : aucun ; voir api_settings_mcp.go.
+	MCPURL string
 	// Auth garde l'interface de l'opérateur ; voir auth.go.
 	Auth AuthService
-	Live Live
+	// Actions envoie les ordres signés aux agents ; voir api_actions.go.
+	Actions ActionService
+	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
+	SSHKeys SSHKeysService
+	// Backups pilote la page Sauvegardes ; voir api_backups.go.
+	Backups Backups
+	// Deploy déploie les services déclarés ; voir api_deploy.go.
+	Deploy Deployer
+	Live   Live
 	// PublicLive est le bus des visiteurs de la page de statut : à part,
 	// pour que leurs connexions ne comptent pas parmi les onglets.
 	PublicLive Live
@@ -331,11 +399,11 @@ type Options struct {
 	// ForwardSecret est le secret partagé avec le mandataire du mode forward,
 	// lu par proxysecret.Load ; vide : aucun.
 	ForwardSecret string
+	// ForwardUsers est la liste blanche du mode forward (config.toml) ; vide :
+	// toute identité transmise est admise.
+	ForwardUsers []string
 	// Listen est l'adresse d'écoute : son hôte est un Host reconnu.
 	Listen string
-	// ConfigPath est le fichier de configuration de ce serveur, cité dans
-	// la commande du client MCP local.
-	ConfigPath string
 	// Clock remplace l'horloge, pour les tests ; nil = time.Now.
 	Clock func() time.Time
 }
@@ -372,24 +440,25 @@ func New(opts Options) (*Server, error) {
 		status:         opts.Status,
 		alerts:         opts.Alerts,
 		notifier:       opts.Notifier,
-		mcp:            opts.MCP,
+		apiTokens:      opts.APITokens,
+		mcpURL:         opts.MCPURL,
 		auth:           opts.Auth,
+		actions:        opts.Actions,
+		sshKeys:        opts.SSHKeys,
+		backups:        opts.Backups,
+		deploy:         opts.Deploy,
 		live:           opts.Live,
-		mcpLimit:       ratelimit.NewBySource(mcpPerSourceRate, mcpPerSourceBurst, mcpIdle),
-		mcpTokenLimit:  ratelimit.NewBySource(mcpTokenRate, mcpTokenBurst, mcpIdle),
 		authLimit:      ratelimit.NewBySource(authAttemptRate, authAttemptBurst, authIdle),
 		eventTabs:      ratelimit.NewSlots(maxEventSubscribers),
-		configPath:     opts.ConfigPath,
 		publicURL:      opts.PublicURL,
 		trustedProxies: opts.TrustedProxies,
 		forwardSecret:  opts.ForwardSecret,
+		forwardUsers:   forwardUserSet(opts.ForwardUsers),
 		listen:         opts.Listen,
 		app:            app,
 		clock:          opts.Clock,
 	}
 	if opts.Clock != nil {
-		server.mcpLimit.SetClock(opts.Clock)
-		server.mcpTokenLimit.SetClock(opts.Clock)
 		server.authLimit.SetClock(opts.Clock)
 	}
 	server.agent = agentapi.New(agentapi.Options{
@@ -399,6 +468,8 @@ func New(opts Options) (*Server, error) {
 		Containers:    opts.Containers,
 		Probes:        opts.Probes,
 		Updates:       opts.Updates,
+		Actions:       opts.Actions,
+		SSHKeys:       opts.SSHKeys,
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
@@ -417,10 +488,7 @@ func New(opts Options) (*Server, error) {
 		ClientAddress: server.clientAddress,
 		Clock:         opts.Clock,
 	})
-	// Lecture seule pendant la refonte : les écritures reviendront avec les
-	// actions typées (docs/projet/23-direction.md).
-	server.mcpServer = server.newMCPServer(true)
-	server.mcpHandler = server.newMCPHandler()
+	server.mcpCheck = mcpcheck.New(opts.MCPURL, server.now)
 	server.handler = server.chain(securityHeaders(server.mux()))
 	server.controlHandler = server.chain(server.controlMux())
 	return server, nil
@@ -442,18 +510,4 @@ func (s *Server) now() time.Time {
 // usage : voir settings.Service.
 func (s *Server) language(ctx context.Context) (lang.Code, error) {
 	return s.settings.Language(ctx)
-}
-
-// Command fait du serveur le commandeur des agents : c'est lui qui tient
-// leurs flux. Une machine sans flux est hors ligne pour le relais ; une
-// file pleine est un refus, pas une panne.
-func (s *Server) Command(machineID, name string, payload any) error {
-	err := s.machines.Command(machineID, name, payload)
-	if errors.Is(err, machine.ErrNotConnected) {
-		return container.ErrMachineOffline
-	}
-	if errors.Is(err, machine.ErrBusy) {
-		return fmt.Errorf("command %s: %w", name, err)
-	}
-	return err
 }

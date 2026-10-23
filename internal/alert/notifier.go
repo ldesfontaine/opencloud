@@ -33,6 +33,7 @@ const (
 // Ce que le notifieur attend de la base : noter l'issue d'une livraison.
 type DeliveryStore interface {
 	UpdateDelivery(ctx context.Context, delivery Delivery) error
+	UpdateAuditDelivery(ctx context.Context, delivery Delivery) error
 }
 
 // Outcome est ce qu'un envoi a donné : rien à dire, ou un motif et le
@@ -47,7 +48,7 @@ func (o Outcome) OK() bool {
 }
 
 // Notifier livre les webhooks : une file, quelques ouvriers, trois essais
-// par livraison. Le client compose par la garde de sortie et ne suit
+// tout de suite, puis l'heure du suivant notée en base pour le balayage. Le client compose par la garde de sortie et ne suit
 // aucune redirection : un 3xx est un échec, il n'y a rien à suivre chez
 // un récepteur de webhooks.
 type Notifier struct {
@@ -134,7 +135,9 @@ func (n *Notifier) Run(ctx context.Context) {
 	}
 }
 
-// process joue les essais d'une livraison et note l'issue en base.
+// process joue les essais d'une livraison et note l'issue en base. Une
+// livraison déjà essayée revient du balayage : un seul essai, le suivant
+// est en base.
 func (n *Notifier) process(ctx context.Context, job Job) {
 	body, err := n.renderJob(job)
 	if err != nil {
@@ -147,8 +150,15 @@ func (n *Notifier) process(ctx context.Context, job Job) {
 		n.finish(ctx, job.Delivery, Outcome{Reason: ReasonUnreachable})
 		return
 	}
+	// Un seul essai ici pour le journal : un apply de 200 objets vers un canal
+	// qui répond 429 ne doit pas tenir les ouvriers et retarder les alertes.
+	// Les essais suivants passent par la base.
+	attempts := ImmediateAttempts
+	if job.Delivery.Attempts > 0 || job.Delivery.Event == EventAudit {
+		attempts = 1
+	}
 	var outcome Outcome
-	for attempt := 0; attempt < MaxAttempts; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 && !wait.For(ctx, n.backoffs[min(attempt-1, len(n.backoffs)-1)]) {
 			return
 		}
@@ -171,24 +181,38 @@ func (n *Notifier) finish(ctx context.Context, delivery Delivery, outcome Outcom
 		}
 		return
 	}
+	now := n.now()
 	delivery.Status = DeliveryDelivered
+	delivery.NextAttemptAt = time.Time{}
 	if !outcome.OK() {
 		delivery.Status = DeliveryFailed
+		delivery.NextAttemptAt = nextAttempt(delivery, n.backoffs, now)
 	}
 	delivery.Reason = outcome.Reason
 	delivery.Code = outcome.Code
-	delivery.UpdatedAt = n.now()
-	if err := n.store.UpdateDelivery(ctx, delivery); err != nil && ctx.Err() == nil {
-		n.logger.Error("update alert delivery", "delivery_id", delivery.ID, "error", err)
+	delivery.UpdatedAt = now
+	// La même issue, notée dans la table de la livraison : alertes ou journal.
+	update, label := n.store.UpdateDelivery, "alert"
+	if delivery.Event == EventAudit {
+		update, label = n.store.UpdateAuditDelivery, "audit"
 	}
-	if delivery.Status == DeliveryDelivered {
-		n.logger.Info("alert delivered", "delivery_id", delivery.ID, "channel_id", delivery.ChannelID, "attempts", delivery.Attempts)
+	if err := update(ctx, delivery); err != nil && ctx.Err() == nil {
+		n.logger.Error("update "+label+" delivery", "delivery_id", delivery.ID, "error", err)
+	}
+	switch {
+	case delivery.Status == DeliveryDelivered:
+		n.logger.Info(label+" delivered", "delivery_id", delivery.ID, "channel_id", delivery.ChannelID, "attempts", delivery.Attempts)
+	case delivery.NextAttemptAt.IsZero():
+		n.logger.Warn(label+" delivery abandoned", "delivery_id", delivery.ID, "channel_id", delivery.ChannelID, "attempts", delivery.Attempts)
 	}
 }
 
 func (n *Notifier) renderJob(job Job) (Body, error) {
 	if job.Delivery.Event == EventSummary {
 		return RenderSummary(n.catalogs.For(n.language()), job.Channel.Format, job.Held, n.now(), AlertsLink(n.publicURL))
+	}
+	if job.Delivery.Event == EventAudit {
+		return RenderAudit(n.catalogs.For(n.language()), job.Channel.Format, job.Audit, n.now(), JournalLink(n.publicURL))
 	}
 	return n.render(job.Channel.Format, job.Delivery.Event, job.Alert)
 }
@@ -259,13 +283,14 @@ func outcomeOf(statusCode int) Outcome {
 	return Outcome{Reason: ReasonStatus, Code: statusCode}
 }
 
-// priorityOf : une alerte part en priorité haute ; une résolution, un test
-// et un résumé en priorité normale, sauf un résumé qui retient du danger.
+// priorityOf : une alerte part en priorité haute ; une résolution, un test,
+// un résumé et un événement du journal en priorité normale, sauf un résumé
+// qui retient du danger.
 func priorityOf(event Event, urgent bool) string {
 	if event == EventSummary && urgent {
 		return "high"
 	}
-	if event == EventResolved || event == EventTest || event == EventSummary {
+	if event == EventResolved || event == EventTest || event == EventSummary || event == EventAudit {
 		return "default"
 	}
 	return "high"

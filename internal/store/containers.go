@@ -12,7 +12,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/container"
 )
 
-const containerColumns = `id, machine_id, kind, name, group_name, container_id, image, image_id, state, exit_code,
+const containerColumns = `id, machine_id, name, group_name, container_id, image, image_id, state, exit_code,
 	health, restart_count, ports, network_mode, privileged, depends_on, created_at, started_at, finished_at, first_seen_at, last_seen_at, archived_at,
 	compose_service, compose_dir, compose_file, oom_killed, killed, label_service, label_unit, label_invalid`
 
@@ -75,15 +75,32 @@ const containerNeedsAttention = `CASE state
 	WHEN 'exited' THEN NOT (oom_killed = 0 AND killed = 0 AND exit_code IN (0, 137, 143))
 	ELSE 0 END`
 
-// CountContainers compte les conteneurs vivants et ceux qui demandent
-// attention, en une requête.
-func (db *DB) CountContainers(ctx context.Context) (total, attention int, err error) {
-	err = db.sql.QueryRowContext(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(`+containerNeedsAttention+`), 0) FROM containers WHERE archived_at IS NULL`).Scan(&total, &attention)
-	if err != nil {
-		return 0, 0, fmt.Errorf("count containers: %w", err)
+// containerObserved est machine.Observed écrit en SQL : l'agent actif de la
+// machine du conteneur a signalé depuis observedSince. Un conteneur dont la
+// machine n'est pas observée ne demande rien : l'alerte « machine perdue »
+// porte l'information, et son état n'est plus connu.
+const containerObserved = `EXISTS (SELECT 1 FROM agents
+	WHERE agents.machine_id = containers.machine_id AND agents.revoked_at IS NULL AND agents.last_seen_at >= ?)`
+
+// CountContainers compte les conteneurs vivants, tous ; ceux qui demandent
+// attention parmi ceux dont la machine est observée depuis observedSince
+// (machine.ObservedSince) ; et ceux dont la machine ne l'est pas, d'état
+// inconnu. En une requête.
+func (db *DB) CountContainers(ctx context.Context, observedSince time.Time) (total, attention, unknown int, err error) {
+	// Les dates sont stockées à la seconde : arrondir vers le haut garde
+	// l'égalité avec machine.Observed, qui compare à la nanoseconde.
+	since := observedSince.Truncate(time.Second)
+	if since.Before(observedSince) {
+		since = since.Add(time.Second)
 	}
-	return total, attention, nil
+	err = db.sql.QueryRowContext(ctx, `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN observed THEN attention ELSE 0 END), 0), COALESCE(SUM(NOT observed), 0)
+		FROM (SELECT `+containerObserved+` AS observed, `+containerNeedsAttention+` AS attention
+			FROM containers WHERE archived_at IS NULL)`, since.Unix()).Scan(&total, &attention, &unknown)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("count containers: %w", err)
+	}
+	return total, attention, unknown, nil
 }
 
 // attachNetworks lit en une requête les appartenances des fiches que la
@@ -181,7 +198,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 	// plutôt que de faire échouer la clé étrangère et perdre le rapport.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO containers (`+containerColumns+`, unit_id, match_level)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 			(SELECT id FROM service_units WHERE id = ?),
 			CASE WHEN EXISTS (SELECT 1 FROM service_units WHERE id = ?) THEN ? ELSE '' END)
 		ON CONFLICT (id) DO UPDATE SET
@@ -194,7 +211,7 @@ func upsertContainer(ctx context.Context, tx *sql.Tx, item container.Container) 
 			compose_service = excluded.compose_service, compose_dir = excluded.compose_dir, compose_file = excluded.compose_file,
 			label_service = excluded.label_service, label_unit = excluded.label_unit, label_invalid = excluded.label_invalid,
 			unit_id = excluded.unit_id, match_level = excluded.match_level`,
-		item.ID, item.MachineID, string(item.Kind), item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
+		item.ID, item.MachineID, item.Name, item.Group, item.ContainerID, item.Image, item.ImageID,
 		string(item.State), item.ExitCode, string(item.Health), item.RestartCount, ports,
 		item.NetworkMode, boolToInt(item.Privileged), dependsOn,
 		item.CreatedAt.Unix(), nullableTime(item.StartedAt), nullableTime(item.FinishedAt),
@@ -491,12 +508,12 @@ func (db *DB) PurgeContainers(ctx context.Context, transitionsBefore, archivedBe
 
 func scanContainer(row scanner) (container.Container, error) {
 	var item container.Container
-	var kind, state, health, ports, dependsOn, matchLevel, policy string
+	var state, health, ports, dependsOn, matchLevel, policy string
 	var unitID sql.NullString
 	var privileged, oomKilled, killed, labelInvalid int
 	var createdAt, firstSeen, lastSeen int64
 	var startedAt, finishedAt, archivedAt sql.NullInt64
-	err := row.Scan(&item.ID, &item.MachineID, &kind, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
+	err := row.Scan(&item.ID, &item.MachineID, &item.Name, &item.Group, &item.ContainerID, &item.Image, &item.ImageID,
 		&state, &item.ExitCode, &health, &item.RestartCount, &ports, &item.NetworkMode, &privileged, &dependsOn,
 		&createdAt, &startedAt, &finishedAt, &firstSeen, &lastSeen, &archivedAt,
 		&item.ComposeService, &item.ComposeDir, &item.ComposeFile, &oomKilled, &killed, &item.Labels.Service, &item.Labels.Unit, &labelInvalid,
@@ -512,7 +529,8 @@ func scanContainer(row scanner) (container.Container, error) {
 	item.OOMKilled = oomKilled != 0
 	item.Killed = killed != 0
 	item.Labels.Invalid = labelInvalid != 0
-	item.Kind, item.State, item.Health = container.Kind(kind), container.State(state), container.Health(health)
+	// Un seul genre de conteneur : la base ne le garde pas.
+	item.Kind, item.State, item.Health = container.KindContainer, container.State(state), container.Health(health)
 	item.UpdatePolicy = container.UpdatePolicy(policy)
 	item.Privileged = privileged != 0
 	if err := json.Unmarshal([]byte(ports), &item.Ports); err != nil {

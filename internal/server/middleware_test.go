@@ -102,9 +102,9 @@ func TestChain_KeepsTheFlusherForBothStreams(t *testing.T) {
 	}
 }
 
-// Le jeton d'un ping et la requête d'une autorisation OAuth sont des
-// secrets : le journal des requêtes ne les écrit jamais, même en debug.
-func TestLogRequest_HidesThePingTokenAndTheAuthorizeQuery(t *testing.T) {
+// Le jeton d'un ping est un secret : le journal des requêtes ne l'écrit
+// jamais, même en debug.
+func TestLogRequest_HidesThePingToken(t *testing.T) {
 	var journal bytes.Buffer
 	server := newTestServer(t)
 	server.logger = slog.New(slog.NewTextHandler(&journal, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -113,7 +113,6 @@ func TestLogRequest_HidesThePingTokenAndTheAuthorizeQuery(t *testing.T) {
 		"/ping/hb_SECRETTOKEN",
 		"/ping/hb_SECRETTOKEN/start",
 		"/ping/hb_SECRETTOKEN/3",
-		"/oauth/authorize?code_challenge=SECRETCHALLENGE&state=SECRETSTATE&client_id=oc",
 	} {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, target, nil))
 	}
@@ -121,7 +120,7 @@ func TestLogRequest_HidesThePingTokenAndTheAuthorizeQuery(t *testing.T) {
 	if strings.Contains(logged, "SECRET") {
 		t.Fatalf("a secret reached the journal:\n%s", logged)
 	}
-	for _, want := range []string{"path=/ping/[redacted] ", "path=/ping/[redacted]/start", "path=/ping/[redacted]/3", "path=/oauth/authorize?[redacted]"} {
+	for _, want := range []string{"path=/ping/[redacted] ", "path=/ping/[redacted]/start", "path=/ping/[redacted]/3"} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("journal lacks %q:\n%s", want, logged)
 		}

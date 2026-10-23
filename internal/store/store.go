@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,7 +55,7 @@ func Open(ctx context.Context, stateDir *os.Root) (*DB, error) {
 }
 
 // openHandle ouvre la base sans y toucher : les tests s'en servent pour
-// poser un schéma ancien, avant de laisser Open le mettre à niveau.
+// rejouer les anciennes migrations, ou poser un schéma de leur choix.
 func openHandle(stateDir *os.Root) (*sql.DB, error) {
 	path := filepath.Join(stateDir.Name(), fileName)
 	dsn := "file:" + path + "?" + url.Values{
@@ -80,16 +79,11 @@ func (db *DB) Close() error {
 	return db.sql.Close()
 }
 
-// migrate met la base au niveau du schéma embarqué.
+// migrate applique dans l'ordre les fichiers SQL non encore notés dans
+// schema_migrations, chacun dans sa transaction. Une base qui note une
+// version que le binaire n'embarque pas est refusée : elle vient d'un binaire
+// plus récent, ou d'avant le schéma unique, et la monter la corromprait.
 func (db *DB) migrate(ctx context.Context) error {
-	return db.migrateTo(ctx, math.MaxInt)
-}
-
-// migrateTo applique dans l'ordre les fichiers SQL non encore notés dans
-// schema_migrations, jusqu'à la version last comprise, chacun dans sa
-// transaction. Les tests s'arrêtent avant la dernière pour y semer de
-// l'existant.
-func (db *DB) migrateTo(ctx context.Context, last int) error {
 	if _, err := db.sql.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)`,
 	); err != nil {
@@ -103,13 +97,32 @@ func (db *DB) migrateTo(ctx context.Context, last int) error {
 	if err != nil {
 		return err
 	}
+	if err := refuseUnknownVersions(applied, names); err != nil {
+		return err
+	}
 	for _, name := range names {
 		version := migrationVersion(name)
-		if applied[version] || version > last {
+		if applied[version] {
 			continue
 		}
 		if err := db.apply(ctx, name, version); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ErrUnknownSchema : la base porte une migration que ce binaire ne connaît pas.
+var ErrUnknownSchema = errors.New("store: database schema is unknown to this binary")
+
+func refuseUnknownVersions(applied map[int]bool, names []string) error {
+	known := map[int]bool{}
+	for _, name := range names {
+		known[migrationVersion(name)] = true
+	}
+	for version := range applied {
+		if !known[version] {
+			return fmt.Errorf("%w: migration %03d is recorded but not embedded; restore the backup made before the upgrade, or start from an empty state directory", ErrUnknownSchema, version)
 		}
 	}
 	return nil
@@ -137,26 +150,7 @@ func (db *DB) apply(ctx context.Context, name string, version int) error {
 	if err != nil {
 		return fmt.Errorf("read migration %s: %w", name, err)
 	}
-	return db.applyContent(ctx, name, version, string(content), migrationSteps[version], migrationChecks[version])
-}
-
-// migrationStep est le Go d'une migration qui ne s'écrit pas en SQL sans se
-// dupliquer : il passe avant le SQL de sa version, dans la même transaction.
-type migrationStep func(ctx context.Context, tx *sql.Tx) error
-
-// migrationSteps range les migrations qui demandent du Go : le
-// rapprochement et le nommage ne s'écrivent pas en SQL sans se dupliquer.
-// L'étape lit et écrit avec ses propres requêtes, figées sur le schéma de sa
-// version, jamais avec celles du store, qui suivent le schéma courant.
-var migrationSteps = map[int]migrationStep{
-	24: linkContainersToDirectory,
-}
-
-// migrationChecks passent après le SQL de leur version, avant la vérification
-// des clés étrangères : une migration qui reconstruit des tables y compte ce
-// qu'elle devait garder.
-var migrationChecks = map[int]migrationStep{
-	24: verifyContainerLinks,
+	return db.applyContent(ctx, name, version, string(content))
 }
 
 // applyContent joue une migration hors clés étrangères, puis les vérifie
@@ -167,7 +161,7 @@ var migrationChecks = map[int]migrationStep{
 // connexion à part, avant le BEGIN, et se remet avant de la rendre au pool.
 // Une clé étrangère violée après coup annule tout : la migration est faite en
 // entier ou pas du tout.
-func (db *DB) applyContent(ctx context.Context, name string, version int, content string, step, check migrationStep) (err error) {
+func (db *DB) applyContent(ctx context.Context, name string, version int, content string) (err error) {
 	conn, err := db.sql.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("connect for migration %s: %w", name, err)
@@ -181,18 +175,8 @@ func (db *DB) applyContent(ctx context.Context, name string, version int, conten
 		return fmt.Errorf("begin migration %s: %w", name, err)
 	}
 	defer tx.Rollback()
-	if step != nil {
-		if err := step(ctx, tx); err != nil {
-			return fmt.Errorf("migration %s: %w", name, err)
-		}
-	}
 	if _, err := tx.ExecContext(ctx, content); err != nil {
 		return fmt.Errorf("apply migration %s: %w", name, err)
-	}
-	if check != nil {
-		if err := check(ctx, tx); err != nil {
-			return fmt.Errorf("migration %s: %w", name, err)
-		}
 	}
 	if err := checkForeignKeys(ctx, tx); err != nil {
 		return fmt.Errorf("migration %s: %w", name, err)

@@ -48,6 +48,7 @@ func nextcloudDBContainerID() string { return container.ID(remoteID, strings.Rep
 func TestDirectoryAPI_GapsAndProposalMatchGoldenFiles(t *testing.T) {
 	server := newTestServer(t)
 	server.enroll(t, "vps-paris-1", remoteID)
+	server.signaledAt(t, remoteID, testNow)
 	server.seedContainers(t)
 	server.seedGaps(t)
 	cases := map[string]string{

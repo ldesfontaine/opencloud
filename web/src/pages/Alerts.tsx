@@ -8,7 +8,7 @@ import { useT } from "../i18n/context";
 import { alertsSubtitle } from "../lib/alerts";
 import { AlertsTab } from "./alerts/AlertsTab";
 import { ChannelsTab } from "./alerts/ChannelsTab";
-import { SilencesTab } from "./alerts/SilencesTab";
+import { MutesTab } from "./alerts/MutesTab";
 import { NotFound } from "./NotFound";
 
 const tabs = [
@@ -55,7 +55,7 @@ export function Alerts() {
       {tab === "acquittees" && <AlertsTab status="open" acknowledged={true} />}
       {tab === "resolues" && <AlertsTab status="resolved" acknowledged={null} />}
       {tab === "canaux" && <ChannelsTab />}
-      {tab === "silences" && <SilencesTab />}
+      {tab === "silences" && <MutesTab />}
     </>
   );
 }

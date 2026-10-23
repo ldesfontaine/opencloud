@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
@@ -18,10 +22,13 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/dockerwatch"
 	"github.com/ldesfontaine/opencloud/internal/hostinfo"
 	"github.com/ldesfontaine/opencloud/internal/lang"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
 	"github.com/ldesfontaine/opencloud/internal/registry"
+	"github.com/ldesfontaine/opencloud/internal/release"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/sampler"
+	"github.com/ldesfontaine/opencloud/internal/sshkeys"
 	"github.com/ldesfontaine/opencloud/internal/update"
 	"github.com/ldesfontaine/opencloud/internal/wait"
 )
@@ -29,6 +36,10 @@ import (
 // ErrIdentityRefused : le serveur ne reconnaît plus cette machine ; seul un
 // nouvel enrôlement la ramène.
 var ErrIdentityRefused = errors.New("identity refused by the server")
+
+// ErrServerKeyMissing : la réponse à l'enrôlement ne porte pas de clé du
+// serveur lisible ; l'agent n'a rien à épingler, rien n'est écrit.
+var ErrServerKeyMissing = errors.New("enrollment answer carries no server key")
 
 const (
 	DefaultSignalInterval = 30 * time.Second
@@ -41,6 +52,9 @@ const (
 
 type Options struct {
 	StateDir *os.Root
+	// UnsafeState est posé par la commande quand CheckStateDir refuse ; l'agent
+	// n'a alors que observe.
+	UnsafeState error
 	// Server et Token ne servent qu'au premier démarrage, pour s'enrôler.
 	Server string
 	Token  string
@@ -51,6 +65,24 @@ type Options struct {
 	// Language est la langue de l'opérateur, donnée par la commande
 	// d'installation ; l'identité la garde ensuite.
 	Language lang.Code
+	// Rights sont les droits que la commande d'installation donne
+	// (-rights) ; l'identité les garde ensuite. Vides : observe seul.
+	Rights []machine.Capability
+	// ReleaseKey est la clé de version que ce binaire embarque ; HasReleaseKey
+	// est faux quand il n'en a pas (agent.update est alors refusé).
+	ReleaseKey    release.PublicKey
+	HasReleaseKey bool
+	// executable rend le chemin du binaire qui tourne, pour savoir s'il vient
+	// de <état>/bin/ ; nil vaut os.Executable. Non exporté : seuls les tests
+	// du paquet le remplacent, la commande ne peut pas le poser.
+	executable func() (string, error)
+	// readSSHKeys relève les clés SSH autorisées de la machine ; nil vaut la
+	// lecture de la vraie machine. Non exporté : seuls les tests du paquet le
+	// remplacent (ils ne lisent pas les comptes de l'hôte).
+	readSSHKeys func() (sshkeys.Report, bool)
+	// RootDir est la racine des services déployés (-root-dir), pour le premier
+	// lancement ; l'identité la garde ensuite. Vide : brand.WorkspaceRoot.
+	RootDir string
 	// Version est celle du binaire ; le serveur l'affiche.
 	Version        string
 	SignalInterval time.Duration
@@ -68,6 +100,11 @@ type Options struct {
 // Run enrôle l'agent si besoin, puis tient le flux ouvert jusqu'à ce que le
 // contexte s'arrête ou que le serveur refuse l'identité pour de bon.
 func Run(ctx context.Context, opts Options) error {
+	// Une mise à jour réussie arrête tout : les sondes, le veilleur Docker et
+	// le flux vivent sous ce contexte, que la bascule du lien annule.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	var updated atomic.Bool
 	if opts.SignalInterval <= 0 {
 		opts.SignalInterval = DefaultSignalInterval
 	}
@@ -78,10 +115,23 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	// Avant tout ce qui lit les droits : le flux les rapporte, le juge des
+	// ordres les applique, et tous deux reçoivent cette identité.
+	if opts.UnsafeState != nil {
+		identity.narrowed = true
+		opts.Logger.Warn("state dir is not safe, writing rights are off", "error", opts.UnsafeState.Error())
+	}
 	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return err
 	}
+	client.SetCapabilities(identity.Capabilities())
+	client.SetRoot(identity.Root())
+	// Le compte est dit à chaque ouverture du flux, et une fois au journal :
+	// c'est lui qui décide de ce que la machine laisse faire.
+	account := CurrentAccount()
+	client.SetAccount(account)
+	opts.Logger.Info("agent running as", "uid", account.UID, "name", AccountLabel(account))
 	// Ce que l'opérateur doit régler sans que l'agent s'arrête s'écrit au
 	// journal dans sa langue.
 	catalogs, err := lang.Load()
@@ -102,27 +152,87 @@ func Run(ctx context.Context, opts Options) error {
 	// Les images de la machine se vérifient contre leur registre, avec le
 	// trousseau Docker de la machine ; les constats attendent aussi.
 	constated := &images{}
-	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: registry.DefaultConfigPath()})), constated, opts.Logger)
+	updater := update.NewRunner(docker, update.NewChecker(docker, registry.New(registry.File{Path: dockerConfigPath()})), constated, opts.Logger)
 	go updater.Run(ctx)
 	// Les sondes tournent tant que l'agent vit : leur jeu vient du serveur,
 	// mais une coupure du flux ne les arrête pas, le tampon garde les essais.
 	checked := &results{}
-	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots), opts.Logger)
+	// Le réseau local ne s'ouvre aux sondes que par probe.lan, lu une fois
+	// ici : changer le droit, c'est ré-enrôler. Un état mal gardé n'a que
+	// observe, donc le ferme aussi.
+	allowLAN := machine.HasCapability(identity.Capabilities(), machine.CapabilityProbeLAN)
+	prober := probe.NewRunner(checked, probe.NewChecker(opts.Roots, allowLAN), opts.Logger)
 	go prober.Run(ctx)
-	return keepConnected(ctx, client, identity, &pending{readings: readings, reports: observed, results: checked, images: constated, logs: watcher, probes: prober, updates: updater}, catalogs.For(identity.Language), opts)
+	// Les ordres signés : jugés et exécutés à leur arrivée, leurs résultats
+	// attendent le signal suivant, qu'ils avancent.
+	actions := newActionResults()
+	orders := newOrderRunner(opts.StateDir, identity, opts.Version, opts.DockerSocket, actions, opts.Logger)
+	// Les ordres longs (recevoir une sauvegarde) s'exécutent à part, un à la
+	// fois, et vivent avec l'agent comme les sondes : une coupure du flux ne
+	// les interrompt pas, seul leur téléchargement échoue.
+	orders.fetch.use(client)
+	orders.updater.key, orders.updater.hasKey = opts.ReleaseKey, opts.HasReleaseKey
+	if opts.executable != nil {
+		orders.updater.executable = opts.executable
+	}
+	orders.updater.restart = func() {
+		updated.Store(true)
+		stop()
+	}
+	go orders.worker.run(ctx)
+	// Les clés SSH autorisées : relevées en lecture seule, à part du flux.
+	collectSSHKeys := opts.readSSHKeys
+	if collectSSHKeys == nil {
+		collectSSHKeys = readSSHKeys
+	}
+	sshReported := &sshReports{}
+	go sshKeysLoop(ctx, collectSSHKeys, sshReported, sshKeysPeriod, opts.Logger)
+	err = keepConnected(ctx, client, identity, &pending{
+		readings: readings, reports: observed, results: checked, images: constated, actions: actions, sshKeys: sshReported,
+		logs: watcher, probes: prober, updates: updater, orders: orders,
+	}, catalogs.For(identity.Language), opts)
+	if updated.Load() {
+		return ErrUpdated
+	}
+	return err
 }
 
 // pending est ce que l'agent a à livrer, et ce qui sait servir les
-// journaux, les sondes et les vérifications d'images quand le serveur
-// les demande.
+// journaux, les sondes, les vérifications d'images et les ordres quand le
+// serveur les demande.
 type pending struct {
 	readings *buffer
 	reports  *reports
 	results  *results
 	images   *images
+	actions  *actionResults
+	sshKeys  *sshReports
 	logs     container.LogSource
 	probes   probe.Assignable
 	updates  update.Assignable
+	orders   *orderRunner
+	// Les droits que le compte ne peut pas exercer, tels que le dernier flux
+	// les a dits : le journal ne parle que d'un changement.
+	unavailable map[string]string
+}
+
+// judgeRights juge ce que le compte de l'agent ne peut pas exercer, le met sur
+// le client pour l'ouverture du flux, et ne le dit au journal que s'il a changé.
+func (p *pending) judgeRights(ctx context.Context, client *Client, identity Identity, logger *slog.Logger) {
+	unavailable := judgeRights(ctx, identity, p.orders.checks)
+	client.SetUnavailable(unavailable)
+	if machine.FormatUnavailable(unavailable) == machine.FormatUnavailable(p.unavailable) {
+		return
+	}
+	for _, right := range machine.JudgedCapabilities() {
+		if reason := unavailable[right]; reason != "" && reason != p.unavailable[right] {
+			logger.Warn("rights not exercisable", "right", right, "reason", reason)
+		}
+	}
+	if len(unavailable) == 0 && len(p.unavailable) > 0 {
+		logger.Info("every right can be exercised again")
+	}
+	p.unavailable = unavailable
 }
 
 func sampleLoop(ctx context.Context, probe *sampler.Sampler, readings *buffer, opts Options) {
@@ -163,10 +273,15 @@ func loadOrEnroll(ctx context.Context, opts Options) (Identity, error) {
 // enroll tire l'identité, la présente avec le jeton, puis l'écrit avec l'id
 // que le serveur a retenu : un ré-enrôlement garde l'id de la machine.
 func enroll(ctx context.Context, opts Options) (Identity, error) {
-	identity, err := NewIdentity(opts.Server, opts.Pin, opts.Language)
+	rights, err := machine.NormalizeCapabilities(opts.Rights)
 	if err != nil {
 		return Identity{}, err
 	}
+	identity, err := NewIdentity(opts.Server, opts.Pin, opts.Language, rights)
+	if err != nil {
+		return Identity{}, err
+	}
+	identity.RootDir = opts.RootDir
 	client, err := NewClient(identity.Server, identity.Pin, opts.Version, opts.AllowPlain)
 	if err != nil {
 		return Identity{}, err
@@ -175,12 +290,19 @@ func enroll(ctx context.Context, opts Options) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
+	serverKey, err := base64.StdEncoding.DecodeString(response.ServerKey)
+	if err != nil || len(serverKey) != ed25519.PublicKeySize {
+		return Identity{}, ErrServerKeyMissing
+	}
 	identity.MachineID = response.MachineID
+	identity.AgentID = response.AgentID
+	identity.ServerKey = serverKey
 	identity.EnrolledAt = time.Now().UTC()
 	if err := SaveIdentity(opts.StateDir, identity); err != nil {
 		return Identity{}, err
 	}
-	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name)
+	opts.Logger.Info("enrolled", "machine_id", identity.MachineID, "name", response.Name, "rights", strings.Join(identity.Rights, ","),
+		"server_key", identity.ServerKeyFingerprint())
 	return identity, nil
 }
 
@@ -229,17 +351,27 @@ func keepConnected(ctx context.Context, client *Client, identity Identity, pendi
 func connectOnce(ctx context.Context, client *Client, identity Identity, pending *pending, opts Options) error {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// La clé du serveur que le flux redit est celle épinglée en ce moment :
+	// une rotation l'a peut-être changée depuis le démarrage.
+	identity.ServerKey = pending.orders.serverKey()
+	// Le compte et la machine ont pu changer depuis la dernière ouverture : un
+	// dossier rendu, un groupe docker ajouté. Les droits se jugent à neuf.
+	pending.judgeRights(streamCtx, client, identity, opts.Logger)
 	stream, err := client.OpenStream(streamCtx, identity)
 	if err != nil {
 		return err
 	}
 	defer stream.Close()
+	// Les colis se téléchargent sous le jeton de ce flux, et tant qu'il vit.
+	pending.orders.fetch.setSession(stream.Session)
+	defer pending.orders.fetch.setSession("")
 	opts.Logger.Info("connected", "server", identity.Server)
 	pending.reports.markReplayed()
 	pending.results.markReplayed()
 	pending.images.markReplayed()
+	pending.sshKeys.markReplayed()
 
-	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, opts.Logger)
+	commands := newCommandRunner(streamCtx, client, stream.Session, pending.logs, pending.probes, pending.updates, pending.orders, opts.Logger)
 	lost := make(chan error, 1)
 	go func() { lost <- stream.Follow(commands.handle) }()
 
@@ -252,6 +384,11 @@ func connectOnce(ctx context.Context, client *Client, identity Identity, pending
 		case err := <-lost:
 			return err
 		case <-ticker.C:
+			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
+				return err
+			}
+		case <-pending.actions.ready:
+			// La réponse à un ordre part sans attendre le prochain signal.
 			if err := signal(ctx, client, stream.Session, pending, opts.Logger); err != nil {
 				return err
 			}
@@ -273,8 +410,10 @@ func signal(ctx context.Context, client *Client, session string, pending *pendin
 			containers: pending.reports.take(),
 			probes:     pending.results.take(),
 			images:     pending.images.take(),
+			actions:    pending.actions.take(),
+			sshKeys:    pending.sshKeys.take(),
 		}
-		rejected, err := client.Signal(ctx, session, sent.readings, sent.containers, sent.probes, sent.images)
+		rejected, err := client.Signal(ctx, session, sent.request())
 		var refused *ServerError
 		switch {
 		case errors.As(err, &refused) && refused.Status == http.StatusTooManyRequests:
@@ -308,6 +447,12 @@ type signalBatch struct {
 	containers *container.Report
 	probes     *probe.Report
 	images     *update.Report
+	actions    *agentwire.ActionReport
+	sshKeys    *sshkeys.Report
+}
+
+func (b signalBatch) request() agentwire.SignalRequest {
+	return agentwire.SignalRequest{Readings: b.readings, Services: b.containers, Probes: b.probes, Images: b.images, Actions: b.actions, SSHKeys: b.sshKeys}
 }
 
 // restoreAfter remet dans le tampon les sections qui suivent celle
@@ -338,6 +483,10 @@ func (b signalBatch) restore(pending *pending, section string) {
 		pending.results.restore(b.probes)
 	case agentwire.SectionImages:
 		pending.images.restore(b.images)
+	case agentwire.SectionActions:
+		pending.actions.restore(b.actions)
+	case agentwire.SectionSSHKeys:
+		pending.sshKeys.restore(b.sshKeys)
 	}
 }
 

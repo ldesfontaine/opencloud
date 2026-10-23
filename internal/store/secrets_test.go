@@ -39,7 +39,7 @@ func openSecretsDB(t *testing.T) *DB {
 }
 
 // insertPlaintextRows écrit en SQL brut des secrets en clair : un mot de
-// passe, un canal, une tâche sans empreinte. Aucun chemin d'openCloud ne
+// passe, un canal, une tâche au jeton en clair. Aucun chemin d'openCloud ne
 // les écrit ainsi ; les tests s'assurent qu'ils ne sont pas pris pour des
 // secrets.
 func insertPlaintextRows(t *testing.T, db *DB) {
@@ -51,7 +51,7 @@ func insertPlaintextRows(t *testing.T, db *DB) {
 	}{
 		{`INSERT INTO settings (id, mail_host, mail_password, updated_at) VALUES (1, 'smtp.example.org', ?, 1)`, []any{plainMailPassword}},
 		{`INSERT INTO alert_channels (id, name, url, format, secret, min_severity, created_at) VALUES (7, 'chat', ?, 'discord', ?, 'attention', 1)`, []any{plainChannelURL, plainChannelKey}},
-		{`INSERT INTO heartbeats (id, token, name, status, interval_seconds, grace_seconds, created_at) VALUES ('job1', ?, 'backup', 'new', 3600, 0, 1)`, []any{plainPingToken}},
+		{`INSERT INTO heartbeats (id, token_sealed, token_lookup, name, status, interval_seconds, grace_seconds, created_at) VALUES ('job1', ?, 'lookup', 'backup', 'new', 3600, 0, 1)`, []any{plainPingToken}},
 	} {
 		if _, err := db.sql.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
@@ -71,7 +71,7 @@ func insertSealedRows(t *testing.T, db *DB) {
 		{`INSERT INTO settings (id, mail_host, mail_password, updated_at) VALUES (1, 'smtp.example.org', ?, 1)`, []any{mustSeal(t, db, plainMailPassword, settingsPasswordScope())}},
 		{`INSERT INTO alert_channels (id, name, url, format, secret, min_severity, created_at) VALUES (7, 'chat', ?, 'discord', ?, 'attention', 1)`,
 			[]any{mustSeal(t, db, plainChannelURL, channelScope("url", 7)), mustSeal(t, db, plainChannelKey, channelScope("secret", 7))}},
-		{`INSERT INTO heartbeats (id, token, name, status, interval_seconds, grace_seconds, created_at) VALUES ('job1', '', 'backup', 'new', 3600, 0, 1)`, nil},
+		{`INSERT INTO heartbeats (id, token_sealed, token_lookup, name, status, interval_seconds, grace_seconds, created_at) VALUES ('job1', '', '', 'backup', 'new', 3600, 0, 1)`, nil},
 	} {
 		if _, err := db.sql.ExecContext(ctx, statement.query, statement.args...); err != nil {
 			t.Fatal(err)
@@ -206,14 +206,14 @@ func TestWritesSealWhatTheyStore(t *testing.T) {
 		"mail_password":  `SELECT mail_password FROM settings`,
 		"channel url":    `SELECT url FROM alert_channels`,
 		"channel secret": `SELECT secret FROM alert_channels`,
-		"ping token":     `SELECT token FROM heartbeats`,
+		"ping token":     `SELECT token_sealed FROM heartbeats`,
 	} {
 		if value := rawColumn(t, db, query); !seal.IsSealed(value) {
 			t.Errorf("%s is stored in the clear: %q", name, value)
 		}
 	}
-	if hash := rawColumn(t, db, `SELECT token_hash FROM heartbeats`); hash != heartbeat.HashToken(plainPingToken) {
-		t.Errorf("token_hash %q is not the hash of the token", hash)
+	if lookup := rawColumn(t, db, `SELECT token_lookup FROM heartbeats`); lookup != heartbeat.HashToken(plainPingToken) {
+		t.Errorf("token_lookup %q is not the hash of the token", lookup)
 	}
 
 	channel, err := db.GetChannel(ctx, id)
@@ -304,5 +304,34 @@ func TestForgetSecrets_EmptiesWhatWasLostAndRenewsPingTokens(t *testing.T) {
 	again, tokensAgain, err := db.ForgetSecrets(ctx, heartbeat.NewToken)
 	if err != nil || again != 0 || tokensAgain != 1 {
 		t.Fatalf("replay: %d channels, %d tokens, %v", again, tokensAgain, err)
+	}
+}
+
+// La rotation de secret.key : avec la neuve devant l'ancienne, chaque
+// secret se rescelle avec la neuve ; ensuite la neuve seule ouvre tout,
+// l'ancienne plus rien.
+func TestResealSecrets_MovesEverySecretToTheNewKey(t *testing.T) {
+	db := openSecretsDB(t)
+	ctx := context.Background()
+	old := seal.Generate()
+	db.SetSealer(old)
+	insertSealedRows(t, db)
+
+	rotating := old.WithNewKey()
+	db.SetSealer(rotating)
+	resealed, err := db.ResealSecrets(ctx)
+	if err != nil || resealed != 4 {
+		t.Fatalf("resealed %d: %v", resealed, err)
+	}
+	db.SetSealer(rotating.Current())
+	if err := db.VerifySealedSecrets(ctx); err != nil {
+		t.Fatalf("the new key alone: %v", err)
+	}
+	if settings, err := db.LoadSettings(ctx); err != nil || settings.MailPassword != plainMailPassword {
+		t.Fatalf("settings after the rotation: %+v %v", settings, err)
+	}
+	db.SetSealer(old)
+	if err := db.VerifySealedSecrets(ctx); !errors.Is(err, ErrSecretUnreadable) {
+		t.Fatalf("the old key still opens: %v", err)
 	}
 }

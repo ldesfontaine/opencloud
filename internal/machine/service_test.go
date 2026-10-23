@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 )
 
 // Un faux magasin en mémoire : le vrai est testé chez lui, et le service
@@ -21,11 +23,6 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{machines: map[string]Machine{}, tokens: map[string]Token{}}
-}
-
-func (f *fakeStore) SaveLocalMachine(_ context.Context, m Machine) error {
-	f.machines[m.ID] = m
-	return nil
 }
 
 func (f *fakeStore) ListMachines(context.Context) ([]Machine, error) {
@@ -49,11 +46,19 @@ func (f *fakeStore) DeleteMachine(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeStore) TouchMachine(_ context.Context, id string, at time.Time) error {
-	m := f.machines[id]
-	m.LastSeenAt = at
-	f.machines[id] = m
-	return nil
+func (f *fakeStore) MachineDeletionPlan(context.Context, string) (deletion.Plan, error) {
+	return deletion.Plan{}, nil
+}
+
+func (f *fakeStore) TouchAgent(_ context.Context, agentID string, at time.Time) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.LastSeenAt, m.LastSeenAt = at, at
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
@@ -63,11 +68,65 @@ func (f *fakeStore) RecordSystem(_ context.Context, id, system string) error {
 	return nil
 }
 
-func (f *fakeStore) RecordConnection(_ context.Context, id, address, version string, at time.Time) error {
-	m := f.machines[id]
-	m.Address, m.AgentVersion, m.LastSeenAt = address, version, at
-	f.machines[id] = m
+func (f *fakeStore) RecordRootDir(_ context.Context, agentID, root string) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.RootDir = root
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeStore) RecordServerKey(_ context.Context, agentID, fingerprint string) error {
+	for id, m := range f.machines {
+		if m.Agent.ID == agentID {
+			m.Agent.ServerKeyFingerprint = fingerprint
+			f.machines[id] = m
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (f *fakeStore) RecordConnection(_ context.Context, c Connection) error {
+	m := f.machines[c.MachineID]
+	m.Address, m.Agent.Version, m.Agent.LastSeenAt, m.LastSeenAt = c.Address, c.Version, c.At, c.At
+	if c.Account != nil {
+		account := *c.Account
+		m.Agent.RunAs = &account
+	}
+	// Comme la base : les raisons suivent les droits rapportés, et seulement
+	// ceux-là.
+	if c.Capabilities != nil {
+		m.Agent.Capabilities, m.Agent.ReportedAt, m.Agent.Unavailable = c.Capabilities, c.At, nil
+		for _, capability := range c.Capabilities {
+			if reason := c.Unavailable[capability.Name]; reason != "" {
+				if m.Agent.Unavailable == nil {
+					m.Agent.Unavailable = map[string]string{}
+				}
+				m.Agent.Unavailable[capability.Name] = reason
+			}
+		}
+	}
+	f.machines[c.MachineID] = m
 	return nil
+}
+
+func (f *fakeStore) RevokeAgent(_ context.Context, machineID string, now time.Time) (string, error) {
+	m := f.machines[machineID]
+	if !m.Agent.IsActive() {
+		return "", ErrNoAgent
+	}
+	m.Agent.RevokedAt = now
+	f.machines[machineID] = m
+	for hash, t := range f.tokens {
+		if t.MachineID == machineID && t.ConsumedAt.IsZero() {
+			delete(f.tokens, hash)
+		}
+	}
+	return m.Agent.ID, nil
 }
 
 func (f *fakeStore) InsertToken(_ context.Context, t Token) error {
@@ -95,7 +154,7 @@ func (f *fakeStore) DeleteToken(_ context.Context, id string) error {
 	return ErrTokenNotFound
 }
 
-func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, now time.Time) (Machine, error) {
+func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, agent Agent, now time.Time) (Machine, error) {
 	t, ok := f.tokens[hash]
 	if !ok {
 		return Machine{}, ErrTokenNotFound
@@ -109,6 +168,11 @@ func (f *fakeStore) Enroll(_ context.Context, hash string, m Machine, now time.T
 	if t.MachineID != "" {
 		m.ID = t.MachineID
 	}
+	agent.MachineID = m.ID
+	agent.Requested = t.Capabilities
+	t.AgentID = agent.ID
+	f.tokens[hash] = t
+	m.Agent = agent
 	f.machines[m.ID] = m
 	return m, nil
 }
@@ -129,10 +193,23 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) enroll(t *testing.T, name string) (Machine, ed25519.PrivateKey) {
 	t.Helper()
-	cleartext, _, err := h.service.CreateToken(context.Background(), name)
+	cleartext, _, err := h.service.CreateToken(context.Background(), name, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return h.enrollWithKey(t, cleartext)
+}
+
+func (h *harness) enrollWith(t *testing.T, cleartext string) Machine {
+	t.Helper()
+	enrolled, _ := h.enrollWithKey(t, cleartext)
+	return enrolled
+}
+
+// enrollWithKey présente un jeton déjà émis avec une clé et un identifiant
+// tirés pour l'occasion, comme l'agent.
+func (h *harness) enrollWithKey(t *testing.T, cleartext string) (Machine, ed25519.PrivateKey) {
+	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -148,33 +225,43 @@ func (h *harness) enroll(t *testing.T, name string) (Machine, ed25519.PrivateKey
 	return m, private
 }
 
+// prove signe une preuve neuve, comme l'agent : un aléa qu'il tire, la
+// machine, l'heure.
 func (h *harness) prove(t *testing.T, m Machine, private ed25519.PrivateKey, at time.Time) Proof {
 	t.Helper()
-	nonce, err := h.service.Challenge(context.Background(), m.ID)
+	return signedBy(t, m.ID, private, NewNonce(), at)
+}
+
+func signedBy(t *testing.T, machineID string, private ed25519.PrivateKey, nonce []byte, at time.Time) Proof {
+	t.Helper()
+	payload, err := SignedPayload(nonce, machineID, at.Unix())
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, err := SignedPayload(nonce, m.ID, at.Unix())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Proof{MachineID: m.ID, Nonce: nonce, Timestamp: at.Unix(), Signature: Sign(private, payload)}
+	return Proof{MachineID: machineID, Nonce: nonce, Timestamp: at.Unix(), Signature: Sign(private, payload)}
 }
 
 func TestCreateToken_RefusesABadName(t *testing.T) {
 	h := newHarness(t)
 	for _, name := range []string{"", "VPS", "vps paris", "-vps", "vps-", "a.b"} {
-		if _, _, err := h.service.CreateToken(context.Background(), name); !errors.Is(err, ErrNameInvalid) {
+		if _, _, err := h.service.CreateToken(context.Background(), name, nil); !errors.Is(err, ErrNameInvalid) {
 			t.Errorf("%q accepted: %v", name, err)
 		}
 	}
-	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1")
+	cleartext, token, err := h.service.CreateToken(context.Background(), "vps-paris-1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cleartext) < 40 || token.Prefix != cleartext[:9] || token.Hash != HashToken(cleartext) {
 		t.Fatalf("token %q %+v", cleartext, token)
 	}
+}
+
+// size compte les couples retenus.
+func (n *nonces) size() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.seen)
 }
 
 func TestEnroll_RefusesBadIDAndKey(t *testing.T) {
@@ -189,150 +276,73 @@ func TestEnroll_RefusesBadIDAndKey(t *testing.T) {
 	}
 }
 
-func TestAuthenticate_AcceptsAFreshSignedChallengeOnce(t *testing.T) {
+// Protocole 2 : une preuve signée par l'agent ouvre un flux une fois ; la
+// même, rejouée, est refusée, et l'agent en signe une autre.
+func TestAuthenticate_AcceptsAFreshProofOnce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
 	proof := h.prove(t, m, private, h.now)
 	if _, err := h.service.Authenticate(context.Background(), proof); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.service.Authenticate(context.Background(), proof); !errors.Is(err, ErrBadNonce) {
+	if _, err := h.service.Authenticate(context.Background(), proof); !errors.Is(err, ErrReplayed) {
 		t.Fatalf("replayed proof: %v", err)
+	}
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, h.now)); err != nil {
+		t.Fatalf("a fresh nonce: %v", err)
 	}
 }
 
-func TestAuthenticate_RefusesSkewWrongKeyAndForeignNonce(t *testing.T) {
+// L'horloge, la clé, la machine et la forme de l'aléa se jugent ; une preuve
+// signée pour une machine ne vaut pas pour une autre.
+func TestAuthenticate_RefusesSkewWrongKeyForeignMachineAndBadNonce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
-
-	late := h.prove(t, m, private, h.now.Add(-10*time.Minute))
-	if _, err := h.service.Authenticate(context.Background(), late); !errors.Is(err, ErrClockSkew) {
-		t.Errorf("skew: %v", err)
+	for _, at := range []time.Time{h.now.Add(-6 * time.Minute), h.now.Add(6 * time.Minute)} {
+		if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, at)); !errors.Is(err, ErrClockSkew) {
+			t.Errorf("skew %v: %v", at.Sub(h.now), err)
+		}
 	}
 	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
-	forged := h.prove(t, m, wrong, h.now)
-	if _, err := h.service.Authenticate(context.Background(), forged); !errors.Is(err, ErrBadSignature) {
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, wrong, h.now)); !errors.Is(err, ErrBadSignature) {
 		t.Errorf("wrong key: %v", err)
 	}
 	other, _ := h.enroll(t, "vps-lyon-2")
-	stolen := h.prove(t, other, private, h.now)
-	stolen.MachineID = m.ID
-	if _, err := h.service.Authenticate(context.Background(), stolen); !errors.Is(err, ErrBadNonce) {
-		t.Errorf("foreign nonce: %v", err)
+	foreign := h.prove(t, other, private, h.now)
+	foreign.MachineID = m.ID
+	if _, err := h.service.Authenticate(context.Background(), foreign); !errors.Is(err, ErrBadSignature) {
+		t.Errorf("proof of another machine: %v", err)
 	}
-	h.now = h.now.Add(3 * time.Minute)
-	stale := Proof{MachineID: m.ID, Nonce: make([]byte, NonceSize), Timestamp: h.now.Unix()}
-	if _, err := h.service.Authenticate(context.Background(), stale); !errors.Is(err, ErrBadNonce) {
-		t.Errorf("unknown nonce: %v", err)
-	}
-}
-
-// signedBy signe un défi déjà émis, comme le fait l'agent entre le défi et
-// l'ouverture du flux.
-func signedBy(t *testing.T, m Machine, private ed25519.PrivateKey, challenge []byte, at time.Time) Proof {
-	t.Helper()
-	payload, err := SignedPayload(challenge, m.ID, at.Unix())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return Proof{MachineID: m.ID, Nonce: challenge, Timestamp: at.Unix(), Signature: Sign(private, payload)}
-}
-
-// Le scénario de l'audit : des défis anonymes pour la même machine, entre
-// le défi de l'agent et son flux, ne lui prennent rien.
-func TestAuthenticate_AnonymousChallengesDoNotEvictTheAgentsOwn(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	agents, err := h.service.Challenge(context.Background(), m.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 8 {
-		if _, err := h.service.Challenge(context.Background(), m.ID); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, agents, h.now)); err != nil {
-		t.Fatalf("the agent's challenge was displaced: %v", err)
+	short := signedBy(t, m.ID, private, NewNonce(), h.now)
+	short.Nonce = short.Nonce[:NonceSize-1]
+	if _, err := h.service.Authenticate(context.Background(), short); !errors.Is(err, ErrBadProof) {
+		t.Errorf("short nonce: %v", err)
 	}
 }
 
-func TestAuthenticate_RefusesAnExpiredChallenge(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	h.now = h.now.Add(challengeLifetime + time.Second)
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("expired challenge: %v", err)
-	}
-}
-
-func TestAuthenticate_RefusesAnAlteredChallenge(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	challenge[NonceSize-1] ^= 0x01
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("altered challenge: %v", err)
-	}
-}
-
-// Un défi émis avant le redémarrage du serveur n'est plus reconnu : l'agent
-// doit lire un défi à redemander, pas un refus d'identité.
-func TestAuthenticate_RefusesAChallengeIssuedBeforeARestart(t *testing.T) {
-	h := newHarness(t)
-	m, private := h.enroll(t, "vps-paris-1")
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-
-	restarted := New(h.store, NewSessions(), slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	restarted.SetClock(func() time.Time { return h.now })
-	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); !errors.Is(err, ErrBadNonce) {
-		t.Fatalf("challenge from before the restart: %v", err)
-	}
-	fresh, _ := restarted.Challenge(context.Background(), m.ID)
-	if _, err := restarted.Authenticate(context.Background(), signedBy(t, m, private, fresh, h.now)); err != nil {
-		t.Fatalf("a fresh challenge after the restart: %v", err)
-	}
-}
-
-// Qui n'a pas la clé ne brûle pas le défi d'un autre : le défi n'est
-// marqué utilisé qu'une fois la signature vérifiée.
-func TestAuthenticate_AWrongSignatureDoesNotBurnTheChallenge(t *testing.T) {
+// Qui n'a pas la clé ne brûle pas l'aléa d'un autre : le couple n'est retenu
+// qu'une fois la signature vérifiée. Il est oublié quand son horodatage est
+// sorti de la tolérance.
+func TestAuthenticate_AWrongSignatureDoesNotBurnTheNonce(t *testing.T) {
 	h := newHarness(t)
 	m, private := h.enroll(t, "vps-paris-1")
 	_, wrong, _ := ed25519.GenerateKey(rand.Reader)
-	challenge, _ := h.service.Challenge(context.Background(), m.ID)
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, wrong, challenge, h.now)); !errors.Is(err, ErrBadSignature) {
+	nonce := NewNonce()
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m.ID, wrong, nonce, h.now)); !errors.Is(err, ErrBadSignature) {
 		t.Fatalf("wrong key: %v", err)
 	}
-	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m, private, challenge, h.now)); err != nil {
+	if _, err := h.service.Authenticate(context.Background(), signedBy(t, m.ID, private, nonce, h.now)); err != nil {
 		t.Fatalf("the agent's proof after a forged one: %v", err)
 	}
-	if got := h.service.challenges.size(); got != 1 {
-		t.Fatalf("%d used challenges, want only the successful one", got)
+	if got := h.service.nonces.size(); got != 1 {
+		t.Fatalf("%d nonces kept, want only the successful one", got)
 	}
-}
-
-func TestLocalMachine_IsAlwaysOnlineAndNeverRemovedNorAuthenticated(t *testing.T) {
-	h := newHarness(t)
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc", OS: "Debian 12", Version: "v0.0.1"}); err != nil {
+	h.now = h.now.Add(nonceMemory + nonceSweepInterval)
+	if _, err := h.service.Authenticate(context.Background(), h.prove(t, m, private, h.now)); err != nil {
 		t.Fatal(err)
 	}
-	status, err := h.service.Get(context.Background(), LocalID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Online || !status.LastSeenAt.Equal(h.now) || status.Name != "opencloud" {
-		t.Fatalf("got %+v", status)
-	}
-	if err := h.service.Remove(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("remove: %v", err)
-	}
-	if _, _, err := h.service.CreateReenrollToken(context.Background(), LocalID); !errors.Is(err, ErrLocalMachine) {
-		t.Errorf("reenroll: %v", err)
-	}
-	if _, err := h.service.Challenge(context.Background(), LocalID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("challenge: %v", err)
+	if got := h.service.nonces.size(); got != 1 {
+		t.Fatalf("%d nonces kept after the sweep, want only the newest", got)
 	}
 }
 
@@ -369,7 +379,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
 		t.Fatal("online before any connection")
 	}
-	session, err := h.service.Connect(context.Background(), m.ID, "51.15.20.114", "v0.0.1")
+	session, err := h.service.Connect(context.Background(), m, "51.15.20.114", "v0.0.1", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +410,7 @@ func TestConnectSignalDisconnect_DriveOnlineAndLastSeen(t *testing.T) {
 func TestRemove_ClosesTheOpenSession(t *testing.T) {
 	h := newHarness(t)
 	m, _ := h.enroll(t, "vps-paris-1")
-	session, err := h.service.Connect(context.Background(), m.ID, "", "")
+	session, err := h.service.Connect(context.Background(), m, "", "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,8 +426,8 @@ func TestRemove_ClosesTheOpenSession(t *testing.T) {
 
 func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	sessions := NewSessions()
-	first, _ := sessions.Open("m", time.Now())
-	second, _ := sessions.Open("m", time.Now())
+	first, _ := sessions.Open("m", "a1", time.Now())
+	second, _ := sessions.Open("m", "a2", time.Now())
 	select {
 	case <-first.Done():
 	default:
@@ -430,76 +440,5 @@ func TestSessions_NewConnectionReplacesThePreviousOne(t *testing.T) {
 	sessions.Release(second)
 	if sessions.IsOnline("m") || sessions.CountOnline() != 0 {
 		t.Fatal("still online")
-	}
-}
-
-// opencloud mcp ne tient aucun flux : la présence se lit dans le dernier signal.
-func TestRecentSignal_SeenTenSecondsAgo_IsOnline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	m, _ := h.enroll(t, "vps-paris-1")
-	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-10*time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	status, err := h.service.Get(context.Background(), m.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.Online {
-		t.Fatalf("seen 10 s ago: %+v", status)
-	}
-}
-
-func TestRecentSignal_SeenFiveMinutesAgo_IsOffline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	m, _ := h.enroll(t, "vps-paris-1")
-	if err := h.store.TouchMachine(context.Background(), m.ID, h.now.Add(-5*time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	status, err := h.service.Get(context.Background(), m.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Online {
-		t.Fatalf("seen 5 min ago: %+v", status)
-	}
-}
-
-func TestRecentSignal_NeverSeen_IsOffline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	m, _ := h.enroll(t, "vps-paris-1")
-	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
-		t.Fatalf("never seen: %+v", status)
-	}
-}
-
-func TestRecentSignal_StopsBeingOnlineWhereTheMachineIsDeclaredLost(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	m, _ := h.enroll(t, "vps-paris-1")
-	lastSignal := h.now
-	if err := h.store.TouchMachine(context.Background(), m.ID, lastSignal); err != nil {
-		t.Fatal(err)
-	}
-	h.now = lastSignal.Add(LostAfter - time.Second)
-	if status, _ := h.service.Get(context.Background(), m.ID); !status.Online {
-		t.Fatal("offline before the lost delay")
-	}
-	h.now = lastSignal.Add(LostAfter)
-	if status, _ := h.service.Get(context.Background(), m.ID); status.Online {
-		t.Fatal("still online at the lost delay")
-	}
-}
-
-func TestRecentSignal_LocalMachine_StaysOnline(t *testing.T) {
-	h := newHarness(t)
-	h.service.SetPresence(RecentSignal{})
-	if err := h.service.EnsureLocal(context.Background(), LocalInfo{Hostname: "oc"}); err != nil {
-		t.Fatal(err)
-	}
-	if status, _ := h.service.Get(context.Background(), LocalID); !status.Online {
-		t.Fatal("the local machine is the host running this process")
 	}
 }

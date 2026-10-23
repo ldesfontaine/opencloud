@@ -13,6 +13,9 @@ const (
 	// EventSummary dit combien d'envois la limite de débit a retenus ; il
 	// n'est la livraison d'aucune alerte.
 	EventSummary Event = "summary"
+	// EventAudit est la livraison d'un événement du journal d'audit ; pas
+	// dans Events() : elle n'appartient à aucune alerte.
+	EventAudit Event = "audit"
 )
 
 func Events() []Event {
@@ -28,19 +31,24 @@ const (
 	// Retenue par la limite de débit du canal : jamais envoyée, comptée
 	// dans le message groupé qui suit.
 	DeliveryHeld DeliveryStatus = "held"
+	// Tue par une fenêtre au moment de l'envoi : jamais envoyée.
+	DeliveryMuted DeliveryStatus = "muted"
 )
 
 func DeliveryStatuses() []DeliveryStatus {
-	return []DeliveryStatus{DeliveryPending, DeliveryDelivered, DeliveryFailed, DeliveryHeld}
+	return []DeliveryStatus{DeliveryPending, DeliveryDelivered, DeliveryFailed, DeliveryHeld, DeliveryMuted}
 }
 
 // Delivery est une livraison réservée en base avant d'être envoyée : si
 // le processus meurt entre les deux, la ligne restée en attente repart au
 // démarrage, et l'index unique (alerte, canal, événement) empêche d'envoyer
-// deux fois.
+// deux fois. En échec, elle porte l'heure de son essai suivant, que le
+// balayage rejoue ; zéro, elle est abandonnée.
 type Delivery struct {
-	ID        int64
-	AlertID   int64
+	ID      int64
+	AlertID int64
+	// AuditID est l'événement du journal livré ; zéro pour une alerte.
+	AuditID   int64
 	ChannelID int64
 	Event     Event
 	Status    DeliveryStatus
@@ -48,10 +56,11 @@ type Delivery struct {
 	// Reason dit pourquoi le dernier essai a échoué, par un mot d'une liste
 	// fermée que le front traduit ; Code est le code HTTP reçu, s'il y en
 	// a eu un.
-	Reason    Reason
-	Code      int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Reason        Reason
+	Code          int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	NextAttemptAt time.Time
 }
 
 // Reason est le motif d'un échec de livraison, par un mot d'une liste
@@ -86,17 +95,31 @@ func Reasons() []Reason {
 }
 
 const (
-	// Trois essais : tout de suite, puis après ces attentes. Une panne du
-	// récepteur plus longue perd la livraison, et la page le montre.
-	MaxAttempts    = 3
+	// Les premiers essais se tiennent dans l'ouvrier : tout de suite, puis
+	// après les deux premières attentes de Backoffs. Les suivants passent
+	// par la base, un essai à chaque fois.
+	ImmediateAttempts = 3
+	// Passé ce délai depuis sa réservation, une livraison en échec est
+	// abandonnée, et la fiche de l'alerte le montre.
+	RetrySpan      = 24 * time.Hour
 	RequestTimeout = 10 * time.Second
 	// Un relais SMTP dialogue plus longtemps qu'un webhook : connexion,
 	// STARTTLS, AUTH, enveloppe et corps tiennent dans ce délai.
 	MailTimeout = 20 * time.Second
-	// Une livraison restée en attente plus longtemps que cela au démarrage
-	// est rejouée une fois, puis abandonnée si elle échoue.
-	PendingRetryAfter = 5 * time.Minute
 )
 
-// Backoffs sont les attentes avant le deuxième et le troisième essai.
-var Backoffs = []time.Duration{5 * time.Second, 30 * time.Second}
+// Backoffs sont les attentes entre deux essais ; la dernière se répète
+// jusqu'à RetrySpan. Le balayage de 30 s rejoue ce qui est échu : à partir
+// de la troisième, un essai part au plus 30 s après son heure.
+var Backoffs = []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute, 30 * time.Minute, time.Hour}
+
+// nextAttempt rend l'heure de l'essai qui suit un échec, ou zéro quand
+// elle passerait RetrySpan depuis la réservation.
+func nextAttempt(delivery Delivery, backoffs []time.Duration, now time.Time) time.Time {
+	wait := backoffs[min(max(delivery.Attempts-1, 0), len(backoffs)-1)]
+	at := now.Add(wait)
+	if at.After(delivery.CreatedAt.Add(RetrySpan)) {
+		return time.Time{}
+	}
+	return at
+}

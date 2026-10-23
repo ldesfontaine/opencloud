@@ -44,6 +44,11 @@ Règles :
   boutons courants.
 - Un état se lit par une pastille (fond lavis + texte + point), jamais par du
   texte coloré seul.
+- **Inconnu** : pastille neutre (gris), jamais verte. Pour un état que le
+  serveur ne confirme plus (la machine ne signale plus depuis 2 min) ; elle
+  garde le dernier état connu dessous (« Dernier état : Actif, il y a 5 h »).
+  Un état inconnu ne compte pas comme un problème et ne se dessine ni en
+  vert ni en rouge.
 - Le sombre reprend les mêmes rôles avec des valeurs propres ; on ne dérive pas
   le sombre du clair par inversion.
 
@@ -70,7 +75,7 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
 | Marge de page | 28 px haut et bas, 32 px côtés |
 | Carte | rayon 14, trait 1 px, padding 20 |
 | Contrôle (bouton, champ, sélecteur) | hauteur 36, rayon 8 ; petit : 30, rayon 7 |
-| Pastille d'état | hauteur 24, rayon 999, point 6 px |
+| Pastille d'état | hauteur 24, rayon 999, point 6 px ; petite (`small`) : 17, texte 11 px, point 5 px, pour un pied de tuile ou le titre d'une ligne de liste, sans les faire grandir |
 | Barre latérale | 232 px, item 34 px de haut, rayon 8 |
 | Sous 860 px | barre latérale en tiroir (280 px au plus, derrière un voile `--scrim`), en-tête de 56 px ; contrôle 44, petit 40 ; marge de page 20 / 16 |
 | Icônes | trait 1,6 ; 16 px en ligne, 18 px dans le graphe |
@@ -82,14 +87,37 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   compteurs en mono à droite (rouge quand il y a une alerte), en bas le
   commutateur clair/sombre puis le compte.
 - **En-tête de page** : titre, sous-titre d'une phrase, actions à droite. Une
-  seule action principale par écran.
+  seule action principale par écran. La vue d'ensemble n'a pas de sous-titre
+  tant qu'elle montre des machines : la tuile Machines dit déjà le compte.
+- **Onglets** : un lien par onglet, le courant souligné. Quand la barre déborde
+  (un téléphone), un fondu au bord cache ce qui reste hors de vue : à droite
+  tant que la fin n'est pas atteinte, à gauche une fois défilée, par
+  `mask-image` ; l'onglet courant est amené dans la vue au chargement. Rien ne
+  change quand tout tient.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
-  les onglets livrés : Résumé, Services, Domaines et certificats, Réseau,
+  les onglets livrés : Résumé, Services, Disponibilité, Réseau,
   Journaux (un raccourci : un service par ligne, vers ses journaux) ; Sauvegardes
-  et Réglages viendront avec leur écran.
+  et Réglages viendront avec leur écran. La fin de support du système, quand
+  elle est activée, tient sur une ligne sous les métadonnées (pastille et
+  phrase ; la phrase passe à la ligne sur un écran étroit, sans se couper) ;
+  son détail est une carte sous l'historique.
 - **Chiffre clé** : étiquette avec icône, valeur, jauge optionnelle, une ligne
-  de contexte.
+  de contexte. Variante **compacte** (`Stat compact`, environ 60 px au lieu de
+  125) : la valeur à 20 px, l'étiquette et le contexte l'un sous l'autre à sa
+  droite, sans jauge. Pour une bande de chiffres en tête de page (la vue
+  d'ensemble, les quatre chiffres d'une machine) ; une tuile qui porte une
+  jauge garde la forme pleine. Avec `wideFoot`, le contexte passe sur toute la
+  largeur sous le chiffre et l'étiquette (environ 66 px) : pour un contexte long.
+  Une tuile compacte qui remplace une jauge garde sa couleur : le contexte passe
+  en attention ou en danger aux mêmes seuils.
+  Sur la vue d'ensemble, la tuile Alertes est la plus large et son contexte
+  porte la plus urgente, tronquée, le texte entier en info-bulle. Le contexte
+  d'une tuile qui dit un fait à traiter (« 2 à traiter », « 1 expire dans 5
+  jours », « 1 à acquitter ») le dit en petite pastille au ton du fait ; ce
+  qui va bien reste du texte neutre. Même règle pour l'échéance d'un
+  certificat (pastille dès le seuil d'attention, texte discret avant) et le
+  code de sortie d'une exécution (danger si non nul, neutre à 0).
 - **Tableau** : en-têtes en étiquette de section, lignes de 44 px minimum,
   valeurs en mono, menu « … » en fin de ligne.
 - **Liste d'événements** : point d'état, fait en gras léger, contexte en
@@ -105,10 +133,47 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   les empreintes et le suivi d'une image) se replie sous son en-tête, chevron
   à droite, et passe sous l'état. Ouverte et en premier tant que la chose
   reste à installer ; repliée ensuite.
+- **Page de réglages** (Paramètres) : des sections ancrées, toutes dans la
+  page, une colonne de 880 px au plus avec sa navigation à côté (collante
+  au-dessus de 1100 px, une rangée d'onglets-ancres sous 1100 px, qui défile).
+  L'ensemble se centre : le vide d'un grand écran se partage. Ancres sans
+  accent (`#acces`, `#fin-de-support`).
+  - **`SectionHead`** : l'étiquette de section en capitales, une phrase qui dit
+    ce qu'on y règle, à droite l'état de la section (pastille) quand elle en
+    a un. Une section = un `SectionHead` puis une seule `Card`.
+  - **`SettingRow`** : l'étiquette et sa description (une ligne, discrète) à
+    gauche, le contrôle à droite ; empilée sous 860 px, contrôles de 44 px. Le
+    contrôle a la taille de sa valeur (`width` : `short` 104 px pour un
+    pourcentage ou un port, `medium` 280 px, `wide` 360 px). `block` : le
+    contrôle passe sous le texte, pour une note ou un bloc à copier. Les
+    lignes, blocs (`SettingBlock`) et formulaires d'une carte s'empilent,
+    séparés par un trait.
+  - **Pied de carte** (`SettingFoot`) : à gauche ce qui se dit en passant
+    (« Enregistré », la portée du réglage), à droite l'**unique bouton
+    principal** de la section ; « Enregistrer » y reste désactivé tant que la
+    saisie n'a pas bougé par rapport à ce que le serveur a gardé. Ce qui
+    détruit ou ferme (désactiver l'accès) va à part, sous un trait, dans une
+    **zone de danger** (`DangerZone`), en bouton `danger` secondaire.
+  - **`ConfirmInline`** : la confirmation d'une action d'une ligne. Le bouton se
+    replie en « question [Confirmer] [Annuler] » à sa place, le focus sur
+    « Annuler », Échap annule et rend le focus au bouton. Employée sous
+    Paramètres seulement pour l'instant (désactiver l'accès, révoquer un
+    jeton) ; les autres pages passent encore par `window.confirm`
+    (`useAction({ confirm })`). La boîte `DeletePlanDialog` reste pour un
+    plan de suppression, qu'il faut lire avant de confirmer.
 - **Graphe réseau** : fond pointé, nœuds de 184 px (icône, nom, sous-titre
   mono, point d'état), arêtes orthogonales arrondies, groupes en pointillé,
   nœud « Internet » en noir, sélection par anneau d'accent, inspecteur de
-  300 px à droite.
+  300 px à droite. Sur la vue d'ensemble, une version compacte sans zoom :
+  nœuds de 148 px, un cadre en pointillé par machine, cadres empilés ou côte
+  à côte selon la largeur (le rangement qui garde le plus grand texte dans
+  240 px de haut), réduite pour tenir sur un écran de portable mais jamais
+  sous 10 px de texte rendu.
+- **Historique d'une machine** : quatre graphes d'aire de 120 px de haut (axes
+  compris, texte de 11 px), sur une rangée au-dessus de 1280 px, deux en
+  dessous, un sous 860 px ; l'axe du temps garde moins de repères quand le
+  graphe est étroit. L'en-tête, les tuiles et l'historique tiennent sur un écran
+  de portable (#141) ; l'agent et les ordres suivent dessous.
 - **Info-bulle** : fond encre, texte 12 px, pour le détail qu'on ne veut pas à
   l'écran.
 

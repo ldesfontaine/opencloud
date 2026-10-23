@@ -6,34 +6,74 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/probe"
 )
 
-// Snapshot est ce que le public voit. Un composant dont aucun objet ne
-// compte et qu'aucun incident ne touche n'y est pas : rien à en dire.
-func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
+// Snapshot est ce que le public voit d'une page : ses composants, et les
+// incidents qui touchent l'un d'eux, réduits à ceux-là. Rien d'une autre
+// page n'y paraît, pas même le nom d'un composant qu'un incident touche
+// aussi ailleurs. Un composant dont aucun objet ne compte et qu'aucun
+// incident ne touche n'y est pas : rien à en dire.
+func (s *Service) Snapshot(ctx context.Context, pageID string) (Snapshot, error) {
+	page, err := s.GetPage(ctx, pageID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	view, err := s.readView(ctx)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return view.snapshotOf(page), nil
+}
+
+// view est tout ce que les instantanés lisent, pour toutes les pages d'un
+// coup : Refresh juge chaque page sans relire la base page par page.
+type view struct {
+	now        time.Time
+	components []Component
+	// Les incidents ouverts, et les résolus des quatorze derniers jours.
+	incidents []Incident
+	days      []probe.Day
+}
+
+func (s *Service) readView(ctx context.Context) (view, error) {
 	now := s.now()
-	page, err := s.Page(ctx)
+	components, err := s.store.ListComponents(ctx, "")
 	if err != nil {
-		return Snapshot{}, err
+		return view{}, err
 	}
-	components, err := s.Components(ctx)
+	known, err := s.facts(ctx)
 	if err != nil {
-		return Snapshot{}, err
+		return view{}, err
 	}
-	incidents, err := s.store.ListIncidents(ctx, now.Add(-HistorySpan))
+	// Les incidents lus contiennent les ouverts : ce sont eux qui imposent
+	// un état, les résolus ne s'appliquent plus.
+	incidents, err := s.readIncidents(ctx, known, components, now.Add(-HistorySpan))
 	if err != nil {
-		return Snapshot{}, err
+		return view{}, err
+	}
+	for i := range components {
+		s.judge(&components[i], known, incidents)
 	}
 	days, err := s.reader.ListProbeDays(ctx, "", startOfDay(now.Add(-UptimeSpan)))
 	if err != nil {
-		return Snapshot{}, err
+		return view{}, err
 	}
-	snapshot := Snapshot{Page: page, GeneratedAt: now, Components: []PublicComponent{}, Open: []Incident{}, History: []Incident{}}
+	return view{now: now, components: components, incidents: incidents, days: days}, nil
+}
+
+func (v view) snapshotOf(page Page) Snapshot {
+	snapshot := Snapshot{Page: page, GeneratedAt: v.now, Components: []PublicComponent{}, Open: []Incident{}, History: []Incident{}}
+	onPage := map[string]bool{}
 	states := []State{}
-	for _, component := range components {
+	for _, component := range v.components {
+		if component.PageID != page.ID {
+			continue
+		}
+		onPage[component.ID] = true
 		if component.Effective == StateUnknown {
 			continue
 		}
@@ -42,18 +82,41 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 			ID:    component.ID,
 			Name:  component.Name,
 			State: component.Effective,
-			Days:  uptimeOf(component, days),
+			Days:  uptimeOf(component, v.days),
 		})
 	}
 	snapshot.Global = Worst(states)
-	for _, incident := range incidents {
-		if incident.IsResolved() {
-			snapshot.History = append(snapshot.History, incident)
+	for _, incident := range v.incidents {
+		touched, ok := restrictedTo(incident, onPage)
+		if !ok {
+			continue
+		}
+		// Les objets visés ne sortent jamais : l'instantané est ce que le
+		// public lit, il n'en garde même pas la trace.
+		touched.Targets = nil
+		if touched.IsResolved() {
+			snapshot.History = append(snapshot.History, touched)
 		} else {
-			snapshot.Open = append(snapshot.Open, incident)
+			snapshot.Open = append(snapshot.Open, touched)
 		}
 	}
-	return snapshot, nil
+	return snapshot
+}
+
+// restrictedTo rend l'incident réduit aux composants de la page, et faux
+// s'il n'en touche aucun.
+func restrictedTo(incident Incident, onPage map[string]bool) (Incident, bool) {
+	kept := []ComponentRef{}
+	for _, component := range incident.Components {
+		if onPage[component.ID] {
+			kept = append(kept, component)
+		}
+	}
+	if len(kept) == 0 {
+		return Incident{}, false
+	}
+	incident.Components = kept
+	return incident, true
 }
 
 // uptimeOf additionne, jour par jour, les jours des sondes du composant ;
@@ -96,18 +159,19 @@ func startOfDay(at time.Time) time.Time {
 	return time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// Refresh relit l'instantané et prévient si quelque chose de visible a
-// changé. Appelé après chaque écriture de l'opérateur, à chaque sujet du
-// bus interne, et toutes les trente secondes.
+// Refresh relit les instantanés de toutes les pages et prévient si quelque
+// chose de visible a changé sur l'une d'elles. Appelé après chaque écriture
+// de l'opérateur, à chaque sujet du bus interne, et toutes les trente
+// secondes. Le bus public ne dit que « status » : chaque visiteur relit sa
+// page, sans apprendre laquelle a changé.
 func (s *Service) Refresh(ctx context.Context) {
-	snapshot, err := s.Snapshot(ctx)
+	digest, err := s.digestOfPages(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			s.logger.Error("status snapshot", "error", err)
 		}
 		return
 	}
-	digest := digestOf(snapshot)
 	s.mu.Lock()
 	changed := digest != s.digest
 	s.digest = digest
@@ -118,6 +182,24 @@ func (s *Service) Refresh(ctx context.Context) {
 	for _, watcher := range s.watchers {
 		watcher.StatusChanged()
 	}
+}
+
+// digestOfPages résume ce que les visiteurs voient, page par page ; une page
+// créée ou supprimée change le résumé.
+func (s *Service) digestOfPages(ctx context.Context) (string, error) {
+	pages, err := s.ListPages(ctx)
+	if err != nil {
+		return "", err
+	}
+	view, err := s.readView(ctx)
+	if err != nil {
+		return "", err
+	}
+	digests := make([]string, 0, len(pages))
+	for _, page := range pages {
+		digests = append(digests, page.ID+":"+digestOf(view.snapshotOf(page)))
+	}
+	return strings.Join(digests, ","), nil
 }
 
 // digestOf résume ce que le visiteur voit ; l'instant de génération et les

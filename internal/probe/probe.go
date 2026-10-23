@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ldesfontaine/opencloud/internal/deletion"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -75,6 +76,11 @@ const (
 	ReasonTLSUntrusted Reason = "tls_untrusted"
 	ReasonTLSExpired   Reason = "tls_expired"
 	ReasonTLSHostname  Reason = "tls_hostname"
+	// ReasonLAN : la cible est sur le réseau local et l'agent n'a pas le
+	// droit probe.lan. ReasonAgentRefused : l'agent a écarté la sonde à
+	// l'assignation, sans l'essayer (Runner.Assign).
+	ReasonLAN          Reason = "lan"
+	ReasonAgentRefused Reason = "agent_refused"
 )
 
 // Reasons liste les motifs d'échec ; le motif vide, celui d'un succès,
@@ -83,6 +89,7 @@ func Reasons() []Reason {
 	return []Reason{
 		ReasonTimeout, ReasonRefused, ReasonDNS, ReasonUnreachable, ReasonAddress,
 		ReasonStatus, ReasonBody, ReasonRedirect, ReasonTLSUntrusted, ReasonTLSExpired, ReasonTLSHostname,
+		ReasonLAN, ReasonAgentRefused,
 	}
 }
 
@@ -373,6 +380,10 @@ var (
 	ErrReportInvalid     = errors.New("probe report out of range")
 )
 
+// Une page publique affiche la sonde : la retirer d'abord du composant
+// (restrict, migrations/001_schema.sql).
+var ErrShownOnStatus = refusal.Conflict("probe.shown_on_status", "a status component shows the probe")
+
 // Complete pose ce que l'opérateur n'a pas dit : les valeurs par défaut,
 // et rien pour une sonde TCP, qui n'a ni méthode ni code attendu.
 func (d Definition) Complete() Definition {
@@ -461,18 +472,31 @@ func (d Definition) Validate() error {
 	if d.Kind != KindHTTP {
 		return nil
 	}
+	return validateHTTPCheck(d.Method, d.ExpectedStatus, d.ExpectedBody)
+}
+
+// validateHTTPCheck juge ce qui est propre à une sonde HTTP : la méthode,
+// le code attendu et le texte attendu. Le serveur la joue à la création,
+// l'agent à la réception (Task.Validate) : une seule règle, deux lecteurs.
+func validateHTTPCheck(method, expectedStatus, expectedBody string) error {
 	// Une sonde n'écrit pas : seules les méthodes sans effet attendu sont
 	// ouvertes, plus POST que réclament certains points de santé.
-	switch d.Method {
+	switch method {
 	case "GET", "HEAD", "POST":
 	default:
 		return ErrMethodInvalid
 	}
-	if !isStatusPattern(d.ExpectedStatus) {
+	if !isStatusPattern(expectedStatus) {
 		return ErrStatusInvalid
 	}
-	if utf8.RuneCountInString(d.ExpectedBody) > MaxBodyLength {
+	if utf8.RuneCountInString(expectedBody) > MaxBodyLength {
 		return ErrBodyInvalid
 	}
 	return nil
+}
+
+// RefuseDeletion rend le refus de supprimer une sonde que le plan retient,
+// nil sinon.
+func RefuseDeletion(plan deletion.Plan) error {
+	return deletion.Refuse(plan, map[deletion.Kind]error{deletion.KindComponents: ErrShownOnStatus})
 }
