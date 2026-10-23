@@ -789,15 +789,13 @@ users:
 ```
 
 **L'image est épinglée.** `compose.mcp-maison.yml` nomme une version de
-mcp-maison, `ghcr.io/ldesfontaine/mcp-maison:v0.1.0`, et une ligne de
-commentaire demande d'y ajouter son empreinte (`@sha256:…`) dès que la
-version est publiée : `docker buildx imagetools inspect
-ghcr.io/ldesfontaine/mcp-maison:v0.1.0` la donne. Une version se change en
-changeant cette ligne, rien d'autre.
-
-**Tant qu'aucune version n'est publiée** (mcp-maison#3 : aucun tag au
-22 octobre 2026), `docker compose up` ne trouve pas l'image ; le paquet doit
-aussi être public pour un `docker pull` sans identifiants (mcp-maison#4).
+mcp-maison par son tag et son empreinte,
+`ghcr.io/ldesfontaine/mcp-maison:v0.1.0@sha256:…` : un tag seul peut être
+déplacé, l'empreinte non. Pour une autre version, `docker buildx imagetools
+inspect ghcr.io/ldesfontaine/mcp-maison:<tag> --format '{{json
+.Manifest.Digest}}'` donne l'empreinte ; une version se change en changeant
+cette ligne, rien d'autre. L'image est publique : `docker pull` ne demande
+pas d'identifiants.
 Construisez-la depuis le commit vérifié avec cette version d'openCloud, puis
 faites pointer la ligne `image:` dessus. Le dépôt de mcp-maison est privé
 aujourd'hui : le clone demande un accès (`gh auth login`, ou un jeton) :

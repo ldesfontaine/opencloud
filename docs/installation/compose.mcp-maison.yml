@@ -1,17 +1,15 @@
 # mcp-maison, le serveur MCP qui lit openCloud par son API avec un jeton
 # d'API en lecture. À poser en /srv/workspace/mcp-maison/compose.yml, à côté
 # de son .env et de data/mcp/ (installation.md, « Brancher un agent IA »).
-# La version est épinglée par son tag, et par son empreinte dès qu'elle est
-# publiée (voir image) : changer de version, c'est changer la ligne image,
-# rien d'autre.
+# La version est épinglée par son tag et son empreinte (voir image) : changer
+# de version, c'est changer la ligne image, rien d'autre.
 name: mcp-maison
 services:
   mcp:
-    # Aucune image n'est encore publiée : dès que mcp-maison publie v0.1.0,
-    # ajoutez son empreinte à la fin de la ligne, @sha256:<empreinte>
-    # (docker buildx imagetools inspect ghcr.io/ldesfontaine/mcp-maison:v0.1.0).
-    # Un tag seul peut être déplacé ; le tag et l'empreinte ensemble, non.
-    image: ghcr.io/ldesfontaine/mcp-maison:v0.1.0
+    # Le tag et l'empreinte ensemble : un tag seul peut être déplacé. Pour une
+    # autre version, l'empreinte se lit par
+    # docker buildx imagetools inspect ghcr.io/ldesfontaine/mcp-maison:<tag> --format '{{json .Manifest.Digest}}'
+    image: ghcr.io/ldesfontaine/mcp-maison:v0.1.0@sha256:31ceed07c7ada4c7c02cfec5cf95e73b7d6111e83f440ef0ee615b69f25c3660
     container_name: mcp-maison
     restart: unless-stopped
     # Le réseau de l'hôte : mcp-maison écoute à côté d'openCloud, sur l'hôte
