@@ -293,8 +293,8 @@ type Backups interface {
 	CreateDestination(ctx context.Context, definition backup.DestinationDefinition) (backup.Destination, error)
 	DeleteDestination(ctx context.Context, id string) error
 	SavePlan(ctx context.Context, definition backup.PlanDefinition) (backup.Plan, error)
-	DeletePlan(ctx context.Context) error
-	RunNow(ctx context.Context) (action.Run, error)
+	DeletePlan(ctx context.Context, subject string) error
+	RunNow(ctx context.Context, subject string) (action.Run, error)
 }
 
 // Ce que le serveur attend du bus du direct : un abonnement par onglet.

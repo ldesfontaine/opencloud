@@ -54,7 +54,7 @@ func seedBackupPlan(t *testing.T, db *DB) backup.Destination {
 	if err := db.InsertBackupDestination(ctx, destination); err != nil {
 		t.Fatal(err)
 	}
-	plan := backup.Plan{ID: "bkp_1", Subject: backup.SubjectDatabase, DestinationID: destination.ID, Keep: 14, Schedule: backup.ScheduleDaily, CreatedAt: backupsNow, UpdatedAt: backupsNow}
+	plan := backup.Plan{ID: "bkp_1", Subject: backup.SubjectDatabase, SourceKind: backup.SourceDatabase, DestinationID: destination.ID, Keep: 14, Schedule: backup.ScheduleDaily, CreatedAt: backupsNow, UpdatedAt: backupsNow}
 	if err := db.SaveBackupPlan(ctx, plan); err != nil {
 		t.Fatal(err)
 	}
@@ -76,37 +76,37 @@ func TestSaveBackupPlan_UpsertsBySubjectAndKeepsItsHistory(t *testing.T) {
 	}
 	exec(t, db, `INSERT INTO action_runs (id, action, machine_name, state, not_after, seq, requested_by, requested_at)
 		VALUES ('run1', 'backup.receive', 'vps', 'sent', 1, 1, 'operator:lucas', 1)`)
-	if err := db.NoteBackupAttempt(ctx, backupsNow.Add(time.Hour), "", "run1"); err != nil {
+	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow.Add(time.Hour), "", "run1"); err != nil {
 		t.Fatal(err)
 	}
 	other := backup.Destination{ID: "bkd_2", Name: "autre", MachineID: destination.MachineID, Path: "/srv/b", CreatedAt: backupsNow}
 	if err := db.InsertBackupDestination(ctx, other); err != nil {
 		t.Fatal(err)
 	}
-	changed := backup.Plan{ID: "bkp_ignored", Subject: backup.SubjectDatabase, DestinationID: "bkd_2", Keep: 30, Schedule: backup.ScheduleDaily,
+	changed := backup.Plan{ID: "bkp_ignored", Subject: backup.SubjectDatabase, SourceKind: backup.SourceDatabase, DestinationID: "bkd_2", Keep: 30, Schedule: backup.ScheduleDaily,
 		CreatedAt: backupsNow.Add(48 * time.Hour), UpdatedAt: backupsNow.Add(48 * time.Hour)}
 	if err := db.SaveBackupPlan(ctx, changed); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := db.GetBackupPlan(ctx)
+	plan, err := db.GetBackupPlan(ctx, backup.SubjectDatabase)
 	if err != nil || plan.ID != "bkp_1" || plan.DestinationID != "bkd_2" || plan.Keep != 30 || plan.LastRunID != "run1" ||
 		!plan.LastAttemptAt.Equal(backupsNow.Add(time.Hour)) || !plan.CreatedAt.Equal(backupsNow) || !plan.UpdatedAt.Equal(backupsNow.Add(48*time.Hour)) {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
-	if err := db.NoteBackupAttempt(ctx, backupsNow.Add(2*time.Hour), "backup.machine_offline", ""); err != nil {
+	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow.Add(2*time.Hour), "backup.machine_offline", ""); err != nil {
 		t.Fatal(err)
 	}
-	plan, _ = db.GetBackupPlan(ctx)
+	plan, _ = db.GetBackupPlan(ctx, backup.SubjectDatabase)
 	if plan.LastError != "backup.machine_offline" || plan.LastRunID != "" {
 		t.Fatalf("plan %+v", plan)
 	}
-	if err := db.DeleteBackupPlan(ctx); err != nil {
+	if err := db.DeleteBackupPlan(ctx, backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.DeleteBackupPlan(ctx); !errors.Is(err, backup.ErrNotFound) {
+	if err := db.DeleteBackupPlan(ctx, backup.SubjectDatabase); !errors.Is(err, backup.ErrNotFound) {
 		t.Fatalf("twice: %v", err)
 	}
-	if err := db.NoteBackupAttempt(ctx, backupsNow, "", ""); !errors.Is(err, backup.ErrNotFound) {
+	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow, "", ""); !errors.Is(err, backup.ErrNotFound) {
 		t.Fatalf("without a plan: %v", err)
 	}
 }
@@ -118,13 +118,13 @@ func TestBackupPlan_SurvivesThePurgeOfItsLastRun(t *testing.T) {
 	seedBackupPlan(t, db)
 	exec(t, db, `INSERT INTO action_runs (id, action, machine_name, state, not_after, seq, requested_by, requested_at)
 		VALUES ('run1', 'backup.receive', 'vps', 'succeeded', 1, 1, 'operator:lucas', 1)`)
-	if err := db.NoteBackupAttempt(ctx, backupsNow, "", "run1"); err != nil {
+	if err := db.NoteBackupAttempt(ctx, backup.SubjectDatabase, backupsNow, "", "run1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.PurgeRuns(ctx, backupsNow); err != nil {
 		t.Fatal(err)
 	}
-	plan, err := db.GetBackupPlan(ctx)
+	plan, err := db.GetBackupPlan(ctx, backup.SubjectDatabase)
 	if err != nil || plan.LastRunID != "" || plan.LastAttemptAt.IsZero() {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
@@ -140,7 +140,7 @@ func TestDeleteBackupDestination_RefusedWhileAPlanUsesIt(t *testing.T) {
 	if err := db.DeleteBackupDestination(ctx, "bkd_inconnue"); !errors.Is(err, backup.ErrNotFound) {
 		t.Fatalf("unknown: %v", err)
 	}
-	if err := db.DeleteBackupPlan(ctx); err != nil {
+	if err := db.DeleteBackupPlan(ctx, backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.DeleteBackupDestination(ctx, destination.ID); err != nil {
@@ -177,7 +177,7 @@ func TestDeleteMachine_IsHeldBackByItsBackupDestination(t *testing.T) {
 	if !reflect.DeepEqual(refused.Plan.Blockers, want) {
 		t.Fatalf("blockers %+v", refused.Plan.Blockers)
 	}
-	if err := db.DeleteBackupPlan(ctx); err != nil {
+	if err := db.DeleteBackupPlan(ctx, backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.DeleteBackupDestination(ctx, destination.ID); err != nil {

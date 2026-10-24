@@ -233,8 +233,12 @@ erDiagram
     }
     backup_plans {
         TEXT id PK
-        TEXT subject "database ou service"
-        TEXT service_id FK "NULL pour la base"
+        TEXT subject UK "nom du plan et prefixe des fichiers"
+        TEXT name "libelle, vide : le sujet"
+        TEXT source_kind "database ou agent"
+        TEXT source_machine_id FK "NULL pour la base"
+        TEXT producer "proxmox-vzdump, NULL pour la base"
+        TEXT selector "all ou 100,101, NULL pour la base"
         TEXT destination_id FK
         TEXT schedule
         INTEGER keep
@@ -247,7 +251,7 @@ erDiagram
         INTEGER created_at
     }
     machines ||--o{ backup_destinations : "restrict"
-    declared_services |o--o{ backup_plans : "cascade"
+    machines |o--o{ backup_plans : "restrict, la machine source"
     backup_destinations ||--o{ backup_plans : "restrict"
 
     %% ===== Sondes et taches =====
@@ -636,11 +640,11 @@ flowchart LR
 | `ignored_keys` | « Présent non déclaré, et c'est voulu » : clé (projet Compose ou nom), jamais un id Docker | Nouvelle, faite |
 | `update_proposals` | Montée proposée (de, vers) ; jamais appliquée seule (décision 6) ; l'application est un run | Nouvelle |
 | `backup_destinations` | Une machine avec agent et un chemin ; plus tard un stockage externe | **Faite** (`006`, section 20) |
-| `backup_plans` | Une sauvegarde : la base ou un service (`data/` + `.env`), destination, rythme, nombre gardé. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | **Faite** (`006`, section 20) |
+| `backup_plans` | Une sauvegarde : la base, ou une machine (producteur et sélection), sa destination, son rythme, le nombre gardé. Un sujet par plan. Sans ligne `database`, l'interface dit que la base n'est pas sauvegardée | **Faite** (`006`, section 20 ; plusieurs plans et sources `012`, section 28) |
 | `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | **Faite** (`006`, section 20) |
 | `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée, en partie : `restrict`, service déclaré, certificat dans `probe_certificates` (schéma unique) ; `nrpe`, `warning`, `runner_machine_id` à faire |
 | `probe_certificates` | Le dernier certificat vu par une sonde : sujet, émetteur, dates, empreinte, chaîne valide, nom, agrafe OCSP. Pas d'historique | Nouvelle, faite (schéma unique : les huit `cert_*` de `probes`) |
-| `machine_proxmox` | L'hôte Proxmox qu'une machine porte : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée facultative, nœud, version, derniers relevé et refus. Une ligne par machine, retirée avec elle | **Faite** (migration `013_proxmox.sql`, section 28) |
+| `machine_proxmox` | L'hôte Proxmox qu'une machine porte : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée facultative, nœud, version, derniers relevé et refus. Une ligne par machine, retirée avec elle | **Faite** (migration `013_proxmox.sql`, section 29) |
 | `proxmox_guests` | Une VM ou un conteneur d'un hôte : numéro, type, nom, état, modèle, vCPU, mémoire et disque alloués, machine enrôlée rapprochée (`linked_machine_id`, nul si elle est retirée), dernière sauvegarde. Remplacée en entier à chaque relevé | **Faite** (`013`) |
 | `proxmox_storages` | Un stockage d'un hôte, par nœud : type, total, utilisé, libre, contenus, actif. Remplacé en entier à chaque relevé | **Faite** (`013`) |
 | `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée, en partie : `token_sealed` et `token_lookup` (schéma unique), `restrict` vers la machine ; `kind`, `service_id` à faire |
@@ -718,7 +722,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `service_provides`, `service_open_paths`, `service_units`, `service_samples_hourly` → `declared_services` | 0..n (unités : 1..n) | cascade | Partie de la définition ou de l'historique du service |
 | `update_proposals` → `service_units` | 0..n | cascade | Sans unité, rien à proposer |
 | `update_proposals` → `action_runs` | 0..1 | set null | Le run peut être purgé, la proposition reste « appliquée » |
-| `backup_plans` → `declared_services` | 0..n | cascade | Réglage du service ; les fichiers déjà envoyés restent |
+| `backup_plans` → `machines` (la source) | 0..1 | **restrict** | Retirer la machine qui produit la sauvegarde : on retire d'abord le plan (`machine.has_backup_plans`, **fait**, `012`) |
 | `backup_plans` → `backup_destinations` | 0..n | **restrict** | On ne retire pas une destination qui reçoit encore |
 | `backup_destinations` → `machines` | 0..n | **restrict** | Retirer la machine qui garde les sauvegardes : plan obligatoire |
 | `probes` → `machines` (qui sonde) | 1 | **restrict** | Était cascade : 90 jours partaient sans prévenir (**fait**, `028_restrict.sql`). Le plan propose de changer de machine |
@@ -1268,7 +1272,7 @@ a tranché, et ses écarts au diagramme :
 
 La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`,
 `backup_plans`) et le paquet `internal/backup`. Le fonctionnement est dans
-`22-fonctionnement.md`, « Comment la base est sauvegardée ». Ce que le code a
+`22-fonctionnement.md`, « Comment une sauvegarde se fait ». Ce que le code a
 tranché, et ses écarts au diagramme :
 
 | Décision | Pourquoi |
@@ -1276,11 +1280,11 @@ tranché, et ses écarts au diagramme :
 | **`filippo.io/age`** pour le chiffrement, plutôt que le format écrit à la main | Le format est lu par l'outil `age` courant : on restaure sans openCloud. L'écrire (X25519, scrypt, STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de cryptographie à maintenir et à éprouver. Licence BSD-3-Clause, Go pur |
 | **`public_key` devient `recipient`, `private_key_sealed` devient `identity_sealed`** | Les mots d'age. La privée est `AGE-SECRET-KEY-1…` chiffrée par un destinataire scrypt (facteur 2^18) ; l'empreinte est les 16 premiers hexadécimaux du SHA-256 de la publique |
 | **Pas de `kind` sur la destination** | Un seul genre, l'agent ; il viendra avec SFTP ou S3 |
-| **Pas de `service_id` sur le plan** | La base seule pour l'instant (`subject` vaut `database`, unique) ; les services viendront avec le déploiement, et avec eux la ligne `declared_services → backup_plans` en `cascade` |
+| **Pas de `service_id` sur le plan** | La base seule pour l'instant (`subject` vaut `database`, unique) ; plusieurs plans et la source machine sont venus ensuite, sans `service_id` (section 28) |
 | **`last_attempt_at`, `last_error`, `last_run_id`**, en plus du diagramme | La nuit se joue sur « aucune tentative depuis 3 h » ; une tentative qui n'a pas pu partir (pas de clé, machine hors ligne) n'a pas d'ordre, sa raison se garde sur le plan. `last_run_id` est en `set null` : la purge des runs peut l'emporter |
 | **Pas de copie locale** : l'instantané `VACUUM INTO` vit le temps de l'emballer dans `state_dir/outgoing/<colis>/`, l'archive chiffrée y attend l'agent le temps de vie de son ordre au plus (`OrderLifetime` + `MaxRunDuration`, un peu plus d'une heure : un colis ne survit pas à son ordre), le dossier est vidé au démarrage | Une sauvegarde gardée sur la machine qu'elle protège ne protège de rien |
 | **Un colis, pas le flux** : l'ordre signé porte l'identifiant du colis et la taille et le SHA-256 de chaque fichier, l'agent les télécharge sous son jeton de session | Un événement du flux est borné à 1 Mio ; une base fait des dizaines de Mio. Le même mécanisme servira à `agent.update` |
-| **`backup.prune` est un ordre à part**, envoyé juste après `backup.receive` ; l'agent exécute ses ordres longs un à la fois, dans l'ordre du rang | L'élagage passe après la réception sans que le serveur attende la fin de l'une pour envoyer l'autre. Il ne supprime que la forme exacte `<id>-AAAAMMJJ-HHMMSS.tar.age` |
+| **`backup.prune` est un ordre à part**, envoyé juste après `backup.receive` ; l'agent exécute ses ordres longs un à la fois, dans l'ordre du rang | L'élagage passe après la réception sans que le serveur attende la fin de l'une pour envoyer l'autre. Il ne supprime que la forme exacte `<préfixe>-AAAAMMJJ-HHMMSS.tar.age` du préfixe de son plan (section 28) |
 | **Un plan, le rythme `daily`, après 3 h de l'horloge du serveur** | Une tentative par jour, DST sans surprise (une heure de l'horloge, pas une durée depuis minuit) ; « sauvegarder maintenant » pour le reste |
 | **Un run `accepted` depuis plus d'une heure passe `failed`, raison `timeout`** | Avant, un run accepté n'expirait jamais : un ordre long dont l'agent ne répond plus restait « accepté » à jamais |
 | **`OrderBody.Secret`**, signé avec l'ordre, jamais écrit dans `action_runs.params`, l'audit ou un journal | Préparé ici, servi par le déploiement (le `.env` d'un service). La colonne `params` n'a jamais à garder un secret |
@@ -1424,7 +1428,25 @@ se relèvent » (#152, étape 1, lecture seule). Ce que le code a tranché :
 | **Un relevé remplace l'ancien en entier** (décision 6) | Une clé retirée d'une machine doit disparaître sans règle de purge ; la clé primaire `(machine, compte, fichier, empreinte)` suffit | Pas d'historique : on ne sait pas depuis quand une clé est là, ni quand elle est partie |
 | **Les trois tables restent dans `internal/store`**, un fichier de plus (`sshkeys.go`) (décision 7) | Le store porte déjà toutes les tables, une par domaine ; un paquet de plus n'aurait rien isolé | `internal/store` compte une table de plus de l'écosystème : 52 tables (51 et `schema_migrations`) |
 
-## 28. Ce que l'hôte Proxmox a fixé
+## 28. Ce que plusieurs plans de sauvegarde ont fixé
+
+Migration `012_backup_sources.sql` : `backup_plans` est refaite (SQLite ne change
+pas un `CHECK`) avec `subject` (unique, un mot de 40 caractères au plus), `name`,
+`source_kind` (`database` ou `agent`), `source_machine_id` (`restrict`),
+`producer` et `selector`. Le fonctionnement est dans `22-fonctionnement.md`,
+« Comment une sauvegarde se fait » (#266, G01). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Le sujet est l'identité du plan** (route, journal, préfixe des fichiers) | Un nom lisible suffit et n'ajoute pas d'identifiant de plus à montrer ; le plan `database` garde le préfixe `opencloud` (`brand.ID`), les fichiers déjà envoyés restent reconnus | Un sujet ne se renomme pas : on supprime le plan et on en crée un autre |
+| **Deux `CHECK` disent la forme de la source** : `database` ⇒ sujet `database` sans machine, producteur ni sélection ; `agent` ⇒ sujet autre et les trois renseignés | Une ligne incohérente n'entre pas, quel que soit le code qui écrit | |
+| **`database` et `opencloud` sont réservés** : un plan machine ne peut pas prendre le préfixe de la base | L'élagage de l'un ne doit jamais toucher les fichiers de l'autre | Deux mots de moins pour un sujet |
+| **`backup.prune` porte un `Prefix` obligatoire** et ne prend que `<préfixe>-` suivi d'exactement l'horodatage | Le plan `pve` ne prend pas `pve-vm-100-…`. Sans préfixe : `bad_order`, pas de compatibilité à garder | **À traiter au chantier des machines virtuelles** : un sujet comme `x-vm-100` pourrait coïncider avec le futur suffixe `x` + `vm-100` ; ce chantier fixe le suffixe et doit ajouter la règle de sujet. Un agent d'avant ignore `prefix` et élague `opencloud-…` : un plan machine ne doit pas élaguer chez lui |
+| **`plan_exists` : même source ET même destination** | Le second referait le travail du premier sous un autre nom ; une seconde copie vers une autre destination reste possible | |
+| **Un plan machine s'enregistre mais ne part pas** : `backup.source_not_implemented`, écrit dans `last_error` | Le modèle et l'interface se posent d'abord ; l'envoi vient après | Un plan enregistré n'est pas encore une sauvegarde |
+| **Une nouvelle sorte de suppression `backup_plans`** (`deletion.KindBackupPlans`, `machine.has_backup_plans`) | Le plan de suppression de la machine nomme les plans qui la gardent comme source, comme pour ses destinations | Une clé et une sorte de plus |
+
+## 29. Ce que l'hôte Proxmox a fixé
 
 Migration `013_proxmox.sql` : `machine_proxmox` (une ligne par machine, en cascade
 depuis elle), `proxmox_guests` et `proxmox_storages` (en cascade depuis

@@ -162,9 +162,9 @@ func (s *Server) routes() []route {
 		{"POST", "/api/backups/keyring", s.createBackupKeyring},
 		{"POST", "/api/backups/destinations", s.createBackupDestination},
 		{"DELETE", "/api/backups/destinations/{id}", s.deleteBackupDestination},
-		{"PUT", "/api/backups/plan", s.saveBackupPlan},
-		{"DELETE", "/api/backups/plan", s.deleteBackupPlan},
-		{"POST", "/api/backups/actions/run", s.runBackup},
+		{"PUT", "/api/backups/plans/{subject}", s.saveBackupPlan},
+		{"DELETE", "/api/backups/plans/{subject}", s.deleteBackupPlan},
+		{"POST", "/api/backups/plans/{subject}/actions/run", s.runBackup},
 		{anyMethod, "/api/", s.apiUnknown},
 	}
 	add := func(method, pattern string, handler http.HandlerFunc) {

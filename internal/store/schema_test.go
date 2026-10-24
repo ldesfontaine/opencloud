@@ -100,7 +100,7 @@ func TestSchema_MatchesTheLegacyMigrationsAndTheTrim(t *testing.T) {
 		t.Errorf("%d tables, 55 attendues (54 et schema_migrations)", tables)
 	}
 	versions, err := fresh.AppliedVersions(context.Background())
-	if err != nil || !slices.Equal(versions, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13}) {
+	if err != nil || !slices.Equal(versions, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}) {
 		t.Fatalf("versions notées : %v %v", versions, err)
 	}
 }

@@ -112,6 +112,9 @@ var (
 	// Le plan de sauvegarde la nomme comme destination : la retirer, c'est
 	// le plan qui n'a plus où envoyer.
 	ErrHasBackupDestinations = refusal.Conflict("machine.has_backup_destinations", "the machine receives backups")
+	// Un plan de sauvegarde la nomme comme source : la retirer, c'est le
+	// plan qui n'a plus rien à produire.
+	ErrHasBackupPlans = refusal.Conflict("machine.has_backup_plans", "the machine produces backups")
 )
 
 // RefuseDeletion rend le refus du retrait que le plan retient, nil sinon.
@@ -122,6 +125,7 @@ func RefuseDeletion(plan deletion.Plan) error {
 		deletion.KindHeartbeats:         ErrHasHeartbeats,
 		deletion.KindComponents:         ErrShownOnStatus,
 		deletion.KindBackupDestinations: ErrHasBackupDestinations,
+		deletion.KindBackupPlans:        ErrHasBackupPlans,
 	})
 }
 
