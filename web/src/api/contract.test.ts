@@ -777,7 +777,14 @@ const backups = shape<Backups>("Backups", {
     right_reason: optional(value),
     created_at: value,
   }),
-  plan: shape<BackupPlan>("BackupPlan", {
+  plans: shape<BackupPlan>("BackupPlan", {
+    subject: value,
+    name: value,
+    source_kind: value,
+    source_machine_id: value,
+    source_machine_name: value,
+    producer: value,
+    selector: value,
     destination_id: value,
     keep: value,
     schedule: value,
@@ -809,6 +816,7 @@ const contract: Record<string, Shape<unknown>> = {
   "audit_forwarding.golden.json": auditForwarding,
   "backups.golden.json": backups,
   "backups_empty.golden.json": backups,
+  "backups_plans.golden.json": backups,
   "backups_unavailable.golden.json": backups,
   "auth.golden.json": auth,
   "container.golden.json": containerResponse,

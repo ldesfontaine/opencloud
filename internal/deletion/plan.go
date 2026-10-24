@@ -16,6 +16,9 @@ const (
 	// La machine qui reçoit les sauvegardes : retirée, elles n'auraient plus
 	// où aller.
 	KindBackupDestinations Kind = "backup_destinations"
+	// La machine qui produit la sauvegarde d'un plan : retirée, le plan
+	// n'aurait plus de source.
+	KindBackupPlans Kind = "backup_plans"
 
 	// Ce qui part avec l'objet, ou s'en détache : des lignes comptées.
 	KindAgents           Kind = "agents"
@@ -42,7 +45,7 @@ const (
 // Kinds rend la liste fermée : chaque genre a son libellé dans les catalogues.
 func Kinds() []Kind {
 	return []Kind{
-		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations,
+		KindDeclaredServices, KindProbes, KindHeartbeats, KindComponents, KindStatusPages, KindBackupDestinations, KindBackupPlans,
 		KindAgents, KindEnrollmentTokens, KindMachineSamples, KindMachineNetworks, KindContainers,
 		KindContainerEvents, KindImageChecks, KindSSHKeys, KindIgnoredKeys, KindSilences,
 		KindProbeResults, KindProbeDays, KindHeartbeatPings, KindHeartbeatRuns,

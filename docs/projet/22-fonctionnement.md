@@ -146,7 +146,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Les réglages de l'opérateur dans `settings`, une seule ligne : la langue de l'interface ; les seuils d'alerte du disque (`disk_attention_percent`, `disk_danger_percent`, zéro tant que rien n'est réglé) ; le relais d'e-mails (`mail_host`, `mail_port`, `mail_tls`, `mail_username`, `mail_from`, et **`mail_password` chiffré** : il faut le rejouer au relais, un haché ne servirait à rien ; l'API ne le renvoie jamais, `has_password` dit seulement qu'il y en a un) ; la fin de support (`lifecycle_disabled`, à 0 tant qu'elle est activée) | Chaque écrivain relit, modifie sa clé et réécrit dans une seule transaction : la langue et le relais changés en même temps survivent tous deux, même depuis deux processus. **Le mot de passe du relais est chiffré** comme les autres secrets saisis dans l'interface, lié à la ligne des réglages |
 | Machine openCloud, `state_dir` | `secret.key` | La clé qui chiffre les secrets ci-dessus : une ligne `key-v1:<id>:<clé>`, AES-256, 32 octets tirés au hasard, jamais en base. `<id>` est l'empreinte courte de la clé, inscrite aussi dans chaque chiffré ; le temps d'une rotation, le fichier porte plusieurs lignes (quatre au plus) : un chiffré s'ouvre avec la clé de son `<id>`, la première ligne scelle | Mode 0600, écriture atomique, refusée si un autre compte peut la lire. `serve` la crée au premier démarrage par une création exclusive (un lien dur d'un temporaire écrit et synchronisé : si le fichier existe, elle échoue) ; deux `serve` lancés ensemble sur une base neuve tirent chacun une clé, un seul gagne, l'autre relit la sienne. `opencloud secrets rotate` en tire une neuve et rescelle chaque secret, l'ancienne gardée sous `secret.key.rotated-<horodatage>` ; `opencloud secrets forget` remplace une clé perdue, l'ancienne gardée sous `secret.key.forgotten-<horodatage>`. **À sauvegarder à part, une fois** : sans elle, la base garde ses données mais perd ses secrets. `opencloud secrets forget` repart d'une clé neuve (voir `installation.md`) |
 | Machine openCloud, `state_dir` | `server.key` | La clé qui **signe les ordres** envoyés aux agents : une ligne `ed25519-v1:<graine>`, Ed25519, tirée au premier démarrage de `serve`, jamais en base ; une seconde ligne, la clé précédente, le temps d'une rotation (`opencloud secrets rotate-server-key`, puis `finish-server-key`). Sa moitié publique est livrée à chaque agent à l'enrôlement, qui l'épingle | Les règles de `secret.key` : mode 0600 jugé sur le descripteur, refusée si un autre compte peut la lire, création exclusive (deux `serve` lancés ensemble gardent la même). Illisible ou abîmée, `serve` refuse de démarrer plutôt que d'en tirer une autre. **Qui l'a commande toutes les machines** ; perdue, chaque agent refuse les ordres (`bad_signature`) jusqu'à son ré-enrôlement ; volée, aussi : une rotation se fait sous la signature de l'ancienne clé, elle ne chasse pas qui la tient. À sauvegarder avec `secret.key` |
-| Machine openCloud, `state_dir` | `opencloud.db` | La sauvegarde de la base : `backup_keyring` (une ligne : la clé **publique** `age1…` en clair, la privée `identity_sealed` scellée par la phrase de passe, l'empreinte), `backup_destinations` (nom, machine en `restrict`, chemin), `backup_plans` (le plan `database`, la destination en `restrict`, combien garder, la dernière tentative, la clé de son refus, le dernier ordre en `set null`). **La phrase de passe n'est écrite nulle part** : ni base, ni journal, ni audit | La clé privée n'est lisible qu'avec la phrase ; la publique ne chiffre que |
+| Machine openCloud, `state_dir` | `opencloud.db` | La sauvegarde de la base : `backup_keyring` (une ligne : la clé **publique** `age1…` en clair, la privée `identity_sealed` scellée par la phrase de passe, l'empreinte), `backup_destinations` (nom, machine en `restrict`, chemin), `backup_plans` (le sujet, unique, le libellé, le type de source `database` ou `agent`, la machine source en `restrict`, le producteur, la sélection, la destination en `restrict`, combien garder, la dernière tentative, la clé de son refus, le dernier ordre en `set null`). **La phrase de passe n'est écrite nulle part** : ni base, ni journal, ni audit | La clé privée n'est lisible qu'avec la phrase ; la publique ne chiffre que |
 | Machine openCloud, `state_dir` | `outgoing/<colis>/` | Les colis des ordres longs : l'instantané de la base (`VACUUM INTO`) le temps de l'emballer, puis l'archive chiffrée jusqu'à son téléchargement par l'agent, **la vie de son ordre au plus** (`action.ParcelLifetime` : 2 min pour être pris, une heure pour finir). Vidé au démarrage de `serve`. Aucune sauvegarde n'est gardée sur cette machine | `0700`, `0600`, même disque et mêmes droits que la base ; l'instantané en clair est effacé avant l'envoi |
 | Machine openCloud, `state_dir` | `lifecycle.json` | La dernière lecture d'endoflife.date : quel dépôt d'images est quel produit, et les branches des produits que les services utilisent (nom, maintenue ou non, date de fin, dernière version). Absent tant que la fin de support n'a jamais été activée | Données publiques, 0600, écriture atomique, remplacé d'un bloc à chaque lecture réussie ; l'effacer coûte une lecture de la source |
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
@@ -511,7 +511,7 @@ fermée et vit dans le protocole (`agentwire.Kind`) : jamais une chaîne shell.
 
 | | Commandes d'observation | Ordres |
 | --- | --- | --- |
-| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment la base est sauvegardée »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). `docker.deploy` et `docker.update`, les ordres longs du déploiement (« Comment un service se déploie »). Les autres gestes (`files.write`…) viendront avec #153 étape 5 |
+| Genres | `logs`, `logs_stop`, `probes`, `image_checks` (noms figés par les agents installés) | `agent.ping` : il ne change rien et prouve le chemin ; `agent.server_key`, que le serveur envoie seul pendant une rotation de sa clé ; `backup.receive` et `backup.prune`, les ordres longs de la sauvegarde (« Comment une sauvegarde se fait »). `agent.update`, l'ordre long qui change le binaire de l'agent (« Comment un agent se met à jour »). `docker.deploy` et `docker.update`, les ordres longs du déploiement (« Comment un service se déploie »). Les autres gestes (`files.write`…) viendront avec #153 étape 5 |
 | Sur le fil | un événement SSE à leur nom, au contenu typé (`agentwire.Command`) | l'événement `order` : le corps JSON tel qu'il a été signé, sa signature, l'empreinte de la clé |
 | Signées | **non** : elles ne font que lire, et ne partent que du serveur qui tient le flux | **oui**, Ed25519, par `server.key` |
 | Écrites avant l'envoi | non | oui : le run dans `action_runs`, l'événement `action.order` au journal d'audit |
@@ -654,23 +654,32 @@ plus récent au plus ancien, avec la sortie ; `400 bad_query` sur un nombre
 illisible, un jeton d'API la lit aussi), la carte « Ordres » de la fiche
 d'une machine, relue sur le sujet du direct `actions`.
 
-## Comment la base est sauvegardée
+## Comment une sauvegarde se fait
 
-Chaque nuit, `serve` prend un instantané cohérent de sa base, l'emballe avec
-ses deux clés, le chiffre pour une clé publique, et l'envoie à l'agent d'une
-**autre machine**. Il n'en garde aucune copie. Seule la base est sauvegardée
-ici ; le `data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
+Une installation porte **plusieurs plans** de sauvegarde. Chacun a un
+**sujet** (son nom, qui préfixe ses fichiers), une **source** (ce qu'il
+sauvegarde), une **destination** et un nombre de copies à garder. Le plan
+`database` est celui de la base : chaque nuit, `serve` prend un instantané
+cohérent de sa base, l'emballe avec ses deux clés, le chiffre pour une clé
+publique, et l'envoie à l'agent d'une **autre machine**. Il n'en garde aucune
+copie. Un plan dont la source est une **machine** (`agent`) dit quelle machine
+produit la sauvegarde, avec quel producteur et quelle sélection ; son envoi
+n'existe pas encore : le plan s'enregistre, et son lancement est refusé
+`backup.source_not_implemented` (« Les plans à source machine », plus bas). Le
+`data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
 
 | | |
 | --- | --- |
-| Ce qui part | Un tar sans compression de trois entrées exactement : `opencloud.db` (l'instantané `VACUUM INTO`), `secret.key`, `server.key`, en `0600`. Nom : `opencloud-AAAAMMJJ-HHMMSS.tar.age` (UTC). À côté, `opencloud-key-<empreinte>.age` : la clé privée scellée |
+| Ce qui part | Un tar sans compression de trois entrées exactement : `opencloud.db` (l'instantané `VACUUM INTO`), `secret.key`, `server.key`, en `0600`. Nom : `<préfixe>-AAAAMMJJ-HHMMSS.tar.age` (UTC), le préfixe étant `opencloud` pour le plan `database` (`brand.ID`) et le sujet du plan pour les autres. À côté, `opencloud-key-<empreinte>.age` : la clé privée scellée |
 | Chiffré comment | [age](https://age-encryption.org) : la clé publique `age1…` (X25519) chiffre ; la privée est scellée par `age.NewScryptRecipient(phrase)` (scrypt, facteur 2^18). L'empreinte est les 16 premiers hexadécimaux du SHA-256 de la clé publique. La bibliothèque est `filippo.io/age` : le format est lu par l'outil `age` courant, on restaure sans openCloud |
 | La phrase | 16 caractères au moins (runes, espaces de bord retirés), 1024 au plus. Saisie deux fois dans le navigateur, **une** reçue par le serveur, le temps de sceller la clé ; **jamais écrite**. Perdue, aucune sauvegarde ne se relit |
 | Une paire à la fois | `POST /api/backups/keyring` refuse si elle existe (`409 backup.keyring_exists`), sauf `replace: true`. Remplacer ne rend rien illisible : chaque sauvegarde a sa clé scellée à côté d'elle, nommée par empreinte |
 | Pas de copie locale | L'instantané en clair n'existe que le temps de l'emballer, dans `outgoing/<colis>/`, et il est effacé **avant** l'envoi. L'archive chiffrée y reste jusqu'au téléchargement par l'agent, le temps que son ordre peut vivre au plus (un peu plus d'une heure), puis part ; `serve` vide `outgoing/` au démarrage |
 | Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`, puis `path_denied` ou `path_unwritable` si son compte ne peut pas écrire le dossier, avant d'accepter l'ordre ; la vue dit alors `unavailable`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
-| Quand | Un **plan** (`database`, `daily`) : la boucle de 15 minutes lance la sauvegarde à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. « Sauvegarder maintenant » la lance tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
-| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes |
+| Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
+| Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, source pas encore prise en charge) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
+| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** |
+| Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : le second referait le travail du premier, sous un autre nom. Le même contenu vers une autre destination est permis, c'est une seconde copie |
 
 **Ce que fait l'agent.** `backup.receive` est le premier ordre qui **écrit
 sur une machine** : l'agent n'écrit que ce que son compte possède (ou tout, s'il est
@@ -683,10 +692,19 @@ du colis (borné à la taille signée, plus un octet pour voir un dépassement),
 `fsync`, renomme, `fsync` du dossier, puis **relit** le fichier : somme
 recalculée sur le disque, et en-tête `age-encryption.org/v1` pour un `.age`
 (`not_an_age_file`). Il rend une ligne par fichier, `written <nom> <taille>
-sha256:<hex>`, et n'envoie aucun contenu. `backup.prune` ne supprime que les
-fichiers de la forme exacte `opencloud-AAAAMMJJ-HHMMSS.tar.age`, garde les
+sha256:<hex>`, et n'envoie aucun contenu. `backup.prune` porte un
+`Prefix` obligatoire (le préfixe du plan : un sujet ou `opencloud`) ; sans lui,
+ou s'il n'a pas la forme d'un préfixe, l'ordre est refusé `bad_order`. Il ne
+supprime que les fichiers de la forme exacte `<préfixe>-AAAAMMJJ-HHMMSS.tar.age` :
+après `<préfixe>-`, le reste doit être **exactement** l'horodatage. Le plan `pve`
+ne prend donc jamais un fichier `pve-vm-100-…` ni `opencloud-…`. Il garde les
 `keep` plus récents (tri par nom), ne touche jamais une clé `-key-` ni autre
-chose, et rend `removed <nom>` puis `kept <n>`.
+chose, et rend `removed <nom>` puis `kept <n>`. Aucune compatibilité avec un
+ancien ordre sans `Prefix` n'est gardée : aucun agent installé n'a reçu de
+`backup.prune` d'un serveur de cette version. Dans l'autre sens, un agent
+d'avant ignore `prefix` et n'élague que `opencloud-…` : sans danger pour le
+plan `database`, mais un plan machine ne doit pas élaguer chez lui (il
+élaguerait la base avec le `keep` de ce plan).
 
 **La vérification** est cette relecture, faite à chaque sauvegarde : jamais un
 déchiffrement, l'agent n'a pas la clé. L'état affiché par la page est celui du
@@ -701,18 +719,40 @@ connues sont extraites, chacune bornée (base 64 Gio, clés 64 Kio), en `0600`,
 et rien n'apparaît sous son nom définitif tant que l'archive n'est pas lue
 jusqu'au bout. La commande imprime la suite (`chown`, démarrer `serve`).
 
+**Les plans à source machine.** Un plan `agent` dit : la machine
+(`source_machine_id`, qui existe), le producteur (`proxmox-vzdump`, la seule
+valeur de la liste fermée `backup.Producers()`) et la sélection (`all`, ou des
+identifiants séparés par des virgules comme `100,101`, 255 caractères au plus).
+Il s'enregistre et s'affiche, mais son lancement, à la main comme la nuit, est
+refusé `backup.source_not_implemented` et écrit dans `last_error` : la prise de
+la sauvegarde sur la machine, son envoi et ses fichiers par machine virtuelle
+viendront avec les chantiers suivants. La machine source d'un plan ne se
+supprime pas (`restrict`, `machine.has_backup_plans`) : on retire d'abord le plan.
+
+**Les refus d'un plan** : `422 backup.plan_invalid` (sujet, libellé ou type de
+source illisibles, ou un plan `database` qui porte une machine), `422
+backup.keep_invalid` (nombre à garder), `422 backup.source_machine_unknown`, `422 backup.producer_unknown`,
+`422 backup.selector_invalid`, `409 backup.plan_exists`, `409
+backup.plan_missing` (lancer un sujet qui n'existe pas ; supprimer un sujet
+inconnu répond `404`), `409 backup.source_not_implemented`.
+
 **L'interface** : la page **Sauvegardes** (`/sauvegardes`, sous
-« Administration ») : l'état et « Sauvegarder maintenant », la clé, les
-destinations (avec la pastille du droit de leur agent), le plan. Routes :
-`GET /api/backups`, `POST /api/backups/keyring`, `POST`/`DELETE
-/api/backups/destinations[/{id}]`, `PUT`/`DELETE /api/backups/plan`, `POST
-/api/backups/actions/run`. Sujet du direct : `backups` (et `actions`, car
-l'état d'une sauvegarde est celui de son dernier ordre).
+« Administration ») : la clé, les destinations (avec la pastille du droit de
+leur agent), puis la liste des plans, chacun avec son état, « Sauvegarder
+maintenant », « Modifier » et « Supprimer le plan », et le formulaire
+d'ajout ou de modification (le sujet et le type de source ne changent plus une
+fois le plan créé). Routes : `GET /api/backups` (`plans: []`), `POST
+/api/backups/keyring`, `POST`/`DELETE /api/backups/destinations[/{id}]`,
+`PUT`/`DELETE /api/backups/plans/{subject}`, `POST
+/api/backups/plans/{subject}/actions/run`. Sujet du direct : `backups` (et
+`actions`, car l'état d'une sauvegarde est celui de son dernier ordre).
 
 **Au journal** : `backup_keyring.create` et `.replace` (`fingerprint`),
 `backup_destination.create` et `.delete` (`name`, `machine_id`, `path`),
-`backup_plan.update` (`destination_id`, `keep`), `.delete`, et `.run` (`run_id`,
-`destination_id`, sous la règle `rule:backup` la nuit), plus les deux
+`backup_plan.update` (`source_kind`, `destination_id`, `keep`, et pour une
+source machine `source_machine_id`, `producer`, `selector`), `.delete`, et `.run`
+(`run_id`, `destination_id`, sous la règle `rule:backup` la nuit), le sujet du
+plan servant de nom d'objet, plus les deux
 `action.order` de chaque sauvegarde. Jamais la phrase (`passphrase` rejoint les
 noms de détail interdits), jamais `identity_sealed`.
 
@@ -720,8 +760,8 @@ noms de détail interdits), jamais `identity_sealed`.
 base, `secret.key` et `server.key` : la phrase se garde dans un coffre, ailleurs
 que les sauvegardes. Qui a la machine openCloud n'a pas besoin des
 sauvegardes. Une destination qui perd son disque perd ses sauvegardes : en
-avoir deux est à la charge de l'opérateur (huit au plus, un plan pour
-l'instant).
+avoir deux est à la charge de l'opérateur (huit au plus ; plusieurs plans
+peuvent viser des destinations différentes).
 
 ## Comment un service se déploie
 
@@ -3437,7 +3477,7 @@ avec ce qui n'existe pas encore, est dans `24-modele-cible.md`) :
 
 | Supprimer | Retenue tant que (restrict) — clé du 409 | Emporte (cascade, compté) | Détache (compté) | Ensuite |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
+| Machine | services déclarés `machine.has_declared_services` ; sondes qu'elle lance `machine.has_probes` ; tâches rattachées `machine.has_heartbeats` ; plans de sauvegarde dont elle est la source `machine.has_backup_plans` ; composants qui l'affichent `machine.shown_on_status` | agents et leurs droits, jetons de ré-enrôlement, mesures (brut, horaire, journalier ; les volumes avec le brut), réseaux Docker, conteneurs (leurs mesures et réseaux avec eux), transitions de conteneur, constats d'image, clés ignorées, silences ; le moteur Docker, non compté | alertes, incidents (le lien seul) | flux coupé, alertes ouvertes résolues ; l'agent ne peut plus se connecter |
 | Service déclaré | sondes, composants : `directory.service_linked` | unités (et fournitures, non comptées), silences | liens de projet, conteneurs (redeviennent non déclarés), alertes (gardent leur conteneur), incidents (le lien seul) | rapprochement refait ; rien ne touche la machine |
 | Projet | sa page de statut : `project.has_status_page` | — | liens de projet (les services restent) | — |
 | Sonde | composants : `probe.shown_on_status` | essais, jours, silences | alertes, incidents (le lien seul) | jeu de sondes renvoyé à sa machine |
@@ -3539,7 +3579,7 @@ l'acteur de l'apply et avec son `apply_id`.
 | Envoyer un ordre à un agent | `action.order`, avant l'envoi | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id` |
 | Clé de sauvegarde créée, remplacée | `backup_keyring.create`, `.replace` | La clé | `fingerprint` ; jamais la phrase ni la clé privée scellée |
 | Destination de sauvegarde | `backup_destination.create`, `.delete` | La destination | `name`, `machine_id`, `path` |
-| Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan | `destination_id`, `keep` ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
+| Plan de sauvegarde | `backup_plan.update`, `.delete`, `.run` | Le plan (son sujet) | `source_kind`, `destination_id`, `keep` ; source machine : `source_machine_id`, `producer`, `selector` en plus ; `.run` : `run_id`, `destination_id` (sous `rule:backup` la nuit) |
 | Un ordre refusé par l'agent, rapporté par son signal | `action.refused` (une fois : un rapport rejoué ne s'écrit pas) | Le run, nommé par sa machine | `kind`, `machine_id`, `agent_id`, `reason` (`right_missing:agent.update`, `bad_signature`…) |
 
 ### Ce qui ne l'est jamais
@@ -3852,7 +3892,7 @@ refusés avant d'envoyer quoi que ce soit.
 | Première configuration au premier venu | Tant que le compte n'est pas créé, le premier qui atteint le port le crée : l'installation doit écouter sur la boucle locale (ou derrière un pare-feu) jusque-là. En `basic` : ni comptes multiples, ni déconnexion (le navigateur garde les identifiants jusqu'à sa fermeture), ni second facteur ; le mode `forward` les délègue au SSO devant openCloud | Comptes (`accounts`) et page de connexion : le modèle cible (`24-modele-cible.md`) |
 | Le groupe `docker` équivaut à root | Le compte dédié de l'agent (`opencloud-agent`, décision 2 du 22 octobre 2026) est dans le groupe `docker` quand la machine a Docker, et la socket de Docker lance un conteneur privilégié qui monte `/` : sur une machine avec Docker, le compte dédié protège des erreurs et d'une compromission maladroite (pas de réécriture directe de `/etc`, `/usr`, des comptes), pas d'un attaquant décidé. Sans Docker, c'est un compte sans privilège. Root reste possible (drop-in `root.conf`), au prix de la machine entière | Un observateur non privilégié et un exécuteur root étroit : seulement si l'usage le demande (décision 2) |
 | Docker muet sur une machine en ligne | La machine signale, mais Docker ne répond plus (ou l'agent dit « Docker absent ») : ses conteneurs gardent leur dernier état, pas encore « Inconnu » | Après #136 point 1 (issue de suite : 12 min, ou tout de suite si l'agent dit « Docker absent ») |
-| Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment la base est sauvegardée »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
+| Des ordres qui n'existent pas encore | Sept ordres existent (« Les acteurs »). Aucun ne retire un déploiement (supprimer le service de l'annuaire laisse conteneurs, dossier et `data/` sur la machine), aucun ne sauvegarde le `data/` ni le `.env` d'un service (« Comment une sauvegarde se fait »), et `files.write` ne se juge pas encore par chemin : aucun ordre n'en nomme | À décider |
 | Une clé du serveur volée se remplace par un ré-enrôlement | La rotation de `server.key` livre la neuve sous la signature de l'ancienne : elle sert à changer de clé, pas à chasser qui l'a prise. Une clé volée ou perdue se remplace en ré-enrôlant chaque agent. La clé d'un agent ne tourne pas non plus autrement | À décider, si un jour il faut mieux |
 | Le journal d'audit ne part que vers les canaux cochés | Aucun canal n'est coché d'office : tant qu'aucun ne reçoit le journal, qui efface la base efface la trace (la page Journal le dit). Un canal en panne plus de 24 h perd les envois de l'intervalle, sans rattrapage. Une ligne du journal qui échoue à s'écrire ne défait pas le geste, elle se lit en erreur au journal du processus | Par conception ; cocher « Recevoir le journal » sur un canal |
 | Les clés SSH ne se relèvent qu'en lecture, dans deux fichiers par compte | Un `AuthorizedKeysFile` personnalisé et `/etc/ssh/authorized_keys.d/` ne sont pas lus. Sous un compte dédié, l'agent ne lit pas les clés des autres comptes (« Illisible pour le compte de l'agent ») ; il ne faut **pas** lui donner `CAP_DAC_READ_SEARCH` pour y remédier : il lirait aussi `/etc/shadow`. L'écriture (`ssh.keys`, #152 étape 2) n'existe pas : ajouter ou retirer une clé reste un geste sur la machine | L'écriture attend une décision (`23-direction.md`, §10 étape 8) |
@@ -3952,6 +3992,7 @@ d'équivalence (`internal/store/testdata/legacy_migrations/`).
 | Versions signées | Le paquet `internal/release` (minisign en Go, sommes, version, `VerifyFile`, clé publique embarquée `TrustedPublicKey`), la sous-commande `opencloud release` (`verify`, `sign`, `keygen`), le workflow `release.yml` (tag `vX.Y.Z` sur `main`, build reproductible, signature, attestation, version jamais réécrite), les constantes `Release*` de `internal/brand`. Pas de migration |
 | Incidents par objets, silences annoncés | La migration `005_incident_targets.sql` (`incident_targets` à la place de `incident_components`, chaque composant visé déplié en ses membres ; `mutes.announce` et `mutes.public_title`), la règle `touches` et les maintenances synthétiques de `internal/status` (`targets.go`, `maintenance.go`), `status.Target` et `ErrTargetInvalid` (`incident.target_invalid`), `alert.ErrMuteAnnounceInvalid` (`silence.announce_invalid`), le détache « incidents » des plans de suppression d'une machine, d'un service, d'une sonde et d'une tâche (`deletion.KindIncidentLinks`), `targets` à la place de `component_ids` dans l'API et l'outil MCP `open_incident`, le sélecteur d'objets partagé (`ObjectPicker`) du composant et de l'incident, la case « annoncer » d'un silence |
 | Sauvegarde de la base (#153, 05) | La migration `006_backups.sql` (`backup_keyring`, `backup_destinations`, `backup_plans`), le paquet `internal/backup` (paire de clés age scellée par la phrase, archive tar chiffrée, `run`, boucle de 15 minutes, `ExtractArchive`), les ordres `backup.receive` et `backup.prune` (`agentwire`), les ordres longs de l'agent (`internal/agent/worker.go`, `backup.go`) et la fin d'un run `accepted` trop long (`timeout`), les colis (`action.Outbox`, `/agent/parcels/{colis}/{nom}`), le champ write-only `OrderBody.Secret` (`SendWithSecret`), `machine.CoversPath`, la commande `opencloud backup restore`, les routes `/api/backups…`, le sujet `backups`, la page Sauvegardes, la dépendance `filippo.io/age` |
+| Plusieurs plans de sauvegarde (#266, G01) | La migration `012_backup_sources.sql` (`backup_plans` refaite : `subject`, `name`, `source_kind`, `source_machine_id` en `restrict`, `producer`, `selector`), `internal/backup/plan.go` (`PlanDefinition`, `Validate`), `agentwire.BackupFilePrefix`, `IsBackupFileOf` et `BackupPruneParams.Prefix`, les routes `/api/backups/plans/{subject}`, `deletion.KindBackupPlans` et `machine.has_backup_plans`, les six refus `backup.plan_*` et `backup.source_*`, le golden `backups_plans.golden.json`, la liste de plans de la page Sauvegardes |
 | Mise à jour des agents (#153, 07) | Le paquet `internal/release` étendu (`Library` : `Import`, `Artifact`, `releasetest`), la sous-commande `opencloud release import`, l'ordre `agent.update` (`agentwire.AgentUpdateParams` et six refus : `not_self_updatable`, `release_key_missing`, `signature_invalid`, `version_mismatch`, `downgrade`, `self_check_failed`), `action.Service` (`SetReleases`, `OfferUpdate`, `UpdateAgent`, `ConfirmAgentUpdate`), `store.CompleteAgentUpdates`, la confirmation à l'ouverture du flux (`agentapi`), l'exécuteur de l'agent (`internal/agent/update.go`, `ErrUpdated`, sortie de code 3), `Options.ReleaseKey`, les routes `GET /api/machines/{id}/agent-update` et `POST …/actions/update-agent`, le bouton « Mettre à jour l'agent » de la fiche, les clés `machine.agent_update*` et `action.reason_*`, le golden `agent_update_offer.golden.json`. Pas de migration |
 | Sortie du MCP (#224, #225) | La migration `008_api_tokens.sql` (`api_tokens` reconstruite à partir de `mcp_tokens`, `mcp_clients` et `mcp_codes` supprimées), les paquets `internal/apitoken` et `internal/mcpcheck`, `store/api_tokens.go`, la clé `mcp_url` de `config.toml`, `GET /api/settings/mcp`, `/api/settings/api-tokens`, l'admission d'un Bearer sur 25 routes en lecture (`admitAPIToken`), le masquage des secrets pour un jeton, l'acteur d'audit `api` et `details.on_behalf_of`, la carte « Agent IA » et la section « Jetons d'API » de Paramètres, `docs/installation/compose.mcp-maison.yml`. Retirés : `internal/mcp`, `/mcp`, `/oauth/…`, `opencloud mcp`, les 21 outils (les outils MCP cités dans les lignes plus haut sont de l'histoire), `go-sdk` |
 | Déploiement Docker Compose (06) | La migration `007_deploy.sql` (`service_units.data_path`, `action_runs.service_id` en `set null`), le paquet `internal/deploy` (le `compose.yml` généré, le plan, `Deploy`/`Redeploy`), les ordres `docker.deploy` et `docker.update` et leurs sept raisons (`agentwire`, `internal/agent/docker.go`), `action.SendForService`, `-root-dir` et l'en-tête `OpenCloud-Agent-Root` (`agents.root_dir`), `data_path` dans l'annuaire, le fichier d'`apply` et l'export, les trois routes `deploy-plan`, `actions/deploy` et `actions/redeploy`, `service_id` dans les ordres, la carte Déploiement et le champ « Dossier de données » du formulaire |

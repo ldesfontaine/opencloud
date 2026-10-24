@@ -30,16 +30,16 @@ func TestRun_WithoutKeyring_NotesTheRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.backups.RunNow(operator()); !errors.Is(err, backup.ErrPlanMissing) {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrPlanMissing) {
 		t.Fatalf("no plan: %v", err)
 	}
-	if _, err := b.backups.SavePlan(operator(), backup.PlanDefinition{DestinationID: destination.ID}); err != nil {
+	if _, err := b.backups.SavePlan(operator(), databasePlan(destination.ID, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.backups.RunNow(operator()); !errors.Is(err, backup.ErrKeyringMissing) {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrKeyringMissing) {
 		t.Fatalf("no key: %v", err)
 	}
-	plan, err := b.db.GetBackupPlan(context.Background())
+	plan, err := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase)
 	if err != nil || plan.LastError != "backup.keyring_missing" || plan.LastRunID != "" || !plan.LastAttemptAt.Equal(benchNow) || plan.Keep != backup.DefaultKeep {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
@@ -57,10 +57,10 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	b := newBench(t, rights)
 	b.ready()
 	b.machines.Disconnect(b.session)
-	if _, err := b.backups.RunNow(operator()); !errors.Is(err, backup.ErrMachineOffline) {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrMachineOffline) {
 		t.Fatalf("offline: %v", err)
 	}
-	if plan, _ := b.db.GetBackupPlan(context.Background()); plan.LastError != "backup.machine_offline" {
+	if plan, _ := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase); plan.LastError != "backup.machine_offline" {
 		t.Fatalf("plan %+v", plan)
 	}
 	// L'agent revient avec moins de droits que celui de la destination.
@@ -72,7 +72,7 @@ func TestRun_RefusesAnOfflineMachineAndALostRight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.backups.RunNow(operator()); !errors.Is(err, backup.ErrRightMissing) {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrRightMissing) {
 		t.Fatalf("lost right: %v", err)
 	}
 	if len(b.commands.orders) != 0 {
@@ -102,7 +102,7 @@ func TestRun_ShowsAnUnavailableRightButStillSendsTheOrder(t *testing.T) {
 	if view := overview.Destinations[0]; view.Right != backup.RightUnavailable || view.RightReason != "path_denied" {
 		t.Fatalf("destination %+v", view)
 	}
-	run, err := b.backups.RunNow(operator())
+	run, err := b.backups.RunNow(operator(), backup.SubjectDatabase)
 	if err != nil || run.State.IsFinished() || len(b.commands.orders) == 0 {
 		t.Fatalf("an unavailable right must not stop the order: %+v %v", run, err)
 	}
@@ -126,7 +126,7 @@ func TestRun_DiscardsTheParcelOfAnOrderThatDidNotLeave(t *testing.T) {
 	b := newBench(t, rights)
 	b.ready()
 	b.commands.refuse = machine.ErrBusy
-	run, err := b.backups.RunNow(operator())
+	run, err := b.backups.RunNow(operator(), backup.SubjectDatabase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestRun_ClearSnapshotIsPrivateAndNeverOutlivesAFailure(t *testing.T) {
 	service.SetClock(func() time.Time { return b.now })
 	service.SetSender(b.actions)
 	service.SetParcels(b.outbox)
-	if _, err := service.RunNow(operator()); err != nil {
+	if _, err := service.RunNow(operator(), backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
 	if spy.mode != 0o600 {
@@ -176,7 +176,7 @@ func TestRun_ClearSnapshotIsPrivateAndNeverOutlivesAFailure(t *testing.T) {
 
 	spy.fail = errors.New("disque plein")
 	b.commands.orders, b.commands.kinds = nil, nil
-	if _, err := service.RunNow(operator()); err == nil {
+	if _, err := service.RunNow(operator(), backup.SubjectDatabase); err == nil {
 		t.Fatal("a failed preparation must fail the run")
 	}
 	if len(b.commands.orders) != 0 {
@@ -186,7 +186,7 @@ func TestRun_ClearSnapshotIsPrivateAndNeverOutlivesAFailure(t *testing.T) {
 	if err != nil || len(parcels) != 1 {
 		t.Fatalf("only the parcel of the first run may stay: %v %v", parcels, err)
 	}
-	if plan, _ := b.db.GetBackupPlan(context.Background()); plan.LastError != backup.PrepareFailedKey {
+	if plan, _ := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase); plan.LastError != backup.PrepareFailedKey {
 		t.Fatalf("plan %+v", plan)
 	}
 }
@@ -201,7 +201,7 @@ func TestDeleteDestination_IsHeldBackWhileThePlanUsesIt(t *testing.T) {
 	if err := b.machines.Remove(operator(), machineID); !errors.Is(err, machine.ErrHasBackupDestinations) {
 		t.Fatalf("remove the machine: %v", err)
 	}
-	if err := b.backups.DeletePlan(operator()); err != nil {
+	if err := b.backups.DeletePlan(operator(), backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.backups.DeleteDestination(operator(), destination.ID); err != nil {
@@ -210,7 +210,7 @@ func TestDeleteDestination_IsHeldBackWhileThePlanUsesIt(t *testing.T) {
 	if err := b.backups.DeleteDestination(operator(), destination.ID); !errors.Is(err, backup.ErrNotFound) {
 		t.Fatalf("twice: %v", err)
 	}
-	if err := b.backups.DeletePlan(operator()); !errors.Is(err, backup.ErrNotFound) {
+	if err := b.backups.DeletePlan(operator(), backup.SubjectDatabase); !errors.Is(err, backup.ErrNotFound) {
 		t.Fatalf("no plan left: %v", err)
 	}
 }
@@ -218,17 +218,17 @@ func TestDeleteDestination_IsHeldBackWhileThePlanUsesIt(t *testing.T) {
 func TestSavePlan_ChecksItsDestinationAndItsKeep(t *testing.T) {
 	b := newBench(t, rights)
 	_, destination := b.ready()
-	_, err := b.backups.SavePlan(operator(), backup.PlanDefinition{DestinationID: "bkd_inconnue", Keep: 3})
+	_, err := b.backups.SavePlan(operator(), databasePlan("bkd_inconnue", 3))
 	requireRefusal(t, err, backup.ErrDestinationUnknown)
 	for _, keep := range []int{-1, 366} {
-		_, err := b.backups.SavePlan(operator(), backup.PlanDefinition{DestinationID: destination.ID, Keep: keep})
+		_, err := b.backups.SavePlan(operator(), databasePlan(destination.ID, keep))
 		requireRefusal(t, err, backup.ErrKeepInvalid)
 	}
 	// Changer le plan ne change pas son histoire.
-	if _, err := b.backups.RunNow(operator()); err != nil {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := b.backups.SavePlan(operator(), backup.PlanDefinition{DestinationID: destination.ID, Keep: 30})
+	saved, err := b.backups.SavePlan(operator(), databasePlan(destination.ID, 30))
 	if err != nil || saved.Keep != 30 || saved.LastRunID == "" || saved.LastAttemptAt.IsZero() {
 		t.Fatalf("saved %+v %v", saved, err)
 	}
@@ -384,14 +384,14 @@ func TestExtractArchive_RefusesAnUnknownEntry(t *testing.T) {
 func TestExtractArchive_RoundTrip(t *testing.T) {
 	b := newBench(t, rights)
 	keyring, _ := b.ready()
-	if _, err := b.backups.RunNow(operator()); err != nil {
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); err != nil {
 		t.Fatal(err)
 	}
 	var receive agentwire.BackupReceiveParams
 	if err := json.Unmarshal(b.commands.orders[0].Params, &receive); err != nil {
 		t.Fatal(err)
 	}
-	archive := downloaded(t, b.outbox, receive, agentwire.BackupFileName(benchNow))
+	archive := downloaded(t, b.outbox, receive, agentwire.BackupFileName(backup.SubjectDatabase, benchNow))
 	sealed := downloaded(t, b.outbox, receive, agentwire.BackupKeyFileName(keyring.Fingerprint))
 	identity, err := backup.OpenIdentity(sealed, testPassphrase)
 	if err != nil {

@@ -60,9 +60,9 @@ const (
 	// Le script de root que la règle sudo de backup.produce nomme, seul : il
 	// lance vzdump hors du bac à sable de l'unité de l'agent.
 	VzdumpWrapperPath = "/usr/local/sbin/" + ID + "-vzdump"
-	// Le nom d'une sauvegarde est ce préfixe, un instant UTC et « .tar.age » ;
-	// la clé scellée qui l'accompagne porte le second préfixe et l'empreinte.
-	BackupFilePrefix    = ID + "-"
+	// Le nom d'une sauvegarde est le préfixe de son plan (celui de la base est
+	// ID), un instant UTC et « .tar.age » ; la clé scellée qui
+	// l'accompagne porte le préfixe ci-dessous et l'empreinte.
 	BackupKeyFilePrefix = ID + "-key-"
 
 	// Le nom de la machine qui héberge le serveur, dans la base.
