@@ -80,6 +80,10 @@ type Action string
 const (
 	MachineReenroll Action = "machine.reenroll"
 	MachineDelete   Action = "machine.delete"
+	// L'hôte Proxmox déclaré sur une machine, ou retiré d'elle. Le secret du
+	// jeton n'y figure pas : seulement son identifiant.
+	MachineProxmoxSet   Action = "machine.proxmox_set"
+	MachineProxmoxUnset Action = "machine.proxmox_unset"
 
 	// L'agent est enrôlé (la machine créée ou retrouvée) ou révoqué : l'objet
 	// est l'agent, nommé par sa machine. Avant la table agents, l'enrôlement
@@ -173,7 +177,7 @@ const (
 
 func Actions() []Action {
 	return []Action{
-		MachineReenroll, MachineDelete,
+		MachineReenroll, MachineDelete, MachineProxmoxSet, MachineProxmoxUnset,
 		AgentEnroll, AgentRevoke,
 		EnrollmentTokenCreate, EnrollmentTokenCancel,
 		ProjectCreate, ProjectUpdate, ProjectDelete,

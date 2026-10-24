@@ -1,0 +1,15 @@
+// L'onglet Hyperviseur d'une machine : des cartes empilées, hôte, VM, stockages.
+
+.hypervisor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+// La jauge d'un stockage et, dessous, ce qu'elle mesure.
+.storage-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}

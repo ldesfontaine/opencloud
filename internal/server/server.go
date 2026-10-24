@@ -29,6 +29,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/manifest"
 	"github.com/ldesfontaine/opencloud/internal/mcpcheck"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/ratelimit"
 	"github.com/ldesfontaine/opencloud/internal/reader"
 	"github.com/ldesfontaine/opencloud/internal/resource"
@@ -277,6 +278,13 @@ type SSHKeysService interface {
 	Matrix(ctx context.Context) ([]sshkeys.Snapshot, error)
 }
 
+// Ce que le serveur attend du composant proxmox : déclarer et retirer l'hôte
+// d'une machine. Ce que la fiche lit passe par le Reader.
+type ProxmoxService interface {
+	Declare(ctx context.Context, machineID string, definition proxmox.Definition) error
+	Remove(ctx context.Context, machineID string) error
+}
+
 // Ce que le serveur attend du composant backup : les gestes de la page
 // Sauvegardes. Le dernier ordre du plan se lit par le Reader.
 type Backups interface {
@@ -320,6 +328,7 @@ type Server struct {
 	auth       AuthService
 	actions    ActionService
 	sshKeys    SSHKeysService
+	proxmox    ProxmoxService
 	backups    Backups
 	deploy     Deployer
 	live       Live
@@ -384,6 +393,8 @@ type Options struct {
 	Actions ActionService
 	// SSHKeys garde le relevé des clés SSH autorisées ; voir api_sshkeys.go.
 	SSHKeys SSHKeysService
+	// Proxmox déclare l'hôte Proxmox d'une machine ; voir api_proxmox.go.
+	Proxmox ProxmoxService
 	// Backups pilote la page Sauvegardes ; voir api_backups.go.
 	Backups Backups
 	// Deploy déploie les services déclarés ; voir api_deploy.go.
@@ -445,6 +456,7 @@ func New(opts Options) (*Server, error) {
 		auth:           opts.Auth,
 		actions:        opts.Actions,
 		sshKeys:        opts.SSHKeys,
+		proxmox:        opts.Proxmox,
 		backups:        opts.Backups,
 		deploy:         opts.Deploy,
 		live:           opts.Live,

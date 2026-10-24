@@ -37,10 +37,11 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 8. [Envoi d'e-mails](#envoi-de-mails)
 9. [Brancher un agent IA](#brancher-un-agent-ia)
 10. [Ajouter une machine](#ajouter-une-machine)
-11. [Mettre à jour](#mettre-à-jour) (dont [passer un agent en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte))
-12. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
-13. [Désinstaller](#désinstaller)
-14. [Dépannage](#dépannage)
+11. [Déclarer un hôte Proxmox](#déclarer-un-hôte-proxmox)
+12. [Mettre à jour](#mettre-à-jour) (dont [passer un agent en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte))
+13. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
+14. [Désinstaller](#désinstaller)
+15. [Dépannage](#dépannage)
 
 Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 
@@ -1284,6 +1285,91 @@ Tant que `identity.json` existe, l'agent l'utilise et ne lit jamais l'entrée
 standard : il ne bloque pas sous systemd. Le jeton ne passe jamais en
 argument : `-token` est refusé, il serait visible de tous les comptes via `ps`.
 
+## Déclarer un hôte Proxmox
+
+Facultatif. Si une machine de l'infra porte un hyperviseur Proxmox VE,
+openCloud peut en **lire** les VM et conteneurs, les stockages et la dernière
+sauvegarde de chaque VM, avec un jeton d'API en lecture seule. Il n'écrit rien
+dans Proxmox : ni démarrage, ni arrêt, ni sauvegarde lancée. Ce qui est lu et à
+quel rythme : [`22-fonctionnement.md`](projet/22-fonctionnement.md), « Comment
+un hôte Proxmox se lit ». La machine doit d'abord être ajoutée à openCloud
+([Ajouter une machine](#ajouter-une-machine)) : l'hôte se déclare sur sa fiche.
+
+**1. Créer le jeton dans Proxmox.** Interface web de Proxmox, *Datacenter* :
+
+1. *Permissions › Users › Add* : l'utilisateur `opencloud`, domaine
+   *Proxmox VE authentication server* (`opencloud@pve`). Il n'a pas besoin de mot
+   de passe : il ne se connecte jamais.
+2. *Permissions › API Tokens › Add* : utilisateur `opencloud@pve`, nom du jeton
+   `lecture` (l'identifiant complet est `opencloud@pve!lecture`).
+   Proxmox n'affiche le **secret** qu'une fois : copiez-le tout de suite.
+   **Décochez *Privilege Separation*** : le jeton a alors les droits de
+   l'utilisateur. Si vous la laissez cochée, le jeton n'a aucun droit tant qu'on
+   ne lui en donne pas lui-même (étape suivante, sur le jeton).
+3. *Permissions › Add › User Permission* (ou *API Token Permission* si
+   *Privilege Separation* est cochée) : chemin `/`, l'utilisateur `opencloud@pve`
+   (ou le jeton `opencloud@pve!lecture`), rôle **`PVEAuditor`**, *Propagate*
+   coché. Ce rôle ne donne que `Sys.Audit`, `VM.Audit`, `Datastore.Audit` et
+   leurs semblables : lire, jamais modifier.
+
+La même chose en ligne de commande, sur l'hôte Proxmox :
+
+```sh
+pveum user add opencloud@pve
+pveum acl modify / --users opencloud@pve --roles PVEAuditor
+pveum user token add opencloud@pve lecture --privsep 0
+```
+
+La dernière commande affiche `full-tokenid` (`opencloud@pve!lecture`) et
+`value` : le secret, à copier maintenant.
+
+**2. Ouvrir le pare-feu.** La machine **openCloud** (celle du serveur, pas
+celle de l'agent) doit joindre le port **8006/tcp** de l'hôte Proxmox, en HTTPS.
+Une règle du pare-feu ou du groupe de sécurité qui autorise la machine openCloud
+vers l'hôte Proxmox sur le port 8006 suffit : le sens inverse n'est jamais
+ouvert.
+
+**3. Relever l'empreinte du certificat** (seulement si le certificat de Proxmox
+n'est pas signé par une autorité que la machine openCloud reconnaît, ce qui est
+le cas d'un Proxmox neuf : il porte un certificat auto-signé). Depuis la machine
+openCloud :
+
+```sh
+openssl s_client -connect pve.lan:8006 </dev/null 2>/dev/null | openssl x509 -noout -fingerprint -sha256
+```
+
+La ligne `sha256 Fingerprint=AA:BB:…` se colle telle quelle (avec ses deux-points)
+dans le champ « Empreinte du certificat ». Avec une empreinte, c'est **elle**
+qui juge : le certificat présenté doit l'avoir, sans quoi rien n'est envoyé,
+jeton compris. Si Proxmox renouvelle son certificat auto-signé, l'empreinte
+change : redéclarez l'hôte avec la nouvelle. Sans empreinte, le certificat doit
+être reconnu par le magasin du système de la machine openCloud (un certificat de
+Let's Encrypt, posé par l'ACME de Proxmox, par exemple).
+
+**4. Déclarer l'hôte dans openCloud.** Machines → la machine qui porte Proxmox →
+carte *Hyperviseur Proxmox* → **Déclarer un hôte Proxmox** :
+
+| Champ | Valeur |
+| --- | --- |
+| Adresse de l'API | `https://pve.lan:8006` : le schéma `https`, le nom ou l'IP, le port ; pas de chemin |
+| Identifiant du jeton | `opencloud@pve!lecture` |
+| Secret du jeton | Le secret copié à l'étape 1 |
+| Empreinte du certificat | Celle de l'étape 3, ou vide |
+
+**Vérifier et déclarer** interroge Proxmox **avant** de rien garder : un refus
+s'affiche sous le formulaire et rien n'est écrit (« l'API de Proxmox ne
+répond pas » : adresse, port, pare-feu ; « le certificat n'est pas reconnu » :
+l'empreinte ; « Proxmox refuse le jeton » : identifiant, secret, droits). Une
+fois déclaré, l'onglet **Hyperviseur** apparaît sur la machine, et la fiche de
+chaque machine dont le nom d'hôte est celui d'une VM montre l'encadré « Sur
+l'hôte Proxmox ». L'hôte se relit toutes les cinq minutes.
+
+Le secret est chiffré dans la base (voir [Sauvegarder et
+restaurer](#sauvegarder-et-restaurer)) et ne ressort jamais, ni dans
+l'interface ni dans l'API ni dans les journaux : pour le changer, on redéclare
+l'hôte. **Retirer l'hôte** (sur l'onglet) l'efface avec ses relevés ; le jeton,
+lui, se révoque dans Proxmox (*Permissions › API Tokens*).
+
 ## Mettre à jour
 
 Il n'y a ni paquet ni dépôt : on remplace le binaire, après l'avoir vérifié
@@ -1662,7 +1748,7 @@ déploiement.
 | Où | Quoi | Perte |
 | --- | --- | --- |
 | Serveur, `state_dir` | `opencloud.db` (avec `-wal` et `-shm` tant qu'il tourne) | Tout : machines, historique, sondes, tâches, alertes, page de statut, réglages de l'interface (langue, seuils du disque, relais d'e-mails mot de passe compris, fin de support), jetons d'API et authentification, et le journal d'audit (Administration → Journal : qui a fait quoi, un an), que les canaux « Recevoir le journal » (Alertes › Canaux) reçoivent aussi : cochez-en un, une base effacée n'efface plus la trace. `opencloud auth disable` et `opencloud secrets forget` s'y inscrivent sous le compte qui les lance |
-| Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping (voir [Clé perdue](#clé-perdue)) |
+| Serveur, `state_dir` | `secret.key` | La clé des secrets de la base : sans elle, la base garde ses données mais perd le mot de passe du relais, l'URL et le secret des canaux, les URL de ping, les jetons des hôtes Proxmox (voir [Clé perdue](#clé-perdue)) |
 | Serveur, `state_dir` | `server.key` | La clé qui signe les ordres aux agents, tirée au premier démarrage : chaque agent a épinglé sa moitié publique. Sans elle, `serve` en tire une neuve et **chaque agent refuse les ordres** (`bad_signature`) jusqu'à son ré-enrôlement ; l'observation continue. Qui l'a commande toutes les machines : même soin que `secret.key` |
 | Serveur | `/etc/opencloud/config.toml` | La configuration |
 | Chaque machine | `/var/lib/opencloud-agent/identity.json` | Sa clé : il faudra ré-enrôler |
@@ -1670,7 +1756,8 @@ déploiement.
 
 **La base chiffre ses secrets** : les jetons de ping, l'URL et le secret des
 canaux d'alerte (un webhook Discord, Slack ou ntfy porte son jeton dans
-l'URL) et le mot de passe du relais d'e-mails sont chiffrés (AES-256-GCM) avec
+l'URL), le mot de passe du relais d'e-mails et le secret du jeton de chaque
+hôte Proxmox sont chiffrés (AES-256-GCM) avec
 la clé de `secret.key`. Les jetons d'enrôlement, les jetons d'API et le mot de
 passe de l'interface y sont hachés. Une copie de `opencloud.db` seule ne livre
 donc plus ces secrets.
@@ -1939,9 +2026,10 @@ Elle écrit une clé neuve et **efface ce que l'ancienne chiffrait** :
 | Le mot de passe du relais d'e-mails | Le ressaisir sous Paramètres → E-mails |
 | L'URL et le secret des canaux d'alerte (webhook, Matrix) | Les canaux sont **désactivés** et vidés : ressaisir l'URL et le secret de chacun, puis le réactiver. Un canal e-mail reste actif mais n'envoie rien tant que le mot de passe du relais n'est pas ressaisi |
 | Le jeton de chaque tâche | Chaque tâche reçoit un **nouveau jeton** : l'ancienne URL de ping ne répond plus, remplacez-la dans les crons |
+| Le secret du jeton de chaque hôte Proxmox | Il est **vidé** : l'hôte reste déclaré et garde son dernier relevé, mais ne se relit plus (« Proxmox refuse le jeton »). Redéclarez-le avec le même jeton, ou un neuf : Machines → la machine → Hyperviseur → **Modifier** |
 
 Tout le reste de la base reste. La commande affiche le nombre de canaux
-désactivés et de jetons renouvelés. Elle **garde l'ancienne clé** sous
+désactivés, de jetons renouvelés et de jetons Proxmox effacés. Elle **garde l'ancienne clé** sous
 `secret.key.forgotten-<horodatage>` : elle ne rouvre plus cette base, mais
 elle relit une sauvegarde plus ancienne de la base ; effacez-la sinon. Elle
 **refuse** si `secret.key` est présente, intacte et ouvre déjà tous les

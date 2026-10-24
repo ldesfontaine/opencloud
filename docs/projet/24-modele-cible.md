@@ -640,6 +640,9 @@ flowchart LR
 | `backup_keyring` | La paire de clés : la publique chiffre chaque nuit ; la privée, scellée par la phrase de passe, est déposée avec chaque sauvegarde. La phrase n'est jamais en base | **Faite** (`006`, section 20) |
 | `probes` | Sonde `http`, `tcp` ou `nrpe` ; lancée par n'importe quelle machine, rattachée au service où qu'il tourne. « Dedans » ou « dehors » se calcule (même machine ou non) | Transformée, en partie : `restrict`, service déclaré, certificat dans `probe_certificates` (schéma unique) ; `nrpe`, `warning`, `runner_machine_id` à faire |
 | `probe_certificates` | Le dernier certificat vu par une sonde : sujet, émetteur, dates, empreinte, chaîne valide, nom, agrafe OCSP. Pas d'historique | Nouvelle, faite (schéma unique : les huit `cert_*` de `probes`) |
+| `machine_proxmox` | L'hôte Proxmox qu'une machine porte : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée facultative, nœud, version, derniers relevé et refus. Une ligne par machine, retirée avec elle | **Faite** (migration `013_proxmox.sql`, section 28) |
+| `proxmox_guests` | Une VM ou un conteneur d'un hôte : numéro, type, nom, état, modèle, vCPU, mémoire et disque alloués, machine enrôlée rapprochée (`linked_machine_id`, nul si elle est retirée), dernière sauvegarde. Remplacée en entier à chaque relevé | **Faite** (`013`) |
+| `proxmox_storages` | Un stockage d'un hôte, par nœud : type, total, utilisé, libre, contenus, actif. Remplacé en entier à chaque relevé | **Faite** (`013`) |
 | `heartbeats` | Tâche `cron` ou `webhook` entrant. Jeton chiffré, réaffichable, régénérable ; `token_lookup` sert à trouver la tâche sur un ping | Transformée, en partie : `token_sealed` et `token_lookup` (schéma unique), `restrict` vers la machine ; `kind`, `service_id` à faire |
 | `status_pages` | Une par projet, créée à la main. Titre, annonce, langue, publiée ou non | Nouvelle ; **faite** (migration `034_status_pages.sql`), `project_id` facultatif, sans `published` (section 15) |
 | `status_components` | Composé à la main, nommé librement, pré-rempli depuis les services du projet ; un outil d'infra y paraît sous un nom générique | Transformée, faite (`page_id`, `034`) |
@@ -1421,3 +1424,20 @@ se relèvent » (#152, étape 1, lecture seule). Ce que le code a tranché :
 | **Un relevé remplace l'ancien en entier** (décision 6) | Une clé retirée d'une machine doit disparaître sans règle de purge ; la clé primaire `(machine, compte, fichier, empreinte)` suffit | Pas d'historique : on ne sait pas depuis quand une clé est là, ni quand elle est partie |
 | **Les trois tables restent dans `internal/store`**, un fichier de plus (`sshkeys.go`) (décision 7) | Le store porte déjà toutes les tables, une par domaine ; un paquet de plus n'aurait rien isolé | `internal/store` compte une table de plus de l'écosystème : 52 tables (51 et `schema_migrations`) |
 
+## 28. Ce que l'hôte Proxmox a fixé
+
+Migration `013_proxmox.sql` : `machine_proxmox` (une ligne par machine, en cascade
+depuis elle), `proxmox_guests` et `proxmox_storages` (en cascade depuis
+`machine_proxmox`). Le fonctionnement est dans `22-fonctionnement.md`, « Comment un
+hôte Proxmox se lit » (#266, étape 1 : lecture seule). Ce que le code a tranché :
+
+| Décision | Pourquoi | Contrepartie |
+| --- | --- | --- |
+| **Un hôte se déclare sur une machine**, pas à part : une ligne `machine_proxmox` par machine (décision 1, *à valider par Lucas*) | Le Proxmox est une machine de l'infra, déjà nommée, déjà jointe ; l'onglet, l'audit et le plan de suppression ont un objet existant où se poser | Un Proxmox qu'aucune machine n'incarne (sans agent enrôlé) se déclare sur une machine ajoutée pour lui |
+| **Le jeton répond avant d'être écrit** (`/version`), le premier relevé suit | Un jeton faux ou un hôte muet ne laisse pas une déclaration morte qui échoue à bas bruit | Un hôte momentanément éteint ne peut pas être déclaré ; il faut qu'il réponde une fois |
+| **Le secret est chiffré et ne ressort pas de l'API** ; lié à `machine_proxmox`, `token_secret`, `machine_id`. `secrets forget` le vide, l'hôte reste déclaré | Même règle que les autres secrets saisis : la copie d'une base seule ne livre rien. La fiche n'a pas besoin de le réafficher | On le ressaisit pour le changer, et après une clé perdue |
+| **Un relevé remplace l'ancien en entier** ; un relevé qui échoue le laisse et note sa raison (`last_error`) | Une VM détruite doit disparaître sans règle de purge ; un hôte qui ne répond plus ne doit pas effacer ce qu'on savait | Pas d'historique ; un relevé ancien reste affiché avec sa date et sa raison |
+| **L'empreinte juge seule quand elle est donnée** (`InsecureSkipVerify` et `VerifyConnection`) | Un Proxmox livre un certificat auto-signé : exiger le magasin du système le rendrait inutilisable sur un LAN | L'opérateur copie l'empreinte une fois ; un certificat renouvelé la change |
+| **Rapprochement par `hostname` égal au nom de la VM**, exact puis casse seulement si une seule machine convient | Le nom d'hôte est le seul fait commun que Proxmox et l'agent connaissent tous deux | Une VM dont le nom diffère du nom d'hôte n'est pas rapprochée : rien ne s'invente |
+| **Le retrait est une action** (`POST …/actions/remove-proxmox`), pas un `DELETE …/proxmox` | `DELETE /api/machines/{id}/proxmox` recoupe `DELETE /api/machines/tokens/{id}` sur `tokens/proxmox` : le multiplexeur de Go refuse deux motifs dont aucun n'est plus précis | Un verbe de plus à connaître que la symétrie `PUT`/`DELETE` |
+| **Les trois tables restent dans `internal/store`**, un fichier de plus (`proxmox.go`) | Le store porte déjà toutes les tables, une par domaine | `internal/store` compte trois tables de plus : 55 tables |

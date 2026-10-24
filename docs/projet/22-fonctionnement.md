@@ -103,6 +103,7 @@ Trait double : chiffré. Trait simple : en clair, mais sans quitter la machine.
 | Commande locale | `opencloud export` et `opencloud apply` → `state_dir/control.sock` | Aucun : une socket Unix de la machine, rien ne passe par le réseau | Les droits Unix : la socket est en 0600 et `state_dir` doit être fermé au groupe et aux autres (sinon `serve` ne l'ouvre pas), il faut tourner sous le compte du service ou en root. Aucune garde d'opérateur ni de même-origine, aucun navigateur n'y passe ; elle ne sert que les quatre routes `/api/manifest/…` (export, plan, apply, journal), chacune avec sa méthode, tout le reste y répond 404. Elle **écrit** l'annuaire : qui l'atteint peut déjà lire la base et la clé de chiffrement, c'est le même raisonnement que pour `opencloud auth`. L'acteur du journal est `cli` et son nom est celui que la commande déclare : indicatif |
 | Alerte par e-mail | openCloud → le relais SMTP | STARTTLS exigé (défaut, 587) ou TLS dès la connexion (465), certificat vérifié contre le magasin du système ; `none` seulement si l'adresse jointe est sur la boucle locale ou un réseau privé, vérifié à la connexion | openCloud s'authentifie par AUTH PLAIN ou LOGIN, après le chiffrement. Un relais qui ne propose pas STARTTLS est refusé : jamais de repli en clair. Au-delà du relais, le message voyage comme tout courrier, et son destinataire le garde |
 | Alerte Matrix | openCloud → le serveur d'accueil | TLS : le serveur d'accueil est exigé en `https://` | openCloud écrit au nom du bot par `Authorization: Bearer <jeton>`, le jeton du canal ; qui a ce jeton parle au nom du bot partout où il est invité. Le serveur d'accueil prouve qui il est par son certificat. Le message dit ce que dit le corps d'un webhook, et le salon le garde |
+| Hyperviseur | openCloud → l'API de Proxmox (`https://hôte:8006`), en lecture, toutes les cinq minutes | TLS : le certificat se juge par le magasin du système, ou par l'**empreinte SHA-256** que l'opérateur a épinglée (un Proxmox livre un certificat auto-signé) ; pas de redirection suivie | Un jeton d'API Proxmox en lecture seule (rôle `PVEAuditor`), dans `Authorization: PVEAPIToken=…` ; le jeton ne voyage nulle part ailleurs. Voir « Comment un hôte Proxmox se lit » |
 | Alerte | openCloud → le canal | Celui de l'URL : TLS si elle est en `https://`, rien sinon, et l'interface le dit | openCloud prouve au récepteur que c'est lui, par `OpenCloud-Signature`, HMAC-SHA256 du corps avec le secret du canal, quand il y en a un. Le récepteur ne prouve rien : un 2xx suffit. Le corps dit le nom de l'objet, de la machine, la cible d'une sonde, le point de montage : ce qu'un canal reçoit, son service le garde |
 
 Donc non, rien ne passe en clair sur le LAN de l'infra : le seul clair est sur
@@ -135,6 +136,7 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `opencloud.db` | Le rattachement des conteneurs à l'annuaire : `containers.unit_id` (l'unité déclarée, nulle tant que rien ne rattache) et `containers.match_level` (`label`, `compose` ou `name`), recalculés à chaque rapport et après chaque écriture de l'annuaire ; la table `ignored_keys` (machine, genre `compose_project` ou `container_name`, valeur) des conteneurs que l'opérateur dit voulus. Les deux labels du produit que le conteneur porte, `containers.label_service` et `containers.label_unit` (texte, vides par défaut) et `containers.label_invalid` (0 ou 1 : des labels de la marque étaient là, mal formés), pour que le rapprochement relise la valeur sans la demander à l'agent ; aucun autre label n'est gardé. Aucun secret, aucun identifiant Docker : une clé d'observation survit à la recréation du conteneur | `unit_id` passe à nul quand l'unité est supprimée (`ON DELETE SET NULL`), `ignored_keys` part avec sa machine. Pas de purge : l'opérateur retire une clé d'un geste |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les conteneurs : une fiche par conteneur dans `containers` (nom, projet Compose, image, état Docker, code de sortie, tué faute de mémoire, tué sans arrêt demandé, santé, ports publiés, mode réseau, privilégié, dépendances déclarées, dates), ses transitions dans `container_events`, ses mesures dans `container_samples`, ce que chaque machine dit de son Docker dans `machine_engines` | Purgés : transitions après 90 jours, fiche d'un conteneur détruit après 30 jours avec ses transitions et mesures, mesures après 48 h ; plafonnés par machine (fiches vivantes, archivées, transitions, cadence des mesures : « Comment les conteneurs sont suivis », point 6). **L'extrait de journal** d'un arrêt anormal (50 lignes, 10 Kio) est stocké en clair sur la transition : ce qu'une application écrit dans ses logs peut s'y trouver |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les clés SSH autorisées que chaque agent relève (migration `011_ssh_keys.sql`) : `ssh_reports` (une ligne par machine : relevé tronqué ou non, instant), `ssh_accounts` (machine, compte, uid, état `read`, `none`, `denied`, `unsafe` ou `too_large`, relevé tronqué, lignes ignorées) et `ssh_keys` (compte, fichier `authorized_keys` ou `authorized_keys2`, **empreinte SHA256**, type, taille en bits, commentaire borné à 64 octets, noms d'options reconnus). **Jamais le contenu d'un fichier ni la clé publique entière** : l'empreinte ne remonte pas à la clé | Remplacé en entier à chaque relevé retenu, dans une transaction : ce qu'une machine ne dit plus disparaît. Pas de purge d'âge. La machine retirée emporte tout (`ON DELETE CASCADE`), et le plan de suppression compte « clés SSH relevées » |
+| Machine openCloud, `state_dir` | `opencloud.db` | L'hôte Proxmox qu'une machine porte et ce que son API en a dit (migration `013_proxmox.sql`) : `machine_proxmox` (une ligne par machine : adresse de l'API, identifiant du jeton, **secret du jeton chiffré**, empreinte épinglée, nœud, version, instant de la déclaration et du dernier relevé réussi, clé du refus du dernier relevé qui a échoué), `proxmox_guests` (VM et conteneurs : numéro, type `qemu` ou `lxc`, nom, état, modèle ou non, vCPU, mémoire et disque **alloués**, machine enrôlée rapprochée, dernière sauvegarde connue et sa taille) et `proxmox_storages` (nœud, nom, type, total, utilisé, libre, contenus acceptés, actif). **Jamais le contenu d'une VM** | Le secret du jeton est chiffré comme les autres (« Ce que le chiffrement couvre ») ; il ne sort jamais de l'API ni des journaux. Les VM et les stockages sont remplacés en entier à chaque relevé réussi, dans une transaction : ce que l'hôte ne montre plus disparaît, un relevé qui échoue garde le précédent. Pas d'historique, pas de purge d'âge. La machine retirée emporte l'hôte et ses relevés (`ON DELETE CASCADE`) ; une VM rapprochée d'une machine retirée reste, sans lien. Le plan de suppression compte « hôtes Proxmox déclarés » et « VM Proxmox rapprochées » |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le réseau des conteneurs : les réseaux Docker de chaque machine dans `machine_networks` (nom, pilote, interne, projet Compose), l'appartenance de chaque fiche à ses réseaux dans `container_networks` (adresse, alias) | Remplacés à chaque inventaire ; la fiche supprimée emporte ses appartenances, la machine retirée emporte tout. Les adresses sont celles des réseaux internes de Docker, pas des adresses publiques |
 | Machine openCloud, `state_dir` | `opencloud.db` | Les sondes dans `probes` (nom, type, cible, machine qui sonde, service surveillé, état, cadence, seuils, attentes HTTP, poignée de main TLS demandée, dernier essai, `revised_at` : l'instant de la dernière édition qui a remis l'état à zéro), chaque essai dans `probe_results`, l'agrégat par jour UTC dans `probe_days` | Purgés : essais après 7 jours, agrégat après un an. La sonde supprimée emporte son histoire ; `machine_id` (la machine qui la lance) est en `restrict` : une machine qui lance des sondes ne se retire pas (409 `machine.has_probes`), on change la machine de la sonde ou on la supprime d'abord. `service_id` vise un **service déclaré**, sur n'importe quelle machine, en `restrict` : un service qu'une sonde surveille ne se supprime pas (409 `directory.service_linked`, avec le plan), et recréer un conteneur ne casse plus rien. La cible est écrite en clair : une copie de la base dit ce qui est surveillé, pas comment y entrer. Une cible HTTP n'accepte pas d'identifiants (`https://nom:mot@…`, refus `probe.target_credentials`) ; une sonde qui en porte d'avant ce refus les garde en clair, en pause (« Comment une cible est sondée ») |
 | Machine openCloud, `state_dir` | `opencloud.db` | Le dernier certificat vu par chaque sonde, dans `probe_certificates` (une ligne au plus par sonde, partie avec elle) : sujet, émetteur, dates, empreinte SHA-256, chaîne valide, nom correspondant, agrafe OCSP | Écrasé à chaque essai qui en voit un ; un essai muet n'efface rien. **Aucun historique, aucune chaîne complète** : le renouvellement se lit au changement d'empreinte, l'âge sur la date de début. Rien de secret : un certificat serveur est public par construction |
@@ -152,9 +154,9 @@ dit comment. Une migration de plus part de `002`.
 | Machine openCloud, `state_dir` | `control.sock` | La socket de commande, créée par `serve` à son démarrage et retirée à son arrêt : aucune donnée, une porte locale vers `/api/manifest/…`. Une socket que personne n'écoute (arrêt brutal) est remplacée au démarrage suivant ; celle d'un `serve` vivant n'est jamais touchée | Mode 0600, et `state_dir` fermé au groupe et aux autres, sans quoi elle n'est pas ouverte. Elle n'est pas à sauvegarder |
 | Toute machine, la machine openCloud comprise, `/var/lib/opencloud-agent` (au compte de l'agent, `opencloud-agent`, ou root s'il tourne en root ; `0700`, hors du dossier du serveur) | `identity.json` | Clé privée Ed25519, identifiant de la machine et de l'agent (`agent_id`), adresse d'openCloud, empreinte du certificat, langue, **droits** (`rights`, écrits par `-rights` au premier lancement ; absents chez un agent d'avant : `observe` seul), **la clé publique du serveur** épinglée à l'enrôlement (`server_key`), le rang du dernier ordre exécuté (`last_order_seq`) | Mode 0600 ; le perdre impose un ré-enrôlement. La clé du serveur et le rang ne se touchent pas à la main (la clé change seule pendant une rotation, par l'ordre `agent.server_key`) : une autre clé fait refuser chaque ordre, un rang baissé rouvre la porte aux rejeux d'ordres encore valables (deux minutes). Les droits se lisent et se changent à la main : l'agent rapporte ce qu'il y lit, l'interface montre l'écart. Le dossier est à root et **hors de `/var/lib/opencloud`**, que le compte du serveur possède sur la machine openCloud : ce compte ne peut ni remplacer le fichier ni renommer le dossier. L'agent juge sa chaîne de dossiers au démarrage (« Les droits d'un agent », état mal gardé) |
 
-**Ce que le chiffrement couvre.** Quatre colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
-`settings.mail_password`, `alert_channels.url`, `alert_channels.secret` et
-`heartbeats.token_sealed`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
+**Ce que le chiffrement couvre.** Cinq colonnes, chiffrées à l'écriture, chacune liée à sa table, sa colonne et sa ligne (un chiffré recopié ailleurs ne s'ouvre plus) :
+`settings.mail_password`, `alert_channels.url`, `alert_channels.secret`,
+`heartbeats.token_sealed` et `machine_proxmox.token_secret`. Un secret vide reste vide. Un chiffré a la forme `v1:<8 hexadécimaux>:<base64>` ; une valeur non vide d'une autre forme n'est jamais rendue comme un secret, la lecture la refuse. Les jetons d'enrôlement, les jetons
 d'API et le mot de passe de l'interface sont hachés.
 
 **Ce qu'il ne couvre pas.** Les identifiants qu'une cible de sonde portait
@@ -502,6 +504,117 @@ toujours eue : c'est par lui qu'elle garde son historique.
 | À chaque démarrage | Le jeton est émis de nouveau tant que la machine n'a jamais eu d'agent : celui d'avant, dont le clair est perdu, expire seul dans l'heure |
 | Hors ligne | Sans le flux de son agent, la machine openCloud est hors ligne, comme les autres ; tant qu'elle n'a pas d'agent actif, elle n'est jamais déclarée **perdue** |
 | Retrait | Comme les autres, par son plan : elle emporte son agent. Au démarrage suivant, sans ligne `local`, le jeton est de nouveau offert |
+
+## Comment un hôte Proxmox se lit
+
+C'est la première étape de #266 : **lire**, jamais écrire. L'opérateur déclare,
+sur la fiche d'une machine, l'hôte Proxmox qu'elle porte ; openCloud interroge
+l'API de l'hyperviseur et montre ses VM et conteneurs, ses stockages et la
+dernière sauvegarde de chaque VM (onglet « Hyperviseur » de la machine), et, sur
+la fiche d'une machine qui est une de ces VM, l'encadré « Sur l'hôte Proxmox »
+(« VM 5012, 2 vCPU, 2 Gio, dernière sauvegarde le … (233 Mio) »). **Aucun ordre
+n'est donné à Proxmox** : ni démarrage, ni arrêt, ni sauvegarde lancée, ni
+fichier écrit. **Aucune alerte** ne naît d'un relevé : une VM arrêtée, un
+stockage plein ou une sauvegarde ancienne se lisent, rien ne sonne. Le droit
+d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
+
+**Ce qui est lu.** Quatre appels, tous en `GET` sur `/api2/json` :
+
+| Appel | Ce qu'on en garde |
+| --- | --- |
+| `/version` | La version de Proxmox VE. C'est aussi la plus petite lecture qui exige un jeton valide : la déclaration s'en sert |
+| `/cluster/resources?type=vm` | Chaque VM (`qemu`) et conteneur (`lxc`) de toute la grappe : numéro, nom, nœud, état, modèle ou non, vCPU, mémoire et disque **alloués** (pas ce qu'ils consomment) |
+| `/cluster/resources?type=storage` | Chaque stockage, un par nœud pour un stockage local : type, taille, utilisé, libre, contenus acceptés, actif ou non |
+| `/nodes/{nœud}/storage/{stockage}/content?content=backup` | Les archives de sauvegarde, pour chaque stockage **actif qui accepte les sauvegardes** ; on retient, par VM, la plus récente et sa taille. Le nœud et le stockage viennent de l'API : ils sont échappés avant d'entrer dans le chemin |
+
+**Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
+`proxmox` relit chaque hôte au démarrage de `serve` et toutes les cinq minutes
+(`watchPeriod`), un hôte à la fois. Un relevé entier est borné à deux minutes ;
+chaque appel à vingt secondes et à 8 Mio de réponse. Ce qui revient du relevé est
+écrit d'un bloc (« Ce qui est stocké, et où ») et prévient le direct (sujet
+`machines`).
+
+**Un relevé qui échoue** ne remplace rien : la fiche garde ce que le dernier
+relevé réussi a montré et dit la raison d'en haut (`last_error`), parmi quatre
+refus : `proxmox.unreachable` (l'hôte ne répond pas : adresse, port 8006,
+pare-feu), `proxmox.certificate` (le certificat n'est pas reconnu, ou n'est pas
+celui de l'empreinte), `proxmox.unauthorized` (`401` ou `403` : le jeton est
+refusé ou n'a pas le droit), `proxmox.bad_response` (statut inattendu, réponse
+qui n'est pas celle de l'API, plus de 8 Mio). Le prochain relevé réussi efface la
+raison. Un secret que la perte de `secret.key` a vidé est lu comme un jeton
+refusé : l'hôte reste déclaré, l'opérateur ressaisit le jeton.
+
+**Le jeton.** Un jeton d'API Proxmox, créé pour openCloud, **en lecture seule** :
+le rôle `PVEAuditor` sur `/` suffit, soit les privilèges `Sys.Audit`,
+`VM.Audit` et `Datastore.Audit` (ce dernier sert à lister les archives des
+stockages de sauvegarde). Sa création est décrite dans
+`installation.md`, « Déclarer un hôte Proxmox ». Il part dans l'en-tête
+`Authorization: PVEAPIToken=<identifiant>=<secret>` et nulle part ailleurs : ni
+dans l'adresse, ni dans une erreur, ni dans un journal, ni dans l'audit. Son
+**secret est chiffré** dans la base (`machine_proxmox.token_secret`, lié à sa
+machine), et **l'API ne le rend jamais** : la fiche de l'hôte montre l'adresse,
+l'identifiant du jeton, l'empreinte, jamais le secret ; pour le changer on le
+ressaisit.
+
+**Le certificat.** Sans empreinte, le magasin du système juge le certificat de
+l'hôte (un Proxmox avec un certificat d'une autorité reconnue, par exemple
+Let's Encrypt par ACME). Avec une empreinte SHA-256, **elle seule juge** : la
+chaîne n'est pas vérifiée, mais le certificat présenté doit avoir exactement
+cette empreinte, sans quoi rien n'est envoyé à l'hôte, jeton compris. C'est le
+cas d'un Proxmox livré avec son certificat auto-signé. L'empreinte se saisit
+avec ou sans deux-points, avec ou sans `sha256:`. Aucune redirection n'est
+suivie : une API qui redirige n'est pas celle qu'on a déclarée.
+
+**Les destinations.** Le client sort par la garde d'`egress` (`DialWith`, réseau
+local ouvert : c'est le cas normal d'un Proxmox ; le lien-local, qui porte les
+métadonnées des hébergeurs, reste fermé) et n'utilise pas de mandataire
+d'environnement. La machine openCloud doit joindre le port 8006 de l'hôte.
+
+**Déclarer, modifier, retirer.** `PUT /api/machines/{id}/proxmox` déclare ou
+remplace l'hôte (adresse en `https://hôte[:port]` sans chemin, identifiant de
+jeton `utilisateur@domaine!nom`, secret, empreinte facultative). **Le jeton
+répond à `/version` avant que rien ne s'écrive** : une adresse muette, un
+certificat refusé ou un jeton faux répondent `422` (`proxmox.unreachable`,
+`proxmox.certificate`, `proxmox.unauthorized`, `proxmox.bad_response`) et la
+base ne change pas ; une saisie mal formée répond `422` aussi
+(`proxmox.url_invalid`, `proxmox.token_id_invalid`, `proxmox.secret_invalid`,
+`proxmox.pin_invalid`), sans appeler l'hôte. La réponse est la fiche de l'hôte
+après un premier relevé ; si ce relevé échoue, l'hôte est déclaré et la fiche
+dit pourquoi. Redéclarer avec une autre adresse est un autre hôte : ce que
+l'ancien avait relevé part. `POST /api/machines/{id}/actions/remove-proxmox`
+retire l'hôte (`204`, `404` si la machine n'en porte pas) : un retrait en action
+et non en `DELETE …/proxmox`, parce que ce motif recoupe
+`DELETE /api/machines/tokens/{id}` et que le multiplexeur de Go refuse deux
+motifs dont aucun n'est plus précis. `GET /api/machines/{id}/proxmox` rend la
+fiche (`404` sans hôte). Chaque machine de `GET /api/machines` et
+`GET /api/machines/{id}` porte un résumé `proxmox` : `declared`, `guests`,
+`last_error`, et `hosted` quand la machine est la VM d'un hôte. Journal d'audit :
+`machine.proxmox_set` (hôte, identifiant du jeton, épinglé ou non ; **ni
+l'adresse complète ni le secret**) et `machine.proxmox_unset`.
+
+**Qui est quelle machine.** Une VM est rapprochée de la machine enrôlée dont le
+**nom d'hôte** (`hostname`, relevé par l'agent) est égal à son nom : l'égalité
+exacte d'abord, puis, à défaut, une casse différente **si une seule machine
+convient** ; deux candidates qui ne diffèrent que par la casse ne rapprochent
+rien. La machine de l'hôte n'est jamais sa propre VM. Le rapprochement est
+recalculé à chaque relevé ; la machine openCloud elle-même (`local`) peut porter
+un hôte comme toute autre. Si deux hôtes montrent une VM de même nom, la
+première (par nom de machine) décrit la machine.
+
+**Le jeton d'API.** `GET /api/machines/{id}/proxmox` est dans la liste fermée de
+« Comment un agent IA lit openCloud » : elle ne rend aucun secret. La
+déclaration et le retrait n'y sont pas.
+
+**La clé perdue.** `opencloud secrets forget` vide le secret de chaque hôte
+Proxmox (il ne se relit plus) et dit combien : les hôtes restent déclarés, leur
+dernier relevé reste affiché, le relevé suivant échoue en `proxmox.unauthorized`
+jusqu'à ce que l'opérateur ressaisisse le jeton.
+
+**Ce qui n'est pas fait.** Aucun ordre à Proxmox ; aucune alerte sur ses VM ou ses
+stockages ; pas de consommation (CPU, mémoire, disque réellement utilisés) ; pas
+d'historique des relevés ; pas de découverte d'une grappe par ses nœuds (un hôte
+est déclaré par l'adresse d'un seul nœud, l'API de la grappe est la même) ; pas
+de Proxmox Backup Server.
 
 ## Comment un ordre part et revient
 
@@ -3077,7 +3190,7 @@ toute requête `/api/…` : mcp-maison joint openCloud par l'IP de `listen`
 (`OPENCLOUD_URL`), un hôte reconnu ; un nom que `public_url` ignore est refusé
 en `403 bad_host`.
 
-**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 25
+**La liste fermée** (`apiTokenRoutes`, `internal/server/routes.go`) : 26
 lectures, toutes en `GET`, figées par un test qui vérifie que chaque entrée
 est une vraie route et que **toute autre route de l'API, y compris
 `POST /api/settings/api-tokens`, répond 403 à un jeton**.
@@ -3085,7 +3198,7 @@ est une vraie route et que **toute autre route de l'API, y compris
 | Domaine | Routes |
 | --- | --- |
 | Session, compteurs | `/api/session`, `/api/counts` |
-| Machines | `/api/machines`, `/api/machines/{id}`, `…/network`, `…/resources` |
+| Machines | `/api/machines`, `/api/machines/{id}`, `…/network`, `…/resources`, `…/proxmox` |
 | Conteneurs | `/api/containers`, `/api/containers/{id}`, `…/logs` |
 | Annuaire | `/api/directory/services`, `/api/directory/gaps`, `/api/manifest/export` |
 | Tâches, sondes | `/api/jobs`, `/api/jobs/{id}`, `/api/probes`, `/api/probes/{id}` |

@@ -16,6 +16,7 @@ import type { AppliesResponse, Apply } from "./manifest";
 import type { MCPCheck } from "./mcpCheck";
 import type { NetworkResponse, OverviewNetworkResponse } from "./network";
 import type { ProbeResponse, ProbesResponse } from "./probes";
+import type { ProxmoxHost, ProxmoxSummary } from "./proxmox";
 import type { SSHMatrixResponse, SSHReport } from "./sshkeys";
 import type { Current, HistoryResponse, ResourcesResponse } from "./resources";
 import type { Session } from "./session";
@@ -123,6 +124,23 @@ const machine = shape<Machine>("Machine", {
     run_as: shape<Account>("Account", { uid: value, name: value }),
   }),
   lifecycle: optional(lifecycle),
+  proxmox: shape<ProxmoxSummary>("ProxmoxSummary", {
+    declared: value,
+    guests: value,
+    last_error: value,
+    hosted: shape<NonNullable<ProxmoxSummary["hosted"]>>("ProxmoxHosted", {
+      host_machine_id: value,
+      host_machine_name: value,
+      vmid: value,
+      kind: value,
+      name: value,
+      status: value,
+      cpus: value,
+      max_memory: value,
+      last_backup_at: value,
+      last_backup_bytes: value,
+    }),
+  }),
 });
 
 const machines = shape<MachinesResponse>("MachinesResponse", {
@@ -252,6 +270,32 @@ const sshReport = shape<SSHReport>("SSHReport", {
     ignored: value,
     keys: shape("SSHKey", { file: value, fingerprint: value, type: value, bits: value, comment: value, options: value }),
   }),
+});
+
+const proxmoxHost = shape<ProxmoxHost>("ProxmoxHost", {
+  api_url: value,
+  token_id: value,
+  pin: value,
+  node: value,
+  version: value,
+  verified_at: value,
+  last_read_at: value,
+  last_error: value,
+  guests: shape("ProxmoxGuest", {
+    vmid: value,
+    kind: value,
+    name: value,
+    status: value,
+    template: value,
+    node: value,
+    cpus: value,
+    max_memory: value,
+    max_disk: value,
+    linked_machine_id: value,
+    last_backup_at: value,
+    last_backup_bytes: value,
+  }),
+  storages: shape("ProxmoxStorage", { node: value, name: value, type: value, total: value, used: value, avail: value, content: value, active: value }),
 });
 
 type ProbeJSON = ProbesResponse["probes"][number];
@@ -836,6 +880,9 @@ const contract: Record<string, Shape<unknown>> = {
   "machine_containers.golden.json": containers,
   "machine_network.golden.json": network,
   "machine_probes.golden.json": probes,
+  "machine_hosted.golden.json": machine,
+  "machine_hosting_proxmox.golden.json": machine,
+  "machine_proxmox.golden.json": proxmoxHost,
   "machines.golden.json": machines,
   "manifest_applies.golden.json": shape<AppliesResponse>("AppliesResponse", { applies: apply }),
   "manifest_apply.golden.json": apply,

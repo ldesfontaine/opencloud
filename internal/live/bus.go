@@ -164,6 +164,11 @@ func (b *Bus) SSHKeysChanged(string) {
 	b.Publish(TopicMachines)
 }
 
+// Un relevé de l'hôte Proxmox d'une machine se lit avec les machines : même sujet.
+func (b *Bus) ProxmoxChanged(string) {
+	b.Publish(TopicMachines)
+}
+
 func (b *Bus) BackupsChanged() {
 	b.Publish(TopicBackups)
 }
