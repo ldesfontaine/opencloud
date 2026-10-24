@@ -145,7 +145,7 @@ job, `SHA256SUMS` signé (minisign), attestation de provenance
 Une seule bibliothèque de chiffrement hors de la bibliothèque standard :
 `filippo.io/age` (BSD-3-Clause, Go pur, aucun `import "C"` ; dépendances
 `filippo.io/hpke`, `nistec`, `edwards25519`, `x/crypto`, `x/sys`, `x/term`).
-Elle chiffre la sauvegarde de la base (« Comment la base est sauvegardée »,
+Elle chiffre la sauvegarde de la base (« Comment une sauvegarde se fait »,
 `22-fonctionnement.md`). Choisie parce que le format est celui de l'outil
 `age` courant : on restaure sans openCloud. L'écrire à la main (X25519, scrypt,
 STREAM ChaCha20-Poly1305, en-tête HMAC) coûterait environ 500 lignes de

@@ -36,10 +36,19 @@ func (db *DB) SetSealer(sealer Sealer) {
 }
 
 // Les colonnes qui portent un secret. Chacune se lie à sa ligne par la
-// valeur de id, convertie en texte.
+// valeur de sa clé (id, sauf mention), convertie en texte.
 type secretColumn struct {
 	table  string
 	column string
+	// keyColumn est la clé de la table quand elle n'a pas d'id.
+	keyColumn string
+}
+
+func (target secretColumn) key() string {
+	if target.keyColumn == "" {
+		return "id"
+	}
+	return target.keyColumn
 }
 
 var secretColumns = []secretColumn{
@@ -47,6 +56,7 @@ var secretColumns = []secretColumn{
 	{table: "alert_channels", column: "url"},
 	{table: "alert_channels", column: "secret"},
 	{table: "heartbeats", column: "token_sealed"},
+	{table: "machine_proxmox", column: "token_secret", keyColumn: "machine_id"},
 }
 
 func settingsPasswordScope() seal.Scope {
@@ -60,6 +70,10 @@ func channelScope(column string, id int64) seal.Scope {
 
 func heartbeatTokenScope(id string) seal.Scope {
 	return seal.Scope{Table: "heartbeats", Column: "token_sealed", Row: id}
+}
+
+func proxmoxTokenScope(machineID string) seal.Scope {
+	return seal.Scope{Table: "machine_proxmox", Column: "token_secret", Row: machineID}
 }
 
 // sealSecret chiffre un secret pour sa ligne. Un secret vide reste vide : il
@@ -124,7 +138,7 @@ type storedSecret struct {
 // readSecretColumn lit les valeurs non vides d'une colonne, avec leur ligne.
 func readSecretColumn(ctx context.Context, from querier, target secretColumn) ([]storedSecret, error) {
 	// Table et colonne viennent de secretColumns, jamais d'une saisie.
-	query := `SELECT CAST(id AS TEXT), ` + target.column + ` FROM ` + target.table + ` WHERE ` + target.column + ` <> ''` // #nosec G202 -- constantes du paquet.
+	query := `SELECT CAST(` + target.key() + ` AS TEXT), ` + target.column + ` FROM ` + target.table + ` WHERE ` + target.column + ` <> ''` // #nosec G202 -- constantes du paquet.
 	rows, err := from.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("read %s.%s: %w", target.table, target.column, err)
@@ -202,7 +216,7 @@ func (db *DB) resealOne(ctx context.Context, tx *sql.Tx, target secretColumn, en
 		return err
 	}
 	// Table et colonne viennent de secretColumns, jamais d'une saisie.
-	query := `UPDATE ` + target.table + ` SET ` + target.column + ` = ? WHERE CAST(id AS TEXT) = ?` // #nosec G202 -- constantes du paquet.
+	query := `UPDATE ` + target.table + ` SET ` + target.column + ` = ? WHERE CAST(` + target.key() + ` AS TEXT) = ?` // #nosec G202 -- constantes du paquet.
 	if _, err := tx.ExecContext(ctx, query, sealed, entry.row); err != nil {
 		return fmt.Errorf("reseal %s.%s: %w", target.table, target.column, err)
 	}
@@ -221,19 +235,29 @@ func (db *DB) writeHeartbeatToken(ctx context.Context, to execer, id, token stri
 		sealed, heartbeat.HashToken(token), id)
 }
 
+// Forgotten dit ce que ForgetSecrets a vidé.
+type Forgotten struct {
+	// Channels : les canaux désactivés.
+	Channels int
+	// PingTokens : les jetons de tâche renouvelés.
+	PingTokens int
+	// ProxmoxHosts : les hôtes Proxmox dont le jeton est à ressaisir.
+	ProxmoxHosts int
+}
+
 // ForgetSecrets est la sortie de secours d'une clé perdue : ce qui était
 // chiffré avec elle est irrécupérable, la base est remise dans un état qui
 // démarre. Le mot de passe du relais est vidé ; chaque canal qui portait une
 // URL ou un secret est vidé et désactivé ; chaque tâche reçoit un nouveau
-// jeton. Rend le nombre de canaux désactivés et de jetons renouvelés. Le
-// Sealer doit déjà être celui de la nouvelle clé.
-func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)) (channels, tokens int, err error) {
+// jeton ; chaque hôte Proxmox perd son secret et reste déclaré, son prochain
+// relevé dira « jeton refusé » jusqu'à ce qu'on le redéclare. Le Sealer doit
+// déjà être celui de la nouvelle clé.
+func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)) (Forgotten, error) {
 	if db.sealer == nil {
-		return 0, 0, ErrNoSealer
+		return Forgotten{}, ErrNoSealer
 	}
-	var disabled int64
-	var renewed int
-	err = db.inTx(ctx, "forgetting secrets", func(tx *sql.Tx) error {
+	var forgotten Forgotten
+	err := db.inTx(ctx, "forgetting secrets", func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE settings SET mail_password = ''`); err != nil {
 			return fmt.Errorf("forget mail password: %w", err)
 		}
@@ -243,17 +267,36 @@ func (db *DB) ForgetSecrets(ctx context.Context, newToken func() (string, error)
 		if err != nil {
 			return fmt.Errorf("forget channel secrets: %w", err)
 		}
-		disabled, err = result.RowsAffected()
+		forgotten.Channels, err = countAffected(result)
 		if err != nil {
 			return fmt.Errorf("count forgotten channels: %w", err)
 		}
-		renewed, err = db.renewHeartbeatTokens(ctx, tx, newToken)
-		return err
+		forgotten.PingTokens, err = db.renewHeartbeatTokens(ctx, tx, newToken)
+		if err != nil {
+			return err
+		}
+		result, err = tx.ExecContext(ctx, `UPDATE machine_proxmox SET token_secret = '' WHERE token_secret <> ''`)
+		if err != nil {
+			return fmt.Errorf("forget proxmox token secrets: %w", err)
+		}
+		forgotten.ProxmoxHosts, err = countAffected(result)
+		if err != nil {
+			return fmt.Errorf("count forgotten proxmox hosts: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		return 0, 0, err
+		return Forgotten{}, err
 	}
-	return int(disabled), renewed, nil // #nosec G115 -- au plus le nombre de canaux de la base.
+	return forgotten, nil
+}
+
+func countAffected(result sql.Result) (int, error) {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(affected), nil // #nosec G115 -- au plus le nombre de lignes d'une table de la base.
 }
 
 func (db *DB) renewHeartbeatTokens(ctx context.Context, tx *sql.Tx, newToken func() (string, error)) (int, error) {

@@ -58,7 +58,7 @@ var ErrParcelName = errors.New("parcel file name is not a plain name")
 // téléchargement.
 var (
 	// ErrUploadName : le nom n'est pas celui d'une archive produite.
-	ErrUploadName = errors.New("uploaded file name is not a produced archive name")
+	ErrUploadName = errors.New("uploaded file name is not a backup file name")
 	// ErrUploadConflict : ce nom est déjà écrit, un autre fichier arrive, ou le
 	// colis est plein.
 	ErrUploadConflict = errors.New("parcel already holds this file or is receiving another")

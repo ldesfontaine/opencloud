@@ -120,7 +120,7 @@ func (o *Outbox) claimUpload(uploaderID, parcelID, name string, size int64) (*pa
 	if !found || sealed.uploader == "" || sealed.uploader != uploaderID || !o.now().Before(sealed.expiresAt) {
 		return nil, ErrParcelNotFound
 	}
-	if !agentwire.IsProducedFile(name) || !parcelNamePattern.MatchString(name+uploadPartSuffix) {
+	if !agentwire.IsBackupFile(name) || !parcelNamePattern.MatchString(name+uploadPartSuffix) {
 		return nil, ErrUploadName
 	}
 	if size < 0 || size > MaxUploadBytes {

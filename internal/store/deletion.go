@@ -48,6 +48,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 			{deletion.KindHeartbeats, `SELECT id, name FROM heartbeats WHERE machine_id = ? ORDER BY name, id`},
 			{deletion.KindComponents, componentsShowing("machine_id")},
 			{deletion.KindBackupDestinations, `SELECT id, name FROM backup_destinations WHERE machine_id = ? ORDER BY name, id`},
+			{deletion.KindBackupPlans, `SELECT id, COALESCE(NULLIF(name, ''), subject) FROM backup_plans WHERE source_machine_id = ? ORDER BY subject, id`},
 		},
 		[]planQuery{
 			{deletion.KindAgents, `SELECT COUNT(*) FROM agents WHERE machine_id = ?`},
@@ -61,6 +62,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 				WHERE container_id IN (SELECT id FROM containers WHERE machine_id = ?)`},
 			{deletion.KindImageChecks, `SELECT COUNT(*) FROM image_checks WHERE machine_id = ?`},
 			{deletion.KindSSHKeys, `SELECT COUNT(*) FROM ssh_keys WHERE machine_id = ?`},
+			{deletion.KindProxmoxHosts, `SELECT COUNT(*) FROM machine_proxmox WHERE machine_id = ?`},
 			{deletion.KindIgnoredKeys, `SELECT COUNT(*) FROM ignored_keys WHERE machine_id = ?`},
 			// Celles de la machine, et celles de ses conteneurs, qui partent avec eux.
 			{deletion.KindSilences, `SELECT COUNT(*) FROM mutes, (SELECT ? AS id) AS gone
@@ -69,6 +71,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 		[]planQuery{
 			{deletion.KindAlerts, `SELECT COUNT(*) FROM alerts WHERE machine_id = ?`},
 			{deletion.KindIncidentLinks, `SELECT COUNT(*) FROM incident_targets WHERE machine_id = ?`},
+			{deletion.KindProxmoxLinks, `SELECT COUNT(*) FROM proxmox_guests WHERE linked_machine_id = ?`},
 		})
 }
 

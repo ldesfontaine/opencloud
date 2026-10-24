@@ -21,6 +21,7 @@ import { Jobs } from "./pages/Jobs";
 import { MachinePage } from "./pages/Machine";
 import { MachineNew } from "./pages/MachineNew";
 import { MachineRights } from "./pages/MachineRights";
+import { MachineProxmox } from "./pages/MachineProxmox";
 import { MachineToken } from "./pages/MachineToken";
 import { Machines } from "./pages/Machines";
 import { NotFound } from "./pages/NotFound";
@@ -71,6 +72,7 @@ export function App() {
         <Route path="machines/jeton" element={<MachineToken />} />
         <Route path="machines/:id" element={<MachinePage />} />
         <Route path="machines/:id/droits" element={<MachineRights />} />
+        <Route path="machines/:id/proxmox" element={<MachineProxmox />} />
         <Route path="machines/:id/:tab" element={<MachinePage />} />
         <Route path="services" element={<Services tab="annuaire" />} />
         <Route path="services/conteneurs" element={<Services tab="conteneurs" />} />

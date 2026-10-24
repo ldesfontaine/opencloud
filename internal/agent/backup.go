@@ -106,7 +106,7 @@ func readBackupReceive(body agentwire.OrderBody, cover coveringPath, writable wr
 
 func readBackupPrune(body agentwire.OrderBody, cover coveringPath, writable writableCheck) (agentwire.BackupPruneParams, string, *agentwire.ActionResult) {
 	var params agentwire.BackupPruneParams
-	if err := json.Unmarshal(body.Params, &params); err != nil || params.Keep < 1 || params.Keep > 365 {
+	if err := json.Unmarshal(body.Params, &params); err != nil || params.Keep < 1 || params.Keep > 365 || !agentwire.IsBackupPrefix(params.Prefix) {
 		return params, "", &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionFailed, Reason: agentwire.ReasonBadOrder}
 	}
 	granted, refused := judgeGranted(body, params.Path, cover, writable)
@@ -330,10 +330,11 @@ func verifyOnDisk(root *os.Root, file agentwire.ParcelFile) error {
 	return checkAgeHeader(root, file.Name)
 }
 
-// pruneBackups garde les params.Keep sauvegardes les plus récentes du dossier
-// et efface les autres. Il ne touche qu'aux fichiers de la forme exacte
-// d'une sauvegarde : ni une clé déposée, ni un .part, ni un fichier de
-// l'opérateur. Le nom porte l'instant : le tri par nom est le tri par date.
+// pruneBackups garde les params.Keep sauvegardes les plus récentes du
+// préfixe dans le dossier et efface les autres. Il ne touche qu'aux fichiers
+// de la forme exacte d'une sauvegarde de ce préfixe : ni celles d'un autre
+// plan, ni une clé déposée, ni un .part, ni un fichier de l'opérateur. Le nom
+// porte l'instant : le tri par nom est le tri par date.
 func pruneBackups(granted string, params agentwire.BackupPruneParams) ([]agentwire.OutputLine, error) {
 	root, err := openDestination(granted, params.Path, false)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -349,7 +350,7 @@ func pruneBackups(granted string, params agentwire.BackupPruneParams) ([]agentwi
 	}
 	var backups []string
 	for _, entry := range entries {
-		if entry.Type().IsRegular() && agentwire.IsBackupFile(entry.Name()) {
+		if entry.Type().IsRegular() && agentwire.IsBackupFileOf(entry.Name(), params.Prefix) {
 			backups = append(backups, entry.Name())
 		}
 	}

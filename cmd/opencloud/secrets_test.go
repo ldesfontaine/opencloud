@@ -169,7 +169,7 @@ func TestSecretsForget_StartsAgainWithANewKeyAndNewPingTokens(t *testing.T) {
 	if err := secretsCommand([]string{"forget", "-config", configPath}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "jetons de ping renouvelés : 1") {
+	if !strings.Contains(out.String(), "jetons de ping renouvelés : 1") || !strings.Contains(out.String(), "jetons Proxmox effacés : 0") {
 		t.Fatalf("output: %q", out.String())
 	}
 

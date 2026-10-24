@@ -121,7 +121,7 @@ func readBackupProduce(body agentwire.OrderBody, capabilities []machine.Capabili
 		return produceJob{}, &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonProducerUnknown}
 	}
 	recipient, err := backup.ParseRecipient(params.Recipient)
-	if err != nil || !chosen.validTarget(params.Target) || !agentwire.IsProducePrefix(params.Prefix) ||
+	if err != nil || !chosen.validTarget(params.Target) || !agentwire.IsBackupPrefix(params.Prefix) ||
 		params.Parcel == "" || len(params.Parcel) > maxParcelIDBytes {
 		return produceJob{}, bad
 	}
@@ -150,7 +150,7 @@ func (t produceTools) produce(ctx context.Context, checks hostChecks, sink parce
 	defer dir.Close()
 	defer clearDirectory(dir)
 
-	name := agentwire.ProducedFileName(job.params.Prefix, now)
+	name := agentwire.BackupFileName(job.params.Prefix, now)
 	entry, output, err := t.runProducer(ctx, dir, name, job, now)
 	if err != nil {
 		return output, err

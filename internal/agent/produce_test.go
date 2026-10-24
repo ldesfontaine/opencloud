@@ -33,7 +33,7 @@ const (
 
 // producedName est le nom de l'archive que l'ordre de test produit : l'horloge
 // du banc est figée.
-var producedName = agentwire.ProducedFileName(producedPrefix, orderNow)
+var producedName = agentwire.BackupFileName(producedPrefix, orderNow)
 
 // echoProducer écrit des octets connus et rend une entrée de tar, comme le fait
 // un producteur sans lancer vzdump. exit, s'il y en a un, est son échec.
