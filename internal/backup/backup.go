@@ -45,6 +45,15 @@ const (
 // cause est au journal du serveur.
 const PrepareFailedKey = "backup.prepare_failed"
 
+// Les clés de last_error qui disent une cible précise d'un plan machine. Elles
+// portent leurs arguments après des deux-points (« backup.target_failed:5012:
+// producer_failed ») : la page les compose, et seul ce qui a une forme fermée
+// y entre (voir targetReason).
+const (
+	TargetFailedKey = "backup.target_failed"
+	PruneFailedKey  = "backup.prune_failed"
+)
+
 // Keyring est la paire de clés : la publique chiffre, la privée est scellée
 // par la phrase de passe que la base ne voit jamais.
 type Keyring struct {
@@ -96,17 +105,30 @@ type Plan struct {
 	// La clé du refus de la dernière tentative qui n'a pas pu partir, vide
 	// sinon.
 	LastError string
-	// Le dernier ordre backup.receive ; vide s'il n'y en a pas eu, ou si la
+	// Le dernier ordre du plan : le backup.receive du dernier passage, ou
+	// l'ordre en cours pendant qu'il dure. Vide s'il n'y en a pas eu, ou si la
 	// purge des runs l'a emporté.
 	LastRunID string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// Les cibles du dernier passage d'un plan machine : reçues, et en échec.
+	// Gardées en mémoire (pas de colonne) : zéro après un redémarrage de
+	// serve, et pour un plan qui n'a pas encore passé.
+	LastTargetsOK     int
+	LastTargetsFailed int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // FilePrefix est ce que les fichiers du plan ont en commun sur la
 // destination (agentwire.BackupFilePrefix) ; l'élagage s'y borne.
 func (p Plan) FilePrefix() string {
 	return agentwire.BackupFilePrefix(p.Subject, "")
+}
+
+// TargetPrefix est le préfixe des fichiers d'une cible du plan : un invité par
+// numéro (« pve » donne « pve-vm-5012 »). L'élagage d'une cible ne touche pas
+// à celles des autres.
+func (p Plan) TargetPrefix(target string) string {
+	return agentwire.BackupFilePrefix(p.Subject, "vm-"+target)
 }
 
 // PlanDefinition est ce que l'opérateur écrit d'un plan : le sujet vient de
@@ -172,6 +194,13 @@ var (
 	ErrSourceMachineUnknown = refusal.Invalid("backup.source_machine_unknown", "the machine that produces the backup does not exist")
 	ErrProducerUnknown      = refusal.Invalid("backup.producer_unknown", "the producer is not one of the known producers")
 	ErrSelectorInvalid      = refusal.Invalid("backup.selector_invalid", "selector: all, or identifiers separated by commas")
-	ErrSourceNotImplemented = refusal.Conflict("backup.source_not_implemented", "backing up from an agent is not available yet")
 	ErrMachineOffline       = refusal.Conflict("backup.machine_offline", "the destination machine is offline")
+
+	// Ce qui arrête un plan machine avant son premier ordre : la source, sa
+	// sélection, l'agent qui reçoit.
+	ErrSourceRightMissing       = refusal.Conflict("backup.source_right_missing", "the agent of the source machine may not run this producer")
+	ErrSourceOffline            = refusal.Conflict("backup.source_offline", "the source machine is offline")
+	ErrSelectorNeedsList        = refusal.Conflict("backup.selector_needs_list", "all needs a Proxmox host declared on the source machine, with a reading: give the list of identifiers")
+	ErrDestinationAgentOutdated = refusal.Conflict("backup.destination_agent_outdated", "the agent of the destination is too old to prune one plan without touching the others")
+	ErrRunInProgress            = refusal.Conflict("backup.run_in_progress", "a backup is already running")
 )

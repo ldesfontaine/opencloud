@@ -56,14 +56,30 @@ type Machines interface {
 	Get(ctx context.Context, id string) (machine.Status, error)
 }
 
-// Sender envoie un ordre signé à l'agent d'une machine : le composant action.
+// Sender envoie un ordre signé à l'agent d'une machine, et attend qu'il
+// finisse : le composant action.
 type Sender interface {
 	Send(ctx context.Context, machineID string, kind agentwire.Kind, params json.RawMessage) (action.Run, error)
+	// Wait rend le run quand il est fini ; le contexte de l'appelant borne
+	// l'attente.
+	Wait(ctx context.Context, runID string) (action.Run, error)
 }
 
 // Parcels prépare le colis que l'agent télécharge : la boîte d'action.
 type Parcels interface {
 	Create(machineID string) (*action.ParcelWriter, error)
+	// CreateForUpload ouvre un colis pour la machine de destination que la
+	// machine productrice remplit par téléversement.
+	CreateForUpload(destinationID, uploaderID string) (*action.Upload, error)
+}
+
+// Guests dit ce qu'un hôte Proxmox, déclaré sur la machine source, a relevé :
+// de quoi résoudre le sélecteur « all » d'un plan machine.
+type Guests interface {
+	// ListProxmoxGuestIDs rend les numéros des VM et conteneurs sauvegardables
+	// (modèles exclus), par ordre croissant ; rien si la machine ne porte pas
+	// d'hôte ou si aucun relevé n'a eu lieu.
+	ListProxmoxGuestIDs(ctx context.Context, machineID string) ([]int, error)
 }
 
 // Watcher reçoit chaque changement visible ; le direct s'y branche. nil est
@@ -80,6 +96,7 @@ type Service struct {
 	stateDir *os.Root
 	sender   Sender
 	parcels  Parcels
+	guests   Guests
 	watcher  Watcher
 	auditor  *audit.Recorder
 	logger   *slog.Logger
@@ -91,19 +108,34 @@ type Service struct {
 	// writing tient compter-puis-insérer d'un seul tenant (le plafond des
 	// destinations) et une seule création de clé à la fois.
 	writing sync.Mutex
-	// running ne laisse préparer qu'une archive à la fois.
+	// running ne laisse mener qu'un plan à la fois : une archive préparée, ou
+	// un passage de plan machine (des heures), jamais deux ensemble.
 	running sync.Mutex
+
+	// lifetime est la vie du serveur : un plan machine lancé à la main se mène
+	// derrière la requête qui l'a lancé, jusqu'à elle. background compte ces
+	// passages, que Watch attend en finissant (la base ne ferme pas dessous).
+	lifetime   context.Context
+	background sync.WaitGroup
+
+	// passes garde, par sujet, les comptes du dernier passage d'un plan machine.
+	passes passSummaries
 }
 
 func New(store Store, machines Machines, stateDir *os.Root, logger *slog.Logger) *Service {
-	return &Service{store: store, machines: machines, stateDir: stateDir, logger: logger, now: time.Now}
+	return &Service{store: store, machines: machines, stateDir: stateDir, logger: logger, now: time.Now, lifetime: context.Background()}
 }
 
 func (s *Service) SetSender(sender Sender)            { s.sender = sender }
 func (s *Service) SetParcels(parcels Parcels)         { s.parcels = parcels }
+func (s *Service) SetGuests(guests Guests)            { s.guests = guests }
 func (s *Service) SetWatcher(watcher Watcher)         { s.watcher = watcher }
 func (s *Service) SetAuditor(auditor *audit.Recorder) { s.auditor = auditor }
 func (s *Service) SetClock(now func() time.Time)      { s.now = now }
+
+// SetLifetime donne la vie du serveur : quand elle finit, les passages menés
+// en arrière-plan s'arrêtent.
+func (s *Service) SetLifetime(lifetime context.Context) { s.lifetime = lifetime }
 
 // SetWorkFactor baisse le coût de scrypt : pour les tests seulement.
 func (s *Service) SetWorkFactor(workFactor int) { s.workFactor = workFactor }
@@ -265,6 +297,7 @@ func (s *Service) SavePlan(ctx context.Context, definition PlanDefinition) (Plan
 	if err != nil {
 		return Plan{}, fmt.Errorf("read backup plan: %w", err)
 	}
+	saved = s.passes.applyTo(saved)
 	s.logger.Info("backup plan saved", "plan_id", saved.ID, "subject", saved.Subject, "destination_id", saved.DestinationID, "keep", saved.Keep)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanUpdate, ObjectID: saved.ID, ObjectName: saved.Subject,
@@ -311,6 +344,7 @@ func (s *Service) DeletePlan(ctx context.Context, subject string) error {
 	if err := s.store.DeleteBackupPlan(ctx, subject); err != nil {
 		return err
 	}
+	s.passes.forget(plan.Subject)
 	s.logger.Info("backup plan deleted", "plan_id", plan.ID, "subject", plan.Subject)
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanDelete, ObjectID: plan.ID, ObjectName: plan.Subject,
@@ -345,6 +379,9 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	overview.Plans, err = s.store.ListBackupPlans(ctx)
 	if err != nil {
 		return Overview{}, fmt.Errorf("list backup plans: %w", err)
+	}
+	for index, plan := range overview.Plans {
+		overview.Plans[index] = s.passes.applyTo(plan)
 	}
 	return overview, nil
 }

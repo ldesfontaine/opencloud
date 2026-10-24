@@ -94,6 +94,31 @@ func TestProxmox_DeclareReadAndView(t *testing.T) {
 	}
 }
 
+// Le plan de sauvegarde « all » prend les invités relevés, par numéro, sans les
+// modèles ; une machine sans hôte ou sans relevé n'en donne aucun.
+func TestProxmox_ListGuestIDsSkipsTemplatesAndAnUnreadHost(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	seedProxmoxMachines(t, db)
+	if ids, err := db.ListProxmoxGuestIDs(ctx, "pve-host"); err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("no host: %v %v", ids, err)
+	}
+	declareProxmox(t, db, "https://pve.lan:8006")
+	if ids, err := db.ListProxmoxGuestIDs(ctx, "pve-host"); err != nil || len(ids) != 0 {
+		t.Fatalf("no reading yet: %v %v", ids, err)
+	}
+	if err := db.ReplaceProxmoxReading(ctx, "pve-host", sampleReading(), proxmoxAt); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := db.ListProxmoxGuestIDs(ctx, "pve-host")
+	if err != nil || !reflect.DeepEqual(ids, []int{200, 5012}) {
+		t.Fatalf("ids %v %v", ids, err)
+	}
+	if other, err := db.ListProxmoxGuestIDs(ctx, "docker"); err != nil || len(other) != 0 {
+		t.Fatalf("another machine: %v %v", other, err)
+	}
+}
+
 func TestProxmox_AReadingReplacesTheLastOneAndAFailureKeepsIt(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

@@ -100,9 +100,9 @@ func TestPlanDefinition_Validate(t *testing.T) {
 }
 
 // Un plan agent se crée et s'affiche, avec le nom de sa machine, après la
-// base ; « Sauvegarder maintenant » le refuse tant que l'ordre qui produit
-// n'existe pas, et la page le sait par la clé écrite dans le plan.
-func TestSavePlan_AnAgentPlanIsStoredButCannotRunYet(t *testing.T) {
+// base ; « Sauvegarder maintenant » le refuse tant que la machine source n'a
+// pas d'agent en ligne, et la page le sait par la clé écrite dans le plan.
+func TestSavePlan_AnAgentPlanIsStoredButNeedsItsSourceOnline(t *testing.T) {
 	b := newBench(t, rights)
 	b.withSource()
 	_, destination := b.ready()
@@ -120,9 +120,9 @@ func TestSavePlan_AnAgentPlanIsStoredButCannotRunYet(t *testing.T) {
 	}
 
 	_, err = b.backups.RunNow(operator(), "pve-vm")
-	requireRefusal(t, err, backup.ErrSourceNotImplemented)
+	requireRefusal(t, err, backup.ErrSourceOffline)
 	plan, err := b.db.GetBackupPlan(context.Background(), "pve-vm")
-	if err != nil || plan.LastError != "backup.source_not_implemented" || plan.LastRunID != "" || !plan.LastAttemptAt.Equal(benchNow) {
+	if err != nil || plan.LastError != "backup.source_offline" || plan.LastRunID != "" || !plan.LastAttemptAt.Equal(benchNow) {
 		t.Fatalf("plan %+v %v", plan, err)
 	}
 	if len(b.commands.orders) != 0 {
@@ -207,7 +207,7 @@ func TestSavePlan_ChangesAnAgentPlanWithoutLosingItsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := b.backups.RunNow(operator(), "pve-vm"); err == nil {
-		t.Fatal("an agent plan cannot run yet")
+		t.Fatal("an agent plan cannot run while its source is offline")
 	}
 	changed := agentPlan("pve-vm", destination.ID)
 	changed.Name, changed.Selector, changed.Keep = "", "5010,5012", 30
@@ -216,7 +216,7 @@ func TestSavePlan_ChangesAnAgentPlanWithoutLosingItsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if saved.ID != first.ID || saved.Name != "" || saved.Selector != "5010,5012" || saved.Keep != 30 ||
-		saved.LastError != "backup.source_not_implemented" || saved.LastAttemptAt.IsZero() || !saved.CreatedAt.Equal(first.CreatedAt) {
+		saved.LastError != "backup.source_offline" || saved.LastAttemptAt.IsZero() || !saved.CreatedAt.Equal(first.CreatedAt) {
 		t.Fatalf("saved %+v, first %+v", saved, first)
 	}
 }
@@ -238,7 +238,8 @@ func TestRunIfDue_RunsEachDuePlanOnItsOwn(t *testing.T) {
 	}
 	b.now = time.Date(2026, 10, 22, 3, 5, 0, 0, time.UTC)
 	b.backups.RunIfDue(context.Background())
-	// La base part (réception et élagage) ; les plans agent sont refusés.
+	// La base part (réception et élagage) ; les plans agent, sans agent source
+	// en ligne, sont refusés.
 	if len(b.commands.orders) != 2 {
 		t.Fatalf("orders %+v", b.commands.kinds)
 	}
@@ -248,7 +249,7 @@ func TestRunIfDue_RunsEachDuePlanOnItsOwn(t *testing.T) {
 	}
 	for _, subject := range []string{"pve-ct", "pve-vm"} {
 		agent, _ := b.db.GetBackupPlan(context.Background(), subject)
-		if agent.LastError != "backup.source_not_implemented" || !agent.LastAttemptAt.Equal(b.now) {
+		if agent.LastError != "backup.source_offline" || !agent.LastAttemptAt.Equal(b.now) {
 			t.Fatalf("%s %+v", subject, agent)
 		}
 	}

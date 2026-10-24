@@ -316,7 +316,7 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
-| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert vient avec #266 (étape suivante) |
+| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert est décrit dans « Comment une sauvegarde se fait » |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
 
 - **Forme texte**, la même dans la ligne d'installation, le fichier de
@@ -858,9 +858,9 @@ sauvegarde), une **destination** et un nombre de copies à garder. Le plan
 cohérent de sa base, l'emballe avec ses deux clés, le chiffre pour une clé
 publique, et l'envoie à l'agent d'une **autre machine**. Il n'en garde aucune
 copie. Un plan dont la source est une **machine** (`agent`) dit quelle machine
-produit la sauvegarde, avec quel producteur et quelle sélection ; son envoi
-n'existe pas encore : le plan s'enregistre, et son lancement est refusé
-`backup.source_not_implemented` (« Les plans à source machine », plus bas). Le
+produit la sauvegarde, avec quel producteur et quelle sélection : la machine
+source chiffre elle-même ce qu'elle produit, et `serve` ne fait que le
+transporter (« Une source produite par un agent », plus bas). Le
 `data/` et le `.env` d'un service déployé ne sont pas emportés (« Comment un service se déploie »).
 
 | | |
@@ -872,8 +872,8 @@ n'existe pas encore : le plan s'enregistre, et son lancement est refusé
 | Pas de copie locale | L'instantané en clair n'existe que le temps de l'emballer, dans `outgoing/<colis>/`, et il est effacé **avant** l'envoi. L'archive chiffrée y reste jusqu'au téléchargement par l'agent, le temps que son ordre peut vivre au plus (un peu plus d'une heure), puis part ; `serve` vide `outgoing/` au démarrage |
 | Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`, puis `path_denied` ou `path_unwritable` si son compte ne peut pas écrire le dossier, avant d'accepter l'ordre ; la vue dit alors `unavailable`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
 | Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus), et qui ne finit pas par `-vm-<chiffres>` (le suffixe des archives par machine virtuelle : `x-vm-100` se confondrait avec la VM 100 du plan `x`). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
-| Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, source pas encore prise en charge) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
-| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** |
+| Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, machine source hors ligne ou sans le droit de produire, agent de destination trop ancien) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
+| Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** ; pour un plan machine, du préfixe de **chaque machine virtuelle** |
 | Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : le second referait le travail du premier, sous un autre nom. Le même contenu vers une autre destination est permis, c'est une seconde copie |
 
 **Ce que fait l'agent.** `backup.receive` est le premier ordre qui **écrit
@@ -918,18 +918,113 @@ jusqu'au bout. La commande imprime la suite (`chown`, démarrer `serve`).
 (`source_machine_id`, qui existe), le producteur (`proxmox-vzdump`, la seule
 valeur de la liste fermée `machine.Producers()`, la même que juge le droit `backup.produce`) et la sélection (`all`, ou des
 identifiants séparés par des virgules comme `100,101`, 255 caractères au plus).
-Il s'enregistre et s'affiche, mais son lancement, à la main comme la nuit, est
-refusé `backup.source_not_implemented` et écrit dans `last_error` : la prise de
-la sauvegarde sur la machine, son envoi et ses fichiers par machine virtuelle
-viendront avec les chantiers suivants. La machine source d'un plan ne se
-supprime pas (`restrict`, `machine.has_backup_plans`) : on retire d'abord le plan.
+La machine source d'un plan ne se supprime pas (`restrict`,
+`machine.has_backup_plans`) : on retire d'abord le plan.
+
+**Une source produite par un agent.** Le passage d'un plan `agent` (la nuit,
+ou « Sauvegarder maintenant ») sauvegarde **une cible à la fois**, c'est-à-dire
+une machine virtuelle ou un conteneur, et **un seul colis vit** sur la machine
+openCloud à chaque instant, quelle que soit la taille de la cible.
+
+*Avant le moindre ordre*, `serve` juge, dans cet ordre : la clé de sauvegarde
+(`backup.keyring_missing`), la destination en ligne et son droit
+(`backup.machine_offline`, `backup.right_missing`), **l'agent de la
+destination**, la machine source, puis les cibles. Un refus ici ne crée ni
+ordre ni colis ; sa clé s'écrit dans `last_error`.
+
+| Refus | Quand |
+| --- | --- |
+| `409 backup.destination_agent_outdated` | l'agent de la destination est plus ancien que `agentwire.PrefixSinceVersion` (`v0.2.0`), ou sa version ne se lit pas (`dev`, vide). Les agents d'avant ignorent `prefix` dans `backup.prune` et élagueraient `opencloud-…` avec le `keep` du plan : un plan machine ne part pas vers eux. Le plan `database` n'est pas concerné, il part toujours |
+| `409 backup.source_offline` | la machine source n'a pas d'agent en ligne |
+| `409 backup.source_right_missing` | pas d'agent actif, ou l'agent a rapporté ses droits et `backup.produce` ne nomme pas le producteur du plan |
+| `409 backup.selector_needs_list` | `all`, alors que la source n'a pas d'hôte Proxmox déclaré avec au moins un invité relevé (les modèles sont écartés) : `serve` n'invente pas de liste, l'opérateur donne les numéros |
+| `409 backup.run_in_progress` | un passage court déjà, de ce plan ou de n'importe lequel : un seul à la fois sur la machine openCloud. Le plan n'est pas touché |
+
+*Par cible*, dans l'ordre :
+
+1. `serve` ouvre un colis pour la machine de destination, que seule la machine
+   source remplit (`Outbox.CreateForUpload`), et y dépose la **clé privée
+   scellée**, nommée par empreinte, comme pour la base ;
+2. il envoie `backup.produce` à la machine source (`producer`, `target`,
+   `prefix` = `<sujet>-vm-<numéro>`, la clé publique, le colis) et **attend la
+   fin de l'ordre** (réponse de l'agent, expiration à `not_after`, ou échec
+   `timeout` au bout de `MaxRunDuration`, une heure). L'agent produit, chiffre,
+   téléverse (voir plus haut) ;
+3. l'archive est là : `serve` **remet** le colis (`Upload.Handover` : la source
+   n'y écrit plus, et la destination a toute la durée d'un colis pour le
+   télécharger, comptée d'ici et non de sa création), refuse la cible
+   `upload_failed` si le colis ne porte pas **exactement** une archive du
+   préfixe de la cible et la clé scellée (une source compromise qui glisserait
+   `opencloud-2099…` ou l'archive d'une autre machine virtuelle ferait chasser
+   les vraies sauvegardes par l'élagage : rien ne part), puis envoie
+   `backup.receive` à la destination avec la liste des fichiers (archive et
+   clé) et **attend** ;
+4. `serve` **jette le colis**, puis envoie `backup.prune{Path, Prefix, Keep}`
+   (le préfixe de **cette** machine virtuelle) et attend : l'élagage d'une
+   cible ne touche jamais celles des autres ;
+5. la cible suivante commence. Le colis de la précédente n'existe plus.
+
+Les ordres d'un passage sont ceux de tout ordre : signés, deux minutes pour
+être pris, un rang par agent, une ligne d'audit `action.order` chacun
+(sous `rule:backup` la nuit, ou l'opérateur qui a cliqué).
+
+*Ce que `serve` voit.* Des noms, des tailles, des sommes, des octets chiffrés :
+**jamais le clair** d'une machine virtuelle, ni de son archive ni de sa
+sortie ; la clé publique chiffre sur la machine source, la privée n'est sur
+`serve` que scellée par la phrase, et jamais sur la source. Un agent compromis n'apporte au serveur
+que du chiffré. À côté de chaque archive, sur la destination, la clé privée
+scellée : `<sujet>-vm-<numéro>-AAAAMMJJ-HHMMSS.tar.age` et
+`opencloud-key-<empreinte>.age`.
+
+*Un échec n'arrête pas le passage.* Une cible qui échoue (le producteur sort
+en erreur, un droit manque, l'ordre expire ou se perd, la destination refuse)
+est comptée en échec, son colis est jeté, **la suivante part**. `last_error`
+garde le **premier** souci du passage, sous une forme fermée :
+
+| `last_error` | Sens |
+| --- | --- |
+| `backup.target_failed:<numéro>:<raison>` | la cible n'est pas arrivée sur la destination |
+| `backup.prune_failed:<numéro>:<raison>` | la cible est arrivée, mais ses anciennes copies n'ont pas été élaguées |
+| `backup.destination_agent_outdated` | l'agent de la destination a été remplacé par un plus ancien pendant le passage : les cibles arrivent, rien n'est élagué |
+
+La `<raison>` est l'un des mots fermés que les ordres connaissent
+(`producer_failed`, `upload_failed`, `disk_full`, `right_missing:<droit>`,
+`expired`, `timeout`, `undelivered`, les refus de l'agent…), **jamais le texte
+qu'un agent a écrit** : tout ce que `serve` ne reconnaît pas devient `unknown`
+(« raison non rapportée » sur la page). La sortie de l'agent reste sur son ordre,
+pas dans `last_error`. Aucun secret n'y entre : ni la phrase, ni la clé, ni une
+ligne de `vzdump`. Le plan ajoute à son état le **nombre de cibles reçues et en
+échec** du dernier passage (`last_targets_ok`, `last_targets_failed`).
+Ces deux nombres sont **gardés en mémoire** (aucune colonne de plus) : ils
+valent 0 et 0 pour la base et après un redémarrage de `serve`, tant que le plan
+n'a pas repassé.
+
+*Le rythme.* « Sauvegarder maintenant » rend le premier ordre `backup.produce`
+dès qu'il est parti et mène la suite derrière la requête ; la page suit
+l'avancement sur le sujet `backups`. La nuit, la boucle mène un plan machine
+jusqu'au bout avant le suivant : un plan de plusieurs heures retarde ceux qui
+passent après lui. Si `serve` s'arrête au milieu, le passage s'interrompt sans
+rien noter, le colis en cours est jeté, et les cibles restantes attendent la
+nuit suivante.
+
+*La restauration* d'une machine virtuelle se fait **sans openCloud** : on
+déchiffre la clé scellée (`age -d -o cle.txt opencloud-key-<empreinte>.age`, la
+phrase est demandée), on s'en sert pour l'archive (`age -d -i cle.txt
+<préfixe>-….tar.age | tar -x`), qui rend une seule entrée, l'archive de
+`vzdump` ; puis
+`qmrestore vzdump-qemu-<numéro>-….vma.zst <numéro>` pour une machine
+virtuelle, ou `pct restore <numéro> vzdump-lxc-<numéro>-….tar.zst` pour un
+conteneur.
 
 **Les refus d'un plan** : `422 backup.plan_invalid` (sujet, libellé ou type de
 source illisibles, ou un plan `database` qui porte une machine), `422
 backup.keep_invalid` (nombre à garder), `422 backup.source_machine_unknown`, `422 backup.producer_unknown`,
 `422 backup.selector_invalid`, `409 backup.plan_exists`, `409
 backup.plan_missing` (lancer un sujet qui n'existe pas ; supprimer un sujet
-inconnu répond `404`), `409 backup.source_not_implemented`.
+inconnu répond `404`), et, au lancement d'un plan machine, `409
+backup.source_offline`, `backup.source_right_missing`, `backup.selector_needs_list`,
+`backup.destination_agent_outdated` et `backup.run_in_progress` (« Une source
+produite par un agent »).
 
 **L'interface** : la page **Sauvegardes** (`/sauvegardes`, sous
 « Administration ») : la clé, les destinations (avec la pastille du droit de

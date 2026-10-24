@@ -42,6 +42,9 @@ type Store interface {
 	// CompleteAgentUpdates pose succeeded sur les mises à jour en attente de
 	// cet agent qui visaient cette version ; il rend les runs touchés.
 	CompleteAgentUpdates(ctx context.Context, agentID, version string, at time.Time) ([]Run, error)
+	// GetActionRun rend un run et sa sortie ; une erreur si la purge l'a
+	// emporté.
+	GetActionRun(ctx context.Context, id string) (Run, error)
 }
 
 // Machines est ce que le composant lit des machines : l'agent courant et
@@ -87,6 +90,9 @@ type Service struct {
 	// nil sans bibliothèque (voir SetReleases).
 	releases      Releases
 	serverVersion release.Version
+
+	// Ce qui réveille Wait : voir wait.go.
+	changes changeSignal
 }
 
 func New(store Store, machines Machines, logger *slog.Logger) *Service {
@@ -121,6 +127,7 @@ func (s *Service) SetClock(now func() time.Time) {
 }
 
 func (s *Service) changed(machineID string) {
+	s.changes.fire()
 	if s.watcher != nil {
 		s.watcher.ActionsChanged(machineID)
 	}

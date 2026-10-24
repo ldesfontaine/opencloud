@@ -137,7 +137,7 @@ func TestBackupPlans_ListsTheDatabaseFirstAndRoundTripsAnAgentSource(t *testing.
 		t.Fatalf("alpha %+v", alpha)
 	}
 
-	if err := db.NoteBackupAttempt(ctx, "alpha", backupsNow, "backup.source_not_implemented", ""); err != nil {
+	if err := db.NoteBackupAttempt(ctx, "alpha", backupsNow, "backup.source_offline", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.NoteBackupAttempt(ctx, "inconnu", backupsNow, "", ""); !errors.Is(err, backup.ErrNotFound) {
@@ -149,7 +149,7 @@ func TestBackupPlans_ListsTheDatabaseFirstAndRoundTripsAnAgentSource(t *testing.
 		t.Fatal(err)
 	}
 	again, err := db.GetBackupPlan(ctx, "alpha")
-	if err != nil || again.ID != "bkp_alpha" || again.Name != "" || again.Selector != "all" || again.Keep != 30 || again.LastError != "backup.source_not_implemented" {
+	if err != nil || again.ID != "bkp_alpha" || again.Name != "" || again.Selector != "all" || again.Keep != 30 || again.LastError != "backup.source_offline" {
 		t.Fatalf("again %+v %v", again, err)
 	}
 	// Les autres plans n'ont pas bougé.

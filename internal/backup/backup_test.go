@@ -35,20 +35,34 @@ const (
 	// Le coût de scrypt des tests : le défaut d'age demande un quart de gigaoctet.
 	testWorkFactor = 10
 	rights         = "backup.receive=/srv/backups"
+	// L'agent de la destination connaît le préfixe de backup.prune
+	// (agentwire.PrefixSinceVersion).
+	currentAgentVersion = "v0.2.0"
 )
 
 var benchNow = time.Date(2026, 10, 21, 3, 20, 0, 0, time.UTC)
 
-// commander tient lieu du flux de l'agent : il garde les ordres signés.
+// commander tient lieu du flux de l'agent : il garde les ordres signés. onOrder
+// joue l'agent, quand un test en veut un : il voit l'ordre au moment où il
+// part, avec la machine qui le reçoit, et le termine par Record.
 type commander struct {
 	refuse error
-	orders []agentwire.OrderBody
-	kinds  []agentwire.Kind
+	// refuseOnce refuse le prochain ordre seulement : le flux est tombé le
+	// temps d'un envoi.
+	refuseOnce error
+	orders     []agentwire.OrderBody
+	kinds      []agentwire.Kind
+	onOrder    func(machineID string, order agentwire.OrderBody)
 }
 
-func (c *commander) Command(_ string, command agentwire.Command) error {
+func (c *commander) Command(machineID string, command agentwire.Command) error {
 	if c.refuse != nil {
 		return c.refuse
+	}
+	if c.refuseOnce != nil {
+		err := c.refuseOnce
+		c.refuseOnce = nil
+		return err
 	}
 	var body agentwire.OrderBody
 	if err := json.Unmarshal(command.Order.Body, &body); err != nil {
@@ -56,6 +70,9 @@ func (c *commander) Command(_ string, command agentwire.Command) error {
 	}
 	c.orders = append(c.orders, body)
 	c.kinds = append(c.kinds, command.Kind)
+	if c.onOrder != nil {
+		c.onOrder(machineID, body)
+	}
 	return nil
 }
 
@@ -85,7 +102,7 @@ func newBench(t *testing.T, reportedRights string) *bench {
 	b.machines.SetClock(clock)
 	enrolled := storetest.EnrollMachine(t, b.machines, machineID, "store-1")
 	var err error
-	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", "v0.0.1", reportedRights, "", "")
+	b.session, err = b.machines.Connect(context.Background(), enrolled, "192.0.2.1", currentAgentVersion, reportedRights, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,5 @@
 import type { BackupPlan, BackupSourceKind, Backups, PlanRequest } from "../api/backups";
+import type { ProxmoxGuest } from "../api/proxmox";
 import type { Translate } from "../i18n/context";
 
 // La longueur minimale d'une phrase, en caractères (le serveur compte des
@@ -53,6 +54,63 @@ export function sourceLabel(t: Translate, plan: BackupPlan): string {
   }
   const selector = plan.selector === "all" ? t("backup.selector_all") : t("backup.selector_some", plan.selector);
   return t("backup.source_agent", plan.source_machine_name, t(`backup.producer_${plan.producer}`), selector);
+}
+
+// Les clés que last_error compose pour un souci de cible : la clé, le numéro,
+// puis la raison (qui peut porter un « : », comme right_missing:backup.produce).
+const targetProblemKeys = ["backup.target_failed", "backup.prune_failed"] as const;
+
+// La phrase de last_error. Une clé de refus se traduit telle quelle ; un souci
+// de cible dit quelle machine virtuelle, et pourquoi : la raison est une de
+// celles que les ordres connaissent (describeReason), sinon « non rapportée ».
+export function lastErrorText(t: Translate, lastError: string, describeReason: (reason: string) => string): string {
+  for (const key of targetProblemKeys) {
+    if (!lastError.startsWith(`${key}:`)) {
+      continue;
+    }
+    const [target = "", ...reason] = lastError.slice(key.length + 1).split(":");
+    const code = reason.join(":");
+    return t(key, target, code === "" || code === "unknown" ? t("backup.target_reason_unknown") : describeReason(code));
+  }
+  return t(lastError);
+}
+
+// Le dernier passage d'un plan agent en deux compteurs ; null quand il n'y en
+// a pas à dire (la base, ou un plan qui n'a pas passé depuis le démarrage).
+export function passSummary(t: Translate, plan: Pick<BackupPlan, "last_targets_ok" | "last_targets_failed">): string | null {
+  if (plan.last_targets_ok + plan.last_targets_failed === 0) {
+    return null;
+  }
+  return `${t("backup.targets_ok", plan.last_targets_ok)} · ${t("backup.targets_failed", plan.last_targets_failed)}`;
+}
+
+// Les invités qu'un plan peut prendre : ni modèle (vzdump n'en sauvegarde
+// pas), dans l'ordre des numéros.
+export function selectableGuests(guests: readonly ProxmoxGuest[]): ProxmoxGuest[] {
+  return guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
+}
+
+// Les numéros d'un sélecteur « 5010,5012 » ; « all » n'en nomme aucun.
+export function selectorIds(selector: string): number[] {
+  if (selector === "all") {
+    return [];
+  }
+  return selector
+    .split(",")
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0);
+}
+
+// Coche ou décoche un numéro : le sélecteur reste trié, sans doublon. Sans
+// aucun numéro, il est vide (la page demande d'en cocher un).
+export function toggleSelectorId(selector: string, vmid: number, checked: boolean): string {
+  const ids = new Set(selectorIds(selector));
+  if (checked) {
+    ids.add(vmid);
+  } else {
+    ids.delete(vmid);
+  }
+  return [...ids].sort((a, b) => a - b).join(",");
 }
 
 // Ce que le formulaire d'un plan tient : tout en texte, comme les champs.

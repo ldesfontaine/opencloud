@@ -75,6 +75,50 @@ func (u *Upload) Files() []agentwire.ParcelFile {
 	return listed
 }
 
+// Stage dépose dans le colis un fichier que le serveur écrit lui-même, avant
+// que la productrice téléverse : la clé scellée qui voyage avec la sauvegarde.
+// Le fichier part avec les autres dans l'ordre receive.
+func (u *Upload) Stage(name string, content []byte) error {
+	if !parcelNamePattern.MatchString(name) {
+		return fmt.Errorf("%q: %w", name, ErrParcelName)
+	}
+	filePath := path.Join(u.dir, name)
+	file, err := u.outbox.root.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, parcelFileMode)
+	if err != nil {
+		return fmt.Errorf("create staged file: %w", err)
+	}
+	_, writeErr := file.Write(content)
+	syncErr := file.Sync()
+	if err := errors.Join(writeErr, syncErr, file.Close()); err != nil {
+		_ = u.outbox.root.Remove(filePath)
+		return fmt.Errorf("write staged file: %w", err)
+	}
+	sum := sha256.Sum256(content)
+	u.outbox.mu.Lock()
+	defer u.outbox.mu.Unlock()
+	sealed, found := u.outbox.parcels[u.id]
+	if !found {
+		return ErrParcelNotFound
+	}
+	sealed.files[name] = parcelEntry{path: filePath, size: int64(len(content)), sum: hex.EncodeToString(sum[:])}
+	return nil
+}
+
+// Handover remet le colis à la machine de destination et rend ses fichiers :
+// la productrice n'y écrit plus, et la destination a toute la vie d'un colis
+// pour le télécharger, comptée d'ici et non de la création (produire peut
+// durer presque une heure).
+func (u *Upload) Handover() []agentwire.ParcelFile {
+	u.outbox.mu.Lock()
+	sealed, found := u.outbox.parcels[u.id]
+	if found {
+		sealed.uploader = ""
+		sealed.expiresAt = u.outbox.now().Add(ParcelLifetime)
+	}
+	u.outbox.mu.Unlock()
+	return u.Files()
+}
+
 // Discard jette le colis et ses fichiers.
 func (u *Upload) Discard() {
 	u.outbox.mu.Lock()
