@@ -39,16 +39,24 @@ func (s *Service) RunNow(ctx context.Context, subject string) (action.Run, error
 	if !s.running.TryLock() {
 		return action.Run{}, ErrRunInProgress
 	}
+	// Le verrou est rendu ici sur tous les chemins, panique comprise (le
+	// serveur la rattrape et continue) ; sauf quand un passage est parti, qui
+	// le garde jusqu'à sa fin.
+	handedToPass := false
+	defer func() {
+		if !handedToPass {
+			s.running.Unlock()
+		}
+	}()
 	plan, err := s.readPlan(ctx, subject)
 	if err != nil {
-		s.running.Unlock()
 		return action.Run{}, err
 	}
 	if plan.SourceKind == SourceAgent {
-		// Le passage garde le verrou jusqu'à sa fin, ou le rend s'il ne part pas.
-		return s.startAgentPass(ctx, plan)
+		first, err := s.startAgentPass(ctx, plan)
+		handedToPass = err == nil
+		return first, err
 	}
-	defer s.running.Unlock()
 	return s.runDatabase(ctx, plan)
 }
 

@@ -77,19 +77,17 @@ type passOutcome struct {
 
 // startAgentPass prépare un plan machine lancé à la main, envoie l'ordre de sa
 // première cible et rend cet ordre ; le reste du passage se mène en
-// arrière-plan. Le verrou des passages est tenu à l'entrée : il est rendu ici
-// si rien ne part, sinon à la fin du passage.
+// arrière-plan. Le verrou des passages est tenu à l'entrée : RunNow le rend si
+// rien ne part (une erreur), sinon le passage le rend à sa fin.
 func (s *Service) startAgentPass(ctx context.Context, plan Plan) (action.Run, error) {
 	at := s.now()
 	pass, err := s.prepareAgentPass(ctx, plan, at)
 	if err != nil {
-		s.running.Unlock()
 		s.noteFailure(ctx, plan.Subject, at, err)
 		return action.Run{}, err
 	}
 	first, err := pass.begin(ctx, pass.targets[0])
 	if err != nil {
-		s.running.Unlock()
 		s.noteFailure(ctx, plan.Subject, at, err)
 		return action.Run{}, err
 	}
@@ -263,18 +261,23 @@ func sendFailure(err error, capability string) error {
 }
 
 // started note le début du passage : sa tentative (qui date la nuit), l'ordre
-// en cours, et l'audit du lancement.
+// en cours, et l'audit du lancement. first est nil quand l'ordre de la
+// première cible n'a pas pu partir (la nuit) : le passage commence quand même.
 func (p *agentPass) started(ctx context.Context, first *targetRun) {
 	s := p.service
-	if err := s.store.NoteBackupAttempt(ctx, p.plan.Subject, p.at, "", first.produce.ID); err != nil {
+	runID := ""
+	if first != nil {
+		runID = first.produce.ID
+	}
+	if err := s.store.NoteBackupAttempt(ctx, p.plan.Subject, p.at, "", runID); err != nil {
 		s.logger.Error("note backup attempt", "subject", p.plan.Subject, "error", err)
 	}
 	s.passes.set(p.plan.Subject, 0, 0)
-	s.logger.Info("backup pass started", "plan_id", p.plan.ID, "subject", p.plan.Subject, "run_id", first.produce.ID,
+	s.logger.Info("backup pass started", "plan_id", p.plan.ID, "subject", p.plan.Subject, "run_id", runID,
 		"destination_id", p.plan.DestinationID, "targets", len(p.targets))
 	s.auditor.Record(ctx, audit.Event{
 		Action: audit.BackupPlanRun, ObjectID: p.plan.ID, ObjectName: p.plan.Subject,
-		Details: audit.Details{"run_id": first.produce.ID, "destination_id": p.plan.DestinationID, "targets": strconv.Itoa(len(p.targets))},
+		Details: audit.Details{"run_id": runID, "destination_id": p.plan.DestinationID, "targets": strconv.Itoa(len(p.targets))},
 	})
 	s.changed()
 }
@@ -289,12 +292,14 @@ func (p *agentPass) walk(ctx context.Context, first *targetRun) action.Run {
 		if index > 0 || current == nil {
 			var err error
 			current, err = p.begin(ctx, target)
+			if index == 0 {
+				// La nuit : le passage commence, et s'audite, même si sa
+				// première cible ne part pas.
+				p.started(ctx, current)
+			}
 			if err != nil {
 				p.settle(ctx, &outcome, target, action.Run{}, err, nil)
 				continue
-			}
-			if index == 0 {
-				p.started(ctx, current)
 			}
 		}
 		received, err := p.finish(ctx, current)
@@ -328,8 +333,9 @@ func (p *agentPass) finish(ctx context.Context, current *targetRun) (action.Run,
 		return action.Run{}, &targetFailure{reason: runReason(produced)}
 	}
 	files := current.upload.Handover()
-	if !hasArchive(files, current.prefix) {
-		// L'agent a dit avoir envoyé, le colis n'a rien de sa cible.
+	if !holdsOnlyTheTarget(files, current.prefix, agentwire.BackupKeyFileName(p.keyring.Fingerprint)) {
+		// L'agent a dit avoir envoyé, le colis n'a pas l'archive de sa cible,
+		// ou autre chose avec : rien ne part à la destination.
 		return action.Run{}, &targetFailure{reason: agentwire.ReasonUploadFailed}
 	}
 	received, err := s.sendReceive(ctx, p.destination, current.upload.ID(), files)
@@ -349,12 +355,25 @@ func (p *agentPass) finish(ctx context.Context, current *targetRun) (action.Run,
 	return finished, nil
 }
 
-// hasArchive dit si le colis porte l'archive de ce préfixe (la clé scellée,
-// qui y est toujours, ne compte pas).
-func hasArchive(files []agentwire.ParcelFile, prefix string) bool {
-	return slices.ContainsFunc(files, func(file agentwire.ParcelFile) bool {
-		return agentwire.IsBackupFileOf(file.Name, prefix)
-	})
+// holdsOnlyTheTarget dit si le colis porte exactement ce que la cible livre :
+// une archive de son préfixe, et la clé scellée que le serveur y a déposée.
+// La source téléverse les noms qu'elle veut : un agent compromis glisserait
+// « opencloud-2099… » ou l'archive d'une autre machine virtuelle, que la
+// destination écrirait, et l'élagage de ces préfixes chasserait alors les
+// vraies sauvegardes. Un colis qui porte autre chose ne part pas.
+func holdsOnlyTheTarget(files []agentwire.ParcelFile, prefix, keyName string) bool {
+	archives, keys := 0, 0
+	for _, file := range files {
+		switch {
+		case file.Name == keyName:
+			keys++
+		case agentwire.IsBackupFileOf(file.Name, prefix):
+			archives++
+		default:
+			return false
+		}
+	}
+	return archives == 1 && keys == 1
 }
 
 // prune élague les sauvegardes de la cible sur la destination, et attend : un

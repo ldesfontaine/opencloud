@@ -46,7 +46,9 @@ export function PlanCard({ plan, overview, onEdit }: { plan: BackupPlan; overvie
         <KeyValue label={t("backup.plan_source")} value={sourceLabel(t, plan)} />
         <KeyValue label={t("backup.plan_destination_label")} value={destination === undefined ? "" : `${destination.name} · ${destination.machine_name}`} />
         <KeyValue label={t("backup.plan_keep_label")} value={plan.keep} />
-        <KeyValue label={t("backup.last_attempt")} value={run === null ? t("backup.last_none") : formatWhen(run.requested_at, now)} />
+        {/* La tentative, pas l'ordre : un passage dont aucune cible n'est arrivée
+            n'a pas d'ordre de réception, mais il a eu lieu. */}
+        <KeyValue label={t("backup.last_attempt")} value={plan.last_attempt_at === null ? t("backup.last_none") : formatWhen(plan.last_attempt_at, now)} />
         {pass !== null && <KeyValue label={t("backup.last_pass")} value={pass} />}
         {run !== null && (
           <div>

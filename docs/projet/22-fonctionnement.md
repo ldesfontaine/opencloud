@@ -953,7 +953,10 @@ ordre ni colis ; sa clé s'écrit dans `last_error`.
 3. l'archive est là : `serve` **remet** le colis (`Upload.Handover` : la source
    n'y écrit plus, et la destination a toute la durée d'un colis pour le
    télécharger, comptée d'ici et non de sa création), refuse la cible
-   `upload_failed` si l'agent a dit réussir sans archive, puis envoie
+   `upload_failed` si le colis ne porte pas **exactement** une archive du
+   préfixe de la cible et la clé scellée (une source compromise qui glisserait
+   `opencloud-2099…` ou l'archive d'une autre machine virtuelle ferait chasser
+   les vraies sauvegardes par l'élagage : rien ne part), puis envoie
    `backup.receive` à la destination avec la liste des fichiers (archive et
    clé) et **attend** ;
 4. `serve` **jette le colis**, puis envoie `backup.prune{Path, Prefix, Keep}`
@@ -967,8 +970,8 @@ Les ordres d'un passage sont ceux de tout ordre : signés, deux minutes pour
 
 *Ce que `serve` voit.* Des noms, des tailles, des sommes, des octets chiffrés :
 **jamais le clair** d'une machine virtuelle, ni de son archive ni de sa
-sortie ; la clé publique chiffre sur la machine source, et la privée n'est
-jamais sur `serve` ni sur la source. Un agent compromis n'apporte au serveur
+sortie ; la clé publique chiffre sur la machine source, la privée n'est sur
+`serve` que scellée par la phrase, et jamais sur la source. Un agent compromis n'apporte au serveur
 que du chiffré. À côté de chaque archive, sur la destination, la clé privée
 scellée : `<sujet>-vm-<numéro>-AAAAMMJJ-HHMMSS.tar.age` et
 `opencloud-key-<empreinte>.age`.
@@ -1005,9 +1008,10 @@ rien noter, le colis en cours est jeté, et les cibles restantes attendent la
 nuit suivante.
 
 *La restauration* d'une machine virtuelle se fait **sans openCloud** : on
-déchiffre la clé scellée (`age -d opencloud-key-<empreinte>.age`, la phrase est
-demandée), on s'en sert pour l'archive (`age -d -i <clé> <préfixe>-….tar.age |
-tar x`), qui rend une seule entrée, l'archive de `vzdump` ; puis
+déchiffre la clé scellée (`age -d -o cle.txt opencloud-key-<empreinte>.age`, la
+phrase est demandée), on s'en sert pour l'archive (`age -d -i cle.txt
+<préfixe>-….tar.age | tar -x`), qui rend une seule entrée, l'archive de
+`vzdump` ; puis
 `qmrestore vzdump-qemu-<numéro>-….vma.zst <numéro>` pour une machine
 virtuelle, ou `pct restore <numéro> vzdump-lxc-<numéro>-….tar.zst` pour un
 conteneur.

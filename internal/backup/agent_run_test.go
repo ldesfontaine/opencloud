@@ -116,6 +116,7 @@ type agents struct {
 	failProduce   map[string]string // cible -> raison, état failed
 	refuseProduce map[string]string // cible -> raison, état refused
 	noArchive     map[string]bool   // cible -> l'agent dit réussir sans rien envoyer
+	extraUpload   map[string]string // cible -> un nom de plus que l'agent téléverse
 	stuck         map[string]bool   // cible -> l'ordre est accepté et ne finit pas
 	refuseReceive map[string]string // cible -> raison, état refused
 	failPrune     map[string]string // préfixe -> raison, état failed
@@ -135,7 +136,7 @@ func playAgents(t *testing.T, b *bench) *agents {
 	a := &agents{
 		t: t, b: b,
 		delivered: map[string]map[string][]byte{}, parcels: map[string]string{}, pending: map[string]pendingProduce{},
-		failProduce: map[string]string{}, refuseProduce: map[string]string{}, noArchive: map[string]bool{},
+		failProduce: map[string]string{}, refuseProduce: map[string]string{}, noArchive: map[string]bool{}, extraUpload: map[string]string{},
 		stuck: map[string]bool{}, refuseReceive: map[string]string{}, failPrune: map[string]string{},
 	}
 	b.commands.onOrder = a.play
@@ -207,12 +208,15 @@ func (a *agents) produce(machineID string, order agentwire.OrderBody) {
 func (a *agents) complete(machineID, runID string, params agentwire.BackupProduceParams) {
 	a.t.Helper()
 	if !a.noArchive[params.Target] {
-		a.upload(machineID, params)
+		a.upload(machineID, params, agentwire.BackupFileName(params.Prefix, benchNow))
+	}
+	if extra := a.extraUpload[params.Target]; extra != "" {
+		a.upload(machineID, params, extra)
 	}
 	a.finish(machineID, runID, agentwire.ActionSucceeded, "")
 }
 
-func (a *agents) upload(machineID string, params agentwire.BackupProduceParams) {
+func (a *agents) upload(machineID string, params agentwire.BackupProduceParams, name string) {
 	a.t.Helper()
 	recipient, err := age.ParseX25519Recipient(params.Recipient)
 	if err != nil {
@@ -232,7 +236,6 @@ func (a *agents) upload(machineID string, params agentwire.BackupProduceParams) 
 		a.t.Errorf("close: %v", err)
 	}
 	sum := sha256.Sum256(sealed.Bytes())
-	name := agentwire.BackupFileName(params.Prefix, benchNow)
 	if err := a.b.outbox.Receive(machineID, params.Parcel, name, bytes.NewReader(sealed.Bytes()), int64(sealed.Len()), hex.EncodeToString(sum[:])); err != nil {
 		a.t.Errorf("upload %s: %v", name, err)
 	}
@@ -451,14 +454,16 @@ func TestRunNow_AFailingTargetDoesNotStopTheNextOnes(t *testing.T) {
 	b.readyAgent("100,101,102", 3)
 	fleet := playAgents(t, b)
 	fleet.failProduce["100"] = agentwire.ReasonProducerFailed
-	fleet.refuseReceive["102"] = agentwire.ReasonDiskFull
+	// Produite et téléversée, mais refusée par la destination : la cible est en
+	// échec, son colis est jeté, rien n'est élagué, et la suivante part.
+	fleet.refuseReceive["101"] = agentwire.ReasonDiskFull
 
 	if _, err := b.backups.RunNow(operator(), "pve"); err != nil {
 		t.Fatal(err)
 	}
 	b.backups.Settle()
 
-	want := "produce 100, produce 101, receive 101, prune pve-vm-101, produce 102, receive 102"
+	want := "produce 100, produce 101, receive 101, produce 102, receive 102, prune pve-vm-102"
 	if got := fleet.summary(); got != want {
 		t.Fatalf("steps\n got %s\nwant %s", got, want)
 	}
@@ -531,6 +536,34 @@ func TestRunNow_AProducerThatUploadedNothingFailsTheTarget(t *testing.T) {
 	b.backups.Settle()
 	if got := fleet.summary(); got != "produce 100" {
 		t.Fatalf("steps %s", got)
+	}
+	if plan := b.plan("pve"); plan.LastError != "backup.target_failed:100:upload_failed" {
+		t.Fatalf("last error %q", plan.LastError)
+	}
+	b.requireNoParcel()
+}
+
+// Une source compromise téléverse, à côté de son archive, un nom qui n'est
+// pas celui de sa cible : une fausse sauvegarde de la base datée de 2099, ou
+// l'archive d'une autre machine virtuelle. La destination l'écrirait, et
+// l'élagage de ce préfixe chasserait les vraies sauvegardes : rien ne part,
+// la cible est en échec, la suivante est jugée à son tour.
+func TestRunNow_AParcelWithAnotherNameIsNotDelivered(t *testing.T) {
+	b := newBench(t, rights)
+	b.readyAgent("100,101", 3)
+	fleet := playAgents(t, b)
+	fleet.extraUpload["100"] = "opencloud-20991231-235959.tar.age"
+	fleet.extraUpload["101"] = agentwire.BackupFileName("pve-vm-102", benchNow)
+
+	if _, err := b.backups.RunNow(operator(), "pve"); err != nil {
+		t.Fatal(err)
+	}
+	b.backups.Settle()
+	if got := fleet.summary(); got != "produce 100, produce 101" {
+		t.Fatalf("steps %s", got)
+	}
+	if len(fleet.delivered) != 0 || len(fleet.prunes) != 0 {
+		t.Fatalf("delivered %v, prunes %v", fleet.delivered, fleet.prunes)
 	}
 	if plan := b.plan("pve"); plan.LastError != "backup.target_failed:100:upload_failed" {
 		t.Fatalf("last error %q", plan.LastError)
@@ -627,6 +660,10 @@ func TestRunNow_RefusesBeforeAnyOrderWhenTheTwoMachinesAreNotReady(t *testing.T)
 			b.connectSource(sourceRights)
 			b.reconnectDestination("v0.1.9", rights)
 		}, backup.ErrDestinationAgentOutdated},
+		{"a destination agent of the version deployed before the prefix", func(t *testing.T, b *bench) {
+			b.connectSource(sourceRights)
+			b.reconnectDestination("v0.1.0", rights)
+		}, backup.ErrDestinationAgentOutdated},
 		{"a destination agent in development", func(t *testing.T, b *bench) {
 			b.connectSource(sourceRights)
 			b.reconnectDestination("dev", rights)
@@ -686,9 +723,11 @@ func TestRunNow_AnAgentPlanNeedsTheKeyring(t *testing.T) {
 func TestRunNow_TheDatabasePlanStillGoesToAnOlderAgent(t *testing.T) {
 	b := newBench(t, rights)
 	b.ready()
-	b.reconnectDestination("v0.0.1", rights)
-	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); err != nil {
-		t.Fatalf("database to an older agent: %v", err)
+	for _, version := range []string{"v0.0.1", "v0.1.0", "dev"} {
+		b.reconnectDestination(version, rights)
+		if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); err != nil {
+			t.Fatalf("database to an agent %s: %v", version, err)
+		}
 	}
 }
 
@@ -697,7 +736,7 @@ func TestRunNow_TheDatabasePlanStillGoesToAnOlderAgent(t *testing.T) {
 func TestCheckDestinationVersion(t *testing.T) {
 	for version, ok := range map[string]bool{
 		"v0.2.0": true, "v0.2.1": true, "v0.10.0": true, "v1.0.0": true,
-		"v0.1.9": false, "v0.0.1": false, "dev": false, "": false, "0.2": false,
+		"v0.1.9": false, "v0.1.0": false, "v0.0.1": false, "dev": false, "": false, "0.2": false,
 	} {
 		err := backup.CheckDestinationVersion(version)
 		if ok && err != nil || !ok && !errors.Is(err, backup.ErrDestinationAgentOutdated) {
@@ -800,6 +839,33 @@ func TestRunNow_RefusesASecondPassWhileOneRuns(t *testing.T) {
 	}
 }
 
+// panickingGuests fait paniquer la préparation d'un passage.
+type panickingGuests struct{}
+
+func (panickingGuests) ListProxmoxGuestIDs(context.Context, string) ([]int, error) {
+	panic("relevé illisible")
+}
+
+// Une panique pendant la préparation remonte au serveur, qui la rattrape et
+// continue : le verrou des passages doit être rendu, sinon plus aucune
+// sauvegarde ne part avant un redémarrage.
+func TestRunNow_APanicBeforeThePassReleasesTheLock(t *testing.T) {
+	b := newBench(t, rights)
+	b.readyAgent(backup.SelectorAll, 3)
+	b.backups.SetGuests(panickingGuests{})
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the panic did not reach the caller")
+			}
+		}()
+		_, _ = b.backups.RunNow(operator(), "pve")
+	}()
+	if _, err := b.backups.RunNow(operator(), backup.SubjectDatabase); err != nil {
+		t.Fatalf("after a panic: %v", err)
+	}
+}
+
 // Le serveur qui s'arrête ne note pas d'échec : le colis en cours est jeté, le
 // plan garde ce qu'il avait.
 func TestRunNow_AServerShutdownInterruptsThePassWithoutNotingAFailure(t *testing.T) {
@@ -853,6 +919,37 @@ func TestRunIfDue_RunsAnAgentPlanToTheEnd(t *testing.T) {
 	b.backups.RunIfDue(context.Background())
 	if got := len(fleet.steps); got != 6 {
 		t.Fatalf("a second pass the same night: %d steps", got)
+	}
+}
+
+// La nuit, un passage dont la première cible ne part pas (le flux de la source
+// tombe le temps de l'envoi) commence quand même : il s'audite, la cible est
+// notée en échec, et la suivante part.
+func TestRunIfDue_AuditsAPassWhoseFirstTargetCannotLeave(t *testing.T) {
+	b := newBench(t, rights)
+	b.readyAgent("100,101", 3)
+	if err := b.backups.DeletePlan(operator(), backup.SubjectDatabase); err != nil {
+		t.Fatal(err)
+	}
+	fleet := playAgents(t, b)
+	b.commands.refuseOnce = errors.New("stream closed")
+
+	b.backups.RunIfDue(context.Background())
+	if got := fleet.summary(); got != "produce 101, receive 101, prune pve-vm-101" {
+		t.Fatalf("steps %s", got)
+	}
+	if plan := b.plan("pve"); plan.LastError != "backup.target_failed:100:undelivered" || !plan.LastAttemptAt.Equal(benchNow) {
+		t.Fatalf("plan %+v", plan)
+	}
+	events, _ := b.db.ListAuditEvents(context.Background(), audit.Query{Limit: 20, ObjectKind: audit.ObjectBackupPlan})
+	started := 0
+	for _, event := range events {
+		if event.Action == audit.BackupPlanRun && event.ObjectName == "pve" {
+			started++
+		}
+	}
+	if started != 1 {
+		t.Fatalf("%d pass starts audited", started)
 	}
 }
 

@@ -46,15 +46,23 @@ var benchNow = time.Date(2026, 10, 21, 3, 20, 0, 0, time.UTC)
 // joue l'agent, quand un test en veut un : il voit l'ordre au moment où il
 // part, avec la machine qui le reçoit, et le termine par Record.
 type commander struct {
-	refuse  error
-	orders  []agentwire.OrderBody
-	kinds   []agentwire.Kind
-	onOrder func(machineID string, order agentwire.OrderBody)
+	refuse error
+	// refuseOnce refuse le prochain ordre seulement : le flux est tombé le
+	// temps d'un envoi.
+	refuseOnce error
+	orders     []agentwire.OrderBody
+	kinds      []agentwire.Kind
+	onOrder    func(machineID string, order agentwire.OrderBody)
 }
 
 func (c *commander) Command(machineID string, command agentwire.Command) error {
 	if c.refuse != nil {
 		return c.refuse
+	}
+	if c.refuseOnce != nil {
+		err := c.refuseOnce
+		c.refuseOnce = nil
+		return err
 	}
 	var body agentwire.OrderBody
 	if err := json.Unmarshal(command.Order.Body, &body); err != nil {
