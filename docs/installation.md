@@ -40,8 +40,9 @@ le tenir à jour, le sauvegarder. Ce que fait chaque pièce, et pourquoi :
 11. [Déclarer un hôte Proxmox](#déclarer-un-hôte-proxmox)
 12. [Mettre à jour](#mettre-à-jour) (dont [passer un agent en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte))
 13. [Sauvegarder et restaurer](#sauvegarder-et-restaurer)
-14. [Désinstaller](#désinstaller)
-15. [Dépannage](#dépannage)
+14. [Sauvegarder des VM Proxmox](#sauvegarder-des-vm-proxmox) (dont [restaurer une VM sans openCloud](#une-vm-proxmox-sans-opencloud))
+15. [Désinstaller](#désinstaller)
+16. [Dépannage](#dépannage)
 
 Les fichiers d'exemple sont dans [`docs/installation/`](installation/) :
 
@@ -157,6 +158,9 @@ Les sous-commandes :
 | `opencloud secrets finish-server-key [-force] -config <chemin>` | Retire la clé précédente une fois chaque agent passé à la neuve |
 | `opencloud export [-config <chemin>] [-o <fichier>] [-propose]` | Écrit l'annuaire en YAML (sortie standard, ou le fichier en 0600), avec `-propose` y ajoute ce que les conteneurs non déclarés laissent deviner, voir [Exporter l'annuaire](#exporter-lannuaire) |
 | `opencloud apply [-config <chemin>] [-prune] [-yes] [-dry-run] <fichier>` | Applique un fichier YAML à l'annuaire, après avoir montré le plan et demandé confirmation, voir [Appliquer un fichier](#appliquer-un-fichier) |
+| `opencloud release verify <fichier>` | Vérifie qu'un fichier appartient à une version signée, voir [Télécharger](#télécharger) |
+| `opencloud release import <dossier> [-config <chemin>]` | Range une version vérifiée dans la bibliothèque du serveur, pour mettre à jour les agents depuis la fiche, voir [Mettre à jour les agents depuis openCloud](#mettre-à-jour-les-agents-depuis-opencloud) |
+| `opencloud backup restore -key <clé.age> -state <dossier> <sauvegarde.tar.age>` | Restaure une sauvegarde chiffrée **de la base**, hors ligne, voir [Restaurer une sauvegarde chiffrée](#restaurer-une-sauvegarde-chiffrée). Une VM Proxmox se restaure sans cette commande, voir [Restaurer une VM sans openCloud](#une-vm-proxmox-sans-opencloud) |
 | `opencloud version` | La version et le commit |
 
 ## Installer le serveur
@@ -415,7 +419,43 @@ heures. Traefik les laisse passer par défaut. **N'ajoutez pas** de
 middleware `buffering` sur ce routeur ; `compress`, s'il est là, ne doit
 pas toucher `text/event-stream`. Les délais de Traefik (`readTimeout`,
 `idleTimeout`) ne coupent pas un flux : c'est la réponse qui dure, pas la
-requête.
+requête. Le `readTimeout` coupe en revanche un **envoi** long, voir ci-dessous.
+
+### Les envois d'archives
+
+Un hôte Proxmox qui produit ses sauvegardes ([Sauvegarder des VM
+Proxmox](#sauvegarder-des-vm-proxmox)) envoie chaque archive chiffrée à
+openCloud par **une seule requête** `PUT /agent/parcels/<colis>/<nom>`, dont le
+corps est l'archive entière : elle dure le temps de l'envoi, des minutes pour
+une petite VM, bien plus pour une grosse. Sur l'entrée de Traefik qui sert
+openCloud, `respondingTimeouts.readTimeout` vaut **60 s** par défaut en v3 : une
+requête dont le corps n'est pas arrivé en entier à ce moment est coupée. Sans
+réglage, l'envoi échoue, l'agent le recommence deux fois, puis l'ordre
+`backup.produce` finit **`upload_failed`** (la ligne `upload:` de ses lignes
+de sortie dit ce que l'agent a vu).
+
+Ce délai est un réglage de l'**entrée**, donc de la configuration **statique**
+de Traefik : il ne se pose pas dans
+[`traefik-opencloud.yml`](installation/traefik-opencloud.yml) (configuration
+dynamique), qui le rappelle en commentaire. Dans le fichier statique :
+
+```yaml
+entryPoints:
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 1h
+```
+
+ou, en ligne de commande (c'est l'[extrait Compose](installation/compose.traefik.yml)) :
+`--entrypoints.websecure.transport.respondingTimeouts.readTimeout=1h`. Une
+heure suffit : l'agent abandonne une production qui dépasse 55 minutes, envoi
+compris. Le réglage vaut pour toute l'entrée, donc pour les autres services
+qu'elle sert ; openCloud, lui, n'a pas de délai de lecture et borne un envoi à
+la durée d'un colis. **Ce réglage n'a pas été rejoué ici** (le banc de ce guide
+n'a pas lancé de production de VM) : vérifiez qu'une première sauvegarde passe
+avant de compter dessus.
 
 ### Une authentification Basic au niveau de Traefik
 
@@ -1288,9 +1328,12 @@ argument : `-token` est refusé, il serait visible de tous les comptes via `ps`.
 
 Facultatif. Si une machine de l'infra porte un hyperviseur Proxmox VE,
 openCloud peut en **lire** les VM et conteneurs, les stockages et la dernière
-sauvegarde de chaque VM, avec un jeton d'API en lecture seule. Il n'écrit rien
-dans Proxmox : ni démarrage, ni arrêt, ni sauvegarde lancée. Ce qui est lu et à
-quel rythme : [`22-fonctionnement.md`](projet/22-fonctionnement.md), « Comment
+sauvegarde de chaque VM, avec un jeton d'API en lecture seule. Cette lecture
+n'écrit rien dans Proxmox : ni démarrage, ni arrêt, ni sauvegarde lancée par
+l'API. Sauvegarder des VM est un autre geste, que fait l'agent de l'hôte avec
+`vzdump` et un droit à part ([Sauvegarder des VM
+Proxmox](#sauvegarder-des-vm-proxmox)) ; la lecture, elle, lui donne la liste
+des VM. Ce qui est lu et à quel rythme : [`22-fonctionnement.md`](projet/22-fonctionnement.md), « Comment
 un hôte Proxmox se lit ». La machine doit d'abord être ajoutée à openCloud
 ([Ajouter une machine](#ajouter-une-machine)) : l'hôte se déclare sur sa fiche.
 
@@ -1374,6 +1417,15 @@ restaurer](#sauvegarder-et-restaurer)) et ne ressort jamais, ni dans
 l'interface ni dans l'API ni dans les journaux : pour le changer, on redéclare
 l'hôte. **Retirer l'hôte** (sur l'onglet) l'efface avec ses relevés ; le jeton,
 lui, se révoque dans Proxmox (*Permissions › API Tokens*).
+
+**Ce que la lecture donne aux sauvegardes.** Avec un hôte déclaré et un premier
+relevé, le formulaire d'un plan de [Sauvegarder des VM
+Proxmox](#sauvegarder-des-vm-proxmox) propose les VM et les conteneurs à cocher
+(les modèles n'y sont pas), et le sélecteur `all` sauvegarde ceux que le dernier
+relevé connaît. Retirer l'hôte, ou ne pas encore l'avoir relevé, ramène à un
+sélecteur écrit à la main : un plan `all` est alors refusé au lancement
+(`backup.selector_needs_list`). Le droit de produire (`backup.produce`) et le
+jeton en lecture sont indépendants : l'un sans l'autre est permis.
 
 ## Mettre à jour
 
@@ -1485,6 +1537,16 @@ agent à jour contre un serveur plus ancien fonctionne, le serveur ignore ce
 qu'il ne connaît pas. À la mise à jour de l'agent, un conteneur étiqueté passe
 au niveau « label » au rapport suivant ; un label faux ou mal formé le rend
 « label orphelin », sans repli.
+
+**Les plans de VM demandent des agents à jour, des deux côtés.** L'agent de
+l'**hôte** doit connaître l'ordre `backup.produce` (un agent plus ancien le
+refuse, `unknown_kind` : « plus ancien que openCloud ») : mettez-le à jour comme
+les autres. L'agent de la **destination** doit être en **v0.2.0 ou plus** :
+avant, `backup.prune` ignore le préfixe du plan et n'élague que
+`opencloud-…`, donc un plan de VM y élaguerait les sauvegardes de la **base**
+avec son propre nombre à garder. Le serveur le refuse avant tout ordre
+(`backup.destination_agent_outdated`, qui vaut aussi pour une version qui ne se
+lit pas, comme `dev`) ; le plan de la base, lui, part vers n'importe quel agent.
 
 **L'ordre : le serveur d'abord, puis les agents.** Ce que le code garantit :
 
@@ -1731,8 +1793,10 @@ garde aucune copie. Trois gestes, dans l'ordre :
    change par un ré-enrôlement). L'unité de l'agent doit autoriser ce dossier
    (`ReadWritePaths=`, étape 4 de [Ajouter une machine](#ajouter-une-machine)) ;
    sans cela l'ordre échoue avec `path_unwritable`.
-3. **Régler le plan** : la destination et le nombre de sauvegardes à garder
-   (14 par défaut). « Sauvegarder maintenant » en lance une tout de suite.
+3. **Ajouter un plan** de source « La base de openCloud » (son sujet est
+   `database`, il n'y en a qu'un) : la destination et le nombre de sauvegardes
+   à garder (14 par défaut). « Sauvegarder maintenant » en lance une tout de
+   suite.
 
 Sur la destination, chaque sauvegarde est un fichier
 `opencloud-AAAAMMJJ-HHMMSS.tar.age`, à côté de
@@ -1742,6 +1806,10 @@ l'état du dernier ordre ; il ne déchiffre rien, il n'a pas la clé. Les clés
 déposées ne sont jamais effacées par l'élagage. Remplacer la clé ne rend pas
 les anciennes sauvegardes illisibles : chacune a sa clé à côté d'elle, mais il
 faut garder l'ancienne phrase.
+
+La même page sauvegarde aussi les VM et les conteneurs d'un hôte Proxmox,
+par des plans qui ont une machine pour source : [Sauvegarder des VM
+Proxmox](#sauvegarder-des-vm-proxmox).
 
 Les méthodes ci-dessous (`sqlite3 .backup`, `tar`) restent comme secours, et
 pour ce que la sauvegarde intégrée ne couvre pas (la configuration, l'identité
@@ -2012,6 +2080,36 @@ shred -u cle.txt
 
 `cle.txt` est la clé privée en clair : ne la laissez pas traîner.
 
+#### Une VM Proxmox, sans openCloud
+
+Une VM sauvegardée par un [plan](#sauvegarder-des-vm-proxmox) se restaure sans
+openCloud, ni serveur ni base : il faut l'archive
+`pve-vm-5012-AAAAMMJJ-HHMMSS.tar.age` (le sujet du plan, `-vm-`, le numéro de
+la VM, la date en UTC), la clé `opencloud-key-<empreinte>.age` **de la même
+sauvegarde**, la phrase de passe, et un hôte Proxmox pour la dernière étape. La
+clé se descelle comme ci-dessus ; l'archive est un `tar` d'une seule entrée,
+l'archive de `vzdump` :
+
+```sh
+age -d -o cle.txt opencloud-key-0123456789abcdef.age                # demande la phrase
+age -d -i cle.txt pve-vm-5012-20261024-030000.tar.age | tar -x      # vzdump-qemu-5012-2026_10_24-03_00_00.vma.zst
+shred -u cle.txt
+```
+
+`tar -x` écrit dans le dossier courant un fichier de la taille de l'archive de
+la VM : placez-vous sur un disque qui a la place. Sur l'hôte Proxmox, un numéro libre
+et un stockage de destination (`local-zfs` est l'exemple) :
+
+```sh
+qmrestore vzdump-qemu-5012-2026_10_24-03_00_00.vma.zst 5012 --storage local-zfs   # une VM
+pct restore 5011 vzdump-lxc-5011-2026_10_24-03_00_00.tar.zst --storage local-zfs  # un conteneur
+```
+
+Le nom de l'entrée dit le type : `vzdump-qemu-…vma.zst` est une VM,
+`vzdump-lxc-…tar.zst` un conteneur. Proxmox refuse d'écraser une VM qui existe
+(`--force` l'y autorise : à ne pas faire sans l'avoir voulu) ; donnez un autre
+numéro pour restaurer à côté.
+
 ### Clé perdue
 
 Sans `secret.key`, le serveur refuse de démarrer : « `opencloud.db` contient
@@ -2089,6 +2187,137 @@ au démarrage), puis ré-enrôlez chaque machine.
 **La clé d'un agent** (dans son `identity.json`) tourne en le ré-enrôlant :
 Machines → la machine → **Ré-enrôler**. La machine garde son historique.
 
+## Sauvegarder des VM Proxmox
+
+Facultatif. Les VM et les conteneurs d'un hôte Proxmox VE se sauvegardent
+chaque nuit, ou à la demande, **par openCloud** : un plan de la page
+Sauvegardes dit quelle machine produit, quelles VM, et vers quelle
+destination. La restauration, elle, se fait [**sans
+openCloud**](#une-vm-proxmox-sans-opencloud).
+
+**Le principe.** Trois acteurs, une VM à la fois :
+
+| Qui | Ce qu'il fait |
+| --- | --- |
+| L'agent de l'hôte Proxmox | Lance `vzdump` pour **une** VM ou un conteneur, emballe l'archive dans un `tar`, la **chiffre** pour la clé publique de sauvegarde (`age`) et la téléverse à openCloud. L'archive en clair n'existe que sur l'hôte, dans `produce/`, et en part dès qu'elle est chiffrée |
+| `serve` (la machine openCloud) | Relaie : il ouvre un colis, envoie les ordres, reçoit les octets chiffrés et les remet à la destination, puis jette le colis. Il ne voit **jamais le clair** et n'en garde aucune copie |
+| L'agent de la destination | Écrit l'archive et la clé scellée, vérifie ce qu'il a écrit (taille, somme, en-tête `age`), puis élague les anciennes copies de **cette** VM |
+
+Une VM échoue sans arrêter les suivantes ; une seule archive vit à la fois sur
+la machine openCloud. Le détail de chaque ordre est dans
+[`22-fonctionnement.md`](projet/22-fonctionnement.md), « Comment une
+sauvegarde se fait ».
+
+**Avant de commencer.** Il faut la clé de sauvegarde et une destination, les
+deux premiers gestes de [Sauvegarder et restaurer](#sauvegarder-et-restaurer),
+et l'hôte Proxmox enrôlé comme machine, avec un agent à la version du
+serveur. [Déclarer l'hôte](#déclarer-un-hôte-proxmox) est facultatif, mais il
+donne au plan la liste des VM : sans lui, un plan `all` est refusé au
+lancement (`backup.selector_needs_list`) et il faut écrire les numéros.
+
+### 1. Le droit `backup.produce`, sur l'hôte
+
+Machines → l'hôte → Agent → **Changer les droits**, cochez « Produire des
+sauvegardes (vzdump Proxmox) » (le producteur est `proxmox-vzdump`, le seul),
+puis **Créer le jeton**. La page donne la préparation : les lignes du compte,
+puis les **six** lignes de `backup.produce`, citées une à une dans
+[`backup.produce` équivaut à root](#backupproduce-équivaut-à-root) (le dossier
+`produce/`, le script de root, la règle `sudoers`, le drop-in `produce.conf`).
+En root sur l'hôte : jouez la préparation, puis suivez
+[Ré-enrôler, retirer](#ré-enrôler-retirer) (arrêter le service, supprimer
+`identity.json`, coller la ligne, qui porte alors
+`backup.produce=proxmox-vzdump` dans `-rights`), et terminez par
+`systemctl restart opencloud-agent` : le drop-in ne se lit qu'au démarrage de
+l'unité.
+
+La fiche de la machine montre le droit sans la mention « Droits cochés mais
+pas exerçables par ce compte ». Si elle y est, sa raison (`sudo_missing`,
+`producer_missing`, `sudo_denied`) dit quoi rejouer : voir
+[Dépannage](#dépannage).
+
+**Ce que ça vaut en sécurité.** Ce droit **équivaut à root** sur l'hôte pour un
+agent compromis, comme le groupe `docker`, et il retire une protection à
+l'unité (`NoNewPrivileges=false`) : lisez [`backup.produce` équivaut à
+root](#backupproduce-équivaut-à-root) avant de cocher la case. Ne la
+cochez que sur l'hôte Proxmox.
+
+### 2. La destination
+
+Une machine dont l'agent a le droit « Recevoir des sauvegardes » dans un
+dossier (`backup.receive=/srv/backups`), l'unité autorisant ce dossier
+(`ReadWritePaths=`) : c'est le geste 2 de [Sauvegarder et
+restaurer](#sauvegarder-et-restaurer). La destination de la base peut aussi
+servir ici ; huit destinations au plus. Choisissez une machine **autre que
+l'hôte** : si l'hôte tombe, des sauvegardes rangées chez lui tombent avec lui.
+
+Son agent doit être en **v0.2.0 ou plus**, sans quoi le plan refuse de partir
+(`backup.destination_agent_outdated`, voir [Mettre à
+jour](#mettre-à-jour)).
+
+### 3. Le plan
+
+Administration → **Sauvegardes** → Plans → **Ajouter un plan** :
+
+| Champ | Valeur |
+| --- | --- |
+| Source | « Ce qu'une machine produit » |
+| Nom du plan | Le **sujet** du plan, par exemple `pve` : minuscules, chiffres et tirets, 40 au plus. Il préfixe les fichiers du plan sur la destination, et ne change plus une fois le plan créé. `database` et `opencloud` sont réservés ; un sujet ne finit pas par `-vm-` suivi de chiffres (`backup.plan_invalid`) |
+| Libellé | Facultatif : ce que la page affiche à la place du sujet |
+| Machine | L'hôte Proxmox |
+| Producteur | « Proxmox (vzdump) » |
+| Sélecteur | « Toutes les VM et tous les conteneurs » (`all`), ou « Seulement ceux que je coche » (`5010,5012`). La liste vient du dernier relevé de l'hôte déclaré, modèles exclus ; `all` se relit à **chaque passage**, une VM créée entre-temps part la nuit suivante. Sans hôte déclaré, le champ est un texte : les numéros séparés par des virgules, sans espace |
+| Destination | Celle du geste 2 |
+| Sauvegardes gardées | 14 par défaut, de 1 à 365, **par VM** |
+
+Deux plans de même source et de même destination sont refusés
+(`backup.plan_exists`) ; le même contenu vers une autre destination est
+permis, c'est une seconde copie. Le plan part chaque nuit après 3 h (heure du
+serveur), à la suite des autres.
+
+### 4. Lancer, et lire le résultat
+
+**Sauvegarder maintenant**, sur la carte du plan, lance un passage tout de
+suite : un seul à la fois sur la machine openCloud (`backup.run_in_progress`
+sinon). La carte suit l'avancement ; son « Dernier passage » dit « n OK » et
+« m en échec », et « Problème » donne le premier échec du passage (« La VM 5012
+n'a pas été sauvegardée : … » ; l'API le porte sous la forme fermée
+`backup.target_failed:5012:producer_failed`). **Ces deux comptes vivent en
+mémoire** : ils valent 0 et 0 après un redémarrage de `serve`.
+
+Pour le détail, lisez les ordres de chaque machine (fiche › Ordres) :
+
+| Où | Ordre | Ce qu'on y lit |
+| --- | --- | --- |
+| La fiche de l'**hôte** | « Produire une sauvegarde » (`backup.produce`) | `written pve-vm-5012-… <taille> sha256:…` puis `uploaded pve-vm-5012-…`. En échec, la fin de la sortie d'erreur de `vzdump` : **la carte du plan ne la montre jamais**, seulement une raison fermée |
+| La fiche de la **destination** | « Recevoir une sauvegarde » (`backup.receive`) | une ligne `written` par fichier : l'archive et la clé |
+| La fiche de la **destination** | « Élaguer les sauvegardes » (`backup.prune`) | `removed <nom>` pour chaque copie écartée, puis `kept <n>` |
+
+Sur la destination, pour la VM 5012 du plan `pve` (dates en UTC) :
+
+```sh
+ls -l /srv/backups
+# pve-vm-5012-20261024-030000.tar.age     l'archive, chiffrée
+# opencloud-key-0123456789abcdef.age      la clé privée, scellée par la phrase
+```
+
+L'élagage ne touche que `pve-vm-5012-AAAAMMJJ-HHMMSS.tar.age` : jamais une clé,
+jamais une autre VM, jamais la base. Un test de restauration, de temps en
+temps, sur un numéro libre, vaut mieux que de croire la page :
+[restaurer une VM](#une-vm-proxmox-sans-opencloud).
+
+### L'espace disque, le temps
+
+| Où | Combien |
+| --- | --- |
+| L'hôte, sous `/var/lib/opencloud-agent/produce/` (le disque de l'état de l'agent, pas un stockage Proxmox : `vzdump` écrit sur sa sortie standard) | **Deux fois** la plus grosse VM, une fois compressée : le flux de `vzdump` (`zstd`) et l'archive chiffrée existent ensemble avant l'envoi. Prenez la taille d'une sauvegarde `.vma.zst` déjà faite par Proxmox. L'agent refuse de commencer sous 1 Gio libre (`disk_full`), et vide `produce/` à la fin de chaque ordre et à son démarrage |
+| La machine openCloud, sous `state_dir/outgoing/` | **Une** archive à la fois : la plus grosse archive chiffrée, plus 1 Gio de marge. Une archive ne dépasse pas 64 Gio (`parcel_too_large`) ; sans la place, le serveur répond `disk_full` à l'envoi |
+| La destination | `keep` archives par VM, plus la clé scellée de chaque sauvegarde |
+
+Une VM dont la production, le chiffrement et l'envoi prennent plus de 55 minutes
+échoue : l'agent abandonne là. Pour les envois longs, réglez [le délai de lecture de
+Traefik](#les-envois-darchives), sans quoi `backup.produce` finit
+`upload_failed`.
+
 ## Désinstaller
 
 openCloud n'a rien modifié ailleurs : il n'écrit jamais dans Docker ni sur
@@ -2151,7 +2380,11 @@ Les messages sont ceux que le binaire écrit, tels quels.
 | `secrets finish-server-key` : « ces machines ont encore la clé précédente » | Leur agent ne s'est pas reconnecté depuis la rotation | Attendre leur connexion (redémarrer l'agent au besoin), ou `-force` et les ré-enrôler |
 | Agent : `tls: failed to verify certificate` | Certificat auto-signé sans `-pin` | `-pin`, ou un certificat reconnu |
 | « L'agent n'a pas le droit de lire la socket Docker de cette machine. » (`docker_denied`) | Le compte de l'agent n'est pas dans le groupe `docker`, ou y a été mis après le démarrage de l'agent : un groupe se lit au démarrage du processus | `usermod -aG docker opencloud-agent` puis `systemctl restart opencloud-agent`. Le groupe `docker` équivaut à root ([ce que cela donne](#le-groupe-docker-équivaut-à-root)) ; sinon, [garder l'agent en root](#garder-lagent-en-root) |
-| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) | `path_denied` : `chown -h opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` |
+| Agent : `WARN rights not exercisable` au journal, un droit « indisponible » sur la fiche de la machine, un ordre « Refusé » avec la même raison | Un droit coché que le compte de l'agent ne peut pas exercer : `docker_denied` (socket fermée au compte, ligne ci-dessus), `docker_missing` (pas de Docker, ou pas de `/usr/bin/docker`), `path_denied` (le dossier du droit, ou celui qui le contient, n'appartient pas au compte : la préparation ne l'a pas créé, ou une machine passée sous le compte n'a pas eu son `chown`), `path_unwritable` (l'unité ne l'ouvre pas : `ReadWritePaths=`), `not_self_updatable` (`bin/` n'appartient pas au compte) ; pour `backup.produce`, `sudo_missing` (pas de `sudo`), `producer_missing` (le script de root, ou `/usr/bin/vzdump`, manque) et `sudo_denied` (la règle `sudoers` manque, ou l'unité n'a pas son drop-in `produce.conf`) | `path_denied` : `chown -h opencloud-agent:opencloud-agent <dossier>` ([Passer un agent installé en root sous son compte](#passer-un-agent-installé-en-root-sous-son-compte) dit lesquels), puis `systemctl restart opencloud-agent` ; `path_unwritable` : le drop-in `droits.conf` ; `not_self_updatable` : `chown -hR opencloud-agent:opencloud-agent /var/lib/opencloud-agent` ; `sudo_missing` : `apt install sudo` ; `producer_missing` et `sudo_denied` : rejouer la préparation de la page du jeton (les six lignes de [`backup.produce` équivaut à root](#backupproduce-équivaut-à-root)), puis `systemctl restart opencloud-agent`, car le drop-in ne se lit qu'au démarrage de l'unité |
+| Un plan de VM : « La VM 5012 n'a pas été sauvegardée : Le producteur de sauvegarde a échoué… » (`backup.target_failed:5012:producer_failed`) | `vzdump` a échoué sur la VM, ou n'a rien écrit. La carte du plan ne montre **pas** sa sortie d'erreur : seule une raison fermée y figure | Fiche de la **machine source** (l'hôte) › Ordres › l'ordre « Produire une sauvegarde » en échec : les dernières lignes de la sortie d'erreur de `vzdump` y sont (VM verrouillée, stockage, numéro inconnu…). Rien n'a été envoyé |
+| Même plan : `upload_failed` | L'archive n'est pas arrivée sur la machine openCloud. Le plus courant : Traefik coupe un envoi plus long que son `readTimeout` (60 s par défaut en v3). Sinon la ligne `upload:` de l'ordre donne le code du serveur (`parcel_too_large`, `disk_full`) | [Régler le `readTimeout` de l'entrée](#les-envois-darchives), puis relancer ; pour `disk_full` côté serveur, libérer le disque de `state_dir` (1 Gio libre de plus que l'archive) |
+| Même plan : `disk_full` | L'**hôte** a moins de 1 Gio libre sous `/var/lib/opencloud-agent`, ou n'a pas la place pour l'archive : `produce/` en garde deux copies (le flux de `vzdump` et l'archive chiffrée) | Libérer le disque de l'état de l'agent ([l'espace disque](#lespace-disque-le-temps)), puis relancer |
+| Un plan de VM refuse de partir : `backup.destination_agent_outdated`, `backup.source_offline`, `backup.source_right_missing`, `backup.selector_needs_list`, `backup.run_in_progress` | La destination est plus ancienne que v0.2.0 ; l'hôte est hors ligne ; son agent n'a pas `backup.produce=proxmox-vzdump` ; `all` sans hôte Proxmox relevé ; un autre passage court | [Mettre à jour](#mettre-à-jour) la destination ; l'hôte en ligne ; [donner le droit](#1-le-droit-backupproduce-sur-lhôte) ; [déclarer l'hôte](#déclarer-un-hôte-proxmox) ou écrire les numéros ; attendre la fin du passage |
 | « Docker n'est pas présent sur cette machine. » alors qu'il tourne | `-docker-socket` ne vise pas la bonne socket | Corriger le chemin dans l'unité de l'agent |
 | La machine openCloud reste hors ligne, sans mesures | Son agent n'est pas installé (installation d'avant les agents, ou ligne de la première configuration pas jouée) | Machines → la machine openCloud → Ré-enrôler, et jouer la ligne sur elle |
 | Agent : « Enrôlement refusé : cette machine est la machine openCloud, et elle a déjà un agent actif. » | Une ligne d'Ajouter une machine jouée sur la machine openCloud, qui a déjà son agent | Ré-enrôler la machine openCloud depuis sa fiche ; le jeton sert à une autre machine |

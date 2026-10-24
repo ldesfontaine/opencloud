@@ -9,6 +9,17 @@
 > Ce document ne décrit pas l'application : c'est
 > [`22-fonctionnement.md`](22-fonctionnement.md) qui le fait, et il y renvoie.
 
+## La vision, dite par Lucas le 24/10/2026
+
+« openCloud pour superviser et gérer au besoin : simple, rapide, visuel. Les
+**actions sont déléguées aux agents** des machines, qui ont des droits et des
+commandes autorisés : on utilise pleinement ce qu'on a créé, on ne recrée pas
+un outil à côté. Objectif final : qu'un MCP (mcp-maison, dans le harness de son
+choix) puisse lui aussi utiliser ces agents bridés, chaque action
+journalisée. » Aujourd'hui le MCP ne fait que lire (jeton d'API en lecture) ;
+les agents restent à openCloud. Tout ce qui suit s'y conforme : l'agent produit
+ou reçoit, `serve` ordonne et journalise.
+
 ## Ce qui change, ce qui ne change pas
 
 | | Aujourd'hui | Cible |
@@ -25,7 +36,8 @@
 **Aujourd'hui** ([`installation.md`](../installation.md)) : binaire statique dans
 `/usr/local/bin`, config dans `/etc/opencloud/config.toml`, état dans
 `/var/lib/opencloud` (`StateDirectory=`), serveur sous l'utilisateur
-`opencloud`, agent en **root** (`/proc`, volumes montés, socket Docker). Les
+`opencloud`, agent sous le compte dédié `opencloud-agent` (22/10 : `/proc`, volumes
+montés, socket Docker par le groupe `docker`), root sur demande. Les
 réglages vivent à quatre endroits : `config.toml`, `settings.toml`,
 `lifecycle.json`, la base ([« Ce qui est stocké »](22-fonctionnement.md#ce-qui-est-stocké-et-où)).
 La machine openCloud reçoit un agent comme les autres, installé dès la
@@ -168,13 +180,16 @@ issue #146) : l'agent **initie** la connexion, signe un aléa qu'il tire, l'iden
 (SSE + POST). Le serveur lui pousse quatre **commandes d'observation**
 (`probes`, `logs`, `logs_stop`, `image_checks`), non signées, et des
 **ordres** signés Ed25519 par sa clé (`server.key`), que l'agent vérifie avec
-la clé épinglée à l'enrôlement, avec rang et échéance ; deux ordres existent,
-`agent.ping`, qui ne change rien, et `agent.server_key`, qui livre la clé
-neuve du serveur pendant sa rotation. Liste fermée typée dans `agentwire`, file de
-16 en mémoire ; aucun shell, aucune écriture Docker. Les droits sont
+la clé épinglée à l'enrôlement, avec rang et échéance ; huit ordres existent
+(`agent.ping`, qui ne change rien, `agent.server_key`, qui livre la clé neuve du
+serveur pendant sa rotation, `agent.update`, `backup.receive`, `backup.prune`,
+`backup.produce`, `docker.deploy`, `docker.update`). Liste fermée typée dans
+`agentwire`, file de 16 en mémoire ; aucun shell, aucune commande libre : chaque
+ordre lance un programme à chemin constant, arguments en liste, environnement
+remplacé (`docker`, `vzdump`). Les droits sont
 cochés à l'installation, écrits dans le fichier de l'agent, rapportés,
-affichés et **appliqués par l'agent** ; les changer, c'est ré-enrôler. Le jeton d'enrôlement vaut 1 h, sert une fois. L'agent tourne en
-root. Machine et agent sont deux tables (`agents`, migration
+affichés et **appliqués par l'agent** ; les changer, c'est ré-enrôler. Le jeton d'enrôlement vaut 1 h, sert une fois. L'agent tourne sous le compte
+dédié `opencloud-agent`, root sur demande. Machine et agent sont deux tables (`agents`, migration
 `030_agents.sql`) ; un agent se révoque sans supprimer sa machine
 ([« Comment une machine entre »](22-fonctionnement.md#comment-une-machine-entre)).
 
@@ -182,11 +197,11 @@ root. Machine et agent sont deux tables (`agents`, migration
 
 | Pièce | Position | Modèle vu ailleurs |
 | --- | --- | --- |
-| Actions | une **liste fermée, typée** (`type` + `params`, un identifiant d'exécution) ; jamais une chaîne shell dans le protocole. Le format actuel se casse ; transport, enrôlement Ed25519 et relais des journaux restent. **Fait** (#146) : `agentwire.Kind` et `Command` typés, l'ordre écrit dans `action_runs` et au journal avant l'envoi, `agent.ping` seul ordre | Komodo `PeripheryRequest` (~100 variantes), Beszel `WebSocketAction` (10) |
+| Actions | une **liste fermée, typée** (`type` + `params`, un identifiant d'exécution) ; jamais une chaîne shell dans le protocole. Le format actuel se casse ; transport, enrôlement Ed25519 et relais des journaux restent. **Fait** (#146) : `agentwire.Kind` et `Command` typés, l'ordre écrit dans `action_runs` et au journal avant l'envoi, huit ordres à ce jour | Komodo `PeripheryRequest` (~100 variantes), Beszel `WebSocketAction` (10) |
 | Droits (capacités) | **pas de « modes »** : un seul agent, une liste de droits cochée dans l'interface à l'installation, écrite par la ligne générée dans le fichier local de l'agent. L'agent fait ce qu'il a le droit de faire, rien d'autre ; un refus est journalisé. Liste de départ : décision 9, **prise** ; changement après l'installation : décision 10, **prise** (ré-enrôler). **Fait** : cochés, écrits, rapportés et affichés avec l'écart (030) ; **appliqués** par l'agent, refus rapporté et journalisé, ordre non envoyé quand le serveur sait le droit absent (#146) | Komodo `disable_terminals`, `core_public_keys` ; Netdata `allow from` |
 | Vérification réciproque | l'agent connaît la clé publique du serveur et vérifie chaque session ; un faux serveur ne commande rien. **Fait** (#146) : la clé publique livrée à l'enrôlement et épinglée, chaque ordre signé et vérifié (machine, agent, échéance, rang) ; l'agent ne vérifie pas le flux lui-même, seulement ce qui agit ; il ne suit aucune redirection et lit le flux borné ; versions du protocole annoncées, une autre refusée (`426`) | Komodo (clés `core_public_keys`), Beszel (le hub signe le jeton) |
 | Enrôlement | jeton à usage unique, porté par la ligne générée ; **rotation** de la clé de l'agent et de celle du serveur. Machine et agent séparés : ré-enrôler, réinstaller ou tourner la clé garde la machine et son historique. **Fait** (#146) : rotation de `server.key` (la neuve livrée par un ordre que l'ancienne signe, les deux valables le temps que chaque agent la prenne) et de `secret.key` (chaque secret rescellé) ; la clé d'un agent tourne en le ré-enrôlant, comme une clé du serveur volée | Teleport (jeton 30 min), Komodo `RotatePrivateKey`, Swarm (3 mois) |
-| Root | **Fait (22/10, décision 2)** : l'agent tourne sous `opencloud-agent` (groupe `docker` si Docker), root sur demande. Piste, si l'usage le demande : un observateur non privilégié + un exécuteur root étroit avec politique locale | — |
+| Root | **Fait (22/10, décision 2)** : l'agent tourne sous `opencloud-agent` (groupe `docker` si Docker), root sur demande. **Contrepartie** : le groupe `docker` équivaut à root ; le droit `backup.produce` (24/10, décision 9) aussi, par une porte étroite (une règle `sudo` sur un script de root, `NoNewPrivileges=false` dans l'unité), sur l'hôte Proxmox seulement. Piste, si l'usage le demande : un observateur non privilégié + un exécuteur root étroit avec politique locale | — |
 | Commandes d'observation | `probes` et `logs` ne sont pas signées. **Fait** (22/10, #146) : l'agent rejuge le jeu de sondes (mêmes bornes que le serveur, 64 au plus, ce qu'il écarte est dit dans son journal) et n'ouvre que le journal d'un conteneur qu'il a inventorié. **Fait** (22/10) : droit `probe.lan`, coché par défaut, les adresses privées en dépendent ; un refus de l'agent se lit sur la sonde | Nagios NRPE (le serveur ne demande qu'un nom) |
 | Contrôles | après l'étape 2 : contrôles sur le modèle NRPE, commandes définies dans le fichier local de l'agent, le serveur ne demande qu'un nom ; code de sortie 0/1/2/3. Un genre de sonde, avec un état « avertissement » | Nagios NRPE |
 
@@ -206,7 +221,7 @@ L'agent **ne garde rien** : flux coupé, mesures perdues. **Fait** (21/10) : la
 base chiffrée part chaque nuit vers un agent (page Sauvegardes ; services à
 venir avec le déploiement), voir
 [« Comment une sauvegarde se fait »](22-fonctionnement.md#comment-une-sauvegarde-se-fait).
-Les jetons de ping sont en clair dans la base.
+Les jetons de ping sont chiffrés dans la base (**fait**, décision 13). **Fait** (24/10, #266) : les VM et les conteneurs d'un hôte Proxmox se sauvegardent par un plan à source machine, produites et chiffrées par l'agent de l'hôte, rangées chez l'agent de destination.
 
 **Cible**
 
@@ -216,7 +231,7 @@ Les jetons de ping sont en clair dans la base.
 | Agent, `/var/lib/opencloud-agent/local.db` | un **petit SQLite** : mesures, résultats de sondes, dernier jeu de sondes, sa part de l'annuaire | **24 h**, anneau | Un tampon en mémoire disparaît au redémarrage, et c'est au redémarrage qu'on veut les données. Quelques Mo |
 | Agent → serveur | **rejeu** des échantillons manqués à la reconnexion, fenêtre bornée à 24 h | — | Netdata (`replication period`), Centreon (fichiers de rétention rejoués) |
 | Destination de sauvegarde | la base, avec la clé du serveur ; chaque service (`data/` + `.env`). **Chiffrées**, envoyées vers une destination choisie : une machine avec agent, plus tard un stockage externe. **Pas de copie locale** ; sans destination, l'interface le dit | N copies gardées, à régler | Sans ça, la base-vérité n'a pas de filet. Une sauvegarde parmi d'autres, dans la page Sauvegardes |
-| Chiffrement des sauvegardes | une paire de clés : la publique chiffre chaque nuit sur le serveur ; la privée, chiffrée par une phrase de passe, est déposée avec les sauvegardes | — | Sauvegarde automatique sans secret en clair sur le serveur ; seule la phrase est à garder de côté |
+| Chiffrement des sauvegardes | une paire de clés : la publique chiffre chaque nuit, sur le serveur pour la base, sur l'hôte producteur pour une VM Proxmox ; la privée, chiffrée par une phrase de passe, est déposée avec les sauvegardes | — | Sauvegarde automatique sans secret en clair sur le serveur, et sans clair d'une VM hors de son hôte ; seule la phrase est à garder de côté |
 
 **Écart et coût** : rétention locale = moyen (un deuxième SQLite dans l'agent,
 un protocole de rejeu) ; sauvegardes = moyen (envoi vers un agent, paire de
@@ -302,7 +317,7 @@ Uptime Kuma, Dokploy, Coolify, Teleport, Nomad, Swarm, Centreon.
 | préalable | #153 | réglages en base (`settings.toml` disparaît) ; nom du produit à un seul endroit ; secrets de l'interface chiffrés en base. **Fait** : #155, #156, #157 | non |
 | 1 | #153 | la direction dans la doc ; l'annuaire : services déclarés et unités, projets, nature des services ; édition sur place des sondes et des tâches ; `export` / `apply` ; vue « écart » | non |
 | 2 | #146 | droits côté agent (décisions 2, 9, 10 prises avant) ; vérification réciproque ; rotation. **Fait** : ordres signés et journalisés, droits appliqués, protocole v2 et rotation des clés. Décision 2 (root) **fait** (22/10) : compte dédié par défaut, l'agent dit son compte et refuse lisiblement ce qu'il ne peut pas | non |
-| 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination. **Fait** (21/10) : la base chiffrée part chaque nuit vers un agent ; services à venir avec le déploiement | oui : la sauvegarde chiffrée, chez l'agent de destination |
+| 3 | à ouvrir | journal d'actions + canal « audit » ; sauvegarde chiffrée de la base vers une destination. **Fait** (21/10) : la base chiffrée part chaque nuit vers un agent ; services à venir avec le déploiement. **Fait** (24/10, #266) : les VM d'un hôte Proxmox, produites par l'agent de l'hôte | oui : la sauvegarde chiffrée, chez l'agent de destination (et l'archive en cours, chez l'agent producteur) |
 | 4 | à ouvrir | rétention locale de l'agent et rejeu | non |
 | 5 | à ouvrir | **premier geste** : mettre à jour un agent depuis le serveur. **Fait** (22/10) : `release import`, `agent.update`, vérifié deux fois (serveur, puis agent avec sa clé), lien `bin/current` basculé, succès constaté au retour | oui |
 | 6 | #125 | appliquer une mise à jour d'image validée. **Fait** (22/10, première version) : passer au tag plus récent d'un service déployé, en un geste ; pas de retour arrière | oui |
@@ -321,7 +336,7 @@ donné avant la décision.
 | N° | Question | Options | Mon avis | Décision |
 | --- | --- | --- | --- | --- |
 | 1 | Un seul fichier de réglages ? | garder `settings.toml` + `lifecycle.json` ; tout ramener dans `config.toml` + base | tout ramener | `config.toml` = posé par l'admin avant le démarrage, lecture seule pour le serveur. Ce que l'interface change va en base ; `settings.toml` disparaît. `lifecycle.json` reste un cache, hors export |
-| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | **Prise le 22 octobre 2026** : compte dédié par défaut (`opencloud-agent`, groupe `docker` si Docker), root sur demande ; l'agent dit son compte et refuse lisiblement ce qu'il ne peut pas (#250). Contrepartie : le groupe `docker` équivaut à root ; le découpage observateur/exécuteur n'est pas fait. *Avant, reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale.* **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas. **État au 22 octobre 2026** : l'état de l'agent vit hors du dossier du serveur, root `0700`, et l'agent n'écrit rien si un dossier au-dessus appartient à un autre compte (#235). Utile quel que soit le découpage décidé. `backup.receive` est le premier ordre qui écrit sur une machine (21/10) : l'agent reste root, borné par ses droits et un `os.Root` sur le chemin (à revoir avec cette décision) |
+| 2 | L'agent reste root ? | root pour tout ; utilisateur `opencloud` + root ciblé | utilisateur dédié, root ciblé, si le coût reste raisonnable | **Prise le 22 octobre 2026** : compte dédié par défaut (`opencloud-agent`, groupe `docker` si Docker), root sur demande ; l'agent dit son compte et refuse lisiblement ce qu'il ne peut pas (#250). Contrepartie : le groupe `docker` équivaut à root ; le découpage observateur/exécuteur n'est pas fait. *Avant, reportée avant l'étape 2. Piste : observateur non privilégié + exécuteur root étroit avec politique locale.* **État au 21 octobre 2026** (#146) : l'agent reste root ; ce sont ses droits, appliqués par lui, qui bornent ce qu'un ordre demande. Le découpage reste à décider par Lucas. **État au 22 octobre 2026** : l'état de l'agent vit hors du dossier du serveur, root `0700`, et l'agent n'écrit rien si un dossier au-dessus appartient à un autre compte (#235). Utile quel que soit le découpage décidé. `backup.receive` est le premier ordre qui écrit sur une machine (21/10) : l'agent reste root, borné par ses droits et un `os.Root` sur le chemin (à revoir avec cette décision). **État au 24 octobre 2026** : l'agent est sous son compte dédié ; seul l'hôte qui porte `backup.produce` desserre son unité (`NoNewPrivileges=false`), voir la décision 9 |
 | 3 | Édition des sondes avant tout ? | oui ; non, on recrée | oui | Oui : un `apply` modifie sur place, ne recrée jamais ; sondes, tâches, composants gardent historique et jeton |
 | 4 | Format du fichier déclaratif | YAML ; TOML | YAML, plus courant chez ceux qui écrivent des compose | YAML |
 | 5 | `apply` supprime ce qui n'est pas déclaré ? | jamais ; option explicite ; toujours | option explicite, jamais par défaut | Sur option explicite seulement, en affichant ce que la suppression emporte |
@@ -349,6 +364,7 @@ donné avant la décision.
 | Nom | Le nom du produit n'est pas définitif : tout ce qui le porte passe par un seul endroit. Affichage : une constante + les catalogues ; technique : un paquet de constantes (chemins, labels, préfixe de jeton, en-têtes) |
 | Identité de service | Le service déclaré a sa propre identité stable ; les conteneurs s'y rattachent : label posé par openCloud pour ce qu'il déploie, sinon machine + projet + service Compose, sinon nom du conteneur (signalé comme faible). Recréer un conteneur ne casse aucun lien |
 | Statut | La page de statut globale disparaît : plusieurs pages, une par projet, créées à la main, avec le choix de ce qui est montré. **Fait** (migration `034`, voir `24-modele-cible.md` section 14) |
+| Sauvegardes de VM Proxmox (24/10/2026, #266) | **Pas de nouveau mécanisme de sauvegarde** : le module Sauvegardes se généralise (une source produite par un agent, même chiffrement `age`, même réception `backup.receive`, même rétention `backup.prune`, restauration sans openCloud). **Le colis transite par `serve`** (store-and-forward, pas d'agent à agent : rien de nouveau côté réseau), une VM à la fois, donc une seule archive à la fois sur la machine openCloud. **Un plan par source, un sujet libre** : les fichiers d'un plan portent son sujet, l'élagage ne touche que son préfixe. Proposé par Claude, validé par Lucas le 24/10/2026 |
 | Contrôles | Pour après l'étape 2 : contrôles sur le modèle NRPE (commandes dans le fichier local de l'agent, le serveur ne demande qu'un nom, code de sortie 0/1/2/3). Webhooks entrants génériques à côté des pings de cron |
 
 ## Décisions du tri des fonctionnalités
@@ -392,7 +408,7 @@ Il peut revoir chacun.
 | Service déclaré | Un service = un dossier (projet Compose) avec ses unités (service Compose, conteneur, binaire) ; identifiant jamais tiré de Docker | Colle à la décision 7 : une sauvegarde, une adresse, une version épinglée par image |
 | Suppressions | `restrict` entre objets déclarés + un plan qui liste ce que la suppression emporte, puis supprime dans l'ordre ; l'historique propre part avec son objet ; alertes, exécutions et audit survivent (`set null` + nom recopié) | La base refuse toute perte silencieuse, même par un chemin oublié |
 | Incidents et « taire » | Visent les objets de l'annuaire ; chaque page de statut montre ceux de ses composants ; le moteur d'alertes ne lit plus les pages. **Fait** (21/10, `005`) ; l'impact `maintenance` des incidents reste, à retirer sur décision de Lucas | Cohérent avec « taire » et les pages multiples |
-| Chiffrement de la sauvegarde | Paire de clés : la publique chiffre chaque nuit sur le serveur ; la privée est chiffrée par la phrase de passe et déposée avec les sauvegardes. Seule la phrase est à garder | Sauvegarde automatique sans secret en clair sur le serveur, une seule chose à retenir |
+| Chiffrement de la sauvegarde | Paire de clés : la publique chiffre chaque nuit (sur le serveur pour la base, sur l'hôte producteur pour une VM) ; la privée est chiffrée par la phrase de passe et déposée avec les sauvegardes. Seule la phrase est à garder | Sauvegarde automatique sans secret en clair sur le serveur, une seule chose à retenir |
 | Secrets des services | Le `.env` sur la machine fait foi ; openCloud ne le recopie pas en base. La sauvegarde d'un service = `data/` + `.env`, chiffrés | Une seule source de vérité ; une restauration sans les secrets serait inutilisable |
 | Export | Ne contient jamais de secrets (marqueur « conservé ») ; peut aller dans Git | Restaurer sur base vide passe par la sauvegarde, pas par l'export |
 | Identité dans le YAML | `id` écrit par l'export + `name` ; un `id` dupliqué par copier-coller est refusé | Renommer ne recrée rien (décision 3) |
@@ -409,7 +425,7 @@ Ajoutées par le [modèle cible](24-modele-cible.md), tranchées par Lucas le
 
 | N° | Proposition | Décision |
 | --- | --- | --- |
-| 1 | Sauvegardes dans l'annuaire | Oui : destinations et plans de sauvegarde sont dans l'annuaire et le fichier `apply`, secrets exclus. Jamais de sauvegarde sur la machine openCloud. Destination : une machine avec agent (droit « recevoir des sauvegardes »), ou sans agent par SFTP (compte dédié, enfermé dans un dossier, sans shell) ou S3. Pas de rsync. restic est à étudier au chantier Sauvegardes |
+| 1 | Sauvegardes dans l'annuaire | Oui : destinations et plans de sauvegarde sont dans l'annuaire et le fichier `apply`, secrets exclus. Jamais de copie gardée par `serve` : l'archive passe, puis part chez l'agent de destination. Destination : une machine avec agent (droit « recevoir des sauvegardes »), ou sans agent par SFTP (compte dédié, enfermé dans un dossier, sans shell) ou S3. Pas de rsync. restic est à étudier au chantier Sauvegardes |
 | 2 | Unicité du nom d'un service | Unique par machine. Dans le fichier, un service se désigne par machine + nom ; l'interface dit « nginx sur machine X » et accepte un libellé libre. Canaux, sondes et pages visent toujours l'identifiant stable |
 | 3 | Services créés sans l'opérateur | Signalés, jamais bloquants. Chaque service porte sa provenance (`declared_by` : opérateur, migration, plus tard découverte automatique) et un drapeau « à vérifier » qui tombe quand l'opérateur valide. Un service à vérifier a ses sondes, alertes et pages comme les autres. **Revu le 21 octobre 2026** : rien ne crée plus de service sans l'opérateur ; le drapeau « à vérifier » et la provenance `migration` sont retirés (migration `003`). La découverte automatique reposera un signal le jour où elle viendra |
 | 4 | Écart de version | Jugé sur le tag ; aussi sur l'empreinte si l'unité l'épingle (`tag@sha256:…`). `latest` ou sans tag : « version non vérifiable » |
