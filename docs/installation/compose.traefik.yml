@@ -14,6 +14,11 @@ services:
     image: traefik:v3.5.3
     command:
       - --entrypoints.websecure.address=:443
+      # Un hôte Proxmox qui sauvegarde ses VM par openCloud envoie chaque archive
+      # par un seul PUT qui dure : au-delà des 60 s par défaut, Traefik le coupe
+      # et backup.produce finit en upload_failed. Une heure suffit (l'agent
+      # abandonne après 55 minutes). Non rejoué sur le banc de ce guide.
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=1h
       - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
       - --certificatesresolvers.letsencrypt.acme.email=vous@example.org
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json

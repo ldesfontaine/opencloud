@@ -34,7 +34,7 @@
 
 ### Diagramme des entités
 
-Tables nouvelles : `agents`, `agent_capabilities`, `projects`, `project_services`, `declared_services`, `service_units`, `service_provides`, `service_open_paths`, `ignored_keys`, `update_proposals`, `service_samples_hourly`, `backup_destinations`, `backup_plans`, `backup_keyring`, `status_pages`, `incident_targets`, `mutes`, `channel_projects`, `action_runs`, `run_logs`, `applies`, `audit_events`, `audit_deliveries`, `settings`, `accounts`, `sessions`, `templates` (plus tard). Non dessinées, inchangées : `machine_disks`, `machine_rollups` (les agrégats par heure et par jour, comme `machine_samples`, plus un agrégat horaire par volume), `probe_certificates` (le dernier certificat vu par une sonde), `mcp_clients`, `mcp_codes`, `mcp_tokens`, `schema_migrations`.
+Tables nouvelles : `agents`, `agent_capabilities`, `projects`, `project_services`, `declared_services`, `service_units`, `service_provides`, `service_open_paths`, `ignored_keys`, `update_proposals`, `service_samples_hourly`, `backup_destinations`, `backup_plans`, `backup_keyring`, `machine_proxmox`, `proxmox_guests`, `proxmox_storages`, `status_pages`, `incident_targets`, `mutes`, `channel_projects`, `action_runs`, `run_logs`, `applies`, `audit_events`, `audit_deliveries`, `settings`, `accounts`, `sessions`, `templates` (plus tard). Non dessinées, inchangées : `machine_disks`, `machine_rollups` (les agrégats par heure et par jour, comme `machine_samples`, plus un agrégat horaire par volume), `probe_certificates` (le dernier certificat vu par une sonde), `mcp_clients`, `mcp_codes`, `mcp_tokens`, `schema_migrations`.
 
 ```mermaid
 erDiagram
@@ -61,7 +61,7 @@ erDiagram
     agent_capabilities {
         TEXT agent_id PK, FK
         TEXT capability PK "decision 9, prise le 21/10"
-        TEXT scope "chemins, comptes"
+        TEXT scope "chemins, ou producteurs pour backup.produce"
         INTEGER reported_at "lu dans le fichier de l agent"
     }
     enrollment_tokens {
@@ -242,6 +242,9 @@ erDiagram
         TEXT destination_id FK
         TEXT schedule
         INTEGER keep
+        INTEGER last_attempt_at
+        TEXT last_error "cle du refus de la derniere tentative"
+        TEXT last_run_id FK "dernier backup.receive, set null"
     }
     backup_keyring {
         INTEGER id PK "toujours 1"
@@ -253,6 +256,46 @@ erDiagram
     machines ||--o{ backup_destinations : "restrict"
     machines |o--o{ backup_plans : "restrict, la machine source"
     backup_destinations ||--o{ backup_plans : "restrict"
+
+    %% ===== Hote Proxmox, lu en lecture seule =====
+    machine_proxmox {
+        TEXT machine_id PK, FK
+        TEXT api_url
+        TEXT token_id
+        TEXT token_secret "chiffre"
+        TEXT pin "empreinte du certificat, vide : le magasin du systeme"
+        TEXT node
+        TEXT version
+        INTEGER verified_at
+        INTEGER last_read_at
+        TEXT last_error
+    }
+    proxmox_guests {
+        TEXT machine_id PK, FK
+        INTEGER vmid PK
+        TEXT kind "qemu ou lxc"
+        TEXT name
+        TEXT status
+        INTEGER template
+        TEXT linked_machine_id FK "machine enrolee de meme nom"
+        INTEGER last_backup_at
+        INTEGER last_backup_bytes
+    }
+    proxmox_storages {
+        TEXT machine_id PK, FK
+        TEXT node PK
+        TEXT storage PK
+        TEXT type
+        INTEGER total
+        INTEGER used
+        INTEGER avail
+        TEXT content
+        INTEGER active
+    }
+    machines ||--o| machine_proxmox : "cascade"
+    machine_proxmox ||--o{ proxmox_guests : "cascade"
+    machine_proxmox ||--o{ proxmox_storages : "cascade"
+    machines |o--o{ proxmox_guests : "set null, la machine rapprochee"
 
     %% ===== Sondes et taches =====
     probes {
@@ -725,6 +768,9 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 | `backup_plans` → `machines` (la source) | 0..1 | **restrict** | Retirer la machine qui produit la sauvegarde : on retire d'abord le plan (`machine.has_backup_plans`, **fait**, `012`) |
 | `backup_plans` → `backup_destinations` | 0..n | **restrict** | On ne retire pas une destination qui reçoit encore |
 | `backup_destinations` → `machines` | 0..n | **restrict** | Retirer la machine qui garde les sauvegardes : plan obligatoire |
+| `machine_proxmox` → `machines` | 0..1 | cascade | L'hôte déclaré est un fait de la machine qui le porte : elle part, il part (**fait**, `013`) |
+| `proxmox_guests`, `proxmox_storages` → `machine_proxmox` | 0..n | cascade | Remplacés en entier à chaque relevé ; sans hôte, rien à montrer |
+| `proxmox_guests` → `machines` (la VM rapprochée) | 0..1 | set null | Retirer la machine enrôlée ne retire pas la VM de l'hôte : le lien seul part |
 | `probes` → `machines` (qui sonde) | 1 | **restrict** | Était cascade : 90 jours partaient sans prévenir (**fait**, `028_restrict.sql`). Le plan propose de changer de machine |
 | `probes` → `declared_services` | 0..1 | **restrict** | Le plan demande : supprimer la sonde ou la détacher |
 | `probe_results`, `probe_days` → `probes` | 0..n | cascade | Historique propre ; le plan dit combien de jours |
@@ -753,7 +799,7 @@ Ce que l'annuaire 2/5 livre de ce modèle, et comment (le détail est dans `22-f
 
 | Supprimer | Bloqué tant que (restrict) | Emporte (cascade, chiffré dans le plan) | Détache (set null ou lien seul) | Sur la machine |
 | --- | --- | --- | --- | --- |
-| Machine | services déclarés, sondes qu'elle exécute, tâches, destinations, membres de page | agents et droits, jetons de ré-enrôlement, mesures, réseaux, conteneurs et leur brut, `image_checks`, clés ignorées, fenêtres pour taire | alertes, runs ; retirée des incidents | rien ; l'agent ne peut plus se connecter |
+| Machine | services déclarés, sondes qu'elle exécute, tâches, destinations, plans dont elle est la source, membres de page | agents et droits, jetons de ré-enrôlement, mesures, réseaux, conteneurs et leur brut, `image_checks`, clés SSH relevées, hôte Proxmox déclaré (avec ses VM et ses stockages), clés ignorées, fenêtres pour taire | alertes, runs, VM Proxmox rapprochées d'elle (le lien seul) ; retirée des incidents | rien ; l'agent ne peut plus se connecter |
 | Projet | sa page de statut, canaux limités à lui | fenêtres pour taire | ses services (liens seuls) | rien |
 | Service déclaré | sondes, tâches, membres de page | unités, propositions, fournitures, chemins ouverts, plans de sauvegarde, historique horaire, fenêtres pour taire | projets (liens), conteneurs (→ non déclarés), alertes, runs, événements ; retiré des incidents | **rien** : ni conteneur, ni `.env`, ni `data/`. Retirer le déploiement = action `service.remove`, à part |
 | Unité | — | propositions | conteneurs, événements | rien |
@@ -917,7 +963,12 @@ backups:
     destination: store-1-backups
     schedule: daily
     keep: 14
-  - subject: service/wiki        # data/ + .env, chiffrés
+  - subject: pve                 # les VM d'un hôte Proxmox : une archive par VM
+    source: { machine: pve, producer: proxmox-vzdump, selector: all }
+    destination: store-1-backups
+    schedule: daily
+    keep: 14
+  - subject: wiki                # à venir : data/ + .env d'un service, chiffrés
     destination: store-1-backups
     schedule: daily
     keep: 7
@@ -1163,7 +1214,7 @@ ses écarts au diagramme :
 | **La preuve reste celle de la machine** (`OpenCloud-Machine`, défi lié à l'identifiant de la machine ; depuis le protocole 2 (#146), un aléa tiré par l'agent et signé avec l'identifiant et l'heure), vérifiée avec la clé de l'agent courant | Aucun agent installé ne change : le protocole de l'enrôlement et du flux est le même. Un agent révoqué reçoit encore son défi ; c'est sa preuve, vérifiée, qui lui répond `401 revoked`. Sans sa clé, on n'apprend rien de plus qu'avant. *Protocole 2 : plus de défi à recevoir, la règle reste : c'est la preuve vérifiée qui répond `401 revoked`* |
 | **Une machine sans agent actif n'est jamais « perdue »** | Révoquée ou en attente de son agent, il n'y a rien à perdre ; une alerte serait du bruit |
 | **Les droits demandés restent sur le jeton**, sous leur forme texte (`observe,files.write=/a:/b`), pas en JSON ; **le jeton d'un agent actif n'est plus purgé** à 90 jours | Une seule forme pour la ligne, le fichier de l'agent, l'en-tête et la base ; sans le jeton, l'écart ne se lirait plus après trois mois |
-| **`agent_capabilities` est le dernier rapport**, remplacé à chaque connexion, `scope` porte les chemins séparés par `:` | Le reflet du fichier, pas un historique ; une ligne par droit garde la clé (agent, droit) du diagramme |
+| **`agent_capabilities` est le dernier rapport**, remplacé à chaque connexion, `scope` porte les chemins séparés par `:` (pour `backup.produce`, les noms de producteurs, séparés de même : `proxmox-vzdump`) | Le reflet du fichier, pas un historique ; une ligne par droit garde la clé (agent, droit) du diagramme |
 | **Ré-enrôler reprend les droits que le jeton de l'agent courant demandait** ; `observe` seul s'il n'en demandait aucun | **Décision prise, à valider par Lucas** : le plus simple qui ne fait pas perdre ses droits à un agent qu'on réinstalle ; qui les change ensuite reste la décision 10 |
 | **`agent.enroll` et `agent.revoke` au journal d'audit** ; l'objet est l'agent, nommé par sa machine. `machine.reenroll` (l'émission du jeton) et `machine.delete` restent sur la machine | Les lignes déjà écrites sous `machine.enroll` le gardent : le journal ne se réécrit pas |
 | **Pas encore** : `root_dir` sur le jeton, `server_key_fingerprint`, `desired_revision`, `acked_revision` utilisés | Les colonnes sont là, à leur valeur par défaut ; elles viennent avec le premier déploiement, la vérification réciproque et l'état désiré (#146). *Schéma unique (21/10) : les trois dernières, que rien ne lisait ni n'écrivait, sont retirées ; `server_key_fingerprint` est revenue avec les ordres signés (`002_actions.sql`, section 16), les révisions attendent l'état désiré* |
@@ -1309,7 +1360,7 @@ a tranché, et ses écarts au diagramme :
 | **Les ordres sont jugés « longs »** : acceptés tout de suite, exécutés par le worker, la sortie de Compose revient en 58 lignes au plus | Le serveur écarte tout un rapport de plus de 64 lignes ; le reste (6 lignes) est celui de l'agent |
 | **`apply` ne déploie pas** | « Jamais … agir sur une machine » (section 3) : `apply` écrit l'annuaire, les ordres viennent après, d'un geste confirmé à l'écran |
 | **Rien ne retire un déploiement** (`service.remove` plus tard) | Supprimer le service de l'annuaire ne touche pas la machine : règle existante |
-| **L'agent reste root** (décision 2) | C'est le premier ordre qui lance un programme (`/usr/bin/docker`, chemin constant, arguments en liste, environnement remplacé). Le durcissement de l'unité (`ProtectSystem=strict`) borne ce qu'il écrit |
+| **L'agent reste root** (décision 2, au 21/10 ; **depuis le 22/10 il tourne sous `opencloud-agent`**, voir la section 25) | C'est le premier ordre qui lance un programme (`/usr/bin/docker`, chemin constant, arguments en liste, environnement remplacé). Le durcissement de l'unité (`ProtectSystem=strict`) borne ce qu'il écrit |
 
 ## 22. Ce que la mise à jour des agents a fixé
 
@@ -1379,9 +1430,9 @@ code a tranché (#146, décision 2 de `23`) :
 | --- | --- | --- |
 | **Le compte se dit à chaque ouverture du flux** : `OpenCloud-Agent-Account: <uid>:<nom>`, le nom vide si la base des comptes ne le donne pas ou s'il ne passe pas dans un en-tête. Le serveur lit un uid décimal de 0 à 4294967295 sans signe ni zéro en tête, un nom vide ou `^[a-z_][a-z0-9_-]{0,31}$` ; sinon il ne garde rien (`WARN`) et le flux s'ouvre | Le serveur sait si l'agent est root (la fiche le dit) sans le deviner, et ne stocke rien qu'un pair puisse tordre. Même règle que la racine des services | Un nom hors de cette forme (majuscules, point) s'affiche par son uid seul. Un agent plus ancien ne dit rien : la fiche écrit « pas encore rapporté » |
 | **Les droits cochés que le compte ne peut pas exercer se disent aussi** : `OpenCloud-Agent-Unavailable: <droit>=<raison>,…`, jugés avant chaque ouverture du flux ; `observe` n'est pas jugé (l'état de Docker se lit déjà par le moteur) | Un droit coché sous un compte sans privilège n'est plus un droit exerçable : l'opérateur doit le lire avant de lancer un ordre qui échouera | Un en-tête de plus, borné à 2048 octets ; un seul élément illisible fait ignorer tout l'en-tête (on ne garde pas la moitié d'un rapport qu'on ne comprend pas) |
-| **Cinq raisons, une liste fermée** : `docker_denied` et `path_denied` (neuves), `docker_missing`, `path_unwritable`, `not_self_updatable` (existantes). Elles sont des raisons de refus d'`agentwire` ; la liste est écrite dans `machine.UnavailableReasons`, un test de parité la garde égale aux constantes | `agentwire` importe `machine` (par `probe`) : la liste ne peut pas vivre dans `agentwire`. Le test attrape une raison ajoutée d'un côté seulement | Une constante de plus à tenir d'accord ; le test le fait |
+| **Huit raisons, une liste fermée** : `docker_denied` et `path_denied` (neuves), `docker_missing`, `path_unwritable`, `not_self_updatable` (existantes), puis `sudo_missing`, `producer_missing` et `sudo_denied` (le droit `backup.produce`, #266). Elles sont des raisons de refus d'`agentwire` ; la liste est écrite dans `machine.UnavailableReasons`, un test de parité la garde égale aux constantes | `agentwire` importe `machine` (par `probe`) : la liste ne peut pas vivre dans `agentwire`. Le test attrape une raison ajoutée d'un côté seulement | Une constante de plus à tenir d'accord ; le test le fait |
 | **Le serveur affiche, il ne refuse pas d'avance** (P1, *à valider par Lucas*) : le plan de déploiement et la destination de sauvegarde passent à l'état `unavailable` avec `right_reason`, l'offre de mise à jour de l'agent a la raison `right_unavailable` en restant disponible ; les boutons restent actifs, et un test verrouille que l'ordre part | Le rapport date de l'ouverture du flux : un dossier rendu ou un groupe ajouté depuis le rendrait un refus d'avance faux dans l'autre sens, sans moyen de s'en défaire. L'agent connaît l'instant | Un ordre peut partir pour être refusé : un run « Refusé » au journal, avec sa raison |
-| **L'agent refuse avant d'écrire, au moment de l'ordre**, avec les mêmes vérifications que le rapport (`hostChecks`, injectables) : `backup.receive` et `backup.prune` après le droit (`path_outside_right` se dit d'abord, sans rien révéler de ce que le compte voit ailleurs), `agent.update` avant tout téléchargement, `docker.deploy` et `docker.update` avant la racine (la socket d'abord, puis la racine des services). Un échec jugé avant la première écriture est un refus (`untouched`), le même mot après une écriture ratée reste un échec | Le même jugement deux fois, avec les mêmes questions, ne peut pas se contredire. Une écriture a pu toucher le dossier : seul le jugement d'avance dit qu'il n'a rien bougé | `access(2)` juge l'uid réel (égal à l'effectif sous systemd et `sudo -u`) : un pré-contrôle lisible, l'écriture reste confinée par `os.Root` et peut échouer plus tard (`path_unwritable`) |
+| **L'agent refuse avant d'écrire, au moment de l'ordre**, avec les mêmes vérifications que le rapport (`hostChecks`, injectables) : `backup.receive` et `backup.prune` après le droit (`path_outside_right` se dit d'abord, sans rien révéler de ce que le compte voit ailleurs), `agent.update` avant tout téléchargement, `docker.deploy` et `docker.update` avant la racine (la socket d'abord, puis la racine des services), `backup.produce` avant de lancer quoi que ce soit (`sudo_*`, `producer_missing`, puis `disk_full` sous 1 Gio libre). Un échec jugé avant la première écriture est un refus (`untouched`), le même mot après une écriture ratée reste un échec | Le même jugement deux fois, avec les mêmes questions, ne peut pas se contredire. Une écriture a pu toucher le dossier : seul le jugement d'avance dit qu'il n'a rien bougé | `access(2)` juge l'uid réel (égal à l'effectif sous systemd et `sudo -u`) : un pré-contrôle lisible, l'écriture reste confinée par `os.Root` et peut échouer plus tard (`path_unwritable`) |
 | **Le pré-contrôle suit les liens symboliques du chemin du droit** (décision de l'implémenteur, *à valider par Lucas*, écart au brief qui voulait `os.Lstat` et `path_outside_right`) | `os.OpenRoot` suit déjà le chemin du droit lui-même : un droit sur un lien vers un volume monté marchait avant et marcherait moins après. Seul ce qui est **sous** le chemin du droit est confiné, et l'écriture le confine toujours | Un lien posé sur le chemin du droit par qui l'écrit dans le fichier de l'agent (root) mène où il mène : ce n'est pas un nouveau droit, c'est son propriétaire qui l'écrit |
 | **Docker arrêté n'est pas un droit indisponible** : la socket existe, rien n'écoute (`ECONNREFUSED`) ; l'agent ne dit rien, `compose up` le dira | Une panne passagère n'est pas une permission manquante ; l'écrire en raison ferait mentir la fiche à chaque redémarrage de Docker | Un `docker.deploy` sur un Docker arrêté part et échoue avec la sortie de Compose |
 | **Un seul dossier personnel** (`homeDir`) pour le trousseau des registres et pour Compose : `/root` pour root, sinon `$HOME` s'il est absolu, sinon celui de la base des comptes, sinon aucun (Compose reçoit alors un environnement sans `HOME`, jamais celui de l'agent) ; le `DOCKER_CONFIG` de l'agent, s'il est posé, passe à Compose comme au registre | `HOME=/root` en dur ne trouvait pas les identifiants d'un compte dédié, et le trousseau lu par la vérification des images et celui de Compose ne doivent pas diverger | Sous un compte dédié, `docker login` se fait sous ce compte (`runuser -u <compte> -- docker login …`) |
@@ -1391,7 +1442,7 @@ code a tranché (#146, décision 2 de `23`) :
 | **L'unité lance l'agent sous ce compte** (`User=`, `Group=`) sans `SupplementaryGroups=docker` ; `StateDirectory=` reste | systemd lit les groupes du compte au démarrage : le groupe ajouté par `usermod` suit ; un `SupplementaryGroups=` sur un groupe absent empêcherait l'unité de démarrer sur une machine sans Docker. `StateDirectory=` crée l'état au nom de `User=` et reprend le propriétaire, récursivement, de ce qu'il contient s'il diffère | Un groupe ajouté après le démarrage ne se voit qu'au redémarrage (`docker_denied` jusque-là). Le retour de root au compte dédié (ou l'inverse) repasse tout l'état d'un coup : voulu |
 | **Root reste possible, par un drop-in** `opencloud-agent.service.d/root.conf` (`User=` et `Group=` vides) | Qui y tient le garde, en connaissance de cause (l'agent a la machine) ; une unité, un drop-in, pas deux unités à tenir | La préparation du compte n'est pas faite pour lui : un état au compte `opencloud-agent` sous un agent root est refusé (`state dir is not safe`), la doc donne des commandes à part |
 | **La ligne d'installation appelle le binaire de l'état** : `sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server …`, pour toutes les machines, la machine openCloud comprise (P3, *à valider par Lucas*) ; **plus de lien** `/usr/local/bin/opencloud → bin/current` | Root qui lancerait `opencloud` exécuterait ce que le compte de l'agent a posé et peut remplacer : une escalade sur une machine **sans** Docker. Le chemin vit dans `brand.AgentCurrentPath` | La commande `opencloud` n'existe plus sur la machine d'un agent : `runuser -u opencloud-agent -- /var/lib/opencloud-agent/bin/current version`, jamais en root. Le message de l'agent qui cite la ligne d'installation (`agent.token_missing`) dit la même |
-| **La préparation est une seconde ligne de commandes que le serveur fabrique** (`installPreparation`, rendue avec le jeton dans `preparation`) : le compte, l'état à lui, puis **sous le compte** (`runuser -u opencloud-agent --`) `bin/` et le binaire (`/tmp/opencloud`, ou `/usr/local/bin/opencloud` pour la machine openCloud) sous la version du serveur avec son lien `current` ; enfin un `test ! -L <dossier> && install -d` au nom du compte par dossier de droit (racine des services en `0755`, `backup.receive` en `0700`, `files.write` en `0755`), chacun une fois, et sous le compte un dossier de droit qui est sous un autre dossier du compte | Le serveur sait quels droits sont cochés : l'opérateur n'oublie pas un dossier (`path_denied` sinon), et le binaire est celui du protocole du serveur (`version.Number()`). La ligne se rejoue sur une machine déjà préparée (Changer les droits), où le compte, peut-être compromis, possède son état : `install -d` suit un lien et donne sa cible, root n'agit donc sur aucun nom que le compte contrôle (relecture de #257 : `bin/` remplacé par un lien vers `/etc/cron.d` était donné au compte). Aucune protection de shell n'est nécessaire : seuls des constantes et des chemins de droits y entrent (`ValidCapabilityPath`, revérifié en fabriquant les lignes), et des tests le vérifient, dont un `sh` réel qui lit chaque mot ; le jeton n'y paraît jamais | `useradd` échoue sur un compte qui existe : la doc dit d'ignorer cette erreur et de rejouer la ligne l'agent arrêté (un dossier de droit de premier niveau dont le parent est au compte reste exposé au court instant entre `test` et `install`) ; un dossier de droit qui est un lien n'est pas préparé ; le lien `current` n'est posé que si `install` a réussi (jamais un lien vers un fichier absent). `-root-dir` n'est pas connu du serveur : la racine est celle par défaut |
+| **La préparation est une seconde ligne de commandes que le serveur fabrique** (`installPreparation`, rendue avec le jeton dans `preparation`) : le compte, l'état à lui, puis **sous le compte** (`runuser -u opencloud-agent --`) `bin/` et le binaire (`/tmp/opencloud`, ou `/usr/local/bin/opencloud` pour la machine openCloud) sous la version du serveur avec son lien `current` ; si `backup.produce` est coché, **six lignes de plus** (le dossier `produce/` sous le compte, le script de root `opencloud-vzdump`, la règle `sudoers` écrite d'abord sous un nom à point que `sudo` ignore, jugée par `visudo -cf` puis renommée, le dossier du drop-in, `produce.conf` avec `NoNewPrivileges=false`, `systemctl daemon-reload`), dont les textes sont des constantes de `internal/machine/produce.go` que la documentation cite à l'octet ; enfin un `test ! -L <dossier> && install -d` au nom du compte par dossier de droit (racine des services en `0755`, `backup.receive` en `0700`, `files.write` en `0755`), chacun une fois, et sous le compte un dossier de droit qui est sous un autre dossier du compte | Le serveur sait quels droits sont cochés : l'opérateur n'oublie pas un dossier (`path_denied` sinon), et le binaire est celui du protocole du serveur (`version.Number()`). La ligne se rejoue sur une machine déjà préparée (Changer les droits), où le compte, peut-être compromis, possède son état : `install -d` suit un lien et donne sa cible, root n'agit donc sur aucun nom que le compte contrôle (relecture de #257 : `bin/` remplacé par un lien vers `/etc/cron.d` était donné au compte). Aucune protection de shell n'est nécessaire : seuls des constantes et des chemins de droits y entrent (`ValidCapabilityPath`, revérifié en fabriquant les lignes), et des tests le vérifient, dont un `sh` réel qui lit chaque mot ; le jeton n'y paraît jamais | `useradd` échoue sur un compte qui existe : la doc dit d'ignorer cette erreur et de rejouer la ligne l'agent arrêté (un dossier de droit de premier niveau dont le parent est au compte reste exposé au court instant entre `test` et `install`) ; un dossier de droit qui est un lien n'est pas préparé ; le lien `current` n'est posé que si `install` a réussi (jamais un lien vers un fichier absent). `-root-dir` n'est pas connu du serveur : la racine est celle par défaut. **Avec `backup.produce`, root par une porte étroite** : la règle `sudo` ne nomme que le script, mais `vzdump --script` lance un crochet en root, donc un agent compromis qui peut appeler le script a root sur l'hôte (comme avec le groupe `docker`), et `NoNewPrivileges=false` est le seul desserrement de l'unité |
 | **Une machine en root se migre sans `chown -R` sur la racine des services** (P4, *à valider par Lucas*) : l'état et le dossier des sauvegardes se reprennent en entier (`chown -hR`), la racine, son témoin et, pour chaque service, son dossier, `compose.yml`, `.env` et `data/` seulement ; chaque dossier de `files.write` lui-même | `data/<unité>` appartient souvent à l'UID du conteneur (Postgres : 999) : le reprendre casserait le service. L'agent n'a besoin que d'écrire ce qu'il réécrit (le dossier, `compose.yml` et `.env` par renommage, `data/` pour y créer une unité) et de lire l'`.env`. `-h` : un lien trouvé dans l'arbre n'est jamais suivi ; un dossier de service, de droit ou la racine qui est un lien est sauté (`test ! -L`) : la procédure se rejoue sans rien donner de plus | Un fichier de plus que Compose lirait dans le dossier du service (`env_file:`) reste à root : à rendre lisible. Les dossiers d'un `files.write` sont repris sans leur contenu ; un droit sur un dossier système en fait le dossier de l'agent. Pas de ré-enrôlement : identité, droits et rang gardés |
 
 ## 26. Ce que le retard dans l'historique a fixé
