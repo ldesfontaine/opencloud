@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { Translate } from "../i18n/context";
-import { capabilitiesOf, capabilityLabelKey, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
+import { backupProducer, capabilitiesOf, capabilityLabelKey, capabilityNames, describeAccount, describeCapability, describeUnavailable, emptyMachineForm, machineSeen, machinesSubtitle, rightsFormOf, toggleRight, unavailableRights, unitDropIn, unitWritePaths } from "./machines";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -26,6 +26,22 @@ test("capabilitiesOf : les droits cochés dans l'ordre de la liste, avec leurs c
     { name: "files.write", paths: ["/srv/a", "/srv/b"] },
   ]);
   expect(capabilitiesOf({ ...values, rights: [] })).toEqual([]);
+});
+
+test("backup.produce : une case, sa portée est le producteur unique, sans champ à remplir", () => {
+  const values = { name: "pve", rights: ["backup.produce"], backupPath: "", writePaths: "" };
+  expect(capabilitiesOf(values)).toEqual([{ name: "backup.produce", paths: [backupProducer] }]);
+  expect(backupProducer).toBe("proxmox-vzdump");
+  expect(capabilityLabelKey("backup.produce")).toBe("machine.capability_backup_produce");
+  // Il se range après backup.receive, comme le serveur.
+  expect(capabilityNames.indexOf("backup.produce")).toBe(capabilityNames.indexOf("backup.receive") + 1);
+  // Un agent qui l'a repart avec la case cochée, et la portée refaite.
+  const form = rightsFormOf([{ name: "observe", paths: [] }, { name: "backup.produce", paths: [backupProducer] }]);
+  expect(form.rights).toEqual(["backup.produce"]);
+  expect(capabilitiesOf(form)).toEqual([{ name: "backup.produce", paths: [backupProducer] }]);
+  // Il n'écrit rien hors de l'état de l'agent : l'unité n'a pas de ReadWritePaths à lui donner.
+  expect(unitWritePaths([{ name: "backup.produce", paths: [backupProducer] }])).toEqual([]);
+  expect(describeUnavailable(t, "sudo_denied", null)).toBe("machine.capability_unavailable_sudo_denied");
 });
 
 test("toggleRight coche puis décoche ; la clé d'un libellé remplace le point", () => {

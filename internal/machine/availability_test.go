@@ -80,6 +80,25 @@ func TestUnavailable_ReadsBackWhatItWritesInTheOrderOfTheRights(t *testing.T) {
 	}
 }
 
+// Les trois raisons de backup.produce passent l'en-tête, pour ce droit seul : un
+// agent qui dit sudo_denied d'un droit de Docker est un pair qui se trompe.
+func TestUnavailable_TheProduceRightCarriesItsOwnReasons(t *testing.T) {
+	unavailable := map[string]string{CapabilityBackupProduce: "sudo_denied", CapabilityBackupReceive: "path_denied"}
+	text := FormatUnavailable(unavailable)
+	if text != "backup.receive=path_denied,backup.produce=sudo_denied" {
+		t.Fatalf("formatted %q", text)
+	}
+	parsed, err := ParseUnavailable(text)
+	if err != nil || !maps.Equal(parsed, unavailable) {
+		t.Fatalf("read back %v %v", parsed, err)
+	}
+	for _, reason := range []string{"sudo_missing", "sudo_denied", "producer_missing"} {
+		if _, err := ParseUnavailable("backup.produce=" + reason); err != nil {
+			t.Errorf("%s refused: %v", reason, err)
+		}
+	}
+}
+
 // Un seul élément illisible refuse l'en-tête entier : on ne garde pas la moitié
 // d'un rapport qu'on ne comprend pas.
 func TestUnavailable_RefusesTheWholeHeaderOnOneBadItem(t *testing.T) {
@@ -108,12 +127,12 @@ func TestUnavailable_RefusesTheWholeHeaderOnOneBadItem(t *testing.T) {
 }
 
 func TestUnavailableReasons_AreTheClosedListTheAgentJudgesWith(t *testing.T) {
-	if len(UnavailableReasons()) != 5 {
-		t.Fatalf("five reasons, got %v", UnavailableReasons())
+	if len(UnavailableReasons()) != 8 {
+		t.Fatalf("eight reasons, got %v", UnavailableReasons())
 	}
 	// Les droits qui écrivent, dans l'ordre des droits ; une liste écrite : un
 	// droit ajouté plus tard (probe.lan, ssh.keys) n'y entre pas tout seul.
-	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityFilesWrite}
+	want := []string{CapabilityAgentUpdate, CapabilityDockerDeploy, CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite}
 	if !slices.Equal(JudgedCapabilities(), want) || slices.Contains(JudgedCapabilities(), CapabilityObserve) {
 		t.Errorf("judged rights %v, want %v", JudgedCapabilities(), want)
 	}

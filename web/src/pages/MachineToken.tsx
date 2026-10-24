@@ -27,7 +27,8 @@ export function MachineToken() {
     return <Navigate to="/machines" replace />;
   }
   // Un droit qui écrit hors de l'état de l'agent demande un drop-in de son unité.
-  const writePaths = unitWritePaths(token.rights ?? []);
+  const rights = token.rights ?? [];
+  const writePaths = unitWritePaths(rights);
   const expiresIn = formatRemaining(t, Date.parse(token.expires_at) - Date.now());
   return (
     <>
@@ -45,6 +46,7 @@ export function MachineToken() {
             <span className="field-help">{t("machine.prepare_help")}</span>
           </div>
           <Note tone="warn">{t("machine.prepare_docker_note")}</Note>
+          {rights.some((right) => right.name === "backup.produce") && <Note tone="warn">{t("machine.capability_produce_warning")}</Note>}
           <div className="field">
             <span className="field-label">{t("machine.command_label")}</span>
             <TokenBox value={token.command} />

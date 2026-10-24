@@ -54,6 +54,12 @@ const (
 	// /usr/local/bin/opencloud : ce lien, root le lancerait, et le compte de
 	// l'agent peut remplacer ce qu'il vise.
 	AgentCurrentPath = AgentStateDir + "/" + AgentBinDir + "/" + AgentCurrentLink
+	// Là où l'agent range ce qu'il produit (backup.produce), dans son état : à
+	// lui, 0700.
+	AgentProduceDir = "produce"
+	// Le script de root que la règle sudo de backup.produce nomme, seul : il
+	// lance vzdump hors du bac à sable de l'unité de l'agent.
+	VzdumpWrapperPath = "/usr/local/sbin/" + ID + "-vzdump"
 	// Le nom d'une sauvegarde est ce préfixe, un instant UTC et « .tar.age » ;
 	// la clé scellée qui l'accompagne porte le second préfixe et l'empreinte.
 	BackupFilePrefix    = ID + "-"
