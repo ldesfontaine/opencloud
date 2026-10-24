@@ -89,7 +89,7 @@ func TestBackups_AnUnavailableRightIsShownAndTheRunStillGoes(t *testing.T) {
 	}
 	compareGolden(t, filepath.Join("testdata", "backups_unavailable.golden.json"), normalizeBackups(overview.Body.String()))
 
-	run := callAPI(server.Server, http.MethodPost, "/api/backups/actions/run", map[string]any{})
+	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/database/actions/run", map[string]any{})
 	if run.Code != http.StatusCreated {
 		t.Fatalf("the server refused a run on the strength of the report: %d %s", run.Code, run.Body.String())
 	}

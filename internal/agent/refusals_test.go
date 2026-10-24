@@ -201,7 +201,7 @@ func TestBackupPrune_RefusesAFolderTheAccountCannotWrite(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := longOrder(1, agentwire.KindBackupPrune, agentwire.BackupPruneParams{Path: b.dir, Keep: 1})
+	body := longOrder(1, agentwire.KindBackupPrune, agentwire.BackupPruneParams{Path: b.dir, Prefix: "opencloud", Keep: 1})
 	b.runner.receive(b.signed(t, body))
 	report := b.results.take()
 	if report == nil || len(report.Results) != 1 || report.Results[0].State != agentwire.ActionRefused || report.Results[0].Reason != agentwire.ReasonPathDenied {

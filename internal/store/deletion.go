@@ -48,6 +48,7 @@ func machineDeletionPlan(ctx context.Context, db planQuerier, id string) (deleti
 			{deletion.KindHeartbeats, `SELECT id, name FROM heartbeats WHERE machine_id = ? ORDER BY name, id`},
 			{deletion.KindComponents, componentsShowing("machine_id")},
 			{deletion.KindBackupDestinations, `SELECT id, name FROM backup_destinations WHERE machine_id = ? ORDER BY name, id`},
+			{deletion.KindBackupPlans, `SELECT id, COALESCE(NULLIF(name, ''), subject) FROM backup_plans WHERE source_machine_id = ? ORDER BY subject, id`},
 		},
 		[]planQuery{
 			{deletion.KindAgents, `SELECT COUNT(*) FROM agents WHERE machine_id = ?`},

@@ -24,7 +24,6 @@ func TestValues_AreFrozen(t *testing.T) {
 		"LocalMachineName":        {LocalMachineName, "opencloud"},
 		"MatrixTransactionPrefix": {MatrixTransactionPrefix, "opencloud-"},
 		"OutgoingDir":             {OutgoingDir, "outgoing"},
-		"BackupFilePrefix":        {BackupFilePrefix, "opencloud-"},
 		"BackupKeyFilePrefix":     {BackupKeyFilePrefix, "opencloud-key-"},
 		"LabelPrefix":             {LabelPrefix, "opencloud."},
 		"WorkspaceMarker":         {WorkspaceMarker, ".opencloud"},

@@ -205,7 +205,7 @@ brut toutes les 10 s, moyennes horaires, journalières, avec leurs purges
 L'agent **ne garde rien** : flux coupé, mesures perdues. **Fait** (21/10) : la
 base chiffrée part chaque nuit vers un agent (page Sauvegardes ; services à
 venir avec le déploiement), voir
-[« Comment la base est sauvegardée »](22-fonctionnement.md#comment-la-base-est-sauvegardée).
+[« Comment une sauvegarde se fait »](22-fonctionnement.md#comment-une-sauvegarde-se-fait).
 Les jetons de ping sont en clair dans la base.
 
 **Cible**
