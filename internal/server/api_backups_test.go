@@ -180,9 +180,10 @@ func TestBackups_RunSendsReceiveThenPruneAndAuditsWithoutThePassphrase(t *testin
 }
 
 // Un plan à source agent se crée par l'API, se lit après le plan de la base
-// avec sa machine, et refuse de partir tant que l'ordre qui produit n'existe
-// pas : la clé du refus est celle que la page lit sur le plan.
-func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndCannotRunYet(t *testing.T) {
+// avec sa machine, et refuse de partir quand l'une des deux machines n'est pas
+// prête : la clé du refus est celle que la page lit sur le plan, et aucun
+// ordre n'est parti.
+func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndRefusesToRunUnready(t *testing.T) {
 	server := newTestServer(t)
 	destinationID := backupSetup(t, server)
 	body := map[string]any{
@@ -192,8 +193,21 @@ func TestBackups_AnAgentPlanIsListedAfterTheDatabaseAndCannotRunYet(t *testing.T
 	if saved := callAPI(server.Server, http.MethodPut, "/api/backups/plans/pve-vm", body); saved.Code != http.StatusOK {
 		t.Fatalf("plan: %d %s", saved.Code, saved.Body.String())
 	}
+	// L'agent de la destination date d'avant le préfixe d'élagage.
 	run := callAPI(server.Server, http.MethodPost, "/api/backups/plans/pve-vm/actions/run", map[string]any{})
-	if run.Code != http.StatusConflict || errorCode(t, run) != "backup.source_not_implemented" {
+	if run.Code != http.StatusConflict || errorCode(t, run) != "backup.destination_agent_outdated" {
+		t.Fatalf("run: %d %s", run.Code, run.Body.String())
+	}
+	// Mis à jour, il reste que la source n'a pas le droit de produire.
+	remote, err := server.machines.Get(context.Background(), remoteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.machines.Connect(context.Background(), remote.Machine, "192.0.2.1", agentwire.PrefixSinceVersion, "backup.receive=/srv/backups", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	run = callAPI(server.Server, http.MethodPost, "/api/backups/plans/pve-vm/actions/run", map[string]any{})
+	if run.Code != http.StatusConflict || errorCode(t, run) != "backup.source_right_missing" {
 		t.Fatalf("run: %d %s", run.Code, run.Body.String())
 	}
 	runs, err := server.db.ListActionRuns(context.Background(), action.Query{MachineID: remoteID, Limit: 10})

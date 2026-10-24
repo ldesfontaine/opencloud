@@ -208,6 +208,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	backups.SetWorkFactor(10)
 	backups.SetSender(actions)
 	backups.SetParcels(outbox)
+	backups.SetGuests(db)
 	backups.SetWatcher(bus)
 	backups.SetAuditor(journal)
 	deployer := deploy.New(db, declared, machines, db, actions, logger)

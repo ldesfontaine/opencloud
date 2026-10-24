@@ -15,6 +15,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
 	"github.com/ldesfontaine/opencloud/internal/audit"
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/refusal"
 )
 
@@ -28,13 +29,31 @@ var ErrNotWired = errors.New("backup: nothing wired to send an order")
 
 // RunNow lance la sauvegarde du plan tout de suite. Un refus avant l'ordre se
 // rend à l'appelant et s'écrit aussi dans le plan, pour que la page le montre.
+// Un plan machine dure des heures : RunNow rend son premier ordre
+// (backup.produce) et mène la suite derrière la requête ; un plan qui passe
+// déjà, ou un autre en cours, est refusé (ErrRunInProgress).
 func (s *Service) RunNow(ctx context.Context, subject string) (action.Run, error) {
-	return s.run(ctx, subject)
+	if s.sender == nil || s.parcels == nil {
+		return action.Run{}, ErrNotWired
+	}
+	if !s.running.TryLock() {
+		return action.Run{}, ErrRunInProgress
+	}
+	plan, err := s.readPlan(ctx, subject)
+	if err != nil {
+		s.running.Unlock()
+		return action.Run{}, err
+	}
+	if plan.SourceKind == SourceAgent {
+		// Le passage garde le verrou jusqu'à sa fin, ou le rend s'il ne part pas.
+		return s.startAgentPass(ctx, plan)
+	}
+	defer s.running.Unlock()
+	return s.runDatabase(ctx, plan)
 }
 
-// run prépare l'archive chiffrée du plan, l'envoie à l'agent de la
-// destination, puis lui demande d'élaguer. L'ordre backup.receive rendu est
-// celui dont l'état dit si la sauvegarde est arrivée. Un plan à la fois :
+// run mène le plan jusqu'au bout, sans rendre la main avant : c'est le passage
+// de la nuit, qui attend son tour derrière celui qui court. Un plan à la fois :
 // la nuit lance les siens l'un après l'autre.
 func (s *Service) run(ctx context.Context, subject string) (action.Run, error) {
 	if s.sender == nil || s.parcels == nil {
@@ -42,13 +61,31 @@ func (s *Service) run(ctx context.Context, subject string) (action.Run, error) {
 	}
 	s.running.Lock()
 	defer s.running.Unlock()
+	plan, err := s.readPlan(ctx, subject)
+	if err != nil {
+		return action.Run{}, err
+	}
+	if plan.SourceKind == SourceAgent {
+		return s.runAgentPass(ctx, plan)
+	}
+	return s.runDatabase(ctx, plan)
+}
+
+func (s *Service) readPlan(ctx context.Context, subject string) (Plan, error) {
 	plan, err := s.store.GetBackupPlan(ctx, subject)
 	if errors.Is(err, ErrNotFound) {
-		return action.Run{}, ErrPlanMissing
+		return Plan{}, ErrPlanMissing
 	}
 	if err != nil {
-		return action.Run{}, fmt.Errorf("read backup plan: %w", err)
+		return Plan{}, fmt.Errorf("read backup plan: %w", err)
 	}
+	return plan, nil
+}
+
+// runDatabase prépare l'archive chiffrée de la base, l'envoie à l'agent de la
+// destination, puis lui demande d'élaguer. L'ordre backup.receive rendu est
+// celui dont l'état dit si la sauvegarde est arrivée.
+func (s *Service) runDatabase(ctx context.Context, plan Plan) (action.Run, error) {
 	at := s.now()
 	run, err := s.send(ctx, plan, at)
 	if err != nil {
@@ -82,35 +119,40 @@ func (s *Service) noteFailure(ctx context.Context, subject string, at time.Time,
 	s.changed()
 }
 
-// send juge ce qu'il faut pour partir (source, clé, destination, machine,
-// droit), prépare le colis, puis envoie les deux ordres. Un colis dont
-// l'ordre n'est pas parti est jeté.
-func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (action.Run, error) {
-	// La source agent viendra avec l'ordre qui la produit : le plan existe,
-	// la page le montre, rien ne part.
-	if plan.SourceKind != SourceDatabase {
-		return action.Run{}, ErrSourceNotImplemented
-	}
+// prepareDelivery juge ce que tout plan demande de la destination avant de
+// partir : la clé, la destination, sa machine en ligne, le droit de son agent.
+func (s *Service) prepareDelivery(ctx context.Context, plan Plan) (Keyring, Destination, machine.Status, error) {
 	keyring, err := s.store.GetBackupKeyring(ctx)
 	if errors.Is(err, ErrNotFound) {
-		return action.Run{}, ErrKeyringMissing
+		return Keyring{}, Destination{}, machine.Status{}, ErrKeyringMissing
 	}
 	if err != nil {
-		return action.Run{}, fmt.Errorf("read backup key: %w", err)
+		return Keyring{}, Destination{}, machine.Status{}, fmt.Errorf("read backup key: %w", err)
 	}
 	destination, err := s.store.GetBackupDestination(ctx, plan.DestinationID)
 	if err != nil {
-		return action.Run{}, fmt.Errorf("read destination: %w", err)
+		return Keyring{}, Destination{}, machine.Status{}, fmt.Errorf("read destination: %w", err)
 	}
 	target, err := s.machines.Get(ctx, destination.MachineID)
 	if err != nil {
-		return action.Run{}, fmt.Errorf("get machine: %w", err)
+		return Keyring{}, Destination{}, machine.Status{}, fmt.Errorf("get machine: %w", err)
 	}
 	if !target.Online {
-		return action.Run{}, ErrMachineOffline
+		return Keyring{}, Destination{}, machine.Status{}, ErrMachineOffline
 	}
 	if right, _ := rightOf(target, destination.Path); right == RightMissing {
-		return action.Run{}, ErrRightMissing
+		return Keyring{}, Destination{}, machine.Status{}, ErrRightMissing
+	}
+	return keyring, destination, target, nil
+}
+
+// send juge ce qu'il faut pour partir (clé, destination, machine, droit),
+// prépare le colis de la base, puis envoie les deux ordres. Un colis dont
+// l'ordre n'est pas parti est jeté.
+func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (action.Run, error) {
+	keyring, destination, _, err := s.prepareDelivery(ctx, plan)
+	if err != nil {
+		return action.Run{}, err
 	}
 
 	writer, err := s.parcels.Create(destination.MachineID)
@@ -128,7 +170,7 @@ func (s *Service) send(ctx context.Context, plan Plan, at time.Time) (action.Run
 		writer.Discard()
 		return receive, err
 	}
-	s.sendPrune(ctx, destination, plan)
+	s.sendPrune(ctx, destination, plan.FilePrefix(), plan.Keep)
 	return receive, nil
 }
 
@@ -145,15 +187,19 @@ func (s *Service) sendReceive(ctx context.Context, destination Destination, parc
 // pas à lui. L'agent exécute ses ordres longs l'un après l'autre : l'élagage
 // passe après la réception. S'il ne part pas, la sauvegarde est faite quand
 // même, et le prochain passage élaguera.
-func (s *Service) sendPrune(ctx context.Context, destination Destination, plan Plan) {
-	params, err := json.Marshal(agentwire.BackupPruneParams{Path: destination.Path, Prefix: plan.FilePrefix(), Keep: plan.Keep})
-	if err != nil {
-		s.logger.Error("encode prune params", "error", err)
-		return
-	}
-	if _, err := s.sender.Send(ctx, destination.MachineID, agentwire.KindBackupPrune, params); err != nil {
+func (s *Service) sendPrune(ctx context.Context, destination Destination, prefix string, keep int) {
+	if _, err := s.requestPrune(ctx, destination, prefix, keep); err != nil {
 		s.logger.Warn("backup prune not sent", "destination_id", destination.ID, "error", err)
 	}
+}
+
+// requestPrune envoie l'élagage d'un préfixe et rend son ordre.
+func (s *Service) requestPrune(ctx context.Context, destination Destination, prefix string, keep int) (action.Run, error) {
+	params, err := json.Marshal(agentwire.BackupPruneParams{Path: destination.Path, Prefix: prefix, Keep: keep})
+	if err != nil {
+		return action.Run{}, fmt.Errorf("encode prune params: %w", err)
+	}
+	return s.sender.Send(ctx, destination.MachineID, agentwire.KindBackupPrune, params)
 }
 
 // stage écrit dans le colis l'archive chiffrée et la clé scellée. La copie

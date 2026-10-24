@@ -134,6 +134,9 @@ func runServe(args []string) error {
 	}
 	parts.actions.SetOutbox(outbox)
 	parts.backups.SetParcels(outbox)
+	// Un plan machine lancé à la main se mène derrière la requête : il suit la
+	// vie de serve.
+	parts.backups.SetLifetime(ctx)
 	parts.backups.SetWatcher(bus)
 
 	// serve n'observe rien de sa propre machine : c'est l'agent installé sur

@@ -1,0 +1,15 @@
+// Le choix des machines virtuelles d'un plan : la liste sous le sélecteur, des
+// noms longs qui passent à la ligne plutôt que de sortir de la carte.
+.guest-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  .checks label {
+    max-width: 100%;
+    height: auto;
+    min-height: 30px;
+    padding-block: 4px;
+    overflow-wrap: anywhere;
+  }
+}

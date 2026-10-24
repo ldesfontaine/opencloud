@@ -11,6 +11,9 @@ import (
 // Watch est la boucle de fond : toutes les quinze minutes, un plan est-il
 // dû ? Un serveur arrêté à 3 h rattrape à son retour.
 func (s *Service) Watch(ctx context.Context) {
+	// Un plan machine lancé à la main court encore : la base ne ferme pas
+	// dessous.
+	defer s.background.Wait()
 	ticker := time.NewTicker(watchPeriod)
 	defer ticker.Stop()
 	for {
@@ -32,15 +35,24 @@ func (s *Service) RunIfDue(ctx context.Context) {
 		s.logger.Error("list backup plans", "error", err)
 		return
 	}
-	now := s.now()
 	for _, plan := range plans {
-		if !due(now, plan) {
+		if !s.isDue(ctx, plan.Subject) {
 			continue
 		}
 		if _, err := s.run(audit.WithActor(ctx, audit.Rule("backup")), plan.Subject); err != nil && ctx.Err() == nil {
 			s.logRun(plan.Subject, err)
 		}
 	}
+}
+
+// isDue relit le plan avant de le lancer : un plan machine précédent dure des
+// heures, et un autre passage a pu faire celui-ci, ou le supprimer.
+func (s *Service) isDue(ctx context.Context, subject string) bool {
+	plan, err := s.store.GetBackupPlan(ctx, subject)
+	if err != nil {
+		return false
+	}
+	return due(s.now(), plan)
 }
 
 func (s *Service) logRun(subject string, err error) {

@@ -8,10 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ldesfontaine/opencloud/internal/backup"
 	"github.com/ldesfontaine/opencloud/internal/proxmox"
 )
 
-var _ proxmox.Store = (*DB)(nil)
+var (
+	_ proxmox.Store = (*DB)(nil)
+	_ backup.Guests = (*DB)(nil)
+)
 
 // contentSeparator sépare les contenus d'un stockage dans la colonne ; aucun
 // nom de contenu de Proxmox n'en contient.
@@ -228,6 +232,22 @@ func (db *DB) GetProxmoxView(ctx context.Context, machineID string) (proxmox.Vie
 		return proxmox.View{}, fmt.Errorf("scan proxmox storages: %w", err)
 	}
 	return proxmox.View{Host: host, Guests: guests, Storages: storages}, nil
+}
+
+// ListProxmoxGuestIDs rend les numéros des VM et conteneurs que l'hôte de cette
+// machine a relevés, modèles exclus (vzdump n'en sauvegarde pas) ; rien si la
+// machine ne porte pas d'hôte ou si aucun relevé n'a eu lieu.
+func (db *DB) ListProxmoxGuestIDs(ctx context.Context, machineID string) ([]int, error) {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT vmid FROM proxmox_guests WHERE machine_id = ? AND template = 0 ORDER BY vmid`, machineID)
+	if err != nil {
+		return nil, fmt.Errorf("list proxmox guest ids: %w", err)
+	}
+	return collect(rows, func(row scanner) (int, error) {
+		var vmid int
+		err := row.Scan(&vmid)
+		return vmid, err
+	})
 }
 
 func scanProxmoxStorage(row scanner) (proxmox.Storage, error) {

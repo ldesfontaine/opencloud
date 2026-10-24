@@ -56,10 +56,17 @@ type backupPlanJSON struct {
 	Keep              int        `json:"keep"`
 	Schedule          string     `json:"schedule"`
 	LastAttemptAt     *time.Time `json:"last_attempt_at"`
-	// La clé du refus de la dernière tentative qui n'a pas pu partir.
+	// La clé du refus de la dernière tentative qui n'a pas pu partir, ou le
+	// premier souci de son passage (« backup.target_failed:5012:producer_failed »).
 	LastError string `json:"last_error"`
-	// Le dernier ordre backup.receive, null s'il n'y en a pas ou plus.
+	// Le dernier ordre du plan : le backup.receive du dernier passage, ou
+	// l'ordre en cours pendant qu'il dure ; null s'il n'y en a pas ou plus.
 	LastRun *actionRunJSON `json:"last_run"`
+	// Les cibles du dernier passage d'un plan machine, reçues et en échec ;
+	// zéro et zéro pour la base, ou après un redémarrage de serve (les comptes
+	// ne sont pas gardés en base).
+	LastTargetsOK     int `json:"last_targets_ok"`
+	LastTargetsFailed int `json:"last_targets_failed"`
 }
 
 type backupKeyringRequest struct {
@@ -103,6 +110,7 @@ func backupPlanToJSON(plan backup.Plan, run *action.Run) backupPlanJSON {
 		SourceMachineName: plan.SourceMachineName, Producer: plan.Producer, Selector: plan.Selector,
 		DestinationID: plan.DestinationID, Keep: plan.Keep, Schedule: plan.Schedule,
 		LastAttemptAt: httpx.TimeOrNil(plan.LastAttemptAt), LastError: plan.LastError,
+		LastTargetsOK: plan.LastTargetsOK, LastTargetsFailed: plan.LastTargetsFailed,
 	}
 	if run != nil {
 		converted := actionRunToJSON(*run)
@@ -214,8 +222,9 @@ func (s *Server) deleteBackupPlan(w http.ResponseWriter, r *http.Request) {
 	s.finishAPIAction(w, r, s.backups.DeletePlan(r.Context(), r.PathValue("subject")), backup.ErrNotFound)
 }
 
-// runBackup lance la sauvegarde du plan tout de suite ; la réponse est
-// l'ordre backup.receive, dont l'état avance ensuite par le direct.
+// runBackup lance la sauvegarde du plan tout de suite ; la réponse est son
+// premier ordre, dont l'état avance ensuite par le direct : backup.receive pour
+// la base, backup.produce pour un plan machine, dont le passage dure des heures.
 func (s *Server) runBackup(w http.ResponseWriter, r *http.Request) {
 	var request struct{}
 	if !s.readAPI(w, r, &request) {

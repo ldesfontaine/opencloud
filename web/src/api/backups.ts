@@ -54,10 +54,18 @@ export interface BackupPlan {
   // « daily » : le seul rythme.
   schedule: string;
   last_attempt_at: string | null;
-  // La clé du refus de la dernière tentative qui n'a pas pu partir ; vide sinon.
+  // Ce qui a gêné la dernière tentative, vide sinon : la clé d'un refus
+  // (« backup.source_offline »), ou, pour un plan agent, le premier souci du
+  // passage avec sa cible et sa raison (« backup.target_failed:5010:timeout »,
+  // « backup.prune_failed:5010:… ») ; lastErrorText la lit.
   last_error: string;
-  // Le dernier ordre backup.receive ; null s'il n'y en a pas ou plus.
+  // Le dernier ordre backup.receive du plan ; null s'il n'y en a pas ou plus.
   last_run: ActionRun | null;
+  // Les cibles du dernier passage d'un plan agent : reçues, et en échec.
+  // Gardés en mémoire par le serveur : 0 et 0 pour la base, et après un
+  // redémarrage tant que le plan n'a pas repassé.
+  last_targets_ok: number;
+  last_targets_failed: number;
 }
 
 export interface Backups {
@@ -111,8 +119,10 @@ export async function deleteBackupPlan(subject: string): Promise<void> {
   return api.delete(`${backupsPath}/plans/${segment(subject)}`);
 }
 
-// Lance la sauvegarde du plan tout de suite ; la réponse est l'ordre
-// backup.receive.
+// Lance la sauvegarde du plan tout de suite. Pour la base, la réponse est
+// l'ordre backup.receive ; pour un plan agent, le premier ordre
+// backup.produce, le reste du passage (une cible après l'autre) se mène
+// derrière la requête.
 export async function runBackupNow(subject: string): Promise<ActionRun> {
   return api.post<ActionRun>(`${backupsPath}/plans/${segment(subject)}/actions/run`, {});
 }

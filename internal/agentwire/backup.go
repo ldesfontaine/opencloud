@@ -35,6 +35,12 @@ const (
 	DatabaseSubject = "database"
 	// Le préfixe tient dans un nom de fichier, avec l'instant et le suffixe.
 	maxBackupPrefix = 64
+
+	// PrefixSinceVersion est la première version d'agent qui lit le préfixe de
+	// backup.prune. Un agent plus ancien l'ignore et élague « opencloud-… »
+	// avec le nombre à garder de n'importe quel plan : le serveur ne lui envoie
+	// pas l'élagage d'un plan machine.
+	PrefixSinceVersion = "v0.2.0"
 )
 
 var (

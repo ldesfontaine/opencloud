@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { saveBackupPlan, type BackupPlan, type Backups } from "../../api/backups";
 import { useMachines } from "../../api/machines";
+import { useMachineProxmox } from "../../api/proxmox";
 import { CardHeader } from "../../components/Card";
 import { EnumSelect, Field, Input, Select } from "../../components/Field";
 import { FormActions, FormCard } from "../../components/FormCard";
@@ -10,6 +11,7 @@ import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
 import { emptyPlanForm, planFormOf, planRequestOf, planTitle, producers, sourceKinds, sourceKindsFor, subjectProblem } from "../../lib/backups";
+import { GuestSelector } from "./GuestSelector";
 
 // Le formulaire d'un plan : un neuf, ou celui qu'on modifie. Le sujet et la
 // sorte de source sont l'identité du plan, ils ne se changent pas ; le reste
@@ -26,7 +28,13 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
   const isEditing = editing !== null;
   const isAgent = values.kind === "agent";
   const destination = values.destination === "" ? (overview.destinations[0]?.id ?? "") : values.destination;
-  const isComplete = destination !== "" && (!isAgent || (values.subject !== "" && values.machine !== ""));
+  // Un hôte Proxmox déclaré sur la machine source, avec son relevé : le choix
+  // se fait dans la liste de ses invités. Sinon, le sélecteur se saisit.
+  const sourceMachine = machines.data?.machines.find((candidate) => candidate.id === values.machine);
+  const host = useMachineProxmox(values.machine, isAgent && sourceMachine?.proxmox.declared === true);
+  const guests = host.data?.guests ?? [];
+  const hasGuests = guests.some((guest) => !guest.template);
+  const isComplete = destination !== "" && (!isAgent || (values.subject !== "" && values.machine !== "" && values.selector !== ""));
 
   // « Modifier » sur un plan amène ici : le formulaire est sous la liste.
   useEffect(() => {
@@ -87,9 +95,15 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
             <Field label={t("backup.plan_producer")} htmlFor="backup-plan-producer">
               <EnumSelect id="backup-plan-producer" value={values.producer} values={producers} labelKey="backup.producer_" onChange={(producer) => change("producer", producer)} />
             </Field>
-            <Field label={t("backup.plan_selector")} htmlFor="backup-plan-selector" help={t("backup.plan_selector_help")}>
-              <Input id="backup-plan-selector" mono type="text" autoComplete="off" maxLength={255} value={values.selector} onChange={(event) => change("selector", event.target.value)} required />
-            </Field>
+            {hasGuests ? (
+              <Field label={t("backup.plan_selector")} htmlFor="backup-plan-selector" help={t("backup.plan_selector_guests_help")}>
+                <GuestSelector id="backup-plan-selector" guests={guests} selector={values.selector} onChange={(selector) => change("selector", selector)} />
+              </Field>
+            ) : (
+              <Field label={t("backup.plan_selector")} htmlFor="backup-plan-selector" help={t("backup.plan_selector_help")}>
+                <Input id="backup-plan-selector" mono type="text" autoComplete="off" maxLength={255} value={values.selector} onChange={(event) => change("selector", event.target.value)} required />
+              </Field>
+            )}
           </>
         )}
         <Field label={t("backup.plan_destination_label")} htmlFor="backup-plan-destination">

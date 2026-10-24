@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { emptyPlanForm, isBackedUp, passphraseProblem, planFormOf, planRequestOf, planTitle, sourceKindsFor, sourceLabel, subjectProblem } from "./backups";
+import { emptyPlanForm, isBackedUp, lastErrorText, passSummary, passphraseProblem, planFormOf, planRequestOf, planTitle, selectableGuests, selectorIds, sourceKindsFor, sourceLabel, subjectProblem, toggleSelectorId } from "./backups";
+import type { ProxmoxGuest } from "../api/proxmox";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -22,6 +23,8 @@ const databasePlan: BackupPlan = {
   last_attempt_at: null,
   last_error: "",
   last_run: null,
+  last_targets_ok: 0,
+  last_targets_failed: 0,
 };
 const agentPlan: BackupPlan = {
   ...databasePlan,
@@ -161,5 +164,73 @@ describe("sourceKindsFor", () => {
   it("offers the database to a new plan only while it has none", () => {
     expect(sourceKindsFor(false)).toEqual(["database", "agent"]);
     expect(sourceKindsFor(true)).toEqual(["agent"]);
+  });
+});
+
+describe("lastErrorText", () => {
+  const describeReason = (reason: string) => `reason(${reason})`;
+
+  it("translates a refusal key as it is", () => {
+    expect(lastErrorText(t, "backup.source_offline", describeReason)).toBe("backup.source_offline");
+  });
+
+  it("names the virtual machine and the reason of a target that failed", () => {
+    expect(lastErrorText(t, "backup.target_failed:5010:producer_failed", describeReason)).toBe("backup.target_failed:5010:reason(producer_failed)");
+    expect(lastErrorText(t, "backup.prune_failed:5010:path_unwritable", describeReason)).toBe("backup.prune_failed:5010:reason(path_unwritable)");
+  });
+
+  it("keeps the right that a reason names after its own colon", () => {
+    expect(lastErrorText(t, "backup.target_failed:7:right_missing:backup.produce", describeReason)).toBe("backup.target_failed:7:reason(right_missing:backup.produce)");
+  });
+
+  it("says a reason was not reported rather than guessing one", () => {
+    expect(lastErrorText(t, "backup.target_failed:7:unknown", describeReason)).toBe("backup.target_failed:7:backup.target_reason_unknown");
+    expect(lastErrorText(t, "backup.target_failed:7", describeReason)).toBe("backup.target_failed:7:backup.target_reason_unknown");
+  });
+});
+
+describe("passSummary", () => {
+  it("says nothing of a plan that has not passed since the server started", () => {
+    expect(passSummary(t, agentPlan)).toBeNull();
+  });
+
+  it("gives the two counters, the failed ones even when they are none", () => {
+    expect(passSummary(t, { last_targets_ok: 11, last_targets_failed: 0 })).toBe("backup.targets_ok:11 · backup.targets_failed:0");
+    expect(passSummary(t, { last_targets_ok: 9, last_targets_failed: 2 })).toBe("backup.targets_ok:9 · backup.targets_failed:2");
+  });
+});
+
+describe("the choice of virtual machines", () => {
+  const guest = (vmid: number, template = false): ProxmoxGuest => ({
+    vmid,
+    kind: "qemu",
+    name: `vm-${vmid}`,
+    status: "running",
+    template,
+    node: "pve",
+    cpus: 1,
+    max_memory: 0,
+    max_disk: 0,
+    linked_machine_id: null,
+    last_backup_at: null,
+    last_backup_bytes: 0,
+  });
+
+  it("offers the guests by number, templates left out", () => {
+    expect(selectableGuests([guest(300), guest(100, true), guest(200)]).map((item) => item.vmid)).toEqual([200, 300]);
+  });
+
+  it("reads the numbers of a selector, and none for all", () => {
+    expect(selectorIds("5010,5012")).toEqual([5010, 5012]);
+    expect(selectorIds("all")).toEqual([]);
+    expect(selectorIds("")).toEqual([]);
+  });
+
+  it("keeps the selector sorted and without duplicates when a box is toggled", () => {
+    expect(toggleSelectorId("", 200, true)).toBe("200");
+    expect(toggleSelectorId("200", 100, true)).toBe("100,200");
+    expect(toggleSelectorId("100,200", 200, true)).toBe("100,200");
+    expect(toggleSelectorId("100,200", 100, false)).toBe("200");
+    expect(toggleSelectorId("200", 200, false)).toBe("");
   });
 });

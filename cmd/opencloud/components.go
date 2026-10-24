@@ -146,6 +146,9 @@ func buildComponents(cfg config.Config, stateDir *os.Root, db *store.DB, logger 
 	// (SetParcels) et la boucle sont à serve seul.
 	backups := backup.New(db, machines, stateDir, logger)
 	backups.SetSender(actions)
+	// « all », pour un plan machine, prend les invités que l'hôte Proxmox de la
+	// source a relevés.
+	backups.SetGuests(db)
 	backups.SetAuditor(journal)
 	// Le déploiement des services déclarés part par les mêmes ordres signés.
 	deployer := deploy.New(db, declared, machines, db, actions, logger)

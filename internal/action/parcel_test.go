@@ -475,3 +475,57 @@ func TestOutbox_SweepRemovesAnExpiredUpload(t *testing.T) {
 		t.Fatalf("an expired upload lists %+v", files)
 	}
 }
+
+// Le serveur dépose lui-même un fichier dans le colis (la clé scellée) ; la
+// remise à la destination ferme le colis à la productrice et lui donne toute
+// la vie d'un colis, comptée d'ici.
+func TestUpload_StageThenHandoverListsEverythingAndClosesTheParcelToTheProducer(t *testing.T) {
+	outbox, root, now := newOutbox(t)
+	upload, err := outbox.CreateForUpload(machineID, producerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const keyName = "opencloud-key-0123456789abcdef.age"
+	if err := upload.Stage(keyName, []byte("clé scellée de test")); err != nil {
+		t.Fatal(err)
+	}
+	if err := upload.Stage(keyName, []byte("autre")); err == nil {
+		t.Fatal("a staged name was written twice")
+	}
+	for _, evil := range []string{"../x", "a/b", ".caché", ""} {
+		if err := upload.Stage(evil, []byte("x")); !errors.Is(err, action.ErrParcelName) {
+			t.Errorf("%q: %v", evil, err)
+		}
+	}
+	if err := receive(outbox, producerID, upload.ID(), uploadedName, uploadedBytes); err != nil {
+		t.Fatal(err)
+	}
+	info, err := root.Stat("outgoing/" + upload.ID() + "/" + keyName)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("staged file %v %v", info, err)
+	}
+
+	// La production a duré : le colis aurait échu sans la remise.
+	*now = benchNow.Add(action.ParcelLifetime - time.Minute)
+	files := upload.Handover()
+	if len(files) != 2 || files[0].Name != keyName || files[1].Name != uploadedName {
+		t.Fatalf("files %+v", files)
+	}
+	if files[0].SHA256 != sumOf("clé scellée de test") || files[0].Size != int64(len("clé scellée de test")) {
+		t.Fatalf("staged sum %+v", files[0])
+	}
+	*now = benchNow.Add(action.ParcelLifetime + time.Minute)
+	file, _, err := outbox.Open(machineID, upload.ID(), keyName)
+	if err != nil {
+		t.Fatalf("the destination has a full lifetime from the handover: %v", err)
+	}
+	_ = file.Close()
+	if err := receive(outbox, producerID, upload.ID(), "pve-vm-5012-20261021-120001.tar.age", "autre"); !errors.Is(err, action.ErrParcelNotFound) {
+		t.Fatalf("the producer writes after the handover: %v", err)
+	}
+	*now = benchNow.Add(action.ParcelLifetime - time.Minute + action.ParcelLifetime)
+	outbox.Sweep()
+	if _, err := root.Stat("outgoing/" + upload.ID()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the handed over parcel outlived its new lifetime: %v", err)
+	}
+}

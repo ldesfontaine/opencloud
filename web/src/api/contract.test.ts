@@ -835,6 +835,8 @@ const backups = shape<Backups>("Backups", {
     last_attempt_at: value,
     last_error: value,
     last_run: actionRun,
+    last_targets_ok: value,
+    last_targets_failed: value,
   }),
 });
 
