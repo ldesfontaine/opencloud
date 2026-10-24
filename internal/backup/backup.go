@@ -22,9 +22,6 @@ const (
 	// SelectorAll prend tout ce que le producteur sait nommer.
 	SelectorAll = "all"
 
-	// ProducerProxmoxVzdump : l'agent d'un hôte Proxmox lance vzdump.
-	ProducerProxmoxVzdump = "proxmox-vzdump"
-
 	MaxSubject  = 40
 	MaxName     = 80
 	MaxSelector = 255
@@ -72,12 +69,6 @@ type DestinationDefinition struct {
 	Name      string
 	MachineID string
 	Path      string
-}
-
-// Producers est la liste fermée de ce qu'un agent sait produire. Le producteur
-// de test de l'agent n'en fait pas partie : il n'existe que dans ses tests.
-func Producers() []string {
-	return []string{ProducerProxmoxVzdump}
 }
 
 // Plan est une sauvegarde planifiée : une source (la base, ou ce qu'un agent
@@ -176,7 +167,7 @@ var (
 	ErrDestinationInUse     = refusal.Conflict("backup.destination_in_use", "the plan sends its backups to this destination")
 	ErrKeepInvalid          = refusal.Invalid("backup.keep_invalid", "keep between 1 and 365 backups")
 	ErrPlanMissing          = refusal.Conflict("backup.plan_missing", "no plan has this subject")
-	ErrPlanInvalid          = refusal.Invalid("backup.plan_invalid", "plan subject must be lowercase letters, digits and dashes (40 at most) and match its source; name 80 characters at most")
+	ErrPlanInvalid          = refusal.Invalid("backup.plan_invalid", "plan subject must be lowercase letters, digits and dashes (40 at most), not end with -vm-<digits>, and match its source; name 80 characters at most")
 	ErrPlanExists           = refusal.Conflict("backup.plan_exists", "another plan already sends the same source to this destination")
 	ErrSourceMachineUnknown = refusal.Invalid("backup.source_machine_unknown", "the machine that produces the backup does not exist")
 	ErrProducerUnknown      = refusal.Invalid("backup.producer_unknown", "the producer is not one of the known producers")

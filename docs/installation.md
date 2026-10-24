@@ -1044,8 +1044,7 @@ jeton ajoute donc, **après les lignes du compte**, une ligne par geste :
 ```sh
 runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/produce
 printf '%s\n' '#!/bin/sh' '# openCloud : vzdump hors du bac à sable de l agent, sur ordre de l agent.' 'exec /usr/bin/systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"' | install -m 0755 -o root -g root /dev/stdin /usr/local/sbin/opencloud-vzdump
-printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/opencloud-agent
-visudo -cf /etc/sudoers.d/opencloud-agent
+printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/.opencloud-agent.tmp && visudo -cf /etc/sudoers.d/.opencloud-agent.tmp && mv /etc/sudoers.d/.opencloud-agent.tmp /etc/sudoers.d/opencloud-agent || { rm -f /etc/sudoers.d/.opencloud-agent.tmp; false; }
 install -d -m 0755 /etc/systemd/system/opencloud-agent.service.d
 printf '%s\n' '[Service]' 'NoNewPrivileges=false' | install -m 0644 /dev/stdin /etc/systemd/system/opencloud-agent.service.d/produce.conf
 systemctl daemon-reload
@@ -1055,7 +1054,7 @@ systemctl daemon-reload
 | --- | --- |
 | `produce/` dans l'état, au compte, `0700` | Là où l'agent range l'archive pendant qu'il la chiffre ; à lui, comme le reste de son état |
 | Le script `/usr/local/sbin/opencloud-vzdump`, à root | `exec systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"` : `vzdump` tourne dans une **unité transitoire**, donc **hors** du bac à sable de l'agent (il voit `/run/qemu-server`, `/var/log/vzdump`, les stockages) ; `--pipe` relie sa sortie standard à l'agent, qui la lit avec `--stdout` |
-| La règle `sudoers.d`, à root, `0440` | Le compte lance ce script, **seulement lui**, sans mot de passe. `visudo -cf` la vérifie : une règle fausse bloquerait `sudo` pour toute la machine, d'où la ligne qui la relit juste après (si elle échoue, supprimez le fichier) |
+| La règle `sudoers.d`, à root, `0440` | Le compte lance ce script, **seulement lui**, sans mot de passe. Une règle fausse bloquerait `sudo` pour toute la machine : la ligne l'écrit d'abord sous `.opencloud-agent.tmp` (un nom à point, que `sudo` ne lit pas), la fait juger par `visudo -cf`, et ne la renomme qu'alors. Si l'un des trois échoue, le fichier provisoire part, rien n'est posé et la ligne sort en erreur |
 | Le drop-in `produce.conf` | Avec `NoNewPrivileges=true`, le bit setuid de `sudo` est ignoré et la règle ne sert à rien. `NoNewPrivileges=false` est **le seul desserrement** de l'unité ; les autres protections restent |
 
 **Ce que ça vaut en sécurité.** La règle ne nomme que le script, mais `vzdump`

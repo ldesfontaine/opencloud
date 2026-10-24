@@ -117,7 +117,7 @@ func TestBackupPlans_ListsTheDatabaseFirstAndRoundTripsAnAgentSource(t *testing.
 	for _, subject := range []string{"zeta", "alpha"} {
 		plan := backup.Plan{
 			ID: "bkp_" + subject, Subject: subject, Name: "Libellé " + subject, SourceKind: backup.SourceAgent, SourceMachineID: source,
-			Producer: backup.ProducerProxmoxVzdump, Selector: "5010,5012", DestinationID: destination.ID, Keep: 5,
+			Producer: machine.ProducerProxmoxVzdump, Selector: "5010,5012", DestinationID: destination.ID, Keep: 5,
 			Schedule: backup.ScheduleDaily, CreatedAt: backupsNow, UpdatedAt: backupsNow,
 		}
 		if err := db.SaveBackupPlan(ctx, plan); err != nil {
@@ -133,7 +133,7 @@ func TestBackupPlans_ListsTheDatabaseFirstAndRoundTripsAnAgentSource(t *testing.
 	}
 	alpha := plans[1]
 	if alpha.Name != "Libellé alpha" || alpha.SourceKind != backup.SourceAgent || alpha.SourceMachineID != source || alpha.SourceMachineName != "pve" ||
-		alpha.Producer != backup.ProducerProxmoxVzdump || alpha.Selector != "5010,5012" || alpha.Keep != 5 {
+		alpha.Producer != machine.ProducerProxmoxVzdump || alpha.Selector != "5010,5012" || alpha.Keep != 5 {
 		t.Fatalf("alpha %+v", alpha)
 	}
 
@@ -179,7 +179,7 @@ func TestDeleteMachine_IsHeldBackByThePlansItProduces(t *testing.T) {
 		{ID: "bkp_a", Subject: "pve-vm", Name: "Machines virtuelles"},
 		{ID: "bkp_b", Subject: "pve-ct"},
 	} {
-		plan.SourceKind, plan.SourceMachineID, plan.Producer, plan.Selector = backup.SourceAgent, source, backup.ProducerProxmoxVzdump, "all"
+		plan.SourceKind, plan.SourceMachineID, plan.Producer, plan.Selector = backup.SourceAgent, source, machine.ProducerProxmoxVzdump, "all"
 		plan.DestinationID, plan.Keep, plan.Schedule, plan.CreatedAt, plan.UpdatedAt = destination.ID, 14, backup.ScheduleDaily, backupsNow, backupsNow
 		if err := db.SaveBackupPlan(ctx, plan); err != nil {
 			t.Fatal(err)

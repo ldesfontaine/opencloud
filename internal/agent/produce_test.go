@@ -373,6 +373,8 @@ func TestBackupProduce_TheJudgeRefusesBeforeRunningAnything(t *testing.T) {
 		"no prefix":          func(p *agentwire.BackupProduceParams) { p.Prefix = "" },
 		"a path prefix":      func(p *agentwire.BackupProduceParams) { p.Prefix = "../pve" },
 		"a capital prefix":   func(p *agentwire.BackupProduceParams) { p.Prefix = "PVE" },
+		"the database":       func(p *agentwire.BackupProduceParams) { p.Prefix = agentwire.DatabaseSubject },
+		"the database files": func(p *agentwire.BackupProduceParams) { p.Prefix = brand.ID },
 		"no recipient":       func(p *agentwire.BackupProduceParams) { p.Recipient = "" },
 		"a bad recipient":    func(p *agentwire.BackupProduceParams) { p.Recipient = "age1pasunecle" },
 		"a private key":      func(p *agentwire.BackupProduceParams) { p.Recipient = "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQ" }, // gitleaks:allow -- une fausse clé privée, pour vérifier qu'elle est refusée comme destinataire.
@@ -518,6 +520,33 @@ func TestClearProduceDir_RemovesWhatAKillLeftBehind(t *testing.T) {
 	assertDirEmpty(t, filepath.Join(state.Name(), "produce"))
 	if _, err := state.Stat("identity.json"); err != nil {
 		t.Errorf("the rest of the state went with it: %v", err)
+	}
+}
+
+// Un produce/ qui est un lien n'est ni vidé au démarrage ni écrit par un
+// ordre : os.Root suivrait un lien vers l'état lui-même, et vider produce/
+// emporterait la clé de l'agent.
+func TestBackupProduce_AProduceDirThatIsALinkIsNeverEmptied(t *testing.T) {
+	b := newProduceRig(t)
+	b.countingProducer([]byte("x"))
+	if err := b.stateDir.WriteFile("identity.json", []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".", b.produceDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := clearProduceDir(b.stateDir); err == nil {
+		t.Error("a linked produce dir was cleared")
+	}
+	results := b.run(t, 1, produceParams(b.identity))
+	if final := results[len(results)-1]; final.State != agentwire.ActionRefused || final.Reason != agentwire.ReasonPathUnwritable {
+		t.Fatalf("results %+v", results)
+	}
+	if len(b.produced) != 0 {
+		t.Error("the producer ran into a linked produce dir")
+	}
+	if _, err := b.stateDir.Stat("identity.json"); err != nil {
+		t.Fatalf("the state went with produce/: %v", err)
 	}
 }
 

@@ -35,7 +35,7 @@ const (
 
 // Ce qu'un agent peut téléverser dans un colis (backup.produce). MaxUploadBytes
 // borne un fichier : une machine virtuelle de 64 Gio compressée est déjà hors
-// du commun pour un petit parc de machines. MinFreeAfterUpload est l'espace
+// du commun pour un homelab. MinFreeAfterUpload est l'espace
 // que le disque de l'état garde libre une fois le fichier écrit : un colis
 // qui le remplirait étoufferait la base, qui vit au même endroit. Un colis
 // téléversé porte au plus maxUploadedFiles fichiers, un seul en vol à la fois.

@@ -121,11 +121,18 @@ func readBackupProduce(body agentwire.OrderBody, capabilities []machine.Capabili
 		return produceJob{}, &agentwire.ActionResult{RunID: body.RunID, State: agentwire.ActionRefused, Reason: agentwire.ReasonProducerUnknown}
 	}
 	recipient, err := backup.ParseRecipient(params.Recipient)
-	if err != nil || !chosen.validTarget(params.Target) || !agentwire.IsBackupPrefix(params.Prefix) ||
+	if err != nil || !chosen.validTarget(params.Target) || !isProducePrefix(params.Prefix) ||
 		params.Parcel == "" || len(params.Parcel) > maxParcelIDBytes {
 		return produceJob{}, bad
 	}
 	return produceJob{params: params, recipient: recipient, producer: chosen}, nil
+}
+
+// isProducePrefix : un préfixe de sauvegarde qui n'est pas celui de la base.
+// BackupFileName renommerait « database » en « opencloud », et une archive
+// sous « opencloud » serait élaguée avec les sauvegardes de la base.
+func isProducePrefix(prefix string) bool {
+	return agentwire.IsBackupPrefix(prefix) && prefix != agentwire.DatabaseSubject && prefix != brand.ID
 }
 
 // produce fait l'ordre : le producteur écrit son flux brut dans produce/, il
@@ -281,7 +288,24 @@ func openProduceDir(stateDir *os.Root) (*os.Root, error) {
 	if err := stateDir.Mkdir(brand.AgentProduceDir, backupDirMode); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
+	if err := requireProduceDir(stateDir); err != nil {
+		return nil, err
+	}
 	return stateDir.OpenRoot(brand.AgentProduceDir)
+}
+
+// requireProduceDir : produce/ est un vrai dossier. os.Root suit un lien qui
+// reste sous l'état : un produce/ qui pointerait vers l'état lui-même serait
+// vidé avec la clé de l'agent.
+func requireProduceDir(stateDir *os.Root) error {
+	info, err := stateDir.Lstat(brand.AgentProduceDir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", brand.AgentProduceDir)
+	}
+	return nil
 }
 
 // createProduceFile crée un fichier neuf (0600) de produce/. Un reste du même
@@ -314,10 +338,14 @@ func clearDirectory(dir *os.Root) {
 // production y a laissé un .raw ou un .part de la taille d'une machine
 // virtuelle. Un dossier qui n'existe pas n'a rien à vider.
 func clearProduceDir(stateDir *os.Root) error {
-	dir, err := stateDir.OpenRoot(brand.AgentProduceDir)
+	err := requireProduceDir(stateDir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	dir, err := stateDir.OpenRoot(brand.AgentProduceDir)
 	if err != nil {
 		return err
 	}

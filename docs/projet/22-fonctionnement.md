@@ -735,7 +735,7 @@ télécharge comme n'importe quel colis. Le corps est le fichier, de la taille d
 arrive avant l'envoi. Le serveur juge la taille annoncée **avant** d'ouvrir le
 corps, écrit un `.part` `0600`, ne lit pas un octet de plus que la taille
 annoncée, vérifie taille et somme, puis renomme. Le nom doit être celui d'une
-archive produite (`<préfixe>-AAAAMMJJ-HHMMSS.tar.age`). Un fichier à la fois par
+sauvegarde (`<préfixe>-AAAAMMJJ-HHMMSS.tar.age`, `agentwire.IsBackupFile`). Un fichier à la fois par
 colis, huit au plus, jamais deux fois le même nom. La limite de corps de 1 Mio
 du serveur ne vaut pas pour cette seule route.
 
@@ -747,7 +747,8 @@ du serveur ne vaut pas pour cette seule route.
 | `411 length_required` | pas de `Content-Length` |
 | `413 parcel_too_large` | plus de 64 Gio (`action.MaxUploadBytes`) |
 | `413 disk_full` | moins de 1 Gio libre sous `state_dir` une fois le fichier écrit |
-| `422 bad_name` / `bad_digest` | un nom qui n'est pas celui d'une archive produite, une somme qui n'est pas 64 hexadécimaux, ou un fichier arrivé qui n'a ni la taille ni la somme annoncées |
+| `422 bad_name` / `bad_digest` | un nom qui n'est pas celui d'une sauvegarde, une somme qui n'est pas 64 hexadécimaux, ou un fichier arrivé qui n'a ni la taille ni la somme annoncées |
+| `400 upload_interrupted` | l'envoi s'est coupé avant la taille annoncée, ou a duré plus que le colis (`action.ParcelLifetime` : le serveur n'a pas de délai de lecture général, cette route borne le sien) ; rien n'est gardé |
 
 **L'ordre `backup.produce`.** Paramètres (`agentwire.BackupProduceParams`) :
 `producer` (le producteur, `proxmox-vzdump`), `target` (la cible : des chiffres,
@@ -759,7 +760,7 @@ producteur (`409 action.right_missing`), et l'agent le juge à son tour. Il
 refuse tout de suite, sans rien lancer : `right_missing:backup.produce` (le
 droit ne nomme pas ce producteur), `producer_unknown` (le droit le nomme, cet
 agent ne sait pas le lancer), `bad_order` (cible, préfixe, clé ou colis mal
-formés : une cible qui n'est pas faite de chiffres ne devient jamais un argument
+formés, ou le préfixe de la base, `database` ou `opencloud` : une cible qui n'est pas faite de chiffres ne devient jamais un argument
 de ligne de commande). Accepté, l'ordre passe au worker, qui d'abord vérifie ce
 que le droit exige de la machine (`sudo_missing`, `producer_missing`,
 `sudo_denied`) et 1 Gio libre sous l'état (`disk_full`) : des refus avant la
@@ -781,6 +782,8 @@ première écriture. Puis :
    du serveur, il dirait la même chose) ;
 4. `produce/` est vidé à la fin, réussie ou non, et au démarrage de l'agent : un
    arrêt en pleine production y laisse un fichier de la taille d'une machine.
+   Un `produce/` qui serait un lien symbolique n'est ni vidé ni écrit
+   (`path_unwritable`) : vider un lien vers l'état emporterait la clé de l'agent.
 
 Le résultat : `written <nom> <taille> sha256:<hex>` puis `uploaded <nom>`, ou en
 cas d'échec ces mêmes lignes jusqu'où l'ordre est allé, et la fin de la sortie
@@ -792,7 +795,6 @@ pas après les essais), `disk_full` (le disque se remplit en route),
 relire ce qu'il a produit**, la vérification est celle du fichier, jamais un
 déchiffrement. Le droit vaut root sur la machine pour un agent compromis
 (« Les droits d'un agent »).
-
 
 **Le champ write-only.** `OrderBody.Secret` est **signé avec l'ordre** (64 Kio
 au plus, `agentwire.MaxSecretBytes`) mais **jamais écrit** : ni dans
@@ -869,7 +871,7 @@ n'existe pas encore : le plan s'enregistre, et son lancement est refusé
 | Une paire à la fois | `POST /api/backups/keyring` refuse si elle existe (`409 backup.keyring_exists`), sauf `replace: true`. Remplacer ne rend rien illisible : chaque sauvegarde a sa clé scellée à côté d'elle, nommée par empreinte |
 | Pas de copie locale | L'instantané en clair n'existe que le temps de l'emballer, dans `outgoing/<colis>/`, et il est effacé **avant** l'envoi. L'archive chiffrée y reste jusqu'au téléchargement par l'agent, le temps que son ordre peut vivre au plus (un peu plus d'une heure), puis part ; `serve` vide `outgoing/` au démarrage |
 | Où | Une **destination** : une machine dont l'agent a le droit `backup.receive`, et un dossier, celui du droit ou un sous-dossier. Jugé à la création si l'agent a rapporté ses droits (`409 backup.right_missing`), et toujours par l'agent à l'exécution (`path_outside_right`, puis `path_denied` ou `path_unwritable` si son compte ne peut pas écrire le dossier, avant d'accepter l'ordre ; la vue dit alors `unavailable`). Huit destinations au plus. Une machine qui en porte une ne se supprime pas (`restrict`, `machine.has_backup_destinations`) |
-| Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
+| Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus), et qui ne finit pas par `-vm-<chiffres>` (le suffixe des archives par machine virtuelle : `x-vm-100` se confondrait avec la VM 100 du plan `x`). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
 | Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, source pas encore prise en charge) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
 | Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** |
 | Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : le second referait le travail du premier, sous un autre nom. Le même contenu vers une autre destination est permis, c'est une seconde copie |
@@ -914,7 +916,7 @@ jusqu'au bout. La commande imprime la suite (`chown`, démarrer `serve`).
 
 **Les plans à source machine.** Un plan `agent` dit : la machine
 (`source_machine_id`, qui existe), le producteur (`proxmox-vzdump`, la seule
-valeur de la liste fermée `backup.Producers()`) et la sélection (`all`, ou des
+valeur de la liste fermée `machine.Producers()`, la même que juge le droit `backup.produce`) et la sélection (`all`, ou des
 identifiants séparés par des virgules comme `100,101`, 255 caractères au plus).
 Il s'enregistre et s'affiche, mais son lancement, à la main comme la nuit, est
 refusé `backup.source_not_implemented` et écrit dans `last_error` : la prise de

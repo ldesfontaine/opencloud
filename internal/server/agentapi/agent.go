@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -559,7 +560,7 @@ func (h *Handler) parcel(w http.ResponseWriter, r *http.Request) {
 // Content-Length, avec sa somme en en-tête. Un colis qui n'attend pas cette
 // machine répond 404 comme pour un téléchargement. 201 : écrit ; 409 : ce nom
 // existe ou un autre fichier arrive ; 411 : pas de taille ; 413 : trop grand
-// ou disque plein ; 422 : nom ou somme faux.
+// ou disque plein ; 422 : nom ou somme faux ; 400 : envoi coupé ou trop lent.
 func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
 	machineID, ok := h.parcelMachine(w, r)
 	if !ok {
@@ -576,7 +577,9 @@ func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// La borne générale du serveur (1 Mio) ne vaut pas ici ; la taille
-	// annoncée est jugée avant d'ouvrir le corps, puis tenue.
+	// annoncée est jugée avant d'ouvrir le corps, puis tenue. Le serveur n'a
+	// pas de ReadTimeout : un envoi qui traîne ne dure pas plus que son colis.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(action.ParcelLifetime))
 	body := http.MaxBytesReader(w, r.Body, size)
 	err := h.actions.ReceiveParcel(machineID, r.PathValue("parcel"), r.PathValue("name"), body, size, sum)
 	switch {
@@ -595,9 +598,11 @@ func (h *Handler) uploadParcel(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusUnprocessableEntity, "bad_name")
 	case errors.Is(err, action.ErrUploadDigest):
 		h.writeError(w, http.StatusUnprocessableEntity, "bad_digest")
-	case r.Context().Err() != nil || errors.Is(err, io.ErrUnexpectedEOF):
-		// L'agent a coupé en route : il réessaiera, ce n'est pas une erreur du serveur.
+	case r.Context().Err() != nil || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, os.ErrDeadlineExceeded):
+		// L'agent a coupé en route ou traîné au-delà du colis : il réessaiera,
+		// ce n'est pas une erreur du serveur. Le .part est déjà effacé.
 		h.logger.Warn("upload interrupted", "machine_id", machineID, "error", err)
+		h.writeError(w, http.StatusBadRequest, "upload_interrupted")
 	default:
 		h.logger.Error("receive parcel", "machine_id", machineID, "error", err)
 		h.writeError(w, http.StatusInternalServerError, "internal")

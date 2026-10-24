@@ -1,12 +1,16 @@
 package agentapi
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -214,6 +218,22 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	if recorder.Code != http.StatusRequestEntityTooLarge || !strings.Contains(recorder.Body.String(), "parcel_too_large") {
 		t.Errorf("too large: %d %s", recorder.Code, recorder.Body.String())
 	}
+	// Un nom hostile dans l'adresse : un chemin échappé est refusé par son nom,
+	// un « .. » n'atteint même pas la route ; rien n'est écrit.
+	for _, hostile := range []string{
+		"/agent/parcels/" + upload.ID() + "/a%2Fb-20261021-030000.tar.age",
+		"/agent/parcels/" + upload.ID() + "/%2E%2E%2Fpve-20261021-030000.tar.age",
+		"/agent/parcels/" + upload.ID() + "/..",
+		"/agent/parcels/" + upload.ID() + "/../" + upload.ID() + "/" + archiveName,
+	} {
+		got := call(http.MethodPut, hostile, producerSession, archiveContent, sumOf(archiveContent), true)
+		if got.Code == http.StatusCreated || got.Code == http.StatusOK {
+			t.Errorf("%s: %d %s", hostile, got.Code, got.Body.String())
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(state.Name(), "outgoing", upload.ID())); err != nil || len(entries) != 0 {
+		t.Fatalf("a refused upload left %v (%v)", entries, err)
+	}
 	if files := upload.Files(); len(files) != 0 {
 		t.Fatalf("a refused upload left %+v", files)
 	}
@@ -247,5 +267,67 @@ func TestParcelUpload_TheProducerFillsAndTheDestinationReads(t *testing.T) {
 	}
 	if files := upload.Files(); len(files) != 1 {
 		t.Fatalf("files %+v", files)
+	}
+}
+
+// Un Content-Length plus grand que le corps, sur une vraie connexion : l'agent
+// coupe en route, le serveur répond 400 upload_interrupted et ne garde rien,
+// ni .part ni fichier listé. Le colis reste ouvert pour un nouvel essai.
+func TestParcelUpload_ABodyShorterThanItsLengthKeepsNothing(t *testing.T) {
+	server := newBench(t)
+	producer, producerKey := server.enroll(t, "pve", remoteID)
+	destination, _ := server.enroll(t, "pi", otherMachineID)
+	_, session, _, cancel := server.openStream(t, producer.ID, producerKey)
+	defer cancel()
+	state, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	outbox, err := action.NewOutbox(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.actions.SetOutbox(outbox)
+	upload, err := outbox.CreateForUpload(destination.ID, producer.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := httptest.NewServer(server)
+	defer listener.Close()
+
+	connection, err := net.Dial("tcp", listener.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	request := "PUT " + agentwire.ParcelPath(upload.ID(), archiveName) + " HTTP/1.1\r\nHost: opencloud.test\r\n" +
+		agentwire.HeaderProtocol + ": " + agentwire.ProtocolVersion + "\r\n" +
+		"Authorization: Bearer " + session + "\r\n" +
+		agentwire.HeaderParcelSHA256 + ": " + sumOf(archiveContent) + "\r\n" +
+		"Content-Length: " + strconv.Itoa(len(archiveContent)+10) + "\r\n\r\n" + archiveContent
+	if _, err := io.WriteString(connection, request); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	answer, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(answer), "upload_interrupted") {
+		t.Fatalf("a cut upload: %d %s", response.StatusCode, answer)
+	}
+	if entries, err := os.ReadDir(filepath.Join(state.Name(), "outgoing", upload.ID())); err != nil || len(entries) != 0 {
+		t.Fatalf("a cut upload left %v (%v)", entries, err)
+	}
+	if files := upload.Files(); len(files) != 0 {
+		t.Fatalf("a cut upload is listed: %+v", files)
+	}
+	if err := outbox.Receive(producer.ID, upload.ID(), archiveName, strings.NewReader(archiveContent), int64(len(archiveContent)), sumOf(archiveContent)); err != nil {
+		t.Fatalf("the retry: %v", err)
 	}
 }

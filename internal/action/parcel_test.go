@@ -342,7 +342,7 @@ func TestOutbox_ReceiveOnlyTakesProducedArchiveNames(t *testing.T) {
 // La taille maximale se juge sur l'annonce, avant de lire un octet ; le
 // disque garde sa réserve (MinFreeAfterUpload) une fois le fichier écrit.
 func TestOutbox_ReceiveRefusesAFileTooLargeOrADiskTooFull(t *testing.T) {
-	outbox, _, _ := newOutbox(t)
+	outbox, stateDir, _ := newOutbox(t)
 	upload, err := outbox.CreateForUpload(machineID, producerID)
 	if err != nil {
 		t.Fatal(err)
@@ -358,9 +358,17 @@ func TestOutbox_ReceiveRefusesAFileTooLargeOrADiskTooFull(t *testing.T) {
 	}
 	size := int64(len(uploadedBytes))
 	free := uint64(size) + action.MinFreeAfterUpload - 1
-	outbox.SetFreeBytes(func(string) (uint64, error) { return free, nil })
+	// L'espace se mesure sur le disque de l'état, là où la base vit aussi.
+	var measured []string
+	outbox.SetFreeBytes(func(dir string) (uint64, error) {
+		measured = append(measured, dir)
+		return free, nil
+	})
 	if err := outbox.Receive(producerID, upload.ID(), uploadedName, untouched, size, sumOf(uploadedBytes)); !errors.Is(err, action.ErrUploadDiskFull) {
 		t.Fatalf("one byte short of the reserve: %v", err)
+	}
+	if len(measured) != 1 || measured[0] != stateDir.Name() {
+		t.Fatalf("free space measured under %q, want the state dir %q", measured, stateDir.Name())
 	}
 	free++
 	if err := receive(outbox, producerID, upload.ID(), uploadedName, uploadedBytes); err != nil {
