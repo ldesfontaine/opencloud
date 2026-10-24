@@ -23,6 +23,7 @@ const (
 	CapabilityDockerDeploy  = "docker.deploy"
 	CapabilityDockerUpdate  = "docker.update"
 	CapabilityBackupReceive = "backup.receive"
+	CapabilityBackupProduce = "backup.produce"
 	CapabilityFilesWrite    = "files.write"
 )
 
@@ -31,11 +32,13 @@ const (
 func CapabilityNames() []string {
 	return []string{
 		CapabilityObserve, CapabilityProbeLAN, CapabilityAgentUpdate, CapabilityDockerDeploy,
-		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityFilesWrite,
+		CapabilityDockerUpdate, CapabilityBackupReceive, CapabilityBackupProduce, CapabilityFilesWrite,
 	}
 }
 
 // Capability est un droit et, pour un droit borné, les chemins qu'il couvre.
+// Pour backup.produce, ce sont des noms de producteurs et non des chemins
+// (produce.go).
 type Capability struct {
 	Name  string
 	Paths []string
@@ -58,7 +61,7 @@ var capabilityPathPattern = regexp.MustCompile(`^/[A-Za-z0-9._/-]{1,254}$`)
 var (
 	ErrCapabilityUnknown = refusal.Invalid("machine.capability_unknown", "unknown agent capability")
 	ErrCapabilityPath    = refusal.Invalid("machine.capability_path", "capability path must be absolute, clean, and made of letters, digits, dot, dash, underscore")
-	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive takes one path, files.write one to eight, the others none")
+	ErrCapabilityScope   = refusal.Invalid("machine.capability_scope", "backup.receive takes one path, files.write one to eight, backup.produce one to four producers, the others none")
 )
 
 // NormalizeCapabilities vérifie une liste de droits, ajoute observe, retire
@@ -85,10 +88,13 @@ func NormalizeCapabilities(capabilities []Capability) ([]Capability, error) {
 	return normalized, nil
 }
 
-// normalizePaths juge les chemins d'un droit : un pour backup.receive, un à
-// huit pour files.write, aucun pour les autres. Ils ressortent triés, sans
-// doublon.
+// normalizePaths juge la portée d'un droit : un chemin pour backup.receive, un
+// à huit pour files.write, des producteurs pour backup.produce, rien pour les
+// autres. Elle ressort triée, sans doublon.
 func normalizePaths(capability Capability) ([]string, error) {
+	if capability.Name == CapabilityBackupProduce {
+		return normalizeProducers(capability)
+	}
 	paths := slices.Clone(capability.Paths)
 	slices.Sort(paths)
 	paths = slices.Compact(paths)
@@ -134,7 +140,9 @@ func CoversPath(capabilities []Capability, name, candidate string) bool {
 // s'il y en a plusieurs) : l'agent ouvre sa racine là, pour qu'un lien posé
 // dessous ne fasse pas sortir l'écriture du droit.
 func CoveringPath(capabilities []Capability, name, candidate string) (string, bool) {
-	if !ValidCapabilityPath(candidate) {
+	// La portée de backup.produce est une liste de producteurs : aucun chemin
+	// ne s'y compare (CoversProducer).
+	if name == CapabilityBackupProduce || !ValidCapabilityPath(candidate) {
 		return "", false
 	}
 	covering := ""

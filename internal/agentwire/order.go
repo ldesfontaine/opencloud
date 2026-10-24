@@ -105,6 +105,12 @@ const (
 	// avant d'écrire quoi que ce soit.
 	ReasonPathDenied   = "path_denied"
 	ReasonDockerDenied = "docker_denied"
+	// Les raisons du droit backup.produce : pas de sudo sur la machine, la
+	// règle sudo ne laisse pas le compte lancer le script de vzdump, ou ce
+	// script ou vzdump lui-même manque.
+	ReasonSudoMissing     = "sudo_missing"
+	ReasonSudoDenied      = "sudo_denied"
+	ReasonProducerMissing = "producer_missing"
 	// La file des ordres longs de l'agent est pleine.
 	ReasonBusy = "busy"
 	// Les raisons de agent.update : l'agent ne tourne pas depuis son dossier
@@ -146,6 +152,7 @@ func RefusalReasons() []string {
 		ReasonServiceDirExists, ReasonServiceDirMissing, ReasonRootNotOurs, ReasonDockerMissing,
 		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
 		ReasonPathDenied, ReasonDockerDenied,
+		ReasonSudoMissing, ReasonProducerMissing, ReasonSudoDenied,
 	}
 }
 

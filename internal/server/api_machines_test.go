@@ -209,6 +209,141 @@ func TestInstallPreparation_TheShellReadsExactlyTheWrittenWords(t *testing.T) {
 	}
 }
 
+// backup.produce ajoute sept lignes, une par geste, après celles du compte et
+// avant les dossiers ; sans lui, rien de tout cela n'est écrit.
+func TestInstallPreparation_ProduceAddsOneLinePerGestureAfterTheAccount(t *testing.T) {
+	rights, err := machine.ParseCapabilities("backup.receive=/srv/backups,backup.produce=proxmox-vzdump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(installPreparation(rights, "v0.0.1", false), "\n")
+	want := []string{
+		"runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/produce",
+		`printf '%s\n' '#!/bin/sh' '# openCloud : vzdump hors du bac à sable de l agent, sur ordre de l agent.' 'exec /usr/bin/systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"' | install -m 0755 -o root -g root /dev/stdin /usr/local/sbin/opencloud-vzdump`,
+		`printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/opencloud-agent`,
+		"visudo -cf /etc/sudoers.d/opencloud-agent",
+		"install -d -m 0755 /etc/systemd/system/opencloud-agent.service.d",
+		`printf '%s\n' '[Service]' 'NoNewPrivileges=false' | install -m 0644 /dev/stdin /etc/systemd/system/opencloud-agent.service.d/produce.conf`,
+		"systemctl daemon-reload",
+	}
+	if len(lines) != 5+len(want)+1 || !slices.Equal(lines[5:5+len(want)], want) {
+		t.Fatalf("the produce lines are not the seven gestures right after the account:\n%s", strings.Join(lines, "\n"))
+	}
+	if folder := lines[len(lines)-1]; !strings.HasPrefix(folder, "test ! -L /srv/backups && ") {
+		t.Errorf("the folders of the other rights come after: %q", folder)
+	}
+
+	others, err := machine.ParseCapabilities("docker.deploy,backup.receive=/srv/backups,files.write=/opt/site,agent.update,probe.lan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"sudo", "visudo", "systemctl", "vzdump", "/etc/", "/usr/local/sbin", "produce"} {
+		if preparation := installPreparation(others, "v0.0.1", false); strings.Contains(preparation, forbidden) {
+			t.Errorf("without backup.produce the preparation mentions %q:\n%s", forbidden, preparation)
+		}
+	}
+}
+
+// Root ne pose, avec backup.produce, que ce qui est à lui : un script, une
+// règle, un drop-in, sous /usr/local/sbin et /etc. Le seul dossier du compte
+// (produce/) se fait sous le compte.
+func TestInstallPreparation_ProduceRootOnlyWritesWhatIsRoots(t *testing.T) {
+	rights, err := machine.ParseCapabilities("backup.produce=proxmox-vzdump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(installPreparation(rights, "v0.0.1", false), "\n")[5:] {
+		if strings.Contains(line, "/var/lib/opencloud-agent") && !strings.HasPrefix(line, "runuser -u opencloud-agent -- ") {
+			t.Errorf("root acts under the state of the account: %q", line)
+		}
+		if strings.Contains(line, "-o opencloud-agent") {
+			t.Errorf("root gives something to the account: %q", line)
+		}
+		if strings.Contains(line, "install") && !strings.HasPrefix(line, "runuser") && !strings.Contains(line, "-d -m 0755 /etc/") && !strings.Contains(line, "-o root -g root") && !strings.Contains(line, "-m 0644 /dev/stdin /etc/systemd/") {
+			t.Errorf("an install that is neither the account's nor root's own: %q", line)
+		}
+	}
+}
+
+// Les sept lignes se collent dans un shell root : le shell doit y lire
+// exactement les mots écrits, et ce que les tubes livrent à install est
+// exactement le texte des constantes. Chaque commande de la machine est un
+// témoin qui note ses arguments ; install note aussi ce qu'il reçoit sur son
+// entrée. Rien ne lance sudo, visudo, systemctl ni vzdump.
+func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	cat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Skip("no cat")
+	}
+	rights, err := machine.ParseCapabilities("backup.produce=proxmox-vzdump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubs := t.TempDir()
+	received := t.TempDir()
+	record := filepath.Join(stubs, "record")
+	witness := "#!" + shell + "\nfor word in \"${0##*/}\" \"$@\"; do printf '%s\\n' \"$word\" >> " + record + "; done\nprintf -- '---\\n' >> " + record +
+		"\nfor last; do :; done\ncase \" $* \" in *\" /dev/stdin \"*) " + cat + " > " + received + "/\"${last##*/}\" ;; esac\n"
+	if err := os.WriteFile(filepath.Join(stubs, "witness"), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
+		t.Fatal(err)
+	}
+	for _, name := range []string{"useradd", "getent", "usermod", "install", "runuser", "ln", "visudo", "systemctl"} {
+		if err := os.Symlink("witness", filepath.Join(stubs, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := exec.Command(shell, "-c", installPreparation(rights, "v0.0.1", false)) // #nosec G204 -- le texte que le test juge, lu par un sh dont chaque commande est un témoin.
+	run.Env = []string{"PATH=" + stubs}
+	if output, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("sh: %v %s", err, output)
+	}
+	recorded, err := os.ReadFile(record) // #nosec G304 G703 -- le fichier du témoin, dans le dossier du test.
+	if err != nil {
+		t.Fatal(err)
+	}
+	var commands [][]string
+	for block := range strings.SplitSeq(string(recorded), "---\n") {
+		if words := strings.Fields(block); len(words) > 0 {
+			commands = append(commands, words)
+		}
+	}
+	// Les sept commandes des lignes du compte (trois de ces lignes en enchaînent
+	// deux), puis les sept gestes, chacun une commande de la machine.
+	const accountCommands = 7
+	wantProduce := [][]string{
+		{"runuser", "-u", "opencloud-agent", "--", "install", "-d", "-m", "0700", "/var/lib/opencloud-agent/produce"},
+		{"install", "-m", "0755", "-o", "root", "-g", "root", "/dev/stdin", "/usr/local/sbin/opencloud-vzdump"},
+		{"install", "-m", "0440", "-o", "root", "-g", "root", "/dev/stdin", "/etc/sudoers.d/opencloud-agent"},
+		{"visudo", "-cf", "/etc/sudoers.d/opencloud-agent"},
+		{"install", "-d", "-m", "0755", "/etc/systemd/system/opencloud-agent.service.d"},
+		{"install", "-m", "0644", "/dev/stdin", "/etc/systemd/system/opencloud-agent.service.d/produce.conf"},
+		{"systemctl", "daemon-reload"},
+	}
+	if len(commands) != accountCommands+len(wantProduce) {
+		t.Fatalf("the shell ran %d commands: %q", len(commands), commands)
+	}
+	for index, want := range wantProduce {
+		if !slices.Equal(commands[accountCommands+index], want) {
+			t.Errorf("command %d read as %q, want %q", index, commands[accountCommands+index], want)
+		}
+	}
+	for file, lines := range map[string][]string{
+		"opencloud-vzdump": machine.VzdumpWrapperLines(), "opencloud-agent": machine.SudoersRuleLines(), "produce.conf": machine.ProduceDropInLines(),
+	} {
+		got, err := os.ReadFile(filepath.Join(received, file)) // #nosec G304 G703 -- ce que le témoin a reçu, dans le dossier du test.
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if want := strings.Join(lines, "\n") + "\n"; string(got) != want {
+			t.Errorf("%s received %q, want %q", file, got, want)
+		}
+	}
+}
+
 // Un chemin hostile ne passe pas la normalisation des droits ; et même donné
 // tel quel, sans elle, il n'entre pas dans des lignes collées en root. Le jeton
 // n'y paraît jamais.
@@ -385,6 +520,40 @@ func TestAPI_CreateMachineToken_PutsTheCheckedRightsInTheCommand(t *testing.T) {
 		{capabilityJSON{Name: "shell.exec"}, "machine.capability_unknown"},
 		{capabilityJSON{Name: machine.CapabilityFilesWrite, Paths: []string{"relative"}}, "machine.capability_path"},
 		{capabilityJSON{Name: machine.CapabilityBackupReceive}, "machine.capability_scope"},
+	} {
+		got := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", tokenRequest{Name: "vps-lyon-2", Capabilities: []capabilityJSON{refused.capability}})
+		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != refused.key {
+			t.Errorf("%+v: %d %s", refused.capability, got.Code, got.Body.String())
+		}
+	}
+}
+
+// Le droit passe par l'API : la ligne le porte, la préparation pose ses sept
+// gestes, un producteur inconnu ou une portée de chemin se refusent avec leur clé.
+func TestAPI_CreateMachineToken_ProduceRightReachesTheCommandAndThePreparation(t *testing.T) {
+	server := newTestServer(t)
+	request := tokenRequest{Name: "pve", Capabilities: []capabilityJSON{{Name: machine.CapabilityBackupProduce, Paths: []string{machine.ProducerProxmoxVzdump}}}}
+	recorder := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response tokenResponse
+	decodeAPI(t, recorder, &response)
+	if !strings.HasSuffix(response.Command, " -rights observe,backup.produce=proxmox-vzdump") {
+		t.Errorf("command %q", response.Command)
+	}
+	for _, line := range []string{"visudo -cf /etc/sudoers.d/opencloud-agent", "systemctl daemon-reload", "install -d -m 0700 /var/lib/opencloud-agent/produce"} {
+		if !strings.Contains(response.Preparation, line) {
+			t.Errorf("the preparation lacks %q:\n%s", line, response.Preparation)
+		}
+	}
+	for _, refused := range []struct {
+		capability capabilityJSON
+		key        string
+	}{
+		{capabilityJSON{Name: machine.CapabilityBackupProduce, Paths: []string{"borg"}}, "machine.capability_producer"},
+		{capabilityJSON{Name: machine.CapabilityBackupProduce, Paths: []string{"/srv/backups"}}, "machine.capability_producer"},
+		{capabilityJSON{Name: machine.CapabilityBackupProduce}, "machine.capability_scope"},
 	} {
 		got := callAPI(server.Server, http.MethodPost, "/api/machines/tokens", tokenRequest{Name: "vps-lyon-2", Capabilities: []capabilityJSON{refused.capability}})
 		if got.Code != http.StatusUnprocessableEntity || errorCode(t, got) != refused.key {

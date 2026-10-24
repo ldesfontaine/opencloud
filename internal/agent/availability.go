@@ -6,11 +6,13 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/ldesfontaine/opencloud/internal/agentwire"
+	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/dockerapi"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 )
@@ -23,6 +25,9 @@ import (
 
 const (
 	dockerDialTimeout = 2 * time.Second
+	// sudo -n -l répond sans rien exécuter ni demander : un délai large pour une
+	// machine dont sudo interroge un annuaire.
+	sudoListTimeout = 10 * time.Second
 	// access(2) : écrire dans un dossier et le traverser. Créer dessous exige
 	// les deux ; syscall n'en nomme pas les constantes.
 	accessWrite  = 0x2
@@ -40,6 +45,13 @@ type hostChecks struct {
 	writable func(path string) string
 	// agentUpdate : l'agent tourne depuis <état>/bin/ et ce dossier s'écrit.
 	agentUpdate func() string
+	// lookPath : un programme du PATH, ou un chemin absolu, que le compte peut
+	// lancer (exec.LookPath).
+	lookPath func(name string) (string, error)
+	// sudoList : « sudo -n -l <programme> », qui répond sans rien exécuter ni
+	// demander de mot de passe : la règle de sudo laisse le compte lancer ce
+	// programme. Une erreur : elle ne le laisse pas.
+	sudoList func(ctx context.Context, program string) error
 }
 
 // newHostChecks branche les vérifications sur la vraie machine.
@@ -48,6 +60,8 @@ func newHostChecks(socket string, updater *selfUpdater) hostChecks {
 		docker:      func(ctx context.Context) string { return dockerReason(ctx, dockerBinary, socket) },
 		writable:    writableOrCreatable,
 		agentUpdate: func() string { return updater.unavailableReason(writableOrCreatable) },
+		lookPath:    exec.LookPath,
+		sudoList:    sudoListsProgram,
 	}
 }
 
@@ -58,7 +72,23 @@ func allowAll() hostChecks {
 		docker:      func(context.Context) string { return "" },
 		writable:    func(string) string { return "" },
 		agentUpdate: func() string { return "" },
+		lookPath:    func(name string) (string, error) { return name, nil },
+		sudoList:    func(context.Context, string) error { return nil },
 	}
+}
+
+// sudoListsProgram demande à sudo si la règle du compte laisse lancer ce
+// programme. Le résultat se lit au code de sortie ; la sortie est jetée.
+func sudoListsProgram(ctx context.Context, program string) error {
+	sudo, err := exec.LookPath("sudo")
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, sudoListTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, sudo, "-n", "-l", program) // #nosec G204 -- bounded: sudo est celui du PATH de l'unité, program une constante de brand.
+	command.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C"}
+	return command.Run()
 }
 
 // dockerReason dit si le compte de l'agent peut parler à Docker : docker_missing
@@ -170,6 +200,8 @@ func judgeRights(ctx context.Context, identity Identity, checks hostChecks) map[
 			note(capability.Name, dockerRightReason(ctx, checks, identity.Root()))
 		case machine.CapabilityBackupReceive, machine.CapabilityFilesWrite:
 			note(capability.Name, firstPathReason(checks, capability.Paths))
+		case machine.CapabilityBackupProduce:
+			note(capability.Name, firstProducerReason(ctx, checks, capability.Paths))
 		}
 	}
 	return unavailable
@@ -189,6 +221,41 @@ func firstPathReason(checks hostChecks, paths []string) string {
 		if reason := checks.writable(path); reason != "" {
 			return reason
 		}
+	}
+	return ""
+}
+
+// firstProducerReason rend la raison du premier producteur du droit que la
+// machine ne sait pas lancer.
+func firstProducerReason(ctx context.Context, checks hostChecks, producers []string) string {
+	for _, producer := range producers {
+		if reason := producerReason(ctx, checks, producer); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+// producerReason dit pourquoi le compte ne peut pas lancer ce producteur : pas
+// de sudo, un programme qui manque (le script de root que la préparation pose,
+// ou vzdump), ou une règle sudo qui ne laisse pas le compte lancer le script.
+// Le programme avant la règle : sans le script, sudo -l répondrait non pour
+// une raison que la préparation seule explique. Un producteur inconnu n'est
+// pas jugé : le fichier de l'agent ne peut pas en porter (ParseCapabilities).
+func producerReason(ctx context.Context, checks hostChecks, producer string) string {
+	if producer != machine.ProducerProxmoxVzdump {
+		return ""
+	}
+	if _, err := checks.lookPath("sudo"); err != nil {
+		return agentwire.ReasonSudoMissing
+	}
+	for _, program := range []string{brand.VzdumpWrapperPath, machine.VzdumpBinary} {
+		if _, err := checks.lookPath(program); err != nil {
+			return agentwire.ReasonProducerMissing
+		}
+	}
+	if err := checks.sudoList(ctx, brand.VzdumpWrapperPath); err != nil {
+		return agentwire.ReasonSudoDenied
 	}
 	return ""
 }
