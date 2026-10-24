@@ -209,8 +209,9 @@ func TestInstallPreparation_TheShellReadsExactlyTheWrittenWords(t *testing.T) {
 	}
 }
 
-// backup.produce ajoute sept lignes, une par geste, après celles du compte et
-// avant les dossiers ; sans lui, rien de tout cela n'est écrit.
+// backup.produce ajoute six lignes, une par geste, après celles du compte et
+// avant les dossiers ; sans lui, rien de tout cela n'est écrit. La règle sudo
+// est un seul geste : écrite à côté, jugée par visudo, puis renommée.
 func TestInstallPreparation_ProduceAddsOneLinePerGestureAfterTheAccount(t *testing.T) {
 	rights, err := machine.ParseCapabilities("backup.receive=/srv/backups,backup.produce=proxmox-vzdump")
 	if err != nil {
@@ -220,14 +221,13 @@ func TestInstallPreparation_ProduceAddsOneLinePerGestureAfterTheAccount(t *testi
 	want := []string{
 		"runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/produce",
 		`printf '%s\n' '#!/bin/sh' '# openCloud : vzdump hors du bac à sable de l agent, sur ordre de l agent.' 'exec /usr/bin/systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"' | install -m 0755 -o root -g root /dev/stdin /usr/local/sbin/opencloud-vzdump`,
-		`printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/opencloud-agent`,
-		"visudo -cf /etc/sudoers.d/opencloud-agent",
+		`printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/.opencloud-agent.tmp && visudo -cf /etc/sudoers.d/.opencloud-agent.tmp && mv /etc/sudoers.d/.opencloud-agent.tmp /etc/sudoers.d/opencloud-agent || { rm -f /etc/sudoers.d/.opencloud-agent.tmp; false; }`,
 		"install -d -m 0755 /etc/systemd/system/opencloud-agent.service.d",
 		`printf '%s\n' '[Service]' 'NoNewPrivileges=false' | install -m 0644 /dev/stdin /etc/systemd/system/opencloud-agent.service.d/produce.conf`,
 		"systemctl daemon-reload",
 	}
 	if len(lines) != 5+len(want)+1 || !slices.Equal(lines[5:5+len(want)], want) {
-		t.Fatalf("the produce lines are not the seven gestures right after the account:\n%s", strings.Join(lines, "\n"))
+		t.Fatalf("the produce lines are not the six gestures right after the account:\n%s", strings.Join(lines, "\n"))
 	}
 	if folder := lines[len(lines)-1]; !strings.HasPrefix(folder, "test ! -L /srv/backups && ") {
 		t.Errorf("the folders of the other rights come after: %q", folder)
@@ -237,7 +237,7 @@ func TestInstallPreparation_ProduceAddsOneLinePerGestureAfterTheAccount(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"sudo", "visudo", "systemctl", "vzdump", "/etc/", "/usr/local/sbin", "produce"} {
+	for _, forbidden := range []string{"sudo", "visudo", "systemctl", "vzdump", "/etc/", "/usr/local/sbin", "produce", "mv "} {
 		if preparation := installPreparation(others, "v0.0.1", false); strings.Contains(preparation, forbidden) {
 			t.Errorf("without backup.produce the preparation mentions %q:\n%s", forbidden, preparation)
 		}
@@ -265,11 +265,11 @@ func TestInstallPreparation_ProduceRootOnlyWritesWhatIsRoots(t *testing.T) {
 	}
 }
 
-// Les sept lignes se collent dans un shell root : le shell doit y lire
+// Les six lignes se collent dans un shell root : le shell doit y lire
 // exactement les mots écrits, et ce que les tubes livrent à install est
 // exactement le texte des constantes. Chaque commande de la machine est un
 // témoin qui note ses arguments ; install note aussi ce qu'il reçoit sur son
-// entrée. Rien ne lance sudo, visudo, systemctl ni vzdump.
+// entrée. Rien ne lance sudo, visudo, mv, systemctl ni vzdump.
 func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 	shell, err := exec.LookPath("sh")
 	if err != nil {
@@ -291,7 +291,7 @@ func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stubs, "witness"), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
 		t.Fatal(err)
 	}
-	for _, name := range []string{"useradd", "getent", "usermod", "install", "runuser", "ln", "visudo", "systemctl"} {
+	for _, name := range []string{"useradd", "getent", "usermod", "install", "runuser", "ln", "visudo", "mv", "rm", "systemctl"} {
 		if err := os.Symlink("witness", filepath.Join(stubs, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -312,13 +312,15 @@ func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 		}
 	}
 	// Les sept commandes des lignes du compte (trois de ces lignes en enchaînent
-	// deux), puis les sept gestes, chacun une commande de la machine.
+	// deux), puis les six gestes, dont la règle sudo en trois commandes
+	// enchaînées (écrire, juger, poser).
 	const accountCommands = 7
 	wantProduce := [][]string{
 		{"runuser", "-u", "opencloud-agent", "--", "install", "-d", "-m", "0700", "/var/lib/opencloud-agent/produce"},
 		{"install", "-m", "0755", "-o", "root", "-g", "root", "/dev/stdin", "/usr/local/sbin/opencloud-vzdump"},
-		{"install", "-m", "0440", "-o", "root", "-g", "root", "/dev/stdin", "/etc/sudoers.d/opencloud-agent"},
-		{"visudo", "-cf", "/etc/sudoers.d/opencloud-agent"},
+		{"install", "-m", "0440", "-o", "root", "-g", "root", "/dev/stdin", "/etc/sudoers.d/.opencloud-agent.tmp"},
+		{"visudo", "-cf", "/etc/sudoers.d/.opencloud-agent.tmp"},
+		{"mv", "/etc/sudoers.d/.opencloud-agent.tmp", "/etc/sudoers.d/opencloud-agent"},
 		{"install", "-d", "-m", "0755", "/etc/systemd/system/opencloud-agent.service.d"},
 		{"install", "-m", "0644", "/dev/stdin", "/etc/systemd/system/opencloud-agent.service.d/produce.conf"},
 		{"systemctl", "daemon-reload"},
@@ -332,7 +334,7 @@ func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 		}
 	}
 	for file, lines := range map[string][]string{
-		"opencloud-vzdump": machine.VzdumpWrapperLines(), "opencloud-agent": machine.SudoersRuleLines(), "produce.conf": machine.ProduceDropInLines(),
+		"opencloud-vzdump": machine.VzdumpWrapperLines(), ".opencloud-agent.tmp": machine.SudoersRuleLines(), "produce.conf": machine.ProduceDropInLines(),
 	} {
 		got, err := os.ReadFile(filepath.Join(received, file)) // #nosec G304 G703 -- ce que le témoin a reçu, dans le dossier du test.
 		if err != nil {
@@ -341,6 +343,83 @@ func TestInstallPreparation_ProduceTheShellWritesExactlyTheTexts(t *testing.T) {
 		if want := strings.Join(lines, "\n") + "\n"; string(got) != want {
 			t.Errorf("%s received %q, want %q", file, got, want)
 		}
+	}
+}
+
+// La règle sudo ne se pose que si elle est écrite et que visudo l'accepte : si
+// l'une des trois commandes échoue, le fichier provisoire est retiré, la règle
+// n'est pas posée (ou, si c'est mv qui échoue, retirée avec lui), et la ligne
+// rend une erreur. Chaque commande est un témoin ; celle qui doit échouer sort 1.
+func TestInstallPreparation_ProduceTheSudoersRuleIsNeverPlacedWithoutVisudo(t *testing.T) {
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	rights, err := machine.ParseCapabilities("backup.produce=proxmox-vzdump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line string
+	for _, candidate := range strings.Split(installPreparation(rights, "v0.0.1", false), "\n") {
+		if strings.Contains(candidate, machine.SudoersFile) {
+			line = candidate
+		}
+	}
+	if line == "" {
+		t.Fatal("no sudoers line in the preparation")
+	}
+	temp, final := machine.SudoersTempFile, machine.SudoersFile
+	cases := []struct {
+		failing string
+		want    []string
+	}{
+		{"", []string{"install", "visudo", "mv"}},
+		{"install", []string{"install", "rm"}},
+		{"visudo", []string{"install", "visudo", "rm"}},
+		{"mv", []string{"install", "visudo", "mv", "rm"}},
+	}
+	for _, c := range cases {
+		t.Run("failing "+c.failing, func(t *testing.T) {
+			stubs := t.TempDir()
+			record := filepath.Join(stubs, "record")
+			for _, name := range []string{"install", "visudo", "mv", "rm"} {
+				exit := "0"
+				if name == c.failing {
+					exit = "1"
+				}
+				witness := "#!" + shell + "\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + record + "\ncat > /dev/null\nexit " + exit + "\n"
+				if err := os.WriteFile(filepath.Join(stubs, name), []byte(witness), 0o700); err != nil { // #nosec G306 -- un témoin exécutable dans un dossier de test.
+					t.Fatal(err)
+				}
+			}
+			run := exec.Command(shell, "-c", line) // #nosec G204 -- le texte que le test juge, lu par un sh dont chaque commande est un témoin.
+			run.Env = []string{"PATH=" + stubs + ":/usr/bin:/bin"}
+			output, runErr := run.CombinedOutput()
+			recorded, err := os.ReadFile(record) // #nosec G304 G703 -- le fichier du témoin, dans le dossier du test.
+			if err != nil {
+				t.Fatalf("%v %s", err, output)
+			}
+			var got []string
+			for entry := range strings.SplitSeq(strings.TrimSpace(string(recorded)), "\n") {
+				name, args, _ := strings.Cut(entry, " ")
+				got = append(got, name)
+				if name == "rm" && args != "-f "+temp {
+					t.Errorf("rm touched %q, not the provisional file", args)
+				}
+				if name == "mv" && args != temp+" "+final {
+					t.Errorf("mv moved %q", args)
+				}
+				if name == "visudo" && args != "-cf "+temp {
+					t.Errorf("visudo judged %q, not the provisional file", args)
+				}
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("ran %v, want %v", got, c.want)
+			}
+			if failed := runErr != nil; failed != (c.failing != "") {
+				t.Errorf("the line failed = %t, want %t (%v)", failed, c.failing != "", runErr)
+			}
+		})
 	}
 }
 
@@ -365,7 +444,7 @@ func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
 	}
 	// Un producteur hostile non plus : refusé à la normalisation, et donné tel
 	// quel, il n'ajoute aucune ligne ; à côté du vrai producteur, il ajoute les
-	// sept gestes, dont aucun ne le nomme.
+	// six gestes, dont aucun ne le nomme.
 	for _, producer := range []string{"proxmox-vzdump;id", "$(id)", "`id`", "proxmox-vzdump\nid", "proxmox-vzdump'", "proxmox-vzdump id", "/usr/bin/sh", "../etc"} {
 		raw := []machine.Capability{{Name: machine.CapabilityBackupProduce, Paths: []string{producer}}}
 		if _, err := machine.NormalizeCapabilities(raw); err == nil {
@@ -375,7 +454,7 @@ func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
 			t.Errorf("backup.produce=%q reaches the preparation:\n%s", producer, preparation)
 		}
 		mixed := []machine.Capability{{Name: machine.CapabilityBackupProduce, Paths: []string{machine.ProducerProxmoxVzdump, producer}}}
-		if preparation := installPreparation(mixed, "v0.0.1", false); strings.Count(preparation, "\n") != 4+7 || strings.Contains(preparation, producer) {
+		if preparation := installPreparation(mixed, "v0.0.1", false); strings.Count(preparation, "\n") != 4+6 || strings.Contains(preparation, producer) {
 			t.Errorf("backup.produce=proxmox-vzdump:%q reaches the preparation:\n%s", producer, preparation)
 		}
 	}
@@ -544,7 +623,7 @@ func TestAPI_CreateMachineToken_PutsTheCheckedRightsInTheCommand(t *testing.T) {
 	}
 }
 
-// Le droit passe par l'API : la ligne le porte, la préparation pose ses sept
+// Le droit passe par l'API : la ligne le porte, la préparation pose ses six
 // gestes, un producteur inconnu ou une portée de chemin se refusent avec leur clé.
 func TestAPI_CreateMachineToken_ProduceRightReachesTheCommandAndThePreparation(t *testing.T) {
 	server := newTestServer(t)
@@ -558,7 +637,7 @@ func TestAPI_CreateMachineToken_ProduceRightReachesTheCommandAndThePreparation(t
 	if !strings.HasSuffix(response.Command, " -rights observe,backup.produce=proxmox-vzdump") {
 		t.Errorf("command %q", response.Command)
 	}
-	for _, line := range []string{"visudo -cf /etc/sudoers.d/opencloud-agent", "systemctl daemon-reload", "install -d -m 0700 /var/lib/opencloud-agent/produce"} {
+	for _, line := range []string{"visudo -cf /etc/sudoers.d/.opencloud-agent.tmp", "mv /etc/sudoers.d/.opencloud-agent.tmp /etc/sudoers.d/opencloud-agent", "systemctl daemon-reload", "install -d -m 0700 /var/lib/opencloud-agent/produce"} {
 		if !strings.Contains(response.Preparation, line) {
 			t.Errorf("the preparation lacks %q:\n%s", line, response.Preparation)
 		}

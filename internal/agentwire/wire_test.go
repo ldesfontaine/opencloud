@@ -86,6 +86,7 @@ func TestWire_HeaderNamesAreFrozen(t *testing.T) {
 		HeaderSignalSections: "OpenCloud-Signal-Sections",
 		HeaderServerKey:      "OpenCloud-Server-Key",
 		HeaderProtocol:       "OpenCloud-Agent-Protocol",
+		HeaderParcelSHA256:   "OpenCloud-SHA256",
 	}
 	for got, name := range want {
 		if got != name {

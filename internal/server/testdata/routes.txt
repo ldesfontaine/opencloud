@@ -139,6 +139,7 @@ GET /agent/stream
 POST /agent/signal
 POST /agent/logs/{request}
 GET /agent/parcels/{parcel}/{name}
+PUT /agent/parcels/{parcel}/{name}
 * /agent/
 GET /ping/{token}
 POST /ping/{token}

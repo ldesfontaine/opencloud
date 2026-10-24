@@ -219,8 +219,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if s.key == nil {
 		return Run{}, ErrNoServerKey
 	}
-	right, ok := RightOf(kind)
-	if !ok || !kind.IsOrder() {
+	if _, ok := RightOf(kind); !ok || !kind.IsOrder() {
 		return Run{}, fmt.Errorf("%q: %w", kind, ErrUnknownKind)
 	}
 	if len(secret) > agentwire.MaxSecretBytes {
@@ -233,7 +232,7 @@ func (s *Service) send(ctx context.Context, order ServiceOrder) (Run, error) {
 	if !target.Agent.IsActive() {
 		return Run{}, machine.ErrNoAgent
 	}
-	if !target.Agent.ReportedAt.IsZero() && !machine.HasCapability(target.Agent.Capabilities, right) {
+	if !target.Agent.ReportedAt.IsZero() && !coversOrder(target.Agent.Capabilities, kind, params) {
 		return Run{}, ErrRightMissing
 	}
 	if !target.Online {

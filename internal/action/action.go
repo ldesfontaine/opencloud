@@ -136,12 +136,33 @@ func RightOf(kind agentwire.Kind) (string, bool) {
 		return machine.CapabilityAgentUpdate, true
 	case agentwire.KindBackupReceive, agentwire.KindBackupPrune:
 		return machine.CapabilityBackupReceive, true
+	case agentwire.KindBackupProduce:
+		return machine.CapabilityBackupProduce, true
 	case agentwire.KindDockerDeploy:
 		return machine.CapabilityDockerDeploy, true
 	case agentwire.KindDockerUpdate:
 		return machine.CapabilityDockerUpdate, true
 	}
 	return "", false
+}
+
+// coversOrder dit si les droits rapportés par l'agent couvrent cet ordre : le
+// droit de son genre, et pour backup.produce le producteur qu'il nomme (le
+// droit porte la liste des producteurs, pas un chemin). Des paramètres
+// illisibles ne sont pas jugés ici : l'agent les refuse (bad_order).
+func coversOrder(capabilities []machine.Capability, kind agentwire.Kind, params json.RawMessage) bool {
+	right, known := RightOf(kind)
+	if !known || !machine.HasCapability(capabilities, right) {
+		return false
+	}
+	if kind != agentwire.KindBackupProduce {
+		return true
+	}
+	var produce agentwire.BackupProduceParams
+	if err := json.Unmarshal(params, &produce); err != nil {
+		return true
+	}
+	return machine.CoversProducer(capabilities, produce.Producer)
 }
 
 // Query choisit les runs d'une liste, du plus récent au plus ancien.

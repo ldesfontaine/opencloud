@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/ldesfontaine/opencloud/internal/agentwire"
 )
 
 // Un corps de requête ne dépasse jamais ceci, quelle que soit la route ;
@@ -143,9 +145,18 @@ func loggedPath(r *http.Request) string {
 	return path
 }
 
+// limitBody borne le corps de toute requête, sauf le téléversement d'un agent
+// (PUT d'un fichier de colis) : une archive se compte en Gio. Cette route,
+// sous la session d'un agent, borne son propre corps (agentapi).
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		if !isParcelUpload(r) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isParcelUpload(r *http.Request) bool {
+	return r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, agentwire.ParcelRoute)
 }

@@ -8,11 +8,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/brand"
+	"github.com/ldesfontaine/opencloud/internal/machine"
 )
 
 var (
 	subjectPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 	selectorPattern = regexp.MustCompile(`^\d{1,9}(,\d{1,9})*$`)
+	// Le suffixe des archives par machine virtuelle (« pve » + « vm-5012 ») :
+	// un sujet qui le porterait déjà nommerait ses fichiers comme celles d'un
+	// autre plan, et l'élagage de l'un toucherait l'autre.
+	guestSuffixPattern = regexp.MustCompile(`-vm-\d+$`)
 )
 
 // Complete pose le nombre gardé par défaut et retire les espaces de bord du
@@ -27,7 +32,7 @@ func (d *PlanDefinition) Complete() {
 // Validate rend le premier refus d'un plan, sans rien lire de la base : la
 // machine et la destination qu'il nomme se vérifient par le service.
 func (d PlanDefinition) Validate() error {
-	if !subjectPattern.MatchString(d.Subject) || !isPlainName(d.Name) {
+	if !subjectPattern.MatchString(d.Subject) || guestSuffixPattern.MatchString(d.Subject) || !isPlainName(d.Name) {
 		return ErrPlanInvalid
 	}
 	switch d.SourceKind {
@@ -59,7 +64,7 @@ func (d PlanDefinition) validateAgentSource() error {
 	if d.SourceMachineID == "" {
 		return ErrSourceMachineUnknown
 	}
-	if !slices.Contains(Producers(), d.Producer) {
+	if !slices.Contains(machine.Producers(), d.Producer) {
 		return ErrProducerUnknown
 	}
 	if d.Selector != SelectorAll && (len(d.Selector) > MaxSelector || !selectorPattern.MatchString(d.Selector)) {

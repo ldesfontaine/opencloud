@@ -21,7 +21,7 @@ const sourceID = "99999999-2222-4333-8444-555555555555"
 func agentPlan(subject, destinationID string) backup.PlanDefinition {
 	return backup.PlanDefinition{
 		Subject: subject, Name: "Machines virtuelles", SourceKind: backup.SourceAgent, SourceMachineID: sourceID,
-		Producer: backup.ProducerProxmoxVzdump, Selector: backup.SelectorAll, DestinationID: destinationID, Keep: 5,
+		Producer: machine.ProducerProxmoxVzdump, Selector: backup.SelectorAll, DestinationID: destinationID, Keep: 5,
 	}
 }
 
@@ -56,11 +56,16 @@ func TestPlanDefinition_Validate(t *testing.T) {
 		{"an empty subject", with(agent, func(d *backup.PlanDefinition) { d.Subject = "" }), backup.ErrPlanInvalid},
 		{"a subject of 41 characters", with(agent, func(d *backup.PlanDefinition) { d.Subject = strings.Repeat("a", 41) }), backup.ErrPlanInvalid},
 		{"a subject of 40 characters", with(agent, func(d *backup.PlanDefinition) { d.Subject = strings.Repeat("a", 40) }), nil},
+		{"a subject ending like the archive of a guest", with(agent, func(d *backup.PlanDefinition) { d.Subject = "pve-vm-100" }), backup.ErrPlanInvalid},
+		{"a subject ending like the archive of any guest", with(agent, func(d *backup.PlanDefinition) { d.Subject = "x-vm-1" }), backup.ErrPlanInvalid},
+		{"a subject ending with vm", with(agent, func(d *backup.PlanDefinition) { d.Subject = "pve-vm" }), nil},
+		{"a subject with vm and digits inside", with(agent, func(d *backup.PlanDefinition) { d.Subject = "pve-vm-100-hebdo" }), nil},
+		{"a subject vm and digits without a dash before", with(agent, func(d *backup.PlanDefinition) { d.Subject = "vm-100" }), nil},
 		{"the database named after an agent", with(database, func(d *backup.PlanDefinition) { d.Subject = "pve" }), backup.ErrPlanInvalid},
 		{"an agent plan called database", with(agent, func(d *backup.PlanDefinition) { d.Subject = "database" }), backup.ErrPlanInvalid},
 		{"an agent plan taking the prefix of the database", with(agent, func(d *backup.PlanDefinition) { d.Subject = "opencloud" }), backup.ErrPlanInvalid},
 		{"the database with a machine", with(database, func(d *backup.PlanDefinition) { d.SourceMachineID = sourceID }), backup.ErrPlanInvalid},
-		{"the database with a producer", with(database, func(d *backup.PlanDefinition) { d.Producer = backup.ProducerProxmoxVzdump }), backup.ErrPlanInvalid},
+		{"the database with a producer", with(database, func(d *backup.PlanDefinition) { d.Producer = machine.ProducerProxmoxVzdump }), backup.ErrPlanInvalid},
 		{"the database with a selector", with(database, func(d *backup.PlanDefinition) { d.Selector = backup.SelectorAll }), backup.ErrPlanInvalid},
 		{"a source of another kind", with(agent, func(d *backup.PlanDefinition) { d.SourceKind = "nfs" }), backup.ErrPlanInvalid},
 		{"no source", with(agent, func(d *backup.PlanDefinition) { d.SourceKind = "" }), backup.ErrPlanInvalid},
@@ -105,7 +110,7 @@ func TestSavePlan_AnAgentPlanIsStoredButCannotRunYet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.SourceMachineID != sourceID || saved.SourceMachineName != "pve" || saved.Producer != backup.ProducerProxmoxVzdump ||
+	if saved.SourceMachineID != sourceID || saved.SourceMachineName != "pve" || saved.Producer != machine.ProducerProxmoxVzdump ||
 		saved.Selector != backup.SelectorAll || saved.Name != "Machines virtuelles" || saved.Keep != 5 {
 		t.Fatalf("saved %+v", saved)
 	}
@@ -137,7 +142,7 @@ func TestSavePlan_AnAgentPlanIsStoredButCannotRunYet(t *testing.T) {
 		if event.Action == audit.BackupPlanUpdate && event.ObjectName == "pve-vm" {
 			found = true
 			if event.Details["source_kind"] != "agent" || event.Details["source_machine_id"] != sourceID ||
-				event.Details["producer"] != backup.ProducerProxmoxVzdump || event.Details["selector"] != "all" {
+				event.Details["producer"] != machine.ProducerProxmoxVzdump || event.Details["selector"] != "all" {
 				t.Errorf("details %v", event.Details)
 			}
 		}

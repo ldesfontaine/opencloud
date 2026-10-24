@@ -65,6 +65,10 @@ const (
 	SystemdRunBinary = "/usr/bin/systemd-run"
 	// sudoers.d, au nom du compte : un fichier par règle, qu'on retire seul.
 	SudoersFile = "/etc/sudoers.d/" + brand.AgentAccount
+	// La règle s'écrit d'abord ici, visudo la juge, puis mv la pose : sudo
+	// ignore un fichier de sudoers.d dont le nom porte un point, donc une règle
+	// à moitié écrite ou refusée par visudo ne vaut jamais rien.
+	SudoersTempFile = "/etc/sudoers.d/." + brand.AgentAccount + ".tmp"
 	// Le drop-in de l'unité : NoNewPrivileges=true interdit tout sudo, c'est le
 	// seul desserrement que ce droit demande.
 	ProduceDropInDir  = "/etc/systemd/system/" + brand.AgentUnit + ".d"

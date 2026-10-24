@@ -19,7 +19,7 @@ export function passphraseProblem(first: string, second: string): string | null 
 }
 
 // Le sujet de la base, et ce qu'un agent sait produire (la liste du serveur,
-// backup.Producers).
+// machine.Producers).
 export const databaseSubject = "database";
 export const sourceKinds: readonly BackupSourceKind[] = ["database", "agent"];
 export const producers = ["proxmox-vzdump"] as const;

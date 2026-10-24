@@ -160,7 +160,7 @@ func closedKeyLists() []composedKeys {
 		{prefix: "machine.capability_unavailable_", values: machine.UnavailableReasons()},
 		// Les plans de sauvegarde : d'où ils prennent, et ce qu'un agent sait produire.
 		{prefix: "backup.source_kind_", values: []string{backup.SourceDatabase, backup.SourceAgent}},
-		{prefix: "backup.producer_", values: backup.Producers()},
+		{prefix: "backup.producer_", values: machine.Producers()},
 	}
 }
 
