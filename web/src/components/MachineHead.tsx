@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import type { Machine } from "../api/machines";
 import { useNow } from "../hooks/useNow";
 import { useT } from "../i18n/context";
-import { machineTabs } from "../lib/machineTabs";
+import { visibleMachineTabs } from "../lib/machineTabs";
 import { machineSeen } from "../lib/machines";
 import { Select } from "./Field";
 import { OnlinePill } from "./Pill";
@@ -54,7 +54,7 @@ export function MachineHead({ current, all }: { current: Machine; all: Machine[]
   );
 }
 
-export function Tabs({ machineID }: { machineID: string }) {
-  const tabs = machineTabs.map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
+export function Tabs({ machineID, hostsProxmox }: { machineID: string; hostsProxmox: boolean }) {
+  const tabs = visibleMachineTabs(hostsProxmox).map((tab) => ({ to: tab.slug === "" ? `/machines/${machineID}` : `/machines/${machineID}/${tab.slug}`, key: tab.key }));
   return <TabNav tabs={tabs} />;
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/brand"
 	"github.com/ldesfontaine/opencloud/internal/lang"
 	"github.com/ldesfontaine/opencloud/internal/machine"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/server/httpx"
 	"github.com/ldesfontaine/opencloud/internal/version"
 )
@@ -27,6 +28,8 @@ type machineJSON struct {
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	// L'agent courant, null tant qu'aucun ne s'est enrôlé.
 	Agent *agentJSON `json:"agent"`
+	// Ce que la machine porte, ou est, pour Proxmox : voir api_proxmox.go.
+	Proxmox proxmoxSummaryJSON `json:"proxmox"`
 	// Le support du système, seulement quand l'opérateur a activé la fin
 	// de support.
 	Lifecycle *lifecycleJSON `json:"lifecycle,omitempty"`
@@ -167,10 +170,11 @@ func capabilityFromJSON(capability capabilityJSON) machine.Capability {
 	return machine.Capability{Name: capability.Name, Paths: capability.Paths}
 }
 
-// machineJSONOf ajoute aux faits de la machine le support de son système,
-// quand la fin de support est activée.
-func (s *Server) machineJSONOf(machineStatus machine.Status, withLifecycle bool) machineJSON {
+// machineJSONOf ajoute aux faits de la machine ce qu'elle est pour Proxmox et
+// le support de son système, quand la fin de support est activée.
+func (s *Server) machineJSONOf(machineStatus machine.Status, summary proxmox.Summary, withLifecycle bool) machineJSON {
 	converted := machineToJSON(machineStatus)
+	converted.Proxmox = proxmoxSummaryToJSON(summary)
 	if withLifecycle {
 		converted.Lifecycle = lifecycleToJSON(s.lifecycle.OfSystem(machineStatus.OS))
 	}
@@ -195,9 +199,15 @@ func (s *Server) listMachines(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
+	summaries, err := s.reader.ProxmoxSummaries(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
 	response := machinesResponse{
-		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON { return s.machineJSONOf(machineStatus, withLifecycle) }),
-		Pending:  make([]pendingTokenJSON, 0, len(pending)),
+		Machines: httpx.ConvertAll(statuses, func(machineStatus machine.Status) machineJSON {
+			return s.machineJSONOf(machineStatus, summaries[machineStatus.ID], withLifecycle)
+		}),
+		Pending: make([]pendingTokenJSON, 0, len(pending)),
 	}
 	for _, token := range pending {
 		response.Pending = append(response.Pending, pendingTokenJSON{
@@ -220,7 +230,11 @@ func (s *Server) getMachine(w http.ResponseWriter, r *http.Request) {
 	if s.failed(w, r, err, nil) {
 		return
 	}
-	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, withLifecycle))
+	summaries, err := s.reader.ProxmoxSummaries(r.Context())
+	if s.failed(w, r, err, nil) {
+		return
+	}
+	s.writeAPI(w, http.StatusOK, s.machineJSONOf(found, summaries[found.ID], withLifecycle))
 }
 
 // L'opérateur nomme la machine ; le jeton naît et se montre une seule fois.

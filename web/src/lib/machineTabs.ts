@@ -14,6 +14,21 @@ export const machineTabs: Tab[] = [
   { slug: "journaux", key: "tab.logs" },
 ];
 
+// L'onglet de l'hyperviseur : il ne s'affiche que sur une machine qui porte un
+// hôte Proxmox déclaré. Son adresse reste servie sans hôte (une carte y mène à
+// la déclaration), pour qu'un lien gardé ne tombe pas sur une page introuvable.
+export const hypervisorTab: Tab = { slug: "hyperviseur", key: "tab.hypervisor" };
+
+// Les onglets affichés pour une machine : les onglets fixes, puis
+// l'hyperviseur quand un hôte est déclaré, avant les journaux.
+export function visibleMachineTabs(hostsProxmox: boolean): Tab[] {
+  if (!hostsProxmox) {
+    return machineTabs;
+  }
+  const logs = machineTabs.findIndex((tab) => tab.slug === "journaux");
+  return [...machineTabs.slice(0, logs), hypervisorTab, ...machineTabs.slice(logs)];
+}
+
 // Les onglets promis mais pas encore livrés : masqués, leur adresse mène
 // au résumé de la machine pour qu'un lien gardé ne tombe pas sur une page
 // vide.
@@ -26,7 +41,7 @@ export const renamedMachineTabs: Record<string, string> = { domaines: "disponibi
 // Ce que devient un segment d'URL : un onglet affiché, un renvoi au résumé,
 // un renvoi vers son nouveau nom, ou une page introuvable.
 export function resolveMachineTab(slug: string): "shown" | "summary" | "renamed" | "unknown" {
-  if (machineTabs.some((tab) => tab.slug === slug)) {
+  if (slug === hypervisorTab.slug || machineTabs.some((tab) => tab.slug === slug)) {
     return "shown";
   }
   if (slug in renamedMachineTabs) {

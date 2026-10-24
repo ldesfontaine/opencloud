@@ -11,6 +11,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/directory"
 	"github.com/ldesfontaine/opencloud/internal/heartbeat"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/settings"
 )
 
@@ -92,4 +93,11 @@ type Reader interface {
 	// GetActionRun rend un ordre et sa sortie ; sql.ErrNoRows, enveloppé,
 	// s'il n'existe plus.
 	GetActionRun(ctx context.Context, id string) (action.Run, error)
+
+	// GetProxmoxView rend l'hôte Proxmox d'une machine avec ses VM et ses
+	// stockages, jamais son secret ; proxmox.ErrNotFound sans hôte.
+	GetProxmoxView(ctx context.Context, machineID string) (proxmox.View, error)
+	// ProxmoxSummaries rend, par machine, ce qu'elle porte ou ce qu'elle est
+	// pour Proxmox ; une machine que rien ne lie n'y figure pas.
+	ProxmoxSummaries(ctx context.Context) (map[string]proxmox.Summary, error)
 }

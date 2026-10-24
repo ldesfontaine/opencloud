@@ -29,6 +29,7 @@ import (
 	"github.com/ldesfontaine/opencloud/internal/live"
 	"github.com/ldesfontaine/opencloud/internal/machine"
 	"github.com/ldesfontaine/opencloud/internal/probe"
+	"github.com/ldesfontaine/opencloud/internal/proxmox"
 	"github.com/ldesfontaine/opencloud/internal/resource"
 	"github.com/ldesfontaine/opencloud/internal/server/servertest"
 	"github.com/ldesfontaine/opencloud/internal/settings"
@@ -61,6 +62,7 @@ type testServer struct {
 	journal    *audit.Recorder
 	actions    *action.Service
 	backups    *backup.Service
+	proxmox    *proxmox.Service
 	state      *os.Root
 	bus        *live.Bus
 	publicBus  *live.Bus
@@ -211,6 +213,10 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	deployer := deploy.New(db, declared, machines, db, actions, logger)
 	sshKeys := sshkeys.New(db, logger)
 	sshKeys.SetClock(func() time.Time { return testNow })
+	hypervisors := proxmox.New(db, machines, logger)
+	hypervisors.SetClock(func() time.Time { return testNow })
+	hypervisors.SetWatcher(bus)
+	hypervisors.SetAuditor(journal)
 	server, err := New(Options{
 		Logger:     logger,
 		Version:    "v0.0.1",
@@ -232,6 +238,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 		Auth:       operator,
 		Actions:    actions,
 		SSHKeys:    sshKeys,
+		Proxmox:    hypervisors,
 		Backups:    backups,
 		Deploy:     deployer,
 		Live:       bus,
@@ -249,7 +256,7 @@ func newFirstSetupServer(t *testing.T) *testServer {
 	probes.SetCommander(server)
 	updates.SetCommander(server)
 	actions.SetCommander(server)
-	return &testServer{actions: actions, backups: backups, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
+	return &testServer{actions: actions, backups: backups, proxmox: hypervisors, state: root, Server: server, machines: machines, heartbeats: heartbeats, resources: resources, containers: containers, probes: probes, directory: declared, updates: updates, lifecycle: lifecycles, support: support, status: statusPage, alerts: alerts, notifier: notifier, apiTokens: apiTokens, operator: operator, journal: journal, bus: bus, publicBus: publicBus, db: db}
 }
 
 // testServerKey lit une clé du serveur figée, posée dans un fichier comme

@@ -2,6 +2,7 @@ import { useResource, type Resource } from "../hooks/useResource";
 import { api, segment } from "./client";
 import type { DeletionPlan } from "./deletion";
 import type { Lifecycle } from "./lifecycle";
+import type { ProxmoxSummary } from "./proxmox";
 
 // Les machines et leurs jetons d'enrôlement, sur le modèle d'api/probes.
 // Sujet du direct : « machines », que topicsOf devine du chemin. Ce qu'une
@@ -23,6 +24,8 @@ export interface Machine {
   // Le support du système, seulement quand la fin de support est activée
   // sous Paramètres.
   lifecycle?: Lifecycle;
+  // L'hôte Proxmox que la machine porte, ou la VM qu'elle est sur un hôte.
+  proxmox: ProxmoxSummary;
 }
 
 // Un droit de l'agent et, pour un droit borné, ses chemins.
