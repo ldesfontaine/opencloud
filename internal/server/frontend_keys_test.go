@@ -21,6 +21,7 @@ var (
 // en être une, chacun avec sa raison.
 var literalsNotKeys = map[string]string{
 	"agent.update":   "un droit d'agent (machine.CapabilityAgentUpdate), que le front envoie au serveur",
+	"backup.produce": "un droit d'agent (machine.CapabilityBackupProduce), que le front envoie au serveur",
 	"backup.receive": "un droit d'agent (machine.CapabilityBackupReceive), que le front envoie au serveur",
 	"probe.lan":      "un droit d'agent (machine.CapabilityProbeLAN), que le front envoie au serveur",
 }

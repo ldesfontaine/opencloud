@@ -894,13 +894,20 @@ machine refusent de composer vers la boucle locale, les adresses privées et
 `100.64.0.0/10`, et tombent « Hors ligne » avec le motif « adresse du réseau
 local » ; décochez-le pour une machine dont les sondes ne doivent viser que
 l'extérieur), mettre à jour l'agent, déployer un service Docker, mettre à jour un service Docker,
-recevoir des sauvegardes dans un dossier, écrire des fichiers dans des
+recevoir des sauvegardes dans un dossier, **produire des sauvegardes**
+(`backup.produce`, vzdump Proxmox : la case fixe le producteur, `proxmox-vzdump`,
+et demande une préparation de plus, voir [`backup.produce` équivaut à
+root](#backupproduce-équivaut-à-root)), écrire des fichiers dans des
 dossiers (un à huit chemins absolus, séparés par des virgules). Au-delà de
 `observe`, la commande les porte en clair, à lire avant de coller :
 
 ```sh
 printf '%s\n' 'oc_…' | sudo -u opencloud-agent /var/lib/opencloud-agent/bin/current agent -server https://opencloud.example.org -rights observe,probe.lan,agent.update,files.write=/srv/workspace
 ```
+
+Pour un hôte Proxmox qui produit ses sauvegardes, `-rights` porte
+`backup.produce=proxmox-vzdump` (un producteur n'est pas un chemin : il se
+nomme).
 
 Ils s'écrivent dans `identity.json`, la fiche de la machine les montre, et
 **l'agent les applique** : un ordre hors de ses droits est refusé, et le refus
@@ -993,8 +1000,9 @@ test ! -L /srv/backups && install -d -m 0700 -o opencloud-agent -g opencloud-age
 - **Une ligne `install -d` par dossier où un droit coché écrit**, au nom du
   compte : la racine des services (`/srv/workspace`) pour `docker.deploy` et
   `docker.update`, le dossier de `backup.receive` en `0700`, ceux de
-  `files.write`. `observe` seul, `probe.lan` et `agent.update` n'en demandent
-  aucun. Un droit dont le dossier n'appartient pas au compte est signalé
+  `files.write`. `observe` seul, `probe.lan`, `agent.update` et `backup.produce`
+  n'en demandent aucun (le dossier de production est sous l'état de l'agent,
+  créé sous le compte). Un droit dont le dossier n'appartient pas au compte est signalé
   « indisponible » sur la fiche, et l'agent refuse l'ordre en le disant
   (`path_denied`) : ne créez pas le dossier à sa place en root.
 - **Sur une machine déjà préparée** (un second jeton, un ré-enrôlement,
@@ -1021,6 +1029,53 @@ Sur une machine avec Docker, le compte dédié protège donc des erreurs et des
 compromissions maladroites, pas d'un attaquant qui sait lire cette page.
 Découper l'agent en un observateur sans privilège et un exécuteur root étroit
 n'est pas fait ; il le sera si l'usage le demande.
+
+#### `backup.produce` équivaut à root
+
+Le droit `backup.produce=proxmox-vzdump` laisse l'agent d'un hôte Proxmox
+produire la sauvegarde d'une VM ou d'un conteneur avec `vzdump`. L'agent reste
+sous `opencloud-agent` ; `vzdump` demande root, et l'unité de l'agent
+(`ProtectSystem=strict`, `PrivateTmp`, `NoNewPrivileges=true`) ne laisse ni lancer
+`sudo`, ni écrire là où `vzdump` écrit (`/run`, `/var/log/vzdump`, les stockages).
+La préparation de la page du
+jeton ajoute donc, **après les lignes du compte**, une ligne par geste :
+
+```sh
+runuser -u opencloud-agent -- install -d -m 0700 /var/lib/opencloud-agent/produce
+printf '%s\n' '#!/bin/sh' '# openCloud : vzdump hors du bac à sable de l agent, sur ordre de l agent.' 'exec /usr/bin/systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"' | install -m 0755 -o root -g root /dev/stdin /usr/local/sbin/opencloud-vzdump
+printf '%s\n' 'opencloud-agent ALL=(root) NOPASSWD: /usr/local/sbin/opencloud-vzdump' | install -m 0440 -o root -g root /dev/stdin /etc/sudoers.d/opencloud-agent
+visudo -cf /etc/sudoers.d/opencloud-agent
+install -d -m 0755 /etc/systemd/system/opencloud-agent.service.d
+printf '%s\n' '[Service]' 'NoNewPrivileges=false' | install -m 0644 /dev/stdin /etc/systemd/system/opencloud-agent.service.d/produce.conf
+systemctl daemon-reload
+```
+
+| Geste | Pourquoi |
+| --- | --- |
+| `produce/` dans l'état, au compte, `0700` | Là où l'agent range l'archive pendant qu'il la chiffre ; à lui, comme le reste de son état |
+| Le script `/usr/local/sbin/opencloud-vzdump`, à root | `exec systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"` : `vzdump` tourne dans une **unité transitoire**, donc **hors** du bac à sable de l'agent (il voit `/run/qemu-server`, `/var/log/vzdump`, les stockages) ; `--pipe` relie sa sortie standard à l'agent, qui la lit avec `--stdout` |
+| La règle `sudoers.d`, à root, `0440` | Le compte lance ce script, **seulement lui**, sans mot de passe. `visudo -cf` la vérifie : une règle fausse bloquerait `sudo` pour toute la machine, d'où la ligne qui la relit juste après (si elle échoue, supprimez le fichier) |
+| Le drop-in `produce.conf` | Avec `NoNewPrivileges=true`, le bit setuid de `sudo` est ignoré et la règle ne sert à rien. `NoNewPrivileges=false` est **le seul desserrement** de l'unité ; les autres protections restent |
+
+**Ce que ça vaut en sécurité.** La règle ne nomme que le script, mais `vzdump`
+accepte `--script`, un crochet qu'il lance en root : un agent compromis qui peut
+appeler le script **a root sur la machine**, comme avec le groupe `docker`
+([plus haut](#le-groupe-docker-équivaut-à-root)). Le compte dédié ne protège pas
+d'un attaquant décidé sur un hôte qui porte ce droit ; il protège des erreurs et
+des compromissions maladroites. `NoNewPrivileges=false` retire en plus à l'unité
+une protection : c'est la contrepartie de ce droit, et la page du jeton la dit
+dans un encadré. Ne cochez la case que sur l'hôte Proxmox.
+
+L'agent juge le droit à chaque ouverture du flux, sans lancer `vzdump` : il
+répond « indisponible » (fiche de la machine, journal `rights not exercisable`)
+avec `sudo_missing` (pas de `sudo`), `producer_missing` (le script de root ou
+`/usr/bin/vzdump` manque : rejouez la préparation) ou `sudo_denied` (la règle
+manque, ou l'unité n'a pas son drop-in : rejouez la préparation, puis
+`systemctl restart opencloud-agent`, car le drop-in ne se lit qu'au démarrage de
+l'unité). Pour **retirer** le droit : ré-enrôlez sans la case, puis supprimez
+`/etc/sudoers.d/opencloud-agent`, `/usr/local/sbin/opencloud-vzdump` et
+`/etc/systemd/system/opencloud-agent.service.d/produce.conf`, et
+`systemctl daemon-reload`.
 
 ### 3. Le premier lancement : l'enrôlement
 

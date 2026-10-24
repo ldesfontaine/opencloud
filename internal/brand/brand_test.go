@@ -16,6 +16,8 @@ func TestValues_AreFrozen(t *testing.T) {
 		"StateDir":                {StateDir, "/var/lib/opencloud"},
 		"AgentStateDir":           {AgentStateDir, "/var/lib/opencloud-agent"},
 		"AgentCurrentPath":        {AgentCurrentPath, "/var/lib/opencloud-agent/bin/current"},
+		"AgentProduceDir":         {AgentProduceDir, "produce"},
+		"VzdumpWrapperPath":       {VzdumpWrapperPath, "/usr/local/sbin/opencloud-vzdump"},
 		"AgentAccount":            {AgentAccount, "opencloud-agent"},
 		"DatabaseFile":            {DatabaseFile, "opencloud.db"},
 		"SecretKeyFile":           {SecretKeyFile, "secret.key"},

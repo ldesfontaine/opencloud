@@ -314,6 +314,7 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 		asAccount + "install -m 0755 " + source + " " + binDir + "/" + binaryName +
 			" && " + asAccount + "ln -sfn " + binaryName + " " + binDir + "/" + brand.AgentCurrentLink,
 	}
+	lines = append(lines, producePreparation(capabilities, asAccount)...)
 	folders := writtenFolders(capabilities)
 	accountFolders := []string{brand.AgentStateDir}
 	for _, folder := range folders {
@@ -330,6 +331,35 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 		lines = append(lines, "test ! -L "+folder.path+" && install -d -m "+folder.mode+" "+owner+" "+folder.path+comment)
 	}
 	return strings.Join(append(lines, nested...), "\n")
+}
+
+// producePreparation : ce que backup.produce=proxmox-vzdump demande de plus,
+// une ligne par geste, après le compte. NoNewPrivileges=true, dans l'unité de
+// l'agent, interdit tout sudo : le drop-in le desserre, c'est le seul
+// desserrement. Le script de root et la règle sudo sont de root, sur des
+// chemins que le compte ne contrôle pas ; seul le dossier de production, sous
+// l'état, est fait sous le compte. Les textes viennent de machine/produce.go :
+// aucune apostrophe, aucun nom de l'opérateur. Ce droit vaut root pour un agent
+// compromis (vzdump --script), comme le groupe docker.
+func producePreparation(capabilities []machine.Capability, asAccount string) []string {
+	if !machine.CoversProducer(capabilities, machine.ProducerProxmoxVzdump) {
+		return nil
+	}
+	return []string{
+		asAccount + "install -d -m 0700 " + machine.ProduceDir,
+		printfLines(machine.VzdumpWrapperLines()) + " | install -m 0755 -o root -g root /dev/stdin " + brand.VzdumpWrapperPath,
+		printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + machine.SudoersFile,
+		"visudo -cf " + machine.SudoersFile,
+		"install -d -m 0755 " + machine.ProduceDropInDir,
+		printfLines(machine.ProduceDropInLines()) + " | install -m 0644 /dev/stdin " + machine.ProduceDropInFile,
+		"systemctl daemon-reload",
+	}
+}
+
+// printfLines écrit des lignes de texte en une commande : printf, un builtin,
+// une ligne par argument entre apostrophes. Les textes n'en portent pas.
+func printfLines(lines []string) string {
+	return "printf '%s\\n' '" + strings.Join(lines, "' '") + "'"
 }
 
 // insideAny dit si path est sous l'un des dossiers (pas l'un d'eux).

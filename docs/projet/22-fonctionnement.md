@@ -313,12 +313,16 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 | `docker.deploy` | — | Déployer un service Compose déclaré, la première fois (`docker.deploy`) |
 | `docker.update` | — | Redéployer un service Compose déjà déployé : versions changées, `.env` remplacé (`docker.update`) |
 | `backup.receive` | un chemin | Recevoir des sauvegardes, dans ce dossier |
+| `backup.produce` | un à quatre **producteurs** (aujourd'hui `proxmox-vzdump`) | Produire une sauvegarde sur cette machine avec ce producteur : `proxmox-vzdump` lance `vzdump` en root par une règle `sudo` étroite (voir plus bas). **Vaut root** pour un agent compromis. Le droit se pose et se juge ici ; l'ordre qui s'en sert vient avec #266 (étape suivante) |
 | `files.write` | un à huit chemins | Écrire des fichiers, dans ces dossiers |
 
 - **Forme texte**, la même dans la ligne d'installation, le fichier de
   l'agent, l'en-tête et la base : droits séparés par `,`, un droit borné
   suivi de `=` et de ses chemins séparés par `:`
-  (`observe,docker.update,files.write=/opt/site:/srv/workspace`). Un chemin
+  (`observe,docker.update,files.write=/opt/site:/srv/workspace`) ; pour
+  `backup.produce`, ce sont des noms de producteurs et non des chemins
+  (`backup.produce=proxmox-vzdump`, `^[a-z0-9][a-z0-9-]{1,31}$`, un à quatre,
+  dans la liste fermée `machine.Producers`). Un chemin
   est absolu, propre (`path.Clean`), fait de lettres, chiffres, `.`, `-`,
   `_`, `/`, jamais `/` seul : la ligne se colle sans guillemets. `observe`
   s'ajoute toujours ; les droits se rangent dans l'ordre du tableau, les
@@ -326,7 +330,8 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
 - **À l'émission** : `POST /api/machines/tokens` reçoit `{name,
   capabilities: [{name, paths}]}` ; un droit inconnu, un chemin faux ou une
   portée fausse se refusent en 422 (`machine.capability_unknown`,
-  `machine.capability_path`, `machine.capability_scope`). Le jeton garde la
+  `machine.capability_path`, `machine.capability_scope`,
+  `machine.capability_producer` : un producteur hors liste). Le jeton garde la
   forme texte (`requested_capabilities`). Un jeton de ré-enrôlement reprend
   ce que le jeton de l'agent courant demandait, `observe` seul s'il ne
   demandait rien.
@@ -375,6 +380,9 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   | `path_denied` | le dossier du droit (la racine des services pour Docker, ou son plus proche parent s'il manque) n'est pas au compte : `access(2)` rend `EACCES` | `docker.*`, `backup.receive`, `files.write` |
   | `path_unwritable` | `EROFS`, ou ce qui n'est pas un dossier : l'unité ne l'ouvre pas (`ReadWritePaths`) | idem |
   | `not_self_updatable` | l'agent ne tourne pas depuis `<état>/bin/` | `agent.update` |
+  | `sudo_missing` | pas de `sudo` sur le `PATH` de l'agent | `backup.produce` |
+  | `producer_missing` | le script de root `/usr/local/sbin/opencloud-vzdump` ou `/usr/bin/vzdump` manque ou ne s'exécute pas | `backup.produce` |
+  | `sudo_denied` | `sudo -n -l /usr/local/sbin/opencloud-vzdump` échoue : la règle manque, ou l'unité interdit `sudo` (`NoNewPrivileges=true`) | `backup.produce` |
 
   `agent.update` demande en plus que le compte écrive dans `<état>/bin/` : sinon
   `path_denied` avant de télécharger quoi que ce soit. `access(2)` juge l'uid
@@ -401,6 +409,31 @@ dans son fichier. Les changer, c'est ré-enrôler (décision 10, plus bas).
   une ligne qui le dit, ou le nom et l'uid ; « pas encore rapporté » pour un
   agent plus ancien) et, dans une note, les droits cochés que ce compte ne peut
   pas exercer.
+- **`backup.produce=proxmox-vzdump` : sa préparation et son jugement** (#266,
+  proposé par Claude, validé par Lucas le 24 octobre 2026). Sur un hôte
+  Proxmox, l'agent reste sous `opencloud-agent` : `vzdump` ne se lance pas
+  sous ce compte, ni dans le bac à sable de l'unité (`ProtectSystem=strict`,
+  `PrivateTmp`). La page du jeton ajoute donc, après les lignes du compte, une
+  ligne par geste (textes dans `internal/machine/produce.go`, une seule fois) :
+  le dossier `produce/` de l'état, au compte (`0700`) ; le script de root
+  `/usr/local/sbin/opencloud-vzdump` (`0755`), qui fait `exec systemd-run
+  --pipe --wait --collect --quiet /usr/bin/vzdump "$@"` : `vzdump` tourne dans
+  une unité transitoire, **hors** du bac à sable de l'agent, et `--pipe` relie
+  sa sortie à l'agent ; la règle `opencloud-agent ALL=(root) NOPASSWD:
+  /usr/local/sbin/opencloud-vzdump` dans `/etc/sudoers.d/opencloud-agent`
+  (`0440`, vérifiée par `visudo -cf`) ; le drop-in `produce.conf` de l'unité,
+  `NoNewPrivileges=false`, **seul desserrement** (avec `true`, `sudo` ne peut
+  rien : le bit setuid est ignoré) ; `systemctl daemon-reload`. Les six
+  lignes de root écrivent sur des chemins que le compte ne contrôle pas. Ce
+  que ça coûte : la règle ne nomme que le script, mais `vzdump` accepte
+  `--script`, un crochet lancé en root ; **le droit vaut root sur la machine
+  pour un agent compromis**, comme le groupe `docker`, et `NoNewPrivileges=false`
+  retire à l'unité une protection de plus. La page du jeton le dit dans un
+  encadré à côté de celui du groupe `docker`. L'agent juge le droit comme les
+  autres, avant chaque ouverture du flux, dans l'ordre `sudo_missing` (pas de
+  `sudo`), `producer_missing` (le script ou `vzdump` manque), `sudo_denied`
+  (`sudo -n -l <script>` échoue : il répond sans rien exécuter ni demander de
+  mot de passe) ; la question se pose sans lancer `vzdump`.
 - **Un état mal gardé n'applique que `observe`** (#235, décisions 3 et 4 du
   22 octobre 2026). Au démarrage, après l'avoir ouvert, la commande juge
   l'état (`agent.CheckStateDir`) : elle suit son chemin comme le noyau, depuis
