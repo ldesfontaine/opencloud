@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ldesfontaine/opencloud/internal/egress"
 )
@@ -26,6 +27,17 @@ const (
 	// ce n'est plus l'API qu'on croit lire.
 	maxResponseBytes = 8 << 20
 	apiPrefix        = "/api2/json"
+
+	// Chaque texte que l'API rend (nom, état, nœud, stockage, type, contenu)
+	// est borné avant d'entrer en base et à l'écran : Proxmox les garde bien
+	// plus courts (un nom de VM est un nom DNS), un texte plus long ne dit rien
+	// de plus.
+	maxTextBytes = 128
+	// Au-delà, ce n'est plus l'hyperviseur d'une infra qu'on lit : le relevé
+	// est refusé plutôt que d'écrire des dizaines de milliers de lignes.
+	maxGuests   = 5000
+	maxStorages = 1000
+	maxContents = 16
 )
 
 // errPinMismatch : le certificat présenté n'est pas celui dont l'opérateur a
@@ -200,15 +212,22 @@ func (c *Client) Guests(ctx context.Context) ([]Guest, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(listed) > maxGuests {
+		return nil, fmt.Errorf("%w: %d guests, over %d", ErrBadResponse, len(listed), maxGuests)
+	}
 	guests := make([]Guest, 0, len(listed))
+	seen := map[int]bool{}
 	for _, entry := range listed {
-		if entry.Type != KindQEMU && entry.Type != KindLXC {
+		// Un numéro est unique dans une grappe : un doublon ferait échouer
+		// l'écriture du relevé entier, le premier vu reste.
+		if (entry.Type != KindQEMU && entry.Type != KindLXC) || seen[entry.VMID] {
 			continue
 		}
+		seen[entry.VMID] = true
 		guests = append(guests, Guest{
-			VMID: entry.VMID, Kind: entry.Type, Name: entry.Name, Status: entry.Status,
+			VMID: entry.VMID, Kind: entry.Type, Name: boundedText(entry.Name), Status: boundedText(entry.Status),
 			Template: entry.Template == 1, CPUs: entry.MaxCPU, MaxMem: entry.MaxMem, MaxDisk: entry.MaxDisk,
-			Node: entry.Node,
+			Node: boundedText(entry.Node),
 		})
 	}
 	return guests, nil
@@ -221,13 +240,20 @@ func (c *Client) Storages(ctx context.Context) ([]Storage, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(listed) > maxStorages {
+		return nil, fmt.Errorf("%w: %d storages, over %d", ErrBadResponse, len(listed), maxStorages)
+	}
 	storages := make([]Storage, 0, len(listed))
+	seen := map[string]bool{}
 	for _, entry := range listed {
-		if entry.Type != "storage" || entry.Storage == "" {
+		node, name := boundedText(entry.Node), boundedText(entry.Storage)
+		key := node + "/" + name
+		if entry.Type != "storage" || name == "" || seen[key] {
 			continue
 		}
+		seen[key] = true
 		storages = append(storages, Storage{
-			Node: entry.Node, Name: entry.Storage, Type: entry.PluginType,
+			Node: node, Name: name, Type: boundedText(entry.PluginType),
 			Total: entry.MaxDisk, Used: entry.Disk, Avail: max(entry.MaxDisk-entry.Disk, 0),
 			Content: splitContent(entry.Content), Active: entry.Status == "available",
 		})
@@ -266,9 +292,25 @@ func (c *Client) Backups(ctx context.Context, node, storage string) ([]BackupEnt
 }
 
 func splitContent(content string) []string {
-	contents := strings.FieldsFunc(content, func(r rune) bool { return r == ',' })
-	if contents == nil {
-		return []string{}
+	contents := []string{}
+	for _, item := range strings.FieldsFunc(content, func(r rune) bool { return r == ',' }) {
+		if len(contents) == maxContents {
+			break
+		}
+		contents = append(contents, boundedText(item))
 	}
 	return contents
+}
+
+// boundedText coupe un texte de l'API à maxTextBytes, sans couper un caractère
+// en deux.
+func boundedText(text string) string {
+	if len(text) <= maxTextBytes {
+		return text
+	}
+	cut := maxTextBytes
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }

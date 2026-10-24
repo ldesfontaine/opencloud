@@ -28,7 +28,11 @@ func TestDefinition_NormalizeKeepsAValidInputAndPutsItInShape(t *testing.T) {
 			t.Errorf("%s: %q, %v", name, got.APIURL, err)
 		}
 	}
-	for name, raw := range map[string]string{"bare hex": pin, "openssl colons": colons, "sha256 prefix": "SHA256:" + colons} {
+	for name, raw := range map[string]string{
+		"bare hex": pin, "openssl colons": colons, "sha256 prefix": "SHA256:" + colons,
+		// La ligne entière d'openssl, que installation.md dit de coller telle quelle (OpenSSL 3, puis 1.1).
+		"openssl 3 line": "sha256 Fingerprint=" + colons + "\n", "openssl 1.1 line": "SHA256 Fingerprint=" + colons,
+	} {
 		definition := validDefinition()
 		definition.Pin = raw
 		got, err := definition.Normalize()
@@ -59,6 +63,9 @@ func TestDefinition_NormalizeRefuses(t *testing.T) {
 		"secret too long":     {func(d *Definition) { d.TokenSecret = strings.Repeat("a", 201) }, ErrSecretInvalid},
 		"pin not hex":         {func(d *Definition) { d.Pin = strings.Repeat("zz", 32) }, ErrPinInvalid},
 		"pin too short":       {func(d *Definition) { d.Pin = "abcd" }, ErrPinInvalid},
+		"sha1 openssl line": {func(d *Definition) {
+			d.Pin = "SHA1 Fingerprint=" + strings.TrimSuffix(strings.Repeat("AB:", 32), ":")
+		}, ErrPinInvalid},
 	} {
 		definition := validDefinition()
 		tc.change(&definition)

@@ -133,7 +133,7 @@ function GuestRow({ guest }: { guest: ProxmoxGuest }) {
       <td>
         <Subject icon="server">
           <span className="svc-name">
-            <span>
+            <span className="proxmox-name">
               {guest.name === "" ? guest.vmid : guest.name} <span className="secondary mono">{guest.vmid}</span>
             </span>
             {guest.template && <Pill tone="neutral">{t("machine.proxmox_template")}</Pill>}
@@ -189,7 +189,7 @@ function StorageRow({ storage }: { storage: ProxmoxStorage }) {
       <td>
         <Subject icon="database">
           <span className="svc-name">
-            <span>
+            <span className="proxmox-name">
               {storage.name} <span className="secondary mono">{storage.node}</span>
             </span>
             <span className="secondary">{storage.type}</span>
@@ -218,6 +218,11 @@ function StorageRow({ storage }: { storage: ProxmoxStorage }) {
 export function ProxmoxCard({ machine }: { machine: Machine }) {
   const t = useT();
   const summary = machine.proxmox;
+  // Une VM d'un hôte déjà déclaré ne se propose pas comme hyperviseur : son
+  // encadré « Sur l'hôte Proxmox » suffit (l'adresse du formulaire reste servie).
+  if (!summary.declared && summary.hosted !== null) {
+    return null;
+  }
   if (!summary.declared) {
     return (
       <Card>
@@ -264,7 +269,7 @@ export function HostedCard({ hosted }: { hosted: ProxmoxHosted }) {
           label={kindLabel(t, hosted.kind)}
           value={
             <>
-              {hosted.name} <span className="secondary mono">{hosted.vmid}</span> <Pill tone={guestTone(hosted.status)}>{guestStatusLabel(t, hosted.status)}</Pill>
+              <span className="proxmox-name">{hosted.name}</span> <span className="secondary mono">{hosted.vmid}</span> <Pill tone={guestTone(hosted.status)}>{guestStatusLabel(t, hosted.status)}</Pill>
             </>
           }
         />

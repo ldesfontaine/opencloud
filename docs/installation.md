@@ -1364,6 +1364,12 @@ fois déclaré, l'onglet **Hyperviseur** apparaît sur la machine, et la fiche d
 chaque machine dont le nom d'hôte est celui d'une VM montre l'encadré « Sur
 l'hôte Proxmox ». L'hôte se relit toutes les cinq minutes.
 
+Un onglet sans aucune VM ni stockage alors que l'hôte en a : le jeton répond
+(la version ne demande aucun droit) mais ne voit rien. Proxmox ne refuse pas une
+liste, il la filtre par les droits du jeton : *Privilege Separation* est restée
+cochée sans permission donnée au jeton lui-même, ou le rôle n'est pas posé sur
+`/` avec *Propagate*. Reprenez l'étape 1.
+
 Le secret est chiffré dans la base (voir [Sauvegarder et
 restaurer](#sauvegarder-et-restaurer)) et ne ressort jamais, ni dans
 l'interface ni dans l'API ni dans les journaux : pour le changer, on redéclare

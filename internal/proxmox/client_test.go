@@ -12,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/ldesfontaine/opencloud/internal/egress"
 )
 
 const (
@@ -273,5 +276,80 @@ func TestClient_EscapesTheNodeAndTheStorageInThePath(t *testing.T) {
 		if !strings.HasPrefix(path, "/api2/json/nodes/pve%2F..%2Fx/storage/a%20b/content") {
 			t.Errorf("path not escaped: %s", path)
 		}
+	}
+}
+
+// Un hyperviseur qui annonce n'importe quoi ne fait entrer en base ni un texte
+// sans fin, ni un doublon qui ferait échouer l'écriture du relevé.
+func TestClient_BoundsWhatTheAPISays(t *testing.T) {
+	api := newFakeAPI(t)
+	hostile := `<img src=x onerror=alert(1)>` + strings.Repeat("é", 4000)
+	api.handler = func(w http.ResponseWriter, r *http.Request) bool {
+		switch r.URL.Query().Get("type") {
+		case "vm":
+			_, _ = fmt.Fprintf(w, `{"data":[
+				{"type":"qemu","vmid":101,"name":%q,"node":%q,"status":%q},
+				{"type":"qemu","vmid":101,"name":"twin","node":"pve","status":"running"}]}`, hostile, hostile, hostile)
+		case "storage":
+			_, _ = fmt.Fprintf(w, `{"data":[
+				{"type":"storage","storage":%q,"node":"pve","plugintype":%q,"content":%q},
+				{"type":"storage","storage":%q,"node":"pve","plugintype":"dir","content":"iso"}]}`,
+				hostile, hostile, strings.Repeat("backup,", 50), hostile)
+		default:
+			return false
+		}
+		return true
+	}
+	client := NewClient(api.credentials(api.pin()))
+	guests, err := client.Guests(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guests) != 1 || guests[0].Name == "twin" {
+		t.Fatalf("a duplicate vmid must be dropped, the first kept: %+v", guests)
+	}
+	for _, text := range []string{guests[0].Name, guests[0].Node, guests[0].Status} {
+		if len(text) > maxTextBytes || !utf8.ValidString(text) {
+			t.Errorf("text not bounded (%d bytes, valid %v)", len(text), utf8.ValidString(text))
+		}
+	}
+	storages, err := client.Storages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(storages) != 1 || len(storages[0].Name) > maxTextBytes || len(storages[0].Type) > maxTextBytes || len(storages[0].Content) != maxContents {
+		t.Fatalf("storages not bounded: %d storages, name %d bytes, %d contents", len(storages), len(storages[0].Name), len(storages[0].Content))
+	}
+}
+
+func TestClient_RefusesMoreGuestsThanAnInfraHolds(t *testing.T) {
+	api := newFakeAPI(t)
+	api.handler = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Query().Get("type") != "vm" {
+			return false
+		}
+		entries := make([]string, 0, maxGuests+1)
+		for vmid := 100; vmid <= 100+maxGuests; vmid++ {
+			entries = append(entries, fmt.Sprintf(`{"type":"lxc","vmid":%d}`, vmid))
+		}
+		_, _ = w.Write([]byte(`{"data":[` + strings.Join(entries, ",") + `]}`))
+		return true
+	}
+	_, err := NewClient(api.credentials(api.pin())).Guests(context.Background())
+	refusalOf(t, err, ErrBadResponse)
+}
+
+// L'adresse de l'API passe par la garde egress, comme les alertes et les
+// registres : le lien-local (métadonnées d'un hébergeur) ne se joint jamais,
+// et rien ne part, jeton compris.
+func TestClient_NeverReachesTheLinkLocal(t *testing.T) {
+	credentials := Credentials{
+		Host:        Host{MachineID: "m1", APIURL: "https://169.254.169.254:8006", TokenID: testTokenID},
+		TokenSecret: testTokenSecret,
+	}
+	_, err := NewClient(credentials).Version(context.Background())
+	refusalOf(t, err, ErrUnreachable)
+	if !errors.Is(err, egress.ErrForbiddenAddress) {
+		t.Fatalf("the egress guard did not refuse: %v", err)
 	}
 }

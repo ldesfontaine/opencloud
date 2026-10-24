@@ -530,7 +530,10 @@ d'agir ou d'alerter viendra, s'il vient, d'une décision à part.
 **Le rythme.** Un premier relevé part dès la déclaration, puis la boucle
 `proxmox` relit chaque hôte au démarrage de `serve` et toutes les cinq minutes
 (`watchPeriod`), un hôte à la fois. Un relevé entier est borné à deux minutes ;
-chaque appel à vingt secondes et à 8 Mio de réponse. Ce qui revient du relevé est
+chaque appel à vingt secondes et à 8 Mio de réponse. Chaque texte rendu par
+l'API (nom, état, nœud, stockage, type, contenu) est coupé à 128 octets avant
+d'entrer en base ; un numéro de VM vu deux fois ne compte qu'une ; plus de 5 000
+VM ou de 1 000 stockages est une réponse refusée (`proxmox.bad_response`). Ce qui revient du relevé est
 écrit d'un bloc (« Ce qui est stocké, et où ») et prévient le direct (sujet
 `machines`).
 
@@ -562,7 +565,8 @@ Let's Encrypt par ACME). Avec une empreinte SHA-256, **elle seule juge** : la
 chaîne n'est pas vérifiée, mais le certificat présenté doit avoir exactement
 cette empreinte, sans quoi rien n'est envoyé à l'hôte, jeton compris. C'est le
 cas d'un Proxmox livré avec son certificat auto-signé. L'empreinte se saisit
-avec ou sans deux-points, avec ou sans `sha256:`. Aucune redirection n'est
+avec ou sans deux-points, avec ou sans `sha256:`, ou en collant la ligne
+d'openssl entière (`sha256 Fingerprint=AA:BB:…`). Aucune redirection n'est
 suivie : une API qui redirige n'est pas celle qu'on a déclarée.
 
 **Les destinations.** Le client sort par la garde d'`egress` (`DialWith`, réseau

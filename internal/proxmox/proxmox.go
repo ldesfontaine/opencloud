@@ -193,10 +193,14 @@ func normalizeURL(raw string) (string, error) {
 	return "https://" + parsed.Host, nil
 }
 
-// normalizePin accepte ce que openssl écrit (AA:BB:…) comme l'hexadécimal nu,
-// avec ou sans « sha256: » devant.
+// normalizePin accepte ce que openssl écrit (AA:BB:…), la ligne entière
+// comprise (« sha256 Fingerprint=AA:BB:… », que la doc dit de coller telle
+// quelle), comme l'hexadécimal nu, avec ou sans « sha256: » devant.
 func normalizePin(raw string) (string, error) {
 	pin := strings.ToLower(strings.TrimSpace(raw))
+	if label, value, found := strings.Cut(pin, "fingerprint="); found && strings.TrimSpace(label) == "sha256" {
+		pin = strings.TrimSpace(value)
+	}
 	pin = strings.TrimPrefix(pin, "sha256:")
 	pin = strings.ReplaceAll(pin, ":", "")
 	if pin == "" {

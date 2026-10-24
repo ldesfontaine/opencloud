@@ -13,3 +13,10 @@
   gap: 6px;
   min-width: 160px;
 }
+
+// Un nom vient de l'hyperviseur, sans espace parfois : il se coupe où il faut
+// plutôt que de pousser les colonnes hors de la carte.
+.proxmox-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
