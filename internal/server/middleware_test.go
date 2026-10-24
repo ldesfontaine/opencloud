@@ -84,6 +84,36 @@ func TestLimitBody_StopsAtOneMebibyte(t *testing.T) {
 	}
 }
 
+// Le téléversement d'un agent (PUT d'un fichier de colis) n'a pas la borne d'un
+// mébioctet : une archive se compte en Gio. Rien d'autre n'en est dispensé,
+// pas même un autre verbe sur la même route.
+func TestLimitBody_LetsAnAgentUploadAParcelFile(t *testing.T) {
+	server := newTestServer(t)
+	read := func(method, path string) error {
+		var readErr error
+		handler := server.chain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, readErr = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		body := strings.NewReader(strings.Repeat("x", maxRequestBody+1))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, path, body))
+		return readErr
+	}
+	if err := read(http.MethodPut, "/agent/parcels/colis/pve-20261021-030000.tar.age"); err != nil {
+		t.Errorf("a parcel upload is cut at one mebibyte: %v", err)
+	}
+	for _, other := range []struct{ method, path string }{
+		{http.MethodPost, "/agent/parcels/colis/pve-20261021-030000.tar.age"},
+		{http.MethodPut, "/api/backups/plan"},
+		{http.MethodPut, "/agent/signal"},
+		{http.MethodPut, "/ping/x"},
+	} {
+		if err := read(other.method, other.path); err == nil {
+			t.Errorf("%s %s is not limited", other.method, other.path)
+		}
+	}
+}
+
 // Le piège classique : un middleware qui capture le statut cache le
 // Flusher, et les deux flux SSE meurent en silence. Ici il le relaie.
 func TestChain_KeepsTheFlusherForBothStreams(t *testing.T) {

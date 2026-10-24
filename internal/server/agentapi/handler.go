@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -68,6 +69,10 @@ type ActionService interface {
 	// OpenParcel ouvre un fichier d'un colis pour la machine qui le demande ;
 	// action.ErrParcelNotFound sinon.
 	OpenParcel(machineID, parcelID, name string) (*os.File, int64, error)
+	// ReceiveParcel écrit le fichier que l'agent de cette machine téléverse
+	// dans un colis qui l'attend ; action.ErrParcelNotFound sinon, et
+	// action.ErrUpload* pour ce qu'il refuse.
+	ReceiveParcel(uploaderID, parcelID, name string, content io.Reader, size int64, sum string) error
 	// ConfirmAgentUpdate ferme la mise à jour que l'agent vient de finir : il
 	// se reconnecte avec la version visée.
 	ConfirmAgentUpdate(ctx context.Context, machineID, agentID, reported string) error
@@ -141,6 +146,7 @@ func (h *Handler) Routes(add func(method, pattern string, handler http.HandlerFu
 	add("POST", "/agent/signal", h.signal)
 	add("POST", "/agent/logs/{request}", h.logs)
 	add("GET", agentwire.ParcelRoute+"{parcel}/{name}", h.parcel)
+	add("PUT", agentwire.ParcelRoute+"{parcel}/{name}", h.uploadParcel)
 	// Tout le reste, dont /agent/challenge du protocole 1 : un agent d'une
 	// autre version lit pourquoi il n'est pas servi.
 	add("*", "/agent/", h.unknown)

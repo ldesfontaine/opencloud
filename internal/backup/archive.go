@@ -78,6 +78,27 @@ func writeArchive(w io.Writer, recipient age.Recipient, files []archiveFile) err
 	return nil
 }
 
+// ParseRecipient lit la clé publique age d'un trousseau (age1…) : l'agent qui
+// produit une archive la chiffre pour elle, sans jamais détenir la privée.
+func ParseRecipient(text string) (age.Recipient, error) {
+	recipient, err := age.ParseX25519Recipient(text)
+	if err != nil {
+		return nil, fmt.Errorf("parse recipient: %w", err)
+	}
+	return recipient, nil
+}
+
+// WriteEntryArchive emballe un seul flux, de taille connue, dans un tar d'une
+// entrée chiffré pour la clé publique : le même emballage que la sauvegarde de
+// la base, pour une archive qu'un agent produit. Le flux passe sans être
+// chargé en mémoire.
+func WriteEntryArchive(w io.Writer, recipient age.Recipient, name string, content io.Reader, size int64) error {
+	entry := archiveFile{Name: name, Mode: archiveFileMode, Open: func() (io.ReadCloser, int64, error) {
+		return io.NopCloser(content), size, nil
+	}}
+	return writeArchive(w, recipient, []archiveFile{entry})
+}
+
 func addToArchive(packer *tar.Writer, file archiveFile) error {
 	source, size, err := file.Open()
 	if err != nil {

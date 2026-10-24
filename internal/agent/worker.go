@@ -83,6 +83,38 @@ func (f *fetcher) open(ctx context.Context, parcel, name string) (io.ReadCloser,
 	return client.GetParcel(ctx, session, parcel, name)
 }
 
+// put téléverse un fichier dans un colis du serveur, sous le jeton de session
+// du flux courant. Comme un téléchargement, un envoi commencé sur une session
+// tombée échoue ; l'exécuteur de l'ordre le relance.
+func (f *fetcher) put(ctx context.Context, parcel string, file parcelUpload) error {
+	f.mu.Lock()
+	client, session := f.client, f.session
+	f.mu.Unlock()
+	if client == nil || session == "" {
+		return errNoSession
+	}
+	body, err := file.open()
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	return client.PutParcel(ctx, session, parcel, file.name, body, file.size, file.sum)
+}
+
+// parcelUpload est un fichier prêt à partir : sa taille et sa somme sont celles
+// du disque, open le relit à chaque tentative.
+type parcelUpload struct {
+	name string
+	size int64
+	sum  string
+	open func() (io.ReadCloser, error)
+}
+
+// parcelSink est ce que l'exécuteur de backup.produce attend du téléversement.
+type parcelSink interface {
+	put(ctx context.Context, parcel string, file parcelUpload) error
+}
+
 // parcelSource est ce que l'exécuteur d'un ordre attend du téléchargement.
 type parcelSource interface {
 	open(ctx context.Context, parcel, name string) (io.ReadCloser, int64, error)

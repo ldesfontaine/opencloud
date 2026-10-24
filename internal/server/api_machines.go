@@ -334,9 +334,9 @@ func installPreparation(capabilities []machine.Capability, number string, local 
 }
 
 // producePreparation : ce que backup.produce=proxmox-vzdump demande de plus,
-// une ligne par geste, après le compte. NoNewPrivileges=true, dans l'unité de
-// l'agent, interdit tout sudo : le drop-in le desserre, c'est le seul
-// desserrement. Le script de root et la règle sudo sont de root, sur des
+// une ligne par geste (six), après le compte. NoNewPrivileges=true, dans
+// l'unité de l'agent, interdit tout sudo : le drop-in le desserre, c'est le
+// seul desserrement. Le script de root et la règle sudo sont de root, sur des
 // chemins que le compte ne contrôle pas ; seul le dossier de production, sous
 // l'état, est fait sous le compte. Les textes viennent de machine/produce.go :
 // aucune apostrophe, aucun nom de l'opérateur. Ce droit vaut root pour un agent
@@ -348,12 +348,22 @@ func producePreparation(capabilities []machine.Capability, asAccount string) []s
 	return []string{
 		asAccount + "install -d -m 0700 " + machine.ProduceDir,
 		printfLines(machine.VzdumpWrapperLines()) + " | install -m 0755 -o root -g root /dev/stdin " + brand.VzdumpWrapperPath,
-		printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + machine.SudoersFile,
-		"visudo -cf " + machine.SudoersFile,
+		sudoersPreparation(),
 		"install -d -m 0755 " + machine.ProduceDropInDir,
 		printfLines(machine.ProduceDropInLines()) + " | install -m 0644 /dev/stdin " + machine.ProduceDropInFile,
 		"systemctl daemon-reload",
 	}
+}
+
+// sudoersPreparation pose la règle sudo en un geste : écrite dans un fichier que
+// sudo ignore, jugée par visudo, puis renommée. Si l'un des trois échoue, le
+// fichier provisoire part et rien n'est posé ; la ligne rend alors une erreur
+// (false), que le shell de l'opérateur voit.
+func sudoersPreparation() string {
+	temp := machine.SudoersTempFile
+	return printfLines(machine.SudoersRuleLines()) + " | install -m 0440 -o root -g root /dev/stdin " + temp +
+		" && visudo -cf " + temp + " && mv " + temp + " " + machine.SudoersFile +
+		" || { rm -f " + temp + "; false; }"
 }
 
 // printfLines écrit des lignes de texte en une commande : printf, un builtin,

@@ -33,12 +33,44 @@ const (
 	parcelFileMode = 0o600
 )
 
+// Ce qu'un agent peut téléverser dans un colis (backup.produce). MaxUploadBytes
+// borne un fichier : une machine virtuelle de 64 Gio compressée est déjà hors
+// du commun pour un petit parc de machines. MinFreeAfterUpload est l'espace
+// que le disque de l'état garde libre une fois le fichier écrit : un colis
+// qui le remplirait étoufferait la base, qui vit au même endroit. Un colis
+// téléversé porte au plus maxUploadedFiles fichiers, un seul en vol à la fois.
+const (
+	MaxUploadBytes     int64  = 64 << 30
+	MinFreeAfterUpload uint64 = 1 << 30
+	maxUploadedFiles          = 8
+	uploadPartSuffix          = ".part"
+)
+
 // ErrParcelNotFound : le colis est inconnu, échu, d'une autre machine, ou
 // n'a pas ce fichier. Les quatre se disent pareil à celui qui demande.
 var ErrParcelNotFound = errors.New("parcel not found")
 
 // ErrParcelName : le nom d'un fichier de colis est un nom simple.
 var ErrParcelName = errors.New("parcel file name is not a plain name")
+
+// Les refus d'un téléversement. Le colis inconnu, échu, d'une autre machine ou
+// qui n'attend pas cet agent se dit ErrParcelNotFound, comme pour un
+// téléchargement.
+var (
+	// ErrUploadName : le nom n'est pas celui d'une archive produite.
+	ErrUploadName = errors.New("uploaded file name is not a produced archive name")
+	// ErrUploadConflict : ce nom est déjà écrit, un autre fichier arrive, ou le
+	// colis est plein.
+	ErrUploadConflict = errors.New("parcel already holds this file or is receiving another")
+	// ErrUploadTooLarge : le fichier dépasse MaxUploadBytes.
+	ErrUploadTooLarge = errors.New("uploaded file larger than allowed")
+	// ErrUploadDiskFull : le disque de l'état n'a pas la place du fichier et de
+	// la réserve.
+	ErrUploadDiskFull = errors.New("not enough free space for the uploaded file")
+	// ErrUploadDigest : ce qui est arrivé n'est pas la taille ni la somme
+	// annoncées.
+	ErrUploadDigest = errors.New("uploaded file does not match its size or sum")
+)
 
 var parcelNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
@@ -50,6 +82,9 @@ var parcelNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 type Outbox struct {
 	root *os.Root
 	now  func() time.Time
+	// L'espace libre sous un dossier ; un test le remplace pour simuler un
+	// disque plein.
+	freeBytes func(dir string) (uint64, error)
 
 	mu      sync.Mutex
 	parcels map[string]*parcel
@@ -60,12 +95,20 @@ type parcel struct {
 	machineID string
 	expiresAt time.Time
 	files     map[string]parcelEntry
+	// Pour un colis que la machine productrice remplit (CreateForUpload) : elle
+	// seule y écrit, un fichier à la fois. Vide pour un colis que le serveur a
+	// scellé.
+	uploader  string
+	receiving bool
 }
 
 // parcelEntry : où lire un fichier, sous la racine de l'état — dans le
-// dossier du colis, ou ailleurs pour un fichier emprunté.
+// dossier du colis, ou ailleurs pour un fichier emprunté — avec la taille et
+// la somme calculées à l'écriture.
 type parcelEntry struct {
 	path string
+	size int64
+	sum  string
 }
 
 // NewOutbox vide ce qu'un arrêt a laissé dans outgoing/ et le recrée vide :
@@ -77,11 +120,15 @@ func NewOutbox(stateDir *os.Root) (*Outbox, error) {
 	if err := stateDir.Mkdir(brand.OutgoingDir, parcelDirMode); err != nil {
 		return nil, fmt.Errorf("create outgoing: %w", err)
 	}
-	return &Outbox{root: stateDir, now: time.Now, parcels: map[string]*parcel{}}, nil
+	return &Outbox{root: stateDir, now: time.Now, freeBytes: freeBytesUnder, parcels: map[string]*parcel{}}, nil
 }
 
 func (o *Outbox) SetClock(now func() time.Time) {
 	o.now = now
+}
+
+func (o *Outbox) SetFreeBytes(freeBytes func(dir string) (uint64, error)) {
+	o.freeBytes = freeBytes
 }
 
 // Create ouvre un colis pour cette machine. Rien n'est visible d'un agent
@@ -257,7 +304,7 @@ func (w *ParcelWriter) Seal() (string, []agentwire.ParcelFile) {
 	listed := make([]agentwire.ParcelFile, 0, len(names))
 	for _, name := range names {
 		staged := w.files[name]
-		sealed.files[name] = parcelEntry{path: staged.path}
+		sealed.files[name] = parcelEntry{path: staged.path, size: staged.size, sum: staged.sum}
 		listed = append(listed, agentwire.ParcelFile{Name: name, Size: staged.size, SHA256: staged.sum})
 	}
 	w.outbox.mu.Lock()
@@ -310,4 +357,13 @@ func (s *Service) OpenParcel(machineID, parcelID, name string) (*os.File, int64,
 		return nil, 0, ErrParcelNotFound
 	}
 	return s.outbox.Open(machineID, parcelID, name)
+}
+
+// ReceiveParcel écrit un fichier que l'agent de cette machine téléverse dans
+// un colis qui l'attend : c'est ce qu'appelle la route de téléversement.
+func (s *Service) ReceiveParcel(uploaderID, parcelID, name string, content io.Reader, size int64, sum string) error {
+	if s.outbox == nil {
+		return ErrParcelNotFound
+	}
+	return s.outbox.Receive(uploaderID, parcelID, name, content, size, sum)
 }

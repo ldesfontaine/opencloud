@@ -111,6 +111,12 @@ const (
 	ReasonSudoMissing     = "sudo_missing"
 	ReasonSudoDenied      = "sudo_denied"
 	ReasonProducerMissing = "producer_missing"
+	// Les raisons de l'ordre backup.produce : le producteur n'est pas de ceux
+	// que l'agent sait lancer, il a échoué (sa sortie d'erreur est dans le
+	// résultat), ou l'archive n'a pas pu être téléversée au serveur.
+	ReasonProducerUnknown = "producer_unknown"
+	ReasonProducerFailed  = "producer_failed"
+	ReasonUploadFailed    = "upload_failed"
 	// La file des ordres longs de l'agent est pleine.
 	ReasonBusy = "busy"
 	// Les raisons de agent.update : l'agent ne tourne pas depuis son dossier
@@ -153,6 +159,7 @@ func RefusalReasons() []string {
 		ReasonComposeTooOld, ReasonDiskFull, ReasonComposeFailed,
 		ReasonPathDenied, ReasonDockerDenied,
 		ReasonSudoMissing, ReasonProducerMissing, ReasonSudoDenied,
+		ReasonProducerUnknown, ReasonProducerFailed, ReasonUploadFailed,
 	}
 }
 

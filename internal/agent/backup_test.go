@@ -7,14 +7,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,10 +36,27 @@ func ageLike(text string) string {
 }
 
 // parcelServer sert un colis et exige le jeton de session et la version du
-// protocole, comme la route du serveur.
+// protocole, comme la route du serveur. Il reçoit aussi un fichier téléversé
+// (PUT) dans le colis « colis1 » et le garde, sommes vérifiées.
 type parcelServer struct {
 	files    map[string]string
 	requests []string
+
+	mu sync.Mutex
+	// Ce que les PUT ont livré, par nom ; et ce que le serveur en a vu.
+	uploaded map[string][]byte
+	puts     []putRecord
+	// putAnswers donne, dans l'ordre des PUT, ce que le serveur fait : 0 le
+	// traite, un code HTTP le répond sans lire le corps, -1 coupe la connexion.
+	putAnswers []int
+}
+
+// putRecord est ce qu'un PUT a montré au serveur.
+type putRecord struct {
+	name          string
+	contentLength int64
+	sum           string
+	expect        string
 }
 
 func (p *parcelServer) handler() http.Handler {
@@ -54,7 +74,61 @@ func (p *parcelServer) handler() http.Handler {
 		}
 		_, _ = w.Write([]byte(content))
 	})
+	mux.HandleFunc("PUT /agent/parcels/{parcel}/{name}", p.put)
 	return mux
+}
+
+func (p *parcelServer) put(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	attempt := len(p.puts)
+	p.puts = append(p.puts, putRecord{
+		name: r.PathValue("name"), contentLength: r.ContentLength,
+		sum: r.Header.Get(agentwire.HeaderParcelSHA256), expect: r.Header.Get("Expect"),
+	})
+	answer := 0
+	if attempt < len(p.putAnswers) {
+		answer = p.putAnswers[attempt]
+	}
+	p.mu.Unlock()
+	switch {
+	case answer < 0:
+		connection, _, err := w.(http.Hijacker).Hijack()
+		if err == nil {
+			_ = connection.Close()
+		}
+		return
+	case answer > 0:
+		w.WriteHeader(answer)
+		_, _ = w.Write([]byte(`{"error":"refused"}`))
+		return
+	}
+	if r.Header.Get(agentwire.HeaderProtocol) != agentwire.ProtocolVersion || r.Header.Get("Authorization") != "Bearer "+parcelSession {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if r.PathValue("parcel") != "colis1" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	content, err := io.ReadAll(r.Body)
+	sum := sha256.Sum256(content)
+	if err != nil || hex.EncodeToString(sum[:]) != r.Header.Get(agentwire.HeaderParcelSHA256) || int64(len(content)) != r.ContentLength {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		return
+	}
+	p.mu.Lock()
+	if p.uploaded == nil {
+		p.uploaded = map[string][]byte{}
+	}
+	p.uploaded[r.PathValue("name")] = content
+	p.mu.Unlock()
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (p *parcelServer) received() (map[string][]byte, []putRecord) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return maps.Clone(p.uploaded), slices.Clone(p.puts)
 }
 
 func (p *parcelServer) client(t *testing.T) *Client {
