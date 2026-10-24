@@ -240,11 +240,12 @@ func firstProducerReason(ctx context.Context, checks hostChecks, producers []str
 // de sudo, un programme qui manque (le script de root que la préparation pose,
 // ou vzdump), ou une règle sudo qui ne laisse pas le compte lancer le script.
 // Le programme avant la règle : sans le script, sudo -l répondrait non pour
-// une raison que la préparation seule explique. Un producteur inconnu n'est
-// pas jugé : le fichier de l'agent ne peut pas en porter (ParseCapabilities).
+// une raison que la préparation seule explique. Un producteur que l'agent ne
+// sait pas lancer manque : le fichier de l'agent n'en porte pas
+// (ParseCapabilities), mais un oubli ici ne doit pas le dire disponible.
 func producerReason(ctx context.Context, checks hostChecks, producer string) string {
 	if producer != machine.ProducerProxmoxVzdump {
-		return ""
+		return agentwire.ReasonProducerMissing
 	}
 	if _, err := checks.lookPath("sudo"); err != nil {
 		return agentwire.ReasonSudoMissing

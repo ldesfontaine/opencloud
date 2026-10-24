@@ -534,6 +534,21 @@ func TestSudoListsProgram_RunsSudoNonInteractivelyAndReadsTheExitCode(t *testing
 	}
 }
 
+// Un producteur que l'agent ne connaît pas n'est jamais dit disponible, et rien
+// ne se lance pour lui : la liste fermée l'empêche d'arriver jusque-là, le
+// jugement ferme quand même.
+func TestProducerReason_AnUnknownProducerIsMissingWithoutAsking(t *testing.T) {
+	bench := &produceBench{}
+	for _, producer := range []string{"", "borg", "proxmox-vzdump;id", "/usr/bin/vzdump"} {
+		if got := producerReason(context.Background(), bench.checks(), producer); got != agentwire.ReasonProducerMissing {
+			t.Errorf("%q judged %q", producer, got)
+		}
+	}
+	if len(bench.looked) != 0 || bench.sudoRuns != 0 {
+		t.Errorf("an unknown producer asked %v and ran sudo %d times", bench.looked, bench.sudoRuns)
+	}
+}
+
 // Sans sudo sur le PATH, la question ne se pose pas : une erreur, pas un lancement.
 func TestSudoListsProgram_NoSudoOnThePathIsAnError(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())

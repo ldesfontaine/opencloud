@@ -1036,7 +1036,8 @@ Le droit `backup.produce=proxmox-vzdump` laisse l'agent d'un hôte Proxmox
 produire la sauvegarde d'une VM ou d'un conteneur avec `vzdump`. L'agent reste
 sous `opencloud-agent` ; `vzdump` demande root, et l'unité de l'agent
 (`ProtectSystem=strict`, `PrivateTmp`, `NoNewPrivileges=true`) ne laisse ni lancer
-`sudo` ni voir `/run/qemu-server` et les stockages. La préparation de la page du
+`sudo`, ni écrire là où `vzdump` écrit (`/run`, `/var/log/vzdump`, les stockages).
+La préparation de la page du
 jeton ajoute donc, **après les lignes du compte**, une ligne par geste :
 
 ```sh
@@ -1053,7 +1054,7 @@ systemctl daemon-reload
 | --- | --- |
 | `produce/` dans l'état, au compte, `0700` | Là où l'agent range l'archive pendant qu'il la chiffre ; à lui, comme le reste de son état |
 | Le script `/usr/local/sbin/opencloud-vzdump`, à root | `exec systemd-run --pipe --wait --collect --quiet /usr/bin/vzdump "$@"` : `vzdump` tourne dans une **unité transitoire**, donc **hors** du bac à sable de l'agent (il voit `/run/qemu-server`, `/var/log/vzdump`, les stockages) ; `--pipe` relie sa sortie standard à l'agent, qui la lit avec `--stdout` |
-| La règle `sudoers.d`, à root, `0440` | Le compte lance ce script, **seulement lui**, sans mot de passe. `visudo -cf` la vérifie : une règle fausse bloquerait `sudo` pour toute la machine, d'où la ligne qui la relit juste après |
+| La règle `sudoers.d`, à root, `0440` | Le compte lance ce script, **seulement lui**, sans mot de passe. `visudo -cf` la vérifie : une règle fausse bloquerait `sudo` pour toute la machine, d'où la ligne qui la relit juste après (si elle échoue, supprimez le fichier) |
 | Le drop-in `produce.conf` | Avec `NoNewPrivileges=true`, le bit setuid de `sudo` est ignoré et la règle ne sert à rien. `NoNewPrivileges=false` est **le seul desserrement** de l'unité ; les autres protections restent |
 
 **Ce que ça vaut en sécurité.** La règle ne nomme que le script, mais `vzdump`

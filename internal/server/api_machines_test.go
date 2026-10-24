@@ -363,6 +363,22 @@ func TestInstallPreparation_HostilePathsNeverReachTheLines(t *testing.T) {
 			}
 		}
 	}
+	// Un producteur hostile non plus : refusé à la normalisation, et donné tel
+	// quel, il n'ajoute aucune ligne ; à côté du vrai producteur, il ajoute les
+	// sept gestes, dont aucun ne le nomme.
+	for _, producer := range []string{"proxmox-vzdump;id", "$(id)", "`id`", "proxmox-vzdump\nid", "proxmox-vzdump'", "proxmox-vzdump id", "/usr/bin/sh", "../etc"} {
+		raw := []machine.Capability{{Name: machine.CapabilityBackupProduce, Paths: []string{producer}}}
+		if _, err := machine.NormalizeCapabilities(raw); err == nil {
+			t.Errorf("backup.produce=%q passes the normalization", producer)
+		}
+		if preparation := installPreparation(raw, "v0.0.1", false); strings.Count(preparation, "\n") != 4 || strings.Contains(preparation, producer) {
+			t.Errorf("backup.produce=%q reaches the preparation:\n%s", producer, preparation)
+		}
+		mixed := []machine.Capability{{Name: machine.CapabilityBackupProduce, Paths: []string{machine.ProducerProxmoxVzdump, producer}}}
+		if preparation := installPreparation(mixed, "v0.0.1", false); strings.Count(preparation, "\n") != 4+7 || strings.Contains(preparation, producer) {
+			t.Errorf("backup.produce=proxmox-vzdump:%q reaches the preparation:\n%s", producer, preparation)
+		}
+	}
 	token, _, err := machine.NewToken("vps", "")
 	if err != nil {
 		t.Fatal(err)
