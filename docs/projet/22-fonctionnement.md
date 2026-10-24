@@ -646,7 +646,7 @@ n'existe pas encore : le plan s'enregistre, et son lancement est refusé
 | Les plans | Un **plan** (`backup_plans`) se nomme par son **sujet**, un mot de `a-z`, `0-9` et `-` (40 caractères au plus, pas de `-` en tête), unique : c'est son identité dans l'API et dans le journal. `database` est le plan de la base (source `database`, sans machine ni producteur ni sélection) ; il n'y en a qu'un. Tous les autres ont une source `agent` et un sujet autre que `database` et `opencloud` (le préfixe des fichiers de la base : un plan machine ne peut pas venir marcher dessus). Un libellé facultatif (80 caractères au plus) est affiché à la place du sujet. Le nombre de plans n'est pas borné par le code |
 | Quand | Chaque plan : la boucle de 15 minutes lance la sauvegarde de **chacun** à son premier tour après 3 h (heure du serveur) si aucune tentative n'a eu lieu depuis ce 3 h-là. Un plan refusé n'arrête pas les autres. « Sauvegarder maintenant » lance un plan tout de suite. Une tentative qui échoue avant l'ordre (machine hors ligne, pas de clé, droit absent, archive non préparée, source pas encore prise en charge) s'écrit dans `last_error`, une clé de refus ; elle n'est pas rejouée avant la nuit suivante ou le bouton |
 | Combien | `keep` (14 par défaut, 1 à 365) : `backup.prune`, envoyé juste après `backup.receive`, garde les plus récentes **du préfixe du plan** |
-| Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : ils écriraient les mêmes fichiers. Le même contenu vers une autre destination est permis, c'est une seconde copie |
+| Une copie de plus | Deux plans de même source (même type, même machine, même producteur, même sélection) **et** de même destination sont refusés (`409 backup.plan_exists`) : le second referait le travail du premier, sous un autre nom. Le même contenu vers une autre destination est permis, c'est une seconde copie |
 
 **Ce que fait l'agent.** `backup.receive` est le premier ordre qui **écrit
 sur une machine** : l'agent n'écrit que ce que son compte possède (ou tout, s'il est
@@ -667,9 +667,11 @@ après `<préfixe>-`, le reste doit être **exactement** l'horodatage. Le plan `
 ne prend donc jamais un fichier `pve-vm-100-…` ni `opencloud-…`. Il garde les
 `keep` plus récents (tri par nom), ne touche jamais une clé `-key-` ni autre
 chose, et rend `removed <nom>` puis `kept <n>`. Aucune compatibilité avec un
-ancien ordre sans `Prefix` n'est gardée : le serveur et l'agent se mettent à
-jour ensemble, et aucun agent installé n'a reçu de `backup.prune` d'un serveur
-de cette version.
+ancien ordre sans `Prefix` n'est gardée : aucun agent installé n'a reçu de
+`backup.prune` d'un serveur de cette version. Dans l'autre sens, un agent
+d'avant ignore `prefix` et n'élague que `opencloud-…` : sans danger pour le
+plan `database`, mais un plan machine ne doit pas élaguer chez lui (il
+élaguerait la base avec le `keep` de ce plan).
 
 **La vérification** est cette relecture, faite à chaque sauvegarde : jamais un
 déchiffrement, l'agent n'a pas la clé. L'état affiché par la page est celui du

@@ -79,8 +79,12 @@ func IsBackupFile(name string) bool {
 
 // IsBackupFileOf dit si la sauvegarde appartient à ce préfixe : ce qui suit
 // le préfixe est exactement l'instant. « pve » ne prend donc jamais
-// « pve-vm-100-… », dont le reste n'est pas un instant.
+// « pve-vm-100-… », dont le reste n'est pas un instant. Un préfixe qui n'en
+// est pas un (vide, une majuscule, un chemin) ne prend rien.
 func IsBackupFileOf(name, prefix string) bool {
+	if !IsBackupPrefix(prefix) {
+		return false
+	}
 	rest, found := strings.CutPrefix(name, prefix+"-")
 	return found && backupStampPattern.MatchString(rest)
 }

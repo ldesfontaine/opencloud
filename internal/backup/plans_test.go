@@ -225,19 +225,27 @@ func TestRunIfDue_RunsEachDuePlanOnItsOwn(t *testing.T) {
 	if _, err := b.backups.SavePlan(operator(), agentPlan("pve-vm", destination.ID)); err != nil {
 		t.Fatal(err)
 	}
+	// « pve-ct » passe avant « pve-vm » : son refus ne doit pas arrêter la suite.
+	containers := agentPlan("pve-ct", destination.ID)
+	containers.Selector = "200"
+	if _, err := b.backups.SavePlan(operator(), containers); err != nil {
+		t.Fatal(err)
+	}
 	b.now = time.Date(2026, 10, 22, 3, 5, 0, 0, time.UTC)
 	b.backups.RunIfDue(context.Background())
-	// La base part (réception et élagage) ; le plan agent est refusé.
+	// La base part (réception et élagage) ; les plans agent sont refusés.
 	if len(b.commands.orders) != 2 {
 		t.Fatalf("orders %+v", b.commands.kinds)
 	}
 	database, _ := b.db.GetBackupPlan(context.Background(), backup.SubjectDatabase)
-	agent, _ := b.db.GetBackupPlan(context.Background(), "pve-vm")
 	if database.LastRunID == "" || database.LastError != "" || !database.LastAttemptAt.Equal(b.now) {
 		t.Fatalf("database %+v", database)
 	}
-	if agent.LastError != "backup.source_not_implemented" || !agent.LastAttemptAt.Equal(b.now) {
-		t.Fatalf("agent %+v", agent)
+	for _, subject := range []string{"pve-ct", "pve-vm"} {
+		agent, _ := b.db.GetBackupPlan(context.Background(), subject)
+		if agent.LastError != "backup.source_not_implemented" || !agent.LastAttemptAt.Equal(b.now) {
+			t.Fatalf("%s %+v", subject, agent)
+		}
 	}
 	// Une fois par nuit et par plan.
 	b.now = b.now.Add(15 * time.Minute)

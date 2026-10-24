@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupPlan, Backups } from "../api/backups";
 import type { Translate } from "../i18n/context";
-import { emptyPlanForm, isBackedUp, passphraseProblem, planFormOf, planRequestOf, planTitle, sourceLabel, subjectProblem } from "./backups";
+import { emptyPlanForm, isBackedUp, passphraseProblem, planFormOf, planRequestOf, planTitle, sourceKindsFor, sourceLabel, subjectProblem } from "./backups";
 
 const t: Translate = (key, ...args) => [key, ...args].join(":");
 
@@ -146,5 +146,20 @@ describe("subjectProblem", () => {
 
   it("does not ask the database for a subject", () => {
     expect(subjectProblem({ ...agent, kind: "database", subject: "" })).toBeNull();
+  });
+
+  // PUT crée ou remplace : un plan neuf qui reprendrait un sujet écraserait
+  // le plan qui le porte.
+  it("refuses a new plan that takes the subject of an existing one, the database included", () => {
+    expect(subjectProblem(agent, ["database", "pve-vm"])).toBe("backup.plan_subject_taken");
+    expect(subjectProblem({ ...agent, kind: "database", subject: "" }, ["database"])).toBe("backup.plan_subject_taken");
+    expect(subjectProblem({ ...agent, subject: "pve-ct" }, ["database", "pve-vm"])).toBeNull();
+  });
+});
+
+describe("sourceKindsFor", () => {
+  it("offers the database to a new plan only while it has none", () => {
+    expect(sourceKindsFor(false)).toEqual(["database", "agent"]);
+    expect(sourceKindsFor(true)).toEqual(["agent"]);
   });
 });

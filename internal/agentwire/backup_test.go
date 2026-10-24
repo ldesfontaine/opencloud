@@ -102,6 +102,10 @@ func TestIsBackupFileOf_TheRestIsExactlyTheInstant(t *testing.T) {
 		{"opencloud-key-0123456789abcdef.age", "opencloud", false},
 		{"pve-20261021-030000.tar.age.part", "pve", false},
 		{"pve-20261021-030000.tar.age", "", false},
+		{"-20261021-030000.tar.age", "", false},
+		{"opencloud-x-20261021-030000.tar.age", "opencloud", false},
+		{"opencloud-20261021-030000.tar.age", "opencloud-x", false},
+		{"opencloud-key-20261021-030000.tar.age", "opencloud", false},
 	}
 	for _, c := range cases {
 		if got := IsBackupFileOf(c.name, c.prefix); got != c.want {

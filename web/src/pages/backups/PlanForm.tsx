@@ -9,7 +9,7 @@ import { MachineSelect } from "../../components/MachineSelect";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
-import { emptyPlanForm, planFormOf, planRequestOf, producers, sourceKinds, subjectProblem } from "../../lib/backups";
+import { emptyPlanForm, planFormOf, planRequestOf, planTitle, producers, sourceKinds, sourceKindsFor, subjectProblem } from "../../lib/backups";
 
 // Le formulaire d'un plan : un neuf, ou celui qu'on modifie. Le sujet et la
 // sorte de source sont l'identité du plan, ils ne se changent pas ; le reste
@@ -36,7 +36,7 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
   }, [isEditing]);
 
   const save = () => {
-    const problem = subjectProblem(values);
+    const problem = subjectProblem(values, isEditing ? [] : overview.plans.map((plan) => plan.subject));
     setRefusal(problem);
     if (problem !== null) {
       return;
@@ -56,7 +56,7 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
         width="fill"
         onSubmit={save}
         error={refusal ?? action.error}
-        header={<CardHeader title={isEditing ? t("backup.plan_edit_title", editing.subject) : t("backup.plan_add_title")} />}
+        header={<CardHeader title={isEditing ? t("backup.plan_edit_title", planTitle(editing, t("backup.source_kind_database"))) : t("backup.plan_add_title")} />}
         actions={
           <FormActions
             submitLabel={isEditing ? t("backup.plan_save") : t("backup.plan_add")}
@@ -69,7 +69,7 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
         }
       >
         <Field label={t("backup.plan_source")} htmlFor="backup-plan-kind">
-          <EnumSelect id="backup-plan-kind" value={values.kind} values={sourceKinds} labelKey="backup.source_kind_" disabled={isEditing} onChange={(kind) => change("kind", kind)} />
+          <EnumSelect id="backup-plan-kind" value={values.kind} values={isEditing ? sourceKinds : sourceKindsFor(hasDatabasePlan)} labelKey="backup.source_kind_" disabled={isEditing} onChange={(kind) => change("kind", kind)} />
         </Field>
         {isAgent && (
           <Field label={t("backup.plan_subject")} htmlFor="backup-plan-subject" help={t("backup.plan_subject_help")}>

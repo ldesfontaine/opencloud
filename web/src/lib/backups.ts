@@ -95,13 +95,21 @@ export function planFormOf(plan: BackupPlan): PlanFormValues {
   };
 }
 
+// Les sources qu'un plan neuf peut prendre : la base n'a qu'un plan.
+export function sourceKindsFor(hasDatabasePlan: boolean): readonly BackupSourceKind[] {
+  return hasDatabasePlan ? ["agent"] : sourceKinds;
+}
+
 // Pourquoi le sujet ne passe pas, en clé du catalogue ; null s'il passe. La
-// base n'en saisit pas : son sujet est fixe.
-export function subjectProblem(values: PlanFormValues): string | null {
-  if (values.kind === "database") {
-    return null;
+// base n'en saisit pas : son sujet est fixe. taken : les sujets des plans
+// existants, pour un plan neuf seulement (l'écriture remplacerait le plan qui
+// porte déjà ce sujet).
+export function subjectProblem(values: PlanFormValues, taken: readonly string[] = []): string | null {
+  const subject = values.kind === "database" ? databaseSubject : values.subject;
+  if (values.kind === "agent" && (!subjectPattern.test(subject) || subject === databaseSubject)) {
+    return "backup.plan_invalid";
   }
-  return subjectPattern.test(values.subject) && values.subject !== databaseSubject ? null : "backup.plan_invalid";
+  return taken.includes(subject) ? "backup.plan_subject_taken" : null;
 }
 
 // Le sujet et le corps de l'écriture. Une base n'a ni machine, ni

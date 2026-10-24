@@ -303,6 +303,42 @@ func TestBackupPrune_OnlyTouchesItsOwnPrefix(t *testing.T) {
 	}
 }
 
+// Le préfixe de la base et un sujet qui commence pareil (« opencloud-x ») :
+// aucun n'élague l'autre, et la clé déposée ne part jamais.
+func TestBackupPrune_TheDatabasePrefixAndALookalikeStayApart(t *testing.T) {
+	dir := backupDir(t)
+	database := []string{"opencloud-20261001-030000.tar.age", "opencloud-20261002-030000.tar.age"}
+	lookalike := []string{"opencloud-x-20261001-030000.tar.age", "opencloud-x-20261002-030000.tar.age", "opencloud-x-20261003-030000.tar.age"}
+	for _, name := range append(append([]string{keyName}, database...), lookalike...) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prune := func(prefix string) []string {
+		t.Helper()
+		output, err := pruneBackups(dir, agentwire.BackupPruneParams{Path: dir, Prefix: prefix, Keep: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var lines []string
+		for _, line := range output {
+			lines = append(lines, line.Line)
+		}
+		return lines
+	}
+	if got, want := prune("opencloud"), []string{"removed " + database[0], "kept 1"}; !slices.Equal(got, want) {
+		t.Fatalf("opencloud: %v, want %v", got, want)
+	}
+	if got, want := prune("opencloud-x"), []string{"removed " + lookalike[0], "removed " + lookalike[1], "kept 1"}; !slices.Equal(got, want) {
+		t.Fatalf("opencloud-x: %v, want %v", got, want)
+	}
+	for _, name := range []string{keyName, database[1], lookalike[2]} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Errorf("%s was touched: %v", name, err)
+		}
+	}
+}
+
 // Un ordre d'élagage sans préfixe, ou avec un préfixe qui n'en est pas un,
 // est un ordre faux : rien n'est effacé.
 func TestBackupPrune_WithoutAValidPrefixIsABadOrder(t *testing.T) {
