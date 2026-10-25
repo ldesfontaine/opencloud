@@ -2,9 +2,10 @@ import { Link, useNavigate } from "react-router";
 
 import { useStatusComponents, type StatusComponent, type StatusPage, type StatusPagesResponse } from "../../api/status";
 import { Card, CardBody, EmptyCard } from "../../components/Card";
-import { Field, Select } from "../../components/Field";
+import { Field } from "../../components/Field";
 import { Loaded } from "../../components/Loaded";
 import { Pill } from "../../components/Pill";
+import { Select } from "../../components/Select";
 import { Subject, Table } from "../../components/Table";
 import type { Resource } from "../../hooks/useResource";
 import { useT } from "../../i18n/context";
@@ -39,13 +40,12 @@ function PageComponents({ pages, pageID }: { pages: StatusPage[]; pageID: string
         <CardBody>
           <div className="grid-2">
             <Field label={t("statuspage.page_label")} htmlFor="status-page-choice">
-              <Select id="status-page-choice" value={pageID} onChange={(event) => void navigate(`/page-statut/composants?page=${encodeURIComponent(event.target.value)}`)}>
-                {pages.map((page) => (
-                  <option key={page.id} value={page.id}>
-                    {pageName(page)}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                id="status-page-choice"
+                value={pageID}
+                options={pages.map((page) => ({ value: page.id, label: pageName(page) }))}
+                onChange={(chosen) => void navigate(`/page-statut/composants?page=${encodeURIComponent(chosen)}`)}
+              />
             </Field>
             <Loaded resource={components}>
               {(response) => (

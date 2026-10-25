@@ -94,6 +94,21 @@ binaire, comme aujourd'hui. Rien ne se charge depuis Internet.
   tant que la fin n'est pas atteinte, à gauche une fois défilée, par
   `mask-image` ; l'onglet courant est amené dans la vue au chargement. Rien ne
   change quand tout tient.
+- **Menu déroulant** (`Select`, `EnumSelect`, `MachineSelect`) : jamais de
+  `<select>` natif, dont la liste est dessinée par le navigateur et ne suit
+  ni le thème ni cette page. Le déclencheur a la forme d'un contrôle (36 px,
+  rayon 8, icône optionnelle, chevron à droite) ; dans un champ, il prend la
+  largeur de la colonne et toute la boîte l'ouvre. Il montre toujours le
+  libellé de la valeur reçue, l'invite discrète (« Choisir… ») quand aucune
+  option ne la porte. La liste ouverte : surface, trait, rayon 10, ombre
+  portée, option active en `--surface-2`, option choisie en 500 avec une
+  coche d'accent ; sous le déclencheur, dessus s'il manque de place, jamais
+  hors de la fenêtre ni coupée par une carte. Clavier : ↑ ↓ Début Fin,
+  Entrée ou Espace choisit, Échap ferme et rend le focus, Tab ferme, une
+  lettre saute à l'option qui commence par elle. **Au-delà de 8 options**,
+  un champ de recherche en tête de liste, sans casse ni accent ; Début et Fin
+  y restent au texte. Sous 860 px, 44 px pour le déclencheur et chaque
+  option.
 - **En-tête de machine** : sélecteur de machine, pastille d'état, métadonnées
   séparées par des points (IP, système, version d'agent, dernier signal), puis
   les onglets livrés : Résumé, Services, Disponibilité, Réseau,

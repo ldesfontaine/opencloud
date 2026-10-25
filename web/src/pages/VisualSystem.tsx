@@ -2,14 +2,17 @@
 // l'opérateur. Ses exemples (« Debian 12 », « nextcloud ») sont des
 // valeurs de démonstration en dur, l'exception assumée à la règle du
 // catalogue.
+import { useState } from "react";
+
 import { Button } from "../components/Button";
 import { Card, CardBody, CardHeader, Empty, KeyValue, Meter, Stat } from "../components/Card";
 import { ConfirmInline } from "../components/ConfirmInline";
-import { Field, Input, Select } from "../components/Field";
+import { Field, Input } from "../components/Field";
 import { Icon } from "../components/Icon";
 import { PageHead } from "../components/PageHead";
 import { Dot, Pill } from "../components/Pill";
 import { SectionHead } from "../components/SectionHead";
+import { Select } from "../components/Select";
 import { DangerZone, SettingFoot, SettingRow } from "../components/SettingRow";
 import { List, RowText, RowWhen, Subject, Table } from "../components/Table";
 import { useI18n } from "../i18n/context";
@@ -30,10 +33,32 @@ const swatches = [
   ["primary", "#101216 · #eef0f4"],
 ] as const;
 
+// Douze machines : au-delà de huit, le menu ouvert porte sa recherche.
+const demoMachines = [
+  "vps-paris-1",
+  "vps-lyon-2",
+  "vps-lille-1",
+  "nas-maison",
+  "pve-atelier",
+  "pve-garage",
+  "rpi-salon",
+  "rpi-bureau",
+  "vps-roubaix-3",
+  "vps-gravelines-1",
+  "backup-froid",
+  "lab-test",
+];
+
+function machineOptions(names: readonly string[]) {
+  return names.map((name) => ({ value: name, label: name }));
+}
+
 // La vitrine de la direction artistique : chaque composant, une fois, pour
 // vérifier le clair, le sombre et les deux langues d'un coup d'œil.
 export function VisualSystem() {
   const { t, version } = useI18n();
+  const [machine, setMachine] = useState("vps-paris-1");
+  const [manyMachine, setManyMachine] = useState("vps-lyon-2");
   return (
     <>
       <PageHead
@@ -233,10 +258,10 @@ export function VisualSystem() {
                 <Input id="vs-domain" mono type="text" defaultValue="cloud.exemple.fr" />
               </Field>
               <Field label={t("machine.select")} htmlFor="vs-machine">
-                <Select id="vs-machine" icon="server" defaultValue="vps-paris-1">
-                  <option>vps-paris-1</option>
-                  <option>vps-lyon-2</option>
-                </Select>
+                <Select id="vs-machine" icon="server" value={machine} options={machineOptions(demoMachines.slice(0, 2))} onChange={setMachine} />
+              </Field>
+              <Field label={t("visual.fields.many_machines")} htmlFor="vs-many-machines" help={t("visual.fields.many_machines_help")}>
+                <Select id="vs-many-machines" icon="server" value={manyMachine} options={machineOptions(demoMachines)} onChange={setManyMachine} />
               </Field>
               <Field label={t("visual.fields.filter")}>
                 <span className="seg" role="radiogroup" aria-label={t("visual.fields.filter")}>
@@ -353,9 +378,7 @@ export function VisualSystem() {
             <Card>
               <CardBody gap={16}>
                 <div className="machine-head">
-                  <Select icon="server" aria-label={t("machine.select")} defaultValue="vps-paris-1">
-                    <option>vps-paris-1</option>
-                  </Select>
+                  <Select icon="server" aria-label={t("machine.select")} value={machine} options={machineOptions(demoMachines.slice(0, 2))} onChange={setMachine} />
                   <Pill tone="ok">{t("state.online")}</Pill>
                   <div className="meta">
                     <span className="mono">51.15.20.114</span>

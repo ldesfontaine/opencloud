@@ -4,9 +4,10 @@ import { saveBackupPlan, type BackupPlan, type Backups } from "../../api/backups
 import { useMachines } from "../../api/machines";
 import { useMachineProxmox } from "../../api/proxmox";
 import { CardHeader } from "../../components/Card";
-import { EnumSelect, Field, Input, Select } from "../../components/Field";
+import { Field, Input } from "../../components/Field";
 import { FormActions, FormCard } from "../../components/FormCard";
 import { MachineSelect } from "../../components/MachineSelect";
+import { EnumSelect, Select } from "../../components/Select";
 import { useAction } from "../../hooks/useAction";
 import { useForm } from "../../hooks/useForm";
 import { useT } from "../../i18n/context";
@@ -107,13 +108,12 @@ export function PlanForm({ overview, editing, onDone }: { overview: Backups; edi
           </>
         )}
         <Field label={t("backup.plan_destination_label")} htmlFor="backup-plan-destination">
-          <Select id="backup-plan-destination" value={destination} onChange={(event) => change("destination", event.target.value)}>
-            {overview.destinations.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="backup-plan-destination"
+            value={destination}
+            options={overview.destinations.map((candidate) => ({ value: candidate.id, label: candidate.name }))}
+            onChange={(chosen) => change("destination", chosen)}
+          />
         </Field>
         <Field label={t("backup.plan_keep_label")} htmlFor="backup-plan-keep" help={t("backup.plan_keep_help")}>
           <Input id="backup-plan-keep" type="number" inputMode="numeric" min={1} max={365} value={values.keep} onChange={(event) => change("keep", event.target.value)} required />

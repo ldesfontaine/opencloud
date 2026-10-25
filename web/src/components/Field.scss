@@ -51,62 +51,6 @@
   font-family: inherit;
 }
 
-.select {
-  position: relative;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  box-shadow: var(--shadow-1);
-
-  select {
-    appearance: none;
-    border: 0;
-    // Un fond opaque : la liste native hérite de ce fond, et un fond
-    // transparent la laisse blanche sur du texte clair en thème sombre.
-    background-color: var(--surface);
-    color-scheme: inherit;
-    height: 100%;
-    padding: 0 24px 0 0;
-    font-weight: 500;
-    color: var(--ink);
-    cursor: pointer;
-
-    option,
-    optgroup {
-      background-color: var(--surface);
-      color: var(--ink);
-    }
-
-    &:focus {
-      outline: none;
-    }
-  }
-
-  &:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-wash);
-  }
-
-  .chev {
-    position: absolute;
-    right: 10px;
-    pointer-events: none;
-    color: var(--muted);
-    display: grid;
-
-    .icon {
-      width: 14px;
-      height: 14px;
-    }
-  }
-}
-
 .seg {
   display: inline-flex;
   padding: 3px;
@@ -289,7 +233,6 @@
 // Sur téléphone, un champ a la hauteur d'un bouton : 44 px sous le doigt.
 @media (max-width: 860px) {
   .input:not(.textarea),
-  .select,
   .control-row {
     height: 44px;
   }

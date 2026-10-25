@@ -1,5 +1,6 @@
 import type { ProxmoxGuest } from "../../api/proxmox";
-import { Checkbox, Checks, Select } from "../../components/Field";
+import { Checkbox, Checks } from "../../components/Field";
+import { Select } from "../../components/Select";
 import { useT } from "../../i18n/context";
 import { selectableGuests, selectorIds, toggleSelectorId } from "../../lib/backups";
 import { kindLabel } from "../../lib/proxmox";
@@ -17,10 +18,15 @@ export function GuestSelector({ id, guests, selector, onChange }: { id: string; 
   const unknown = selectorIds(selector).filter((vmid) => !listed.some((guest) => guest.vmid === vmid));
   return (
     <div className="guest-selector">
-      <Select id={id} value={isAll ? "all" : "some"} onChange={(event) => onChange(event.target.value === "all" ? "all" : "")}>
-        <option value="all">{t("backup.plan_selector_all")}</option>
-        <option value="some">{t("backup.plan_selector_some")}</option>
-      </Select>
+      <Select
+        id={id}
+        value={isAll ? "all" : "some"}
+        options={[
+          { value: "all", label: t("backup.plan_selector_all") },
+          { value: "some", label: t("backup.plan_selector_some") },
+        ]}
+        onChange={(chosen) => onChange(chosen === "all" ? "all" : "")}
+      />
       {!isAll && (
         <>
           <Checks>

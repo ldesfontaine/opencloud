@@ -30,6 +30,11 @@ label = "Language"
 fr = "Français"
 en = "English"
 
+[select]
+choose = "Choose…"
+search = "Search"
+no_result = "No result"
+
 [overview]
 online = "%d online"
 see_all = "See all"
@@ -551,6 +556,8 @@ enabled = "Enabled"
 disabled = "Disabled"
 tooltip = "Tooltip"
 tooltip_text = "Seen 12 s ago, probed every 5 min"
+many_machines = "Machine, among more than 8"
+many_machines_help = "Beyond 8 choices, the open list carries a search."
 
 [visual.nav]
 title = "Navigation and nodes"
